@@ -1,1 +1,0 @@
-# elysium-spicy-bot

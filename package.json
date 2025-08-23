@@ -1,0 +1,28 @@
+{
+    "name": "discord-spicy-bot",
+    "version": "1.0.0",
+    "description": "",
+    "main": "index.js",
+    "scripts": {
+        "build": "tsc",
+        "start": "node dist/bot.js",
+        "dev": "dotenvx run --env-file=.env.local -- tsx watch src/bot.ts",
+        "clean": "rimraf dist"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "discord.js": "^14.22.0",
+        "env-var": "^7.5.0"
+    },
+    "devDependencies": {
+        "@dotenvx/dotenvx": "^1.49.0",
+        "@tsconfig/recommended": "^1.0.10",
+        "@types/node": "^24.3.0",
+        "nodemon": "^3.1.10",
+        "rimraf": "^6.0.1",
+        "tsx": "^4.20.4",
+        "typescript": "^5.9.2"
+    }
+}
