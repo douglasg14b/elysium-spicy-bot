@@ -78,7 +78,7 @@ DISCORD_CLIENT.once(Events.ClientReady, async (readyClient) => {
     }
 });
 
-// on message added, if it says "hello there" embed this MP4 https://media.tenor.com/TQMe1Q1smGIAAAPo/general-kenobi-general-grievous.mp4
+// Emulate the "hello there" behavior Kat mentioned
 DISCORD_CLIENT.on(Events.MessageCreate, (message) => {
     if (message.content === 'hello there') {
         const embed = {
