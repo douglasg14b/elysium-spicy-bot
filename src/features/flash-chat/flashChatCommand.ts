@@ -7,6 +7,7 @@ import {
 } from 'discord.js';
 import { stringToTitleCase, verifyCommandPermissions } from '../../utils';
 import { flashChatRepo } from './flashChatRepo';
+import { handleFlashConfigCommand } from './component';
 
 const REQUIRED_PERMISSIONS = [
     PermissionsBitField.Flags.ViewChannel,
