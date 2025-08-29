@@ -3,6 +3,7 @@ import { DISCORD_CLIENT } from './discordClient';
 import { BOT_CONFIG } from './botConfig';
 import { commandRegistry, registerCommandsWithDiscord } from './features/commands';
 import { flashChatCommand, handleFlashChatCommand } from './features/flash-chat/flashChatCommand';
+import { flashChatService } from './features/flash-chat/flashChatService';
 
 commandRegistry.register(flashChatCommand, handleFlashChatCommand);
 
@@ -19,63 +20,9 @@ DISCORD_CLIENT.once(Events.ClientReady, async (readyClient) => {
         console.log(`🏠 Server: ${guild.name} (ID: ${guild.id})`);
         const textChannels = guild.channels.cache.filter((ch) => ch.isTextBased());
         console.log(`📝 Text channels: ${textChannels.size}`);
-
-        // Log channels we're monitoring
-        if (BOT_CONFIG.channelsToMonitor.length > 0) {
-            console.log(`🎯 Monitoring specific channels:`);
-            BOT_CONFIG.channelsToMonitor.forEach((channelId) => {
-                const channel = guild.channels.cache.get(channelId);
-                if (channel) {
-                    console.log(`  ✅ #${channel.name} (${channelId})`);
-
-                    // Check bot permissions in this specific channel
-                    const permissions = channel.permissionsFor(guild.members.me!);
-                    console.log(`  📋 Bot permissions in #${channel.name}:`);
-                    console.log(
-                        `    - View Channel: ${permissions?.has(PermissionsBitField.Flags.ViewChannel) ? '✅' : '❌'}`
-                    );
-                    console.log(
-                        `    - Send Messages: ${permissions?.has(PermissionsBitField.Flags.SendMessages) ? '✅' : '❌'}`
-                    );
-                    console.log(
-                        `    - Manage Messages: ${
-                            permissions?.has(PermissionsBitField.Flags.ManageMessages) ? '✅' : '❌'
-                        }`
-                    );
-                    console.log(
-                        `    - Read Message History: ${
-                            permissions?.has(PermissionsBitField.Flags.ReadMessageHistory) ? '✅' : '❌'
-                        }`
-                    );
-                } else {
-                    console.log(`  ❌ Channel ${channelId} not found or bot can't access it`);
-                }
-            });
-        }
     });
 
-    if (BOT_CONFIG.excludedRoles.length > 0) {
-        console.log(`👥 ${BOT_CONFIG.excludedRoles.length} roles excluded from auto-deletion`);
-    }
-
-    console.log(`\n🔍 Ready to receive messages! Try sending a message in the monitored channel(s).`);
-
-    // Clean up existing old messages in monitored channels
-    if (BOT_CONFIG.channelsToMonitor.length > 0) {
-        console.log(`\n🧹 Starting cleanup of existing old messages...`);
-
-        for (const channelId of BOT_CONFIG.channelsToMonitor) {
-            const guild = readyClient.guilds.cache.first();
-            if (guild) {
-                const channel = guild.channels.cache.get(channelId);
-                if (channel && channel.isTextBased()) {
-                    // await cleanupOldMessages(channel as TextChannel);
-                }
-            }
-        }
-
-        console.log(`✅ Initial cleanup complete!`);
-    }
+    await flashChatService.startAll();
 });
 
 // Emulate the "hello there" behavior Kat mentioned

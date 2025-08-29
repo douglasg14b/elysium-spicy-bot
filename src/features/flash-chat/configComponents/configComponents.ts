@@ -10,8 +10,8 @@ import {
     TextInputBuilder,
     TextInputStyle,
 } from 'discord.js';
-import { FlashChatConfig } from '../flashChatInstance';
 import { formatDuration } from '../../../utils';
+import { FlashChatConfig } from '../data/flashChatSchema';
 
 export const FLASH_CHAT_COMPONENTS = [
     {
@@ -195,7 +195,7 @@ export function buildConfigSummaryEmbed(configs: FlashChatConfig[]) {
 
     // Add field for each configured channel
     configs.forEach((config, index) => {
-        const timeout = formatDuration(config.messageTimeoutMs);
+        const timeout = formatDuration(config.timeoutSeconds * 1000);
         const features = [
             config.preservePinned ? '📌 Preserve Pinned' : '🗑️ Delete Pinned',
             config.preserveHistory ? '📚 Keep History' : '🧹 Clear History',

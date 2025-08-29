@@ -9,14 +9,7 @@ import {
     TextChannel,
 } from 'discord.js';
 import { deleteMessageSafely } from './utils';
-
-export type FlashChatConfig = {
-    channelId: string;
-    guildId: string;
-    messageTimeoutMs: number;
-    preservePinned: boolean;
-    preserveHistory: boolean;
-};
+import { FlashChatConfig } from './data/flashChatSchema';
 
 export class FlashChatInstance {
     private _config: FlashChatConfig;
@@ -57,11 +50,14 @@ export class FlashChatInstance {
         }
 
         const truncatedContent = message.content.slice(0, 50) + (message.content.length > 50 ? '...' : '');
+        const timeout = this._config.timeoutSeconds * 1000;
         console.log(
-            `📝 Scheduled deletion for message in #${(message.channel as TextChannel).name}: "${truncatedContent}"`
+            `📝 Scheduled deletion for message in #${
+                (message.channel as TextChannel).name
+            }: "${truncatedContent}" in ${timeout}ms`
         );
 
-        const timer = setTimeout(() => this.deleteMessage(message), this._config.messageTimeoutMs);
+        const timer = setTimeout(() => this.deleteMessage(message), timeout);
 
         // Store the timer so we can cancel it if needed
         this.messageTimers.set(message.id, timer);
@@ -77,8 +73,12 @@ export class FlashChatInstance {
     }
 
     private async cleanupOldMessages() {
+        const channelName =
+            this.client.channels.cache.get(this._config.channelId)?.toString() || this._config.channelId;
+        console.log(`\n🧹 Starting cleanup of existing old messages for channel ${channelName}...`);
+
         const channel = this.client.channels.cache.get(this._config.channelId) as TextChannel;
-        const cutoffTime = Date.now() - this._config.messageTimeoutMs;
+        const cutoffTime = Date.now() - this._config.timeoutSeconds * 1000;
         const cutoffDate = new Date(cutoffTime);
 
         let deletedCount = 0;
@@ -185,6 +185,8 @@ export class FlashChatInstance {
                 }
             }
         }
+
+        console.log(`✅ Initial cleanup complete!`);
     }
 
     public start() {

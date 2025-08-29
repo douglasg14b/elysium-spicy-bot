@@ -20,14 +20,14 @@ import {
     StringSelectMenuBuilder,
     ChannelType,
 } from 'discord.js';
-import { FlashChatConfig } from './flashChatInstance';
-import { flashChatRepo } from './flashChatRepo';
+import { FlashChatConfig } from '../flashChatInstance';
+import { flashChatInstanceStore } from '../flashChatInstanceStore';
 import {
     buildAllComponents,
     buildConfigSummaryEmbed,
     buildTimeoutInputModal,
     FlashChatButtonComponentIds,
-} from './configComponents/configComponents';
+} from './configComponents';
 
 export const flashChatConfigCommand = new SlashCommandBuilder()
     .setName('flash-config')
@@ -91,6 +91,40 @@ export const handleFlashConfigCommand = async (interaction: ChatInputCommandInte
                 break;
             case 'flash_timeout_button':
                 await buttonInteraction.showModal(timeoutModal);
+                await buttonInteraction
+                    .awaitModalSubmit({
+                        time: 300_000,
+                        filter: (i) => i.customId === 'flash_timeout_modal',
+                    })
+                    .then(async (modalInteraction: ModalSubmitInteraction) => {
+                        const timeoutValue = modalInteraction.fields.getTextInputValue('timeout_seconds_input_modal');
+                        const timeoutSeconds = parseInt(timeoutValue, 10);
+                        if (isNaN(timeoutSeconds) || timeoutSeconds <= 0) {
+                            await modalInteraction.reply({
+                                content: 'Please enter a valid positive number for the timeout.',
+                                ephemeral: true,
+                            });
+                            return;
+                        }
+
+                        // Save the new timeout to all configs as an example (you might want to target specific ones)
+                        for (const config of configs) {
+                            config.messageTimeoutMs = timeoutSeconds * 1000;
+                            await saveFlashChatConfig(config);
+                        }
+
+                        await modalInteraction.reply({
+                            content: `✅ Message timeout updated to ${timeoutSeconds} seconds for all configured channels.`,
+                            ephemeral: true,
+                        });
+                    })
+                    .catch(async (error) => {
+                        console.error('Modal submission error:', error);
+                        await buttonInteraction.followUp({
+                            content: '❌ You did not submit the modal in time.',
+                            ephemeral: true,
+                        });
+                    });
         }
     });
 
@@ -138,7 +172,7 @@ const handleRemoveChannel = async (interaction: ButtonInteraction, configs: Flas
 
 // Placeholder storage functions (implement based on your storage)
 const getFlashChatConfigs = async (guildId: string): Promise<FlashChatConfig[]> => {
-    return Array.from(flashChatRepo.instances.values())
+    return Array.from(flashChatInstanceStore.instances.values())
         .map((x) => x.config)
         .filter((c) => c.guildId === guildId);
 };

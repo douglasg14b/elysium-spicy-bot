@@ -8,19 +8,25 @@
         "build": "tsc",
         "start": "node dist/bot.js",
         "dev": "dotenvx run --env-file=.env.local -- tsx watch src/bot.ts",
+        "migrate:latest": "dotenvx run --env-file=.env.local -- tsx src/features/data-persistence/migrate.ts",
         "clean": "rimraf dist"
     },
     "keywords": [],
     "author": "",
     "license": "ISC",
     "dependencies": {
+        "@eicode/result-pattern": "^2.4.0",
+        "better-sqlite3": "^12.2.0",
         "commandkit": "1.2.0-rc.3",
         "discord.js": "^14.22.0",
-        "env-var": "^7.5.0"
+        "env-var": "^7.5.0",
+        "kysely": "^0.28.5",
+        "pathe": "^2.0.3"
     },
     "devDependencies": {
         "@dotenvx/dotenvx": "^1.49.0",
         "@tsconfig/recommended": "^1.0.10",
+        "@types/better-sqlite3": "^7.6.13",
         "@types/node": "^24.3.0",
         "@vitest/ui": "^3.2.4",
         "nodemon": "^3.1.10",

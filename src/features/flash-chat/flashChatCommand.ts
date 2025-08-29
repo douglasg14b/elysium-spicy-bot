@@ -6,8 +6,9 @@ import {
     TextChannel,
 } from 'discord.js';
 import { stringToTitleCase, verifyCommandPermissions } from '../../utils';
-import { flashChatRepo } from './flashChatRepo';
-import { handleFlashConfigCommand } from './component';
+import { commandError, CommandHandlerResult, commandSuccess } from '../commands';
+import { flashChatRepo } from './data/flashChatRepo';
+import { flashChatService } from './flashChatService';
 
 const REQUIRED_PERMISSIONS = [
     PermissionsBitField.Flags.ViewChannel,
@@ -44,7 +45,7 @@ type CommandArgs =
     | {
           subcommand: 'setup' | 'on';
           channel: TextChannel;
-          timeout: number;
+          timeoutSeconds: number;
           preservePinned: boolean;
           preserveHistory: boolean;
       }
@@ -132,7 +133,7 @@ function resolveCommandArgs(interaction: ChatInputCommandInteraction): CommandAr
         return {
             subcommand,
             channel: interaction.options.getChannel('channel', true) as TextChannel,
-            timeout: interaction.options.getInteger('timeout', true),
+            timeoutSeconds: interaction.options.getInteger('timeout', true),
             preservePinned: interaction.options.getBoolean('preserve-pinned', true),
             preserveHistory: interaction.options.getBoolean('preserve-history', true),
         };
@@ -140,7 +141,7 @@ function resolveCommandArgs(interaction: ChatInputCommandInteraction): CommandAr
         return {
             subcommand,
             channel: interaction.channel as TextChannel,
-            timeout: interaction.options.getInteger('timeout', true),
+            timeoutSeconds: interaction.options.getInteger('timeout', true),
             preservePinned: interaction.options.getBoolean('preserve-pinned', true),
             preserveHistory: interaction.options.getBoolean('preserve-history', true),
         };
@@ -149,10 +150,17 @@ function resolveCommandArgs(interaction: ChatInputCommandInteraction): CommandAr
     }
 }
 
-export const handleFlashChatCommand = async (interaction: ChatInputCommandInteraction): Promise<void> => {
+export const handleFlashChatCommand = async (
+    interaction: ChatInputCommandInteraction
+): Promise<CommandHandlerResult> => {
     // Get command options
     const commandArgs = resolveCommandArgs(interaction);
     const { subcommand } = commandArgs;
+
+    if (!interaction.guildId) {
+        await interaction.reply({ content: 'This command can only be used in a server.', ephemeral: true });
+        return commandError('Not in a guild');
+    }
 
     if (subcommand === 'config') {
         // Not yet implemented
@@ -161,19 +169,21 @@ export const handleFlashChatCommand = async (interaction: ChatInputCommandIntera
             ephemeral: true,
         });
         // handleFlashConfigCommand(interaction);
-        return;
+        return commandSuccess();
     }
 
     if (subcommand === 'off') {
-        if (!flashChatRepo.has(commandArgs.channel.id)) {
+        const flashChatConfig = await flashChatRepo.get(interaction.guildId, commandArgs.channel.id);
+
+        if (!flashChatConfig) {
             await interaction.reply({
                 content: `❌ Flash chat is not enabled in ${commandArgs.channel}.`,
                 ephemeral: true,
             });
-            return;
+            return commandSuccess();
         }
 
-        await flashChatRepo.stopInstance(commandArgs.channel.id);
+        await flashChatService.stopFlashChat(interaction.guildId, commandArgs.channel.id);
 
         await interaction.reply({
             content: `⚡ Flash chat has been disabled in ${commandArgs.channel}.`,
@@ -189,10 +199,10 @@ export const handleFlashChatCommand = async (interaction: ChatInputCommandIntera
                 },
             ],
         });
-        return;
+        return commandSuccess();
     }
 
-    const { channel, timeout, preservePinned, preserveHistory } = commandArgs;
+    const { channel, timeoutSeconds: timeout, preservePinned, preserveHistory } = commandArgs;
 
     // Check bot permissions in target channel
     const botMember = interaction.guild?.members.me;
@@ -204,37 +214,30 @@ export const handleFlashChatCommand = async (interaction: ChatInputCommandIntera
             content: `❌ I'm missing these permissions in ${channel}: **${missingPermissions.join(', ')}**`,
             ephemeral: true,
         });
-        return;
+
+        return commandError('Missing permissions', {
+            missingPermissions: missingPermissions,
+            channelId: channel.id,
+        });
     }
 
     try {
-        if (flashChatRepo.has(channel.id)) {
+        const startResult = await flashChatService.startFlashChat({
+            guildId: interaction.guildId,
+            channelId: channel.id,
+            timeoutSeconds: timeout,
+            preservePinned,
+            preserveHistory,
+            user: interaction.user,
+        });
+
+        if (startResult.isFail) {
             await interaction.reply({
-                content: `❌ Flash chat is already enabled in ${channel}. Please disable it first with /flash-chat off.`,
+                content: `❌ Failed to enable flash chat: ${startResult.valueOrError()}`,
                 ephemeral: true,
             });
-            return;
+            return commandError('Failed to enable flash chat', { channelId: channel.id });
         }
-
-        flashChatRepo.startInstance({
-            channelId: channel.id,
-            guildId: interaction.guildId!,
-            messageTimeoutMs: timeout * 1000, // Convert to milliseconds
-            preservePinned,
-            preserveHistory,
-        });
-
-        // Save flash chat configuration
-        await saveFlashChatConfig({
-            channelId: channel.id,
-            guildId: interaction.guildId!,
-            timeout: timeout * 1000, // Convert to milliseconds
-            preservePinned,
-            preserveHistory,
-            enabled: true,
-            configuredBy: interaction.user.id,
-            configuredAt: new Date(),
-        });
 
         // Create success embed
         const replyEmbed = {
@@ -281,7 +284,11 @@ export const handleFlashChatCommand = async (interaction: ChatInputCommandIntera
             content: '❌ Failed to configure flash chat. Please try again.',
             ephemeral: true,
         });
+
+        return commandError('Error configuring flash chat', { error: (error as Error).message });
     }
+
+    return commandSuccess();
 };
 
 // Helper function to format timeout duration

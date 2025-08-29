@@ -15,6 +15,15 @@
     "[typescript]": {
         "editor.defaultFormatter": "esbenp.prettier-vscode"
     },
-    "cSpell.words": ["Convo", "mpim", "mpims", "Teleporters", "unsubscribers", "userscript"],
+    "cSpell.words": [
+        "Convo",
+        "Insertable",
+        "mpim",
+        "mpims",
+        "Teleporters",
+        "unsubscribers",
+        "Updateable",
+        "userscript"
+    ],
     "typescript.preferences.importModuleSpecifier": "relative"
 }
