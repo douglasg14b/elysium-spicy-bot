@@ -6,17 +6,32 @@ import {
     OmitPartialGroupDMChannel,
     PartialMessage,
     PermissionsBitField,
+    Snowflake,
     TextChannel,
 } from 'discord.js';
 import { deleteMessageSafely } from './utils';
 import { FlashChatConfig } from './data/flashChatSchema';
 
+function getPeriodicCleanupInterval(baseTimeout: number) {
+    // Randomize interval between 80% and 120% of base timeout
+    const variance = baseTimeout * 0.2;
+    return baseTimeout + (Math.random() * variance * 2 - variance);
+}
+
+type DeletablePage = {
+    messages: Message<true>[];
+    next: null | (() => Promise<DeletablePage | null>);
+};
+
 export class FlashChatInstance {
+    private stopped: boolean = false;
     private _config: FlashChatConfig;
     private client: Client;
     private messageTimers: Map<string, NodeJS.Timeout> = new Map();
+    private cleanupTimer: NodeJS.Timeout | null = null;
 
     constructor(config: FlashChatConfig, client: Client) {
+        console.log('channel config:', config);
         this._config = config;
         this.client = client;
     }
@@ -29,18 +44,8 @@ export class FlashChatInstance {
         return this._config;
     }
 
-    private deleteMessage(message: Message) {
-        try {
-            deleteMessageSafely(message);
-        } catch (error) {
-            console.error(`❌ Failed to delete message:`, (error as Error).message);
-        } finally {
-            // Clean up the timer reference
-            this.messageTimers.delete(message.id);
-        }
-    }
-
-    private handleNewMessage(message: Message) {
+    public handleMessageCreate(message: Message) {
+        this.checkStopped();
         if (message.channel.id !== this._config.channelId) return;
 
         // Skip pinned messages
@@ -63,7 +68,8 @@ export class FlashChatInstance {
         this.messageTimers.set(message.id, timer);
     }
 
-    private handleMessageDeleted(message: OmitPartialGroupDMChannel<Message<boolean> | PartialMessage>) {
+    public handleMessageDelete(message: OmitPartialGroupDMChannel<Message<boolean> | PartialMessage>) {
+        this.checkStopped();
         const timer = this.messageTimers.get(message.id);
         if (timer) {
             clearTimeout(timer);
@@ -72,7 +78,94 @@ export class FlashChatInstance {
         }
     }
 
-    private async cleanupOldMessages() {
+    private deleteMessage(message: Message) {
+        this.checkStopped();
+        try {
+            deleteMessageSafely(message);
+        } catch (error) {
+            console.error(`❌ Failed to delete message:`, (error as Error).message);
+        } finally {
+            // Clean up the timer reference
+            this.messageTimers.delete(message.id);
+        }
+    }
+
+    // Cleans up expired messages that may have been missed (e.g., bot was offline)
+    private async cleanupExpiredMessages() {
+        console.log(`🧹 Starting cleanup of expired messages in #${this._config.channelId}...`);
+
+        this.checkStopped();
+        const channel = this.client.channels.cache.get(this._config.channelId) as TextChannel;
+        const cutoffTime = Date.now() - this._config.timeoutSeconds * 1000;
+        const cutoffDate = new Date(cutoffTime);
+
+        while (true) {
+            const { messages, next } = await this.getDeletableMessages(channel, this.config.createdAt, cutoffDate);
+            if (messages.length === 0) break;
+
+            for (const message of messages) {
+                this.deleteMessage(message);
+            }
+
+            // If there's a next page, wait for it to resolve
+            if (next) {
+                await next();
+            } else {
+                break;
+            }
+        }
+
+        const nextInterval = getPeriodicCleanupInterval(this._config.timeoutSeconds * 1000);
+        console.log(`⏲️ Next periodic cleanup in ${Math.round(nextInterval / 1000)} seconds`);
+        this.cleanupTimer = setTimeout(() => this.cleanupExpiredMessages(), nextInterval);
+    }
+
+    private async getDeletableMessages(channel: TextChannel, minDate: Date, maxDate: Date) {
+        const maxTime = maxDate.getTime();
+        const minTime = minDate.getTime();
+
+        const fetchPage = async (before?: Snowflake) => {
+            const coll = await channel.messages.fetch({ limit: 100, before });
+            if (coll.size === 0)
+                return {
+                    messages: [],
+                };
+
+            const raw = Array.from(coll.values()); // newest -> oldest
+            const nextBefore = raw.at(-1)?.id ?? null;
+
+            // Apply filters but ALWAYS compute nextBefore from the raw batch
+            let filtered = raw;
+            if (this.config.preservePinned) {
+                filtered = filtered.filter((m) => !m.pinned);
+                // Optional: warn once if a page was fully pinned
+                if (filtered.length === 0) {
+                    console.warn('⚠️ Page contained only pinned messages; paging deeper…');
+                }
+            }
+
+            filtered = filtered.filter((m) => m.createdTimestamp < maxTime && m.createdTimestamp > minTime);
+
+            return {
+                messages: filtered,
+                next: nextBefore ? () => fetchPage(nextBefore) : null,
+            };
+        };
+
+        // First page
+        return fetchPage();
+    }
+
+    private async cleanupChannelHistory() {
+        this.checkStopped();
+
+        if (this.config.preserveHistory) {
+            console.error(
+                `⚠️ Skipping initial cleanup of existing messages in #${this.config.channelId} because preserveHistory is enabled.`
+            );
+            return;
+        }
+
         const channelName =
             this.client.channels.cache.get(this._config.channelId)?.toString() || this._config.channelId;
         console.log(`\n🧹 Starting cleanup of existing old messages for channel ${channelName}...`);
@@ -191,18 +284,22 @@ export class FlashChatInstance {
 
     public start() {
         this.verifyPerms();
-        this.client.on(Events.MessageCreate, this.handleNewMessage.bind(this));
-        this.client.on(Events.MessageDelete, this.handleMessageDeleted.bind(this));
+        this.cleanupTimer = setTimeout(() => this.cleanupExpiredMessages(), 500);
 
         if (!this._config.preserveHistory) {
-            this.cleanupOldMessages();
+            this.cleanupChannelHistory();
         }
     }
 
     public stop() {
-        this.client.off(Events.MessageCreate, this.handleNewMessage.bind(this));
+        this.stopped = true;
         this.messageTimers.forEach((timer) => clearTimeout(timer));
         this.messageTimers.clear();
+        if (this.cleanupTimer) {
+            clearTimeout(this.cleanupTimer);
+            this.cleanupTimer = null;
+        }
+        console.log(`🛑 Stopped flash chat for ${this._config.guildId}/${this._config.channelId}`);
     }
 
     private verifyPerms() {
@@ -222,5 +319,13 @@ export class FlashChatInstance {
         }
 
         console.log(`✅ Verified permissions in channel #${channel.name}`);
+    }
+
+    private checkStopped() {
+        if (this.stopped) {
+            throw new Error(
+                `Flash chat instance for ${this._config.guildId}/${this._config.channelId} has been stopped.`
+            );
+        }
     }
 }

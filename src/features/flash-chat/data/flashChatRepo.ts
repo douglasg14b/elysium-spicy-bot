@@ -52,6 +52,14 @@ export class FlashChatRepo {
             .where('channelId', '=', channelId)
             .execute();
     }
+
+    async delete(guildId: string, channelId: string): Promise<void> {
+        await database
+            .deleteFrom('flash_chat_config')
+            .where('guildId', '=', guildId)
+            .where('channelId', '=', channelId)
+            .execute();
+    }
 }
 
 export const flashChatRepo = new FlashChatRepo();

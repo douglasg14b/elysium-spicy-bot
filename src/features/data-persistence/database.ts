@@ -5,6 +5,7 @@ import { Kysely, SqliteDialect, CamelCasePlugin } from 'kysely';
 import { CommandAuditLogTable } from '../commands';
 import { SqliteBooleanPlugin } from './plugins/sqliteBooleanPlugin';
 import { SqliteJsonPlugin } from './plugins/sqliteJsonPlugin';
+import { SqliteDatePlugin } from './plugins/sqliteDatePlugin';
 
 export interface Database {
     flash_chat_config: FlashChatConfigTable;
@@ -25,6 +26,10 @@ export const database = new Kysely<Database>({
         new CamelCasePlugin(),
         new SqliteBooleanPlugin<Database>({
             flash_chat_config: ['enabled', 'removed', 'preserveHistory', 'preservePinned'],
+        }),
+        new SqliteDatePlugin<Database>({
+            flash_chat_config: ['createdAt', 'updatedAt'],
+            command_audit_logs: ['timestamp'],
         }),
         // new SqliteJsonPlugin<Database>({
         //     command_audit_logs: ['parameters', 'resultData'],

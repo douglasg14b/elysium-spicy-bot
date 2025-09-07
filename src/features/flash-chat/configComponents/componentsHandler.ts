@@ -3,8 +3,6 @@ import {
     ChatInputCommandInteraction,
     ActionRowBuilder,
     ButtonBuilder,
-    ButtonStyle,
-    EmbedBuilder,
     ComponentType,
     ButtonInteraction,
     ModalBuilder,
@@ -12,22 +10,15 @@ import {
     TextInputStyle,
     ModalSubmitInteraction,
     PermissionsBitField,
-    APIButtonComponent,
-    ActionRowData,
-    MessageActionRowComponentData,
-    MessageActionRowComponentBuilder,
-    ChannelSelectMenuBuilder,
-    StringSelectMenuBuilder,
-    ChannelType,
 } from 'discord.js';
-import { FlashChatConfig } from '../flashChatInstance';
-import { flashChatInstanceStore } from '../flashChatInstanceStore';
+import { flashChatManager } from '../flashChatManager';
 import {
     buildAllComponents,
     buildConfigSummaryEmbed,
     buildTimeoutInputModal,
     FlashChatButtonComponentIds,
 } from './configComponents';
+import { FlashChatConfig } from '../data/flashChatSchema';
 
 export const flashChatConfigCommand = new SlashCommandBuilder()
     .setName('flash-config')
@@ -109,7 +100,7 @@ export const handleFlashConfigCommand = async (interaction: ChatInputCommandInte
 
                         // Save the new timeout to all configs as an example (you might want to target specific ones)
                         for (const config of configs) {
-                            config.messageTimeoutMs = timeoutSeconds * 1000;
+                            config.timeoutSeconds = timeoutSeconds;
                             await saveFlashChatConfig(config);
                         }
 
@@ -172,7 +163,11 @@ const handleRemoveChannel = async (interaction: ButtonInteraction, configs: Flas
 
 // Placeholder storage functions (implement based on your storage)
 const getFlashChatConfigs = async (guildId: string): Promise<FlashChatConfig[]> => {
-    return Array.from(flashChatInstanceStore.instances.values())
+    const guildInstances = flashChatManager.instances.get(guildId);
+
+    if (!guildInstances) return [];
+
+    return Array.from(guildInstances.values())
         .map((x) => x.config)
         .filter((c) => c.guildId === guildId);
 };

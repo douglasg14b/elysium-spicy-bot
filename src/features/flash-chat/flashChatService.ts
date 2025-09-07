@@ -1,6 +1,5 @@
 import { User } from 'discord.js';
-import { flashChatInstanceStore } from './flashChatInstanceStore';
-import { Fail, Result } from '@eicode/result-pattern';
+import { flashChatManager } from './flashChatManager';
 import { boolToInt, fail, ok } from '../../shared';
 import { flashChatRepo } from './data/flashChatRepo';
 
@@ -15,7 +14,7 @@ type FlashChatArgs = {
 
 export class FlashChatService {
     async startFlashChat(args: FlashChatArgs) {
-        const runningInstance = flashChatInstanceStore.has(args.guildId, args.channelId);
+        const runningInstance = flashChatManager.has(args.guildId, args.channelId);
         if (runningInstance) {
             return fail('Flash chat instance already running for this channel');
         }
@@ -40,17 +39,22 @@ export class FlashChatService {
             });
         }
 
-        flashChatInstanceStore.startInstance(config);
+        flashChatManager.startInstance(config);
         return ok(config);
     }
 
     async stopFlashChat(guildId: string, channelId: string) {
-        const runningInstance = flashChatInstanceStore.has(guildId, channelId);
+        const runningInstance = flashChatManager.has(guildId, channelId);
         if (!runningInstance) {
             return fail('No flash chat instance running for this channel');
         }
 
-        flashChatInstanceStore.stopInstance(guildId, channelId);
+        const config = runningInstance.config;
+
+        flashChatManager.stopInstance(guildId, channelId);
+
+        flashChatRepo.delete(guildId, channelId);
+
         return ok('Flash chat stopped');
     }
 
@@ -75,23 +79,23 @@ export class FlashChatService {
             });
         }
 
-        if (flashChatInstanceStore.has(args.guildId, args.channelId)) {
-            flashChatInstanceStore.stopInstance(args.guildId, args.channelId);
+        if (flashChatManager.has(args.guildId, args.channelId)) {
+            flashChatManager.stopInstance(args.guildId, args.channelId);
         }
 
-        flashChatInstanceStore.startInstance(config);
+        flashChatManager.startInstance(config);
         return ok(config);
     }
 
     async startAll() {
         const configs = await flashChatRepo.getAllEnabled();
         const results = configs.map((config) => {
-            if (flashChatInstanceStore.has(config.guildId, config.channelId)) {
+            if (flashChatManager.has(config.guildId, config.channelId)) {
                 return fail(`Flash chat already running for ${config.guildId}/${config.channelId}`);
             }
 
             console.log(`🚀 Starting flash chat for ${config.guildId}/${config.channelId}`);
-            flashChatInstanceStore.startInstance(config);
+            flashChatManager.startInstance(config);
             return ok(`Started flash chat for ${config.guildId}/${config.channelId}`);
         });
 

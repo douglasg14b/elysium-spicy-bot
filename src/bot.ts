@@ -3,7 +3,7 @@ import { DISCORD_CLIENT } from './discordClient';
 import { BOT_CONFIG } from './botConfig';
 import { commandRegistry, registerCommandsWithDiscord } from './features/commands';
 import { flashChatCommand, handleFlashChatCommand } from './features/flash-chat/flashChatCommand';
-import { flashChatService } from './features/flash-chat/flashChatService';
+import { initFlashChat } from './features/flash-chat';
 
 commandRegistry.register(flashChatCommand, handleFlashChatCommand);
 
@@ -22,7 +22,7 @@ DISCORD_CLIENT.once(Events.ClientReady, async (readyClient) => {
         console.log(`📝 Text channels: ${textChannels.size}`);
     });
 
-    await flashChatService.startAll();
+    await initFlashChat();
 });
 
 // Emulate the "hello there" behavior Kat mentioned
