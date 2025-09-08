@@ -10,7 +10,7 @@ services:
             NODE_ENV: production
             DISCORD_APP_ID: ${DISCORD_APP_ID}
             DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
-            SQLITE_DB_PATH: /app/db/sqlite.db
+            SQLITE_DB_PATH: /app/db/database.sqlite
         restart: unless-stopped
 
 volumes:
