@@ -8,3 +8,4 @@ export const getBoolOptional = (key: string) => env.get(key).asBool() || false;
 
 export const DISCORD_APP_ID = getString('DISCORD_APP_ID');
 export const DISCORD_BOT_TOKEN = getString('DISCORD_BOT_TOKEN');
+export const SQLITE_DB_PATH = getString('SQLITE_DB_PATH');

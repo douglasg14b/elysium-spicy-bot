@@ -6,6 +6,7 @@ import { CommandAuditLogTable } from '../commands';
 import { SqliteBooleanPlugin } from './plugins/sqliteBooleanPlugin';
 import { SqliteJsonPlugin } from './plugins/sqliteJsonPlugin';
 import { SqliteDatePlugin } from './plugins/sqliteDatePlugin';
+import { SQLITE_DB_PATH } from '../../environment';
 
 export interface Database {
     flash_chat_config: FlashChatConfigTable;
@@ -14,7 +15,7 @@ export interface Database {
 
 const dialect = new SqliteDialect({
     database: async () =>
-        new SqliteDatabase('db.sqlite', {
+        new SqliteDatabase(SQLITE_DB_PATH, {
             fileMustExist: false,
         }),
 });

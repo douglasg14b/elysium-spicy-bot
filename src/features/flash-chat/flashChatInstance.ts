@@ -31,7 +31,6 @@ export class FlashChatInstance {
     private cleanupTimer: NodeJS.Timeout | null = null;
 
     constructor(config: FlashChatConfig, client: Client) {
-        console.log('channel config:', config);
         this._config = config;
         this.client = client;
     }

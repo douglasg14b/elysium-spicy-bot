@@ -8,6 +8,7 @@
         "build": "tsc",
         "start": "node dist/bot.js",
         "dev": "dotenvx run --env-file=.env.local -- tsx watch src/bot.ts",
+        "start:dev:docker": "docker compose -f docker-compose.dev.yml --env-file .env.local up --build",
         "migrate:latest": "dotenvx run --env-file=.env.local -- tsx src/features/data-persistence/migrate.ts",
         "clean": "rimraf dist"
     },
@@ -15,7 +16,7 @@
     "author": "",
     "license": "ISC",
     "dependencies": {
-        "@eicode/result-pattern": "^2.4.0",
+        "@eicode/result-pattern": "^2.3.2",
         "better-sqlite3": "^12.2.0",
         "commandkit": "1.2.0-rc.3",
         "discord.js": "^14.22.0",
@@ -34,5 +35,6 @@
         "tsx": "^4.20.4",
         "typescript": "^5.9.2",
         "vitest": "^3.2.4"
-    }
+    },
+    "packageManager": "pnpm@9.15.9+sha256.cf86a7ad764406395d4286a6d09d730711720acc6d93e9dce9ac7ac4dc4a28a7"
 }

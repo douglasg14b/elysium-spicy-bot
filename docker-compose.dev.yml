@@ -1,15 +1,13 @@
 version: '3.8'
 services:
     discord-spicy-bot:
+        container_name: discord
+        env_file: '.env.local'
         build:
             context: .
             dockerfile: Dockerfile
         volumes:
             - sqlite-data:/app/db
-        environment:
-            NODE_ENV: production
-            DISCORD_APP_ID: ${DISCORD_APP_ID}
-            DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
         restart: unless-stopped
 
 volumes:
