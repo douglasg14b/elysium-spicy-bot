@@ -2,6 +2,7 @@ import { FlashChatConfigTable } from '../flash-chat/data/flashChatSchema';
 
 import SqliteDatabase from 'better-sqlite3';
 import pg from 'pg';
+import fs from 'fs';
 const { Pool } = pg;
 
 import { Kysely, SqliteDialect, CamelCasePlugin, PostgresDialect } from 'kysely';
@@ -29,6 +30,10 @@ function getDbDialect() {
             pool: new Pool({
                 connectionString: PG_CONNECTION_STRING,
                 max: 10,
+                ssl: {
+                    rejectUnauthorized: true,
+                    ca: fs.readFileSync('/etc/ssl/certs/coolify-ca.crt').toString(),
+                },
             }),
         });
     }
