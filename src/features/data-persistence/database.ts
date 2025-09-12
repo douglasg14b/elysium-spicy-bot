@@ -30,10 +30,6 @@ function getDbDialect() {
             pool: new Pool({
                 connectionString: PG_CONNECTION_STRING,
                 max: 10,
-                ssl: {
-                    rejectUnauthorized: true,
-                    ca: fs.readFileSync('/etc/ssl/certs/coolify-ca.crt').toString(),
-                },
             }),
         });
     }

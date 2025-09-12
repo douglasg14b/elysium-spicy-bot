@@ -4,6 +4,7 @@ import { BOT_CONFIG } from './botConfig';
 import { commandRegistry, registerCommandsWithDiscord } from './features/commands';
 import { flashChatCommand, handleFlashChatCommand } from './features/flash-chat/flashChatCommand';
 import { initFlashChat } from './features/flash-chat';
+import { flagBotReady } from './healthcheck/botHearthbeat';
 
 commandRegistry.register(flashChatCommand, handleFlashChatCommand);
 
@@ -14,6 +15,7 @@ await registerCommandsWithDiscord(commandRegistry.getBuilders());
 DISCORD_CLIENT.once(Events.ClientReady, async (readyClient) => {
     console.log(`✅ Bot is ready! Logged in as ${readyClient.user.tag}`);
     console.log(`🏠 Bot is in ${readyClient.guilds.cache.size} server(s)`);
+    flagBotReady();
 
     // List all servers and channels the bot can see
     readyClient.guilds.cache.forEach((guild) => {

@@ -1,4 +1,3 @@
-version: '3.8'
 services:
     discord-spicy-bot:
         container_name: discord
@@ -8,6 +7,14 @@ services:
             dockerfile: Dockerfile
         volumes:
             - sqlite-data:/app/db
+        init: true # tiny init to forward signals & reap children
+        stop_grace_period: 15s # give time to logout cleanly
+        healthcheck:
+            test: ['CMD', 'pnpm', 'tsx', 'src/healthcheck/healthcheck.ts']
+            interval: 10s
+            timeout: 3s
+            retries: 3
+            start_period: 30s # ample time for first login
         restart: unless-stopped
         depends_on:
             migrate:

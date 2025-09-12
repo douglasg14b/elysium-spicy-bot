@@ -31,6 +31,14 @@ services:
             DB_TYPE: ${DB_TYPE}
             SQLITE_DB_PATH: ${SQLITE_DB_PATH}
             PG_CONNECTION_STRING: ${PG_CONNECTION_STRING}
+        init: true # tiny init to forward signals & reap children
+        stop_grace_period: 15s # give time to logout cleanly
+        healthcheck:
+            test: ['CMD', 'pnpm', 'tsx', 'src/healthcheck/healthcheck.ts']
+            interval: 10s
+            timeout: 3s
+            retries: 3
+            start_period: 30s # ample time for first login
         restart: unless-stopped
         depends_on:
             migrate:
