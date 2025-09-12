@@ -3,6 +3,9 @@ services:
     migrate:
         build: .
         command: ['pnpm', 'tsx', 'src/features/data-persistence/migrate.ts']
+        volumes:
+            - /data/coolify/ssl/coolify-ca.crt:/etc/ssl/certs/coolify-ca.crt:ro # Path to the Coolify CA certificate
+            - sqlite-data:/app/db
         environment:
             NODE_ENV: production
             DISCORD_APP_ID: ${DISCORD_APP_ID}
@@ -17,6 +20,7 @@ services:
             context: .
             dockerfile: Dockerfile
         volumes:
+            - /data/coolify/ssl/coolify-ca.crt:/etc/ssl/certs/coolify-ca.crt:ro # Path to the Coolify CA certificate
             - sqlite-data:/app/db
         environment:
             NODE_ENV: production
