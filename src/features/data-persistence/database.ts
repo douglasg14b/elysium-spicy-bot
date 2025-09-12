@@ -41,6 +41,7 @@ function getDatabaseClient() {
     const dbDialect = getDbDialect();
 
     const plugins = [
+        new CamelCasePlugin(),
         new SqlDatePlugin<Database>({
             flash_chat_config: ['createdAt', 'updatedAt'],
             command_audit_logs: ['timestamp'],
@@ -51,7 +52,6 @@ function getDatabaseClient() {
         return new Kysely<Database>({
             dialect: dbDialect,
             plugins: [
-                new CamelCasePlugin(),
                 new SqlBooleanPlugin<Database>({
                     flash_chat_config: ['enabled', 'removed', 'preserveHistory', 'preservePinned'],
                 }),
