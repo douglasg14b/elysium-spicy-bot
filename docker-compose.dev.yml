@@ -9,7 +9,45 @@ services:
         volumes:
             - sqlite-data:/app/db
         restart: unless-stopped
+        depends_on:
+            migrate:
+                condition: service_completed_successfully
 
+    migrate:
+        build: .
+        command: ['pnpm', 'tsx', 'src/features/data-persistence/migrate.ts']
+        env_file: '.env.local'
+        environment:
+            NODE_ENV: production
+        depends_on:
+            postgres:
+                condition: service_healthy
+        restart: 'no'
+
+    postgres:
+        hostname: postgres
+        shm_size: 512MB
+        image: postgres:16
+        ports:
+            - 5432:5432
+        volumes:
+            - 'postgres-data:/var/lib/postgresql/data'
+            - ./init/docker_postgres_init.sql:/docker-entrypoint-initdb.d/docker_postgres_init.sql
+        environment:
+            DATABASE_HOST: 127.0.0.1
+            POSTGRES_USER: discord_bot_user
+            POSTGRES_PASSWORD: password
+            POSTGRES_DB: discord_spicy_bot_db
+            PGDATA: /data/postgres
+        healthcheck:
+            test:
+                - CMD-SHELL
+                - 'pg_isready -U discord_bot_user -d discord_spicy_bot_db'
+            interval: 10s
+            timeout: 5s
+            retries: 5
 volumes:
     sqlite-data:
+        driver: local
+    postgres-data:
         driver: local

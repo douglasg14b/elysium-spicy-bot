@@ -19,7 +19,7 @@ type DateColumns<DB> = {
     [TTable in keyof DB]?: readonly DateOnlyKeys<DB[TTable]>[];
 };
 
-export class SqliteDatePlugin<DB> implements KyselyPlugin {
+export class SqlDatePlugin<DB> implements KyselyPlugin {
     private readonly allDateColumns: Set<string>;
 
     constructor(private readonly dateCols: DateColumns<DB>) {

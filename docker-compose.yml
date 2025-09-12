@@ -1,5 +1,17 @@
 version: '3.8'
 services:
+    migrate:
+        build: .
+        command: ['pnpm', 'tsx', 'src/features/data-persistence/migrate.ts']
+        environment:
+            NODE_ENV: production
+            DISCORD_APP_ID: ${DISCORD_APP_ID}
+            DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+            DB_TYPE: ${DB_TYPE}
+            SQLITE_DB_PATH: ${SQLITE_DB_PATH}
+            PG_CONNECTION_STRING: ${PG_CONNECTION_STRING}
+        restart: 'no'
+
     discord-spicy-bot:
         build:
             context: .
@@ -10,8 +22,13 @@ services:
             NODE_ENV: production
             DISCORD_APP_ID: ${DISCORD_APP_ID}
             DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
-            SQLITE_DB_PATH: /app/db/database.sqlite
+            DB_TYPE: ${DB_TYPE}
+            SQLITE_DB_PATH: ${SQLITE_DB_PATH}
+            PG_CONNECTION_STRING: ${PG_CONNECTION_STRING}
         restart: unless-stopped
+        depends_on:
+            migrate:
+                condition: service_completed_successfully
 
 volumes:
     sqlite-data:

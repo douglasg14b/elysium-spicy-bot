@@ -19,7 +19,7 @@ type BoolColumns<DB> = {
     [TTable in keyof DB]?: readonly BooleanOnlyKeys<DB[TTable]>[];
 };
 
-export class SqliteBooleanPlugin<DB> implements KyselyPlugin {
+export class SqlBooleanPlugin<DB> implements KyselyPlugin {
     private readonly allBoolColumns: Set<string>;
 
     constructor(private readonly boolCols: BoolColumns<DB>) {
