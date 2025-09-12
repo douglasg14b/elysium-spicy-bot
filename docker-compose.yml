@@ -1,6 +1,7 @@
 version: '3.8'
 services:
     migrate:
+        exclude_from_hc: true
         build: .
         command: ['pnpm', 'tsx', 'src/features/data-persistence/migrate.ts']
         volumes:
