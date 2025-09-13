@@ -8,5 +8,6 @@ ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 COPY . /app
 WORKDIR /app
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
+RUN chmod +x /app/scripts/dockerEntrypoint.sh
 
 ENTRYPOINT ["src/scripts/dockerEntrypoint.sh"]
