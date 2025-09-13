@@ -122,9 +122,9 @@ const commandAuditLog = {
                 .addColumn('command', 'text', (col) => col.notNull())
                 .addColumn('subcommand', 'text') // nullable
                 .addColumn('channel_id', 'text', (col) => col.notNull())
-                .addColumn('channelName', 'text', (col) => col.notNull()) // kept as-is (camelCase)
+                .addColumn('channel_name', 'text', (col) => col.notNull()) // kept as-is (camelCase)
                 .addColumn('guild_id', 'text', (col) => col.notNull())
-                .addColumn('guildName', 'text', (col) => col.notNull()) // kept as-is
+                .addColumn('guild_name', 'text', (col) => col.notNull()) // kept as-is
                 .addColumn('user_id', 'text', (col) => col.notNull())
                 .addColumn('user_name', 'text', (col) => col.notNull())
                 .addColumn('user_discriminator', 'text') // nullable
@@ -172,9 +172,9 @@ const commandAuditLog = {
                 .addColumn('command', 'text', (col) => col.notNull())
                 .addColumn('subcommand', 'text') // nullable
                 .addColumn('channel_id', 'text', (col) => col.notNull())
-                .addColumn('channelName', 'text', (col) => col.notNull())
+                .addColumn('channel_name', 'text', (col) => col.notNull())
                 .addColumn('guild_id', 'text', (col) => col.notNull())
-                .addColumn('guildName', 'text', (col) => col.notNull())
+                .addColumn('guild_name', 'text', (col) => col.notNull())
                 .addColumn('user_id', 'text', (col) => col.notNull())
                 .addColumn('user_name', 'text', (col) => col.notNull())
                 .addColumn('user_discriminator', 'text') // nullable (new Discord usernames)
