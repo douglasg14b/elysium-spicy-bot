@@ -9,4 +9,4 @@ COPY . /app
 WORKDIR /app
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 
-CMD ["pnpm","tsx", "src/bot.ts"]
+ENTRYPOINT ["src/scripts/dockerEntrypoint.sh"]

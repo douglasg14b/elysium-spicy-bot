@@ -23,26 +23,6 @@ services:
             retries: 3
             start_period: 30s # ample time for first login
         restart: unless-stopped
-        depends_on:
-            migrate:
-                condition: service_completed_successfully
-
-    migrate:
-        exclude_from_hc: true
-        build: .
-        command: ['pnpm', 'tsx', 'src/features/data-persistence/migrate.ts']
-        volumes:
-            - /data/coolify/ssl/coolify-ca.crt:/etc/ssl/certs/coolify-ca.crt:ro # Path to the Coolify CA certificate
-            - sqlite-data:/app/db
-        environment:
-            NODE_ENV: production
-            NODE_EXTRA_CA_CERTS: /etc/ssl/certs/coolify-ca.crt
-            DISCORD_APP_ID: ${DISCORD_APP_ID}
-            DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
-            DB_TYPE: ${DB_TYPE}
-            SQLITE_DB_PATH: ${SQLITE_DB_PATH}
-            PG_CONNECTION_STRING: ${PG_CONNECTION_STRING}
-        restart: 'no'
 
 volumes:
     sqlite-data:

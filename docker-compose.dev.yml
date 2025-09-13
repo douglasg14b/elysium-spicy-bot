@@ -16,20 +16,6 @@ services:
             retries: 3
             start_period: 30s # ample time for first login
         restart: unless-stopped
-        depends_on:
-            migrate:
-                condition: service_completed_successfully
-
-    migrate:
-        build: .
-        command: ['pnpm', 'tsx', 'src/features/data-persistence/migrate.ts']
-        env_file: '.env.local'
-        environment:
-            NODE_ENV: production
-        depends_on:
-            postgres:
-                condition: service_healthy
-        restart: 'no'
 
     postgres:
         hostname: postgres

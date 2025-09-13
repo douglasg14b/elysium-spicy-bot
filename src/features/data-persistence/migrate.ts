@@ -61,7 +61,16 @@ const migrator = new Migrator({
 });
 
 async function main() {
+    console.log('🚀 Running migrations...');
+
     const { error, results } = await migrator.migrateToLatest();
+
+    if (results?.length === 0) {
+        console.log('✅ No migrations needed');
+        await database.destroy();
+        console.log('🎉 Migrations complete');
+        return;
+    }
 
     for (const r of results ?? []) {
         if (r.status === 'Success') {
