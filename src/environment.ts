@@ -6,6 +6,8 @@ export const getNumber = (key: string) => env.get(key).required().asIntPositive(
 export const getBool = (key: string) => env.get(key).required().asBool();
 export const getBoolOptional = (key: string) => env.get(key).asBool() || false;
 
+export const ENV = getStringOptional('ENV') as 'development' | 'production' | undefined;
+
 export const DISCORD_APP_ID = getString('DISCORD_APP_ID');
 export const DISCORD_BOT_TOKEN = getString('DISCORD_BOT_TOKEN');
 

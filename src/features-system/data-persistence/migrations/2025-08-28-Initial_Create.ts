@@ -132,7 +132,7 @@ const commandAuditLog = {
                 .addColumn('result', sql`cal_result_enum`, (col) => col.notNull())
                 .addColumn('result_message', 'text') // nullable
                 .addColumn('result_data', 'jsonb') // nullable
-                .addColumn('execution_time_ms', 'integer', (col) => col.notNull())
+                .addColumn('execution_time_ms', 'real', (col) => col.notNull())
                 .addColumn('timestamp', 'timestamptz', (col) => col.notNull().defaultTo(sql`now()`))
                 .execute();
 
@@ -183,7 +183,7 @@ const commandAuditLog = {
                 .addColumn('result', 'text', (col) => col.notNull())
                 .addColumn('result_message', 'text') // nullable
                 .addColumn('result_data', 'text') // nullable JSON
-                .addColumn('execution_time_ms', 'integer', (col) => col.notNull())
+                .addColumn('execution_time_ms', 'real', (col) => col.notNull())
                 // Store ISO-ish timestamp string; default to CURRENT_TIMESTAMP (UTC)
                 .addColumn('timestamp', 'text', (col) => col.notNull().defaultTo(sql`CURRENT_TIMESTAMP`))
                 // Enum guard for `result`

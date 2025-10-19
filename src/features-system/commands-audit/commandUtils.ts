@@ -1,5 +1,5 @@
 import { AdditionalData } from '../../shared';
-import { CommandHandlerResult } from '../commands/commandRegistry';
+import { CommandHandlerResult } from '../commands/interactionsRegistry';
 
 export function commandSuccess(message?: string, additionalData?: AdditionalData): CommandHandlerResult {
     return {

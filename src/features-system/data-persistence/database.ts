@@ -1,5 +1,3 @@
-import { FlashChatConfigTable } from '../flash-chat/data/flashChatSchema';
-
 import SqliteDatabase from 'better-sqlite3';
 import pg from 'pg';
 import fs from 'fs';
@@ -11,6 +9,7 @@ import { SqlBooleanPlugin } from './plugins/sqlBooleanPlugin';
 import { SqliteJsonPlugin } from './plugins/sqliteJsonPlugin';
 import { SqlDatePlugin } from './plugins/sqlDatePlugin';
 import { DB_TYPE, PG_CONNECTION_STRING, SQLITE_DB_PATH } from '../../environment';
+import { FlashChatConfigTable } from '../../features/flash-chat/data/flashChatSchema';
 
 export interface Database {
     flash_chat_config: FlashChatConfigTable;

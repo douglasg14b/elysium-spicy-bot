@@ -6,9 +6,10 @@ import {
     TextChannel,
 } from 'discord.js';
 import { stringToTitleCase, verifyCommandPermissions } from '../../utils';
-import { commandError, CommandHandlerResult, commandSuccess } from '../commands';
+import { commandError, commandSuccess } from '../../features-system/commands';
 import { flashChatRepo } from './data/flashChatRepo';
 import { flashChatService } from './flashChatService';
+import { InteractionHandlerResult } from '../../features-system/commands/types';
 
 const REQUIRED_PERMISSIONS = [
     PermissionsBitField.Flags.ViewChannel,
@@ -152,7 +153,7 @@ function resolveCommandArgs(interaction: ChatInputCommandInteraction): CommandAr
 
 export const handleFlashChatCommand = async (
     interaction: ChatInputCommandInteraction
-): Promise<CommandHandlerResult> => {
+): Promise<InteractionHandlerResult> => {
     // Get command options
     const commandArgs = resolveCommandArgs(interaction);
     const { subcommand } = commandArgs;

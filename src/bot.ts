@@ -1,15 +1,20 @@
-import { EmbedBuilder, Events, PermissionsBitField } from 'discord.js';
+import { Events, InteractionType } from 'discord.js';
 import { DISCORD_CLIENT } from './discordClient';
 import { BOT_CONFIG } from './botConfig';
-import { commandRegistry, registerCommandsWithDiscord } from './features/commands';
+import { interactionsRegistry, registerCommandsWithDiscord } from './features-system/commands';
 import { flashChatCommand, handleFlashChatCommand } from './features/flash-chat/flashChatCommand';
 import { initFlashChat } from './features/flash-chat';
 import { flagBotReady } from './healthcheck/botHearthbeat';
+import { deployTicketSystemCommand, handleDeployTicketSystem, initTicketsFeature } from './features/tickets';
 
-commandRegistry.register(flashChatCommand, handleFlashChatCommand);
+interactionsRegistry.register(flashChatCommand, handleFlashChatCommand);
+interactionsRegistry.register(deployTicketSystemCommand, handleDeployTicketSystem);
+
+// Initialize ticket system handlers
+initTicketsFeature();
 
 // Register with Discord API
-await registerCommandsWithDiscord(commandRegistry.getBuilders());
+await registerCommandsWithDiscord(interactionsRegistry.getSlashCommandBuilders());
 
 // Bot ready event
 DISCORD_CLIENT.once(Events.ClientReady, async (readyClient) => {
@@ -38,6 +43,10 @@ DISCORD_CLIENT.on(Events.MessageCreate, (message) => {
 
         message.reply('Why hello there! https://media.tenor.com/TQMe1Q1smGIAAAPo/general-kenobi-general-grievous.mp4');
     }
+});
+
+DISCORD_CLIENT.on(Events.VoiceStateUpdate, (oldState, newState) => {
+    newState.member;
 });
 
 // Handle errors gracefully
@@ -69,12 +78,21 @@ DISCORD_CLIENT.login(BOT_CONFIG.botToken).catch((error) => {
 
 // Set up listener
 DISCORD_CLIENT.on(Events.InteractionCreate, async (interaction) => {
-    if (!interaction.isChatInputCommand()) return;
-
     try {
-        await commandRegistry.handleInteraction(interaction);
+        await interactionsRegistry.handleInteraction(interaction);
     } catch (error) {
-        console.error(`Error handling command ${interaction.commandName}:`, error);
-        // Error handling...
+        switch (interaction.type) {
+            case InteractionType.ApplicationCommand:
+                console.error(`🚨🚨 Fatal Error handling command ${interaction.commandName}:`, error);
+                break;
+            case InteractionType.ModalSubmit:
+                console.error(`🚨🚨 Fatal Error handling modal submit ${interaction.customId}:`, error);
+                break;
+            case InteractionType.MessageComponent:
+                console.error(`🚨🚨 Fatal Error handling message component ${interaction.customId}:`, error);
+                break;
+            default:
+                console.error(`🚨🚨 Fatal Error handling interaction of type ${interaction.type}:`, error);
+        }
     }
 });
