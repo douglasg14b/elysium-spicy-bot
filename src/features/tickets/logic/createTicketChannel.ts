@@ -9,6 +9,8 @@ import {
 } from 'discord.js';
 import { TICKETING_CONFIG } from '../ticketsConfig';
 import { buildTicketChannelName } from './buildTicketChannelName';
+import { findOrCreateActiveTicketsCategory } from './ticketChannelPermissions';
+import { TicketState, createTicketEmbed, createTicketActionButtons } from './ticketState';
 
 /**
  * Creates the actual ticket channel with proper permissions
@@ -21,50 +23,11 @@ export async function createTicketChannel(
 ): Promise<TextChannel> {
     const guild = interaction.guild!;
     const creator = interaction.user;
-
     const me = guild.members.me!;
-
     const modRoles = guild.roles.cache.filter((role) => TICKETING_CONFIG.moderationRoles.includes(role.name));
 
-    // Find or create the ticket category
-    let category = guild.channels.cache.find(
-        (channel) =>
-            channel.type === ChannelType.GuildCategory && channel.name === TICKETING_CONFIG.supportTicketCategoryName
-    ) as CategoryChannel;
-
-    if (!category) {
-        category = await guild.channels.create({
-            name: TICKETING_CONFIG.supportTicketCategoryName,
-            type: ChannelType.GuildCategory,
-            permissionOverwrites: [
-                {
-                    id: guild.roles.everyone.id,
-                    deny: [PermissionsBitField.Flags.ViewChannel],
-                },
-                {
-                    id: me.id,
-                    allow: [
-                        PermissionsBitField.Flags.ViewChannel,
-                        PermissionsBitField.Flags.ManageChannels,
-                        PermissionsBitField.Flags.ReadMessageHistory,
-                        PermissionsBitField.Flags.SendMessages, // not strictly needed on category, but harmless
-                    ],
-                },
-                //TODO: Allow moderators
-            ],
-        });
-    }
-
-    if (modRoles.size > 0) {
-        for (const [modRoleName] of modRoles) {
-            await category.permissionOverwrites.create(modRoleName, {
-                ViewChannel: true,
-                SendMessages: true,
-                ReadMessageHistory: true,
-                ManageMessages: true,
-            });
-        }
-    }
+    // Find or create the active tickets category
+    const category = await findOrCreateActiveTicketsCategory(guild);
 
     const canManageInParent = category.permissionsFor(me)?.has(PermissionsBitField.Flags.ManageChannels);
     const canSeeParent = category.permissionsFor(me)?.has(PermissionsBitField.Flags.ViewChannel);
@@ -139,22 +102,36 @@ export async function createTicketChannel(
         }
     }
 
-    // Send initial message in the ticket
-    const ticketEmbed = new EmbedBuilder()
-        .setTitle(`🎫 Ticket #${ticketNumber}`)
-        .setDescription(`**Title:** ${title}`)
-        .addFields(
-            { name: '👤 Target User', value: `${targetUser} (${targetUser.tag})`, inline: true },
-            { name: '👮 Created By', value: `${creator} (${creator.tag})`, inline: true },
-            { name: '📝 Reason', value: reason, inline: false }
-        )
-        .setColor(0xff9900)
-        .setTimestamp();
+    // Send initial message in the ticket with state management
+    // Auto-claim tickets when created by a mod for a specific user
+    const ticketState: TicketState = {
+        ticketId: ticketNumber,
+        targetUserId: targetUser.id,
+        creatorUserId: creator.id,
+        title: title,
+        reason: reason,
+        status: 'claimed', // Auto-claim when mod creates ticket for user
+        claimedByUserId: creator.id, // Creator automatically claims the ticket
+        createdAt: new Date(),
+        updatedAt: new Date(),
+    };
 
-    await ticketChannel.send({
+    const ticketEmbed = createTicketEmbed(ticketState, targetUser, creator, creator);
+    const actionButtons = createTicketActionButtons(ticketState);
+
+    const initialMessage = await ticketChannel.send({
         content: `${targetUser} - A moderation ticket has been created for you.`,
         embeds: [ticketEmbed],
+        components: actionButtons,
     });
+
+    // Pin the initial message for easy reference
+    try {
+        await initialMessage.pin();
+    } catch (error) {
+        console.warn('Failed to pin ticket message (missing permissions?):', error);
+        // Continue without pinning - not critical for functionality
+    }
 
     return ticketChannel;
 }

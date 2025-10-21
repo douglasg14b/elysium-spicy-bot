@@ -5,9 +5,11 @@ import {
     TextChannel,
     ChannelType,
 } from 'discord.js';
-import { commandSuccess, commandError } from '../../features-system/commands';
-import { InteractionHandlerResult } from '../../features-system/commands/types';
-import { CreateModTicketChannelEmbedComponent } from './components';
+import { commandSuccess, commandError } from '../../../features-system/commands';
+import { InteractionHandlerResult } from '../../../features-system/commands/types';
+import { CreateModTicketChannelEmbedComponent } from '../components';
+
+export function DeployTicketCommand() {}
 
 export const deployTicketSystemCommand = new SlashCommandBuilder()
     .setName('deploy-ticket-system')

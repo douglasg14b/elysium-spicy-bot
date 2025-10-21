@@ -1,5 +1,13 @@
-import { ChatInputCommandInteraction, SlashCommandBuilder, TextChannel } from 'discord.js';
-import { InteractionHandlerResult } from '../../features-system/commands/types';
+import {
+    Channel,
+    ChannelType,
+    ChatInputCommandInteraction,
+    PermissionsBitField,
+    SlashCommandBuilder,
+    TextChannel,
+    User,
+} from 'discord.js';
+import { InteractionHandlerResult } from '../../../features-system/commands/types';
 
 export const TICKETS_COMMAND = 'tickets';
 
@@ -7,13 +15,17 @@ type SubCommand = 'add-user' | 'create';
 type CommandArgs =
     | {
           subcommand: 'add-user';
-          user: string;
+          user: User;
           reason?: string;
       }
     | {
           subcommand: 'create';
-          user: string;
+          user: User;
           title: string;
+      }
+    | {
+          subcommand: 'deploy';
+          channel: Channel;
       };
 
 export const ticketsCommand = new SlashCommandBuilder()
@@ -37,21 +49,39 @@ export const ticketsCommand = new SlashCommandBuilder()
             )
             .addStringOption((opt) => opt.setName('title').setDescription('The title of the ticket').setRequired(true))
     )
-    .setDescription('Ticket management commands');
+    .addSubcommand((sub) =>
+        sub
+            .setName('deploy')
+            .setDescription('Deploy the mod ticket system to a channel')
+            .addChannelOption((option) =>
+                option
+                    .setName('channel')
+                    .setDescription('Channel to deploy the ticket system to')
+                    .addChannelTypes(ChannelType.GuildText)
+                    .setRequired(false)
+            )
+    )
+    .setDescription('Ticket management commands')
+    .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageChannels);
 
 function resolveCommandArgs(interaction: ChatInputCommandInteraction): CommandArgs {
     const subcommand = interaction.options.getSubcommand() as SubCommand;
     if (subcommand === 'add-user') {
         return {
             subcommand,
-            user: interaction.options.getUser('user', true).id,
+            user: interaction.options.getUser('user', true),
             reason: interaction.options.getString('reason') || undefined,
         };
     } else if (subcommand === 'create') {
         return {
             subcommand,
-            user: interaction.options.getUser('user', true).id,
+            user: interaction.options.getUser('user', true),
             title: interaction.options.getString('title', true),
+        };
+    } else if (subcommand === 'deploy') {
+        return {
+            subcommand,
+            channel: (interaction.options.getChannel('channel') as TextChannel) || (interaction.channel as TextChannel),
         };
     }
 

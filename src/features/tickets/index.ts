@@ -1,3 +1,3 @@
 export * from './initTicketsFeature';
-export * from './deployTicketCommand';
-export * from './ticketCommands';
+export * from './commands/deployTicketCommand';
+export * from './commands/ticketCommands';
