@@ -11,8 +11,10 @@ import {
 } from 'discord.js';
 import { memberHasModeratorPerms, memberHasModeratorRole, findTicketStateMessage, updateTicketState } from '../logic';
 import { TICKET_BUTTON_CONFIGS } from '../logic/ticketButtonConfigs';
-import { TICKETING_CONFIG } from '../ticketsConfig';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
+import { ticketingRepo } from '../data/ticketingRepo';
+import { isTicketingConfigConfigured } from '../data/ticketingSchema';
+import { roleIdsToNames } from '../../../utils';
 
 export const TICKET_CLAIM_BUTTON_ID = TICKET_BUTTON_CONFIGS.CLAIM.customId;
 
@@ -34,15 +36,26 @@ export function TicketClaimButtonComponent() {
             return { status: 'error', message: '❌ This command can only be used in a server.' };
         }
 
-        const member = interaction.member as GuildMember;
-        const hasModRole = memberHasModeratorRole(member) || memberHasModeratorPerms(member);
-
-        if (!hasModRole) {
+        const configEntity = await ticketingRepo.get(interaction.guild.id);
+        if (!isTicketingConfigConfigured(configEntity)) {
             return {
                 status: 'error',
-                message: `❌ You need the **${TICKETING_CONFIG.moderationRoles.join(
-                    ', '
-                )}** role or moderation permissions to claim tickets.`,
+                message:
+                    '❌ The ticket system is not configured yet. Please ask an administrator to configure it first.',
+            };
+        }
+        const ticketsConfig = configEntity.config;
+
+        const member = interaction.member as GuildMember;
+        const hasModRole =
+            memberHasModeratorRole(member, ticketsConfig.moderationRoles) || memberHasModeratorPerms(member);
+
+        if (!hasModRole) {
+            const roleNames = await roleIdsToNames(interaction.guild, ticketsConfig.moderationRoles);
+
+            return {
+                status: 'error',
+                message: `❌ You need the **${roleNames.join(', ')}** role or moderation permissions to claim tickets.`,
             };
         }
 
@@ -59,6 +72,13 @@ export function TicketClaimButtonComponent() {
         const stateInfo = await findTicketStateMessage(channel);
         if (!stateInfo) {
             return { status: 'error', message: '❌ This command can only be used in ticket channels.' };
+        }
+
+        if (stateInfo.state.status === 'claimed') {
+            // If claimed by current user, inform them
+            if (stateInfo.state.claimedByUserId === member.id) {
+                return { status: 'error', message: '❌ You have already claimed this ticket.' };
+            }
         }
 
         if (stateInfo.state.status !== 'active') {

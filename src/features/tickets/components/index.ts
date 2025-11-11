@@ -5,3 +5,5 @@ export * from './ticketClaimButton';
 export * from './ticketCloseButton';
 export * from './ticketDeleteButton';
 export * from './ticketReopenButton';
+export * from './ticketConfigModal';
+export * from './ticketConfigButton';

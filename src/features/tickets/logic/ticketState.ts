@@ -1,5 +1,4 @@
-import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, User, Guild, TextChannel, ButtonStyle } from 'discord.js';
-import { TICKET_BUTTON_CONFIGS } from './ticketButtonConfigs';
+import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, User, Guild, TextChannel } from 'discord.js';
 import {
     TicketClaimButtonComponent,
     TicketCloseButtonComponent,

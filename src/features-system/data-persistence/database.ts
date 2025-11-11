@@ -10,10 +10,12 @@ import { SqliteJsonPlugin } from './plugins/sqliteJsonPlugin';
 import { SqlDatePlugin } from './plugins/sqlDatePlugin';
 import { DB_TYPE, PG_CONNECTION_STRING, SQLITE_DB_PATH } from '../../environment';
 import { FlashChatConfigTable } from '../../features/flash-chat/data/flashChatSchema';
+import { TicketingConfigTable } from '../../features/tickets/data/ticketingSchema';
 
 export interface Database {
     flash_chat_config: FlashChatConfigTable;
     command_audit_logs: CommandAuditLogTable;
+    ticketing_config: TicketingConfigTable;
 }
 
 function getDbDialect() {
@@ -53,6 +55,9 @@ function getDatabaseClient() {
             plugins: [
                 new SqlBooleanPlugin<Database>({
                     flash_chat_config: ['enabled', 'removed', 'preserveHistory', 'preservePinned'],
+                }),
+                new SqliteJsonPlugin<Database>({
+                    ticketing_config: ['config'],
                 }),
                 ...plugins,
             ],

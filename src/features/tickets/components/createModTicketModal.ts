@@ -1,26 +1,18 @@
 import {
     ActionRowBuilder,
-    ButtonBuilder,
-    ButtonStyle,
-    ButtonInteraction,
     ModalBuilder,
     TextInputBuilder,
     TextInputStyle,
     ModalSubmitInteraction,
-    EmbedBuilder,
-    PermissionsBitField,
-    ChannelType,
-    GuildMember,
     TextChannel,
-    CategoryChannel,
     UserSelectMenuBuilder,
     LabelBuilder,
-    User,
-    PermissionFlagsBits,
 } from 'discord.js';
 import { DISCORD_CLIENT } from '../../../discordClient';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { createTicketChannel } from '../logic';
+import { ticketingRepo } from '../data/ticketingRepo';
+import { isTicketingConfigConfigured } from '../data/ticketingSchema';
 
 const MOD_TICKET_MODAL_ID = 'mod_ticket_create_modal';
 
@@ -89,13 +81,38 @@ export function CreateModTicketModalComponent() {
             };
         }
 
+        const configEntity = await ticketingRepo.get(interaction.guild.id);
+        if (!isTicketingConfigConfigured(configEntity)) {
+            return {
+                status: 'error',
+                message:
+                    '❌ The ticket system is not configured yet. Please ask an administrator to configure it first.',
+            };
+        }
+        const ticketsConfig = configEntity.config;
+        configEntity.ticketNumberInc += 1;
+        const nextTicketNumber = configEntity.ticketNumberInc;
+
         try {
             // Create the ticket channel
-            const ticketChannel = await createTicketChannel(interaction, targetUser, title, reason);
+            const ticketChannel = await createTicketChannel({
+                interaction,
+                ticketingConfig: ticketsConfig,
+                targetUser,
+                title,
+                reason,
+                nextTicketNumber,
+            });
 
             await interaction.reply({
                 content: `✅ Ticket created successfully! ${ticketChannel}`,
                 ephemeral: true,
+            });
+
+            // Ensure we persist the ticket# change
+            await ticketingRepo.update({
+                ...configEntity,
+                config: JSON.stringify(configEntity.config),
             });
 
             return { status: 'success' };

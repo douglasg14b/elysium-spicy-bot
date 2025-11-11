@@ -1,10 +1,10 @@
 import { ChannelType, TextChannel } from 'discord.js';
-import { TICKETING_CONFIG } from '../ticketsConfig';
+import { ConfiguredTicketingConfig } from '../data/ticketingSchema';
 
 /**
  * Checks if a channel is a valid ticket channel (active or closed)
  */
-export function isTicketChannel(channel: any): channel is TextChannel {
+export function isTicketChannel(channel: any, ticketingConfig: ConfiguredTicketingConfig): channel is TextChannel {
     if (!channel || channel.type !== ChannelType.GuildText) {
         return false;
     }
@@ -18,8 +18,8 @@ export function isTicketChannel(channel: any): channel is TextChannel {
     }
 
     // Check if it's in either the active or closed ticket category
-    const isInActiveCategory = channel.parent?.name === TICKETING_CONFIG.supportTicketCategoryName;
-    const isInClosedCategory = channel.parent?.name === TICKETING_CONFIG.closedTicketCategoryName;
+    const isInActiveCategory = channel.parent?.name === ticketingConfig.supportTicketCategoryName;
+    const isInClosedCategory = channel.parent?.name === ticketingConfig.closedTicketCategoryName;
 
     return isInActiveCategory || isInClosedCategory;
 }
@@ -27,7 +27,10 @@ export function isTicketChannel(channel: any): channel is TextChannel {
 /**
  * Checks if a channel is a closed ticket channel
  */
-export function isClosedTicketChannel(channel: any): channel is TextChannel {
+export function isClosedTicketChannel(
+    channel: any,
+    ticketingConfig: ConfiguredTicketingConfig
+): channel is TextChannel {
     if (!channel || channel.type !== ChannelType.GuildText) {
         return false;
     }
@@ -40,13 +43,16 @@ export function isClosedTicketChannel(channel: any): channel is TextChannel {
     }
 
     // Check if it's in the closed ticket category
-    return channel.parent?.name === TICKETING_CONFIG.closedTicketCategoryName;
+    return channel.parent?.name === ticketingConfig.closedTicketCategoryName;
 }
 
 /**
  * Checks if a channel is an active (non-closed) ticket channel
  */
-export function isActiveTicketChannel(channel: any): channel is TextChannel {
+export function isActiveTicketChannel(
+    channel: any,
+    ticketingConfig: ConfiguredTicketingConfig
+): channel is TextChannel {
     if (!channel || channel.type !== ChannelType.GuildText) {
         return false;
     }
@@ -59,5 +65,5 @@ export function isActiveTicketChannel(channel: any): channel is TextChannel {
     }
 
     // Check if it's in the active ticket category
-    return channel.parent?.name === TICKETING_CONFIG.supportTicketCategoryName;
+    return channel.parent?.name === ticketingConfig.supportTicketCategoryName;
 }

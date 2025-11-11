@@ -6,12 +6,16 @@ import { flashChatCommand, handleFlashChatCommand } from './features/flash-chat/
 import { initFlashChat } from './features/flash-chat';
 import { flagBotReady } from './healthcheck/botHearthbeat';
 import { deployTicketSystemCommand, handleDeployTicketSystem, initTicketsFeature } from './features/tickets';
+import { initAIReply } from './features/ai-reply';
 
 interactionsRegistry.register(flashChatCommand, handleFlashChatCommand);
 interactionsRegistry.register(deployTicketSystemCommand, handleDeployTicketSystem);
 
 // Initialize ticket system handlers
 initTicketsFeature();
+
+// Initialize AI reply feature
+initAIReply();
 
 // Register with Discord API
 await registerCommandsWithDiscord(interactionsRegistry.getSlashCommandBuilders());

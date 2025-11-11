@@ -17,8 +17,10 @@ import {
     reopenTicketChannel,
     getOriginalChannelName,
 } from '../logic';
-import { TICKETING_CONFIG } from '../ticketsConfig';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
+import { isTicketingConfigConfigured } from '../data/ticketingSchema';
+import { ticketingRepo } from '../data/ticketingRepo';
+import { roleIdsToNames } from '../../../utils';
 
 export const TICKET_REOPEN_BUTTON_ID = 'ticket_reopen_button';
 
@@ -40,13 +42,26 @@ export function TicketReopenButtonComponent() {
             return { status: 'error', message: '❌ This command can only be used in a server.' };
         }
 
-        const member = interaction.member as GuildMember;
-        const hasModRole = memberHasModeratorRole(member) || memberHasModeratorPerms(member);
-
-        if (!hasModRole) {
+        const configEntity = await ticketingRepo.get(interaction.guild.id);
+        if (!isTicketingConfigConfigured(configEntity)) {
             return {
                 status: 'error',
-                message: `❌ You need the **${TICKETING_CONFIG.moderationRoles.join(
+                message:
+                    '❌ The ticket system is not configured yet. Please ask an administrator to configure it first.',
+            };
+        }
+        const ticketsConfig = configEntity.config;
+
+        const member = interaction.member as GuildMember;
+        const hasModRole =
+            memberHasModeratorRole(member, ticketsConfig.moderationRoles) || memberHasModeratorPerms(member);
+
+        if (!hasModRole) {
+            const roleNames = await roleIdsToNames(interaction.guild, ticketsConfig.moderationRoles);
+
+            return {
+                status: 'error',
+                message: `❌ You need the **${roleNames.join(
                     ', '
                 )}** role or moderation permissions to reopen tickets.`,
             };
@@ -79,7 +94,13 @@ export function TicketReopenButtonComponent() {
             const targetUserId = stateInfo.state.targetUserId;
 
             // Reopen the ticket using business logic
-            await reopenTicketChannel(channel, guild, originalChannelName, targetUserId);
+            await reopenTicketChannel({
+                ticketsConfig,
+                channel,
+                guild,
+                originalChannelName,
+                targetUserId,
+            });
 
             // Update ticket state
             await updateTicketState(

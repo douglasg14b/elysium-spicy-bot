@@ -9,7 +9,7 @@
         "start": "node dist/bot.js",
         "dev": "cross-env TSX=true dotenvx run --env-file=.env.local -- tsx watch src/bot.ts",
         "start:dev:docker": "docker compose -f docker-compose.dev.yml --env-file .env.local up --build",
-        "migrate:latest": "dotenvx run --env-file=.env.local -- tsx src/features/data-persistence/migrate.ts",
+        "migrate:latest": "dotenvx run --env-file=.env.local -- tsx src/features-system/data-persistence/migrate.ts",
         "clean": "rimraf dist"
     },
     "keywords": [],
@@ -22,6 +22,7 @@
         "discord.js": "^14.23.2",
         "env-var": "^7.5.0",
         "kysely": "^0.28.5",
+        "openai": "^6.6.0",
         "pathe": "^2.0.3",
         "pg": "^8.16.3"
     },

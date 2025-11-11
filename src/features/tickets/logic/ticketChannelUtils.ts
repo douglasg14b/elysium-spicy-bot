@@ -1,5 +1,4 @@
-import { Guild, GuildMember, TextChannel } from 'discord.js';
-import { TICKETING_CONFIG } from '../ticketsConfig';
+import { Guild, GuildMember } from 'discord.js';
 
 /**
  * Extracts ticket information from a ticket channel name

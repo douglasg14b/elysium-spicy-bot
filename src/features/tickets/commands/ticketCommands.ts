@@ -8,10 +8,12 @@ import {
     User,
 } from 'discord.js';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
+import { TicketConfigModalComponent } from '../components/ticketConfigModal';
+import { ticketingRepo } from '../data/ticketingRepo';
 
 export const TICKETS_COMMAND = 'tickets';
 
-type SubCommand = 'add-user' | 'create';
+type SubCommand = 'add-user' | 'create' | 'config';
 type CommandArgs =
     | {
           subcommand: 'add-user';
@@ -24,8 +26,7 @@ type CommandArgs =
           title: string;
       }
     | {
-          subcommand: 'deploy';
-          channel: Channel;
+          subcommand: 'config';
       };
 
 export const ticketsCommand = new SlashCommandBuilder()
@@ -49,18 +50,7 @@ export const ticketsCommand = new SlashCommandBuilder()
             )
             .addStringOption((opt) => opt.setName('title').setDescription('The title of the ticket').setRequired(true))
     )
-    .addSubcommand((sub) =>
-        sub
-            .setName('deploy')
-            .setDescription('Deploy the mod ticket system to a channel')
-            .addChannelOption((option) =>
-                option
-                    .setName('channel')
-                    .setDescription('Channel to deploy the ticket system to')
-                    .addChannelTypes(ChannelType.GuildText)
-                    .setRequired(false)
-            )
-    )
+    .addSubcommand((sub) => sub.setName('config').setDescription('Configure the ticket system settings'))
     .setDescription('Ticket management commands')
     .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageChannels);
 
@@ -78,10 +68,9 @@ function resolveCommandArgs(interaction: ChatInputCommandInteraction): CommandAr
             user: interaction.options.getUser('user', true),
             title: interaction.options.getString('title', true),
         };
-    } else if (subcommand === 'deploy') {
+    } else if (subcommand === 'config') {
         return {
             subcommand,
-            channel: (interaction.options.getChannel('channel') as TextChannel) || (interaction.channel as TextChannel),
         };
     }
 
@@ -91,9 +80,44 @@ function resolveCommandArgs(interaction: ChatInputCommandInteraction): CommandAr
 export const handleTicketCommand = async (
     interaction: ChatInputCommandInteraction
 ): Promise<InteractionHandlerResult> => {
-    // TODO: Implement ticket command handling
+    const args = resolveCommandArgs(interaction);
+
+    if (args.subcommand === 'config') {
+        if (!interaction.guild) {
+            return { status: 'error', message: '❌ This command can only be used in a server.' };
+        }
+
+        // Check if user has administrator permissions
+        if (!interaction.memberPermissions?.has('Administrator')) {
+            return {
+                status: 'error',
+                message: '❌ You need Administrator permissions to configure the ticket system.',
+            };
+        }
+
+        try {
+            // Get existing configuration if any
+            const existingConfig = await ticketingRepo.get(interaction.guild.id);
+            const currentConfig = existingConfig?.config;
+
+            // Create and show the modal
+            const modalComponent = TicketConfigModalComponent();
+            const modal = modalComponent.component(currentConfig);
+
+            await interaction.showModal(modal);
+            return { status: 'success' };
+        } catch (error) {
+            console.error('Error showing ticket config modal:', error);
+            return {
+                status: 'error',
+                message: '❌ Failed to open configuration modal. Please try again or contact an administrator.',
+            };
+        }
+    }
+
+    // TODO: Implement other ticket command handling
     await interaction.reply({
-        content: '🚧 Ticket commands are under development.',
+        content: '🚧 This ticket command is under development.',
         ephemeral: true,
     });
 

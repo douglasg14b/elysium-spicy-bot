@@ -8,6 +8,8 @@ import {
 import { commandSuccess, commandError } from '../../../features-system/commands';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { CreateModTicketChannelEmbedComponent } from '../components';
+import { ticketingRepo } from '../data/ticketingRepo';
+import { SUPPORT_TICKET_NAME_TEMPLATE } from '../constants';
 
 export function DeployTicketCommand() {}
 
@@ -34,6 +36,15 @@ export async function handleDeployTicketSystem(
         return commandError('Not in guild');
     }
 
+    // Check if user has administrator permissions
+    if (!interaction.memberPermissions?.has('Administrator')) {
+        await interaction.reply({
+            content: '❌ You need Administrator permissions to deploy the ticket system.',
+            ephemeral: true,
+        });
+        return commandError('Insufficient permissions');
+    }
+
     // Get target channel (use current channel if not specified)
     const targetChannel =
         (interaction.options.getChannel('channel') as TextChannel) || (interaction.channel as TextChannel);
@@ -47,11 +58,64 @@ export async function handleDeployTicketSystem(
     }
 
     try {
-        // Send the message with the persistent button
-        await targetChannel.send(CreateModTicketChannelEmbedComponent().messageEmbed);
+        // Get existing configuration
+        const existingConfig = await ticketingRepo.get(interaction.guild.id);
+
+        // Create embed with current config
+        const embedComponent = CreateModTicketChannelEmbedComponent(existingConfig || undefined);
+        const messageData = embedComponent.messageEmbed;
+
+        // Deploy the message
+        const deployedMessage = await targetChannel.send(messageData);
+
+        // Update or create config with deployment info
+        let newConfig;
+        if (existingConfig?.config) {
+            // Update existing config
+            newConfig = {
+                ...existingConfig.config,
+                modTicketsDeployed: true,
+                modTicketsDeployedChannelId: targetChannel.id,
+                modTicketsDeployedMessageId: deployedMessage.id,
+                ticketChannelNameTemplate: SUPPORT_TICKET_NAME_TEMPLATE,
+            };
+        } else {
+            // Create minimal config for deployment
+            newConfig = {
+                modTicketsDeployed: true,
+                modTicketsDeployedChannelId: targetChannel.id,
+                modTicketsDeployedMessageId: deployedMessage.id,
+                userTicketsDeployed: false,
+                userTicketsDeployedChannelId: null,
+                userTicketsDeployedMessageId: null,
+                supportTicketCategoryName: '',
+                closedTicketCategoryName: '',
+                ticketChannelNameTemplate: SUPPORT_TICKET_NAME_TEMPLATE,
+                moderationRoles: [],
+            };
+        }
+
+        if (existingConfig) {
+            await ticketingRepo.update({
+                guildId: interaction.guild.id,
+                config: JSON.stringify(newConfig),
+            });
+        } else {
+            await ticketingRepo.upsert({
+                guildId: interaction.guild.id,
+                config: JSON.stringify(newConfig),
+                ticketNumberInc: 0,
+                entityVersion: 1,
+            });
+        }
 
         await interaction.reply({
-            content: `✅ Mod ticket system deployed to ${targetChannel}!`,
+            content:
+                `✅ Ticket system deployed successfully in ${targetChannel}!\n\n` +
+                `📝 **Next Steps:**\n` +
+                `• Use \`/tickets config\` to configure the system\n` +
+                `• Set up categories and moderation roles\n` +
+                `• The deployed message will update automatically when configured`,
             ephemeral: true,
         });
 

@@ -1,7 +1,7 @@
 import { AdditionalData } from '../../shared';
-import { CommandHandlerResult } from '../commands/interactionsRegistry';
+import { InteractionHandlerResult } from '../commands/types';
 
-export function commandSuccess(message?: string, additionalData?: AdditionalData): CommandHandlerResult {
+export function commandSuccess(message?: string, additionalData?: AdditionalData): InteractionHandlerResult {
     return {
         status: 'success',
         message,
@@ -9,7 +9,7 @@ export function commandSuccess(message?: string, additionalData?: AdditionalData
     };
 }
 
-export function commandError(message?: string, additionalData?: AdditionalData): CommandHandlerResult {
+export function commandError(message?: string, additionalData?: AdditionalData): InteractionHandlerResult {
     return {
         status: 'error',
         message,
@@ -17,7 +17,7 @@ export function commandError(message?: string, additionalData?: AdditionalData):
     };
 }
 
-export function commandSkipped(message?: string, additionalData?: AdditionalData): CommandHandlerResult {
+export function commandSkipped(message?: string, additionalData?: AdditionalData): InteractionHandlerResult {
     return {
         status: 'skipped',
         message,

@@ -8,18 +8,20 @@ import {
     GuildMember,
 } from 'discord.js';
 import { memberHasModeratorPerms, memberHasModeratorRole } from '../logic';
-import { TICKETING_CONFIG } from '../ticketsConfig';
 import { CreateModTicketModalComponent } from './createModTicketModal';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
+import { ticketingRepo } from '../data/ticketingRepo';
+import { isTicketingConfigConfigured } from '../data/ticketingSchema';
 
 export const MOD_TICKET_BUTTON_ID = 'mod_ticket_create_button';
 
-export function CreateModTicketButtonComponent() {
+export function CreateModTicketButtonComponent(enabled: boolean = true) {
     function buildComponent() {
         const button = new ButtonBuilder()
             .setCustomId(MOD_TICKET_BUTTON_ID)
             .setLabel('Create Mod Ticket')
             .setStyle(ButtonStyle.Primary)
+            .setDisabled(!enabled)
             .setEmoji('🎫');
 
         (button.data as Partial<APIButtonComponentWithCustomId>).custom_id;
@@ -33,15 +35,33 @@ export function CreateModTicketButtonComponent() {
             return { status: 'error', message: '❌ This command can only be used in a server.' };
         }
 
-        const member = interaction.member as GuildMember;
-        const hasModRole = memberHasModeratorRole(member) || memberHasModeratorPerms(member);
+        // Check if ticketing system is configured
+        try {
+            const configEntity = await ticketingRepo.get(interaction.guild.id);
+            if (!isTicketingConfigConfigured(configEntity)) {
+                return {
+                    status: 'error',
+                    message:
+                        '❌ The ticket system is not configured yet. Please ask an administrator to configure it first.',
+                };
+            }
+            const ticketingConfig = configEntity.config;
 
-        if (!hasModRole) {
+            const member = interaction.member as GuildMember;
+            const hasModRole =
+                memberHasModeratorRole(member, ticketingConfig.moderationRoles) || memberHasModeratorPerms(member);
+
+            if (!hasModRole) {
+                return {
+                    status: 'error',
+                    message: `❌ You need moderation permissions or one of the configured moderation roles to create tickets.`,
+                };
+            }
+        } catch (error) {
+            console.error('Error checking ticket configuration:', error);
             return {
                 status: 'error',
-                message: `❌ You need the **${TICKETING_CONFIG.moderationRoles.join(
-                    ', '
-                )}** role or moderation permissions to create tickets.`,
+                message: '❌ Failed to check ticket system configuration. Please try again.',
             };
         }
 

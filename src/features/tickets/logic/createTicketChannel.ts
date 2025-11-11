@@ -7,27 +7,38 @@ import {
     TextChannel,
     User,
 } from 'discord.js';
-import { TICKETING_CONFIG } from '../ticketsConfig';
 import { buildTicketChannelName } from './buildTicketChannelName';
 import { findOrCreateActiveTicketsCategory } from './ticketChannelPermissions';
 import { TicketState, createTicketEmbed, createTicketActionButtons } from './ticketState';
+import { ConfiguredTicketingConfig } from '../data/ticketingSchema';
+
+interface CreateTicketChannelParams {
+    interaction: ModalSubmitInteraction;
+    ticketingConfig: ConfiguredTicketingConfig;
+    targetUser: User;
+    title: string;
+    reason: string;
+    nextTicketNumber: number;
+}
 
 /**
  * Creates the actual ticket channel with proper permissions
  */
-export async function createTicketChannel(
-    interaction: ModalSubmitInteraction,
-    targetUser: User,
-    title: string,
-    reason: string
-): Promise<TextChannel> {
+export async function createTicketChannel({
+    interaction,
+    ticketingConfig,
+    targetUser,
+    title,
+    reason,
+    nextTicketNumber: nextTicketId,
+}: CreateTicketChannelParams): Promise<TextChannel> {
     const guild = interaction.guild!;
     const creator = interaction.user;
     const me = guild.members.me!;
-    const modRoles = guild.roles.cache.filter((role) => TICKETING_CONFIG.moderationRoles.includes(role.name));
+    const modRoles = guild.roles.cache.filter((role) => ticketingConfig.moderationRoles.includes(role.id));
 
     // Find or create the active tickets category
-    const category = await findOrCreateActiveTicketsCategory(guild);
+    const category = await findOrCreateActiveTicketsCategory(guild, ticketingConfig);
 
     const canManageInParent = category.permissionsFor(me)?.has(PermissionsBitField.Flags.ManageChannels);
     const canSeeParent = category.permissionsFor(me)?.has(PermissionsBitField.Flags.ViewChannel);
@@ -39,14 +50,8 @@ export async function createTicketChannel(
         throw new Error('Bot lacks ViewChannel in the chosen category');
     }
 
-    //TODO: Track an incrementing number for ticket IDs
-    // Generate channel name
-    const ticketNumber = Math.floor(Math.random() * 9999)
-        .toString()
-        .padStart(4, '0');
-
     const channelName = buildTicketChannelName({
-        ticketId: parseInt(ticketNumber),
+        ticketId: nextTicketId,
         targetUserName: targetUser.username,
         creatorUserName: creator.username,
     });
@@ -105,7 +110,7 @@ export async function createTicketChannel(
     // Send initial message in the ticket with state management
     // Auto-claim tickets when created by a mod for a specific user
     const ticketState: TicketState = {
-        ticketId: ticketNumber,
+        ticketId: `${nextTicketId}`,
         targetUserId: targetUser.id,
         creatorUserId: creator.id,
         title: title,
