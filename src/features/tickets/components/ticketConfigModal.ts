@@ -67,12 +67,12 @@ export function TicketConfigModalComponent() {
         const modal = new ModalBuilder()
             .setCustomId(TICKET_CONFIG_MODAL_ID)
             .setTitle('Configure Ticket System')
-            .addLabelComponents(moderationRolesLabel)
             .addComponents(
                 new ActionRowBuilder<TextInputBuilder>({ components: [supportCategoryInput] }),
                 new ActionRowBuilder<TextInputBuilder>({ components: [closedCategoryInput] }),
                 new ActionRowBuilder<TextInputBuilder>({ components: [channelTemplateInput] })
-            );
+            )
+            .addLabelComponents(moderationRolesLabel);
 
         return modal;
     }

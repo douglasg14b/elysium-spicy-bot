@@ -20,7 +20,7 @@ import {
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { isTicketingConfigConfigured } from '../data/ticketingSchema';
 import { ticketingRepo } from '../data/ticketingRepo';
-import { roleIdsToNames } from '../../../utils';
+import { roleIdsToNames, timeFnCall } from '../../../utils';
 
 export const TICKET_REOPEN_BUTTON_ID = 'ticket_reopen_button';
 
@@ -42,7 +42,8 @@ export function TicketReopenButtonComponent() {
             return { status: 'error', message: '❌ This command can only be used in a server.' };
         }
 
-        const configEntity = await ticketingRepo.get(interaction.guild.id);
+        const guild = interaction.guild;
+        const configEntity = await timeFnCall(async () => await ticketingRepo.get(guild.id), 'ticketingRepo.get()');
         if (!isTicketingConfigConfigured(configEntity)) {
             return {
                 status: 'error',
@@ -57,7 +58,10 @@ export function TicketReopenButtonComponent() {
             memberHasModeratorRole(member, ticketsConfig.moderationRoles) || memberHasModeratorPerms(member);
 
         if (!hasModRole) {
-            const roleNames = await roleIdsToNames(interaction.guild, ticketsConfig.moderationRoles);
+            const roleNames = await timeFnCall(
+                async () => await roleIdsToNames(guild, ticketsConfig.moderationRoles),
+                'roleIdsToNames()'
+            );
 
             return {
                 status: 'error',
@@ -77,7 +81,10 @@ export function TicketReopenButtonComponent() {
             return { status: 'error', message: '❌ This command can only be used in text channels.' };
         }
 
-        const stateInfo = await findTicketStateMessage(channel);
+        const stateInfo = await timeFnCall(
+            async () => await findTicketStateMessage(channel),
+            'findTicketStateMessage()'
+        );
         if (!stateInfo) {
             return { status: 'error', message: '❌ This command can only be used in ticket channels.' };
         }
@@ -87,33 +94,40 @@ export function TicketReopenButtonComponent() {
         }
 
         try {
-            const guild = interaction.guild;
+            // Acknowledge the button interaction
+            await timeFnCall(async () => await interaction.deferUpdate(), 'interaction.deferUpdate()');
+
             const originalChannelName = getOriginalChannelName(channel.name);
 
             // Use the target user ID from the ticket state (more reliable than parsing name)
             const targetUserId = stateInfo.state.targetUserId;
 
             // Reopen the ticket using business logic
-            await reopenTicketChannel({
-                ticketsConfig,
-                channel,
-                guild,
-                originalChannelName,
-                targetUserId,
-            });
-
-            // Update ticket state
-            await updateTicketState(
-                channel,
-                {
-                    status: 'active',
-                    claimedByUserId: undefined, // Reset claimed status when reopening
-                },
-                guild
+            await timeFnCall(
+                async () =>
+                    await reopenTicketChannel({
+                        ticketsConfig,
+                        channel,
+                        guild,
+                        originalChannelName,
+                        targetUserId,
+                    }),
+                'reopenTicketChannel()'
             );
 
-            // Acknowledge the button interaction
-            await interaction.deferUpdate();
+            // Update ticket state
+            await timeFnCall(
+                async () =>
+                    await updateTicketState(
+                        channel,
+                        {
+                            status: 'active',
+                            claimedByUserId: undefined, // Reset claimed status when reopening
+                        },
+                        guild
+                    ),
+                'updateTicketState()'
+            );
 
             // Send public message to the channel
             await channel.send(`🔓 **Ticket Reopened**\nThis ticket has been reopened by ${member}.`);

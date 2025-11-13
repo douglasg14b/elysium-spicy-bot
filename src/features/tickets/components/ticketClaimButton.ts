@@ -14,7 +14,7 @@ import { TICKET_BUTTON_CONFIGS } from '../logic/ticketButtonConfigs';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { ticketingRepo } from '../data/ticketingRepo';
 import { isTicketingConfigConfigured } from '../data/ticketingSchema';
-import { roleIdsToNames } from '../../../utils';
+import { roleIdsToNames, timeFnCall } from '../../../utils';
 
 export const TICKET_CLAIM_BUTTON_ID = TICKET_BUTTON_CONFIGS.CLAIM.customId;
 
@@ -31,12 +31,17 @@ export function TicketClaimButtonComponent() {
     }
 
     async function handler(interaction: ButtonInteraction): Promise<InteractionHandlerResult> {
+        const startTime = performance.now();
+
         // Check if user has the required role
         if (!interaction.guild || !interaction.member) {
             return { status: 'error', message: '❌ This command can only be used in a server.' };
         }
 
-        const configEntity = await ticketingRepo.get(interaction.guild.id);
+        const guild = interaction.guild;
+        const guildId = interaction.guild.id;
+
+        const configEntity = await timeFnCall(async () => await ticketingRepo.get(guildId), 'ticketingRepo.get()');
         if (!isTicketingConfigConfigured(configEntity)) {
             return {
                 status: 'error',
@@ -51,7 +56,10 @@ export function TicketClaimButtonComponent() {
             memberHasModeratorRole(member, ticketsConfig.moderationRoles) || memberHasModeratorPerms(member);
 
         if (!hasModRole) {
-            const roleNames = await roleIdsToNames(interaction.guild, ticketsConfig.moderationRoles);
+            const roleNames = await timeFnCall(
+                async () => await roleIdsToNames(guild, ticketsConfig.moderationRoles),
+                'roleIdsToNames()'
+            );
 
             return {
                 status: 'error',
@@ -69,7 +77,10 @@ export function TicketClaimButtonComponent() {
             return { status: 'error', message: '❌ This command can only be used in text channels.' };
         }
 
-        const stateInfo = await findTicketStateMessage(channel);
+        const stateInfo = await timeFnCall(
+            async () => await findTicketStateMessage(channel),
+            'findTicketStateMessage()'
+        );
         if (!stateInfo) {
             return { status: 'error', message: '❌ This command can only be used in ticket channels.' };
         }
@@ -86,26 +97,34 @@ export function TicketClaimButtonComponent() {
         }
 
         try {
-            // Update channel permissions to give the claimer manage permissions
-            await channel.permissionOverwrites.edit(member.id, {
-                ViewChannel: true,
-                SendMessages: true,
-                ReadMessageHistory: true,
-                ManageMessages: true,
-            });
+            // Acknowledge the button interaction
+            await timeFnCall(async () => await interaction.deferUpdate(), 'interaction.deferUpdate()');
 
-            // Update ticket state
-            await updateTicketState(
-                channel,
-                {
-                    status: 'claimed',
-                    claimedByUserId: member.id,
-                },
-                interaction.guild!
+            // Update channel permissions to give the claimer manage permissions
+            await timeFnCall(
+                async () =>
+                    await channel.permissionOverwrites.edit(member.id, {
+                        ViewChannel: true,
+                        SendMessages: true,
+                        ReadMessageHistory: true,
+                        ManageMessages: true,
+                    }),
+                'channel.permissionOverwrites.edit()'
             );
 
-            // Acknowledge the button interaction
-            await interaction.deferUpdate();
+            // Update ticket state
+            await timeFnCall(
+                async () =>
+                    await updateTicketState(
+                        channel,
+                        {
+                            status: 'claimed',
+                            claimedByUserId: member.id,
+                        },
+                        interaction.guild!
+                    ),
+                'updateTicketState()'
+            );
 
             // Send public message to the channel
             await channel.send(`👋 **Ticket Claimed**\nThis ticket has been claimed by ${member}.`);

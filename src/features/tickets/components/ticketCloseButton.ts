@@ -22,7 +22,7 @@ import { TICKET_BUTTON_CONFIGS } from '../logic/ticketButtonConfigs';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { isTicketingConfigConfigured } from '../data/ticketingSchema';
 import { ticketingRepo } from '../data/ticketingRepo';
-import { roleIdsToNames } from '../../../utils';
+import { roleIdsToNames, timeFnCall } from '../../../utils';
 
 export const TICKET_CLOSE_BUTTON_ID = TICKET_BUTTON_CONFIGS.CLOSE.customId;
 
@@ -44,7 +44,8 @@ export function TicketCloseButtonComponent() {
             return { status: 'error', message: '❌ This command can only be used in a server.' };
         }
 
-        const configEntity = await ticketingRepo.get(interaction.guild.id);
+        const guild = interaction.guild;
+        const configEntity = await timeFnCall(async () => await ticketingRepo.get(guild.id), 'ticketingRepo.get()');
         if (!isTicketingConfigConfigured(configEntity)) {
             return {
                 status: 'error',
@@ -59,7 +60,10 @@ export function TicketCloseButtonComponent() {
             memberHasModeratorRole(member, ticketsConfig.moderationRoles) || memberHasModeratorPerms(member);
 
         if (!hasModRole) {
-            const roleNames = await roleIdsToNames(interaction.guild, ticketsConfig.moderationRoles);
+            const roleNames = await timeFnCall(
+                async () => await roleIdsToNames(guild, ticketsConfig.moderationRoles),
+                'roleIdsToNames()'
+            );
 
             return {
                 status: 'error',
@@ -77,7 +81,10 @@ export function TicketCloseButtonComponent() {
             return { status: 'error', message: '❌ This command can only be used in text channels.' };
         }
 
-        const stateInfo = await findTicketStateMessage(channel);
+        const stateInfo = await timeFnCall(
+            async () => await findTicketStateMessage(channel),
+            'findTicketStateMessage()'
+        );
         if (!stateInfo) {
             return { status: 'error', message: '❌ This command can only be used in ticket channels.' };
         }
@@ -87,25 +94,31 @@ export function TicketCloseButtonComponent() {
         }
 
         try {
-            const guild = interaction.guild;
+            // Acknowledge the button interaction
+            await timeFnCall(async () => await interaction.deferUpdate(), 'interaction.deferUpdate()');
+
             const newChannelName = getClosedChannelName(channel.name);
 
             console.log(`Closing ticket channel ${channel.id} (${channel.name})`);
 
             // Close the ticket using business logic
-            await closeTicketChannel(channel, guild, newChannelName, ticketsConfig);
-
-            // Update ticket state
-            await updateTicketState(
-                channel,
-                {
-                    status: 'closed',
-                },
-                guild
+            await timeFnCall(
+                async () => await closeTicketChannel(channel, guild, newChannelName, ticketsConfig),
+                'closeTicketChannel()'
             );
 
-            // Acknowledge the button interaction
-            await interaction.deferUpdate();
+            // Update ticket state
+            await timeFnCall(
+                async () =>
+                    await updateTicketState(
+                        channel,
+                        {
+                            status: 'closed',
+                        },
+                        guild
+                    ),
+                'updateTicketState()'
+            );
 
             // Send public message to the channel
             await channel.send(`🔒 **Ticket Closed**\nThis ticket has been closed by ${member}.`);

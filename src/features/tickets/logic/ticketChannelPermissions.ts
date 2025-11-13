@@ -1,5 +1,6 @@
 import { Guild, TextChannel, PermissionsBitField, CategoryChannel, ChannelType } from 'discord.js';
 import { ConfiguredTicketingConfig } from '../data/ticketingSchema';
+import { timeFnCall } from '../../../utils';
 
 export async function findOrCreateClosedTicketsCategory(
     guild: Guild,
@@ -144,27 +145,41 @@ export async function reopenTicketChannel({
     targetUserId,
 }: ReopenTicketChannelParams): Promise<void> {
     // Find or create the active tickets category
-    const activeCategory = await findOrCreateActiveTicketsCategory(guild, ticketsConfig);
+    const activeCategory = await timeFnCall(
+        async () => await findOrCreateActiveTicketsCategory(guild, ticketsConfig),
+        'findOrCreateActiveTicketsCategory()'
+    );
 
     // Restore view permissions for @everyone (inherit from category)
-    await channel.permissionOverwrites.edit(guild.roles.everyone.id, {
-        ViewChannel: null,
-        SendMessages: null,
-    });
+    await timeFnCall(
+        async () =>
+            await channel.permissionOverwrites.edit(guild.roles.everyone.id, {
+                ViewChannel: null,
+                SendMessages: null,
+            }),
+        'channel.permissionOverwrites.edit(@everyone)'
+    );
 
     // If we have the target user, restore their permissions
     if (targetUserId) {
-        await channel.permissionOverwrites.edit(targetUserId, {
-            ViewChannel: true,
-            SendMessages: true,
-            ReadMessageHistory: true,
-        });
+        await timeFnCall(
+            async () =>
+                await channel.permissionOverwrites.edit(targetUserId, {
+                    ViewChannel: true,
+                    SendMessages: true,
+                    ReadMessageHistory: true,
+                }),
+            'channel.permissionOverwrites.edit(targetUser)'
+        );
     }
 
     // Ensure moderators can still manage
-    await setupModeratorPermissions(channel, guild, ticketsConfig.moderationRoles);
+    await timeFnCall(
+        async () => await setupModeratorPermissions(channel, guild, ticketsConfig.moderationRoles),
+        'setupModeratorPermissions()'
+    );
 
     // Update channel name and move back to active category
-    await channel.setName(originalChannelName);
-    await channel.setParent(activeCategory);
+    await timeFnCall(async () => await channel.setName(originalChannelName), 'channel.setName()');
+    await timeFnCall(async () => await channel.setParent(activeCategory), 'channel.setParent()');
 }
