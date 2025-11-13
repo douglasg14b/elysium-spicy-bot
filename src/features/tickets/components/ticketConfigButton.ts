@@ -28,11 +28,11 @@ export function TicketConfigButtonComponent() {
             return { status: 'error', message: '❌ This command can only be used in a server.' };
         }
 
-        // Check if user has administrator permissions
-        if (!interaction.memberPermissions?.has('Administrator')) {
+        // Check if user has manage server permissions
+        if (!interaction.memberPermissions?.has('ManageGuild')) {
             return {
                 status: 'error',
-                message: '❌ You need Administrator permissions to configure the ticket system.',
+                message: '❌ You need Manage Server permissions to configure the ticket system.',
             };
         }
 

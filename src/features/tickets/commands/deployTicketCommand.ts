@@ -36,10 +36,10 @@ export async function handleDeployTicketSystem(
         return commandError('Not in guild');
     }
 
-    // Check if user has administrator permissions
-    if (!interaction.memberPermissions?.has('Administrator')) {
+    // Check if user has manage server permissions
+    if (!interaction.memberPermissions?.has('ManageGuild')) {
         await interaction.reply({
-            content: '❌ You need Administrator permissions to deploy the ticket system.',
+            content: '❌ You need Manage Server permissions to deploy the ticket system.',
             ephemeral: true,
         });
         return commandError('Insufficient permissions');
