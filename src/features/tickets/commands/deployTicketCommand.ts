@@ -4,14 +4,42 @@ import {
     PermissionsBitField,
     TextChannel,
     ChannelType,
+    Guild,
 } from 'discord.js';
 import { commandSuccess, commandError } from '../../../features-system/commands';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { CreateModTicketChannelEmbedComponent } from '../components';
 import { ticketingRepo } from '../data/ticketingRepo';
 import { SUPPORT_TICKET_NAME_TEMPLATE } from '../constants';
+import { verifyCommandPermissions } from '../../../utils';
 
 export function DeployTicketCommand() {}
+
+/**
+ * Validates that the bot has all required permissions for the ticketing system
+ */
+function validateBotPermissions(guild: Guild): { valid: boolean; missingPermissions: string[] } {
+    const botMember = guild.members.me;
+    if (!botMember) {
+        return { valid: false, missingPermissions: ['Bot not found in guild'] };
+    }
+
+    const requiredPermissions = [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.ManageChannels,
+        PermissionsBitField.Flags.SendMessages,
+        PermissionsBitField.Flags.ManageMessages,
+        PermissionsBitField.Flags.ReadMessageHistory,
+        PermissionsBitField.Flags.ManageRoles, // For permission overwrites
+    ];
+
+    const missingPermissions = verifyCommandPermissions(botMember.permissions, requiredPermissions);
+
+    return {
+        valid: missingPermissions.length === 0,
+        missingPermissions,
+    };
+}
 
 export const deployTicketSystemCommand = new SlashCommandBuilder()
     .setName('deploy-ticket-system')
@@ -23,7 +51,7 @@ export const deployTicketSystemCommand = new SlashCommandBuilder()
             .addChannelTypes(ChannelType.GuildText)
             .setRequired(false)
     )
-    .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageChannels);
+    .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild);
 
 export async function handleDeployTicketSystem(
     interaction: ChatInputCommandInteraction
@@ -43,6 +71,20 @@ export async function handleDeployTicketSystem(
             ephemeral: true,
         });
         return commandError('Insufficient permissions');
+    }
+
+    // Validate bot permissions
+    const permissionCheck = validateBotPermissions(interaction.guild);
+    if (!permissionCheck.valid) {
+        await interaction.reply({
+            content:
+                `❌ **Bot Missing Permissions**\n\n` +
+                `The bot needs these permissions to operate the ticketing system:\n` +
+                `• ${permissionCheck.missingPermissions.join('\n• ')}\n\n` +
+                `Please ensure the bot role has these permissions in the server settings.`,
+            ephemeral: true,
+        });
+        return commandError('Bot missing permissions');
     }
 
     // Get target channel (use current channel if not specified)
