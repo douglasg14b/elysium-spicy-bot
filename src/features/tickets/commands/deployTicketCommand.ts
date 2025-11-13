@@ -61,6 +61,29 @@ export async function handleDeployTicketSystem(
         // Get existing configuration
         const existingConfig = await ticketingRepo.get(interaction.guild.id);
 
+        // Handle existing deployed message - try to delete it if it exists
+        if (
+            existingConfig?.config?.modTicketsDeployedMessageId &&
+            existingConfig?.config?.modTicketsDeployedChannelId
+        ) {
+            try {
+                const oldChannel = interaction.guild.channels.cache.get(
+                    existingConfig.config.modTicketsDeployedChannelId
+                ) as TextChannel;
+                if (oldChannel) {
+                    const oldMessage = await oldChannel.messages.fetch(
+                        existingConfig.config.modTicketsDeployedMessageId
+                    );
+                    if (oldMessage) {
+                        await oldMessage.delete();
+                    }
+                }
+            } catch (error) {
+                // Message might have been already deleted or channel doesn't exist - continue silently
+                console.log('Previous deployed message not found or already deleted:', error);
+            }
+        }
+
         // Create embed with current config
         const embedComponent = CreateModTicketChannelEmbedComponent(existingConfig || undefined);
         const messageData = embedComponent.messageEmbed;
@@ -68,10 +91,10 @@ export async function handleDeployTicketSystem(
         // Deploy the message
         const deployedMessage = await targetChannel.send(messageData);
 
-        // Update or create config with deployment info
+        // Update or create config with new deployment info
         let newConfig;
         if (existingConfig?.config) {
-            // Update existing config
+            // Update existing config - preserve all settings but update deployment details
             newConfig = {
                 ...existingConfig.config,
                 modTicketsDeployed: true,
@@ -80,7 +103,7 @@ export async function handleDeployTicketSystem(
                 ticketChannelNameTemplate: SUPPORT_TICKET_NAME_TEMPLATE,
             };
         } else {
-            // Create minimal config for deployment
+            // Create minimal config for first-time deployment
             newConfig = {
                 modTicketsDeployed: true,
                 modTicketsDeployedChannelId: targetChannel.id,
@@ -111,7 +134,9 @@ export async function handleDeployTicketSystem(
 
         await interaction.reply({
             content:
-                `✅ Ticket system deployed successfully in ${targetChannel}!\n\n` +
+                `✅ Ticket system ${
+                    existingConfig ? 're-deployed' : 'deployed'
+                } successfully in ${targetChannel}!\n\n` +
                 `📝 **Next Steps:**\n` +
                 `• Use \`/tickets config\` to configure the system\n` +
                 `• Set up categories and moderation roles\n` +
@@ -119,7 +144,7 @@ export async function handleDeployTicketSystem(
             ephemeral: true,
         });
 
-        return commandSuccess('Ticket system deployed');
+        return commandSuccess(`Ticket system ${existingConfig ? 're-deployed' : 'deployed'}`);
     } catch (error) {
         console.error('Error deploying ticket system:', error);
         await interaction.reply({

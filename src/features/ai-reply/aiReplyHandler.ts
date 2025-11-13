@@ -65,7 +65,6 @@ async function handleAIReply(message: Message): Promise<void> {
     // Check if we should respond to this message
     const shouldRespond = shouldRespondToMessage(message, botUser.id);
     if (!shouldRespond) {
-        console.log('Message does not mention bot or is from a bot, skipping AI reply.');
         return;
     }
 
@@ -73,14 +72,12 @@ async function handleAIReply(message: Message): Promise<void> {
     if (message.reference && message.reference.messageId) {
         const isActualReplyToBot = await isReplyToBotMessage(message, botUser.id);
         if (!isActualReplyToBot) {
-            console.log('Message is a reply but not to bot, skipping AI reply.');
             return;
         }
     }
 
     // Make sure it's a text channel
     if (!message.channel.isTextBased()) {
-        console.log('Message is not in a text channel, skipping AI reply.');
         return;
     }
 
