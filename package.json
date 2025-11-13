@@ -9,7 +9,8 @@
         "start": "node dist/bot.js",
         "dev": "cross-env TSX=true dotenvx run --env-file=.env.local -- tsx watch src/bot.ts",
         "start:dev:docker": "docker compose -f docker-compose.dev.yml --env-file .env.local up --build",
-        "migrate:latest": "dotenvx run --env-file=.env.local -- tsx src/features-system/data-persistence/migrate.ts",
+        "migrate:latest": "tsx src/features-system/data-persistence/migrate.ts",
+        "migrate:latest:dev": "dotenvx run --env-file=.env.local -- tsx src/features-system/data-persistence/migrate.ts",
         "clean": "rimraf dist"
     },
     "keywords": [],
