@@ -7,9 +7,9 @@
     "scripts": {
         "build": "tsc",
         "start": "node dist/bot.js",
-        "dev": "dotenvx run --env-file=.env.local -- tsx watch src/bot.ts",
+        "dev": "cross-env TSX=true dotenvx run --env-file=.env.local -- tsx watch src/bot.ts",
         "start:dev:docker": "docker compose -f docker-compose.dev.yml --env-file .env.local up --build",
-        "migrate:latest": "dotenvx run --env-file=.env.local -- tsx src/features/data-persistence/migrate.ts",
+        "migrate:latest": "dotenvx run --env-file=.env.local -- tsx src/features-system/data-persistence/migrate.ts",
         "clean": "rimraf dist"
     },
     "keywords": [],
@@ -19,9 +19,10 @@
         "@eicode/result-pattern": "^2.3.2",
         "better-sqlite3": "^12.2.0",
         "commandkit": "1.2.0-rc.3",
-        "discord.js": "^14.22.0",
+        "discord.js": "^14.23.2",
         "env-var": "^7.5.0",
         "kysely": "^0.28.5",
+        "openai": "^6.6.0",
         "pathe": "^2.0.3",
         "pg": "^8.16.3"
     },
@@ -32,6 +33,7 @@
         "@types/node": "^24.3.0",
         "@types/pg": "^8.15.5",
         "@vitest/ui": "^3.2.4",
+        "cross-env": "^10.1.0",
         "nodemon": "^3.1.10",
         "rimraf": "^6.0.1",
         "tsx": "^4.20.4",

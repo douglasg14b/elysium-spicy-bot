@@ -1,5 +1,5 @@
 import { DISCORD_CLIENT } from '../../../discordClient';
-import { database } from '../../data-persistence/database';
+import { database } from '../../../features-system/data-persistence/database';
 import { FlashChatConfig, FlashChatConfigUpdate, NewFlashChatConfig } from './flashChatSchema';
 
 export class FlashChatRepo {

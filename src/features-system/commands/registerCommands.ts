@@ -1,8 +1,8 @@
 import { REST, Routes } from 'discord.js';
 import { DISCORD_APP_ID, DISCORD_BOT_TOKEN } from '../../environment';
-import { SupportedCommandBuilder } from './types';
+import { SupportedInteractionBuilder } from './types';
 
-export async function registerCommandsWithDiscord(commands: SupportedCommandBuilder[]): Promise<void> {
+export async function registerCommandsWithDiscord(commands: SupportedInteractionBuilder[]): Promise<void> {
     const rest = new REST({ version: '10' }).setToken(DISCORD_BOT_TOKEN);
 
     try {

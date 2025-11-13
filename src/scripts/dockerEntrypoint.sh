@@ -1,4 +1,4 @@
 #!/usr/bin/env sh
 set -e
-pnpm tsx src/features/data-persistence/migrate.ts
+pnpm migrate:latest
 exec pnpm tsx src/bot.ts
