@@ -53,7 +53,7 @@ function validateAndCleanReply(reply: string): string {
 }
 
 async function handleAIReply(message: Message): Promise<void> {
-    console.log('Received message for AI reply handling:', message.content);
+    // console.log('Received message for AI reply handling:', message.content);
 
     // Get bot's user ID
     const botUser = DISCORD_CLIENT.user;
