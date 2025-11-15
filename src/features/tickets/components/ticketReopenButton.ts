@@ -97,8 +97,6 @@ export function TicketReopenButtonComponent() {
             // Acknowledge the button interaction
             await timeFnCall(async () => await interaction.deferUpdate(), 'interaction.deferUpdate()');
 
-            const originalChannelName = getOriginalChannelName(channel.name);
-
             // Use the target user ID from the ticket state (more reliable than parsing name)
             const targetUserId = stateInfo.state.targetUserId;
 
@@ -109,8 +107,8 @@ export function TicketReopenButtonComponent() {
                         ticketsConfig,
                         channel,
                         guild,
-                        originalChannelName,
-                        targetUserId,
+                        memberReopeningTicket: member,
+                        ticketState: stateInfo.state,
                     }),
                 'reopenTicketChannel()'
             );

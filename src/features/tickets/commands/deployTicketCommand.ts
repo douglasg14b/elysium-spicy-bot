@@ -11,35 +11,10 @@ import { InteractionHandlerResult } from '../../../features-system/commands/type
 import { CreateModTicketChannelEmbedComponent } from '../components';
 import { ticketingRepo } from '../data/ticketingRepo';
 import { SUPPORT_TICKET_NAME_TEMPLATE } from '../constants';
-import { verifyCommandPermissions } from '../../../utils';
+import { validateTicketingPermissions } from '../utils';
+import { TicketingConfig } from '../data/ticketingSchema';
 
 export function DeployTicketCommand() {}
-
-/**
- * Validates that the bot has all required permissions for the ticketing system
- */
-function validateBotPermissions(guild: Guild): { valid: boolean; missingPermissions: string[] } {
-    const botMember = guild.members.me;
-    if (!botMember) {
-        return { valid: false, missingPermissions: ['Bot not found in guild'] };
-    }
-
-    const requiredPermissions = [
-        PermissionsBitField.Flags.ViewChannel,
-        PermissionsBitField.Flags.ManageChannels,
-        PermissionsBitField.Flags.SendMessages,
-        PermissionsBitField.Flags.ManageMessages,
-        PermissionsBitField.Flags.ReadMessageHistory,
-        PermissionsBitField.Flags.ManageRoles, // For permission overwrites
-    ];
-
-    const missingPermissions = verifyCommandPermissions(botMember.permissions, requiredPermissions);
-
-    return {
-        valid: missingPermissions.length === 0,
-        missingPermissions,
-    };
-}
 
 export const deployTicketSystemCommand = new SlashCommandBuilder()
     .setName('deploy-ticket-system')
@@ -74,7 +49,7 @@ export async function handleDeployTicketSystem(
     }
 
     // Validate bot permissions
-    const permissionCheck = validateBotPermissions(interaction.guild);
+    const permissionCheck = validateTicketingPermissions(interaction.guild);
     if (!permissionCheck.valid) {
         await interaction.reply({
             content:
@@ -134,7 +109,7 @@ export async function handleDeployTicketSystem(
         const deployedMessage = await targetChannel.send(messageData);
 
         // Update or create config with new deployment info
-        let newConfig;
+        let newConfig: TicketingConfig;
         if (existingConfig?.config) {
             // Update existing config - preserve all settings but update deployment details
             newConfig = {
@@ -155,6 +130,7 @@ export async function handleDeployTicketSystem(
                 userTicketsDeployedMessageId: null,
                 supportTicketCategoryName: '',
                 closedTicketCategoryName: '',
+                claimedTicketCategoryName: '',
                 ticketChannelNameTemplate: SUPPORT_TICKET_NAME_TEMPLATE,
                 moderationRoles: [],
             };

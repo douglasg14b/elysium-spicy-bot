@@ -57,6 +57,7 @@ export function getOriginalChannelName(channelName: string): string {
 
 /**
  * Marks a channel name as closed by adding the '-closed' suffix
+ * @deprecated we don't do this anymore, there are categories now
  */
 export function getClosedChannelName(channelName: string): string {
     // Don't double-suffix if already closed

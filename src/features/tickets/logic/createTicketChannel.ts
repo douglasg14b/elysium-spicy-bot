@@ -8,9 +8,10 @@ import {
     User,
 } from 'discord.js';
 import { buildTicketChannelName } from './buildTicketChannelName';
-import { findOrCreateActiveTicketsCategory } from './ticketChannelPermissions';
+import { findOrCreateModeratorCategory } from './ticketChannelPermissions';
 import { TicketState, createTicketEmbed, createTicketActionButtons } from './ticketState';
 import { ConfiguredTicketingConfig } from '../data/ticketingSchema';
+import { fail, ok, Result } from '../../../shared';
 
 interface CreateTicketChannelParams {
     interaction: ModalSubmitInteraction;
@@ -31,23 +32,29 @@ export async function createTicketChannel({
     title,
     reason,
     nextTicketNumber: nextTicketId,
-}: CreateTicketChannelParams): Promise<TextChannel> {
+}: CreateTicketChannelParams): Promise<Result<TextChannel>> {
     const guild = interaction.guild!;
     const creator = interaction.user;
     const me = guild.members.me!;
     const modRoles = guild.roles.cache.filter((role) => ticketingConfig.moderationRoles.includes(role.id));
 
     // Find or create the active tickets category
-    const category = await findOrCreateActiveTicketsCategory(guild, ticketingConfig);
+    const categoryResult = await findOrCreateModeratorCategory({
+        guild,
+        categoryName: ticketingConfig.claimedTicketCategoryName,
+        moderationRoleIds: ticketingConfig.moderationRoles,
+    });
+    if (!categoryResult.ok) return categoryResult;
+    const category = categoryResult.value;
 
     const canManageInParent = category.permissionsFor(me)?.has(PermissionsBitField.Flags.ManageChannels);
     const canSeeParent = category.permissionsFor(me)?.has(PermissionsBitField.Flags.ViewChannel);
     if (!canManageInParent) {
-        throw new Error('Bot lacks ManageChannels in the chosen category');
+        return fail('Bot lacks ManageChannels in the chosen category');
     }
 
     if (!canSeeParent) {
-        throw new Error('Bot lacks ViewChannel in the chosen category');
+        return fail('Bot lacks ViewChannel in the chosen category');
     }
 
     const channelName = buildTicketChannelName({
@@ -138,5 +145,5 @@ export async function createTicketChannel({
         // Continue without pinning - not critical for functionality
     }
 
-    return ticketChannel;
+    return ok(ticketChannel);
 }

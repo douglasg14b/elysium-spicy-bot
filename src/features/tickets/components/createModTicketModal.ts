@@ -95,7 +95,7 @@ export function CreateModTicketModalComponent() {
 
         try {
             // Create the ticket channel
-            const ticketChannel = await createTicketChannel({
+            const ticketChannelResult = await createTicketChannel({
                 interaction,
                 ticketingConfig: ticketsConfig,
                 targetUser,
@@ -103,6 +103,10 @@ export function CreateModTicketModalComponent() {
                 reason,
                 nextTicketNumber,
             });
+            if (!ticketChannelResult.ok) {
+                return { status: 'error', message: `❌ Failed to create ticket: ${ticketChannelResult.error}` };
+            }
+            const ticketChannel = ticketChannelResult.value;
 
             await interaction.reply({
                 content: `✅ Ticket created successfully! ${ticketChannel}`,

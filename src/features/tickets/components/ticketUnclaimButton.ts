@@ -8,44 +8,47 @@ import {
     GuildMember,
     EmbedBuilder,
     ChannelType,
-    PermissionsBitField,
 } from 'discord.js';
 import {
     memberHasModeratorPerms,
     memberHasModeratorRole,
     findTicketStateMessage,
     updateTicketState,
-    closeTicketChannel,
-    getClosedChannelName,
+    findCategory,
+    findOrCreateModeratorCategory,
 } from '../logic';
 import { TICKET_BUTTON_CONFIGS } from '../logic/ticketButtonConfigs';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
-import { isTicketingConfigConfigured } from '../data/ticketingSchema';
 import { ticketingRepo } from '../data/ticketingRepo';
+import { isTicketingConfigConfigured } from '../data/ticketingSchema';
 import { roleIdsToNames, timeFnCall } from '../../../utils';
 
-export const TICKET_CLOSE_BUTTON_ID = TICKET_BUTTON_CONFIGS.CLOSE.customId;
+export const TICKET_UNCLAIM_BUTTON_ID = TICKET_BUTTON_CONFIGS.UNCLAIM.customId;
 
-export function TicketCloseButtonComponent() {
+export function TicketUnclaimButtonComponent() {
     function buildComponent(enabled: boolean) {
         const button = new ButtonBuilder()
-            .setCustomId(TICKET_BUTTON_CONFIGS.CLOSE.customId)
-            .setLabel(TICKET_BUTTON_CONFIGS.CLOSE.label)
-            .setStyle(TICKET_BUTTON_CONFIGS.CLOSE.style)
-            .setEmoji(TICKET_BUTTON_CONFIGS.CLOSE.emoji)
+            .setCustomId(TICKET_BUTTON_CONFIGS.UNCLAIM.customId)
+            .setLabel(TICKET_BUTTON_CONFIGS.UNCLAIM.label)
+            .setStyle(TICKET_BUTTON_CONFIGS.UNCLAIM.style)
+            .setEmoji(TICKET_BUTTON_CONFIGS.UNCLAIM.emoji)
             .setDisabled(!enabled);
 
         return button as ComponentBuilder<APIButtonComponentWithCustomId>;
     }
 
     async function handler(interaction: ButtonInteraction): Promise<InteractionHandlerResult> {
+        const startTime = performance.now();
+
         // Check if user has the required role
         if (!interaction.guild || !interaction.member) {
             return { status: 'error', message: '❌ This command can only be used in a server.' };
         }
 
         const guild = interaction.guild;
-        const configEntity = await timeFnCall(async () => await ticketingRepo.get(guild.id), 'ticketingRepo.get()');
+        const guildId = interaction.guild.id;
+
+        const configEntity = await timeFnCall(async () => await ticketingRepo.get(guildId), 'ticketingRepo.get()');
         if (!isTicketingConfigConfigured(configEntity)) {
             return {
                 status: 'error',
@@ -67,7 +70,9 @@ export function TicketCloseButtonComponent() {
 
             return {
                 status: 'error',
-                message: `❌ You need the **${roleNames.join(', ')}** role or moderation permissions to close tickets.`,
+                message: `❌ You need the **${roleNames.join(
+                    ', '
+                )}** role or moderation permissions to unclaim tickets.`,
             };
         }
 
@@ -89,54 +94,79 @@ export function TicketCloseButtonComponent() {
             return { status: 'error', message: '❌ This command can only be used in ticket channels.' };
         }
 
-        if (stateInfo.state.status === 'closed') {
-            return { status: 'error', message: '❌ This ticket is already closed.' };
+        if (stateInfo.state.status !== 'claimed') {
+            return { status: 'error', message: '❌ This ticket is not currently claimed.' };
+        }
+
+        // Check if the user is the one who claimed the ticket or has mod permissions
+        const isTicketClaimer = stateInfo.state.claimedByUserId === member.id;
+        if (!isTicketClaimer && !hasModRole) {
+            return { status: 'error', message: '❌ You can only unclaim tickets you have claimed.' };
         }
 
         try {
+            const supportTicketsCategoryResult = await findOrCreateModeratorCategory({
+                guild,
+                categoryName: ticketsConfig.supportTicketCategoryName,
+                moderationRoleIds: ticketsConfig.moderationRoles,
+            });
+            if (!supportTicketsCategoryResult.ok) {
+                return {
+                    status: 'error',
+                    message: '❌ Support tickets category not found. Please contact an administrator.',
+                };
+            }
+            const supportTicketsCategory = supportTicketsCategoryResult.value;
+
             // Acknowledge the button interaction
             await timeFnCall(async () => await interaction.deferUpdate(), 'interaction.deferUpdate()');
 
-            const newChannelName = getClosedChannelName(channel.name);
-
-            console.log(`Closing ticket channel ${channel.id} (${channel.name})`);
-
-            // Close the ticket using business logic
-            const closeResult = await timeFnCall(
-                async () => await closeTicketChannel(channel, guild, ticketsConfig),
-                'closeTicketChannel()'
-            );
-            if (!closeResult.ok) {
-                console.error('Error closing ticket channel:', closeResult.error);
-                return { status: 'error', message: '❌ Failed to close ticket. Please try again.' };
+            // Remove the claimer's manage permissions (keep basic permissions)
+            if (stateInfo.state.claimedByUserId) {
+                await timeFnCall(
+                    async () =>
+                        await channel.permissionOverwrites.edit(stateInfo.state.claimedByUserId!, {
+                            ViewChannel: true,
+                            SendMessages: true,
+                            ReadMessageHistory: true,
+                            ManageMessages: false, // Remove manage permissions
+                        }),
+                    'channel.permissionOverwrites.edit()'
+                );
             }
 
-            // Update ticket state
+            // Move ticket back to support tickets category
+            await channel.setParent(supportTicketsCategory.id);
+
+            // Update ticket state to active
             await timeFnCall(
                 async () =>
                     await updateTicketState(
                         channel,
                         {
-                            status: 'closed',
+                            status: 'active',
+                            claimedByUserId: undefined,
                         },
-                        guild
+                        interaction.guild!
                     ),
                 'updateTicketState()'
             );
 
             // Send public message to the channel
-            await channel.send(`🔒 **Ticket Closed**\nThis ticket has been closed by ${member}.`);
+            await channel.send(
+                `🔄 **Ticket Unclaimed**\nThis ticket has been unclaimed and moved back to active status.`
+            );
 
             return { status: 'success' };
         } catch (error) {
-            console.error('Error closing ticket:', error);
-            return { status: 'error', message: '❌ Failed to close ticket. Please try again.' };
+            console.error('Error unclaiming ticket:', error);
+            return { status: 'error', message: '❌ Failed to unclaim ticket. Please try again.' };
         }
     }
 
     return {
         handler,
         component: buildComponent,
-        interactionId: TICKET_CLOSE_BUTTON_ID,
+        interactionId: TICKET_UNCLAIM_BUTTON_ID,
     };
 }

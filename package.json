@@ -25,7 +25,8 @@
         "kysely": "^0.28.5",
         "openai": "^6.6.0",
         "pathe": "^2.0.3",
-        "pg": "^8.16.3"
+        "pg": "^8.16.3",
+        "node-cache": "5.1.2"
     },
     "devDependencies": {
         "@dotenvx/dotenvx": "^1.49.0",

@@ -31,6 +31,7 @@ export function CreateModTicketChannelEmbedComponent(configEntity?: TicketingCon
             const ticketConfig = configEntity.config;
             const configValue = [
                 `**Support Category:** ${ticketConfig.supportTicketCategoryName || 'Not configured'}`,
+                `**Claimed Category:** ${ticketConfig.claimedTicketCategoryName || 'Not configured'}`,
                 `**Closed Category:** ${ticketConfig.closedTicketCategoryName || 'Not configured'}`,
                 `**Channel Template:** ${ticketConfig.ticketChannelNameTemplate || SUPPORT_TICKET_NAME_TEMPLATE}`,
                 `**Moderation Roles:** ${

@@ -1,43 +1,34 @@
-import { Guild, TextChannel, PermissionsBitField, CategoryChannel, ChannelType } from 'discord.js';
+import { Guild, TextChannel, PermissionsBitField, CategoryChannel, ChannelType, GuildMember } from 'discord.js';
 import { ConfiguredTicketingConfig } from '../data/ticketingSchema';
 import { timeFnCall } from '../../../utils';
-
-export async function findOrCreateClosedTicketsCategory(
-    guild: Guild,
-    ticketingConfig: ConfiguredTicketingConfig
-): Promise<CategoryChannel> {
-    return findOrCreateModeratorCategory({
-        guild,
-        categoryName: ticketingConfig.closedTicketCategoryName,
-        ticketingConfig,
-    });
-}
-
-export async function findOrCreateActiveTicketsCategory(
-    guild: Guild,
-    ticketingConfig: ConfiguredTicketingConfig
-): Promise<CategoryChannel> {
-    return findOrCreateModeratorCategory({
-        guild,
-        categoryName: ticketingConfig.supportTicketCategoryName,
-        ticketingConfig,
-    });
-}
+import { fail, ok, Result } from '../../../shared';
+import { findTicketStateMessage, TicketState } from './ticketState';
 
 interface FindOrCreateCategoryOptions {
     guild: Guild;
     categoryName: string;
-    ticketingConfig: ConfiguredTicketingConfig;
+    moderationRoleIds: string[];
 }
 
-async function findOrCreateModeratorCategory({ guild, categoryName, ticketingConfig }: FindOrCreateCategoryOptions) {
-    let category = guild.channels.cache.find(
+export async function findCategory(guild: Guild, categoryName: string): Promise<CategoryChannel | null> {
+    const category = guild.channels.cache.find(
         (channel) => channel.type === ChannelType.GuildCategory && channel.name === categoryName
     ) as CategoryChannel;
 
-    if (!category) {
+    return category || null;
+}
+
+export async function findOrCreateModeratorCategory({
+    guild,
+    categoryName,
+    moderationRoleIds,
+}: FindOrCreateCategoryOptions) {
+    try {
+        let category = await findCategory(guild, categoryName);
+        if (category) return ok(category);
+
         const me = guild.members.me!;
-        const modRoles = guild.roles.cache.filter((role) => ticketingConfig.moderationRoles.includes(role.id));
+        const modRoles = guild.roles.cache.filter((role) => moderationRoleIds.includes(role.id));
 
         category = await guild.channels.create({
             name: categoryName,
@@ -70,9 +61,11 @@ async function findOrCreateModeratorCategory({ guild, categoryName, ticketingCon
                 });
             }
         }
-    }
 
-    return category;
+        return ok(category);
+    } catch (err) {
+        return fail('Failed to find or create category');
+    }
 }
 
 /**
@@ -107,11 +100,17 @@ export async function setupModeratorPermissions(channel: TextChannel, guild: Gui
 export async function closeTicketChannel(
     channel: TextChannel,
     guild: Guild,
-    newChannelName: string,
     ticketsConfig: ConfiguredTicketingConfig
-): Promise<void> {
+): Promise<Result<void>> {
     // Find or create the closed tickets category
-    const closedCategory = await findOrCreateClosedTicketsCategory(guild, ticketsConfig);
+    const closedCategoryResult = await findOrCreateModeratorCategory({
+        guild,
+        categoryName: ticketsConfig.closedTicketCategoryName,
+        moderationRoleIds: ticketsConfig.moderationRoles,
+    });
+
+    if (!closedCategoryResult.ok) return closedCategoryResult;
+    const closedCategory = closedCategoryResult.value;
 
     // Remove view permissions for @everyone
     await channel.permissionOverwrites.edit(guild.roles.everyone.id, {
@@ -121,17 +120,17 @@ export async function closeTicketChannel(
     // Ensure moderators can still access
     await setupModeratorPermissions(channel, guild, ticketsConfig.moderationRoles);
 
-    // Update channel name and move to closed category
-    await channel.setName(newChannelName);
     await channel.setParent(closedCategory);
+
+    return ok();
 }
 
 interface ReopenTicketChannelParams {
     ticketsConfig: ConfiguredTicketingConfig;
     channel: TextChannel;
     guild: Guild;
-    originalChannelName: string;
-    targetUserId?: string;
+    memberReopeningTicket: GuildMember;
+    ticketState: TicketState;
 }
 
 /**
@@ -141,14 +140,24 @@ export async function reopenTicketChannel({
     ticketsConfig,
     channel,
     guild,
-    originalChannelName,
-    targetUserId,
-}: ReopenTicketChannelParams): Promise<void> {
+    ticketState,
+}: ReopenTicketChannelParams): Promise<Result<void>> {
+    const targetUserId = ticketState.targetUserId;
+
     // Find or create the active tickets category
-    const activeCategory = await timeFnCall(
-        async () => await findOrCreateActiveTicketsCategory(guild, ticketsConfig),
-        'findOrCreateActiveTicketsCategory()'
+    const activeCategoryResult = await timeFnCall(
+        async () =>
+            await findOrCreateModeratorCategory({
+                guild,
+                categoryName: ticketState.claimedByUserId
+                    ? ticketsConfig.claimedTicketCategoryName
+                    : ticketsConfig.supportTicketCategoryName,
+                moderationRoleIds: ticketsConfig.moderationRoles,
+            }),
+        'findOrCreateModeratorCategory()'
     );
+    if (!activeCategoryResult.ok) return activeCategoryResult;
+    const activeCategory = activeCategoryResult.value;
 
     // Restore view permissions for @everyone (inherit from category)
     await timeFnCall(
@@ -180,6 +189,7 @@ export async function reopenTicketChannel({
     );
 
     // Update channel name and move back to active category
-    await timeFnCall(async () => await channel.setName(originalChannelName), 'channel.setName()');
     await timeFnCall(async () => await channel.setParent(activeCategory), 'channel.setParent()');
+
+    return ok();
 }

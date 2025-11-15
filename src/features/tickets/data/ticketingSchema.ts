@@ -27,6 +27,7 @@ export interface TicketingConfig {
     userTicketsDeployedMessageId: string | null;
 
     supportTicketCategoryName: string;
+    claimedTicketCategoryName: string;
     closedTicketCategoryName: string;
     ticketChannelNameTemplate: string;
 
@@ -54,6 +55,7 @@ export function isTicketingConfigConfigured(
         modTicketsDeployed,
         supportTicketCategoryName,
         closedTicketCategoryName,
+        claimedTicketCategoryName,
         moderationRoles,
         modTicketsDeployedChannelId,
         modTicketsDeployedMessageId,
@@ -61,6 +63,7 @@ export function isTicketingConfigConfigured(
 
     return (
         modTicketsDeployed &&
+        !!claimedTicketCategoryName &&
         !!supportTicketCategoryName &&
         !!closedTicketCategoryName &&
         !!modTicketsDeployedChannelId &&

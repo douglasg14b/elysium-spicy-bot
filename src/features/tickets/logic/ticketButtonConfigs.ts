@@ -14,6 +14,12 @@ export const TICKET_BUTTON_CONFIGS = {
         style: ButtonStyle.Success,
         emoji: '✋',
     },
+    UNCLAIM: {
+        customId: 'ticket_unclaim_button',
+        label: 'Unclaim',
+        style: ButtonStyle.Secondary,
+        emoji: '↩️',
+    },
     CLOSE: {
         customId: 'ticket_close_button',
         label: 'Close',
@@ -36,6 +42,7 @@ export const TICKET_BUTTON_CONFIGS = {
 
 // Export the individual IDs for backward compatibility
 export const TICKET_CLAIM_BUTTON_ID = TICKET_BUTTON_CONFIGS.CLAIM.customId;
+export const TICKET_UNCLAIM_BUTTON_ID = TICKET_BUTTON_CONFIGS.UNCLAIM.customId;
 export const TICKET_CLOSE_BUTTON_ID = TICKET_BUTTON_CONFIGS.CLOSE.customId;
 export const TICKET_REOPEN_BUTTON_ID = TICKET_BUTTON_CONFIGS.REOPEN.customId;
 export const TICKET_DELETE_BUTTON_ID = TICKET_BUTTON_CONFIGS.DELETE.customId;

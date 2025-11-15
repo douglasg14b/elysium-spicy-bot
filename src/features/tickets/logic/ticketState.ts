@@ -1,10 +1,21 @@
-import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, User, Guild, TextChannel } from 'discord.js';
+import {
+    EmbedBuilder,
+    ActionRowBuilder,
+    ButtonBuilder,
+    User,
+    Guild,
+    TextChannel,
+    Message,
+    APIEmbedField,
+} from 'discord.js';
 import {
     TicketClaimButtonComponent,
+    TicketUnclaimButtonComponent,
     TicketCloseButtonComponent,
     TicketDeleteButtonComponent,
     TicketReopenButtonComponent,
 } from '../components';
+import NodeCache from 'node-cache';
 
 export interface TicketState {
     ticketId: string;
@@ -17,6 +28,14 @@ export interface TicketState {
     createdAt: Date;
     updatedAt: Date;
 }
+
+const TTL_SECONDS = 60 * 60 * 48; // 48 hours
+const CACHE_POLLING_INTERVAL_SECONDS = 60 * 60; // 60 minutes
+
+const ticketChannelStateMessageIdCache = new NodeCache({
+    stdTTL: TTL_SECONDS,
+    checkperiod: CACHE_POLLING_INTERVAL_SECONDS,
+});
 
 /**
  * Creates the hidden ticket state data for embed fields (base64 encoded)
@@ -122,19 +141,92 @@ export function createTicketEmbed(
  */
 export function createTicketActionButtons(state: TicketState): ActionRowBuilder<ButtonBuilder>[] {
     // Button enabled states based on ticket status
-    const claimEnabled = state.status === 'active' || state.status === 'claimed'; // Only claimable if active or claimed
+    const claimEnabled = state.status !== 'closed' && !state.claimedByUserId; // Only claimable if not closed and unclaimed
+    const unclaimEnabled = state.status === 'claimed' && !!state.claimedByUserId; // Only unclaimable if claimed
     const closeEnabled = state.status !== 'closed'; // Can close if active or claimed
     const reopenEnabled = state.status === 'closed'; // Only reopenable if closed
     const deleteEnabled = true; // Always enabled
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
         TicketClaimButtonComponent().component(claimEnabled) as ButtonBuilder,
+        TicketUnclaimButtonComponent().component(unclaimEnabled) as ButtonBuilder,
         TicketCloseButtonComponent().component(closeEnabled) as ButtonBuilder,
         TicketReopenButtonComponent().component(reopenEnabled) as ButtonBuilder,
         TicketDeleteButtonComponent().component(deleteEnabled) as ButtonBuilder
     );
 
     return [row];
+}
+
+function isMessageTicketStateEmbed(message: Message): APIEmbedField | false {
+    if (message.embeds.length === 0) {
+        return false;
+    }
+
+    const embed = message.embeds[0];
+    const stateField = embed.fields?.find((field) => field.name === '🔧 Internal Data');
+
+    return stateField || false;
+}
+
+function extractTicketEmbedData(stateField: APIEmbedField): TicketState | null {
+    try {
+        // Extract base64 data from code block
+        const base64Match = stateField.value.match(/`([A-Za-z0-9+/=]+)`/);
+        if (base64Match) {
+            const state = parseTicketStateData(base64Match[1]);
+            return state;
+        }
+        return null;
+    } catch (error) {
+        console.error('Error extracting ticket embed data:', error);
+        return null;
+    }
+}
+
+async function findPinnedTicketStateMessage(
+    channel: TextChannel
+): Promise<{ message: any; state: TicketState } | null> {
+    try {
+        const pinnedMessages = await channel.messages.fetchPinned();
+
+        for (const message of pinnedMessages.values()) {
+            const stateField = isMessageTicketStateEmbed(message);
+            if (stateField) {
+                const state = extractTicketEmbedData(stateField);
+                if (state) {
+                    return { message, state };
+                }
+            }
+        }
+
+        return null;
+    } catch (error) {
+        console.error('Error finding pinned ticket state message:', error);
+        return null;
+    }
+}
+
+async function tryGetTicketStateFromViaCache(
+    channel: TextChannel
+): Promise<{ message: any; state: TicketState } | null> {
+    try {
+        const cachedMessageId = ticketChannelStateMessageIdCache.get<string>(channel.id);
+        if (cachedMessageId) {
+            const message = await channel.messages.fetch(cachedMessageId);
+            const stateField = isMessageTicketStateEmbed(message);
+            if (stateField) {
+                const state = extractTicketEmbedData(stateField);
+                if (state) {
+                    return { message, state };
+                }
+            }
+        }
+        return null;
+    } catch (error) {
+        console.error('Error trying to get ticket state from cache:', error);
+        return null;
+    }
 }
 
 /**
@@ -144,22 +236,29 @@ export async function findTicketStateMessage(
     channel: TextChannel
 ): Promise<{ message: any; state: TicketState } | null> {
     try {
+        // First try via cache
+        const foundViaCache = await tryGetTicketStateFromViaCache(channel);
+        if (foundViaCache) {
+            ticketChannelStateMessageIdCache.set(channel.id, foundViaCache.message.id);
+            return foundViaCache;
+        }
+
+        // Next try via pinned messages
+        const foundByPinned = await findPinnedTicketStateMessage(channel);
+        if (foundByPinned) {
+            ticketChannelStateMessageIdCache.set(channel.id, foundByPinned.message.id);
+            return foundByPinned;
+        }
+
         const messages = await channel.messages.fetch({ limit: 10 });
 
         for (const message of messages.values()) {
-            if (message.embeds.length > 0) {
-                const embed = message.embeds[0];
-                const stateField = embed.fields?.find((field) => field.name === '🔧 Internal Data');
-
-                if (stateField) {
-                    // Extract base64 data from code block
-                    const base64Match = stateField.value.match(/`([A-Za-z0-9+/=]+)`/);
-                    if (base64Match) {
-                        const state = parseTicketStateData(base64Match[1]);
-                        if (state) {
-                            return { message, state };
-                        }
-                    }
+            const stateField = isMessageTicketStateEmbed(message);
+            if (stateField) {
+                const state = extractTicketEmbedData(stateField);
+                if (state) {
+                    ticketChannelStateMessageIdCache.set(channel.id, message.id);
+                    return { message, state };
                 }
             }
         }

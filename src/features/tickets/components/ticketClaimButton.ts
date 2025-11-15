@@ -9,7 +9,14 @@ import {
     EmbedBuilder,
     ChannelType,
 } from 'discord.js';
-import { memberHasModeratorPerms, memberHasModeratorRole, findTicketStateMessage, updateTicketState } from '../logic';
+import {
+    memberHasModeratorPerms,
+    memberHasModeratorRole,
+    findTicketStateMessage,
+    updateTicketState,
+    findCategory,
+    findOrCreateModeratorCategory,
+} from '../logic';
 import { TICKET_BUTTON_CONFIGS } from '../logic/ticketButtonConfigs';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { ticketingRepo } from '../data/ticketingRepo';
@@ -97,6 +104,19 @@ export function TicketClaimButtonComponent() {
         }
 
         try {
+            const claimedTicketsCategoryResult = await findOrCreateModeratorCategory({
+                guild,
+                categoryName: ticketsConfig.claimedTicketCategoryName,
+                moderationRoleIds: ticketsConfig.moderationRoles,
+            });
+            if (!claimedTicketsCategoryResult.ok) {
+                return {
+                    status: 'error',
+                    message: '❌ Claimed tickets category not found. Please contact an administrator.',
+                };
+            }
+            const claimedTicketsCategory = claimedTicketsCategoryResult.value;
+
             // Acknowledge the button interaction
             await timeFnCall(async () => await interaction.deferUpdate(), 'interaction.deferUpdate()');
 
@@ -111,6 +131,9 @@ export function TicketClaimButtonComponent() {
                     }),
                 'channel.permissionOverwrites.edit()'
             );
+
+            // Move ticket to claimed channel category
+            await channel.setParent(claimedTicketsCategory.id);
 
             // Update ticket state
             await timeFnCall(

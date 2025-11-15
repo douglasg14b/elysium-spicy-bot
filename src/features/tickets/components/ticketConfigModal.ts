@@ -13,11 +13,14 @@ import { ticketingRepo } from '../data/ticketingRepo';
 import { TicketingConfig } from '../data/ticketingSchema';
 import { updateDeployedTicketMessage } from '../utils/updateDeployedMessage';
 import { SUPPORT_TICKET_NAME_TEMPLATE } from '../constants';
+import { findCategory, findOrCreateModeratorCategory } from '../logic';
+import { validateTicketCategoryPermissions } from '../utils';
 
 const TICKET_CONFIG_MODAL_ID = 'ticket_config_modal';
 
 const SUPPORT_CATEGORY_INPUT_ID = 'support_category_input';
 const CLOSED_CATEGORY_INPUT_ID = 'closed_category_input';
+const CLAIMED_CATEGORY_INPUT_ID = 'claimed_category_input';
 const CHANNEL_TEMPLATE_INPUT_ID = 'channel_template_input';
 const MODERATION_ROLES_INPUT_ID = 'moderation_roles_input';
 
@@ -47,6 +50,18 @@ export function TicketConfigModalComponent() {
             closedCategoryInput.setValue(existingConfig.closedTicketCategoryName);
         }
 
+        const claimedCategoryInput = new TextInputBuilder()
+            .setCustomId(CLAIMED_CATEGORY_INPUT_ID)
+            .setLabel('Claimed Ticket Category Name')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('e.g., Claimed Tickets')
+            .setRequired(true)
+            .setMaxLength(50);
+
+        if (existingConfig?.claimedTicketCategoryName) {
+            claimedCategoryInput.setValue(existingConfig.claimedTicketCategoryName);
+        }
+
         const channelTemplateInput = new TextInputBuilder()
             .setCustomId(CHANNEL_TEMPLATE_INPUT_ID)
             .setLabel('Channel Name Template (Read-only)')
@@ -69,6 +84,7 @@ export function TicketConfigModalComponent() {
             .setTitle('Configure Ticket System')
             .addComponents(
                 new ActionRowBuilder<TextInputBuilder>({ components: [supportCategoryInput] }),
+                new ActionRowBuilder<TextInputBuilder>({ components: [claimedCategoryInput] }),
                 new ActionRowBuilder<TextInputBuilder>({ components: [closedCategoryInput] }),
                 new ActionRowBuilder<TextInputBuilder>({ components: [channelTemplateInput] })
             )
@@ -81,6 +97,7 @@ export function TicketConfigModalComponent() {
         if (!interaction.guild) {
             return { status: 'error', message: '❌ This command can only be used in a server.' };
         }
+        const guild = interaction.guild;
 
         // Check if user has manage server permissions
         if (!interaction.memberPermissions?.has('ManageGuild')) {
@@ -91,6 +108,7 @@ export function TicketConfigModalComponent() {
         }
 
         const supportCategoryName = interaction.fields.getTextInputValue(SUPPORT_CATEGORY_INPUT_ID);
+        const claimedCategoryName = interaction.fields.getTextInputValue(CLAIMED_CATEGORY_INPUT_ID);
         const closedCategoryName = interaction.fields.getTextInputValue(CLOSED_CATEGORY_INPUT_ID);
         const channelTemplate = interaction.fields.getTextInputValue(CHANNEL_TEMPLATE_INPUT_ID);
         const selectedRoles = interaction.fields.getSelectedRoles(MODERATION_ROLES_INPUT_ID);
@@ -110,42 +128,73 @@ export function TicketConfigModalComponent() {
         }
 
         // Validate category names (check if they exist or can be created)
-        const supportCategory = interaction.guild.channels.cache.find(
-            (channel) => channel.type === ChannelType.GuildCategory && channel.name === supportCategoryName
-        );
+        const supportCategoryResult = await findOrCreateModeratorCategory({
+            guild: interaction.guild,
+            categoryName: supportCategoryName,
+            moderationRoleIds: moderationRoles,
+        });
+        if (!supportCategoryResult.ok) {
+            return {
+                status: 'error',
+                message: `❌ Failed to create support category "${supportCategoryName}". Please check permissions.`,
+            };
+        }
+        const supportCategory = supportCategoryResult.value;
 
-        const closedCategory = interaction.guild.channels.cache.find(
-            (channel) => channel.type === ChannelType.GuildCategory && channel.name === closedCategoryName
-        );
+        const claimedCategoryResult = await findOrCreateModeratorCategory({
+            guild: interaction.guild,
+            categoryName: claimedCategoryName,
+            moderationRoleIds: moderationRoles,
+        });
+        if (!claimedCategoryResult.ok) {
+            return {
+                status: 'error',
+                message: `❌ Failed to create claimed category "${claimedCategoryName}". Please check permissions.`,
+            };
+        }
+        const claimedCategory = claimedCategoryResult.value;
 
-        if (!supportCategory) {
-            try {
-                await interaction.guild.channels.create({
-                    name: supportCategoryName,
-                    type: ChannelType.GuildCategory,
-                    reason: 'Created by ticket system configuration',
-                });
-            } catch (error) {
-                return {
-                    status: 'error',
-                    message: `❌ Failed to create support category "${supportCategoryName}". Please check permissions.`,
-                };
-            }
+        const closedCategoryResult = await findOrCreateModeratorCategory({
+            guild: interaction.guild,
+            categoryName: closedCategoryName,
+            moderationRoleIds: moderationRoles,
+        });
+        if (!closedCategoryResult.ok) {
+            return {
+                status: 'error',
+                message: `❌ Failed to create closed category "${closedCategoryName}". Please check permissions.`,
+            };
+        }
+        const closedCategory = closedCategoryResult.value;
+
+        const supportCategoryPermsResult = validateTicketCategoryPermissions(guild, supportCategory);
+        if (!supportCategoryPermsResult.valid) {
+            return {
+                status: 'error',
+                message: `❌ Bot Missing Permissions For Category "${supportCategoryName}": ${supportCategoryPermsResult.missingPermissions.join(
+                    ', '
+                )}.`,
+            };
         }
 
-        if (!closedCategory) {
-            try {
-                await interaction.guild.channels.create({
-                    name: closedCategoryName,
-                    type: ChannelType.GuildCategory,
-                    reason: 'Created by ticket system configuration',
-                });
-            } catch (error) {
-                return {
-                    status: 'error',
-                    message: `❌ Failed to create closed category "${closedCategoryName}". Please check permissions.`,
-                };
-            }
+        const claimedCategoryPermsResult = validateTicketCategoryPermissions(guild, claimedCategory);
+        if (!claimedCategoryPermsResult.valid) {
+            return {
+                status: 'error',
+                message: `❌ Bot Missing Permissions For Category "${claimedCategoryName}": ${claimedCategoryPermsResult.missingPermissions.join(
+                    ', '
+                )}.`,
+            };
+        }
+
+        const closedCategoryPermsResult = validateTicketCategoryPermissions(guild, closedCategory);
+        if (!closedCategoryPermsResult.valid) {
+            return {
+                status: 'error',
+                message: `❌ Bot Missing Permissions For Category "${closedCategoryName}": ${closedCategoryPermsResult.missingPermissions.join(
+                    ', '
+                )}.`,
+            };
         }
 
         try {
@@ -160,6 +209,7 @@ export function TicketConfigModalComponent() {
                 userTicketsDeployedChannelId: existingConfig?.config?.userTicketsDeployedChannelId || null,
                 userTicketsDeployedMessageId: existingConfig?.config?.userTicketsDeployedMessageId || null,
                 supportTicketCategoryName: supportCategoryName,
+                claimedTicketCategoryName: claimedCategoryName,
                 closedTicketCategoryName: closedCategoryName,
                 ticketChannelNameTemplate: SUPPORT_TICKET_NAME_TEMPLATE, // Non-configurable
                 moderationRoles,
@@ -189,6 +239,7 @@ export function TicketConfigModalComponent() {
                 content:
                     `✅ Ticket system configuration updated successfully!\n\n` +
                     `**Support Category:** ${supportCategoryName}\n` +
+                    `**Claimed Category:** ${claimedCategoryName}\n` +
                     `**Closed Category:** ${closedCategoryName}\n` +
                     `**Channel Template:** ${channelTemplate}\n` +
                     `**Moderation Roles:** ${moderationRoles.length} role(s) configured`,
