@@ -11,11 +11,13 @@ import { SqlDatePlugin } from './plugins/sqlDatePlugin';
 import { DB_TYPE, PG_CONNECTION_STRING, SQLITE_DB_PATH } from '../../environment';
 import { FlashChatConfigTable } from '../../features/flash-chat/data/flashChatSchema';
 import { TicketingConfigTable } from '../../features/tickets/data/ticketingSchema';
+import { BirthdayTable } from '../../features/birthday-tracker/data/birthdaySchema';
 
 export interface Database {
     flash_chat_config: FlashChatConfigTable;
     command_audit_logs: CommandAuditLogTable;
     ticketing_config: TicketingConfigTable;
+    birthdays: BirthdayTable;
 }
 
 function getDbDialect() {
@@ -46,6 +48,7 @@ function getDatabaseClient() {
         new SqlDatePlugin<Database>({
             flash_chat_config: ['createdAt', 'updatedAt'],
             command_audit_logs: ['timestamp'],
+            birthdays: ['createdAt', 'updatedAt'],
         }),
     ];
 
