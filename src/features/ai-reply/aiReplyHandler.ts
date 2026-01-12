@@ -1,11 +1,13 @@
 import { Events, Message, TextChannel } from 'discord.js';
 import { DISCORD_CLIENT } from '../../discordClient';
-import { aiService } from './aiService';
+import { aiService, MessageContext } from './aiService';
 import {
     shouldRespondToMessage,
     extractMentionContent,
     fetchRecentMessages,
     isReplyToBotMessage,
+    mapDiscordMessageToContext,
+    isReplyToNonBotMessageWIthBotCallout,
 } from './messageUtils';
 import { runWorkflow } from './newAiReplyStuff';
 import { userInteractionTracker } from './antiAbuse/userInteractionTracker';
@@ -71,13 +73,19 @@ async function handleAIReply(message: Message): Promise<void> {
     // Check if we should respond to this message
     const shouldRespond = shouldRespondToMessage(message, botUser.id);
     if (!shouldRespond) {
+        console.log('Not responding to message, does not meet criteria.');
         return;
     }
 
     // For replies, double-check that it's actually replying to the bot
     if (message.reference && message.reference.messageId) {
         const isActualReplyToBot = await isReplyToBotMessage(message, botUser.id);
-        if (!isActualReplyToBot) {
+        const isReplyToOtherButMentionsBot = await isReplyToNonBotMessageWIthBotCallout(message, botUser.id);
+        if (!isActualReplyToBot && !isReplyToOtherButMentionsBot) {
+            console.log(
+                `Message is a reply but not to bot's message and does not mention bot (${botUser.id}), skipping.`
+            );
+            console.log(message);
             return;
         }
     }
@@ -157,27 +165,34 @@ async function handleAIReply(message: Message): Promise<void> {
             return;
         }
 
-        const newAiReply = await runWorkflow({ input_as_text: messageContent, sendTyping }, aiService.openAiClient);
+        // TODO: Implement fetching context around a referenced messageId
+        // It could be historical, so we need to gather stuff around it too
+
+        // Fetch recent messages for context
+        const recentMessages = await fetchRecentMessages(channel, message);
+
+        // Get referenced bot message if this is a reply
+        let referencedMessage: MessageContext | undefined;
+        if (message.reference?.messageId) {
+            try {
+                referencedMessage = mapDiscordMessageToContext(
+                    await channel.messages.fetch(message.reference.messageId)
+                );
+            } catch (error) {
+                console.error('Error fetching referenced message:', error);
+            }
+        }
+
+        const newAiReply = await runWorkflow(
+            { input_as_text: messageContent, sendTyping, recentMessages, isReplyToBot, referencedMessage },
+            aiService.openAiClient
+        );
 
         // TODO: Cleanup, we should really be getting the warning issued back here to send off
         // Instead of the roundabout state crap we're doing later on
         if (newAiReply.wasModerationAbuse) {
             antiAbuseService.recordAbuseModerationWarning(message.author.id, message.guildId, message.channelId);
         }
-
-        // // Fetch recent messages for context
-        // const recentMessages = await fetchRecentMessages(channel, message);
-
-        // // Get referenced bot message if this is a reply
-        // let referencedBotMessage: string | undefined;
-        // if (isReplyToBot && message.reference?.messageId) {
-        //     try {
-        //         const referencedMessage = await channel.messages.fetch(message.reference.messageId);
-        //         referencedBotMessage = referencedMessage.content;
-        //     } catch (error) {
-        //         console.error('Error fetching referenced bot message:', error);
-        //     }
-        // }
 
         // // Generate AI response
         // const aiReply = await aiService.generateReply({

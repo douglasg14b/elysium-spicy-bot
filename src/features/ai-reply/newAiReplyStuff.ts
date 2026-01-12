@@ -7,9 +7,15 @@ import { AGENT_REPLY_OFF_TOPIC } from './agents/agentReplyOffTopic';
 import { AGENT_REPLY_ON_TOPIC } from './agents/agentReplyOnTopic';
 import { AGENT_REPLY_JAILBREAK } from './agents/agentReplyJailbreak';
 import { AGENT_REPLY_MODERATION } from './agents/agentReplyModeration';
+import { MessageContext } from './aiService';
+import { AGENT_REPLY_ON_TOPIC_THREAD } from './agents/agentReplyOnTopicThread';
+import { Message } from 'discord.js';
 
 type WorkflowInput = {
     input_as_text: string;
+    recentMessages: MessageContext[];
+    isReplyToBot: boolean;
+    referencedMessage?: MessageContext;
     sendTyping: () => Promise<void>;
 };
 
@@ -74,7 +80,13 @@ export async function runWorkflow(workflow: WorkflowInput, client: OpenAI): Prom
             };
         }
 
-        const outputText = await generateOnTopicResponse(runner, conversationHistory);
+        const outputText = await generateOnTopicResponse({
+            runner,
+            conversationHistory,
+            recentMessages: workflow.recentMessages,
+            isReplyToBot: workflow.isReplyToBot,
+            referencedMessage: workflow.referencedMessage,
+        });
         return {
             output_text: outputText,
             wasModerationAbuse: false,
@@ -140,8 +152,48 @@ async function generateOffTopicResponse(runner: Runner, userText: string) {
     return offTopicAgentResultTemp.finalOutput;
 }
 
-async function generateOnTopicResponse(runner: Runner, conversationHistory: AgentInputItem[]) {
-    const onTopicAgentResultTemp = await runner.run(AGENT_REPLY_ON_TOPIC, [...conversationHistory]);
+type GenerateOnTopicResponseParams = {
+    runner: Runner;
+    conversationHistory: AgentInputItem[];
+    recentMessages: MessageContext[];
+    isReplyToBot: boolean;
+    referencedMessage?: MessageContext;
+};
+
+async function generateOnTopicResponse({
+    runner,
+    conversationHistory,
+    recentMessages,
+    isReplyToBot,
+    referencedMessage,
+}: GenerateOnTopicResponseParams) {
+    function genMessageContent(msg: MessageContext) {
+        return `At ${msg.timestamp.toISOString()}, ${msg.author} said: "${msg.content}"${
+            msg.isReply && msg.replyToAuthor ? ` in reply to ${msg.replyToAuthor}` : ''
+        }${msg.isFromBot ? ' (this was a message from SpicyBot)' : ''}`;
+    }
+
+    const historicalMessagesHistory = recentMessages.map((msg) => {
+        return {
+            role: 'system',
+            content: genMessageContent(msg),
+            name: msg.author,
+        };
+    });
+
+    if (referencedMessage) {
+        historicalMessagesHistory.push({
+            role: 'system',
+            content: `The user just replied to this message in their most recent message: "${genMessageContent(
+                referencedMessage
+            )}"`,
+            name: 'SpicyBot',
+        });
+    }
+
+    const agent = referencedMessage ? AGENT_REPLY_ON_TOPIC : AGENT_REPLY_ON_TOPIC_THREAD;
+
+    const onTopicAgentResultTemp = await runner.run(agent, [...historicalMessagesHistory, ...conversationHistory]);
 
     if (!onTopicAgentResultTemp.finalOutput) {
         throw new Error('Agent result is undefined');
