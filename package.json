@@ -17,16 +17,20 @@
     "author": "",
     "license": "ISC",
     "dependencies": {
+        "@cacheable/node-cache": "^2.0.0",
         "@eicode/result-pattern": "^2.3.2",
+        "@openai/agents": "^0.3.7",
+        "@openai/guardrails": "^0.2.1",
         "better-sqlite3": "^12.2.0",
         "commandkit": "1.2.0-rc.3",
         "discord.js": "^14.23.2",
         "env-var": "^7.5.0",
         "kysely": "^0.28.5",
-        "openai": "^6.6.0",
+        "node-cache": "5.1.2",
+        "openai": "^6.16.0",
         "pathe": "^2.0.3",
         "pg": "^8.16.3",
-        "node-cache": "5.1.2"
+        "zod": "^4.3.5"
     },
     "devDependencies": {
         "@dotenvx/dotenvx": "^1.49.0",

@@ -1,3 +1,3 @@
-export { initAIReply } from './aiReplyHandler.js';
-export { aiService } from './aiService.js';
-export * from './messageUtils.js';
+export { initAIReply } from './aiReplyHandler';
+export { aiService } from './aiService';
+export * from './messageUtils';

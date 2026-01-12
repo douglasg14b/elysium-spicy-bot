@@ -1,6 +1,6 @@
 import { Message, TextChannel } from 'discord.js';
-import { AI_MAX_CONTEXT_MESSAGES } from '../../environment.js';
-import type { MessageContext } from './aiService.js';
+import { AI_MAX_CONTEXT_MESSAGES } from '../../environment';
+import type { MessageContext } from './aiService';
 
 export async function fetchRecentMessages(
     channel: TextChannel,

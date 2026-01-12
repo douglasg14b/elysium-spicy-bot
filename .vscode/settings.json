@@ -17,14 +17,20 @@
     },
     "cSpell.words": [
         "Convo",
+        "cooldown",
         "healthcheck",
         "Insertable",
         "mpim",
         "mpims",
         "Teleporters",
+        "Ttls",
         "unsubscribers",
         "Updateable",
         "userscript"
     ],
-    "typescript.preferences.importModuleSpecifier": "relative"
+    "typescript.preferences.importModuleSpecifier": "relative",
+    "typescript.preferences.includeFileNameInImport": false,
+    "typescript.suggest.autoImports": "on",
+    "typescript.suggest.includeAutomaticOptionalChainCompletions": true,
+    "typescript.preferences.includePackageJsonAutoImports": "auto"
 }

@@ -1,12 +1,18 @@
 import { Events, Message, TextChannel } from 'discord.js';
-import { DISCORD_CLIENT } from '../../discordClient.js';
-import { aiService } from './aiService.js';
+import { DISCORD_CLIENT } from '../../discordClient';
+import { aiService } from './aiService';
 import {
     shouldRespondToMessage,
     extractMentionContent,
     fetchRecentMessages,
     isReplyToBotMessage,
-} from './messageUtils.js';
+} from './messageUtils';
+import { runWorkflow } from './newAiReplyStuff';
+import { userInteractionTracker } from './antiAbuse/userInteractionTracker';
+import { AntiAbuseService, antiAbuseService } from './antiAbuse/antiAbuseService';
+import { aiPendingReplyTracker } from './antiAbuse/aiPendingReplyTracker';
+import { createCooldownEmbed, createModerationActionEmbed, createWarningEmbed } from './antiAbuse/antiAbuseEmbeds';
+import { userWarningsTracker } from './antiAbuse/userWarningsTracker';
 
 export function initAIReply(): void {
     DISCORD_CLIENT.on(Events.MessageCreate, async (message: Message) => {
@@ -81,11 +87,52 @@ async function handleAIReply(message: Message): Promise<void> {
         return;
     }
 
+    if (!message.guildId) {
+        console.error('Message guild ID is undefined');
+        return;
+    }
+
     const channel = message.channel as TextChannel;
 
     try {
+        const sendTyping = async () => {
+            await channel.sendTyping();
+        };
         // Show typing indicator
-        await channel.sendTyping();
+        await sendTyping();
+
+        // Record Interaction
+        userInteractionTracker.recordUserInteraction(message.author.id, message.guildId);
+
+        const antiAbuseResult = antiAbuseService.processInteractionAttempt({
+            userId: message.author.id,
+            guildId: message.guildId,
+            channelId: channel.id,
+        });
+
+        // If they are not allowed to interact, reply with the warning or cooldown message
+        // If they pass this, that means they are allowed to proceed
+        // This also means they don't have any pending messages
+        if (!antiAbuseResult.allowed) {
+            if (antiAbuseResult.cooldown) {
+                message.reply({
+                    embeds: [
+                        createCooldownEmbed(
+                            antiAbuseResult.message,
+                            AntiAbuseService.generateCooldownTimeRemaining(antiAbuseResult.cooldown)
+                        ),
+                    ],
+                });
+            } else {
+                message.reply({
+                    embeds: [createWarningEmbed(antiAbuseResult.message)],
+                });
+            }
+            // message.reply(antiAbuseResult.message);
+            return;
+        }
+
+        aiPendingReplyTracker.addPendingReply(message.author.id, channel.id, message.guildId);
 
         // Check if this is a reply to the bot's message
         const isReplyToBot = await isReplyToBotMessage(message, botUser.id);
@@ -106,41 +153,85 @@ async function handleAIReply(message: Message): Promise<void> {
                 ? "You're just gonna reply to me with nothing to say? How bratty of you! 😤"
                 : 'What? You just gonna @ me and not say anything? Rude! 🙄';
             await message.reply(response);
+            aiPendingReplyTracker.removePendingReply(message.author.id, channel.id);
             return;
         }
 
-        // Fetch recent messages for context
-        const recentMessages = await fetchRecentMessages(channel, message);
+        const newAiReply = await runWorkflow({ input_as_text: messageContent, sendTyping }, aiService.openAiClient);
 
-        // Get referenced bot message if this is a reply
-        let referencedBotMessage: string | undefined;
-        if (isReplyToBot && message.reference?.messageId) {
-            try {
-                const referencedMessage = await channel.messages.fetch(message.reference.messageId);
-                referencedBotMessage = referencedMessage.content;
-            } catch (error) {
-                console.error('Error fetching referenced bot message:', error);
-            }
+        // TODO: Cleanup, we should really be getting the warning issued back here to send off
+        // Instead of the roundabout state crap we're doing later on
+        if (newAiReply.wasModerationAbuse) {
+            antiAbuseService.recordAbuseModerationWarning(message.author.id, message.guildId, message.channelId);
         }
 
-        // Generate AI response
-        const aiReply = await aiService.generateReply({
-            mentionedMessage: messageContent,
-            mentioningUser: message.author.displayName || message.author.username,
-            recentMessages,
-            channelName: channel.name,
-            isReplyToBot,
-            referencedBotMessage,
-        });
+        // // Fetch recent messages for context
+        // const recentMessages = await fetchRecentMessages(channel, message);
+
+        // // Get referenced bot message if this is a reply
+        // let referencedBotMessage: string | undefined;
+        // if (isReplyToBot && message.reference?.messageId) {
+        //     try {
+        //         const referencedMessage = await channel.messages.fetch(message.reference.messageId);
+        //         referencedBotMessage = referencedMessage.content;
+        //     } catch (error) {
+        //         console.error('Error fetching referenced bot message:', error);
+        //     }
+        // }
+
+        // // Generate AI response
+        // const aiReply = await aiService.generateReply({
+        //     mentionedMessage: messageContent,
+        //     mentioningUser: message.author.displayName || message.author.username,
+        //     recentMessages,
+        //     channelName: channel.name,
+        //     isReplyToBot,
+        //     referencedBotMessage,
+        // });
 
         // Validate and clean the AI reply before sending
-        const cleanedReply = validateAndCleanReply(aiReply);
+        const cleanedReply = validateAndCleanReply(newAiReply.output_text);
 
         // Reply to the message with error handling
         try {
-            await message.reply(cleanedReply);
+            if (antiAbuseService.isUserOnCooldown(message.author.id, message.guildId)) {
+                console.log(
+                    `User ${message.author.id} was placed on cooldown after generating reply. Not sending message.`
+                );
+            } else {
+                await message.reply(cleanedReply);
+                aiPendingReplyTracker.removePendingReply(message.author.id, channel.id);
+            }
+
+            // After LLM reply, send warning if moderation abuse was detected
+            // This is hacky and gross and needs cleaning up
+            if (newAiReply.wasModerationAbuse) {
+                const isOnCooldown = antiAbuseService.isUserOnCooldown(message.author.id, message.guildId);
+                if (isOnCooldown) {
+                    message.reply({
+                        embeds: [
+                            createCooldownEmbed(
+                                isOnCooldown.message,
+                                AntiAbuseService.generateCooldownTimeRemaining(isOnCooldown)
+                            ),
+                        ],
+                    });
+                } else {
+                    const latestWarning = userWarningsTracker
+                        .getUserWarnings(message.author.id, message.guildId, 'abuse')
+                        .at(-1);
+                    if (!latestWarning) {
+                        console.error('Expected a warning to be recorded but none found');
+                    } else {
+                        await message.reply({
+                            embeds: [createModerationActionEmbed(latestWarning.warningMessage)],
+                        });
+                    }
+                }
+            }
         } catch (replyError: any) {
             console.error('Error sending AI reply:', replyError);
+            aiPendingReplyTracker.removePendingReply(message.author.id, channel.id);
 
             // If we get a form body error, try sending a simple fallback
             if (replyError.message?.includes('form body') || replyError.code === 50035) {
@@ -148,6 +239,8 @@ async function handleAIReply(message: Message): Promise<void> {
                     await message.reply('Ugh, Discord is being difficult with my response! 😤 Try asking again?');
                 } catch (fallbackError) {
                     console.error('Even fallback reply failed:', fallbackError);
+                } finally {
+                    aiPendingReplyTracker.removePendingReply(message.author.id, channel.id);
                 }
             } else {
                 // Re-throw other errors to be caught by the outer catch block
@@ -156,12 +249,15 @@ async function handleAIReply(message: Message): Promise<void> {
         }
     } catch (error) {
         console.error('Error generating AI reply:', error);
+        console.log('Full Stack Trace:', (error as Error).stack);
 
         // Send a fallback bratty response
         try {
             await message.reply('Ugh, my circuits are being extra bratty right now! 😤 Try again in a sec~');
         } catch (replyError) {
             console.error('Error sending fallback reply:', replyError);
+        } finally {
+            aiPendingReplyTracker.removePendingReply(message.author.id, channel.id);
         }
     }
 }
