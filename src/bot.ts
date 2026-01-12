@@ -7,12 +7,16 @@ import { initFlashChat } from './features/flash-chat';
 import { flagBotReady } from './healthcheck/botHearthbeat';
 import { deployTicketSystemCommand, handleDeployTicketSystem, initTicketsFeature } from './features/tickets';
 import { initAIReply } from './features/ai-reply';
+import { initBirthdayFeature } from './features/birthday-tracker';
 
 interactionsRegistry.register(flashChatCommand, handleFlashChatCommand);
 interactionsRegistry.register(deployTicketSystemCommand, handleDeployTicketSystem);
 
 // Initialize ticket system handlers
 initTicketsFeature();
+
+// Initialize birthday tracker handlers
+initBirthdayFeature();
 
 // Initialize AI reply feature
 initAIReply();

@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { AI_MODEL, OPENAI_API_KEY } from '../../environment.js';
+import { AI_MODEL, OPENAI_API_KEY } from '../../environment';
 
 const openai = new OpenAI({
     apiKey: OPENAI_API_KEY,
@@ -136,6 +136,10 @@ export interface AIReplyOptions {
 }
 
 export class AIService {
+    public get openAiClient(): OpenAI {
+        return openai;
+    }
+
     async generateReply(options: AIReplyOptions): Promise<string> {
         const { mentionedMessage, mentioningUser, recentMessages, channelName, isReplyToBot, referencedBotMessage } =
             options;

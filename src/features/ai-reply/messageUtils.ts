@@ -1,6 +1,8 @@
 import { Message, TextChannel } from 'discord.js';
-import { AI_MAX_CONTEXT_MESSAGES } from '../../environment.js';
-import type { MessageContext } from './aiService.js';
+import { AI_MAX_CONTEXT_MESSAGES } from '../../environment';
+import type { MessageContext } from './aiService';
+
+const MAX_AI_CONTEXT_CHARACTERS = 4000;
 
 export async function fetchRecentMessages(
     channel: TextChannel,
@@ -15,23 +17,46 @@ export async function fetchRecentMessages(
         }
 
         const messages = await channel.messages.fetch(fetchOptions);
-
-        return messages
-            .map((msg) => ({
-                author: msg.author.displayName || msg.author.username,
-                content: cleanMessageContent(msg),
-                timestamp: msg.createdAt,
-                isFromBot: msg.author.bot,
-                isReply: !!msg.reference,
-                replyToAuthor: msg.reference
-                    ? msg.mentions.repliedUser?.displayName || msg.mentions.repliedUser?.username
-                    : undefined,
-            }))
-            .reverse(); // Return in chronological order (oldest first)
+        const reversed = messages.map((msg) => mapDiscordMessageToContext(msg)).reverse(); // Return in chronological order (oldest first)
+        const pruned = pruneHistoryToFitLimit(reversed);
+        console.log(`Fetched ${pruned.length} recent messages for AI context (originally ${messages.size})`);
+        return pruned;
     } catch (error) {
         console.error('Error fetching recent messages:', error);
         return [];
     }
+}
+
+function pruneHistoryToFitLimit(history: MessageContext[]): MessageContext[] {
+    let totalCharacters = 0;
+    const prunedHistory: MessageContext[] = [];
+
+    for (let i = 0; i < history.length; i++) {
+        const message = history[i];
+        const messageLength = message.content.length;
+
+        if (totalCharacters + messageLength <= MAX_AI_CONTEXT_CHARACTERS) {
+            prunedHistory.push(message);
+            totalCharacters += messageLength;
+        } else {
+            break; // Stop adding messages once we exceed the limit
+        }
+    }
+
+    return prunedHistory;
+}
+
+export function mapDiscordMessageToContext(msg: Message): MessageContext {
+    return {
+        author: msg.author.displayName || msg.author.username,
+        content: cleanMessageContent(msg),
+        timestamp: msg.createdAt,
+        isFromBot: msg.author.bot,
+        isReply: !!msg.reference,
+        replyToAuthor: msg.reference
+            ? msg.mentions.repliedUser?.displayName || msg.mentions.repliedUser?.username
+            : undefined,
+    };
 }
 
 function cleanMessageContent(message: Message): string {
@@ -101,6 +126,28 @@ export async function isReplyToBotMessage(message: Message, botId: string): Prom
         return referencedMessage.author.id === botId;
     } catch (error) {
         console.error('Error checking if reply is to bot message:', error);
+        return false;
+    }
+}
+
+export async function isReplyToNonBotMessageWIthBotCallout(message: Message, botId: string): Promise<boolean> {
+    if (!message.reference || !message.reference.messageId) {
+        return false;
+    }
+
+    try {
+        const channel = message.channel;
+        if (!channel.isTextBased()) {
+            return false;
+        }
+
+        const referencedMessage = await channel.messages.fetch(message.reference.messageId);
+        const isReplyToNonBot = referencedMessage.author.id !== botId;
+        const mentionsBot = message.mentions.users.has(botId);
+
+        return isReplyToNonBot && mentionsBot;
+    } catch (error) {
+        console.error('Error checking if reply is to non-bot message with bot callout:', error);
         return false;
     }
 }
