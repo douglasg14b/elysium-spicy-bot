@@ -170,7 +170,7 @@ async function generateOnTopicResponse({
     function genMessageContent(msg: MessageContext) {
         return `At ${msg.timestamp.toISOString()}, ${msg.author} said: "${msg.content}"${
             msg.isReply && msg.replyToAuthor ? ` in reply to ${msg.replyToAuthor}` : ''
-        }${msg.isFromBot ? ' (this was a message from SpicyBot)' : ''}`;
+        }${msg.isFromBot ? ' (this was a message from BrattyBot)' : ''}`;
     }
 
     const historicalMessagesHistory = recentMessages.map((msg) => {
@@ -187,7 +187,7 @@ async function generateOnTopicResponse({
             content: `The user just replied to this message in their most recent message: "${genMessageContent(
                 referencedMessage
             )}"`,
-            name: 'SpicyBot',
+            name: 'BrattyBot',
         });
     }
 

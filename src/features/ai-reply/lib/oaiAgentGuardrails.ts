@@ -58,9 +58,7 @@ const jailbreakGuardrailConfig = {
             config: {
                 categories: [
                     'sexual/minors',
-                    'hate',
                     'hate/threatening',
-                    'harassment',
                     'harassment/threatening',
                     'self-harm/instructions',
                     'violence/graphic',

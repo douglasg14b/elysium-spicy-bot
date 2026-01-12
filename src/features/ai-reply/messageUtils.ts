@@ -2,6 +2,8 @@ import { Message, TextChannel } from 'discord.js';
 import { AI_MAX_CONTEXT_MESSAGES } from '../../environment';
 import type { MessageContext } from './aiService';
 
+const MAX_AI_CONTEXT_CHARACTERS = 4000;
+
 export async function fetchRecentMessages(
     channel: TextChannel,
     beforeMessage?: Message,
@@ -15,12 +17,33 @@ export async function fetchRecentMessages(
         }
 
         const messages = await channel.messages.fetch(fetchOptions);
-
-        return messages.map((msg) => mapDiscordMessageToContext(msg)).reverse(); // Return in chronological order (oldest first)
+        const reversed = messages.map((msg) => mapDiscordMessageToContext(msg)).reverse(); // Return in chronological order (oldest first)
+        const pruned = pruneHistoryToFitLimit(reversed);
+        console.log(`Fetched ${pruned.length} recent messages for AI context (originally ${messages.size})`);
+        return pruned;
     } catch (error) {
         console.error('Error fetching recent messages:', error);
         return [];
     }
+}
+
+function pruneHistoryToFitLimit(history: MessageContext[]): MessageContext[] {
+    let totalCharacters = 0;
+    const prunedHistory: MessageContext[] = [];
+
+    for (let i = 0; i < history.length; i++) {
+        const message = history[i];
+        const messageLength = message.content.length;
+
+        if (totalCharacters + messageLength <= MAX_AI_CONTEXT_CHARACTERS) {
+            prunedHistory.push(message);
+            totalCharacters += messageLength;
+        } else {
+            break; // Stop adding messages once we exceed the limit
+        }
+    }
+
+    return prunedHistory;
 }
 
 export function mapDiscordMessageToContext(msg: Message): MessageContext {

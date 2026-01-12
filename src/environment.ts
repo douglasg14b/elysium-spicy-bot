@@ -18,4 +18,4 @@ export const PG_CONNECTION_STRING = DB_TYPE === 'postgres' ? getString('PG_CONNE
 // AI Configuration
 export const OPENAI_API_KEY = getString('OPENAI_API_KEY');
 export const AI_MODEL = getStringOptional('AI_MODEL') || 'gpt-5.1-chat-latest';
-export const AI_MAX_CONTEXT_MESSAGES = env.get('AI_MAX_CONTEXT_MESSAGES').asIntPositive() || 10;
+export const AI_MAX_CONTEXT_MESSAGES = env.get('AI_MAX_CONTEXT_MESSAGES').asIntPositive() || 50;
