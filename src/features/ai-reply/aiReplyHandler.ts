@@ -19,6 +19,7 @@ import { userWarningsTracker } from './antiAbuse/userWarningsTracker';
 export function initAIReply(): void {
     DISCORD_CLIENT.on(Events.MessageCreate, async (message: Message) => {
         try {
+            if (message.system) return; // Ignore system messages
             await handleAIReply(message);
         } catch (error) {
             console.error('Error in AI reply handler:', error);
