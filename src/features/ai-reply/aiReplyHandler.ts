@@ -83,9 +83,8 @@ async function handleAIReply(message: Message): Promise<void> {
         const isReplyToOtherButMentionsBot = await isReplyToNonBotMessageWIthBotCallout(message, botUser.id);
         if (!isActualReplyToBot && !isReplyToOtherButMentionsBot) {
             console.log(
-                `Message is a reply but not to bot's message and does not mention bot (${botUser.id}), skipping.`
+                `Message is a reply but not to bot's message and does not mention bot (${botUser.id}), skipping.`,
             );
-            console.log(message);
             return;
         }
     }
@@ -127,7 +126,7 @@ async function handleAIReply(message: Message): Promise<void> {
                     embeds: [
                         createCooldownEmbed(
                             antiAbuseResult.message,
-                            AntiAbuseService.generateCooldownTimeRemaining(antiAbuseResult.cooldown)
+                            AntiAbuseService.generateCooldownTimeRemaining(antiAbuseResult.cooldown),
                         ),
                     ],
                 });
@@ -176,7 +175,7 @@ async function handleAIReply(message: Message): Promise<void> {
         if (message.reference?.messageId) {
             try {
                 referencedMessage = mapDiscordMessageToContext(
-                    await channel.messages.fetch(message.reference.messageId)
+                    await channel.messages.fetch(message.reference.messageId),
                 );
             } catch (error) {
                 console.error('Error fetching referenced message:', error);
@@ -185,7 +184,7 @@ async function handleAIReply(message: Message): Promise<void> {
 
         const newAiReply = await runWorkflow(
             { input_as_text: messageContent, sendTyping, recentMessages, isReplyToBot, referencedMessage },
-            aiService.openAiClient
+            aiService.openAiClient,
         );
 
         // TODO: Cleanup, we should really be getting the warning issued back here to send off
@@ -211,7 +210,7 @@ async function handleAIReply(message: Message): Promise<void> {
         try {
             if (antiAbuseService.isUserOnCooldown(message.author.id, message.guildId)) {
                 console.log(
-                    `User ${message.author.id} was placed on cooldown after generating reply. Not sending message.`
+                    `User ${message.author.id} was placed on cooldown after generating reply. Not sending message.`,
                 );
             } else {
                 await message.reply(cleanedReply);
@@ -227,7 +226,7 @@ async function handleAIReply(message: Message): Promise<void> {
                         embeds: [
                             createCooldownEmbed(
                                 isOnCooldown.message,
-                                AntiAbuseService.generateCooldownTimeRemaining(isOnCooldown)
+                                AntiAbuseService.generateCooldownTimeRemaining(isOnCooldown),
                             ),
                         ],
                     });
