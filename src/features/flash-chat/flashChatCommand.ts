@@ -33,6 +33,7 @@ type CommandOptions =
           timeout: number;
           preservePinned: boolean;
           preserveHistory: boolean;
+          replace: boolean;
       }
     | {
           subcommand: 'off';
@@ -49,6 +50,7 @@ type CommandArgs =
           timeoutSeconds: number;
           preservePinned: boolean;
           preserveHistory: boolean;
+          replace: boolean;
       }
     | {
           subcommand: 'off';
@@ -61,7 +63,7 @@ export const flashChatCommand = new SlashCommandBuilder()
     .setName(FLASH_CHAT_COMMAND_NAME)
     .setDescription('Manage flash chat messages')
     .addSubcommand((subcommand) =>
-        subcommand.setName('config').setDescription('View and configure flash chat settings for this server')
+        subcommand.setName('config').setDescription('View and configure flash chat settings for this server'),
     )
     .addSubcommand((subcommand) =>
         subcommand
@@ -72,7 +74,7 @@ export const flashChatCommand = new SlashCommandBuilder()
                     .setName('channel')
                     .setDescription('The channel to manage')
                     .setRequired(true)
-                    .addChannelTypes(ChannelType.GuildText)
+                    .addChannelTypes(ChannelType.GuildText),
             )
             .addIntegerOption(
                 (option) =>
@@ -81,20 +83,26 @@ export const flashChatCommand = new SlashCommandBuilder()
                         .setDescription('The message timeout in seconds')
                         .setRequired(true)
                         .setMinValue(1) // 1 second min
-                        .setMaxValue(60 * 60 * 24 * 14) // 14 days max
+                        .setMaxValue(60 * 60 * 24 * 14), // 14 days max
             )
             .addBooleanOption((option) =>
                 option
                     .setName('preserve-pinned')
                     .setDescription('Whether to preserve pinned messages')
-                    .setRequired(true)
+                    .setRequired(true),
             )
             .addBooleanOption((option) =>
                 option
                     .setName('preserve-history')
                     .setDescription('Whether to preserve message history')
-                    .setRequired(true)
+                    .setRequired(true),
             )
+            .addBooleanOption((option) =>
+                option
+                    .setName('replace')
+                    .setDescription('Replace existing flash-chat config if it exists')
+                    .setRequired(true),
+            ),
     )
     .addSubcommand((subcommand) =>
         subcommand
@@ -106,23 +114,29 @@ export const flashChatCommand = new SlashCommandBuilder()
                     .setDescription('The message timeout in seconds')
                     .setRequired(true)
                     .setMinValue(1)
-                    .setMaxValue(60 * 60 * 24 * 14)
+                    .setMaxValue(60 * 60 * 24 * 14),
             )
             .addBooleanOption((option) =>
                 option
                     .setName('preserve-pinned')
                     .setDescription('Whether to preserve pinned messages')
-                    .setRequired(true)
+                    .setRequired(true),
             )
             .addBooleanOption((option) =>
                 option
                     .setName('preserve-history')
                     .setDescription('Whether to preserve message history')
-                    .setRequired(true)
+                    .setRequired(true),
             )
+            .addBooleanOption((option) =>
+                option
+                    .setName('replace')
+                    .setDescription('Replace existing flash-chat config if it exists')
+                    .setRequired(true),
+            ),
     )
     .addSubcommand((subcommand) =>
-        subcommand.setName('off').setDescription('Disable flash chat in the current channel')
+        subcommand.setName('off').setDescription('Disable flash chat in the current channel'),
     )
     .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageChannels);
 
@@ -137,6 +151,7 @@ function resolveCommandArgs(interaction: ChatInputCommandInteraction): CommandAr
             timeoutSeconds: interaction.options.getInteger('timeout', true),
             preservePinned: interaction.options.getBoolean('preserve-pinned', true),
             preserveHistory: interaction.options.getBoolean('preserve-history', true),
+            replace: interaction.options.getBoolean('replace', true),
         };
     } else if (subcommand === 'on') {
         return {
@@ -145,6 +160,7 @@ function resolveCommandArgs(interaction: ChatInputCommandInteraction): CommandAr
             timeoutSeconds: interaction.options.getInteger('timeout', true),
             preservePinned: interaction.options.getBoolean('preserve-pinned', true),
             preserveHistory: interaction.options.getBoolean('preserve-history', true),
+            replace: interaction.options.getBoolean('replace', true),
         };
     } else {
         return { subcommand, channel: interaction.channel as TextChannel };
@@ -152,7 +168,7 @@ function resolveCommandArgs(interaction: ChatInputCommandInteraction): CommandAr
 }
 
 export const handleFlashChatCommand = async (
-    interaction: ChatInputCommandInteraction
+    interaction: ChatInputCommandInteraction,
 ): Promise<InteractionHandlerResult> => {
     // Get command options
     const commandArgs = resolveCommandArgs(interaction);
@@ -229,12 +245,13 @@ export const handleFlashChatCommand = async (
             timeoutSeconds: timeout,
             preservePinned,
             preserveHistory,
+            replaceConfig: commandArgs.replace,
             user: interaction.user,
         });
 
-        if (startResult.isFail) {
+        if (!startResult.ok) {
             await interaction.reply({
-                content: `❌ Failed to enable flash chat: ${startResult.valueOrError()}`,
+                content: `❌ Failed to enable flash chat: ${startResult.valueOrError}`,
                 ephemeral: true,
             });
             return commandError('Failed to enable flash chat', { channelId: channel.id });
@@ -267,7 +284,7 @@ export const handleFlashChatCommand = async (
                     {
                         title: '⚡ Flash Chat Enabled',
                         description: `Messages in this channel will be automatically deleted after **${formatTimeout(
-                            timeout
+                            timeout,
                         )}**`,
                         color: 0xffa500,
                         footer: {

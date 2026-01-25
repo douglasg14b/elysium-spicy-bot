@@ -46,6 +46,7 @@ export class FlashChatInstance {
     public handleMessageCreate(message: Message) {
         this.checkStopped();
         if (message.channel.id !== this._config.channelId) return;
+        if (message.system) return;
 
         // Skip pinned messages
         if (this._config.preservePinned && message.pinned) {
@@ -56,9 +57,9 @@ export class FlashChatInstance {
         const truncatedContent = message.content.slice(0, 50) + (message.content.length > 50 ? '...' : '');
         const timeout = this._config.timeoutSeconds * 1000;
         console.log(
-            `📝 Scheduled deletion for message in #${
+            `📝 Scheduled deletion for message from ${message.author.tag} in #${
                 (message.channel as TextChannel).name
-            }: "${truncatedContent}" in ${timeout}ms`
+            }: "${truncatedContent}" in ${timeout}ms`,
         );
 
         const timer = setTimeout(() => this.deleteMessage(message), timeout);
@@ -79,6 +80,12 @@ export class FlashChatInstance {
 
     private deleteMessage(message: Message) {
         this.checkStopped();
+        // Skip pinned messages
+        if (this._config.preservePinned && message.pinned) {
+            console.log(`📌 Skipping pinned message from ${message.author.tag}`);
+            return;
+        }
+
         try {
             deleteMessageSafely(message);
         } catch (error) {
@@ -138,7 +145,7 @@ export class FlashChatInstance {
             if (this.config.preservePinned) {
                 filtered = filtered.filter((m) => !m.pinned);
                 // Optional: warn once if a page was fully pinned
-                if (filtered.length === 0) {
+                if (filtered.length === 0 && raw.length > 100) {
                     console.warn('⚠️ Page contained only pinned messages; paging deeper…');
                 }
             }
@@ -160,7 +167,7 @@ export class FlashChatInstance {
 
         if (this.config.preserveHistory) {
             console.error(
-                `⚠️ Skipping initial cleanup of existing messages in #${this.config.channelId} because preserveHistory is enabled.`
+                `⚠️ Skipping initial cleanup of existing messages in #${this.config.channelId} because preserveHistory is enabled.`,
             );
             return;
         }
@@ -219,7 +226,7 @@ export class FlashChatInstance {
 
                 if (bulkDeletable.size > 0) {
                     console.log(
-                        `⏳ Deleting ${bulkDeletable.size} messages via bulk delete in 3 seconds... (Ctrl+C to cancel)`
+                        `⏳ Deleting ${bulkDeletable.size} messages via bulk delete in 3 seconds... (Ctrl+C to cancel)`,
                     );
                     await new Promise((resolve) => setTimeout(resolve, 3000)); // 3 second delay before bulk delete
 
@@ -323,7 +330,7 @@ export class FlashChatInstance {
     private checkStopped() {
         if (this.stopped) {
             throw new Error(
-                `Flash chat instance for ${this._config.guildId}/${this._config.channelId} has been stopped.`
+                `Flash chat instance for ${this._config.guildId}/${this._config.channelId} has been stopped.`,
             );
         }
     }

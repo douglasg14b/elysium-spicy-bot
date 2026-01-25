@@ -25,6 +25,11 @@ export class FailResult<TError extends ValidErrorType> {
         }
     }
 
+    public get valueOrError() {
+        if (this.value) return this.value;
+        return this.error;
+    }
+
     public get ok(): false {
         return false;
     }

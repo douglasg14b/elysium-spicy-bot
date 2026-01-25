@@ -9,14 +9,23 @@ type FlashChatArgs = {
     timeoutSeconds: number;
     preservePinned: boolean;
     preserveHistory: boolean;
+    replaceConfig: boolean;
     user: User;
 };
 
 export class FlashChatService {
     async startFlashChat(args: FlashChatArgs) {
+        console.log(`Starting flash chat for guild ${args.guildId} and channel ${args.channelId}`);
+
         const runningInstance = flashChatManager.has(args.guildId, args.channelId);
-        if (runningInstance) {
+        if (runningInstance && !args.replaceConfig) {
+            console.log(`Flash chat instance already running for guild ${args.guildId} and channel ${args.channelId}`);
             return fail('Flash chat instance already running for this channel');
+        }
+
+        if (runningInstance && args.replaceConfig) {
+            const modifyResult = await this.modifyFlashChat(args);
+            return modifyResult;
         }
 
         let config = await flashChatRepo.get(args.guildId, args.channelId);
@@ -59,25 +68,23 @@ export class FlashChatService {
     }
 
     async modifyFlashChat(args: FlashChatArgs) {
-        let config = await flashChatRepo.get(args.guildId, args.channelId);
-        if (!config) {
-            config = await flashChatRepo.upsert({
-                guildId: args.guildId,
-                channelId: args.channelId,
-                timeoutSeconds: args.timeoutSeconds,
-                preservePinned: boolToInt(args.preservePinned),
-                preserveHistory: boolToInt(args.preserveHistory),
-                enabled: boolToInt(true),
-                removed: boolToInt(false),
-                createdBy: args.user.id,
-                createdByName: args.user.username,
-                updatedBy: args.user.id,
-                updatedByName: args.user.username,
-                configVersion: 1,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-            });
-        }
+        console.log(`Modifying flash chat for guild ${args.guildId} and channel ${args.channelId}`);
+        const config = await flashChatRepo.upsert({
+            guildId: args.guildId,
+            channelId: args.channelId,
+            timeoutSeconds: args.timeoutSeconds,
+            preservePinned: boolToInt(args.preservePinned),
+            preserveHistory: boolToInt(args.preserveHistory),
+            enabled: boolToInt(true),
+            removed: boolToInt(false),
+            createdBy: args.user.id,
+            createdByName: args.user.username,
+            updatedBy: args.user.id,
+            updatedByName: args.user.username,
+            configVersion: 1,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+        });
 
         if (flashChatManager.has(args.guildId, args.channelId)) {
             flashChatManager.stopInstance(args.guildId, args.channelId);

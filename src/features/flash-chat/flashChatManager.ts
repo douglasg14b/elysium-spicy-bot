@@ -56,6 +56,7 @@ export class FlashChatManager {
     }
 
     public stopInstance(guildId: string, channelId: string) {
+        console.log(`Stopping flash chat instance for guild ${guildId} and channel ${channelId}`);
         const guildInstances = this._instances.get(guildId);
 
         if (!guildInstances) {
