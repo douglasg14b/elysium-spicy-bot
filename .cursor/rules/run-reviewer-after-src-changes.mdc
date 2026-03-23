@@ -1,0 +1,24 @@
+---
+description: Run the orchestrating reviewer subagent after completing src TypeScript changes
+globs: src/**/*.ts,src/**/*.tsx
+alwaysApply: false
+---
+
+# Run reviewer after `src/` TypeScript changes
+
+When the active agent has **finished making changes to application TypeScript** under `src/` (e.g. after implementing a feature, fixing a bug, or refactoring), before considering the task done:
+
+1. **Invoke the `reviewer` subagent** via the Task/subagent mechanism (`subagent_type: reviewer`). Provide the list of changed files or a short description of what changed so the review can stay scoped.
+2. That orchestrator audits changes across **Discord interactions & events**, **correctness & runtime**, **data persistence**, **AI & safety**, **architecture**, **style & conventions**, **security & privacy**, and **tests & docs** (it delegates to four focused sub-reviewers and merges one report).
+3. If the report includes **Critical or High** findings, fix them in the current agent, then invoke **`reviewer` again** until no Critical or High findings remain. Medium and Low findings may be fixed at your discretion or left for the user.
+
+## Generated artifacts & secrets exclusion (mandatory)
+
+Reviewers must **not** treat generated/build output or secret-bearing paths as normal review scope. When you pass changed-file lists, **omit** these patterns. For any spot-check reads, **do not open**:
+
+- `**/dist/**`, `**/build/**`, `**/coverage/**`
+- `**/node_modules/**`, `**/.cache/**`, `**/.turbo/**`, `**/.pnpm-store/**`
+- `**/*.log`
+- Secret or credential material: `.env*`, `**/*token*`, `**/*secret*`, `**/*.pem`, `**/*.key`, `**/credentials*.json`
+
+Using the dedicated **`reviewer`** orchestrator keeps convention and correctness checks consistent and separates review output from implementation work.

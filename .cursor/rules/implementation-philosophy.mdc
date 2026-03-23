@@ -1,0 +1,14 @@
+---
+description: Simplicity, clarify ambiguity, unify patterns — implementation decisions
+globs: src/**/*.ts
+alwaysApply: false
+---
+
+# Implementation philosophy
+
+- **Avoid goldplating** — simplest fix that meets the requirement; don’t add layers for hypothetical futures.
+- **Stop when complexity spikes** — nested conditionals or “framework for one call site” → refactor or simplify first.
+- **Ask when ambiguous** — two divergent patterns in the codebase? Prefer aligning with maintainer direction over inventing a third pattern.
+- **Unify inconsistencies** — merge duplicate approaches; don’t build abstractions that permanently support both unless migration is in progress.
+
+Overlaps with `.cursor/rules/elegance.mdc` (structure) and `.cursor/rules/ts-code-quality.mdc` (types/style) by design.

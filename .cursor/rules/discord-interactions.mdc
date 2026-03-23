@@ -1,0 +1,21 @@
+---
+description: InteractionsRegistry, handler contract, routing keys, slash deploy scope
+globs: src/bot.ts,src/features-system/commands/**/*.ts,src/features/**/init*.ts,src/features/**/commands/**/*.ts,src/features/**/components/**/*.ts,src/features/**/configComponents/**/*.ts
+alwaysApply: false
+---
+
+# Discord interactions (discord.js v14)
+
+| Topic | Rule |
+|-------|------|
+| Router | `InteractionsRegistry` (`src/features-system/commands/interactionsRegistry.ts`) dispatches slash commands, **modals**, and **buttons** only. |
+| Routing key | Slash → `commandName`; modal/button → **`customId`**. IDs must be **unique** across the app. |
+| Handler return | `Promise<InteractionHandlerResult>`. Use `commandSuccess` / `commandError` / `commandSkipped` from `src/features-system/commands` (re-exported from `commandUtils`). |
+| Double reply | If you `reply` or `defer` in the handler, do not also rely on `result.message` for the same user-visible text — registry only auto-replies when not `replied`/`deferred`. |
+| Slash deploy | `registerCommandsWithDiscord` uses **global** application commands (`Routes.applicationCommands`). |
+| Guild vs DM | Guard `guildId`, `inGuild()`, and channel type before using guild-only APIs. |
+| New component kinds | Select menus and other types are **not** in `SupportedInteractionBuilder` today — extending requires `types.ts` + registry; do not assume parity with buttons. |
+
+**Audit**: `logCommand` persists parameters and `additionalData` — no secrets or unnecessary PII (`src/features-system/commands-audit/logCommand.ts`).
+
+Feature layout and `init*` wiring: **`AGENTS.md`**.

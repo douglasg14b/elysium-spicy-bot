@@ -1,0 +1,298 @@
+---
+description: Comprehensive code quality standards and best practices - enforcing the HIGHEST standards of quality
+globs: **/*.ts,**/*.tsx
+alwaysApply: false
+---
+
+# Code Quality Standards - HIGHEST STANDARDS EXPECTED
+
+## Core Principles
+
+### 1. No Gold Plating
+
+- **Implement only what is needed** - no speculative features or over-engineering
+- Resist the urge to add "nice-to-have" features until they are actually required
+- Focus on solving the immediate problem correctly and completely
+- Every line of code should serve a clear, documented purpose
+
+### 2. Follow Existing Repo Standards FIRST
+
+- **Always use existing patterns, utilities, and standards** before creating new ones
+- Search the codebase for similar implementations before writing new code
+- Leverage existing packages in `packages/` directory
+- Exceptions to existing patterns require explicit justification and team discussion
+
+### 3. Extreme TypeScript Precision
+
+- **Types must be extremely precise and correct** - no loose typing accepted
+- Use literal types, and discriminated unions where appropriate
+- Every function parameter and return type must be explicitly defined
+- No implicit `any` types anywhere in the codebase
+- Types should be as narrow and specific as possible
+
+## ESLint Configuration Compliance
+
+Our codebase follows strict ESLint rules. Key requirements:
+
+### Forbidden Patterns
+
+```typescript
+// ❌ NEVER - Explicit any types
+function process(data: any): any {}
+
+// ❌ ALMOST NEVER - Double equals
+if (value == undefined) {
+}
+
+// ❌ NEVER - var declarations
+var something = 'value';
+
+// ❌ NEVER - Unused variables
+function example() {
+    const unused = 'this will error'; // Must be used or prefixed with _
+}
+
+// ❌ NEVER - Default exports (warn level)
+export default SomeClass;
+
+// ❌ NEVER - Comma operator
+const result = (doSomething(), getValue());
+```
+
+### Required Patterns
+
+```typescript
+// ✅ REQUIRED - Strict equality when distinguishing values
+if (value === undefined) {
+}
+
+// ✅ PREFERRED - Truthiness / implicit checks when intent is "no value" (null, undefined, or empty string)
+if (!token) {
+    /* no token */
+}
+const hasToken = !!token;
+// ❌ AVOID - Verbose explicit checks when truthiness expresses the same intent
+if (token === null || token === undefined || token === '') {
+}
+
+// ✅ REQUIRED - let/const only
+const immutableValue = 'value';
+let mutableValue = 'value';
+
+// ✅ REQUIRED - Named exports
+export { SomeClass };
+
+// ✅ REQUIRED - Type imports when used as types only
+import type { SomeType } from './types.js';
+import { someFunction } from './utils.js';
+
+// ✅ REQUIRED - Underscore prefix for intentionally unused parameters
+function callback(_unusedParam: string, usedParam: number) {
+    return usedParam * 2;
+}
+```
+
+### Prefer implicit (truthiness) checks when intent is "no value"
+
+When the intent is simply "absent" or "falsy" (null, undefined, or empty string), use truthiness instead of spelling out each case:
+
+- Use `!token` instead of `token === null || token === undefined || token === ''`.
+- Use `if (token)` for "has value", `!!token` when you need a boolean.
+- Use optional chaining and truthiness together where appropriate: `user?.name` then `if (!user?.name)`.
+
+Use explicit `=== null` or `=== undefined` only when you need to distinguish between them (e.g. "undefined means unset, null means explicitly cleared").
+
+## Naming Conventions (Enforced by Biome)
+
+### Strict Case Requirements
+
+```typescript
+// ✅ Functions - strictCamelCase
+function getUserData() {}
+function processPaymentInfo() {}
+
+// ✅ Variables - camelCase or PascalCase
+const userData = {};
+const PaymentProcessor = class {};
+
+// ✅ Global constants - CONSTANT_CASE
+const MAX_RETRY_ATTEMPTS = 3;
+const API_BASE_URL = 'https://api.example.com';
+
+// ✅ Types and interfaces - PascalCase
+type UserProfile = { id: string; name: string };
+interface PaymentRequest {
+    amount: number;
+    currency: string;
+}
+
+// ✅ Private class members - camelCase with optional underscore prefix
+class Service {
+    private _internalState = {};
+    private processData() {}
+}
+```
+
+### Semantic variable names (no single-letter names)
+
+Always use semantic, descriptive variable names. Do not use single-letter names (e.g. `i`, `j`, `x`, `e`, `n`) even in short or simple functions—they hurt readability and searchability.
+
+```typescript
+// ✅ PREFERRED - Semantic names
+const token = getStoredToken();
+items.map((item) => item.id);
+users.filter((user) => user.isActive);
+catch (error) { ... }
+
+// ❌ AVOID - Single-letter names
+const t = getStoredToken();
+items.map((i) => i.id);
+users.filter((u) => u.isActive);
+catch (e) { ... }
+```
+
+Exception: in very narrow mathematical or index contexts (e.g. `for (let i = 0; i < n; i++)` in a short loop), a single index letter may be acceptable, but prefer a descriptive name (e.g. `index`, `idx`) when it improves clarity.
+
+## Type System Excellence
+
+### Precision Requirements
+
+```typescript
+// ✅ EXCELLENT - Precise literal unions
+type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'fatal';
+
+// ✅ EXCELLENT - Discriminated unions for state
+type ApiResult<T> = { status: 'success'; data: T } | { status: 'error'; error: { code: string; message: string } };
+
+// ❌ FORBIDDEN - Loose typing
+type ApiResult = {
+    status: string; // Too loose - should be literal union
+    data?: any; // any is forbidden
+    error?: object; // object is too loose
+};
+```
+
+### Function Type Definitions
+
+```typescript
+// ✅ REQUIRED - Adjacent type definitions with type-fest utilities
+import type { Branded, SetRequired, Exact } from 'type-fest';
+
+type PaymentMethodId = Branded<string, 'PaymentMethodId'>;
+type TransactionId = Branded<string, 'TransactionId'>;
+
+type ProcessPaymentInput = {
+    readonly amount: number;
+    readonly currency: 'USD' | 'CAD' | 'EUR';
+    readonly paymentMethodId: PaymentMethodId;
+    readonly customerId: UserId;
+};
+
+type ProcessPaymentResult = ApiResult<{
+    transactionId: TransactionId;
+    status: 'approved' | 'declined' | 'pending';
+    timestamp: Date;
+}>;
+
+export async function processPayment(input: ProcessPaymentInput): Promise<ProcessPaymentResult> {
+    // Implementation
+}
+
+// ✅ EXCELLENT - Use type-fest for common transformations
+type OptionalProcessPaymentInput = SetRequired<Partial<ProcessPaymentInput>, 'amount' | 'currency'>; // Makes all fields optional except amount and currency
+
+// ❌ FORBIDDEN - Inline type definitions
+export async function processPayment(input: {
+    amount: number;
+    currency: string;
+    paymentMethodId: string;
+    customerId: string;
+}): Promise<{ success: boolean; data?: any }> {
+    // This violates multiple standards
+}
+```
+
+## Error Handling Excellence
+
+### Offensive Programming
+
+```typescript
+// ❌ FORBIDDEN - Defensive programming that hides problems
+export function calculatePercentage(value: any, total: any): number {
+    // Converting silently hides type errors
+    const numValue = Number(value) || 0;
+    const numTotal = Number(total) || 1; // Silently avoiding division by zero
+    return (numValue / numTotal) * 100;
+}
+```
+
+## Repository Standards Compliance
+
+### Use Existing Utilities FIRST
+
+Before writing new code, check for existing solutions:
+
+```typescript
+// ❌ AVOID - Creating custom utilities that type-fest already provides
+type MyCustomPartial<T> = { [K in keyof T]?: T[K] }; // Use PartialDeep instead
+type MyCustomRequired<T> = { [K in keyof T]-?: T[K] }; // Use RequiredDeep instead
+```
+
+### Package Structure Compliance
+
+```typescript
+// ✅ REQUIRED - Index files as barrel exports only
+// packages/my-feature/src/index.ts
+export { processData } from './processData.js';
+export { validateInput } from './validateInput.js';
+export type { ProcessDataInput, ProcessDataResult } from './types.js';
+
+// ✅ REQUIRED - Semantic file naming
+// packages/my-feature/src/processData.ts - contains processData function
+// packages/my-feature/src/validateInput.ts - contains validateInput function
+// packages/my-feature/src/types.ts - contains type definitions
+```
+
+## Performance and Maintainability
+
+### Switch Statements for Exhaustiveness
+
+Use switch statements and exhaustive checking for unions
+
+```typescript
+// ❌ FORBIDDEN - Non-exhaustive if/else chains
+function handleAction(action: Action): string {
+    if (action === 'create') return 'Creating resource';
+    if (action === 'update') return 'Updating resource';
+    // Missing 'delete' case - TypeScript won't catch this
+    return 'Unknown action';
+}
+```
+
+## Code Quality Metrics
+
+All code must meet these quality standards:
+
+- **Type Coverage**: 100% - no implicit `any` types
+- **Linting**: Zero ESLint errors or warnings
+- **Unused Code**: Zero unused variables, imports, or functions
+- **Naming**: 100% compliance with naming conventions
+- **Documentation**: All public APIs must have JSDoc
+- **Testing**: All business logic must have unit tests
+- **Error Handling**: All error paths must be explicitly handled
+
+## Quality Checklist
+
+Before submitting code, ensure:
+
+- [ ] All existing utilities and patterns have been considered first
+- [ ] Types are as narrow and precise as possible
+- [ ] No implicit `any` types exist
+- [ ] All ESLint rules pass without warnings
+- [ ] Proper error handling with Result pattern (for APIs)
+- [ ] Exhaustive switch statements where applicable
+- [ ] JSDoc documentation for all public functions
+- [ ] Semantic file and function naming
+- [ ] No unused code or imports
+- [ ] No gold plating or speculative features

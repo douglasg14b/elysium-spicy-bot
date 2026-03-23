@@ -1,0 +1,15 @@
+---
+description: Colocate Vitest tests under __tests__ next to the module under test
+globs: **/__tests__/**,**/*.test.*,**/*.spec.*
+alwaysApply: false
+---
+
+# Test placement
+
+Put tests in a **`__tests__`** directory beside the code under test.
+
+- **Example (this repo)**: `src/utils/formatDuration.ts` → `src/utils/__tests__/formatDuration.test.ts`.
+- **Features**: e.g. `src/features/foo/bar.ts` → `src/features/foo/__tests__/bar.test.ts` (one `__tests__` per logical folder is fine).
+- Avoid a single dump of all tests at repo root unless the project already standardizes on that (this one does not).
+
+Use **Vitest**; name files `*.test.ts` or `*.spec.ts` to match existing tests.

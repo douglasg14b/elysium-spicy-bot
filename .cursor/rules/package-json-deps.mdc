@@ -1,0 +1,24 @@
+---
+description: Never add client packages manually; use pnpm so versions stay current
+globs: package.json
+alwaysApply: false
+---
+
+# Client package.json — Add deps via package manager
+
+When adding or changing dependencies
+
+- **Do not** edit `package.json` by hand to add a package with a specific version (e.g. typing `"foo": "^1.2.3"`).
+- **Do** add packages using the project package manager so versions are resolved and the lockfile is updated.
+
+From the repo root:
+
+```bash
+pnpm add <package>
+```
+
+For dev-only dependencies use `pnpm add -D <package>`.
+
+This keeps the client on latest compatible versions and keeps the lockfile in sync.
+
+See also `.cursor/rules/repository-spine.mdc` (always-on repo context).

@@ -1,0 +1,127 @@
+# Generates an implementation plan from a GitHub issue or pull request using Cursor Agent CLI.
+# Runs on issue/PR comments (when comment mentions "cursor").
+
+name: Issue implementation plan (Cursor CLI)
+
+run-name: "Plan discussion ${{ github.event.issue.number }}"
+
+on:
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: plan-discussion-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  create-plan:
+    name: Detect intent and create implementation plan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'issue_comment' && github.actor != 'github-actions[bot]'
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Gate (cursor mention) and discussion context
+        id: context
+        run: pnpm github-plan thread gate
+
+      - name: Stop when comment does not mention cursor
+        if: steps.context.outputs.should_continue != 'true'
+        run: echo "Comment did not mention cursor; skipping."
+
+      - name: Verify actor has repository write access
+        id: auth
+        if: steps.context.outputs.should_continue == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm github-plan auth assert-write
+
+      - name: Reply when actor is unauthorized
+        if: steps.context.outputs.should_continue == 'true' && steps.auth.outputs.authorized != 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DISCUSSION_NUMBER: ${{ steps.context.outputs.discussion_number }}
+        run: pnpm github-plan issue comment --preset unauthorized
+
+      # Optional: set repo Actions variable CURSOR_INSTALL_SCRIPT_SHA256 to pin install script integrity (sha256sum format).
+      - name: Install Cursor CLI
+        if: steps.context.outputs.should_continue == 'true' && steps.auth.outputs.authorized == 'true'
+        env:
+          CURSOR_CLI_INSTALL_URL: https://cursor.com/install
+          CURSOR_INSTALL_SCRIPT_SHA256: ${{ vars.CURSOR_INSTALL_SCRIPT_SHA256 }}
+        run: |
+          set -euo pipefail
+          script=/tmp/cursor-cli-install.sh
+          curl -fsSL "$CURSOR_CLI_INSTALL_URL" -o "$script"
+          if [ -n "${CURSOR_INSTALL_SCRIPT_SHA256:-}" ]; then
+            echo "${CURSOR_INSTALL_SCRIPT_SHA256}  ${script}" | sha256sum -c -
+          fi
+          bash "$script"
+          echo "$HOME/.cursor/bin" >> "$GITHUB_PATH"
+          agent --version
+
+      - name: Resolve intent from comment
+        id: intent
+        if: steps.context.outputs.should_continue == 'true' && steps.auth.outputs.authorized == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DISCUSSION_NUMBER: ${{ steps.context.outputs.discussion_number }}
+          DISCUSSION_KIND: ${{ steps.context.outputs.discussion_kind }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          CURSOR_AGENT_MODEL: auto
+        run: pnpm github-plan classify intent
+
+      - name: Reply when intent is not plan
+        if: steps.context.outputs.should_continue == 'true' && steps.auth.outputs.authorized == 'true' && steps.intent.outputs.run_plan != 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DISCUSSION_NUMBER: ${{ steps.context.outputs.discussion_number }}
+          PLAN_INTENT: ${{ steps.intent.outputs.intent }}
+        run: pnpm github-plan issue comment --preset non-plan
+
+      - name: Configure Git identity for github-actions bot
+        if: steps.context.outputs.should_continue == 'true' && steps.auth.outputs.authorized == 'true' && steps.intent.outputs.run_plan == 'true'
+        run: |
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Generate plan and push branch
+        if: steps.context.outputs.should_continue == 'true' && steps.auth.outputs.authorized == 'true' && steps.intent.outputs.run_plan == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DISCUSSION_NUMBER: ${{ steps.context.outputs.discussion_number }}
+          DISCUSSION_KIND: ${{ steps.context.outputs.discussion_kind }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          CURSOR_AGENT_MODEL: auto
+        run: pnpm github-plan plan generate
+
+      - name: Comment on failure
+        if: failure() && steps.context.outputs.should_continue == 'true' && steps.auth.outputs.authorized == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DISCUSSION_NUMBER: ${{ steps.context.outputs.discussion_number }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: pnpm github-plan issue comment --preset workflow-failed

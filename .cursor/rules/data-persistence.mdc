@@ -1,0 +1,17 @@
+---
+description: Kysely Database interface, dual dialect, migrations, repos vs handlers
+globs: src/features-system/data-persistence/**/*.ts,src/**/data/*Schema.ts,src/**/data/*Repo.ts
+alwaysApply: false
+---
+
+# Data persistence
+
+| Topic | Rule |
+|-------|------|
+| Backends | `DB_TYPE` in `environment.ts`: `sqlite` \| `postgres`. Behavior differs — **sqlite** uses extra Kysely plugins (boolean/json) in `database.ts`. |
+| `Database` type | All tables appear on the `Database` interface in `src/features-system/data-persistence/database.ts` + matching plugins per dialect. |
+| New table | Add `*Schema.ts` + `*Repo.ts` under the feature `data/`, migration in `src/features-system/data-persistence/migrations/`, then `pnpm migrate:latest` (or `:dev`). |
+| Windows | `migrate.ts` uses a **custom** `FileMigrationProvider` (file-URL fix). Preserve it when changing migration loading. |
+| SQL home | Keep queries in repos; keep Discord handlers thin (see `.cursor/rules/elegance.mdc`). |
+
+Architecture reference: **`AGENTS.md`**.

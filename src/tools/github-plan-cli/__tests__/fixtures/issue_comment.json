@@ -1,0 +1,11 @@
+{
+    "action": "created",
+    "issue": {
+        "number": 42,
+        "title": "Test issue",
+        "body": "Hello"
+    },
+    "comment": {
+        "body": "Please use cursor to plan this"
+    }
+}

@@ -1,0 +1,79 @@
+---
+description: Bot/backend elegance conventions — keep feature code easy to read, change, and reason about
+globs: src/**/*.ts
+alwaysApply: false
+---
+
+# Bot/Backend Elegance Conventions (Discord.js + TypeScript)
+
+**Layout and feature shape**: root `AGENTS.md` + always-on `.cursor/rules/repository-spine.mdc`.
+
+Elegant bot code keeps intent obvious, avoids mixed concerns, and minimizes the number of places a change must be made.
+
+Use these conventions to keep **Discord handlers**, **feature wiring**, **services**, and **DB code** easy to read, change, and reason about.
+
+## Design Pressure to Watch
+
+Treat the patterns below as active warning signs:
+
+- **God modules** (one file doing Discord I/O, permission checks, domain rules, DB reads/writes, formatting, and logging).
+- **Parameter tunneling / context tunneling** where a concept is threaded through many layers unchanged (guild config, feature flags, auth context, correlation IDs).
+- **Repeated shaping/mapping** of the same data (DB rows → domain objects, domain → Discord embeds/messages, repeated normalization/labeling).
+- **Listener/handler soup** (many event listeners / interaction handlers that implicitly depend on each other via shared mutable state or ordering).
+- **Discord formatting and domain rules mixed** (business rules embedded inside embed/message construction instead of a dedicated domain layer).
+- **Formatting sprawl** (one-off embed/message layouts scattered everywhere instead of a small set of reusable builders/helpers).
+
+When two or more signs appear in the same flow, refactor toward a higher-level shape before adding more behavior.
+
+**Gold plating / simplicity**: `.cursor/rules/implementation-philosophy.mdc`.
+
+## Preferred Patterns
+
+### 1) Separate “wiring” from “behavior”
+
+Prefer a shape where:
+
+- `init<Feature>()` wires side effects (register interactions, attach event listeners, start managers)
+- handlers orchestrate one request/event (parse/validate input, call domain/service, translate result to Discord response)
+- domain/logic is pure and testable (permissions/eligibility rules, state transitions)
+- repos do persistence only (SQL shape + mapping at the boundary)
+
+Avoid handlers that both “decide” and “do everything”.
+
+### 2) Bundle related inputs and outputs
+
+When multiple params/inputs represent one concept (command options, permissions, config, pagination, feature flags), model them as a
+cohesive object with a type:
+
+- a `Config` / `Permissions` / `Pagination` / `RequestContext`
+- a Zod schema that parses raw Discord input into a typed object
+- a single “options” object rather than many positional params
+
+Avoid spreading a single concept across many primitive params and ad-hoc helper functions.
+
+### 3) Single-source derived state
+
+If multiple features/handlers need the same derived value (permission decisions, channel naming, embed templates, formatting, enabled/disabled rules), centralize it:
+
+- pure helpers that take typed input and return typed output
+- a domain function (e.g. `canUserDoX(context)`), not repeated inline checks
+- formatting/builders for Discord responses (embeds/messages/components) reused across handlers
+
+Avoid re-deriving the same values in multiple handlers.
+
+### 4) Optimize for change surface
+
+A small behavior change (rename an option, tweak a permission rule, adjust a response format) should require edits in as few places as possible. If one new
+field forces updates across many command parsers, handlers, and copy/pasted message blocks, the current design is not elegant
+enough.
+
+## Reviewer Expectations
+
+During review, flag elegance issues when they materially hurt maintainability:
+
+- large modules mixing Discord I/O, domain logic, and persistence
+- repeated parsing/validation/formatting logic across a feature (or across features)
+- unclear ownership of state (many sources of truth: in-memory maps vs DB vs Discord state)
+- handlers that obscure user intent under boilerplate or scattered checks
+
+Recommend the smallest safe refactor that improves clarity, reduces duplication, and keeps concerns cleanly separated.
