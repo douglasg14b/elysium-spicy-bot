@@ -8,6 +8,12 @@ const issueCommentSchema = z.object({
     }),
     comment: z.object({
         body: z.string().nullable().optional(),
+        user: z
+            .object({
+                login: z.string().optional(),
+            })
+            .optional()
+            .nullable(),
     }),
 });
 

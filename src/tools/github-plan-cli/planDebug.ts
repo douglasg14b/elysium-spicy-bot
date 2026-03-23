@@ -30,6 +30,19 @@ export function isPlanCliDebugEnabled(): boolean {
     return process.env.GITHUB_ACTIONS === "true";
 }
 
+/** Max characters of comment body included in debug JSON (remainder summarized). */
+export const PLAN_DEBUG_MAX_COMMENT_BODY_CHARS = 12_000;
+
+export function truncateForPlanDebug(
+    text: string,
+    maxChars: number = PLAN_DEBUG_MAX_COMMENT_BODY_CHARS,
+): string {
+    if (text.length <= maxChars) {
+        return text;
+    }
+    return `${text.slice(0, maxChars)}… [truncated, ${String(text.length)} chars total]`;
+}
+
 export function planDebugLog(
     message: string,
     details?: Record<string, string | number | boolean | undefined>,

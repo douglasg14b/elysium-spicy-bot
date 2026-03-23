@@ -51,6 +51,19 @@ export async function listIssueCommentsForContext(
     return out;
 }
 
+/**
+ * Last comment in chronological order after `shouldExcludeCommentFromContext` filtering.
+ * Matches the intent-detector prompt: "last comment in the thread".
+ */
+export function latestThreadCommentForIntent(
+    comments: readonly ThreadCommentForContext[],
+): ThreadCommentForContext | undefined {
+    if (comments.length === 0) {
+        return undefined;
+    }
+    return comments[comments.length - 1];
+}
+
 export function formatCommentThreadSection(comments: readonly ThreadCommentForContext[]): string {
     if (comments.length === 0) {
         return "### Comment thread\n\n_(No human comments yet; automation-only or empty.)_\n";

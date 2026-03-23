@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isPlanCliDebugEnabled, planDebugLog } from "../planDebug.js";
+import { isPlanCliDebugEnabled, planDebugLog, truncateForPlanDebug } from "../planDebug.js";
 
 describe("isPlanCliDebugEnabled", () => {
     afterEach(() => {
@@ -32,6 +32,16 @@ describe("isPlanCliDebugEnabled", () => {
         expect(isPlanCliDebugEnabled()).toBe(true);
         vi.stubEnv("GITHUB_PLAN_DEBUG", " Yes ");
         expect(isPlanCliDebugEnabled()).toBe(true);
+    });
+});
+
+describe("truncateForPlanDebug", () => {
+    it("returns input when under max", () => {
+        expect(truncateForPlanDebug("hi", 10)).toBe("hi");
+    });
+
+    it("truncates and appends summary when over max", () => {
+        expect(truncateForPlanDebug("abcd", 2)).toBe("ab… [truncated, 4 chars total]");
     });
 });
 

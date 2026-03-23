@@ -19,10 +19,11 @@ import { writeGithubOutput } from "./githubOutput.js";
 import {
     buildRichIntentContextMarkdown,
     formatCurrentPlanSection,
+    latestThreadCommentForIntent,
     listIssueCommentsForContext,
 } from "./threadContext.js";
 import { fetchPlanMarkdownFromBranch } from "./planContent.js";
-import { planDebugLog } from "./planDebug.js";
+import { planDebugLog, truncateForPlanDebug } from "./planDebug.js";
 
 export async function runIntentClassification(input: {
     octokit: Octokit;
@@ -31,8 +32,15 @@ export async function runIntentClassification(input: {
     discussionKind: DiscussionKind;
     discussionNumber: number;
 }): Promise<{ intent: string; runPlan: boolean }> {
-    readIssueCommentEvent(input.eventPath);
+    const payload = readIssueCommentEvent(input.eventPath);
     assertCursorAgentApiKeyConfigured();
+
+    const triggerBody = payload.comment.body ?? "";
+    planDebugLog("runIntentClassification: webhook comment (triggered this workflow run)", {
+        userLogin: payload.comment.user?.login ?? "(unknown)",
+        bodyChars: triggerBody.length,
+        body: truncateForPlanDebug(triggerBody),
+    });
 
     const branchRef = buildPlanBranchRef({
         kind: input.discussionKind,
@@ -60,6 +68,26 @@ export async function runIntentClassification(input: {
         hasCurrentPlanSection: planFromBranch != null && planFromBranch.trim() !== "",
         planChars: planFromBranch?.length ?? 0,
     });
+
+    const latestForIntent = latestThreadCommentForIntent(comments);
+    if (latestForIntent !== undefined) {
+        planDebugLog(
+            "runIntentClassification: latest comment in intent context (skill: classify this — last in thread)",
+            {
+                userLogin: latestForIntent.userLogin,
+                createdAt: latestForIntent.createdAt,
+                bodyChars: latestForIntent.body.length,
+                body: truncateForPlanDebug(latestForIntent.body),
+                triggerBodyMatchesThis:
+                    latestForIntent.body === triggerBody && latestForIntent.body.length > 0,
+            },
+        );
+    } else {
+        planDebugLog(
+            "runIntentClassification: no comments in intent context after filters; agent only sees title/body/plan",
+            { triggerHadBody: triggerBody.trim().length > 0 },
+        );
+    }
 
     const title = issue.title ?? "";
     const body = issue.body ?? "";

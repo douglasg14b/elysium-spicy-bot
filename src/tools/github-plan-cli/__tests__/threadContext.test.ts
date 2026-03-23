@@ -8,7 +8,24 @@ import {
     buildRichIntentContextMarkdown,
     formatCommentThreadSection,
     formatCurrentPlanSection,
+    latestThreadCommentForIntent,
 } from "../threadContext.js";
+
+describe("latestThreadCommentForIntent", () => {
+    it("returns undefined for empty thread", () => {
+        expect(latestThreadCommentForIntent([])).toBeUndefined();
+    });
+
+    it("returns the last comment in array order", () => {
+        const last = { userLogin: "b", createdAt: "2", body: "last" };
+        expect(
+            latestThreadCommentForIntent([
+                { userLogin: "a", createdAt: "1", body: "first" },
+                last,
+            ]),
+        ).toBe(last);
+    });
+});
 
 describe("shouldExcludeCommentFromContext", () => {
     it("excludes automation prefix", () => {
