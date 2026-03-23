@@ -23,7 +23,7 @@ import {
     listIssueCommentsForContext,
 } from "./threadContext.js";
 import { fetchPlanMarkdownFromBranch } from "./planContent.js";
-import { planDebugLog, truncateForPlanDebug } from "./planDebug.js";
+import { isPlanCliDebugEnabled, planDebugLog, truncateForPlanDebug } from "./planDebug.js";
 
 export async function runIntentClassification(input: {
     octokit: Octokit;
@@ -127,7 +127,7 @@ export async function runIntentClassification(input: {
         "json",
         "--model",
         agentModelFromEnv(),
-        `/intent-detector Read ${intentContextPath}. It contains the issue/PR title and body, optional current plan from the plan branch, and the human comment thread (automation comments are omitted). Classify the latest user request (last comment in the thread) and return exactly one JSON object matching the skill schema.`,
+        `/intent-detector Read ${intentContextPath}. It contains the issue/PR title and body, optional current plan from the plan branch, and the human comment thread (automation comments are omitted). Classify the **latest user request** (last comment in the thread). This automation is invoked by **Jarvis**; if they ask Jarvis (or generically ask) to **make / write / create** an implementation or technical **plan** for **this** issue, that is intent **plan**, not **other**. **plan_feedback** only when they clearly revise an **existing** plan. Return exactly one JSON object matching the skill schema (intent, confidence, reason)—no markdown fences.`,
     ];
     planDebugLog("runIntentClassification: spawning agent", {
         model: agentModelFromEnv(),
@@ -157,6 +157,11 @@ export async function runIntentClassification(input: {
         intent: parsed.intent,
         runPlan: parsed.runPlan,
     });
+    if (isPlanCliDebugEnabled() && parsed.intent === "other") {
+        planDebugLog("runIntentClassification: agent stdout preview (intent was other)", {
+            stdoutPreview: truncateForPlanDebug(out, 6_000),
+        });
+    }
     writeGithubOutput("intent", parsed.intent);
     writeGithubOutput("run_plan", parsed.runPlan ? "true" : "false");
     return parsed;

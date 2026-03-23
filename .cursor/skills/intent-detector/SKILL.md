@@ -37,24 +37,25 @@ Reply with **exactly one JSON object** and **nothing else**:
 
 ### Intent definitions
 
-- **`plan`** — User wants a **new** implementation plan (first-time or replace-from-scratch). Examples: “create a plan”, “write an implementation plan”, “@cursor plan this”, “need a technical plan”.
-- **`plan_feedback`** — User is **iterating on an existing plan**: feedback, questions, or requested revisions. Examples: “update the plan”, “revise section on testing”, “plan-feedback: add migrations”, “change the plan to use X”.
-- **`implement`** — User wants **execution**: coding, shipping, applying the plan. Examples: “implement this”, “go ahead and build”, “execute the plan”, “ship it”.
-- **`other`** — None of the above; small talk, unrelated mention of “cursor”, or ambiguous.
+- **`plan`** — User wants a **new** implementation plan (first-time or replace-from-scratch): a written technical plan, roadmap, steps, or “how to build this” for the **current issue/PR**. Examples: “create a plan”, “write an implementation plan”, “make a comprehensive plan for implementing this”, “plan this issue”, “need a technical plan”, “@cursor plan this”. **Addressing the automation by name** (e.g. “Jarvis, …”) and asking for a plan is **`plan`** when the ask is for planning / design / steps—not casual chat.
+- **`plan_feedback`** — User is **iterating on an already-existing plan artifact** (a plan already in the thread, on a plan branch, or clearly the subject of prior messages). Examples: “update the plan”, “revise section on testing”, “change the plan to use X”, “add migrations to the plan”. **Not** `plan_feedback` when there is no existing plan yet and they simply say “make / write / create a plan”—that is **`plan`**.
+- **`implement`** — User wants **execution**: coding, shipping, applying an agreed plan. Examples: “implement this”, “go ahead and build”, “execute the plan”, “ship it”, “open a PR”. (Asking only for a **plan document** first is still **`plan`**, not `implement`.)
+- **`other`** — None of the above: small talk, off-topic, empty, or **genuinely ambiguous** (no reasonable reading as plan / plan_feedback / implement).
 
 ### Rules
 
-1. If multiple intents apply, pick the **dominant** user goal; break ties toward **`other`** with lower confidence.
-2. Mentioning the word “cursor” alone does **not** imply `plan`; use surrounding wording.
-3. If the message is empty or unusable, return `intent: "other"`, `confidence: 0.0`, short `reason`.
+1. Pick the **dominant** user goal. If the comment clearly asks for a **new** plan (any phrasing: plan, roadmap, steps, how to implement **this**), use **`plan`** with high confidence—do **not** default to `other` to be safe.
+2. Prefer **`plan`** over **`plan_feedback`** when the user’s wording is about **creating** or **making** a plan and there is no explicit reference to revising an **existing** plan text.
+3. Mentioning “cursor”, “Jarvis”, or the bot name **alone** does not imply `plan`; the **surrounding request** must ask for planning, implementation, or plan changes.
+4. If the message is empty or unusable, return `intent: "other"`, `confidence: 0.0`, short `reason`.
 
 ### Example (valid output)
 
 ```json
 {
     "intent": "plan",
-    "confidence": 0.86,
-    "reason": "User explicitly asked for an implementation plan for the described feature."
+    "confidence": 0.95,
+    "reason": "User asked Jarvis for a comprehensive plan to implement the issue."
 }
 ```
 
