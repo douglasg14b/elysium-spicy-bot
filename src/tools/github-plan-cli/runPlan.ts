@@ -13,10 +13,13 @@ import {
 import { formatAgentFailureMessage } from "./agentProcess.js";
 import { buildPlanBranchRef, type DiscussionKind } from "./planBranch.js";
 import {
+    buildPlanThreadFinalBody,
     postAutomationIssueComment,
     postPlanComment,
+    updateIssueComment,
     upsertBranchPinComment,
 } from "./comments.js";
+import { withAutomationPrefix } from "./githubPlanConstants.js";
 import { getHttpStatusFromError } from "./httpStatus.js";
 import type { RepoIdentity } from "./octokit.js";
 import {
@@ -24,6 +27,26 @@ import {
     formatCurrentPlanSection,
     listIssueCommentsForContext,
 } from "./threadContext.js";
+
+const PLAN_COMMENT_UPDATE_FAILED_STUB =
+    "Plan output was posted in follow-up comments (GitHub returned an error when updating this message).";
+
+async function updateIssueCommentWithRetry(
+    octokit: Octokit,
+    repo: RepoIdentity,
+    commentId: number,
+    body: string,
+): Promise<boolean> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+            await updateIssueComment(octokit, repo, commentId, body);
+            return true;
+        } catch {
+            /* try once more */
+        }
+    }
+    return false;
+}
 
 async function remoteBranchExists(
     octokit: Octokit,
@@ -87,8 +110,9 @@ export async function runPlanGeneration(input: {
         number: input.discussionNumber,
     });
 
+    let planThreadCommentId: number | undefined;
     try {
-        await postAutomationIssueComment(
+        planThreadCommentId = await postAutomationIssueComment(
             input.octokit,
             input.repo,
             input.discussionNumber,
@@ -178,16 +202,81 @@ export async function runPlanGeneration(input: {
         committed = true;
     }
 
-    if (committed) {
-        await upsertBranchPinComment(
+    const planMarkdown = readFileSync(planPath, "utf8");
+    const finalizeBody = buildPlanThreadFinalBody({
+        branchRef: branch,
+        committed,
+        planMarkdown,
+        maxBytes: 60_000,
+    });
+
+    if (planThreadCommentId !== undefined) {
+        const updated = await updateIssueCommentWithRetry(
             input.octokit,
             input.repo,
-            input.discussionNumber,
-            branch,
+            planThreadCommentId,
+            finalizeBody,
         );
-
-        const planMarkdown = readFileSync(planPath, "utf8");
+        if (!updated) {
+            try {
+                await updateIssueComment(
+                    input.octokit,
+                    input.repo,
+                    planThreadCommentId,
+                    withAutomationPrefix(PLAN_COMMENT_UPDATE_FAILED_STUB),
+                );
+            } catch {
+                /* non-fatal */
+            }
+            if (committed) {
+                await upsertBranchPinComment(
+                    input.octokit,
+                    input.repo,
+                    input.discussionNumber,
+                    branch,
+                );
+                await postPlanComment(
+                    input.octokit,
+                    input.repo,
+                    input.discussionNumber,
+                    planMarkdown,
+                    60_000,
+                );
+            } else {
+                try {
+                    await postAutomationIssueComment(
+                        input.octokit,
+                        input.repo,
+                        input.discussionNumber,
+                        [
+                            `**Plan branch:** \`${branch}\``,
+                            "",
+                            "The generated plan matches what is already on this branch — no new commit was pushed.",
+                        ].join("\n"),
+                    );
+                } catch {
+                    /* non-fatal */
+                }
+            }
+        }
+    } else if (committed) {
+        await upsertBranchPinComment(input.octokit, input.repo, input.discussionNumber, branch);
         await postPlanComment(input.octokit, input.repo, input.discussionNumber, planMarkdown, 60_000);
+    } else {
+        try {
+            await postAutomationIssueComment(
+                input.octokit,
+                input.repo,
+                input.discussionNumber,
+                [
+                    `**Plan branch:** \`${branch}\``,
+                    "",
+                    "The generated plan matches what is already on this branch — no new commit was pushed.",
+                ].join("\n"),
+            );
+        } catch {
+            /* non-fatal */
+        }
     }
 
     return { branch, planPath, committed };

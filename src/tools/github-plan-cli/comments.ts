@@ -24,13 +24,14 @@ export async function createIssueComment(
     repo: RepoIdentity,
     issueNumber: number,
     body: string,
-): Promise<void> {
-    await octokit.rest.issues.createComment({
+): Promise<number> {
+    const { data } = await octokit.rest.issues.createComment({
         owner: repo.owner,
         repo: repo.repo,
         issue_number: issueNumber,
         body,
     });
+    return data.id;
 }
 
 /** Post a comment authored by github-plan automation (adds hidden prefix for context filtering). */
@@ -39,8 +40,22 @@ export async function postAutomationIssueComment(
     repo: RepoIdentity,
     issueNumber: number,
     bodyWithoutPrefix: string,
+): Promise<number> {
+    return await createIssueComment(octokit, repo, issueNumber, withAutomationPrefix(bodyWithoutPrefix));
+}
+
+export async function updateIssueComment(
+    octokit: Octokit,
+    repo: RepoIdentity,
+    commentId: number,
+    body: string,
 ): Promise<void> {
-    await createIssueComment(octokit, repo, issueNumber, withAutomationPrefix(bodyWithoutPrefix));
+    await octokit.rest.issues.updateComment({
+        owner: repo.owner,
+        repo: repo.repo,
+        comment_id: commentId,
+        body,
+    });
 }
 
 async function findCommentWithMarker(
@@ -109,27 +124,59 @@ function truncateUtf8(s: string, maxBytes: number): string {
     return buf.subarray(0, end).toString("utf8");
 }
 
-function buildPlanCommentCore(planMarkdown: string, maxBytes: number): string {
-    const open = PLAN_DETAILS_OPEN;
-    const close = PLAN_DETAILS_CLOSE;
-    const prefixBytes = Buffer.byteLength(AUTO_COMMENT_PREFIX, "utf8");
-    const frameBytes = Buffer.byteLength(open + close, "utf8");
-    const budget = maxBytes - prefixBytes - frameBytes;
-    if (budget <= 0) {
-        return `${AUTO_COMMENT_PREFIX}${open}_Plan content could not fit in this comment._${close}`;
+/** Markdown inside `<details>` only (no wrapper tags). */
+function buildTruncatedDetailsInner(planMarkdown: string, innerByteBudget: number): string {
+    if (innerByteBudget <= 0) {
+        return "_Plan content could not fit in this comment._";
     }
     const fullInner = planMarkdown;
     const innerBytes = Buffer.byteLength(fullInner, "utf8");
-    if (innerBytes <= budget) {
-        return `${AUTO_COMMENT_PREFIX}${open}${fullInner}${close}`;
+    if (innerBytes <= innerByteBudget) {
+        return fullInner;
     }
-    const totalBytes = Buffer.byteLength(`${AUTO_COMMENT_PREFIX}${open}${fullInner}${close}`, "utf8");
+    const totalBytes = Buffer.byteLength(
+        `${AUTO_COMMENT_PREFIX}${PLAN_DETAILS_OPEN}${fullInner}${PLAN_DETAILS_CLOSE}`,
+        "utf8",
+    );
     const note = `_Plan was too long for a single GitHub comment (${String(totalBytes)} bytes total), so this is a truncated preview._\n\n`;
     const footer = "\n\n... _truncated_ ...";
     const overhead = Buffer.byteLength(note + footer, "utf8");
-    const planBudget = Math.max(0, budget - overhead);
+    const planBudget = Math.max(0, innerByteBudget - overhead);
     const truncated = truncateUtf8(fullInner, planBudget);
-    return `${AUTO_COMMENT_PREFIX}${open}${note}${truncated}${footer}${close}`;
+    return `${note}${truncated}${footer}`;
+}
+
+function buildPlanCommentCore(planMarkdown: string, maxBytes: number): string {
+    const open = PLAN_DETAILS_OPEN;
+    const close = PLAN_DETAILS_CLOSE;
+    const fixed = `${AUTO_COMMENT_PREFIX}${open}${close}`;
+    const innerBudget = maxBytes - Buffer.byteLength(fixed, "utf8");
+    const inner = buildTruncatedDetailsInner(planMarkdown, innerBudget);
+    return `${AUTO_COMMENT_PREFIX}${open}${inner}${close}`;
+}
+
+/**
+ * Single issue comment body after plan generation: branch line plus either the plan (in `<details>`)
+ * or a short message when nothing new was committed.
+ */
+export function buildPlanThreadFinalBody(input: {
+    branchRef: string;
+    committed: boolean;
+    planMarkdown: string;
+    maxBytes: number;
+}): string {
+    const branchBlock = `**Plan branch:** \`${input.branchRef}\`\n\n`;
+    if (!input.committed) {
+        return withAutomationPrefix(
+            `${branchBlock}The generated plan matches what is already on this branch — no new commit was pushed.`,
+        );
+    }
+    const open = PLAN_DETAILS_OPEN;
+    const close = PLAN_DETAILS_CLOSE;
+    const frameWithoutInner = `${AUTO_COMMENT_PREFIX}${branchBlock}${open}${close}`;
+    const innerBudget = input.maxBytes - Buffer.byteLength(frameWithoutInner, "utf8");
+    const inner = buildTruncatedDetailsInner(input.planMarkdown, innerBudget);
+    return `${AUTO_COMMENT_PREFIX}${branchBlock}${open}${inner}${close}`;
 }
 
 export async function postPlanComment(
