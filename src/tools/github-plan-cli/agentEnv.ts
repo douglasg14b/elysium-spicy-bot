@@ -11,12 +11,33 @@ export function agentModelFromEnv(): string {
 }
 
 /**
- * Environment for spawning the Cursor `agent` CLI. Maps Jarvis-prefixed secrets to vars the binary expects.
+ * Effective Cursor Cloud API key: `CURSOR_API_KEY`, or `JARVIS_API_KEY` when the former is unset or blank.
+ */
+export function cursorApiKeyFromEnv(env: NodeJS.ProcessEnv = process.env): string | undefined {
+    const fromCursor = env.CURSOR_API_KEY?.trim();
+    if (fromCursor) {
+        return fromCursor;
+    }
+    const fromJarvis = env.JARVIS_API_KEY?.trim();
+    return fromJarvis || undefined;
+}
+
+export function assertCursorAgentApiKeyConfigured(): void {
+    if (!cursorApiKeyFromEnv()) {
+        throw new Error(
+            "Missing Cursor agent API key: set CURSOR_API_KEY or JARVIS_API_KEY in the environment. Repository secrets alone are not visible to the job unless the workflow maps them (e.g. CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}).",
+        );
+    }
+}
+
+/**
+ * Environment for spawning the Cursor `agent` CLI. Ensures `CURSOR_API_KEY` is set when a key was provided under either name.
  */
 export function agentSubprocessEnv(): NodeJS.ProcessEnv {
     const env = { ...process.env };
-    if (env.JARVIS_API_KEY && !env.CURSOR_API_KEY) {
-        env.CURSOR_API_KEY = env.JARVIS_API_KEY;
+    const key = cursorApiKeyFromEnv(env);
+    if (key) {
+        env.CURSOR_API_KEY = key;
     }
     return env;
 }

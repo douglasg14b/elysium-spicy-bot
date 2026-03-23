@@ -2,7 +2,13 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import type { Octokit } from "@octokit/rest";
-import { agentModelFromEnv, agentSubprocessEnv, JARVIS_WORKSPACE_DIR, workspaceRoot } from "./agentEnv.js";
+import {
+    agentModelFromEnv,
+    agentSubprocessEnv,
+    assertCursorAgentApiKeyConfigured,
+    JARVIS_WORKSPACE_DIR,
+    workspaceRoot,
+} from "./agentEnv.js";
 import { formatAgentFailureMessage } from "./agentProcess.js";
 import { buildPlanBranchRef, type DiscussionKind } from "./planBranch.js";
 import { parseIntentFromAgentJson } from "./intentParse.js";
@@ -24,6 +30,7 @@ export async function runIntentClassification(input: {
     discussionNumber: number;
 }): Promise<{ intent: string; runPlan: boolean }> {
     readIssueCommentEvent(input.eventPath);
+    assertCursorAgentApiKeyConfigured();
 
     const branchRef = buildPlanBranchRef({
         kind: input.discussionKind,

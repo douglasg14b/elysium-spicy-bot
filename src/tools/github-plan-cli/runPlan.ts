@@ -6,6 +6,7 @@ import type { Octokit } from "@octokit/rest";
 import {
     agentModelFromEnv,
     agentSubprocessEnv,
+    assertCursorAgentApiKeyConfigured,
     JARVIS_WORKSPACE_DIR,
     workspaceRoot,
 } from "./agentEnv.js";
@@ -60,6 +61,7 @@ export async function runPlanGeneration(input: {
     discussionKind: DiscussionKind;
     discussionNumber: number;
 }): Promise<{ branch: string; planPath: string; committed: boolean }> {
+    assertCursorAgentApiKeyConfigured();
     const { data: repoData } = await input.octokit.rest.repos.get({
         owner: input.repo.owner,
         repo: input.repo.repo,

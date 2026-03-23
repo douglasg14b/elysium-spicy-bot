@@ -88,6 +88,8 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           DISCUSSION_NUMBER: ${{ steps.context.outputs.discussion_number }}
           DISCUSSION_KIND: ${{ steps.context.outputs.discussion_kind }}
+          # Cursor CLI reads CURSOR_API_KEY; JARVIS_API_KEY is an optional alias (see agentEnv.cursorApiKeyFromEnv).
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
           JARVIS_API_KEY: ${{ secrets.JARVIS_API_KEY }}
           JARVIS_AGENT_MODEL: auto
         run: pnpm github-plan classify intent
@@ -112,6 +114,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           DISCUSSION_NUMBER: ${{ steps.context.outputs.discussion_number }}
           DISCUSSION_KIND: ${{ steps.context.outputs.discussion_kind }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
           JARVIS_API_KEY: ${{ secrets.JARVIS_API_KEY }}
           JARVIS_AGENT_MODEL: auto
         run: pnpm github-plan plan generate
