@@ -17,15 +17,18 @@ The caller must supply text by path or inline in the prompt:
 - **Comment** — the latest comment body to classify: **issue** thread or **pull request** conversation (required).
 - **Discussion context** (optional) — title/body of the issue or PR the comment belongs to, for disambiguation.
 
-In **GitHub Actions**, `pnpm github-plan classify intent` (see [src/tools/github-plan-cli/cli.ts](src/tools/github-plan-cli/cli.ts)) reads `DISCUSSION_NUMBER`, `DISCUSSION_KIND` (`issue` or `pull_request`), and `GITHUB_EVENT_PATH`. It writes `.jarvis/intent-context.md`, runs `agent` in ask/json mode with an explicit read-files prompt and `--model auto`, and writes `GITHUB_OUTPUT` keys `intent` and `run_plan`. Requires repo checkout, `agent` on `PATH`, `GITHUB_TOKEN`, and repository secret `JARVIS_API_KEY` (see `agentSubprocessEnv` in [src/tools/github-plan-cli/agentEnv.ts](src/tools/github-plan-cli/agentEnv.ts) for how it is passed to the agent process).
+In **GitHub Actions**, `pnpm github-plan classify intent` (see [src/tools/github-plan-cli/cli.ts](src/tools/github-plan-cli/cli.ts)) reads `DISCUSSION_NUMBER`, `DISCUSSION_KIND` (`issue` or `pull_request`), and `GITHUB_EVENT_PATH`. It writes `.jarvis/intent-context.md`, runs `agent` in ask/json mode with an explicit read-files prompt and `--model auto`, and writes `GITHUB_OUTPUT` keys `intent` and `run_plan`. The caller instructs you to write the **same** JSON object to **`.jarvis/intent-result.json`** (see [src/tools/github-plan-cli/runIntent.ts](src/tools/github-plan-cli/runIntent.ts)); automation **reads that file** as the source of truth. Requires repo checkout, `agent` on `PATH`, `GITHUB_TOKEN`, and repository secret `JARVIS_API_KEY` or `CURSOR_API_KEY` (see `agentSubprocessEnv` in [src/tools/github-plan-cli/agentEnv.ts](src/tools/github-plan-cli/agentEnv.ts)).
 
 ## Output (required)
 
-Reply with **exactly one JSON object** and **nothing else**:
+Produce **exactly one JSON object** with fields `intent`, `confidence`, and `reason` (schema below).
 
-- No markdown fences (no ` ```json `).
-- No prose before or after.
-- One line is preferred; pretty-printed JSON is allowed if it remains a single parseable object.
+When the prompt names an output path (e.g. **`.jarvis/intent-result.json`** for `github-plan classify intent`), you **must** write that object to that file:
+
+- UTF-8, **JSON only** in the file — no markdown fences, no prose before or after.
+- Pretty-printed or one line is fine as long as the file is a single valid JSON object.
+
+Stdout is ignored for results: automation **only** reads that file and **fails** if it is missing or not valid intent JSON.
 
 ### Schema
 
@@ -63,5 +66,6 @@ Reply with **exactly one JSON object** and **nothing else**:
 
 ## Check
 
+- [ ] When the caller names an output file (e.g. `.jarvis/intent-result.json`), that file exists and is valid JSON
 - [ ] Output is valid JSON and parses with `jq .`
 - [ ] All three fields present and `intent` is one of the four allowed strings

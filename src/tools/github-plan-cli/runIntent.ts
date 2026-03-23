@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import type { Octokit } from "@octokit/rest";
@@ -7,12 +7,13 @@ import {
     agentSubprocessEnv,
     assertCursorAgentApiKeyConfigured,
     cursorApiKeyFromEnv,
+    JARVIS_INTENT_RESULT_FILENAME,
     JARVIS_WORKSPACE_DIR,
     workspaceRoot,
 } from "./agentEnv.js";
 import { formatAgentFailureMessage } from "./agentProcess.js";
 import { buildPlanBranchRef, type DiscussionKind } from "./planBranch.js";
-import { parseIntentFromAgentJson } from "./intentParse.js";
+import { parseIntentFromResultFileContents } from "./intentParse.js";
 import type { RepoIdentity } from "./octokit.js";
 import { readIssueCommentEvent } from "./githubEvent.js";
 import { writeGithubOutput } from "./githubOutput.js";
@@ -108,12 +109,18 @@ export async function runIntentClassification(input: {
     const root = workspaceRoot();
     const jarvisDir = join(root, JARVIS_WORKSPACE_DIR);
     mkdirSync(jarvisDir, { recursive: true });
+    const intentResultAbs = join(jarvisDir, JARVIS_INTENT_RESULT_FILENAME);
+    const intentResultRel = `${JARVIS_WORKSPACE_DIR}/${JARVIS_INTENT_RESULT_FILENAME}`;
+    if (existsSync(intentResultAbs)) {
+        unlinkSync(intentResultAbs);
+    }
     writeFileSync(join(jarvisDir, "intent-context.md"), md, "utf8");
 
     planDebugLog("runIntentClassification: wrote intent context", {
         intentContextChars: md.length,
         titleChars: title.length,
         bodyChars: body.length,
+        intentResultRel,
     });
 
     const intentContextPath = `${JARVIS_WORKSPACE_DIR}/intent-context.md`;
@@ -127,7 +134,7 @@ export async function runIntentClassification(input: {
         "json",
         "--model",
         agentModelFromEnv(),
-        `/intent-detector Read ${intentContextPath}. It contains the issue/PR title and body, optional current plan from the plan branch, and the human comment thread (automation comments are omitted). Classify the **latest user request** (last comment in the thread). This automation is invoked by **Jarvis**; if they ask Jarvis (or generically ask) to **make / write / create** an implementation or technical **plan** for **this** issue, that is intent **plan**, not **other**. **plan_feedback** only when they clearly revise an **existing** plan. Return exactly one JSON object matching the skill schema (intent, confidence, reason)—no markdown fences.`,
+        `/intent-detector Read ${intentContextPath}. It contains the issue/PR title and body, optional current plan from the plan branch, and the human comment thread (automation comments are omitted). Classify the **latest user request** (last comment in the thread). This automation is invoked by **Jarvis**; if they ask Jarvis (or generically ask) to **make / write / create** an implementation or technical **plan** for **this** issue, that is intent **plan**, not **other**. **plan_feedback** only when they clearly revise an **existing** plan. **Required:** write **exactly one** JSON object (intent, confidence, reason) to the workspace file \`${intentResultRel}\` — UTF-8, JSON only, no markdown fences and no prose in that file. The automation **only** reads that file and **fails** if it is missing or invalid; do not rely on stdout for the result.`,
     ];
     planDebugLog("runIntentClassification: spawning agent", {
         model: agentModelFromEnv(),
@@ -152,8 +159,21 @@ export async function runIntentClassification(input: {
         stdoutChars: out.length,
         stderrChars: (proc.stderr ?? "").length,
     });
-    const parsed = parseIntentFromAgentJson(out);
-    planDebugLog("runIntentClassification: parsed intent", {
+
+    if (!existsSync(intentResultAbs)) {
+        throw new Error(
+            `Intent classification did not produce ${intentResultRel}. The agent must write the intent JSON object to that path.`,
+        );
+    }
+    const fileText = readFileSync(intentResultAbs, "utf8");
+    const parsed = parseIntentFromResultFileContents(fileText);
+    if (parsed === null) {
+        throw new Error(
+            `${intentResultRel} exists but is not valid intent JSON (expected one object with intent, confidence, reason and a known intent value).`,
+        );
+    }
+
+    planDebugLog("runIntentClassification: parsed intent from file", {
         intent: parsed.intent,
         runPlan: parsed.runPlan,
     });

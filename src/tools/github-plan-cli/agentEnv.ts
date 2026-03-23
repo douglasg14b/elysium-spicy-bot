@@ -1,6 +1,9 @@
 /** Workspace-relative directory for Jarvis (GitHub plan) scratch files passed to the agent CLI. */
 export const JARVIS_WORKSPACE_DIR = ".jarvis";
 
+/** Intent JSON written here by the intent-detector agent; read by `classify intent` (runner-local, not committed). */
+export const JARVIS_INTENT_RESULT_FILENAME = "intent-result.json";
+
 export function workspaceRoot(): string {
     return process.env.GITHUB_WORKSPACE ?? process.cwd();
 }

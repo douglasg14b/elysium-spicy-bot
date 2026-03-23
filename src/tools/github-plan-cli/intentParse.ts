@@ -1,38 +1,56 @@
-/**
- * Parse stdout from the Jarvis `agent` CLI when `--output-format json` wraps intent JSON.
- */
-export function parseIntentFromAgentJson(raw: string): { intent: string; runPlan: boolean } {
-    let parsed: unknown;
+import {
+    type DetectorIntent,
+    isDetectorIntent,
+} from "./githubPlanConstants.js";
+
+/** Payload shape after we confirm `intent` is a known detector value. */
+export type DetectorIntentPayload = { intent: DetectorIntent } & Record<string, unknown>;
+
+function stripOptionalMarkdownJsonFence(text: string): string {
+    const trimmed = text.trim();
+    if (!trimmed.startsWith("```")) {
+        return trimmed;
+    }
+    const firstLineBreak = trimmed.indexOf("\n");
+    if (firstLineBreak === -1) {
+        return trimmed;
+    }
+    const inner = trimmed.slice(firstLineBreak + 1);
+    const closingFence = inner.lastIndexOf("```");
+    if (closingFence === -1) {
+        return trimmed;
+    }
+    return inner.slice(0, closingFence).trim();
+}
+
+function tryParseIntentPayload(blob: string): DetectorIntentPayload | null {
     try {
-        parsed = JSON.parse(raw) as unknown;
-    } catch {
-        return { intent: "other", runPlan: false };
-    }
-    if (typeof parsed !== "object" || parsed === null) {
-        return { intent: "other", runPlan: false };
-    }
-    const obj = parsed as Record<string, unknown>;
-    let resultStr: string | undefined;
-    if (typeof obj.result === "string") {
-        resultStr = obj.result;
-    }
-    let inner: unknown = resultStr ?? parsed;
-    let peelGuard = 0;
-    while (typeof inner === "string" && peelGuard < 4) {
-        try {
-            inner = JSON.parse(inner) as unknown;
-        } catch {
-            return { intent: "other", runPlan: false };
+        const obj = JSON.parse(blob) as unknown;
+        if (typeof obj !== "object" || obj === null) {
+            return null;
         }
-        peelGuard += 1;
+        const rec = obj as Record<string, unknown>;
+        const intent = rec.intent;
+        if (typeof intent === "string" && isDetectorIntent(intent)) {
+            return rec as DetectorIntentPayload;
+        }
+    } catch {
+        /* invalid JSON */
     }
-    if (typeof inner !== "object" || inner === null) {
-        return { intent: "other", runPlan: false };
+    return null;
+}
+
+/**
+ * Parse JSON the intent agent wrote to `.jarvis/intent-result.json` (optional ``` fence stripped).
+ */
+export function parseIntentFromResultFileContents(raw: string): { intent: string; runPlan: boolean } | null {
+    const stripped = stripOptionalMarkdownJsonFence(raw.trim());
+    if (stripped === "") {
+        return null;
     }
-    const intentRaw = (inner as Record<string, unknown>).intent;
-    let intent = typeof intentRaw === "string" ? intentRaw : "other";
-    if (!["plan", "plan_feedback", "implement", "other"].includes(intent)) {
-        intent = "other";
+    const payload = tryParseIntentPayload(stripped);
+    if (payload === null) {
+        return null;
     }
-    return { intent, runPlan: intent === "plan" };
+    return { intent: payload.intent, runPlan: payload.intent === "plan" };
 }
