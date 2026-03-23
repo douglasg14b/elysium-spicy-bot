@@ -92,6 +92,7 @@ jobs:
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
           JARVIS_API_KEY: ${{ secrets.JARVIS_API_KEY }}
           JARVIS_AGENT_MODEL: auto
+          # Plan CLI debug logs default on in Actions (see planDebug.isPlanCliDebugEnabled). Set repo var GITHUB_PLAN_DEBUG=0 to silence.
           GITHUB_PLAN_DEBUG: ${{ vars.GITHUB_PLAN_DEBUG }}
         run: pnpm github-plan classify intent
 

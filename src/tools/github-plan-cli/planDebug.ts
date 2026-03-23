@@ -6,9 +6,28 @@ function truthyEnv(value: string | undefined): boolean {
     return normalized === "1" || normalized === "true" || normalized === "yes";
 }
 
-/** When set (1/true/yes), emit `[github-plan:debug]` lines on stderr for intent/plan gathering. */
+function explicitPlanDebugOff(value: string | undefined): boolean {
+    if (!value) {
+        return false;
+    }
+    const normalized = value.trim().toLowerCase();
+    return normalized === "0" || normalized === "false" || normalized === "no" || normalized === "off";
+}
+
+/**
+ * Whether to emit `[github-plan:debug]` lines on stderr.
+ *
+ * - **GitHub Actions** (`GITHUB_ACTIONS=true`): on by default. Set `GITHUB_PLAN_DEBUG` to `0`, `false`, `no`, or `off` to disable.
+ * - **Elsewhere**: off unless `GITHUB_PLAN_DEBUG` is `1`, `true`, or `yes`.
+ */
 export function isPlanCliDebugEnabled(): boolean {
-    return truthyEnv(process.env.GITHUB_PLAN_DEBUG);
+    if (explicitPlanDebugOff(process.env.GITHUB_PLAN_DEBUG)) {
+        return false;
+    }
+    if (truthyEnv(process.env.GITHUB_PLAN_DEBUG)) {
+        return true;
+    }
+    return process.env.GITHUB_ACTIONS === "true";
 }
 
 export function planDebugLog(

@@ -6,12 +6,26 @@ describe("isPlanCliDebugEnabled", () => {
         vi.unstubAllEnvs();
     });
 
-    it("is false when unset", () => {
+    it("is false when unset and not in Actions", () => {
         vi.stubEnv("GITHUB_PLAN_DEBUG", "");
+        vi.stubEnv("GITHUB_ACTIONS", "");
         expect(isPlanCliDebugEnabled()).toBe(false);
     });
 
-    it("is true for 1, true, yes (case-insensitive)", () => {
+    it("is true in Actions when GITHUB_PLAN_DEBUG is unset", () => {
+        vi.stubEnv("GITHUB_PLAN_DEBUG", "");
+        vi.stubEnv("GITHUB_ACTIONS", "true");
+        expect(isPlanCliDebugEnabled()).toBe(true);
+    });
+
+    it("is false in Actions when GITHUB_PLAN_DEBUG opts out", () => {
+        vi.stubEnv("GITHUB_PLAN_DEBUG", "0");
+        vi.stubEnv("GITHUB_ACTIONS", "true");
+        expect(isPlanCliDebugEnabled()).toBe(false);
+    });
+
+    it("is true for 1, true, yes (case-insensitive), even outside Actions", () => {
+        vi.stubEnv("GITHUB_ACTIONS", "");
         vi.stubEnv("GITHUB_PLAN_DEBUG", "1");
         expect(isPlanCliDebugEnabled()).toBe(true);
         vi.stubEnv("GITHUB_PLAN_DEBUG", "TRUE");
@@ -29,16 +43,26 @@ describe("planDebugLog", () => {
 
     it("does not write when debug is off", () => {
         vi.stubEnv("GITHUB_PLAN_DEBUG", "");
+        vi.stubEnv("GITHUB_ACTIONS", "");
         const spy = vi.spyOn(console, "error").mockImplementation(() => {});
         planDebugLog("hello", { a: 1 });
         expect(spy).not.toHaveBeenCalled();
     });
 
-    it("writes to stderr when debug is on", () => {
+    it("writes to stderr when GITHUB_PLAN_DEBUG=1", () => {
+        vi.stubEnv("GITHUB_ACTIONS", "");
         vi.stubEnv("GITHUB_PLAN_DEBUG", "1");
         const spy = vi.spyOn(console, "error").mockImplementation(() => {});
         planDebugLog("hello", { a: 1 });
         expect(spy).toHaveBeenCalledWith(expect.stringContaining("[github-plan:debug] hello"));
         expect(spy.mock.calls[0][0]).toContain('"a":1');
+    });
+
+    it("writes in Actions when GITHUB_PLAN_DEBUG is unset", () => {
+        vi.stubEnv("GITHUB_ACTIONS", "true");
+        vi.stubEnv("GITHUB_PLAN_DEBUG", "");
+        const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+        planDebugLog("ci");
+        expect(spy).toHaveBeenCalledWith(expect.stringContaining("[github-plan:debug] ci"));
     });
 });
