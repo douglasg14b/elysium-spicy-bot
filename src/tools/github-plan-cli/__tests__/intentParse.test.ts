@@ -15,7 +15,7 @@ describe("parseIntentFromResultFileContents", () => {
     it("strips optional markdown fence", () => {
         const inner = JSON.stringify({ intent: "plan_feedback", confidence: 0.8, reason: "z" });
         const raw = "```json\n" + inner + "\n```";
-        expect(parseIntentFromResultFileContents(raw)).toEqual({ intent: "plan_feedback", runPlan: false });
+        expect(parseIntentFromResultFileContents(raw)).toEqual({ intent: "plan_feedback", runPlan: true });
     });
 
     it("parses when reason contains braces inside the string", () => {

@@ -27,5 +27,26 @@ describe("buildPlanThreadFinalBody", () => {
         expect(body).toContain("**Plan branch:** `ai/pr-2`");
         expect(body).toContain("<details>");
         expect(body).toContain("## Steps");
+        expect(body).toContain("<summary>Implementation plan</summary>");
+    });
+
+    it("uses revised summary and copy when isPlanFeedbackRun", () => {
+        const bodyCommitted = buildPlanThreadFinalBody({
+            branchRef: "ai/issue-1",
+            committed: true,
+            planMarkdown: "# X",
+            maxBytes: 60_000,
+            isPlanFeedbackRun: true,
+        });
+        expect(bodyCommitted).toContain("<summary>Implementation plan (revised)</summary>");
+
+        const bodyNoCommit = buildPlanThreadFinalBody({
+            branchRef: "ai/issue-1",
+            committed: false,
+            planMarkdown: "# X",
+            maxBytes: 60_000,
+            isPlanFeedbackRun: true,
+        });
+        expect(bodyNoCommit).toContain("revised plan matches");
     });
 });

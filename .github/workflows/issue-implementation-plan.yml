@@ -116,9 +116,11 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           DISCUSSION_NUMBER: ${{ steps.context.outputs.discussion_number }}
           DISCUSSION_KIND: ${{ steps.context.outputs.discussion_kind }}
+          PLAN_IS_FEEDBACK: ${{ steps.intent.outputs.plan_is_feedback }}
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
           JARVIS_API_KEY: ${{ secrets.JARVIS_API_KEY }}
           JARVIS_AGENT_MODEL: auto
+          GITHUB_PLAN_DEBUG: ${{ vars.GITHUB_PLAN_DEBUG }}
         run: pnpm github-plan plan generate
 
       - name: Comment on failure

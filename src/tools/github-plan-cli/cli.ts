@@ -12,7 +12,7 @@ import {
 } from "./comments.js";
 import { runIntentClassification } from "./runIntent.js";
 import { runPlanGeneration } from "./runPlan.js";
-import { parseDiscussionKind, parseDiscussionNumber } from "./envUtils.js";
+import { parseDiscussionKind, parseDiscussionNumber, parseEnvBoolTrue } from "./envUtils.js";
 
 function requireEnv(name: string): string {
     const value = process.env[name];
@@ -160,11 +160,13 @@ const planGenerateCommand = defineCommand({
         const repo = parseGithubRepository(process.env.GITHUB_REPOSITORY);
         const discussionKind = parseDiscussionKind(process.env.DISCUSSION_KIND);
         const discussionNumber = parseDiscussionNumber(process.env.DISCUSSION_NUMBER);
+        const isPlanFeedbackRun = parseEnvBoolTrue(process.env.PLAN_IS_FEEDBACK);
         await runPlanGeneration({
             octokit,
             repo,
             discussionKind,
             discussionNumber,
+            isPlanFeedbackRun,
         });
     },
 });

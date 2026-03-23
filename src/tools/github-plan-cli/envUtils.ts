@@ -8,6 +8,11 @@ export function parseDiscussionKind(raw: string | undefined): DiscussionKind {
     throw new Error(`DISCUSSION_KIND must be "issue" or "pull_request", got: ${String(raw)}`);
 }
 
+/** True when `raw` is the string `true` (ASCII case-insensitive); otherwise false. */
+export function parseEnvBoolTrue(raw: string | undefined): boolean {
+    return raw?.trim().toLowerCase() === "true";
+}
+
 export function parseDiscussionNumber(raw: string | undefined): number {
     const n = Number(raw);
     if (!Number.isFinite(n) || n < 1 || !Number.isInteger(n)) {

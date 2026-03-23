@@ -24,6 +24,7 @@ import {
     listIssueCommentsForContext,
 } from "./threadContext.js";
 import { fetchPlanMarkdownFromBranch } from "./planContent.js";
+import { planIsFeedbackForGithubOutput, shouldTreatIntentAsPlanFeedback } from "./planFeedback.js";
 import { isPlanCliDebugEnabled, planDebugLog, truncateForPlanDebug } from "./planDebug.js";
 
 export async function runIntentClassification(input: {
@@ -32,7 +33,7 @@ export async function runIntentClassification(input: {
     eventPath: string;
     discussionKind: DiscussionKind;
     discussionNumber: number;
-}): Promise<{ intent: string; runPlan: boolean }> {
+}): Promise<{ intent: string; runPlan: boolean; planIsFeedback: boolean }> {
     const payload = readIssueCommentEvent(input.eventPath);
     assertCursorAgentApiKeyConfigured();
 
@@ -173,9 +174,16 @@ export async function runIntentClassification(input: {
         );
     }
 
+    const hasExistingPlan = planFromBranch != null && planFromBranch.trim() !== "";
+    const semanticPlanFeedback = shouldTreatIntentAsPlanFeedback(parsed.intent, hasExistingPlan);
+    const planIsFeedback = planIsFeedbackForGithubOutput(parsed.runPlan, semanticPlanFeedback);
+
     planDebugLog("runIntentClassification: parsed intent from file", {
         intent: parsed.intent,
         runPlan: parsed.runPlan,
+        hasExistingPlan,
+        semanticPlanFeedback,
+        planIsFeedback,
     });
     if (isPlanCliDebugEnabled() && parsed.intent === "other") {
         planDebugLog("runIntentClassification: agent stdout preview (intent was other)", {
@@ -184,5 +192,6 @@ export async function runIntentClassification(input: {
     }
     writeGithubOutput("intent", parsed.intent);
     writeGithubOutput("run_plan", parsed.runPlan ? "true" : "false");
-    return parsed;
+    writeGithubOutput("plan_is_feedback", planIsFeedback ? "true" : "false");
+    return { ...parsed, planIsFeedback };
 }

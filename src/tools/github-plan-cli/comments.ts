@@ -12,7 +12,7 @@ const UNAUTHORIZED_BODY =
     "I can only run Jarvis planning automation for repository collaborators with write access.";
 
 export function nonPlanIntentBody(intent: string): string {
-    return `Detected intent: **${intent}**. Full plan generation runs only when intent is **plan**.`;
+    return `Detected intent: **${intent}**. Full plan generation runs only when intent is **plan** or **plan_feedback**.`;
 }
 
 export function failureBody(runUrl: string): string {
@@ -112,8 +112,15 @@ export async function upsertBranchPinComment(
     await createIssueComment(octokit, repo, issueNumber, body);
 }
 
-const PLAN_DETAILS_OPEN = "<details>\n<summary>Implementation plan</summary>\n\n";
 const PLAN_DETAILS_CLOSE = "\n\n</details>";
+
+function planDetailsOpen(summaryLine: string): string {
+    return `<details>\n<summary>${summaryLine}</summary>\n\n`;
+}
+
+function planSummaryLine(isPlanFeedbackRun: boolean): string {
+    return isPlanFeedbackRun ? "Implementation plan (revised)" : "Implementation plan";
+}
 
 function truncateUtf8(s: string, maxBytes: number): string {
     if (maxBytes <= 0) return "";
@@ -125,7 +132,11 @@ function truncateUtf8(s: string, maxBytes: number): string {
 }
 
 /** Markdown inside `<details>` only (no wrapper tags). */
-function buildTruncatedDetailsInner(planMarkdown: string, innerByteBudget: number): string {
+function buildTruncatedDetailsInner(
+    planMarkdown: string,
+    innerByteBudget: number,
+    detailsOpen: string,
+): string {
     if (innerByteBudget <= 0) {
         return "_Plan content could not fit in this comment._";
     }
@@ -135,7 +146,7 @@ function buildTruncatedDetailsInner(planMarkdown: string, innerByteBudget: numbe
         return fullInner;
     }
     const totalBytes = Buffer.byteLength(
-        `${AUTO_COMMENT_PREFIX}${PLAN_DETAILS_OPEN}${fullInner}${PLAN_DETAILS_CLOSE}`,
+        `${AUTO_COMMENT_PREFIX}${detailsOpen}${fullInner}${PLAN_DETAILS_CLOSE}`,
         "utf8",
     );
     const note = `_Plan was too long for a single GitHub comment (${String(totalBytes)} bytes total), so this is a truncated preview._\n\n`;
@@ -146,12 +157,16 @@ function buildTruncatedDetailsInner(planMarkdown: string, innerByteBudget: numbe
     return `${note}${truncated}${footer}`;
 }
 
-function buildPlanCommentCore(planMarkdown: string, maxBytes: number): string {
-    const open = PLAN_DETAILS_OPEN;
+function buildPlanCommentCore(
+    planMarkdown: string,
+    maxBytes: number,
+    isPlanFeedbackRun: boolean,
+): string {
+    const open = planDetailsOpen(planSummaryLine(isPlanFeedbackRun));
     const close = PLAN_DETAILS_CLOSE;
     const fixed = `${AUTO_COMMENT_PREFIX}${open}${close}`;
     const innerBudget = maxBytes - Buffer.byteLength(fixed, "utf8");
-    const inner = buildTruncatedDetailsInner(planMarkdown, innerBudget);
+    const inner = buildTruncatedDetailsInner(planMarkdown, innerBudget, open);
     return `${AUTO_COMMENT_PREFIX}${open}${inner}${close}`;
 }
 
@@ -164,18 +179,22 @@ export function buildPlanThreadFinalBody(input: {
     committed: boolean;
     planMarkdown: string;
     maxBytes: number;
+    /** When true, copy reflects a revision pass (vs first-time plan). */
+    isPlanFeedbackRun?: boolean;
 }): string {
+    const isPlanFeedbackRun = input.isPlanFeedbackRun ?? false;
     const branchBlock = `**Plan branch:** \`${input.branchRef}\`\n\n`;
     if (!input.committed) {
-        return withAutomationPrefix(
-            `${branchBlock}The generated plan matches what is already on this branch — no new commit was pushed.`,
-        );
+        const noCommitLine = isPlanFeedbackRun
+            ? "The revised plan matches what is already on this branch — no new commit was pushed."
+            : "The generated plan matches what is already on this branch — no new commit was pushed.";
+        return withAutomationPrefix(`${branchBlock}${noCommitLine}`);
     }
-    const open = PLAN_DETAILS_OPEN;
+    const open = planDetailsOpen(planSummaryLine(isPlanFeedbackRun));
     const close = PLAN_DETAILS_CLOSE;
     const frameWithoutInner = `${AUTO_COMMENT_PREFIX}${branchBlock}${open}${close}`;
     const innerBudget = input.maxBytes - Buffer.byteLength(frameWithoutInner, "utf8");
-    const inner = buildTruncatedDetailsInner(input.planMarkdown, innerBudget);
+    const inner = buildTruncatedDetailsInner(input.planMarkdown, innerBudget, open);
     return `${AUTO_COMMENT_PREFIX}${branchBlock}${open}${inner}${close}`;
 }
 
@@ -185,8 +204,9 @@ export async function postPlanComment(
     issueNumber: number,
     planMarkdown: string,
     maxBytes: number,
+    isPlanFeedbackRun = false,
 ): Promise<void> {
-    const body = buildPlanCommentCore(planMarkdown, maxBytes);
+    const body = buildPlanCommentCore(planMarkdown, maxBytes, isPlanFeedbackRun);
     await createIssueComment(octokit, repo, issueNumber, body);
 }
 

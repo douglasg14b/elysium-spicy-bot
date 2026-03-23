@@ -14,6 +14,7 @@ import { formatAgentFailureMessage } from "./agentProcess.js";
 import { buildPlanBranchRef, type DiscussionKind } from "./planBranch.js";
 import {
     buildPlanThreadFinalBody,
+    createIssueComment,
     postAutomationIssueComment,
     postPlanComment,
     updateIssueComment,
@@ -83,7 +84,10 @@ export async function runPlanGeneration(input: {
     repo: RepoIdentity;
     discussionKind: DiscussionKind;
     discussionNumber: number;
+    /** From CI: revise/update pass vs first plan on branch (local default: false). */
+    isPlanFeedbackRun?: boolean;
 }): Promise<{ branch: string; planPath: string; committed: boolean }> {
+    const isPlanFeedbackRun = input.isPlanFeedbackRun ?? false;
     assertCursorAgentApiKeyConfigured();
     const { data: repoData } = await input.octokit.rest.repos.get({
         owner: input.repo.owner,
@@ -116,7 +120,7 @@ export async function runPlanGeneration(input: {
             input.octokit,
             input.repo,
             input.discussionNumber,
-            "Generating implementation plan...",
+            isPlanFeedbackRun ? "Revising implementation plan..." : "Generating implementation plan...",
         );
     } catch {
         /* non-fatal */
@@ -154,6 +158,9 @@ export async function runPlanGeneration(input: {
     writeFileSync(join(jarvisDir, "intent-context.md"), md, "utf8");
 
     const intentContextPath = `${JARVIS_WORKSPACE_DIR}/intent-context.md`;
+    const plannerInstruction = isPlanFeedbackRun
+        ? `/planner Read ${intentContextPath} for the GitHub discussion (issue or pull request). It includes the description, the **current implementation plan on this branch** (treat it as authoritative and revise it), and the human comment thread. Explore this repository and **update** that plan to reflect the latest discussion: respond with ONLY the complete **revised** implementation plan markdown (no preamble). Keep clear structure; merge feedback and new constraints explicitly.`
+        : `/planner Read ${intentContextPath} for the GitHub discussion (issue or pull request). It includes the description, optional current plan already on this branch, and the human comment thread. Explore this repository and respond with ONLY the complete implementation plan markdown (no preamble).`;
     const plannerArgs = [
         "-p",
         "--trust",
@@ -164,7 +171,7 @@ export async function runPlanGeneration(input: {
         "text",
         "--model",
         agentModelFromEnv(),
-        `/planner Read ${intentContextPath} for the GitHub discussion (issue or pull request). It includes the description, optional current plan already on this branch, and the human comment thread. Explore this repository and respond with ONLY the complete implementation plan markdown (no preamble).`,
+        plannerInstruction,
     ];
     const proc = spawnSync("agent", plannerArgs, {
         encoding: "utf8",
@@ -195,9 +202,10 @@ export async function runPlanGeneration(input: {
     const diff = await git.diff(["--cached"]);
     let committed = false;
     if (diff.trim()) {
-        await git.commit(
-            `plan: implementation plan for ${input.discussionKind} #${String(input.discussionNumber)}`,
-        );
+        const subject = isPlanFeedbackRun
+            ? `plan: revise implementation plan for ${input.discussionKind} #${String(input.discussionNumber)}`
+            : `plan: implementation plan for ${input.discussionKind} #${String(input.discussionNumber)}`;
+        await git.commit(subject);
         await git.push("origin", branch);
         committed = true;
     }
@@ -208,6 +216,7 @@ export async function runPlanGeneration(input: {
         committed,
         planMarkdown,
         maxBytes: 60_000,
+        isPlanFeedbackRun,
     });
 
     if (planThreadCommentId !== undefined) {
@@ -241,18 +250,21 @@ export async function runPlanGeneration(input: {
                     input.discussionNumber,
                     planMarkdown,
                     60_000,
+                    isPlanFeedbackRun,
                 );
             } else {
                 try {
-                    await postAutomationIssueComment(
+                    await createIssueComment(
                         input.octokit,
                         input.repo,
                         input.discussionNumber,
-                        [
-                            `**Plan branch:** \`${branch}\``,
-                            "",
-                            "The generated plan matches what is already on this branch — no new commit was pushed.",
-                        ].join("\n"),
+                        buildPlanThreadFinalBody({
+                            branchRef: branch,
+                            committed: false,
+                            planMarkdown,
+                            maxBytes: 60_000,
+                            isPlanFeedbackRun,
+                        }),
                     );
                 } catch {
                     /* non-fatal */
@@ -261,18 +273,27 @@ export async function runPlanGeneration(input: {
         }
     } else if (committed) {
         await upsertBranchPinComment(input.octokit, input.repo, input.discussionNumber, branch);
-        await postPlanComment(input.octokit, input.repo, input.discussionNumber, planMarkdown, 60_000);
+        await postPlanComment(
+            input.octokit,
+            input.repo,
+            input.discussionNumber,
+            planMarkdown,
+            60_000,
+            isPlanFeedbackRun,
+        );
     } else {
         try {
-            await postAutomationIssueComment(
+            await createIssueComment(
                 input.octokit,
                 input.repo,
                 input.discussionNumber,
-                [
-                    `**Plan branch:** \`${branch}\``,
-                    "",
-                    "The generated plan matches what is already on this branch — no new commit was pushed.",
-                ].join("\n"),
+                buildPlanThreadFinalBody({
+                    branchRef: branch,
+                    committed: false,
+                    planMarkdown,
+                    maxBytes: 60_000,
+                    isPlanFeedbackRun,
+                }),
             );
         } catch {
             /* non-fatal */

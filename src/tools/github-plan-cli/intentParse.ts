@@ -42,6 +42,8 @@ function tryParseIntentPayload(blob: string): DetectorIntentPayload | null {
 
 /**
  * Parse JSON the intent agent wrote to `.jarvis/intent-result.json` (optional ``` fence stripped).
+ *
+ * Returns `runPlan` true for `plan` or `plan_feedback`; revision vs first plan is decided in `runIntentClassification` using branch plan content.
  */
 export function parseIntentFromResultFileContents(raw: string): { intent: string; runPlan: boolean } | null {
     const stripped = stripOptionalMarkdownJsonFence(raw.trim());
@@ -52,5 +54,6 @@ export function parseIntentFromResultFileContents(raw: string): { intent: string
     if (payload === null) {
         return null;
     }
-    return { intent: payload.intent, runPlan: payload.intent === "plan" };
+    const runPlan = payload.intent === "plan" || payload.intent === "plan_feedback";
+    return { intent: payload.intent, runPlan };
 }
