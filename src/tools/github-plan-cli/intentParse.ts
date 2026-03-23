@@ -1,5 +1,5 @@
 /**
- * Parse stdout from Cursor `agent` when `--output-format json` wraps intent JSON.
+ * Parse stdout from the Jarvis `agent` CLI when `--output-format json` wraps intent JSON.
  */
 export function parseIntentFromAgentJson(raw: string): { intent: string; runPlan: boolean } {
     let parsed: unknown;

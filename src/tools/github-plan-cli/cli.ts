@@ -1,6 +1,6 @@
 import { defineCommand, runMain } from "citty";
 import { buildPlanBranchRef, type DiscussionKind } from "./planBranch.js";
-import { commentMentionsCursor, readIssueCommentEvent } from "./githubEvent.js";
+import { commentMentionsJarvis, readIssueCommentEvent } from "./githubEvent.js";
 import { writeGithubOutput } from "./githubOutput.js";
 import { createOctokit, parseGithubRepository } from "./octokit.js";
 import { hasRepoWriteAccess } from "./permissions.js";
@@ -28,7 +28,7 @@ const threadGateCommand = defineCommand({
     meta: {
         name: "gate",
         description:
-            "Read issue_comment from GITHUB_EVENT_PATH; emit discussion ids and whether the cursor gate passes.",
+            "Read issue_comment from GITHUB_EVENT_PATH; emit discussion ids and whether the Jarvis gate passes.",
     },
     async run() {
         const eventPath = requireEnv("GITHUB_EVENT_PATH");
@@ -36,7 +36,7 @@ const threadGateCommand = defineCommand({
         const discussionNumber = payload.issue.number;
         const discussionKind: DiscussionKind =
             payload.issue.pull_request != null ? "pull_request" : "issue";
-        const shouldContinue = commentMentionsCursor(payload.comment.body);
+        const shouldContinue = commentMentionsJarvis(payload.comment.body);
 
         writeGithubOutput("discussion_number", String(discussionNumber));
         writeGithubOutput("discussion_kind", discussionKind);
@@ -121,7 +121,7 @@ const branchCommand = defineCommand({
 const classifyIntentCommand = defineCommand({
     meta: {
         name: "intent",
-        description: "Classify latest comment intent via Cursor agent (intent-detector skill).",
+        description: "Classify latest comment intent via Jarvis agent CLI (intent-detector skill).",
     },
     async run() {
         const octokit = createOctokit();
@@ -246,7 +246,7 @@ const main = defineCommand({
     meta: {
         name: "github-plan",
         description:
-            "CLI for GitHub threads, repo auth, branch naming, intent classification, and plan generation.",
+            "Jarvis: GitHub threads, repo auth, branch naming, intent classification, and plan generation.",
     },
     subCommands: {
         thread: threadCommand,

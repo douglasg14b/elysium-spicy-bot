@@ -17,7 +17,7 @@ The caller must supply text by path or inline in the prompt:
 - **Comment** — the latest comment body to classify: **issue** thread or **pull request** conversation (required).
 - **Discussion context** (optional) — title/body of the issue or PR the comment belongs to, for disambiguation.
 
-In **GitHub Actions**, `pnpm github-plan classify intent` (see [src/tools/github-plan-cli/cli.ts](src/tools/github-plan-cli/cli.ts)) reads `DISCUSSION_NUMBER`, `DISCUSSION_KIND` (`issue` or `pull_request`), and `GITHUB_EVENT_PATH`. It writes `.claude/intent-comment.md` and `.claude/intent-context.md`, runs `agent` in ask/json mode with an explicit read-files prompt and `--model auto`, and writes `GITHUB_OUTPUT` keys `intent` and `run_plan`. Requires repo checkout, `agent` on `PATH`, `GITHUB_TOKEN`, and `CURSOR_API_KEY`.
+In **GitHub Actions**, `pnpm github-plan classify intent` (see [src/tools/github-plan-cli/cli.ts](src/tools/github-plan-cli/cli.ts)) reads `DISCUSSION_NUMBER`, `DISCUSSION_KIND` (`issue` or `pull_request`), and `GITHUB_EVENT_PATH`. It writes `.jarvis/intent-context.md`, runs `agent` in ask/json mode with an explicit read-files prompt and `--model auto`, and writes `GITHUB_OUTPUT` keys `intent` and `run_plan`. Requires repo checkout, `agent` on `PATH`, `GITHUB_TOKEN`, and repository secret `JARVIS_API_KEY` (see `agentSubprocessEnv` in [src/tools/github-plan-cli/agentEnv.ts](src/tools/github-plan-cli/agentEnv.ts) for how it is passed to the agent process).
 
 ## Output (required)
 

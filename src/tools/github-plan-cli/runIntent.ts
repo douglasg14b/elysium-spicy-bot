@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import type { Octokit } from "@octokit/rest";
-import { agentModelFromEnv, workspaceRoot } from "./agentEnv.js";
+import { agentModelFromEnv, agentSubprocessEnv, JARVIS_WORKSPACE_DIR, workspaceRoot } from "./agentEnv.js";
 import { formatAgentFailureMessage } from "./agentProcess.js";
 import { buildPlanBranchRef, type DiscussionKind } from "./planBranch.js";
 import { parseIntentFromAgentJson } from "./intentParse.js";
@@ -57,10 +57,11 @@ export async function runIntentClassification(input: {
     });
 
     const root = workspaceRoot();
-    const claudeDir = join(root, ".claude");
-    mkdirSync(claudeDir, { recursive: true });
-    writeFileSync(join(claudeDir, "intent-context.md"), md, "utf8");
+    const jarvisDir = join(root, JARVIS_WORKSPACE_DIR);
+    mkdirSync(jarvisDir, { recursive: true });
+    writeFileSync(join(jarvisDir, "intent-context.md"), md, "utf8");
 
+    const intentContextPath = `${JARVIS_WORKSPACE_DIR}/intent-context.md`;
     const agentArgs = [
         "-p",
         "--trust",
@@ -71,12 +72,12 @@ export async function runIntentClassification(input: {
         "json",
         "--model",
         agentModelFromEnv(),
-        "/intent-detector Read .claude/intent-context.md. It contains the issue/PR title and body, optional current plan from the plan branch, and the human comment thread (automation comments are omitted). Classify the latest user request (last comment in the thread) and return exactly one JSON object matching the skill schema.",
+        `/intent-detector Read ${intentContextPath}. It contains the issue/PR title and body, optional current plan from the plan branch, and the human comment thread (automation comments are omitted). Classify the latest user request (last comment in the thread) and return exactly one JSON object matching the skill schema.`,
     ];
     const proc = spawnSync("agent", agentArgs, {
         encoding: "utf8",
         cwd: root,
-        env: process.env,
+        env: agentSubprocessEnv(),
         maxBuffer: 64 * 1024 * 1024,
     });
     if (proc.error) {

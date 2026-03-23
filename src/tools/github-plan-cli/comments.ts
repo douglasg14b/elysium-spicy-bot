@@ -9,7 +9,7 @@ import type { RepoIdentity } from "./octokit.js";
 export { BRANCH_PIN_MARKER } from "./githubPlanConstants.js";
 
 const UNAUTHORIZED_BODY =
-    "I can only run planning automation for repository collaborators with write access.";
+    "I can only run Jarvis planning automation for repository collaborators with write access.";
 
 export function nonPlanIntentBody(intent: string): string {
     return `Detected intent: **${intent}**. Full plan generation runs only when intent is **plan**.`;

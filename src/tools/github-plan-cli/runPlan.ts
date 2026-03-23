@@ -3,7 +3,12 @@ import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import simpleGit from "simple-git";
 import type { Octokit } from "@octokit/rest";
-import { agentModelFromEnv, workspaceRoot } from "./agentEnv.js";
+import {
+    agentModelFromEnv,
+    agentSubprocessEnv,
+    JARVIS_WORKSPACE_DIR,
+    workspaceRoot,
+} from "./agentEnv.js";
 import { formatAgentFailureMessage } from "./agentProcess.js";
 import { buildPlanBranchRef, type DiscussionKind } from "./planBranch.js";
 import {
@@ -42,7 +47,8 @@ async function remoteBranchExists(
 
 function readPriorPlanFromWorkspace(planPath: string): string {
     try {
-        return readFileSync(planPath, "utf8");
+        const text = readFileSync(planPath, "utf8");
+        return text.trim() === "" ? "" : text;
     } catch {
         return "";
     }
@@ -104,7 +110,7 @@ export async function runPlanGeneration(input: {
         await git.checkoutLocalBranch(branch);
     }
 
-    const planPath = join(root, ".claude", "plan.md");
+    const planPath = join(root, JARVIS_WORKSPACE_DIR, "plan.md");
     const priorPlan = readPriorPlanFromWorkspace(planPath);
     const currentPlanSection =
         priorPlan.trim() !== "" ? formatCurrentPlanSection(priorPlan, branch) : "";
@@ -117,10 +123,11 @@ export async function runPlanGeneration(input: {
         comments,
         currentPlanSection,
     });
-    const claudeDir = join(root, ".claude");
-    mkdirSync(claudeDir, { recursive: true });
-    writeFileSync(join(claudeDir, "intent-context.md"), md, "utf8");
+    const jarvisDir = join(root, JARVIS_WORKSPACE_DIR);
+    mkdirSync(jarvisDir, { recursive: true });
+    writeFileSync(join(jarvisDir, "intent-context.md"), md, "utf8");
 
+    const intentContextPath = `${JARVIS_WORKSPACE_DIR}/intent-context.md`;
     const plannerArgs = [
         "-p",
         "--trust",
@@ -131,12 +138,12 @@ export async function runPlanGeneration(input: {
         "text",
         "--model",
         agentModelFromEnv(),
-        "/planner Read .claude/intent-context.md for the GitHub discussion (issue or pull request). It includes the description, optional current plan already on this branch, and the human comment thread. Explore this repository and respond with ONLY the complete implementation plan markdown (no preamble).",
+        `/planner Read ${intentContextPath} for the GitHub discussion (issue or pull request). It includes the description, optional current plan already on this branch, and the human comment thread. Explore this repository and respond with ONLY the complete implementation plan markdown (no preamble).`,
     ];
     const proc = spawnSync("agent", plannerArgs, {
         encoding: "utf8",
         cwd: root,
-        env: process.env,
+        env: agentSubprocessEnv(),
         maxBuffer: 64 * 1024 * 1024,
     });
     if (proc.error) {
@@ -154,11 +161,11 @@ export async function runPlanGeneration(input: {
     }
     const planText = proc.stdout ?? "";
     if (!planText.trim()) {
-        throw new Error("ERROR: .claude/plan.md would be empty");
+        throw new Error(`ERROR: ${JARVIS_WORKSPACE_DIR}/plan.md would be empty`);
     }
     writeFileSync(planPath, planText, "utf8");
 
-    await git.add(".claude/plan.md");
+    await git.add(`${JARVIS_WORKSPACE_DIR}/plan.md`);
     const diff = await git.diff(["--cached"]);
     let committed = false;
     if (diff.trim()) {

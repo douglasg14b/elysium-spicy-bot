@@ -1,7 +1,7 @@
-# Generates an implementation plan from a GitHub issue or pull request using Cursor Agent CLI.
-# Runs on issue/PR comments (when comment mentions "cursor").
+# Generates an implementation plan from a GitHub issue or pull request via Jarvis (agent CLI).
+# Runs on issue/PR comments when the comment mentions "jarvis" (word boundary).
 
-name: Issue implementation plan (Cursor CLI)
+name: Issue implementation plan (Jarvis)
 
 run-name: "Plan discussion ${{ github.event.issue.number }}"
 
@@ -43,13 +43,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Gate (cursor mention) and discussion context
+      - name: Gate (Jarvis mention) and discussion context
         id: context
         run: pnpm github-plan thread gate
 
-      - name: Stop when comment does not mention cursor
+      - name: Stop when comment does not mention Jarvis
         if: steps.context.outputs.should_continue != 'true'
-        run: echo "Comment did not mention cursor; skipping."
+        run: echo "Comment did not mention jarvis; skipping."
 
       - name: Verify actor has repository write access
         id: auth
@@ -65,18 +65,19 @@ jobs:
           DISCUSSION_NUMBER: ${{ steps.context.outputs.discussion_number }}
         run: pnpm github-plan issue comment --preset unauthorized
 
-      # Optional: set repo Actions variable CURSOR_INSTALL_SCRIPT_SHA256 to pin install script integrity (sha256sum format).
-      - name: Install Cursor CLI
+      # Optional: set repo Actions variable JARVIS_INSTALL_SCRIPT_SHA256 to pin install script integrity (sha256sum format).
+      # Installs Cursor's `agent` binary (still installed under ~/.cursor/bin).
+      - name: Install agent CLI (Cursor)
         if: steps.context.outputs.should_continue == 'true' && steps.auth.outputs.authorized == 'true'
         env:
           CURSOR_CLI_INSTALL_URL: https://cursor.com/install
-          CURSOR_INSTALL_SCRIPT_SHA256: ${{ vars.CURSOR_INSTALL_SCRIPT_SHA256 }}
+          JARVIS_INSTALL_SCRIPT_SHA256: ${{ vars.JARVIS_INSTALL_SCRIPT_SHA256 }}
         run: |
           set -euo pipefail
-          script=/tmp/cursor-cli-install.sh
+          script=/tmp/jarvis-agent-install.sh
           curl -fsSL "$CURSOR_CLI_INSTALL_URL" -o "$script"
-          if [ -n "${CURSOR_INSTALL_SCRIPT_SHA256:-}" ]; then
-            echo "${CURSOR_INSTALL_SCRIPT_SHA256}  ${script}" | sha256sum -c -
+          if [ -n "${JARVIS_INSTALL_SCRIPT_SHA256:-}" ]; then
+            echo "${JARVIS_INSTALL_SCRIPT_SHA256}  ${script}" | sha256sum -c -
           fi
           bash "$script"
           echo "$HOME/.cursor/bin" >> "$GITHUB_PATH"
@@ -89,8 +90,8 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           DISCUSSION_NUMBER: ${{ steps.context.outputs.discussion_number }}
           DISCUSSION_KIND: ${{ steps.context.outputs.discussion_kind }}
-          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
-          CURSOR_AGENT_MODEL: auto
+          JARVIS_API_KEY: ${{ secrets.JARVIS_API_KEY }}
+          JARVIS_AGENT_MODEL: auto
         run: pnpm github-plan classify intent
 
       - name: Reply when intent is not plan
@@ -113,8 +114,8 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           DISCUSSION_NUMBER: ${{ steps.context.outputs.discussion_number }}
           DISCUSSION_KIND: ${{ steps.context.outputs.discussion_kind }}
-          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
-          CURSOR_AGENT_MODEL: auto
+          JARVIS_API_KEY: ${{ secrets.JARVIS_API_KEY }}
+          JARVIS_AGENT_MODEL: auto
         run: pnpm github-plan plan generate
 
       - name: Comment on failure

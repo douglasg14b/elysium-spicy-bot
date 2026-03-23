@@ -23,7 +23,7 @@ describe("shouldExcludeCommentFromContext", () => {
     });
 
     it("includes normal human comments", () => {
-        expect(shouldExcludeCommentFromContext("Please plan this with cursor")).toBe(false);
+        expect(shouldExcludeCommentFromContext("Please plan this with jarvis")).toBe(false);
     });
 
     it("excludes null and empty", () => {

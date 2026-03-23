@@ -1,19 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { commentMentionsCursor } from "../githubEvent.js";
+import { commentMentionsJarvis } from "../githubEvent.js";
 
-describe("commentMentionsCursor", () => {
-    it("matches word cursor case-insensitively", () => {
-        expect(commentMentionsCursor("Please use Cursor to plan")).toBe(true);
-        expect(commentMentionsCursor("CURSOR plan")).toBe(true);
+describe("commentMentionsJarvis", () => {
+    it("matches word jarvis case-insensitively", () => {
+        expect(commentMentionsJarvis("Please use Jarvis to plan")).toBe(true);
+        expect(commentMentionsJarvis("JARVIS plan")).toBe(true);
     });
 
-    it("does not match substring inside another word", () => {
-        expect(commentMentionsCursor("recursor")).toBe(false);
+    it("does not match substrings", () => {
+        expect(commentMentionsJarvis("ajarvis")).toBe(false);
     });
 
-    it("treats empty as false", () => {
-        expect(commentMentionsCursor("")).toBe(false);
-        expect(commentMentionsCursor(null)).toBe(false);
-        expect(commentMentionsCursor(undefined)).toBe(false);
+    it("handles empty input", () => {
+        expect(commentMentionsJarvis("")).toBe(false);
+        expect(commentMentionsJarvis(null)).toBe(false);
+        expect(commentMentionsJarvis(undefined)).toBe(false);
     });
 });

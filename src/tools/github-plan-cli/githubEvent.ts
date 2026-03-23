@@ -23,7 +23,8 @@ export function discussionKindFromPayload(payload: IssueCommentPayload): "issue"
     return payload.issue.pull_request != null ? "pull_request" : "issue";
 }
 
-export function commentMentionsCursor(body: string | null | undefined): boolean {
+/** True when the comment mentions the Jarvis automation trigger word (word boundary, case-insensitive). */
+export function commentMentionsJarvis(body: string | null | undefined): boolean {
     const b = body ?? "";
-    return /\bcursor\b/i.test(b);
+    return /\bjarvis\b/i.test(b);
 }

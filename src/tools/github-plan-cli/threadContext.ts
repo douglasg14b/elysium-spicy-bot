@@ -78,7 +78,7 @@ export function formatCurrentPlanSection(planMarkdown: string, branchRef: string
 }
 
 /**
- * Full markdown for `.claude/intent-context.md`: description, optional committed plan, chronological human comments.
+ * Full markdown for `.jarvis/intent-context.md`: description, optional committed plan, chronological human comments.
  */
 export function buildRichIntentContextMarkdown(input: {
     kind: DiscussionKind;
