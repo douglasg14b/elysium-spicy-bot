@@ -92,6 +92,7 @@ jobs:
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
           JARVIS_API_KEY: ${{ secrets.JARVIS_API_KEY }}
           JARVIS_AGENT_MODEL: auto
+          GITHUB_PLAN_DEBUG: ${{ vars.GITHUB_PLAN_DEBUG }}
         run: pnpm github-plan classify intent
 
       - name: Reply when intent is not plan

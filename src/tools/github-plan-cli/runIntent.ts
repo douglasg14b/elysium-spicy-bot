@@ -6,6 +6,7 @@ import {
     agentModelFromEnv,
     agentSubprocessEnv,
     assertCursorAgentApiKeyConfigured,
+    cursorApiKeyFromEnv,
     JARVIS_WORKSPACE_DIR,
     workspaceRoot,
 } from "./agentEnv.js";
@@ -21,6 +22,7 @@ import {
     listIssueCommentsForContext,
 } from "./threadContext.js";
 import { fetchPlanMarkdownFromBranch } from "./planContent.js";
+import { planDebugLog } from "./planDebug.js";
 
 export async function runIntentClassification(input: {
     octokit: Octokit;
@@ -36,6 +38,12 @@ export async function runIntentClassification(input: {
         kind: input.discussionKind,
         number: input.discussionNumber,
     });
+    planDebugLog("runIntentClassification: start", {
+        kind: input.discussionKind,
+        number: input.discussionNumber,
+        branchRef,
+        repo: `${input.repo.owner}/${input.repo.repo}`,
+    });
 
     const [{ data: issue }, comments, planFromBranch] = await Promise.all([
         input.octokit.rest.issues.get({
@@ -46,6 +54,12 @@ export async function runIntentClassification(input: {
         listIssueCommentsForContext(input.octokit, input.repo, input.discussionNumber),
         fetchPlanMarkdownFromBranch(input.octokit, input.repo, branchRef),
     ]);
+
+    planDebugLog("runIntentClassification: thread loaded", {
+        commentCount: comments.length,
+        hasCurrentPlanSection: planFromBranch != null && planFromBranch.trim() !== "",
+        planChars: planFromBranch?.length ?? 0,
+    });
 
     const title = issue.title ?? "";
     const body = issue.body ?? "";
@@ -68,6 +82,12 @@ export async function runIntentClassification(input: {
     mkdirSync(jarvisDir, { recursive: true });
     writeFileSync(join(jarvisDir, "intent-context.md"), md, "utf8");
 
+    planDebugLog("runIntentClassification: wrote intent context", {
+        intentContextChars: md.length,
+        titleChars: title.length,
+        bodyChars: body.length,
+    });
+
     const intentContextPath = `${JARVIS_WORKSPACE_DIR}/intent-context.md`;
     const agentArgs = [
         "-p",
@@ -81,6 +101,10 @@ export async function runIntentClassification(input: {
         agentModelFromEnv(),
         `/intent-detector Read ${intentContextPath}. It contains the issue/PR title and body, optional current plan from the plan branch, and the human comment thread (automation comments are omitted). Classify the latest user request (last comment in the thread) and return exactly one JSON object matching the skill schema.`,
     ];
+    planDebugLog("runIntentClassification: spawning agent", {
+        model: agentModelFromEnv(),
+        hasCursorApiKey: Boolean(cursorApiKeyFromEnv()),
+    });
     const proc = spawnSync("agent", agentArgs, {
         encoding: "utf8",
         cwd: root,
@@ -96,7 +120,15 @@ export async function runIntentClassification(input: {
         );
     }
     const out = proc.stdout ?? "";
+    planDebugLog("runIntentClassification: agent finished", {
+        stdoutChars: out.length,
+        stderrChars: (proc.stderr ?? "").length,
+    });
     const parsed = parseIntentFromAgentJson(out);
+    planDebugLog("runIntentClassification: parsed intent", {
+        intent: parsed.intent,
+        runPlan: parsed.runPlan,
+    });
     writeGithubOutput("intent", parsed.intent);
     writeGithubOutput("run_plan", parsed.runPlan ? "true" : "false");
     return parsed;
