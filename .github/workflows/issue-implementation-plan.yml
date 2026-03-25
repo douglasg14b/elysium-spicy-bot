@@ -63,24 +63,6 @@ jobs:
           DISCUSSION_NUMBER: ${{ steps.context.outputs.discussion_number }}
         run: pnpm github-plan issue comment --preset unauthorized
 
-      # Optional: set repo Actions variable JARVIS_INSTALL_SCRIPT_SHA256 to pin install script integrity (sha256sum format).
-      # Installs Cursor's `agent` binary (still installed under ~/.cursor/bin).
-      - name: Install agent CLI (Cursor)
-        if: steps.context.outputs.should_continue == 'true' && steps.auth.outputs.authorized == 'true'
-        env:
-          CURSOR_CLI_INSTALL_URL: https://cursor.com/install
-          JARVIS_INSTALL_SCRIPT_SHA256: ${{ vars.JARVIS_INSTALL_SCRIPT_SHA256 }}
-        run: |
-          set -euo pipefail
-          script=/tmp/jarvis-agent-install.sh
-          curl -fsSL "$CURSOR_CLI_INSTALL_URL" -o "$script"
-          if [ -n "${JARVIS_INSTALL_SCRIPT_SHA256:-}" ]; then
-            echo "${JARVIS_INSTALL_SCRIPT_SHA256}  ${script}" | sha256sum -c -
-          fi
-          bash "$script"
-          echo "$HOME/.cursor/bin" >> "$GITHUB_PATH"
-          agent --version
-
       - name: Resolve intent from comment
         id: intent
         if: steps.context.outputs.should_continue == 'true' && steps.auth.outputs.authorized == 'true'
@@ -88,10 +70,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           DISCUSSION_NUMBER: ${{ steps.context.outputs.discussion_number }}
           DISCUSSION_KIND: ${{ steps.context.outputs.discussion_kind }}
-          # Cursor CLI reads CURSOR_API_KEY; JARVIS_API_KEY is an optional alias (see agentEnv.cursorApiKeyFromEnv).
-          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
-          JARVIS_API_KEY: ${{ secrets.JARVIS_API_KEY }}
-          JARVIS_AGENT_MODEL: auto
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           # Plan CLI debug logs default on in Actions (see planDebug.isPlanCliDebugEnabled). Set repo var GITHUB_PLAN_DEBUG=0 to silence.
           GITHUB_PLAN_DEBUG: ${{ vars.GITHUB_PLAN_DEBUG }}
         run: pnpm github-plan classify intent
@@ -109,6 +88,24 @@ jobs:
         run: |
           git config --local user.name "github-actions[bot]"
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # Optional: set repo Actions variable JARVIS_INSTALL_SCRIPT_SHA256 to pin install script integrity (sha256sum format).
+      # Installs Cursor's `agent` binary (under ~/.cursor/bin) for plan generation only.
+      - name: Install agent CLI (Cursor)
+        if: steps.context.outputs.should_continue == 'true' && steps.auth.outputs.authorized == 'true' && steps.intent.outputs.run_plan == 'true'
+        env:
+          CURSOR_CLI_INSTALL_URL: https://cursor.com/install
+          JARVIS_INSTALL_SCRIPT_SHA256: ${{ vars.JARVIS_INSTALL_SCRIPT_SHA256 }}
+        run: |
+          set -euo pipefail
+          script=/tmp/jarvis-agent-install.sh
+          curl -fsSL "$CURSOR_CLI_INSTALL_URL" -o "$script"
+          if [ -n "${JARVIS_INSTALL_SCRIPT_SHA256:-}" ]; then
+            echo "${JARVIS_INSTALL_SCRIPT_SHA256}  ${script}" | sha256sum -c -
+          fi
+          bash "$script"
+          echo "$HOME/.cursor/bin" >> "$GITHUB_PATH"
+          agent --version
 
       - name: Generate plan and push branch
         if: steps.context.outputs.should_continue == 'true' && steps.auth.outputs.authorized == 'true' && steps.intent.outputs.run_plan == 'true'
