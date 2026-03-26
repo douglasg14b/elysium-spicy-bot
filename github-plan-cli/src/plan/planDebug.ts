@@ -1,33 +1,12 @@
-function truthyEnv(value: string | undefined): boolean {
-    if (!value) {
-        return false;
-    }
-    const normalized = value.trim().toLowerCase();
-    return normalized === "1" || normalized === "true" || normalized === "yes";
-}
-
-function explicitPlanDebugOff(value: string | undefined): boolean {
-    if (!value) {
-        return false;
-    }
-    const normalized = value.trim().toLowerCase();
-    return normalized === "0" || normalized === "false" || normalized === "no" || normalized === "off";
-}
+import { envValueIsExplicitlyOff } from "../config/envTruthy.js";
 
 /**
  * Whether to emit `[github-plan:debug]` lines on stderr.
  *
- * - **GitHub Actions** (`GITHUB_ACTIONS=true`): on by default. Set `GITHUB_PLAN_DEBUG` to `0`, `false`, `no`, or `off` to disable.
- * - **Elsewhere**: off unless `GITHUB_PLAN_DEBUG` is `1`, `true`, or `yes`.
+ * **On by default** (local and CI). Set `GITHUB_PLAN_DEBUG` to `0`, `false`, `no`, or `off` to disable.
  */
 export function isPlanCliDebugEnabled(): boolean {
-    if (explicitPlanDebugOff(process.env.GITHUB_PLAN_DEBUG)) {
-        return false;
-    }
-    if (truthyEnv(process.env.GITHUB_PLAN_DEBUG)) {
-        return true;
-    }
-    return process.env.GITHUB_ACTIONS === "true";
+    return !envValueIsExplicitlyOff(process.env.GITHUB_PLAN_DEBUG);
 }
 
 /** Max characters of comment body included in debug JSON (remainder summarized). */

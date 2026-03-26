@@ -6,25 +6,24 @@ describe("isPlanCliDebugEnabled", () => {
         vi.unstubAllEnvs();
     });
 
-    it("is false when unset and not in Actions", () => {
+    it("is true when GITHUB_PLAN_DEBUG is unset (local or Actions)", () => {
         vi.stubEnv("GITHUB_PLAN_DEBUG", "");
         vi.stubEnv("GITHUB_ACTIONS", "");
-        expect(isPlanCliDebugEnabled()).toBe(false);
-    });
-
-    it("is true in Actions when GITHUB_PLAN_DEBUG is unset", () => {
-        vi.stubEnv("GITHUB_PLAN_DEBUG", "");
+        expect(isPlanCliDebugEnabled()).toBe(true);
         vi.stubEnv("GITHUB_ACTIONS", "true");
         expect(isPlanCliDebugEnabled()).toBe(true);
     });
 
-    it("is false in Actions when GITHUB_PLAN_DEBUG opts out", () => {
+    it("is false when GITHUB_PLAN_DEBUG opts out", () => {
         vi.stubEnv("GITHUB_PLAN_DEBUG", "0");
         vi.stubEnv("GITHUB_ACTIONS", "true");
         expect(isPlanCliDebugEnabled()).toBe(false);
+        vi.stubEnv("GITHUB_PLAN_DEBUG", "OFF");
+        vi.stubEnv("GITHUB_ACTIONS", "");
+        expect(isPlanCliDebugEnabled()).toBe(false);
     });
 
-    it("is true for 1, true, yes (case-insensitive), even outside Actions", () => {
+    it("stays true for explicit on values (redundant but harmless)", () => {
         vi.stubEnv("GITHUB_ACTIONS", "");
         vi.stubEnv("GITHUB_PLAN_DEBUG", "1");
         expect(isPlanCliDebugEnabled()).toBe(true);
@@ -51,8 +50,8 @@ describe("planDebugLog", () => {
         vi.restoreAllMocks();
     });
 
-    it("does not write when debug is off", () => {
-        vi.stubEnv("GITHUB_PLAN_DEBUG", "");
+    it("does not write when debug is explicitly off", () => {
+        vi.stubEnv("GITHUB_PLAN_DEBUG", "0");
         vi.stubEnv("GITHUB_ACTIONS", "");
         const spy = vi.spyOn(console, "error").mockImplementation(() => {});
         planDebugLog("hello", { a: 1 });
@@ -68,11 +67,17 @@ describe("planDebugLog", () => {
         expect(spy.mock.calls[0][0]).toContain('"a":1');
     });
 
-    it("writes in Actions when GITHUB_PLAN_DEBUG is unset", () => {
-        vi.stubEnv("GITHUB_ACTIONS", "true");
+    it("writes when GITHUB_PLAN_DEBUG is unset (local or Actions)", () => {
         vi.stubEnv("GITHUB_PLAN_DEBUG", "");
-        const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+        vi.stubEnv("GITHUB_ACTIONS", "");
+        const spyLocal = vi.spyOn(console, "error").mockImplementation(() => {});
+        planDebugLog("local");
+        expect(spyLocal).toHaveBeenCalledWith(expect.stringContaining("[github-plan:debug] local"));
+        spyLocal.mockRestore();
+
+        vi.stubEnv("GITHUB_ACTIONS", "true");
+        const spyCi = vi.spyOn(console, "error").mockImplementation(() => {});
         planDebugLog("ci");
-        expect(spy).toHaveBeenCalledWith(expect.stringContaining("[github-plan:debug] ci"));
+        expect(spyCi).toHaveBeenCalledWith(expect.stringContaining("[github-plan:debug] ci"));
     });
 });

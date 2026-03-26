@@ -23,6 +23,7 @@ import { getHttpStatusFromError } from "../http/getHttpStatusFromError.js";
 import { loadPrompt } from "../prompts/loadPrompt.js";
 import { recordAgentTelemetryStep } from "../telemetry/recordAgentTelemetryStep.js";
 import { buildPlanBranchRef, type DiscussionKind } from "./planBranch.js";
+import { planDebugLog } from "./planDebug.js";
 
 const PLAN_COMMENT_UPDATE_FAILED_STUB =
     "Plan output was posted in follow-up comments (GitHub returned an error when updating this message).";
@@ -108,6 +109,12 @@ export async function runPlanGeneration(input: {
         throw new Error("Repository has no default branch.");
     }
 
+    planDebugLog("runPlanGeneration: repo loaded", {
+        defaultBranch,
+        discussionKind: input.discussionKind,
+        discussionNumber: input.discussionNumber,
+    });
+
     const [{ data: issue }, comments] = await Promise.all([
         input.octokit.rest.issues.get({
             owner: input.repo.owner,
@@ -118,6 +125,12 @@ export async function runPlanGeneration(input: {
     ]);
     const title = issue.title ?? "";
     const body = issue.body ?? "";
+
+    planDebugLog("runPlanGeneration: issue and comments loaded", {
+        titleChars: title.length,
+        bodyChars: body.length,
+        commentCount: comments.length,
+    });
 
     const branch = buildPlanBranchRef({
         kind: input.discussionKind,
@@ -139,16 +152,19 @@ export async function runPlanGeneration(input: {
     const root = workspaceRoot();
     const git = simpleGit(root);
 
+    planDebugLog("runPlanGeneration: git fetch and checkout default branch", { defaultBranch });
     await git.fetch("origin");
     await git.checkout(defaultBranch);
     await git.pull("origin", defaultBranch);
 
     const exists = await remoteBranchExists(input.octokit, input.repo, branch);
+    planDebugLog("runPlanGeneration: plan branch state", { branch, remoteBranchExists: exists });
     if (exists) {
         await git.raw(["checkout", "-B", branch, `origin/${branch}`]);
     } else {
         await git.checkoutLocalBranch(branch);
     }
+    planDebugLog("runPlanGeneration: checked out plan branch", { branch });
 
     const planPath = join(root, JARVIS_WORKSPACE_DIR, "plan.md");
     const priorPlan = readPriorPlanFromWorkspace(planPath);
@@ -166,6 +182,10 @@ export async function runPlanGeneration(input: {
     const jarvisDir = join(root, JARVIS_WORKSPACE_DIR);
     mkdirSync(jarvisDir, { recursive: true });
     writeFileSync(join(jarvisDir, "intent-context.md"), md, "utf8");
+    planDebugLog("runPlanGeneration: wrote intent-context.md", {
+        path: `${JARVIS_WORKSPACE_DIR}/intent-context.md`,
+        markdownChars: md.length,
+    });
 
     const intentContextPath = `${JARVIS_WORKSPACE_DIR}/intent-context.md`;
     const planOutputPath = `${JARVIS_WORKSPACE_DIR}/plan.md`;
@@ -176,6 +196,10 @@ export async function runPlanGeneration(input: {
         PLAN_OUTPUT_PATH: planOutputPath,
     });
 
+    planDebugLog("runPlanGeneration: spawning Cursor agent (planner)", {
+        promptFile,
+        promptChars: prompt.length,
+    });
     const agentResult = await spawnCursorAgent({
         name: "planner",
         workspaceRoot: root,
@@ -185,6 +209,11 @@ export async function runPlanGeneration(input: {
 
     assertCursorAgentSucceeded("agent (planner)", agentResult);
 
+    planDebugLog("runPlanGeneration: Cursor agent finished", {
+        exitCode: agentResult.exitCode,
+        durationMs: agentResult.durationMs,
+    });
+
     recordAgentTelemetryStep({
         name: "Implementation plan (Cursor agent)",
         durationMs: agentResult.durationMs,
@@ -192,6 +221,9 @@ export async function runPlanGeneration(input: {
     });
 
     const planMarkdown = readPlanOutputFileOrThrow(planPath, planOutputPath);
+    planDebugLog("runPlanGeneration: read plan.md from workspace", {
+        planMarkdownChars: planMarkdown.length,
+    });
 
     await git.add(`${JARVIS_WORKSPACE_DIR}/plan.md`);
     const diff = await git.diff(["--cached"]);
@@ -200,9 +232,12 @@ export async function runPlanGeneration(input: {
         const subject = isPlanFeedbackRun
             ? `plan: revise implementation plan for ${input.discussionKind} #${String(input.discussionNumber)}`
             : `plan: implementation plan for ${input.discussionKind} #${String(input.discussionNumber)}`;
+        planDebugLog("runPlanGeneration: committing and pushing plan branch", { branch });
         await git.commit(subject);
         await git.push("origin", branch);
         committed = true;
+    } else {
+        planDebugLog("runPlanGeneration: no staged diff; skipping commit/push", { branch });
     }
 
     const finalizeBody = buildPlanThreadFinalBody({
@@ -211,6 +246,12 @@ export async function runPlanGeneration(input: {
         planMarkdown,
         maxBytes: 60_000,
         isPlanFeedbackRun,
+    });
+
+    planDebugLog("runPlanGeneration: updating issue thread comment", {
+        planThreadCommentId:
+            planThreadCommentId !== undefined ? planThreadCommentId : "none",
+        committed,
     });
 
     if (planThreadCommentId !== undefined) {
@@ -294,5 +335,6 @@ export async function runPlanGeneration(input: {
         }
     }
 
+    planDebugLog("runPlanGeneration: done", { branch, committed });
     return { branch, planPath, committed };
 }

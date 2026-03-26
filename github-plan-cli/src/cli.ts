@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { defineCommand, runMain } from "citty";
 import { parseDiscussionKind, parseDiscussionNumber, parseEnvBoolTrue } from "./config/parseGithubPlanEnv.js";
 import {
@@ -16,6 +18,7 @@ import { planIsFeedbackForGithubOutput, shouldTreatIntentAsPlanFeedback } from "
 import { fetchPlanMarkdownFromBranch } from "./plan/fetchPlanMarkdownFromBranch.js";
 import { buildPlanBranchRef, type DiscussionKind } from "./plan/planBranch.js";
 import { runPlanGeneration } from "./plan/runPlanGeneration.js";
+import { runPlanLocal } from "./plan/runPlanLocal.js";
 
 function requireEnv(name: string): string {
     const value = process.env[name];
@@ -193,6 +196,48 @@ const planImplementCommand = defineCommand({
     },
 });
 
+const planRunLocalCommand = defineCommand({
+    meta: {
+        name: "run-local",
+        description:
+            "Run the Cursor planner from a local markdown file or stdin (no GitHub token). Writes .jarvis/plan.md.",
+    },
+    args: {
+        stdin: {
+            type: "boolean",
+            description: "Read context markdown from stdin",
+            default: false,
+        },
+        revise: {
+            type: "boolean",
+            description: "Use planner-revise.md (expects existing .jarvis/plan.md)",
+            default: false,
+        },
+        file: {
+            type: "string",
+            description: "Path to context markdown (required unless --stdin)",
+        },
+    },
+    async run({ args }) {
+        const useStdin = Boolean(args.stdin);
+        const filePath = args.file?.trim() ?? "";
+        if (useStdin && filePath !== "") {
+            throw new Error("Use either --stdin or --file, not both.");
+        }
+        if (!useStdin && filePath === "") {
+            throw new Error("Provide --file <path> to a markdown file or use --stdin.");
+        }
+        const contextMarkdown = useStdin
+            ? readFileSync(0, "utf8")
+            : readFileSync(resolve(process.cwd(), filePath), "utf8");
+        const { planPath } = await runPlanLocal({
+            contextMarkdown,
+            isPlanFeedbackRun: Boolean(args.revise),
+        });
+        process.stdout.write(`${planPath}\n`);
+    },
+});
+
 const planCommand = defineCommand({
     meta: {
         name: "plan",
@@ -201,6 +246,7 @@ const planCommand = defineCommand({
     subCommands: {
         generate: planGenerateCommand,
         implement: planImplementCommand,
+        "run-local": planRunLocalCommand,
     },
 });
 

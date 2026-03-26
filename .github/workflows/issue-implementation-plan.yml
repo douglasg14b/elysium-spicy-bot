@@ -71,7 +71,7 @@ jobs:
           DISCUSSION_NUMBER: ${{ steps.context.outputs.discussion_number }}
           DISCUSSION_KIND: ${{ steps.context.outputs.discussion_kind }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          # Plan CLI debug logs default on in Actions (see planDebug.isPlanCliDebugEnabled). Set repo var GITHUB_PLAN_DEBUG=0 to silence.
+          # Plan CLI debug logs default on everywhere (github-plan-cli/src/plan/planDebug.ts). Set repo var GITHUB_PLAN_DEBUG=0 to silence.
           GITHUB_PLAN_DEBUG: ${{ vars.GITHUB_PLAN_DEBUG }}
         run: pnpm github-plan classify intent
 
@@ -118,6 +118,7 @@ jobs:
           JARVIS_API_KEY: ${{ secrets.JARVIS_API_KEY }}
           JARVIS_AGENT_MODEL: auto
           GITHUB_PLAN_DEBUG: ${{ vars.GITHUB_PLAN_DEBUG }}
+          # Optional: GITHUB_PLAN_AGENT_STREAM_VERBOSE=1 — extra per-event JSON on stderr (redacted).
         run: pnpm github-plan plan generate
 
       - name: Comment on failure

@@ -27,7 +27,7 @@ Discord bot (discord.js v14, ESM TypeScript). Entry: `src/bot.ts` → `DISCORD_C
 - `src/features/<name>/` — product features (see **Feature folder conventions** below).
 - `src/shared/` — cross-cutting types/utilities (`resultPattern`, etc.).
 - `src/utils/`, `src/healthcheck/` — helpers and heartbeat.
-- `github-plan-cli/` — GitHub “Jarvis” plan automation (`pnpm github-plan`, used by `.github/workflows/issue-implementation-plan.yml`); kept outside `src/` so it can be split into its own package/repo later.
+- `github-plan-cli/` — GitHub “Jarvis” plan automation (`pnpm github-plan`, used by `.github/workflows/issue-implementation-plan.yml`); kept outside `src/` so it can be split into its own package/repo later. Tests under `github-plan-cli/__tests__/`. Local planner without a token: `pnpm github-plan plan run-local --file <context.md>` (or `--stdin`).
 
 **Features (code):** `ai-reply`, `birthday-tracker`, `flash-chat`, `tickets`. **`voice-chat-engager`** is placeholder (`readme.md` only).
 
