@@ -20,6 +20,7 @@ Write the **complete** plan as markdown **only** to {{PLAN_OUTPUT_PATH}} (UTF-8)
 
 - The automation reads **only** {{PLAN_OUTPUT_PATH}}; stdout is ignored for the plan body.
 - The file must be **non-empty** and contain the full plan (not just a preamble or partial outline).
+- The output is an **implementation plan for engineers** (files, steps, verification). **Summary** must describe **shipped outcome**, not process ("In this plan we will…") or meta about the planning exercise.
 
 ## Your task
 
@@ -36,7 +37,7 @@ Write the **complete** plan as markdown **only** to {{PLAN_OUTPUT_PATH}} (UTF-8)
 
 ### Summary
 
-1–2 sentences: what you’re building and the success criteria.
+1–2 sentences: what you’re building and the success criteria. Product/system facing only.
 
 ### Flow (Sequence Diagram)
 
