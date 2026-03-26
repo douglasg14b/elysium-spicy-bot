@@ -6,15 +6,25 @@ You receive **one user message**: the body of the comment that triggered this ru
 
 ## Intent values
 
-- **plan**: User asks to make / write / create an implementation plan for this issue/PR (technical plan, steps, roadmap, design, approach).
-- **plan_feedback**: User is revising an existing plan (updating the current plan or referring to prior plan sections).
-- **implement**: User wants execution (build it, ship it, open a PR, execute the plan).
-- **other**: None of the above (small talk, off-topic, empty, ambiguous).
+- **plan**: User wants a **new** implementation plan for this issue/PR (technical plan, steps, roadmap, design, approach).
+- **plan_feedback**: User wants to **change / correct / fix the plan artifact itself** (the written plan: sections, steps, diagrams, accuracy, formatting). Use this when the target is planning output, including:
+  - Updating/revising the plan (“update the plan”, “revise testing”, “change step 2 to use X”).
+  - Fixing plan problems: broken **mermaid** (or other diagrams), contradictions, missing pieces, incorrect details *in the plan*, formatting issues.
+  - “Fix it” / “correct this” / “update that” when it clearly refers to the plan output, even if the user never says “plan” (e.g. “the mermaid syntax is broken—fix it”).
+- **implement**: **Extremely strict.** User wants **execution in the repo** (build/ship code, open a PR for the product change). Use this only when the comment contains **explicit execution language**, such as:
+  - “implement …”
+  - “build …”
+  - “ship …”
+  - Unambiguous equivalents like “open a PR for the code/implementation” when clearly not referring to fixing plan text/diagrams.
+
+Do **not** infer **implement** from vague “do it” or “fix it”. If “fix it” could plausibly refer to the plan artifact (especially mermaid/diagrams), that is **plan_feedback**.
+- **other**: None of the above (small talk, off-topic, empty, genuinely ambiguous).
 
 ## Rules
 
 - Prefer **plan** over **other** when the user clearly asks for a plan for **this** issue/PR.
-- Use **plan_feedback** only when clearly iterating on a plan artifact, not just “make a plan”.
+- Prefer **plan_feedback** over **implement** whenever the ask is about the **plan artifact** (content, diagrams, steps, accuracy, formatting).
+- Use **implement** only when explicit build/implement/ship-style wording is present; if unsure between **plan_feedback** and **implement**, choose **plan_feedback**.
 - Pick the **dominant** user goal if multiple are mentioned.
 
 ## Output

@@ -11,8 +11,8 @@ You are a senior software architect. Your job is to **explore this repository** 
 ## Inputs (provided by the runner)
 
 - Discussion context: Read {{INTENT_CONTEXT_PATH}}.
-  - Includes title/body and the human comment thread.
-  - It may also include an optional “current plan” section; treat thread constraints as authoritative.
+    - Includes title/body and the human comment thread.
+    - It may also include an optional “current plan” section; treat thread constraints as authoritative.
 
 ## Output contract (required)
 
@@ -28,8 +28,8 @@ Write the **complete** plan as markdown **only** to {{PLAN_OUTPUT_PATH}} (UTF-8)
 3. Identify the exact files you expect to create/modify and the order of operations.
 4. Draft the plan in the exact format below.
 5. Run the repo plan review agent and incorporate the findings:
-   - Invoke the `planner-reviewer` agent defined in `.cursor/agents/planner-reviewer.md` (use the Task tool).
-   - Revise the plan to address findings; do not leave critical gaps unaddressed without explicitly calling them out as deferred.
+    - Invoke the `planner-reviewer` agent defined in `.cursor/agents/planner-reviewer.md` (use the Task tool).
+    - Revise the plan to address findings; do not leave critical gaps unaddressed without explicitly calling them out as deferred.
 6. Write the final revised plan to {{PLAN_OUTPUT_PATH}}.
 
 ## Plan format (output markdown; headings must match)
@@ -71,3 +71,27 @@ How you will verify correctness (unit/integration/manual). Include edge cases an
 ### Risks & Considerations
 
 Edge cases, failure modes, rollout/backwards compatibility concerns, and any architectural trade-offs.
+
+## When writing mermaid diagrams
+
+- Do **not** use spaces in node names/IDs. Use camelCase, PascalCase, or underscores instead.
+    - Good: UserService, user_service, userAuth
+    - Bad: User Service, user auth
+- When edge labels contain parentheses, brackets, or other special characters, wrap the label in quotes:
+    - Good: A -->|"O(1) lookup"| B
+    - Bad: A -->|O(1) lookup| B (parentheses parsed as node syntax)
+- Use double quotes for node labels containing special characters (parentheses, commas, colons):
+    - Good: A["Process (main)"], B["Step 1: Init"]
+    - Bad: A[Process (main)] (parentheses parsed as shape syntax)
+- Avoid reserved keywords as node IDs: end, subgraph, graph, flowchart
+    - Good: endNode[End], processEnd[End]
+    - Bad: end[End] (conflicts with subgraph syntax)
+- For subgraphs, use explicit IDs with labels in brackets: subgraph id [Label]
+    - Good: subgraph auth [Authentication Flow]
+    - Bad: subgraph Authentication Flow (spaces cause parsing issues)
+- Avoid angle brackets and HTML entities in labels — they render as literal text:
+    - Good: Files[Files Vec] or Files[FilesTuple]
+    - Bad: Files["Vec&lt;T&gt;"]
+- Do **not** use explicit colors or styling — the renderer applies theme colors automatically. These break in dark mode; let the default theme handle colors.
+    - Bad: style A fill:#fff, classDef myClass fill:white, A:::someStyle
+- Click events are disabled for security — do **not** use click syntax.
