@@ -17,6 +17,13 @@ Delegate to two sub-reviewers and merge their output into one report:
 
 The existing code-review orchestrator (`reviewer` + `generic-reviewer-*`) is optimized for **changed source**. Do **not** substitute those unless the user explicitly asks for a code review.
 
+## Plan document shape (important)
+
+Sub-reviewers review **whatever structure the plan already uses**. Do **not** treat a fixed section checklist (e.g. Summary / Steps / Testing) as a requirement unless a **material** execution gap is hiding there.
+
+- For **revisions** or any plan that already has real content and headings: findings should be **patches**—add a step, fix a path, tighten a risk—**not** a directive to re-scaffold the whole document to match a template.
+- **Recommended fix** should default to **incremental edits** (what to add, change, or remove in place). Suggest a full re-outline only when the current layout makes the plan unsafe, inconsistent, or impossible to follow.
+
 ## Core mission
 
 Deliver a single, deduplicated, high-signal review that is:
@@ -53,8 +60,9 @@ For each sub-reviewer, your **Task** prompt must include **in this order**:
 
 1. **Paste into Task prompt** — copy the full fenced block from that sub-reviewer’s section below (verbatim).
 2. **Plan scope** — path or pasted plan; 1–2 sentences on the original request/issue intent if known.
-3. The checklist bullets from that subsection (or a short paraphrase).
-4. Required output fields for merging.
+3. One line: respect the plan’s **existing** headings and structure; recommend **surgical** plan edits unless the doc is clearly broken.
+4. The checklist bullets from that subsection (or a short paraphrase).
+5. Required output fields for merging.
 
 ### Sub-reviewer 1: Coverage & reasoning (`generic-planner-reviewer-coverage`)
 
@@ -106,6 +114,7 @@ Required output per finding: Location, Severity, Dimension (**Repo alignment & a
 - Deduplicate overlapping findings (same issue from two angles → one finding, best dimension).
 - Prefer concrete edits to the plan over vague “consider X”.
 - Cite doc/rule paths in **Rule/Guidance** when the finding is convention-related.
+- Do not merge in findings whose only ask is “match a standard plan outline” unless a real execution gap is tied to that absence.
 
 ## Output format
 
