@@ -12,7 +12,8 @@
         "migrate:latest": "tsx src/features-system/data-persistence/migrate.ts",
         "migrate:latest:dev": "dotenvx run --env-file=.env.local -- tsx src/features-system/data-persistence/migrate.ts",
         "clean": "rimraf dist",
-        "github-plan": "tsx src/tools/github-plan-cli/cli.ts"
+        "github-plan": "tsx github-plan-cli/src/cli.ts",
+        "github-plan:plan-local": "dotenvx run --env-file=.env.local -- tsx github-plan-cli/src/cli.ts plan run-local"
     },
     "keywords": [],
     "author": "",
