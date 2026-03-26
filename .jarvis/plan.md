@@ -1,5 +1,99 @@
 ### Summary
 
+This revision delivers a safe-by-default random sass path for non-mention messages at a very low probability, with strict topic safety classification and a private DM opt-out control. Success now explicitly requires valid Mermaid flow syntax, fixed-`customId` interaction routing, and an unambiguous pending-engagement invariant that prevents cross-guild misresolution.
+
+### What changed vs prior plan
+
+- Fixed the sequence diagram syntax and simplified participant/messages so Mermaid parsers render reliably.
+- Clarified pending engagement scope: enforce at most one active pending row per `userId` globally to match fixed `customId` DM resolution.
+- Converted probability parsing from open-ended note to explicit startup validation (`AI_RANDOM_SASS_PROBABILITY` must be in `[0,1]`).
+- Preserved unsolicited anti-abuse behavior as silent skip (no warning/cooldown embeds unless user directly invoked the bot).
+- Added concrete repo-grounded test file locations under colocated `__tests__` folders.
+
+### Flow (Sequence Diagram)
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant D as Discord
+    participant H as aiReplyHandler
+    participant DB as Database
+    participant AI as OpenAI
+
+    U->>D: Normal message in monitored channel
+    D->>H: MessageCreate
+    H->>H: Check feature flag, channel allowlist, probability
+    H->>DB: Check random-sass opt-out for guild/user
+    H->>H: Anti-abuse check (silent skip if blocked)
+    H->>AI: Guardrails and sassability classifier
+
+    alt Not sassable or classifier/API failure
+        H->>H: Return without public reply
+    else Sassable
+        H->>AI: Generate random sass reply
+        H->>D: Reply in channel
+        H->>DB: Upsert one active pending engagement for user
+        H->>D: Send DM with opt-out button (fixed customId)
+    end
+
+    U->>D: Click opt-out button in DM
+    D->>H: MessageComponent customId match
+    H->>DB: Resolve active pending row by userId
+    H->>D: Delete sass message (best effort)
+    H->>DB: Mark pending consumed and upsert opt-out
+    H->>U: Acknowledge completion
+```
+
+### Files to Create (if any)
+
+- [`/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/data/aiReplyRandomEngagementSchema.ts`](/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/data/aiReplyRandomEngagementSchema.ts) — Kysely table types for random-sass opt-out and pending engagement records.
+- [`/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/data/aiReplyRandomEngagementRepo.ts`](/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/data/aiReplyRandomEngagementRepo.ts) — Repo methods for opt-out upsert, single-active-pending enforcement, lookup, and consume operations.
+- [`/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/agents/agentSassabilityClassifier.ts`](/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/agents/agentSassabilityClassifier.ts) — Topic-safety classifier agent for “sassable vs not sassable” decisions.
+- [`/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/agents/agentRandomSassReply.ts`](/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/agents/agentRandomSassReply.ts) — Random sass generation agent aligned with existing BrattyBot tone.
+- [`/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/randomSassWorkflow.ts`](/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/randomSassWorkflow.ts) — Orchestrates guardrails, classifier, and reply generation for unsolicited sass path.
+- [`/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/components/dontEngageRandomSassButton.ts`](/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/components/dontEngageRandomSassButton.ts) — Fixed-`customId` button builder and handler for DM opt-out.
+- [`/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features-system/data-persistence/migrations/2026-03-26-Create_Ai_Reply_Random_Tables.ts`](/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features-system/data-persistence/migrations/2026-03-26-Create_Ai_Reply_Random_Tables.ts) — Adds sqlite/postgres tables and indexes for opt-out and pending engagement.
+- [`/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/data/__tests__/aiReplyRandomEngagementRepo.test.ts`](/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/data/__tests__/aiReplyRandomEngagementRepo.test.ts) — Unit tests for repository invariants and idempotency.
+- [`/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/__tests__/randomSassWorkflow.test.ts`](/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/__tests__/randomSassWorkflow.test.ts) — Unit tests for fail-closed workflow behavior.
+- [`/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/components/__tests__/dontEngageRandomSassButton.test.ts`](/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/components/__tests__/dontEngageRandomSassButton.test.ts) — Unit tests for button interaction handling.
+
+### Files to Modify
+
+- [`/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/aiReplyHandler.ts`](/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/aiReplyHandler.ts) — Add unsolicited random-sass branch behind gates while keeping mention/reply behavior intact; use silent anti-abuse skip in unsolicited path; ensure `aiPendingReplyTracker` cleanup via `finally`; send DM button and persist pending engagement on success.
+- [`/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features-system/data-persistence/database.ts`](/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features-system/data-persistence/database.ts) — Register new tables on `Database` and add date columns to `SqlDatePlugin`.
+- [`/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/environment.ts`](/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/environment.ts) — Add `AI_RANDOM_SASS_ENABLED` (default `false`) and `AI_RANDOM_SASS_PROBABILITY` (default `0.001`) with explicit range validation in `[0,1]` at startup.
+- [`/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/index.ts`](/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/index.ts) — Re-export new modules only if needed by existing imports.
+- [`/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/botConfig.ts`](/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/botConfig.ts) — Confirm rollout behavior for `channelsToMonitor` (documented allowlist expectations if defaults remain non-empty).
+
+### Implementation Steps
+
+1. Add migration and schema for `ai_reply_random_opt_out` and `ai_reply_random_pending_engagement`, including indexes for lookup paths and compatibility with both sqlite and postgres.
+2. Extend `database.ts` to include new tables and date plugin mappings, then implement repository methods with a strict invariant: only one active pending engagement per `userId` globally (replace prior active row on insert).
+3. Add environment configuration in `environment.ts`: `AI_RANDOM_SASS_ENABLED` defaulting to `false`, and `AI_RANDOM_SASS_PROBABILITY` defaulting to `0.001` with explicit startup validation that rejects values outside `[0,1]`.
+4. Implement `agentSassabilityClassifier` and `agentRandomSassReply`, then add `runRandomSassWorkflow` that applies guardrails, fails closed on tripwire/classifier/API errors, and avoids off-topic branching for unsolicited messages.
+5. Implement DM opt-out component with fixed `customId` and handler logic: resolve active pending by `interaction.user.id`, verify record ownership, delete original sass message best-effort, mark pending consumed, and upsert opt-out.
+6. Update `aiReplyHandler.ts` to add unsolicited branch ordering: feature flag -> monitored channel -> probability roll -> minimum content checks -> opt-out lookup -> anti-abuse silent skip -> workflow run -> reply + pending insert + DM send; preserve existing mention/reply route behavior.
+7. Register the button handler in `initAIReply()` through `interactionsRegistry.register(...)`, ensuring `customId` uniqueness and no new router behavior assumptions.
+8. Add concise observability logs for random-path trigger, classifier block, DM send failure, and deletion failures without logging sensitive full message content.
+9. Verify acceptance checks: no unsolicited response when disabled or probability miss; no response for sensitive topics; opt-out blocks future random sass; button consumes pending and attempts deletion; failures produce no unsafe unsolicited sass.
+
+### Testing Strategy
+
+- Unit tests in [`/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/data/__tests__/aiReplyRandomEngagementRepo.test.ts`](/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/data/__tests__/aiReplyRandomEngagementRepo.test.ts): idempotent opt-out upsert, one-active-pending-per-user replacement behavior, expiration/consumed filtering.
+- Unit tests in [`/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/__tests__/randomSassWorkflow.test.ts`](/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/__tests__/randomSassWorkflow.test.ts): guardrail tripwire fail-closed, classifier “not sassable” skip, and happy-path output generation.
+- Unit tests in [`/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/components/__tests__/dontEngageRandomSassButton.test.ts`](/home/runner/work/elysium-spicy-bot/elysium-spicy-bot/src/features/ai-reply/components/__tests__/dontEngageRandomSassButton.test.ts): missing/expired pending rows, ownership validation, deletion failure tolerance, and successful consume + opt-out upsert.
+- Manual integration in dev: temporarily set `AI_RANDOM_SASS_ENABLED=true` and `AI_RANDOM_SASS_PROBABILITY=1` to force path; validate allowlist gating, sensitive-topic blocking, DM delivery, button flow, and post-opt-out suppression.
+- Run targeted checks with Vitest (`pnpm vitest` or feature-targeted test selection) and confirm no regression to mention/reply behavior.
+
+### Risks & Considerations
+
+- Discord does not support true ephemeral UI for message-create flows; DM is the private opt-out mechanism and may fail if DMs are closed.
+- Fixed `customId` requires strict DB invariants; global one-active-pending-per-user avoids ambiguous cross-guild resolution but may overwrite older pending entries.
+- If DM send fails after public sass post, user may not see immediate opt-out control; this is acceptable for now if documented, but product may later require delete-on-DM-failure behavior.
+- Classification quality is a safety-critical dependency; fail-closed behavior avoids unsafe unsolicited replies at the cost of reduced engagement frequency during model/API instability.
+- Rollout sensitivity is high: enabling with large probability or broad channel allowlists can create noisy behavior; default-disabled flag and explicit probability validation mitigate accidental overexposure.
+### Summary
+
 Add a rare (~0.1%, configurable) **unsolicited “random sass”** path for normal chat messages in configured monitor channels: after guardrails and a dedicated **sassability** classifier (to avoid relationship advice, crisis, and other heavy topics), BrattyBot replies in-channel in the same voice as existing on-topic replies, then contacts the author privately with an opt-out control. **Opt-out** is stored per `(guild, user)` and removes that user from future random sass; activating it also **deletes the sass message** when the API allows. **Success** means the feature is gated, safe-by-default on failures, compatible with `InteractionsRegistry` (fixed `customId`), and does not send anti-abuse warning embeds for users who never @’d the bot.
 
 ### Flow (Sequence Diagram)
