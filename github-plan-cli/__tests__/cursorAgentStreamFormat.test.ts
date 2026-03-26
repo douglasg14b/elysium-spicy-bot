@@ -138,9 +138,11 @@ describe("handleNdjsonLine", () => {
         vi.stubEnv("GITHUB_ACTIONS", "");
         vi.stubEnv("GITHUB_PLAN_DEBUG", "1");
         const spy = vi.spyOn(console, "error").mockImplementation(() => {});
-        handleNdjsonLine(JSON.stringify({ type: "system", subtype: "init", model: "m" }), true);
+        const payload = JSON.stringify({ type: "system", subtype: "init", model: "m" });
+        handleNdjsonLine(payload, true);
         expect(spy).toHaveBeenCalled();
-        expect(String(spy.mock.calls[0][0])).toContain("[github-plan:agent]");
+        expect(String(spy.mock.calls[0][0])).toContain("[github-plan:agent:raw-json]");
+        expect(String(spy.mock.calls[0][0])).toContain(payload);
         spy.mockRestore();
     });
 });
