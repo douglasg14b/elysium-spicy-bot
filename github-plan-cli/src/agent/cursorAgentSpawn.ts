@@ -1,29 +1,24 @@
-import { spawn, spawnSync } from "node:child_process";
-import {
-    agentModelFromEnv,
-    agentSubprocessEnv,
-    cursorAgentTimeoutMsFromEnv,
-    cursorApiKeyFromEnv,
-} from "./agentEnv.js";
+import { spawn, spawnSync } from 'node:child_process';
+import { agentModelFromEnv, agentSubprocessEnv, cursorAgentTimeoutMsFromEnv, cursorApiKeyFromEnv } from './agentEnv.js';
 import {
     appendNdjsonChunks,
     createNdjsonBufferState,
     extractLastTerminalResultFromNdjsonStdout,
     flushNdjsonRemainder,
     handleNdjsonLine,
-} from "./cursorAgentStreamFormat.js";
+} from './cursorAgentStreamFormat.js';
 import {
     type CursorAgentResultPayload,
     toCursorAgentResultPayload,
     transcriptFromCursorAgentPayload,
-} from "./cursorAgentJsonTypes.js";
-import { formatAgentFailureMessage } from "./formatAgentFailureMessage.js";
-import { isPlanCliDebugEnabled, truncateForPlanDebug } from "../plan/planDebug.js";
+} from './cursorAgentJsonTypes.js';
+import { formatAgentFailureMessage } from './formatAgentFailureMessage.js';
+import { isPlanCliDebugEnabled, truncateForPlanDebug } from '../plan/planDebug.js';
 
 const MAX_AGENT_FAILURE_DIAGNOSTIC_STREAM_CHARS = 16_384;
 
 function formatArgvForDiagnosticsLog(argv: string[]): string {
-    return argv.map((part) => JSON.stringify(part)).join(" ");
+    return argv.map((part) => JSON.stringify(part)).join(' ');
 }
 
 function emitCursorAgentFailureDiagnostics(
@@ -51,40 +46,40 @@ function emitCursorAgentFailureDiagnostics(
         lines.push(`  argv: agent ${formatArgvForDiagnosticsLog(argvForLog)}`);
     }
 
-    const versionProbe = spawnSync("agent", ["--version"], {
-        encoding: "utf8",
+    const versionProbe = spawnSync('agent', ['--version'], {
+        encoding: 'utf8',
         env: agentSubprocessEnv(),
         timeout: 10_000,
     });
     if (versionProbe.error) {
         lines.push(`  agent --version: spawn error (${versionProbe.error.message})`);
     } else {
-        const combined = `${(versionProbe.stdout ?? "").trim()}\n${(versionProbe.stderr ?? "").trim()}`.trim();
+        const combined = `${(versionProbe.stdout ?? '').trim()}\n${(versionProbe.stderr ?? '').trim()}`.trim();
         lines.push(
-            `  agent --version: exit ${String(versionProbe.status ?? "?")} ${truncateForPlanDebug(combined || "(no output)", 400)}`,
+            `  agent --version: exit ${String(versionProbe.status ?? '?')} ${truncateForPlanDebug(combined || '(no output)', 400)}`,
         );
     }
 
-    lines.push("--- agent stderr ---");
+    lines.push('--- agent stderr ---');
     lines.push(
-        result.rawStderr.trim() === ""
-            ? "(empty)"
+        result.rawStderr.trim() === ''
+            ? '(empty)'
             : truncateForPlanDebug(result.rawStderr, MAX_AGENT_FAILURE_DIAGNOSTIC_STREAM_CHARS),
     );
-    lines.push("--- agent stdout ---");
+    lines.push('--- agent stdout ---');
     lines.push(
-        result.rawStdout.trim() === ""
-            ? "(empty)"
+        result.rawStdout.trim() === ''
+            ? '(empty)'
             : truncateForPlanDebug(result.rawStdout, MAX_AGENT_FAILURE_DIAGNOSTIC_STREAM_CHARS),
     );
-    if (result.rawStderr.trim() === "" && result.rawStdout.trim() === "") {
-        lines.push("--- hint ---");
+    if (result.rawStderr.trim() === '' && result.rawStdout.trim() === '') {
+        lines.push('--- hint ---');
         lines.push(
-            "No output from agent. Common causes: missing/invalid CURSOR_API_KEY or JARVIS_API_KEY, `agent` not on PATH for this step, or the CLI exiting before printing (check flags and Cursor CLI release notes).",
+            'No output from agent. Common causes: missing/invalid CURSOR_API_KEY or JARVIS_API_KEY, `agent` not on PATH for this step, or the CLI exiting before printing (check flags and Cursor CLI release notes).',
         );
     }
 
-    console.error(lines.join("\n"));
+    console.error(lines.join('\n'));
 }
 
 const MAX_AGENT_IO_CAPTURE_BYTES = 64 * 1024 * 1024;
@@ -113,14 +108,14 @@ export type SpawnCursorAgentOptions = {
     workspaceRoot: string;
     /** `cwd` for the child process; defaults to `workspaceRoot`. */
     processCwd?: string;
-    mode: "ask" | "plan" | "agent";
+    mode: 'ask' | 'plan' | 'agent';
     /** Full prompt (slash command + instructions). */
     prompt: string;
     model?: string;
 };
 
 /** How the CLI wrote stdout for this run (affects `rawStdout` shape). */
-export type CursorAgentStdoutFormat = "json" | "stream-json";
+export type CursorAgentStdoutFormat = 'json' | 'stream-json';
 
 export type CursorAgentSpawnResult = {
     exitCode: number;
@@ -156,8 +151,8 @@ export function parseCursorAgentJsonOutput(stdout: string): {
     usage: CursorAgentUsage | undefined;
 } {
     const trimmed = stdout.trim();
-    if (trimmed === "") {
-        return { assistantTranscript: "", usage: undefined };
+    if (trimmed === '') {
+        return { assistantTranscript: '', usage: undefined };
     }
     try {
         const json: unknown = JSON.parse(trimmed);
@@ -174,10 +169,8 @@ function usageFromPayload(payload: CursorAgentResultPayload): CursorAgentUsage |
     }
     const inputTokens = Number(usage.input_tokens ?? usage.prompt_tokens ?? 0) || 0;
     const outputTokens = Number(usage.output_tokens ?? usage.completion_tokens ?? 0) || 0;
-    const cacheReadTokens =
-        Number(usage.cache_read_input_tokens ?? usage.cache_read_tokens ?? 0) || 0;
-    const cacheCreationTokens =
-        Number(usage.cache_creation_input_tokens ?? usage.cache_creation_tokens ?? 0) || 0;
+    const cacheReadTokens = Number(usage.cache_read_input_tokens ?? usage.cache_read_tokens ?? 0) || 0;
+    const cacheCreationTokens = Number(usage.cache_creation_input_tokens ?? usage.cache_creation_tokens ?? 0) || 0;
     const costUsd = Number(payload.total_cost_usd ?? usage.total_cost_usd ?? 0) || 0;
     if (
         inputTokens === 0 &&
@@ -200,14 +193,14 @@ function usageFromPayload(payload: CursorAgentResultPayload): CursorAgentUsage |
 function buildAgentArgv(options: SpawnCursorAgentOptions, outputFormat: CursorAgentStdoutFormat): string[] {
     const model = options.model ?? agentModelFromEnv();
     return [
-        "-p",
-        "--trust",
-        "--workspace",
+        '-p',
+        '--trust',
+        '--workspace',
         options.workspaceRoot,
         `--mode=${options.mode}`,
-        "--output-format",
+        '--output-format',
         outputFormat,
-        "--model",
+        '--model',
         model,
         options.prompt,
     ];
@@ -215,7 +208,7 @@ function buildAgentArgv(options: SpawnCursorAgentOptions, outputFormat: CursorAg
 
 /** Resolves `stream-json` vs `json` from `GITHUB_PLAN_DEBUG` (default on → `stream-json`). */
 export function cursorAgentStdoutFormatFromPlanDebug(): CursorAgentStdoutFormat {
-    return isPlanCliDebugEnabled() ? "stream-json" : "json";
+    return isPlanCliDebugEnabled() ? 'stream-json' : 'json';
 }
 
 /** Builds the `agent` argv array (workspace, mode, output format, model, prompt). */
@@ -236,14 +229,14 @@ export function parseCursorAgentStdoutSnapshot(
     usage: CursorAgentUsage | undefined;
 } {
     let terminal = lastTerminalResult;
-    if (outputFormat === "stream-json" && terminal === undefined) {
+    if (outputFormat === 'stream-json' && terminal === undefined) {
         terminal = extractLastTerminalResultFromNdjsonStdout(rawStdout, false);
     }
-    if (outputFormat === "stream-json" && terminal !== undefined) {
+    if (outputFormat === 'stream-json' && terminal !== undefined) {
         return parseCursorAgentResultPayload(terminal);
     }
-    if (outputFormat === "stream-json") {
-        return { assistantTranscript: "", usage: undefined };
+    if (outputFormat === 'stream-json') {
+        return { assistantTranscript: '', usage: undefined };
     }
     return parseCursorAgentJsonOutput(rawStdout);
 }
@@ -279,14 +272,14 @@ export async function spawnCursorAgent(options: SpawnCursorAgentOptions): Promis
     const timeoutMs = cursorAgentTimeoutMsFromEnv();
 
     return await new Promise<CursorAgentSpawnResult>((resolve, reject) => {
-        const child = spawn("agent", args, {
+        const child = spawn('agent', args, {
             cwd,
-            stdio: ["ignore", "pipe", "pipe"],
+            stdio: ['ignore', 'pipe', 'pipe'],
             env: agentSubprocessEnv(),
         });
 
-        let rawStdout = "";
-        let rawStderr = "";
+        let rawStdout = '';
+        let rawStderr = '';
         const ndjsonState = createNdjsonBufferState();
         let lastTerminalResult: Record<string, unknown> | undefined;
         let settled = false;
@@ -297,18 +290,16 @@ export async function spawnCursorAgent(options: SpawnCursorAgentOptions): Promis
                       return;
                   }
                   settled = true;
-                  child.kill("SIGTERM");
+                  child.kill('SIGTERM');
                   setTimeout(() => {
                       try {
-                          child.kill("SIGKILL");
+                          child.kill('SIGKILL');
                       } catch {
                           /* process may already be gone */
                       }
                   }, 10_000);
                   reject(
-                      new Error(
-                          `agent "${options.name}" exceeded JARVIS_AGENT_TIMEOUT_MS (${String(timeoutMs)} ms)`,
-                      ),
+                      new Error(`agent "${options.name}" exceeded JARVIS_AGENT_TIMEOUT_MS (${String(timeoutMs)} ms)`),
                   );
               }, timeoutMs)
             : undefined;
@@ -319,11 +310,11 @@ export async function spawnCursorAgent(options: SpawnCursorAgentOptions): Promis
             }
         };
 
-        child.stdout?.setEncoding("utf8");
-        child.stderr?.setEncoding("utf8");
-        child.stdout?.on("data", (chunk: string) => {
+        child.stdout?.setEncoding('utf8');
+        child.stderr?.setEncoding('utf8');
+        child.stdout?.on('data', (chunk: string) => {
             rawStdout = appendWithByteCap(rawStdout, chunk, MAX_AGENT_IO_CAPTURE_BYTES);
-            if (outputFormat !== "stream-json") {
+            if (outputFormat !== 'stream-json') {
                 return;
             }
             const lines = appendNdjsonChunks(ndjsonState, chunk);
@@ -334,11 +325,11 @@ export async function spawnCursorAgent(options: SpawnCursorAgentOptions): Promis
                 }
             }
         });
-        child.stderr?.on("data", (chunk: string) => {
+        child.stderr?.on('data', (chunk: string) => {
             rawStderr = appendWithByteCap(rawStderr, chunk, MAX_AGENT_IO_CAPTURE_BYTES);
         });
 
-        child.on("error", (error) => {
+        child.on('error', (error) => {
             if (settled) {
                 return;
             }
@@ -347,14 +338,14 @@ export async function spawnCursorAgent(options: SpawnCursorAgentOptions): Promis
             reject(new Error(`Failed to spawn agent for "${options.name}": ${error.message}`));
         });
 
-        child.on("close", (code) => {
+        child.on('close', (code) => {
             if (settled) {
                 return;
             }
             settled = true;
             clearKillTimer();
             const durationMs = Math.round(performance.now() - start);
-            if (outputFormat === "stream-json") {
+            if (outputFormat === 'stream-json') {
                 const flushed = flushNdjsonRemainder(ndjsonState.remainder, true);
                 if (flushed.terminalResult !== undefined) {
                     lastTerminalResult = flushed.terminalResult;
@@ -383,8 +374,8 @@ export function spawnCursorAgentSync(options: SpawnCursorAgentOptions): CursorAg
     const outputFormat = cursorAgentStdoutFormatFromPlanDebug();
     const args = buildAgentArgv(options, outputFormat);
     const start = performance.now();
-    const proc = spawnSync("agent", args, {
-        encoding: "utf8",
+    const proc = spawnSync('agent', args, {
+        encoding: 'utf8',
         cwd,
         env: agentSubprocessEnv(),
         maxBuffer: MAX_AGENT_IO_CAPTURE_BYTES,
@@ -393,10 +384,10 @@ export function spawnCursorAgentSync(options: SpawnCursorAgentOptions): CursorAg
         throw new Error(`Cursor agent (sync) failed: ${proc.error.message}`);
     }
     const durationMs = Math.round(performance.now() - start);
-    const rawStdout = proc.stdout ?? "";
-    const rawStderr = proc.stderr ?? "";
+    const rawStdout = proc.stdout ?? '';
+    const rawStderr = proc.stderr ?? '';
     let lastTerminalResult: Record<string, unknown> | undefined;
-    if (outputFormat === "stream-json") {
+    if (outputFormat === 'stream-json') {
         lastTerminalResult = extractLastTerminalResultFromNdjsonStdout(rawStdout, true);
     }
     return finishSpawnResult({
@@ -410,9 +401,7 @@ export function spawnCursorAgentSync(options: SpawnCursorAgentOptions): CursorAg
 }
 
 /** Run several agent invocations in parallel. */
-export async function spawnCursorAgentsParallel(
-    runs: SpawnCursorAgentOptions[],
-): Promise<CursorAgentSpawnResult[]> {
+export async function spawnCursorAgentsParallel(runs: SpawnCursorAgentOptions[]): Promise<CursorAgentSpawnResult[]> {
     return await Promise.all(runs.map((run) => spawnCursorAgent(run)));
 }
 
@@ -427,8 +416,6 @@ export function assertCursorAgentSucceeded(
 ): void {
     if (result.exitCode !== 0) {
         emitCursorAgentFailureDiagnostics(label, result, options);
-        throw new Error(
-            formatAgentFailureMessage(label, result.exitCode, result.rawStderr, result.rawStdout),
-        );
+        throw new Error(formatAgentFailureMessage(label, result.exitCode, result.rawStderr, result.rawStdout));
     }
 }

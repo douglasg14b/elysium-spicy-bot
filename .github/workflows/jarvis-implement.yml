@@ -46,10 +46,47 @@ jobs:
           git config --local user.name "github-actions[bot]"
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      # Merge default → plan branch happens inside `pnpm github-plan plan implement` (single owner of that invariant).
+      - name: Merge default branch into plan branch when remote exists
+        env:
+          DISCUSSION_NUMBER: ${{ inputs.discussion_number }}
+          DISCUSSION_KIND: ${{ inputs.discussion_kind }}
+        run: |
+          set -euo pipefail
+          default_branch="${{ github.event.repository.default_branch }}"
+          plan_branch="$(pnpm exec tsx github-plan-cli/src/cli.ts branch print --kind "$DISCUSSION_KIND" --number "$DISCUSSION_NUMBER")"
+          git fetch origin
+          if git rev-parse --verify "origin/${plan_branch}" >/dev/null 2>&1; then
+            git checkout -B "$plan_branch" "origin/${plan_branch}"
+            git merge --no-edit "origin/${default_branch}"
+            max_push=6
+            attempt=1
+            while true; do
+              if git push origin "$plan_branch"; then
+                break
+              fi
+              if [ "$attempt" -ge "$max_push" ]; then
+                echo "git push failed after ${max_push} attempts" >&2
+                exit 1
+              fi
+              sleep $((attempt * 2))
+              attempt=$((attempt + 1))
+              git fetch origin
+              if ! git pull --rebase origin "$plan_branch"; then
+                echo "::error::git pull --rebase failed (conflicts or dirty state). Fix branch ${plan_branch} and re-run." >&2
+                exit 1
+              fi
+            done
+          fi
 
       - name: Install agent CLI (Cursor)
         run: bash scripts/jarvis-cursor-agent-install.sh
+
+      - name: Smoke test agent CLI in CI env
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          JARVIS_API_KEY: ${{ secrets.JARVIS_API_KEY }}
+          JARVIS_AGENT_MODEL: auto
+        run: bash scripts/jarvis-cursor-agent-smoke.sh
 
       - name: Implement from plan and open PR
         env:
