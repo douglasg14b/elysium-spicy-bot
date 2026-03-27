@@ -1,0 +1,76 @@
+# Reusable: implement from .jarvis/plan.md on the ai/issue-N branch and open/update a PR.
+name: Jarvis implement
+
+on:
+  workflow_call:
+    inputs:
+      discussion_number:
+        required: true
+        type: string
+      discussion_kind:
+        required: true
+        type: string
+
+jobs:
+  implement:
+    name: Implement from plan
+    runs-on: ubuntu-latest
+    env:
+      # Same as jarvis-plan.yml: unset repo var → CLI default (debug on).
+      GITHUB_PLAN_DEBUG: ${{ vars.GITHUB_PLAN_DEBUG }}
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Configure Git identity for github-actions bot
+        run: |
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # Merge default → plan branch happens inside `pnpm github-plan plan implement` (single owner of that invariant).
+
+      - name: Install agent CLI (Cursor)
+        env:
+          CURSOR_CLI_INSTALL_URL: https://cursor.com/install
+          JARVIS_INSTALL_SCRIPT_SHA256: ${{ vars.JARVIS_INSTALL_SCRIPT_SHA256 }}
+        run: bash scripts/jarvis-cursor-agent-install.sh
+
+      - name: Implement from plan and open PR
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DISCUSSION_NUMBER: ${{ inputs.discussion_number }}
+          DISCUSSION_KIND: ${{ inputs.discussion_kind }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          JARVIS_API_KEY: ${{ secrets.JARVIS_API_KEY }}
+          JARVIS_AGENT_MODEL: auto
+          # 1 hour max before SIGTERM/SIGKILL on a hung agent (same as jarvis-plan).
+          JARVIS_AGENT_TIMEOUT_MS: 3600000
+        run: pnpm github-plan plan implement
+
+      - name: Comment on failure
+        if: failure()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DISCUSSION_NUMBER: ${{ inputs.discussion_number }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: pnpm github-plan issue comment --preset workflow-failed-implement

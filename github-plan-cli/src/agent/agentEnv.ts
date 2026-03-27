@@ -33,6 +33,24 @@ export function agentModelFromEnv(): string {
 }
 
 /**
+ * Optional wall-clock limit for the Cursor `agent` subprocess (milliseconds).
+ * Set `JARVIS_AGENT_TIMEOUT_MS` in CI to cap wall time before the child is killed (Jarvis workflows default to one hour).
+ */
+export function cursorAgentTimeoutMsFromEnv(env: NodeJS.ProcessEnv = process.env): number | undefined {
+    const raw = env.JARVIS_AGENT_TIMEOUT_MS?.trim();
+    if (!raw) {
+        return undefined;
+    }
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        throw new Error(
+            "JARVIS_AGENT_TIMEOUT_MS must be a positive integer (milliseconds), e.g. 3600000 for one hour.",
+        );
+    }
+    return parsed;
+}
+
+/**
  * Effective Cursor Cloud API key: `CURSOR_API_KEY`, or `JARVIS_API_KEY` when the former is unset or blank.
  */
 export function cursorApiKeyFromEnv(env: NodeJS.ProcessEnv = process.env): string | undefined {

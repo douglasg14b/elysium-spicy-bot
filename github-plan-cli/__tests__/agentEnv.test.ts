@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { agentSubprocessEnv, cursorApiKeyFromEnv, openaiApiKeyFromEnv, requireOpenAiApiKey } from "../src/agent/agentEnv.js";
+import {
+    agentSubprocessEnv,
+    cursorAgentTimeoutMsFromEnv,
+    cursorApiKeyFromEnv,
+    openaiApiKeyFromEnv,
+    requireOpenAiApiKey,
+} from "../src/agent/agentEnv.js";
 
 describe("cursorApiKeyFromEnv", () => {
     it("prefers CURSOR_API_KEY when both are set", () => {
@@ -44,6 +50,22 @@ describe("openaiApiKeyFromEnv / requireOpenAiApiKey", () => {
 
     it("requireOpenAiApiKey returns key when set", () => {
         expect(requireOpenAiApiKey({ OPENAI_API_KEY: "k" })).toBe("k");
+    });
+});
+
+describe("cursorAgentTimeoutMsFromEnv", () => {
+    it("returns undefined when unset", () => {
+        expect(cursorAgentTimeoutMsFromEnv({})).toBeUndefined();
+    });
+
+    it("parses positive integer ms", () => {
+        expect(cursorAgentTimeoutMsFromEnv({ JARVIS_AGENT_TIMEOUT_MS: "3600000" })).toBe(3_600_000);
+    });
+
+    it("throws on invalid value", () => {
+        expect(() => cursorAgentTimeoutMsFromEnv({ JARVIS_AGENT_TIMEOUT_MS: "0" })).toThrow(
+            /JARVIS_AGENT_TIMEOUT_MS/,
+        );
     });
 });
 

@@ -1,6 +1,8 @@
-# Future: `@jarvis implement` (sketch)
+# Jarvis implement (reference)
 
-This document describes how **plan execution** could mirror the same patterns as intent classification and plan generation—without implementing them yet.
+**Implemented:** `pnpm github-plan plan implement`, reusable workflow [`../.github/workflows/jarvis-implement.yml`](../.github/workflows/jarvis-implement.yml), runner [`src/plan/runPlanImplementation.ts`](src/plan/runPlanImplementation.ts).
+
+Historical sketch below kept for design notes.
 
 ## Goals
 
@@ -19,4 +21,4 @@ This document describes how **plan execution** could mirror the same patterns as
 
 ## Entry point
 
-When implemented, wire `pnpm github-plan plan implement` to a real runner and replace `runImplementPlanStub`.
+Wired: `pnpm github-plan plan implement` → `runPlanImplementation` (see top of this file).

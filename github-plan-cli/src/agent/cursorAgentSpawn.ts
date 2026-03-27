@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { agentModelFromEnv, agentSubprocessEnv } from "./agentEnv.js";
+import { agentModelFromEnv, agentSubprocessEnv, cursorAgentTimeoutMsFromEnv } from "./agentEnv.js";
 import {
     appendNdjsonChunks,
     createNdjsonBufferState,
@@ -41,7 +41,7 @@ export type SpawnCursorAgentOptions = {
     workspaceRoot: string;
     /** `cwd` for the child process; defaults to `workspaceRoot`. */
     processCwd?: string;
-    mode: "ask" | "plan";
+    mode: "ask" | "plan" | "agent";
     /** Full prompt (slash command + instructions). */
     prompt: string;
     model?: string;
@@ -204,6 +204,7 @@ export async function spawnCursorAgent(options: SpawnCursorAgentOptions): Promis
     const outputFormat = cursorAgentStdoutFormatFromPlanDebug();
     const args = buildAgentArgv(options, outputFormat);
     const start = performance.now();
+    const timeoutMs = cursorAgentTimeoutMsFromEnv();
 
     return await new Promise<CursorAgentSpawnResult>((resolve, reject) => {
         const child = spawn("agent", args, {
@@ -217,6 +218,34 @@ export async function spawnCursorAgent(options: SpawnCursorAgentOptions): Promis
         const ndjsonState = createNdjsonBufferState();
         let lastTerminalResult: Record<string, unknown> | undefined;
         let settled = false;
+
+        const killTimer = timeoutMs
+            ? setTimeout(() => {
+                  if (settled) {
+                      return;
+                  }
+                  settled = true;
+                  child.kill("SIGTERM");
+                  setTimeout(() => {
+                      try {
+                          child.kill("SIGKILL");
+                      } catch {
+                          /* process may already be gone */
+                      }
+                  }, 10_000);
+                  reject(
+                      new Error(
+                          `agent "${options.name}" exceeded JARVIS_AGENT_TIMEOUT_MS (${String(timeoutMs)} ms)`,
+                      ),
+                  );
+              }, timeoutMs)
+            : undefined;
+
+        const clearKillTimer = (): void => {
+            if (killTimer !== undefined) {
+                clearTimeout(killTimer);
+            }
+        };
 
         child.stdout?.setEncoding("utf8");
         child.stderr?.setEncoding("utf8");
@@ -242,6 +271,7 @@ export async function spawnCursorAgent(options: SpawnCursorAgentOptions): Promis
                 return;
             }
             settled = true;
+            clearKillTimer();
             reject(new Error(`Failed to spawn agent for "${options.name}": ${error.message}`));
         });
 
@@ -250,6 +280,7 @@ export async function spawnCursorAgent(options: SpawnCursorAgentOptions): Promis
                 return;
             }
             settled = true;
+            clearKillTimer();
             const durationMs = Math.round(performance.now() - start);
             if (outputFormat === "stream-json") {
                 const flushed = flushNdjsonRemainder(ndjsonState.remainder, true);
