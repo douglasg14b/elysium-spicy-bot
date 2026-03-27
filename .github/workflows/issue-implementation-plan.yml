@@ -112,6 +112,10 @@ jobs:
     name: Run plan workflow
     needs: jarvis-intent
     if: needs.jarvis-intent.outputs.should_continue == 'true' && needs.jarvis-intent.outputs.authorized == 'true' && needs.jarvis-intent.outputs.run_plan == 'true'
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
     uses: ./.github/workflows/jarvis-plan.yml
     with:
       discussion_number: ${{ needs.jarvis-intent.outputs.discussion_number }}
@@ -123,6 +127,10 @@ jobs:
     name: Run implement workflow
     needs: jarvis-intent
     if: needs.jarvis-intent.outputs.should_continue == 'true' && needs.jarvis-intent.outputs.authorized == 'true' && needs.jarvis-intent.outputs.intent == 'implement' && needs.jarvis-intent.outputs.has_existing_plan == 'true'
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
     uses: ./.github/workflows/jarvis-implement.yml
     with:
       discussion_number: ${{ needs.jarvis-intent.outputs.discussion_number }}
