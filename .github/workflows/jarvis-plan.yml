@@ -82,9 +82,6 @@ jobs:
           fi
 
       - name: Install agent CLI (Cursor)
-        env:
-          CURSOR_CLI_INSTALL_URL: https://cursor.com/install
-          JARVIS_INSTALL_SCRIPT_SHA256: ${{ vars.JARVIS_INSTALL_SCRIPT_SHA256 }}
         run: bash scripts/jarvis-cursor-agent-install.sh
 
       - name: Generate plan and push branch
