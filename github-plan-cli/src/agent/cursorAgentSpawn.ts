@@ -201,6 +201,7 @@ function buildAgentArgv(options: SpawnCursorAgentOptions, outputFormat: CursorAg
     const model = options.model ?? agentModelFromEnv();
     return [
         "-p",
+        "--force",
         "--trust",
         "--workspace",
         options.workspaceRoot,
