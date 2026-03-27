@@ -153,7 +153,11 @@ const classifyIntentCommand = defineCommand({
         const planFromBranch = await fetchPlanMarkdownFromBranch(octokit, repo, branchRef);
         const hasExistingPlan = planFromBranch != null && planFromBranch.trim() !== "";
 
-        const { intent, runPlan } = await runIntentClassification({ text: triggerCommentText });
+        const { intent, runPlan } = await runIntentClassification({
+            text: triggerCommentText,
+            hasExistingPlan,
+            discussionKind,
+        });
         const semanticPlanFeedback = shouldTreatIntentAsPlanFeedback(intent, hasExistingPlan);
         const planIsFeedback = planIsFeedbackForGithubOutput(runPlan, semanticPlanFeedback);
 

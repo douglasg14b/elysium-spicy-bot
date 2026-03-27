@@ -11,6 +11,8 @@ import { INTENT_CLASSIFICATION_SCHEMA } from "./intentClassificationSchema.js";
  */
 export async function runIntentClassification(input: {
     text: string;
+    hasExistingPlan: boolean;
+    discussionKind: "issue" | "pull_request";
 }): Promise<{ intent: string; runPlan: boolean }> {
     assertOpenAiApiKeyConfigured();
 
@@ -21,8 +23,9 @@ export async function runIntentClassification(input: {
 
     const startedAt = Date.now();
     const runner = new Runner({});
+    const classifierInputText = buildIntentClassifierInputText(input);
     const conversation: AgentInputItem[] = [
-        { role: "user", content: [{ type: "input_text", text: input.text }] },
+        { role: "user", content: [{ type: "input_text", text: classifierInputText }] },
     ];
     const runResult = await runner.run(AGENT_JARVIS_INTENT_CLASSIFIER, conversation);
     const durationMs = Date.now() - startedAt;
@@ -52,4 +55,19 @@ export async function runIntentClassification(input: {
     }
 
     return { intent: intentPayload.intent, runPlan };
+}
+
+export function buildIntentClassifierInputText(input: {
+    text: string;
+    hasExistingPlan: boolean;
+    discussionKind: "issue" | "pull_request";
+}): string {
+    return [
+        "Context:",
+        `- discussion_kind: ${input.discussionKind}`,
+        `- has_existing_plan: ${input.hasExistingPlan ? "true" : "false"}`,
+        "",
+        "Classify the following GitHub comment body:",
+        input.text,
+    ].join("\n");
 }
