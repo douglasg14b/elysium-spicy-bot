@@ -179,14 +179,15 @@ export async function runPlanGeneration(input: {
         promptFile,
         promptChars: prompt.length,
     });
-    const agentResult = await spawnCursorAgent({
+    const agentSpawnOptions = {
         name: "planner",
         workspaceRoot: root,
-        mode: "plan",
+        mode: "plan" as const,
         prompt,
-    });
+    };
+    const agentResult = await spawnCursorAgent(agentSpawnOptions);
 
-    assertCursorAgentSucceeded("agent (planner)", agentResult);
+    assertCursorAgentSucceeded("agent (planner)", agentResult, agentSpawnOptions);
 
     planDebugLog("runPlanGeneration: Cursor agent finished", {
         exitCode: agentResult.exitCode,

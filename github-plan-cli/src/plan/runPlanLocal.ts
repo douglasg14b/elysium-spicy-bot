@@ -72,14 +72,15 @@ export async function runPlanLocal(
     });
 
     const spawnPlanner = deps.spawnPlanner ?? spawnCursorAgent;
-    const agentResult = await spawnPlanner({
+    const agentSpawnOptions = {
         name: "planner",
         workspaceRoot: root,
-        mode: "plan",
+        mode: "plan" as const,
         prompt,
-    });
+    };
+    const agentResult = await spawnPlanner(agentSpawnOptions);
 
-    assertCursorAgentSucceeded("agent (planner)", agentResult);
+    assertCursorAgentSucceeded("agent (planner)", agentResult, agentSpawnOptions);
 
     planDebugLog("runPlanLocal: Cursor agent finished", {
         exitCode: agentResult.exitCode,

@@ -229,14 +229,15 @@ export async function runPlanImplementation(input: {
         promptChars: prompt.length,
     });
 
-    const agentResult = await spawnCursorAgent({
+    const agentSpawnOptions = {
         name: "implement-orchestrator",
         workspaceRoot: root,
-        mode: "agent",
+        mode: "agent" as const,
         prompt,
-    });
+    };
+    const agentResult = await spawnCursorAgent(agentSpawnOptions);
 
-    assertCursorAgentSucceeded("agent (implement orchestrator)", agentResult);
+    assertCursorAgentSucceeded("agent (implement orchestrator)", agentResult, agentSpawnOptions);
 
     recordAgentTelemetryStep({
         name: "Implement from plan (Cursor agent)",
