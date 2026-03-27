@@ -15,8 +15,20 @@ export function nonPlanIntentBody(intent: string): string {
     return `Detected intent: **${intent}**. Full plan generation runs only when intent is **plan** or **plan_feedback**.`;
 }
 
+export const IMPLEMENT_NO_PLAN_BODY =
+    "Cannot implement: there is **no implementation plan** on this discussion’s plan branch yet (`.jarvis/plan.md` is missing or empty). Ask Jarvis for a **plan** first, then request implementation.";
+
 export function failureBody(runUrl: string): string {
     return `Workflow failed while generating the implementation plan.\n\nDetails: [View workflow run](${runUrl})`;
+}
+
+export function failureBodyImplement(runUrl: string): string {
+    return `Workflow failed while implementing from the plan.\n\nDetails: [View workflow run](${runUrl})`;
+}
+
+/** Intent-detection job failed before plan or implement workflows ran. */
+export function failureBodyIntentPhase(runUrl: string): string {
+    return `Jarvis workflow failed during **intent detection** (before plan or implement steps).\n\nDetails: [View workflow run](${runUrl})`;
 }
 
 export async function createIssueComment(
@@ -225,4 +237,27 @@ export async function notifyFailure(
     runUrl: string,
 ): Promise<void> {
     await postAutomationIssueComment(octokit, repo, issueNumber, failureBody(runUrl));
+}
+
+export async function notifyFailureImplement(
+    octokit: Octokit,
+    repo: RepoIdentity,
+    issueNumber: number,
+    runUrl: string,
+): Promise<void> {
+    await postAutomationIssueComment(octokit, repo, issueNumber, failureBodyImplement(runUrl));
+}
+
+export async function notifyFailureIntentPhase(
+    octokit: Octokit,
+    repo: RepoIdentity,
+    issueNumber: number,
+    runUrl: string,
+): Promise<void> {
+    await postAutomationIssueComment(octokit, repo, issueNumber, failureBodyIntentPhase(runUrl));
+}
+
+/** Thread comment after a PR was created or updated from implement automation. */
+export function implementPrReadyBody(prUrl: string, branchRef: string): string {
+    return `Opened/updated pull request for this implementation: ${prUrl}\n\n**Branch:** \`${branchRef}\``;
 }

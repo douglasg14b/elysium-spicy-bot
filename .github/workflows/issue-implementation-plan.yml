@@ -1,27 +1,38 @@
-# Generates an implementation plan from a GitHub issue or pull request via Jarvis (agent CLI).
-# Runs on issue/PR comments when the comment mentions "jarvis" (word boundary).
-
+# Jarvis: routes issue/PR comments (Jarvis mention) to plan generation or implementation workflows.
 name: Issue implementation plan (Jarvis)
 
-run-name: "Plan discussion ${{ github.event.issue.number }}"
+run-name: "Jarvis ${{ github.event.issue.number }}"
 
 on:
   issue_comment:
     types: [created]
 
+# Do not cancel in-flight runs: a new comment could stop work mid-push and leave branch/thread state inconsistent.
 concurrency:
   group: plan-discussion-${{ github.event.issue.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
-  create-plan:
-    name: Detect intent and create implementation plan
+  jarvis-intent:
+    name: Detect intent
     runs-on: ubuntu-latest
     if: github.event_name == 'issue_comment' && github.actor != 'github-actions[bot]'
+    env:
+      # Unset → github-plan-cli default (debug on). Set repo var to 0/false/off to quiet.
+      GITHUB_PLAN_DEBUG: ${{ vars.GITHUB_PLAN_DEBUG }}
     permissions:
-      contents: write
+      contents: read
       issues: write
       pull-requests: write
+    outputs:
+      should_continue: ${{ steps.context.outputs.should_continue }}
+      authorized: ${{ steps.auth.outputs.authorized }}
+      discussion_number: ${{ steps.context.outputs.discussion_number }}
+      discussion_kind: ${{ steps.context.outputs.discussion_kind }}
+      intent: ${{ steps.intent.outputs.intent }}
+      run_plan: ${{ steps.intent.outputs.run_plan }}
+      plan_is_feedback: ${{ steps.intent.outputs.plan_is_feedback }}
+      has_existing_plan: ${{ steps.intent.outputs.has_existing_plan }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -71,79 +82,57 @@ jobs:
           DISCUSSION_NUMBER: ${{ steps.context.outputs.discussion_number }}
           DISCUSSION_KIND: ${{ steps.context.outputs.discussion_kind }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          # Plan CLI debug logs default on everywhere (github-plan-cli/src/plan/planDebug.ts). Set repo var GITHUB_PLAN_DEBUG=0 to silence.
-          GITHUB_PLAN_DEBUG: ${{ vars.GITHUB_PLAN_DEBUG }}
         run: pnpm github-plan classify intent
 
-      - name: Reply when intent is not plan
-        if: steps.context.outputs.should_continue == 'true' && steps.auth.outputs.authorized == 'true' && steps.intent.outputs.run_plan != 'true'
+      - name: Reply when implement requested but no plan exists on branch
+        if: steps.context.outputs.should_continue == 'true' && steps.auth.outputs.authorized == 'true' && steps.intent.outputs.intent == 'implement' && steps.intent.outputs.has_existing_plan != 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DISCUSSION_NUMBER: ${{ steps.context.outputs.discussion_number }}
+        run: pnpm github-plan issue comment --preset implement-no-plan
+
+      - name: Reply when intent is not plan and not implement
+        if: steps.context.outputs.should_continue == 'true' && steps.auth.outputs.authorized == 'true' && steps.intent.outputs.run_plan != 'true' && steps.intent.outputs.intent != 'implement'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           DISCUSSION_NUMBER: ${{ steps.context.outputs.discussion_number }}
           PLAN_INTENT: ${{ steps.intent.outputs.intent }}
         run: pnpm github-plan issue comment --preset non-plan
 
-      - name: Configure Git identity for github-actions bot
-        if: steps.context.outputs.should_continue == 'true' && steps.auth.outputs.authorized == 'true' && steps.intent.outputs.run_plan == 'true'
-        run: |
-          git config --local user.name "github-actions[bot]"
-          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      # Before planning, bring an existing ai/issue-N / ai/pr-N branch up to date with the default
-      # branch so revises match the current tree (CI checkout + agent see the same files as main).
-      - name: Merge default branch into plan branch when remote exists
-        if: steps.context.outputs.should_continue == 'true' && steps.auth.outputs.authorized == 'true' && steps.intent.outputs.run_plan == 'true'
-        env:
-          DISCUSSION_NUMBER: ${{ steps.context.outputs.discussion_number }}
-          DISCUSSION_KIND: ${{ steps.context.outputs.discussion_kind }}
-        run: |
-          set -euo pipefail
-          default_branch="${{ github.event.repository.default_branch }}"
-          plan_branch="$(pnpm exec tsx github-plan-cli/src/cli.ts branch print --kind "$DISCUSSION_KIND" --number "$DISCUSSION_NUMBER")"
-          git fetch origin
-          if git rev-parse --verify "origin/${plan_branch}" >/dev/null 2>&1; then
-            git checkout -B "$plan_branch" "origin/${plan_branch}"
-            git merge --no-edit "origin/${default_branch}"
-            git push origin "$plan_branch"
-          fi
-
-      # Optional: set repo Actions variable JARVIS_INSTALL_SCRIPT_SHA256 to pin install script integrity (sha256sum format).
-      # Installs Cursor's `agent` binary (under ~/.cursor/bin) for plan generation only.
-      - name: Install agent CLI (Cursor)
-        if: steps.context.outputs.should_continue == 'true' && steps.auth.outputs.authorized == 'true' && steps.intent.outputs.run_plan == 'true'
-        env:
-          CURSOR_CLI_INSTALL_URL: https://cursor.com/install
-          JARVIS_INSTALL_SCRIPT_SHA256: ${{ vars.JARVIS_INSTALL_SCRIPT_SHA256 }}
-        run: |
-          set -euo pipefail
-          script=/tmp/jarvis-agent-install.sh
-          curl -fsSL "$CURSOR_CLI_INSTALL_URL" -o "$script"
-          if [ -n "${JARVIS_INSTALL_SCRIPT_SHA256:-}" ]; then
-            echo "${JARVIS_INSTALL_SCRIPT_SHA256}  ${script}" | sha256sum -c -
-          fi
-          bash "$script"
-          echo "$HOME/.cursor/bin" >> "$GITHUB_PATH"
-          agent --version
-
-      - name: Generate plan and push branch
-        if: steps.context.outputs.should_continue == 'true' && steps.auth.outputs.authorized == 'true' && steps.intent.outputs.run_plan == 'true'
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          DISCUSSION_NUMBER: ${{ steps.context.outputs.discussion_number }}
-          DISCUSSION_KIND: ${{ steps.context.outputs.discussion_kind }}
-          PLAN_IS_FEEDBACK: ${{ steps.intent.outputs.plan_is_feedback }}
-          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
-          JARVIS_API_KEY: ${{ secrets.JARVIS_API_KEY }}
-          JARVIS_AGENT_MODEL: auto
-          GITHUB_PLAN_DEBUG: ${{ vars.GITHUB_PLAN_DEBUG }}
-          # Optional: GITHUB_PLAN_AGENT_STREAM_VERBOSE=1 — extra per-event JSON on stderr (redacted).
-        run: pnpm github-plan plan generate
-
-      - name: Comment on failure
+      - name: Comment on failure (intent job)
         if: failure() && steps.context.outputs.should_continue == 'true' && steps.auth.outputs.authorized == 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           DISCUSSION_NUMBER: ${{ steps.context.outputs.discussion_number }}
           GITHUB_SERVER_URL: ${{ github.server_url }}
           GITHUB_RUN_ID: ${{ github.run_id }}
-        run: pnpm github-plan issue comment --preset workflow-failed
+        run: pnpm github-plan issue comment --preset workflow-failed-intent
+
+  jarvis-plan:
+    name: Run plan workflow
+    needs: jarvis-intent
+    if: needs.jarvis-intent.outputs.should_continue == 'true' && needs.jarvis-intent.outputs.authorized == 'true' && needs.jarvis-intent.outputs.run_plan == 'true'
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    uses: ./.github/workflows/jarvis-plan.yml
+    with:
+      discussion_number: ${{ needs.jarvis-intent.outputs.discussion_number }}
+      discussion_kind: ${{ needs.jarvis-intent.outputs.discussion_kind }}
+      plan_is_feedback: ${{ needs.jarvis-intent.outputs.plan_is_feedback }}
+    secrets: inherit
+
+  jarvis-implement:
+    name: Run implement workflow
+    needs: jarvis-intent
+    if: needs.jarvis-intent.outputs.should_continue == 'true' && needs.jarvis-intent.outputs.authorized == 'true' && needs.jarvis-intent.outputs.intent == 'implement' && needs.jarvis-intent.outputs.has_existing_plan == 'true'
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    uses: ./.github/workflows/jarvis-implement.yml
+    with:
+      discussion_number: ${{ needs.jarvis-intent.outputs.discussion_number }}
+      discussion_kind: ${{ needs.jarvis-intent.outputs.discussion_kind }}
+    secrets: inherit

@@ -1,23 +1,37 @@
-const MAX_SNIPPET = 240;
-const MAX_EACH_STREAM_PREFIX = 160;
+const MAX_STDERR_IN_MESSAGE = 1500;
+const MAX_STDOUT_IN_MESSAGE = 800;
 
 /**
- * Short error line for agent failures: bounded stderr/stdout prefixes (no full stream concat).
+ * Error line for agent failures: bounded stderr/stdout (no full stream concat).
+ * Prefer stderr; include stdout when useful. When both empty, point to the diagnostic block.
  */
-export function formatAgentFailureMessage(label: string, status: number | null, stderr: string, stdout: string): string {
-    const stderrPart =
-        stderr.length > MAX_EACH_STREAM_PREFIX
-            ? `${stderr.slice(0, MAX_EACH_STREAM_PREFIX)}…`
-            : stderr;
-    const stdoutPart =
-        stdout.length > MAX_EACH_STREAM_PREFIX
-            ? `${stdout.slice(0, MAX_EACH_STREAM_PREFIX)}…`
-            : stdout;
-    const combined = `${stderrPart} ${stdoutPart}`.trim().replace(/\s+/g, " ");
-    const snippet = combined.length > MAX_SNIPPET ? `${combined.slice(0, MAX_SNIPPET)}…` : combined;
+export function formatAgentFailureMessage(
+    label: string,
+    status: number | null,
+    stderr: string,
+    stdout: string,
+): string {
     const statusPart = status === null ? "spawn failed" : `exited ${String(status)}`;
-    if (snippet) {
-        return `${label} ${statusPart}: ${snippet}`;
+    const stderrTrim = stderr.trim();
+    const stdoutTrim = stdout.trim();
+    const stderrPart =
+        stderrTrim.length > MAX_STDERR_IN_MESSAGE
+            ? `${stderrTrim.slice(0, MAX_STDERR_IN_MESSAGE)}…`
+            : stderrTrim;
+    const stdoutPart =
+        stdoutTrim.length > MAX_STDOUT_IN_MESSAGE
+            ? `${stdoutTrim.slice(0, MAX_STDOUT_IN_MESSAGE)}…`
+            : stdoutTrim;
+
+    const parts: string[] = [`${label} ${statusPart}`];
+    if (stderrPart) {
+        parts.push(`stderr: ${stderrPart}`);
     }
-    return `${label} ${statusPart}`;
+    if (stdoutPart) {
+        parts.push(`stdout: ${stdoutPart}`);
+    }
+    if (!stderrPart && !stdoutPart) {
+        parts.push("(no stderr/stdout; see preceding [github-plan] Cursor agent failed block on stderr)");
+    }
+    return parts.join(" | ");
 }

@@ -1,5 +1,10 @@
 import { spawn, spawnSync } from "node:child_process";
-import { agentModelFromEnv, agentSubprocessEnv } from "./agentEnv.js";
+import {
+    agentModelFromEnv,
+    agentSubprocessEnv,
+    cursorAgentTimeoutMsFromEnv,
+    cursorApiKeyFromEnv,
+} from "./agentEnv.js";
 import {
     appendNdjsonChunks,
     createNdjsonBufferState,
@@ -13,7 +18,74 @@ import {
     transcriptFromCursorAgentPayload,
 } from "./cursorAgentJsonTypes.js";
 import { formatAgentFailureMessage } from "./formatAgentFailureMessage.js";
-import { isPlanCliDebugEnabled } from "../plan/planDebug.js";
+import { isPlanCliDebugEnabled, truncateForPlanDebug } from "../plan/planDebug.js";
+
+const MAX_AGENT_FAILURE_DIAGNOSTIC_STREAM_CHARS = 16_384;
+
+function formatArgvForDiagnosticsLog(argv: string[]): string {
+    return argv.map((part) => JSON.stringify(part)).join(" ");
+}
+
+function emitCursorAgentFailureDiagnostics(
+    label: string,
+    result: CursorAgentSpawnResult,
+    options?: SpawnCursorAgentOptions,
+): void {
+    const lines: string[] = [];
+    lines.push(`[github-plan] Cursor agent failed: ${label}`);
+    lines.push(`  exitCode: ${String(result.exitCode)}`);
+    lines.push(`  durationMs: ${String(result.durationMs)}`);
+    lines.push(`  outputFormat: ${result.outputFormat}`);
+    lines.push(`  stderrChars: ${String(result.rawStderr.length)}`);
+    lines.push(`  stdoutChars: ${String(result.rawStdout.length)}`);
+    lines.push(`  cursorApiKeyPresent: ${String(Boolean(cursorApiKeyFromEnv()))}`);
+
+    if (options !== undefined) {
+        const model = options.model ?? agentModelFromEnv();
+        lines.push(`  mode: ${options.mode}`);
+        lines.push(`  model: ${model}`);
+        lines.push(`  workspaceRoot: ${options.workspaceRoot}`);
+        const argv = buildCursorAgentArgv(options, result.outputFormat);
+        const argvForLog = argv.slice(0, -1);
+        argvForLog.push(`[prompt ${String(options.prompt.length)} chars]`);
+        lines.push(`  argv: agent ${formatArgvForDiagnosticsLog(argvForLog)}`);
+    }
+
+    const versionProbe = spawnSync("agent", ["--version"], {
+        encoding: "utf8",
+        env: agentSubprocessEnv(),
+        timeout: 10_000,
+    });
+    if (versionProbe.error) {
+        lines.push(`  agent --version: spawn error (${versionProbe.error.message})`);
+    } else {
+        const combined = `${(versionProbe.stdout ?? "").trim()}\n${(versionProbe.stderr ?? "").trim()}`.trim();
+        lines.push(
+            `  agent --version: exit ${String(versionProbe.status ?? "?")} ${truncateForPlanDebug(combined || "(no output)", 400)}`,
+        );
+    }
+
+    lines.push("--- agent stderr ---");
+    lines.push(
+        result.rawStderr.trim() === ""
+            ? "(empty)"
+            : truncateForPlanDebug(result.rawStderr, MAX_AGENT_FAILURE_DIAGNOSTIC_STREAM_CHARS),
+    );
+    lines.push("--- agent stdout ---");
+    lines.push(
+        result.rawStdout.trim() === ""
+            ? "(empty)"
+            : truncateForPlanDebug(result.rawStdout, MAX_AGENT_FAILURE_DIAGNOSTIC_STREAM_CHARS),
+    );
+    if (result.rawStderr.trim() === "" && result.rawStdout.trim() === "") {
+        lines.push("--- hint ---");
+        lines.push(
+            "No output from agent. Common causes: missing/invalid CURSOR_API_KEY or JARVIS_API_KEY, `agent` not on PATH for this step, or the CLI exiting before printing (check flags and Cursor CLI release notes).",
+        );
+    }
+
+    console.error(lines.join("\n"));
+}
 
 const MAX_AGENT_IO_CAPTURE_BYTES = 64 * 1024 * 1024;
 
@@ -41,7 +113,7 @@ export type SpawnCursorAgentOptions = {
     workspaceRoot: string;
     /** `cwd` for the child process; defaults to `workspaceRoot`. */
     processCwd?: string;
-    mode: "ask" | "plan";
+    mode: "ask" | "plan" | "agent";
     /** Full prompt (slash command + instructions). */
     prompt: string;
     model?: string;
@@ -204,6 +276,7 @@ export async function spawnCursorAgent(options: SpawnCursorAgentOptions): Promis
     const outputFormat = cursorAgentStdoutFormatFromPlanDebug();
     const args = buildAgentArgv(options, outputFormat);
     const start = performance.now();
+    const timeoutMs = cursorAgentTimeoutMsFromEnv();
 
     return await new Promise<CursorAgentSpawnResult>((resolve, reject) => {
         const child = spawn("agent", args, {
@@ -217,6 +290,34 @@ export async function spawnCursorAgent(options: SpawnCursorAgentOptions): Promis
         const ndjsonState = createNdjsonBufferState();
         let lastTerminalResult: Record<string, unknown> | undefined;
         let settled = false;
+
+        const killTimer = timeoutMs
+            ? setTimeout(() => {
+                  if (settled) {
+                      return;
+                  }
+                  settled = true;
+                  child.kill("SIGTERM");
+                  setTimeout(() => {
+                      try {
+                          child.kill("SIGKILL");
+                      } catch {
+                          /* process may already be gone */
+                      }
+                  }, 10_000);
+                  reject(
+                      new Error(
+                          `agent "${options.name}" exceeded JARVIS_AGENT_TIMEOUT_MS (${String(timeoutMs)} ms)`,
+                      ),
+                  );
+              }, timeoutMs)
+            : undefined;
+
+        const clearKillTimer = (): void => {
+            if (killTimer !== undefined) {
+                clearTimeout(killTimer);
+            }
+        };
 
         child.stdout?.setEncoding("utf8");
         child.stderr?.setEncoding("utf8");
@@ -242,6 +343,7 @@ export async function spawnCursorAgent(options: SpawnCursorAgentOptions): Promis
                 return;
             }
             settled = true;
+            clearKillTimer();
             reject(new Error(`Failed to spawn agent for "${options.name}": ${error.message}`));
         });
 
@@ -250,6 +352,7 @@ export async function spawnCursorAgent(options: SpawnCursorAgentOptions): Promis
                 return;
             }
             settled = true;
+            clearKillTimer();
             const durationMs = Math.round(performance.now() - start);
             if (outputFormat === "stream-json") {
                 const flushed = flushNdjsonRemainder(ndjsonState.remainder, true);
@@ -313,9 +416,17 @@ export async function spawnCursorAgentsParallel(
     return await Promise.all(runs.map((run) => spawnCursorAgent(run)));
 }
 
-/** Throws if `result.exitCode !== 0` with a short, non-dumping error message. */
-export function assertCursorAgentSucceeded(label: string, result: CursorAgentSpawnResult): void {
+/**
+ * Throws if `result.exitCode !== 0`.
+ * On failure, prints a diagnostic block to stderr (full-ish streams, argv summary, `agent --version`) then throws with a bounded message.
+ */
+export function assertCursorAgentSucceeded(
+    label: string,
+    result: CursorAgentSpawnResult,
+    options?: SpawnCursorAgentOptions,
+): void {
     if (result.exitCode !== 0) {
+        emitCursorAgentFailureDiagnostics(label, result, options);
         throw new Error(
             formatAgentFailureMessage(label, result.exitCode, result.rawStderr, result.rawStdout),
         );

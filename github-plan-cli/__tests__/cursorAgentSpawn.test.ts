@@ -123,6 +123,11 @@ describe("buildCursorAgentArgv", () => {
         const streamIdx = streamArgv.indexOf("--output-format");
         expect(streamArgv[streamIdx + 1]).toBe("stream-json");
     });
+
+    it("passes --mode=agent when mode is agent", () => {
+        const argv = buildCursorAgentArgv({ ...baseOptions, mode: "agent" }, "json");
+        expect(argv).toContain("--mode=agent");
+    });
 });
 
 describe("parseCursorAgentStdoutSnapshot", () => {

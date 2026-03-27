@@ -19,11 +19,11 @@ import {
     formatCurrentPlanSection,
     listIssueCommentsForContext,
 } from "../github/issueThreadContext.js";
-import { getHttpStatusFromError } from "../http/getHttpStatusFromError.js";
 import { loadPrompt } from "../prompts/loadPrompt.js";
 import { recordAgentTelemetryStep } from "../telemetry/recordAgentTelemetryStep.js";
 import { buildPlanBranchRef, type DiscussionKind } from "./planBranch.js";
 import { planDebugLog } from "./planDebug.js";
+import { pushBranchWithRecovery, remotePlanBranchExists } from "./planImplementationGit.js";
 
 const PLAN_COMMENT_UPDATE_FAILED_STUB =
     "Plan output was posted in follow-up comments (GitHub returned an error when updating this message).";
@@ -43,27 +43,6 @@ async function updateIssueCommentWithRetry(
         }
     }
     return false;
-}
-
-async function remoteBranchExists(
-    octokit: Octokit,
-    repo: RepoIdentity,
-    branch: string,
-): Promise<boolean> {
-    try {
-        await octokit.rest.repos.getBranch({
-            owner: repo.owner,
-            repo: repo.repo,
-            branch,
-        });
-        return true;
-    } catch (error: unknown) {
-        const status = getHttpStatusFromError(error);
-        if (status === 404) {
-            return false;
-        }
-        throw error;
-    }
 }
 
 function readPriorPlanFromWorkspace(planPath: string): string {
@@ -157,7 +136,7 @@ export async function runPlanGeneration(input: {
     await git.checkout(defaultBranch);
     await git.pull("origin", defaultBranch);
 
-    const exists = await remoteBranchExists(input.octokit, input.repo, branch);
+    const exists = await remotePlanBranchExists(input.octokit, input.repo, branch);
     planDebugLog("runPlanGeneration: plan branch state", { branch, remoteBranchExists: exists });
     if (exists) {
         await git.raw(["checkout", "-B", branch, `origin/${branch}`]);
@@ -200,14 +179,15 @@ export async function runPlanGeneration(input: {
         promptFile,
         promptChars: prompt.length,
     });
-    const agentResult = await spawnCursorAgent({
+    const agentSpawnOptions = {
         name: "planner",
         workspaceRoot: root,
-        mode: "plan",
+        mode: "plan" as const,
         prompt,
-    });
+    };
+    const agentResult = await spawnCursorAgent(agentSpawnOptions);
 
-    assertCursorAgentSucceeded("agent (planner)", agentResult);
+    assertCursorAgentSucceeded("agent (planner)", agentResult, agentSpawnOptions);
 
     planDebugLog("runPlanGeneration: Cursor agent finished", {
         exitCode: agentResult.exitCode,
@@ -234,7 +214,7 @@ export async function runPlanGeneration(input: {
             : `plan: implementation plan for ${input.discussionKind} #${String(input.discussionNumber)}`;
         planDebugLog("runPlanGeneration: committing and pushing plan branch", { branch });
         await git.commit(subject);
-        await git.push("origin", branch);
+        await pushBranchWithRecovery({ git, remote: "origin", branch });
         committed = true;
     } else {
         planDebugLog("runPlanGeneration: no staged diff; skipping commit/push", { branch });

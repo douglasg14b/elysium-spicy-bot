@@ -3,21 +3,25 @@ import { resolve } from "node:path";
 import { defineCommand, runMain } from "citty";
 import { parseDiscussionKind, parseDiscussionNumber, parseEnvBoolTrue } from "./config/parseGithubPlanEnv.js";
 import {
+    IMPLEMENT_NO_PLAN_BODY,
     nonPlanIntentBody,
     notifyFailure,
+    notifyFailureImplement,
+    notifyFailureIntentPhase,
     notifyUnauthorized,
     postAutomationIssueComment,
 } from "./github/automationComments.js";
 import { commentMentionsJarvis, readIssueCommentEvent } from "./github/issueCommentEvent.js";
+import { githubActionsRunUrlFromEnv } from "./github/actionsRunUrl.js";
 import { createOctokit, parseGithubRepository } from "./github/octokit.js";
 import { hasRepoWriteAccess } from "./github/hasRepoWriteAccess.js";
 import { writeGithubOutput } from "./github/writeGithubOutput.js";
 import { runIntentClassification } from "./intent/runIntentClassification.js";
-import { runImplementPlanStub } from "./plan/implementPlanStub.js";
 import { planIsFeedbackForGithubOutput, shouldTreatIntentAsPlanFeedback } from "./plan/planFeedback.js";
 import { fetchPlanMarkdownFromBranch } from "./plan/fetchPlanMarkdownFromBranch.js";
 import { buildPlanBranchRef, type DiscussionKind } from "./plan/planBranch.js";
 import { runPlanGeneration } from "./plan/runPlanGeneration.js";
+import { runPlanImplementation } from "./plan/runPlanImplementation.js";
 import { runPlanLocal } from "./plan/runPlanLocal.js";
 
 function requireEnv(name: string): string {
@@ -28,7 +32,13 @@ function requireEnv(name: string): string {
     return value;
 }
 
-type IssueCommentPreset = "unauthorized" | "non-plan" | "workflow-failed";
+type IssueCommentPreset =
+    | "unauthorized"
+    | "non-plan"
+    | "workflow-failed"
+    | "workflow-failed-intent"
+    | "implement-no-plan"
+    | "workflow-failed-implement";
 
 const threadGateCommand = defineCommand({
     meta: {
@@ -150,6 +160,7 @@ const classifyIntentCommand = defineCommand({
         writeGithubOutput("intent", intent);
         writeGithubOutput("run_plan", runPlan ? "true" : "false");
         writeGithubOutput("plan_is_feedback", planIsFeedback ? "true" : "false");
+        writeGithubOutput("has_existing_plan", hasExistingPlan ? "true" : "false");
     },
 });
 
@@ -189,10 +200,19 @@ const planImplementCommand = defineCommand({
     meta: {
         name: "implement",
         description:
-            "Reserved: run implementation from plan (not automated yet — see github-plan-cli/FUTURE-IMPLEMENT.md).",
+            "Checkout plan branch, run Cursor implement orchestrator (generic-implementer), verify build, push, open/update PR.",
     },
     async run() {
-        await runImplementPlanStub();
+        const octokit = createOctokit();
+        const repo = parseGithubRepository(process.env.GITHUB_REPOSITORY);
+        const discussionKind = parseDiscussionKind(process.env.DISCUSSION_KIND);
+        const discussionNumber = parseDiscussionNumber(process.env.DISCUSSION_NUMBER);
+        await runPlanImplementation({
+            octokit,
+            repo,
+            discussionKind,
+            discussionNumber,
+        });
     },
 });
 
@@ -258,7 +278,14 @@ const issueCommentCommand = defineCommand({
     args: {
         preset: {
             type: "enum",
-            options: ["unauthorized", "non-plan", "workflow-failed"] as const,
+            options: [
+                "unauthorized",
+                "non-plan",
+                "workflow-failed",
+                "workflow-failed-intent",
+                "implement-no-plan",
+                "workflow-failed-implement",
+            ] as const,
             description: "Comment template",
             required: true,
         },
@@ -288,11 +315,34 @@ const issueCommentCommand = defineCommand({
                 return;
             }
             case "workflow-failed": {
-                const server = requireEnv("GITHUB_SERVER_URL").replace(/\/$/, "");
-                const repoSlug = requireEnv("GITHUB_REPOSITORY");
-                const runId = requireEnv("GITHUB_RUN_ID");
-                const runUrl = `${server}/${repoSlug}/actions/runs/${runId}`;
-                await notifyFailure(octokit, repo, discussionNumber, runUrl);
+                await notifyFailure(
+                    octokit,
+                    repo,
+                    discussionNumber,
+                    githubActionsRunUrlFromEnv(),
+                );
+                return;
+            }
+            case "workflow-failed-intent": {
+                await notifyFailureIntentPhase(
+                    octokit,
+                    repo,
+                    discussionNumber,
+                    githubActionsRunUrlFromEnv(),
+                );
+                return;
+            }
+            case "implement-no-plan": {
+                await postAutomationIssueComment(octokit, repo, discussionNumber, IMPLEMENT_NO_PLAN_BODY);
+                return;
+            }
+            case "workflow-failed-implement": {
+                await notifyFailureImplement(
+                    octokit,
+                    repo,
+                    discussionNumber,
+                    githubActionsRunUrlFromEnv(),
+                );
                 return;
             }
             default: {
