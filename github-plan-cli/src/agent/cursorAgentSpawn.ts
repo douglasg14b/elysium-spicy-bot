@@ -192,12 +192,13 @@ function usageFromPayload(payload: CursorAgentResultPayload): CursorAgentUsage |
 
 function buildAgentArgv(options: SpawnCursorAgentOptions, outputFormat: CursorAgentStdoutFormat): string[] {
     const model = options.model ?? agentModelFromEnv();
+    const modeArg = options.mode === 'agent' ? undefined : `--mode=${options.mode}`;
     return [
         '-p',
         '--trust',
         '--workspace',
         options.workspaceRoot,
-        `--mode=${options.mode}`,
+        ...(modeArg ? [modeArg] : []),
         '--output-format',
         outputFormat,
         '--model',
