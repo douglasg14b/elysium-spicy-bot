@@ -39,23 +39,6 @@ async function markAnnouncedWithRetry(guildId: string, userId: string): Promise<
     throw lastError;
 }
 
-async function clearLastAnnouncedAtWithRetry(guildId: string, userId: string): Promise<void> {
-    let lastError: unknown;
-    for (let attemptIndex = 0; attemptIndex < MARK_ANNOUNCED_MAX_ATTEMPTS; attemptIndex++) {
-        try {
-            await birthdayRepository.clearLastAnnouncedAt(guildId, userId);
-            return;
-        } catch (error) {
-            lastError = error;
-            if (attemptIndex < MARK_ANNOUNCED_MAX_ATTEMPTS - 1) {
-                const backoffMs = MARK_ANNOUNCED_BASE_DELAY_MS * 2 ** attemptIndex;
-                await delay(backoffMs);
-            }
-        }
-    }
-    throw lastError;
-}
-
 export function stopBirthdayAnnouncementScheduler(): void {
     if (schedulerIntervalId !== undefined) {
         clearInterval(schedulerIntervalId);
@@ -78,8 +61,8 @@ export function enqueueBirthdayAnnouncementTick(client: Client): void {
 
 /**
  * Runs one announcement pass: due birthdays, per-guild channel, AI + outbound finalize, send.
- * Persists {@link BirthdayRepository.markAnnounced} before {@link TextChannel.send} so a public
- * post never happens without a matching `lastAnnouncedAt`; if send fails, {@link BirthdayRepository.clearLastAnnouncedAt} retries so the next tick can post again.
+ * Persists {@link BirthdayRepository.markAnnounced} only after {@link TextChannel.send} succeeds
+ * so failed sends retry on a later tick without clearing state.
  */
 export async function executeBirthdayAnnouncementTick(client: Client): Promise<void> {
     if (!client.user) {
@@ -148,29 +131,20 @@ export async function executeBirthdayAnnouncementTick(client: Client): Promise<v
             }
 
             try {
-                await markAnnouncedWithRetry(row.guildId, row.userId);
-            } catch (error) {
-                console.error(
-                    `Birthday announcement skipped: could not persist lastAnnouncedAt before send for user ${row.userId} in guild ${row.guildId}`,
-                    error
-                );
-                continue;
-            }
-
-            try {
                 await channel.send({ content: `${mention}\n${body}` });
                 console.info(`Birthday announcement sent for user ${row.userId} in guild ${row.guildId}`);
             } catch (error) {
                 console.warn(`Birthday announcement send failed for user ${row.userId} in guild ${row.guildId}:`, error);
-                try {
-                    await clearLastAnnouncedAtWithRetry(row.guildId, row.userId);
-                } catch (clearError) {
-                    console.error(
-                        `Birthday announcement send failed and lastAnnouncedAt could not be cleared after retries for user ${row.userId} in guild ${row.guildId}; user may miss a shout-out until the row is repaired.`,
-                        clearError
-                    );
-                }
                 continue;
+            }
+
+            try {
+                await markAnnouncedWithRetry(row.guildId, row.userId);
+            } catch (error) {
+                console.error(
+                    `Birthday announcement posted but lastAnnouncedAt could not be saved after retries for user ${row.userId} in guild ${row.guildId}; the next tick may duplicate the message until the row is updated.`,
+                    error
+                );
             }
         }
     } catch (error) {

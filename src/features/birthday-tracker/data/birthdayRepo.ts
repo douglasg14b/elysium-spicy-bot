@@ -92,22 +92,6 @@ export class BirthdayRepository {
     }
 
     /**
-     * Clears `last_announced_at` after a failed Discord send when we already
-     * persisted a claim (persist-before-send); allows the next tick to retry the announcement.
-     */
-    async clearLastAnnouncedAt(guildId: string, userId: string): Promise<void> {
-        await database
-            .updateTable('birthdays')
-            .set({
-                lastAnnouncedAt: null,
-                updatedAt: new Date().toISOString(),
-            })
-            .where('guildId', '=', guildId)
-            .where('userId', '=', userId)
-            .execute();
-    }
-
-    /**
      * Get upcoming birthdays for a guild within the next N days
      */
     async getUpcomingBirthdays(guildId: string, daysAhead = 7): Promise<BirthdayDisplay[]> {
