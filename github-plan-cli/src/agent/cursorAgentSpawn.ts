@@ -15,7 +15,8 @@ import {
 import { formatAgentFailureMessage } from './formatAgentFailureMessage.js';
 import { isPlanCliDebugEnabled, truncateForPlanDebug } from '../plan/planDebug.js';
 
-const MAX_AGENT_FAILURE_DIAGNOSTIC_STREAM_CHARS = 16_384;
+const MAX_AGENT_FAILURE_DIAGNOSTIC_STREAM_CHARS = 131_072;
+const AGENT_STREAM_IDLE_HEARTBEAT_MS = 20_000;
 
 function formatArgvForDiagnosticsLog(argv: string[]): string {
     return argv.map((part) => JSON.stringify(part)).join(' ');
@@ -193,6 +194,7 @@ function usageFromPayload(payload: CursorAgentResultPayload): CursorAgentUsage |
 function buildAgentArgv(options: SpawnCursorAgentOptions, outputFormat: CursorAgentStdoutFormat): string[] {
     const model = options.model ?? agentModelFromEnv();
     const modeArg = options.mode === 'agent' ? undefined : `--mode=${options.mode}`;
+    const streamPartialArg = outputFormat === 'stream-json' ? ['--stream-partial-output'] : [];
     return [
         '-p',
         '--trust',
@@ -201,6 +203,7 @@ function buildAgentArgv(options: SpawnCursorAgentOptions, outputFormat: CursorAg
         ...(modeArg ? [modeArg] : []),
         '--output-format',
         outputFormat,
+        ...streamPartialArg,
         '--model',
         model,
         options.prompt,
@@ -281,6 +284,7 @@ export async function spawnCursorAgent(options: SpawnCursorAgentOptions): Promis
 
         let rawStdout = '';
         let rawStderr = '';
+        let lastIoAt = Date.now();
         const ndjsonState = createNdjsonBufferState();
         let lastTerminalResult: Record<string, unknown> | undefined;
         let settled = false;
@@ -310,10 +314,32 @@ export async function spawnCursorAgent(options: SpawnCursorAgentOptions): Promis
                 clearTimeout(killTimer);
             }
         };
+        const heartbeatTimer =
+            outputFormat === 'stream-json' && isPlanCliDebugEnabled()
+                ? setInterval(() => {
+                      if (settled) {
+                          return;
+                      }
+                      const idleMs = Date.now() - lastIoAt;
+                      if (idleMs < AGENT_STREAM_IDLE_HEARTBEAT_MS) {
+                          return;
+                      }
+                      console.error(
+                          `[github-plan:agent] waiting | name=${options.name} idle_ms=${String(idleMs)} stdout_chars=${String(rawStdout.length)} stderr_chars=${String(rawStderr.length)}`,
+                      );
+                  }, AGENT_STREAM_IDLE_HEARTBEAT_MS)
+                : undefined;
+
+        const clearHeartbeatTimer = (): void => {
+            if (heartbeatTimer !== undefined) {
+                clearInterval(heartbeatTimer);
+            }
+        };
 
         child.stdout?.setEncoding('utf8');
         child.stderr?.setEncoding('utf8');
         child.stdout?.on('data', (chunk: string) => {
+            lastIoAt = Date.now();
             rawStdout = appendWithByteCap(rawStdout, chunk, MAX_AGENT_IO_CAPTURE_BYTES);
             if (outputFormat !== 'stream-json') {
                 return;
@@ -327,6 +353,7 @@ export async function spawnCursorAgent(options: SpawnCursorAgentOptions): Promis
             }
         });
         child.stderr?.on('data', (chunk: string) => {
+            lastIoAt = Date.now();
             rawStderr = appendWithByteCap(rawStderr, chunk, MAX_AGENT_IO_CAPTURE_BYTES);
         });
 
@@ -336,6 +363,7 @@ export async function spawnCursorAgent(options: SpawnCursorAgentOptions): Promis
             }
             settled = true;
             clearKillTimer();
+            clearHeartbeatTimer();
             reject(new Error(`Failed to spawn agent for "${options.name}": ${error.message}`));
         });
 
@@ -345,6 +373,7 @@ export async function spawnCursorAgent(options: SpawnCursorAgentOptions): Promis
             }
             settled = true;
             clearKillTimer();
+            clearHeartbeatTimer();
             const durationMs = Math.round(performance.now() - start);
             if (outputFormat === 'stream-json') {
                 const flushed = flushNdjsonRemainder(ndjsonState.remainder, true);

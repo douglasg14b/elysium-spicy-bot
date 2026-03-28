@@ -36,7 +36,7 @@ When **AGENTS.md** or workspace rules appear in your prompt, treat them as autho
 ### Phase 1: Understand assignment
 
 - Read the task/plan, acceptance criteria, and edge cases.
-- If given a plan: treat it as the source of truth, but resolve contradictions, missing steps, or repo mismatches by making the smallest *necessary* adjustments and documenting deviations in the report.
+- If given a plan: treat it as the source of truth, but resolve contradictions, missing steps, or repo mismatches by making the smallest _necessary_ adjustments and documenting deviations in the report.
 - Note which surfaces are involved: Discord interactions, events, persistence, AI, CLI/tools (`src/tools/**`), or CI/workflow files.
 - Identify whether the work is user-visible (commands, messages) or internal (repos, migrations, utilities).
 

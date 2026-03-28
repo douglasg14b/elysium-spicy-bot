@@ -139,3 +139,4 @@ db.sqlite
 
 # Jarvis implement automation — local PR metadata for Actions (never commit)
 .jarvis/pr-draft.json
+.jarvis/ci/

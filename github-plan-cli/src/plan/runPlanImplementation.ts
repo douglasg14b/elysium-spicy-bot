@@ -1,41 +1,116 @@
-import { mkdirSync, readFileSync, unlinkSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import simpleGit from "simple-git";
 import type { Octokit } from "@octokit/rest";
+import { withAutomationPrefix } from "../config/githubPlanConstants.js";
 import {
     assertCursorAgentApiKeyConfigured,
     JARVIS_WORKSPACE_DIR,
     workspaceRoot,
 } from "../agent/agentEnv.js";
-import { assertCursorAgentSucceeded, spawnCursorAgent } from "../agent/cursorAgentSpawn.js";
-import { implementPrReadyBody, postAutomationIssueComment } from "../github/automationComments.js";
+import {
+    assertCursorAgentSucceeded,
+    spawnCursorAgent,
+    type SpawnCursorAgentOptions,
+} from "../agent/cursorAgentSpawn.js";
+import {
+    implementPrReadyBody,
+    postAutomationIssueComment,
+    updateIssueComment,
+} from "../github/automationComments.js";
 import type { RepoIdentity } from "../github/octokit.js";
 import { createOrUpdateImplementPullRequest } from "../github/pullRequests.js";
 import { loadPrompt } from "../prompts/loadPrompt.js";
 import { recordAgentTelemetryStep } from "../telemetry/recordAgentTelemetryStep.js";
 import { buildPlanBranchRef, type DiscussionKind } from "./planBranch.js";
-import { planDebugLog, truncateForPlanDebug } from "./planDebug.js";
+import {
+    CI_IMPLEMENT_REPORT_JSON_SCHEMA,
+    CI_MAX_IMPLEMENT_ROUNDS,
+    CI_REVIEW_AGGREGATE_JSON_SCHEMA,
+    type CiImplementReport,
+    type CiReviewAggregate,
+    buildPrDraftFromCiReports,
+    collectBlockingFindingsFromAggregate,
+    formatBlockingFailureMessage,
+    formatReviewFeedbackMarkdown,
+    IMPLEMENT_REPORT_RELATIVE,
+    isCiCodeOrchestratedImplement,
+    JARVIS_CI_DIR_RELATIVE,
+    parseCiImplementReport,
+    parseCiReviewAggregate,
+    REVIEW_AGGREGATE_RELATIVE,
+    REVIEW_FEEDBACK_RELATIVE,
+} from "./ciImplementArtifacts.js";
+import { planDebugLog } from "./planDebug.js";
 import {
     checkoutMergedPlanBranch,
     pushBranchWithRecovery,
     remotePlanBranchExists,
     stageImplementWorktreeExcludingPrDraft,
 } from "./planImplementationGit.js";
-import { parsePrDraftJson, PR_DRAFT_RELATIVE_PATH, PR_DRAFT_JSON_SCHEMA } from "./prDraftSchema.js";
+import { parsePrDraftJson, PR_DRAFT_RELATIVE_PATH, PR_DRAFT_JSON_SCHEMA, type PrDraft } from "./prDraftSchema.js";
 
-function readPlanFileOrThrow(planPath: string): void {
+const IMPLEMENT_COMMENT_UPDATE_FAILED_STUB =
+    "Implementation completed, but GitHub returned an error while updating this status comment.";
+const AGENT_TRANSCRIPT_ERROR_PREVIEW_CHARS = 12_000;
+
+function errnoCode(error: unknown): string | undefined {
+    return error instanceof Error && "code" in error
+        ? (error as NodeJS.ErrnoException).code
+        : undefined;
+}
+
+async function updateIssueCommentWithRetry(
+    octokit: Octokit,
+    repo: RepoIdentity,
+    commentId: number,
+    body: string,
+): Promise<boolean> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+            await updateIssueComment(octokit, repo, commentId, body);
+            return true;
+        } catch (error) {
+            planDebugLog("runPlanImplementation: updateIssueComment failed", {
+                attempt,
+                commentId,
+                message: error instanceof Error ? error.message : String(error),
+            });
+        }
+    }
+    return false;
+}
+
+/** Verifies the plan file exists, is readable, and is non-empty. */
+function assertPlanFileReadableAndNonEmpty(planPath: string): void {
     let text: string;
     try {
         text = readFileSync(planPath, "utf8");
-    } catch {
+    } catch (error) {
+        if (errnoCode(error) === "ENOENT") {
+            throw new Error(
+                `Missing plan file at .jarvis/plan.md on this branch; generate a plan before implementing.`,
+            );
+        }
         throw new Error(
-            `Missing plan file at .jarvis/plan.md on this branch; generate a plan before implementing.`,
+            `Cannot read plan file at ${planPath}: ${error instanceof Error ? error.message : String(error)}`,
+            { cause: error },
         );
     }
     if (!text.trim()) {
         throw new Error(".jarvis/plan.md is empty; cannot implement.");
     }
+}
+
+function agentTranscriptPreviewForError(transcript: string): string {
+    const trimmed = transcript.trim();
+    if (!trimmed) {
+        return "(agent produced no assistant transcript)";
+    }
+    return trimmed.length > AGENT_TRANSCRIPT_ERROR_PREVIEW_CHARS
+        ? `${trimmed.slice(0, AGENT_TRANSCRIPT_ERROR_PREVIEW_CHARS)}… [truncated]`
+        : trimmed;
 }
 
 function removePrDraftIfPresent(root: string): void {
@@ -45,6 +120,162 @@ function removePrDraftIfPresent(root: string): void {
     } catch {
         /* absent is fine */
     }
+}
+
+/** Ensures a later successful read of the aggregate is from this round’s orchestrator, not a leftover file. */
+function removeCiReviewAggregateIfPresent(root: string): void {
+    const absolute = join(root, REVIEW_AGGREGATE_RELATIVE);
+    try {
+        unlinkSync(absolute);
+    } catch (error) {
+        if (errnoCode(error) !== "ENOENT") {
+            throw error;
+        }
+    }
+}
+
+function prepareJarvisCiDir(root: string): void {
+    const dir = join(root, JARVIS_CI_DIR_RELATIVE);
+    mkdirSync(dir, { recursive: true });
+    let names: string[];
+    try {
+        names = readdirSync(dir);
+    } catch (error) {
+        throw new Error(
+            `Cannot read CI artifact directory ${JARVIS_CI_DIR_RELATIVE}: ${error instanceof Error ? error.message : String(error)}`,
+            { cause: error },
+        );
+    }
+    for (const name of names) {
+        const absolute = join(dir, name);
+        try {
+            unlinkSync(absolute);
+        } catch (error) {
+            if (errnoCode(error) !== "ENOENT") {
+                throw new Error(
+                    `Cannot remove stale CI artifact ${absolute}: ${error instanceof Error ? error.message : String(error)}`,
+                    { cause: error },
+                );
+            }
+        }
+    }
+}
+
+function readReviewFeedbackBodyForCi(root: string, round: number): string {
+    if (round <= 1) {
+        return "_No prior review feedback (first implement round)._";
+    }
+    try {
+        return readFileSync(join(root, REVIEW_FEEDBACK_RELATIVE), "utf8");
+    } catch {
+        return "_No review-feedback file found._";
+    }
+}
+
+async function runCiImplementOrchestration(root: string, planRelative: string): Promise<{
+    prDraft: PrDraft;
+    totalAgentDurationMs: number;
+}> {
+    prepareJarvisCiDir(root);
+    let totalAgentDurationMs = 0;
+    let lastImplementReport: CiImplementReport | undefined;
+    let lastReviewAggregate: CiReviewAggregate | undefined;
+
+    for (let round = 1; round <= CI_MAX_IMPLEMENT_ROUNDS; round++) {
+        planDebugLog("runPlanImplementation: CI implement round", { round });
+        const feedbackBody = readReviewFeedbackBodyForCi(root, round);
+        const implPrompt = loadPrompt("implement-ci-implementer.md", {
+            PLAN_PATH: planRelative,
+            IMPLEMENT_REPORT_PATH: IMPLEMENT_REPORT_RELATIVE,
+            IMPLEMENT_REPORT_JSON_SCHEMA: CI_IMPLEMENT_REPORT_JSON_SCHEMA,
+            REVIEW_FEEDBACK_BODY: feedbackBody,
+        });
+        const implSpawn: SpawnCursorAgentOptions = {
+            name: `implementer-ci-r${String(round)}`,
+            workspaceRoot: root,
+            mode: "agent",
+            prompt: implPrompt,
+        };
+        const implResult = await spawnCursorAgent(implSpawn);
+        totalAgentDurationMs += implResult.durationMs;
+        assertCursorAgentSucceeded("agent (CI implementer)", implResult, implSpawn);
+        recordAgentTelemetryStep({
+            name: `CI implementer round ${String(round)}`,
+            durationMs: implResult.durationMs,
+            usage: implResult.usage,
+        });
+
+        let implRaw: string;
+        try {
+            implRaw = readFileSync(join(root, IMPLEMENT_REPORT_RELATIVE), "utf8");
+        } catch {
+            throw new Error(
+                `CI implementer did not write ${IMPLEMENT_REPORT_RELATIVE}.\n\nAgent transcript preview:\n${agentTranscriptPreviewForError(implResult.assistantTranscript)}`,
+            );
+        }
+        const implReport = parseCiImplementReport(implRaw);
+        if (implReport.status === "blocked") {
+            throw new Error(`CI implementer blocked: ${implReport.blockedReason ?? "unknown"}`);
+        }
+        if (!implReport.buildSucceeded) {
+            throw new Error(
+                `CI implementer reported build failure.\n\n${implReport.summaryMarkdown}`,
+            );
+        }
+
+        removeCiReviewAggregateIfPresent(root);
+
+        const revPrompt = loadPrompt("implement-ci-reviewer-orchestrator.md", {
+            REVIEWER_AGENT_PATH: ".cursor/agents/reviewer.md",
+            REVIEW_AGGREGATE_PATH: REVIEW_AGGREGATE_RELATIVE,
+            CI_REVIEW_AGGREGATE_JSON_SCHEMA: CI_REVIEW_AGGREGATE_JSON_SCHEMA,
+        });
+        const revSpawn: SpawnCursorAgentOptions = {
+            name: `reviewer-orchestrator-ci-r${String(round)}`,
+            workspaceRoot: root,
+            mode: "agent",
+            prompt: revPrompt,
+        };
+        const revResult = await spawnCursorAgent(revSpawn);
+        totalAgentDurationMs += revResult.durationMs;
+        assertCursorAgentSucceeded("agent (CI reviewer orchestrator)", revResult, revSpawn);
+        recordAgentTelemetryStep({
+            name: revSpawn.name,
+            durationMs: revResult.durationMs,
+            usage: revResult.usage,
+        });
+
+        let aggregateRaw: string;
+        try {
+            aggregateRaw = readFileSync(join(root, REVIEW_AGGREGATE_RELATIVE), "utf8");
+        } catch {
+            throw new Error(
+                `CI reviewer orchestrator did not write ${REVIEW_AGGREGATE_RELATIVE}.\n\nAgent transcript preview:\n${agentTranscriptPreviewForError(revResult.assistantTranscript)}`,
+            );
+        }
+        const aggregate = parseCiReviewAggregate(aggregateRaw, REVIEW_AGGREGATE_RELATIVE);
+
+        const blocking = collectBlockingFindingsFromAggregate(aggregate);
+        lastImplementReport = implReport;
+        lastReviewAggregate = aggregate;
+
+        if (blocking.length === 0) {
+            break;
+        }
+        if (round === CI_MAX_IMPLEMENT_ROUNDS) {
+            throw new Error(formatBlockingFailureMessage(blocking));
+        }
+        writeFileSync(join(root, REVIEW_FEEDBACK_RELATIVE), formatReviewFeedbackMarkdown(blocking), "utf8");
+    }
+
+    if (lastImplementReport === undefined || lastReviewAggregate === undefined) {
+        throw new Error("CI implement loop produced no result.");
+    }
+
+    const prDraftDraft = buildPrDraftFromCiReports(lastImplementReport, lastReviewAggregate);
+    const prDraft = parsePrDraftJson(JSON.stringify(prDraftDraft));
+    writeFileSync(join(root, PR_DRAFT_RELATIVE_PATH), `${JSON.stringify(prDraft, null, 2)}\n`, "utf8");
+    return { prDraft, totalAgentDurationMs };
 }
 
 function appendDiscussionFooter(input: {
@@ -91,52 +322,6 @@ async function getDefaultBranchOrThrow(
     return defaultBranch;
 }
 
-async function postPrReadyCommentBestEffort(input: {
-    octokit: Octokit;
-    repo: RepoIdentity;
-    discussionNumber: number;
-    htmlUrl: string;
-    branch: string;
-}): Promise<void> {
-    const maxAttempts = 3;
-    const baseDelayMs = 1500;
-    let lastError: unknown;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        try {
-            await postAutomationIssueComment(
-                input.octokit,
-                input.repo,
-                input.discussionNumber,
-                implementPrReadyBody(input.htmlUrl, input.branch),
-            );
-            return;
-        } catch (error) {
-            lastError = error;
-            planDebugLog("runPlanImplementation: post PR-ready comment attempt failed", {
-                attempt,
-                maxAttempts,
-                message: truncateForPlanDebug(
-                    error instanceof Error ? error.message : String(error),
-                    500,
-                ),
-            });
-            if (attempt === maxAttempts) {
-                const summary = truncateForPlanDebug(
-                    lastError instanceof Error ? lastError.message : String(lastError),
-                    400,
-                );
-                console.error(
-                    `[github-plan] Could not post PR-ready issue comment after ${String(maxAttempts)} attempts (PR exists: ${input.htmlUrl}). ${summary}`,
-                );
-                return;
-            }
-            await new Promise((resolve) => {
-                setTimeout(resolve, baseDelayMs * attempt);
-            });
-        }
-    }
-}
-
 async function createOrUpdatePullRequestWithRetry(input: {
     octokit: Octokit;
     repo: RepoIdentity;
@@ -175,6 +360,10 @@ async function createOrUpdatePullRequestWithRetry(input: {
 /**
  * Checkout plan branch, run Cursor implement orchestrator (delegates to generic-implementer),
  * verify build, commit/push product changes, open or update a PR from PR draft JSON.
+ *
+ * On GitHub Actions (`GITHUB_ACTIONS=true`), uses **code orchestration**: CI implementer + one reviewer
+ * orchestrator per round (follows `.cursor/agents/reviewer.md`, Task → four generic sub-reviewers), writes
+ * `.jarvis/ci/review-aggregate.json`, up to three implement rounds, then assembles `pr-draft.json`.
  */
 export async function runPlanImplementation(input: {
     octokit: Octokit;
@@ -184,6 +373,7 @@ export async function runPlanImplementation(input: {
 }): Promise<{ branch: string; pullRequestUrl: string }> {
     assertCursorAgentApiKeyConfigured();
     const defaultBranch = await getDefaultBranchOrThrow(input.octokit, input.repo);
+    let implementThreadCommentId: number | undefined;
 
     const branch = buildPlanBranchRef({
         kind: input.discussionKind,
@@ -195,10 +385,21 @@ export async function runPlanImplementation(input: {
         discussionKind: input.discussionKind,
         discussionNumber: input.discussionNumber,
         branch,
+        ciCodeOrchestrator: isCiCodeOrchestratedImplement(),
     });
 
     const root = workspaceRoot();
     const git = simpleGit(root);
+    try {
+        implementThreadCommentId = await postAutomationIssueComment(
+            input.octokit,
+            input.repo,
+            input.discussionNumber,
+            "Implementing approved plan...",
+        );
+    } catch {
+        /* non-fatal */
+    }
 
     const existsRemote = await remotePlanBranchExists(input.octokit, input.repo, branch);
     if (!existsRemote) {
@@ -210,60 +411,79 @@ export async function runPlanImplementation(input: {
     await checkoutMergedPlanBranch({ git, branch, defaultBranch });
 
     const planPath = join(root, JARVIS_WORKSPACE_DIR, "plan.md");
-    readPlanFileOrThrow(planPath);
+    assertPlanFileReadableAndNonEmpty(planPath);
 
     const jarvisDir = join(root, JARVIS_WORKSPACE_DIR);
     mkdirSync(jarvisDir, { recursive: true });
     removePrDraftIfPresent(root);
 
     const planRelative = `${JARVIS_WORKSPACE_DIR}/plan.md`;
-    const schemaText = JSON.stringify(PR_DRAFT_JSON_SCHEMA, null, 2);
-    const prompt = loadPrompt("implement-run.md", {
-        IMPLEMENTER_AGENT_PATH: ".cursor/agents/implementer-generic.md",
-        PLAN_PATH: planRelative,
-        PR_DRAFT_PATH: PR_DRAFT_RELATIVE_PATH,
-        PR_DRAFT_JSON_SCHEMA: schemaText,
-    });
+    let prDraft: PrDraft;
 
-    planDebugLog("runPlanImplementation: spawning Cursor agent (implement orchestrator)", {
-        promptChars: prompt.length,
-    });
-
-    const agentSpawnOptions = {
-        name: "implement-orchestrator",
-        workspaceRoot: root,
-        mode: "agent" as const,
-        prompt,
-    };
-    const agentResult = await spawnCursorAgent(agentSpawnOptions);
-
-    assertCursorAgentSucceeded("agent (implement orchestrator)", agentResult, agentSpawnOptions);
-
-    recordAgentTelemetryStep({
-        name: "Implement from plan (Cursor agent)",
-        durationMs: agentResult.durationMs,
-        usage: agentResult.usage,
-    });
-
-    const prDraftAbsolute = join(root, PR_DRAFT_RELATIVE_PATH);
-    let prDraftRaw: string;
-    try {
-        prDraftRaw = readFileSync(prDraftAbsolute, "utf8");
-    } catch {
-        throw new Error(
-            `Implement orchestrator did not write ${PR_DRAFT_RELATIVE_PATH}; the agent must write valid JSON there.`,
+    if (isCiCodeOrchestratedImplement()) {
+        const { prDraft: draft, totalAgentDurationMs } = await runCiImplementOrchestration(
+            root,
+            planRelative,
         );
+        prDraft = draft;
+        recordAgentTelemetryStep({
+            name: "Implement from plan (CI code-orchestrated total)",
+            durationMs: totalAgentDurationMs,
+            usage: undefined,
+        });
+        planDebugLog("runPlanImplementation: validated PR draft (CI path)", {
+            titleChars: prDraft.title.length,
+        });
+    } else {
+        const schemaText = JSON.stringify(PR_DRAFT_JSON_SCHEMA, null, 2);
+        const prompt = loadPrompt("implement-run.md", {
+            IMPLEMENTER_AGENT_PATH: ".cursor/agents/implementer-generic.md",
+            PLAN_PATH: planRelative,
+            PR_DRAFT_PATH: PR_DRAFT_RELATIVE_PATH,
+            PR_DRAFT_JSON_SCHEMA: schemaText,
+        });
+
+        planDebugLog("runPlanImplementation: spawning Cursor agent (implement orchestrator)", {
+            promptChars: prompt.length,
+        });
+
+        const agentSpawnOptions: SpawnCursorAgentOptions = {
+            name: "implement-orchestrator",
+            workspaceRoot: root,
+            mode: "agent",
+            prompt,
+        };
+        const agentResult = await spawnCursorAgent(agentSpawnOptions);
+
+        assertCursorAgentSucceeded("agent (implement orchestrator)", agentResult, agentSpawnOptions);
+
+        recordAgentTelemetryStep({
+            name: "Implement from plan (Cursor agent)",
+            durationMs: agentResult.durationMs,
+            usage: agentResult.usage,
+        });
+
+        const prDraftAbsolute = join(root, PR_DRAFT_RELATIVE_PATH);
+        let prDraftRaw: string;
+        try {
+            prDraftRaw = readFileSync(prDraftAbsolute, "utf8");
+        } catch {
+            throw new Error(
+                `Implement orchestrator did not write ${PR_DRAFT_RELATIVE_PATH}; the agent must write valid JSON there.\n\nAgent transcript preview:\n${agentTranscriptPreviewForError(agentResult.assistantTranscript)}`,
+            );
+        }
+        prDraft = parsePrDraftJson(prDraftRaw);
+        planDebugLog("runPlanImplementation: validated PR draft", { titleChars: prDraft.title.length });
     }
-    const prDraft = parsePrDraftJson(prDraftRaw);
-    planDebugLog("runPlanImplementation: validated PR draft", { titleChars: prDraft.title.length });
 
     runPnpmBuild(root);
 
     const stagedDiff = await stageImplementWorktreeExcludingPrDraft(git);
     if (!stagedDiff.trim()) {
-        throw new Error(
-            "Implementation produced no staged changes after `pnpm build`. The generic-implementer should modify tracked project files; see agent logs.",
-        );
+        const hint = isCiCodeOrchestratedImplement()
+            ? "The CI implementer (prompt `implement-ci-implementer.md`) should modify tracked project files; see agent logs."
+            : "The generic-implementer should modify tracked project files; see agent logs.";
+        throw new Error(`Implementation produced no staged changes after \`pnpm build\`. ${hint}`);
     }
     await git.commit(
         `implement: ${input.discussionKind} #${String(input.discussionNumber)} — ${prDraft.title}`,
@@ -286,13 +506,27 @@ export async function runPlanImplementation(input: {
         body: bodyForGithub,
     });
 
-    await postPrReadyCommentBestEffort({
-        octokit: input.octokit,
-        repo: input.repo,
-        discussionNumber: input.discussionNumber,
-        htmlUrl,
-        branch,
-    });
+    if (implementThreadCommentId !== undefined) {
+        const finalBody = withAutomationPrefix(implementPrReadyBody(htmlUrl, branch));
+        const updated = await updateIssueCommentWithRetry(
+            input.octokit,
+            input.repo,
+            implementThreadCommentId,
+            finalBody,
+        );
+        if (!updated) {
+            try {
+                await updateIssueComment(
+                    input.octokit,
+                    input.repo,
+                    implementThreadCommentId,
+                    withAutomationPrefix(IMPLEMENT_COMMENT_UPDATE_FAILED_STUB),
+                );
+            } catch {
+                /* non-fatal */
+            }
+        }
+    }
 
     planDebugLog("runPlanImplementation: done", { branch, pullRequestUrl: htmlUrl });
     return { branch, pullRequestUrl: htmlUrl };

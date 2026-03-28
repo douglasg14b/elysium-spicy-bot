@@ -3,6 +3,7 @@ import type { Octokit } from "@octokit/rest";
 import type { RepoIdentity } from "../github/octokit.js";
 import { getHttpStatusFromError } from "../http/getHttpStatusFromError.js";
 import { planDebugLog } from "./planDebug.js";
+import { JARVIS_CI_DIR_RELATIVE } from "./ciImplementArtifacts.js";
 import { PR_DRAFT_RELATIVE_PATH } from "./prDraftSchema.js";
 
 const FETCH_MAX_ATTEMPTS = 4;
@@ -200,6 +201,11 @@ export async function stageImplementWorktreeExcludingPrDraft(git: SimpleGit): Pr
         await git.raw(["reset", "HEAD", "--", PR_DRAFT_RELATIVE_PATH]);
     } catch {
         /* pr-draft was not staged */
+    }
+    try {
+        await git.raw(["reset", "HEAD", "--", JARVIS_CI_DIR_RELATIVE]);
+    } catch {
+        /* ci artifacts dir was not staged */
     }
     return await git.diff(["--cached"]);
 }
