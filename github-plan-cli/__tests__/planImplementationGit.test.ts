@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+    commitAndPushIfStaged,
     pushBranchWithRecovery,
     remotePlanBranchExists,
     stageImplementWorktreeExcludingPrDraft,
@@ -76,5 +77,48 @@ describe("stageImplementWorktreeExcludingPrDraft", () => {
         expect(raw).toHaveBeenCalledWith(["reset", "HEAD", "--", ".jarvis/pr-draft.json"]);
         expect(diff).toHaveBeenCalledWith(["--cached"]);
         expect(result).toContain("foo.ts");
+    });
+});
+
+describe("commitAndPushIfStaged", () => {
+    it("commits and pushes when staged diff is non-empty", async () => {
+        const commit = vi.fn().mockResolvedValue(undefined);
+        const push = vi.fn().mockResolvedValue(undefined);
+        const git = {
+            add: vi.fn(),
+            raw: vi.fn().mockResolvedValue(undefined),
+            diff: vi.fn().mockResolvedValue("M  src/a.ts\n"),
+            commit,
+            fetch: vi.fn().mockResolvedValue(undefined),
+            push,
+        } as never;
+        const did = await commitAndPushIfStaged({
+            git,
+            branch: "ai/issue-1",
+            remote: "origin",
+            message: "wip",
+        });
+        expect(did).toBe(true);
+        expect(commit).toHaveBeenCalledWith("wip");
+        expect(push).toHaveBeenCalledWith("origin", "ai/issue-1");
+    });
+
+    it("returns false when nothing is staged", async () => {
+        const commit = vi.fn().mockResolvedValue(undefined);
+        const git = {
+            add: vi.fn(),
+            raw: vi.fn().mockResolvedValue(undefined),
+            diff: vi.fn().mockResolvedValue(""),
+            commit,
+            push: vi.fn(),
+        } as never;
+        const did = await commitAndPushIfStaged({
+            git,
+            branch: "b",
+            remote: "origin",
+            message: "x",
+        });
+        expect(did).toBe(false);
+        expect(commit).not.toHaveBeenCalled();
     });
 });
