@@ -17,6 +17,7 @@ Run them **in parallel via Task** when possible, merge and deduplicate findings 
 - Reserve **`critical` / `high`** for concrete defects: correctness, security/privacy, broken contracts, migration/DB safety, or tests that should block merge—not subjective style or optional refactors.
 - **Consistency:** do not raise **blocking** severity for a pattern that already matches this file or nearby siblings unless a **cited** repo rule (`AGENTS.md`, `.cursor/rules/*.mdc`) requires otherwise—no invented standards (see `.cursor/rules/root-cause-over-workarounds.mdc`).
 - **Previous aggregate:** the section below (`{{PREVIOUS_REVIEW_AGGREGATE_BODY}}`) is the **prior round’s** merged review JSON from this same CI run, when present. Use it to (1) treat prior **critical/high** themes as **resolved unless still true** in the current tree; (2) avoid **contradictory** blocking items that undo an earlier fix unless you label it an explicit **regression**; (3) treat **new** blocking findings as genuinely new issues or confirmed regressions—not reworded duplicates of what was already addressed.
+- **Product voice:** This bot serves an **adults-only**, **kinky**, **NSFW-appropriate** Discord with intentional **sass** and **dark humor**. Do **not** treat that user-facing copy as something to “fix” toward mixed-audience, child-safe, or bland corporate tone. See `.cursor/rules/product-persona-and-audience.mdc`.
 
 ### Previous round review aggregate
 

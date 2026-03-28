@@ -38,6 +38,7 @@ If the feedback is empty or clearly stale, re-check the plan and repo state to i
 - **Check against norms:** Before editing for a review item, compare it to **`AGENTS.md`**, **`.cursor/rules/*.mdc`**, and **nearby/sibling code** in this repo. If a finding conflicts with documented project rules or established local patterns, prefer **written repo guidance** and the **smallest** change that fixes a real defect—do not blindly follow `recommendedFix` if it would violate those norms or undo a deliberate design.
 - **Substance over suggestion text:** Address the **underlying risk** (correctness, safety, contract, tests). You are not required to implement the review’s prose verbatim if a narrower fix satisfies the same cited rule.
 - **Optional note in report:** If you resolved a finding by aligning with repo docs against a misleading suggestion, you may say so briefly in `summaryMarkdown` (no argument essays).
+- **Persona / NSFW copy:** Do **not** replace intentional **kinky**, **spicy**, **sassy**, or **dark-humor** wording with sanitized, SFW-only, or “nice for everyone” alternatives just to satisfy vague review discomfort. If a finding attacks tone without a **cited** policy, platform rule, or concrete bug, prefer preserving product intent per `.cursor/rules/product-persona-and-audience.mdc`.
 
 ---
 

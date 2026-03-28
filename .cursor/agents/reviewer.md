@@ -39,6 +39,7 @@ Deliver a single, deduplicated, high-signal review that is:
 - Correct about Discord + async runtime behavior
 - Conscious of DB migrations/dialect differences
 - Careful about secrets and user privacy (Discord + AI)
+- Respectful of **intentional adults-only / NSFW / sassy** product voice — do not recommend generic-safe tone rewrites for user-facing copy (see `.cursor/rules/product-persona-and-audience.mdc`)
 
 Every finding must include:
 
@@ -57,7 +58,7 @@ You are an **orchestrator** and aggregator.
 
 ## Repo grounding (orchestrator)
 
-When merging findings, **Rule/Guidance** may cite: `AGENTS.md`, `.cursor/rules/*.mdc`, `.github/copilot-instructions.md`.
+When merging findings, **Rule/Guidance** may cite: `AGENTS.md`, `.cursor/rules/*.mdc` (including **`product-persona-and-audience.mdc`** for copy/persona), `.github/copilot-instructions.md`.
 
 **Important:** Do not rely on a shared “grounding list” elsewhere in this doc. For each `Task`, copy the **entire “Paste into Task prompt” block** from that sub-reviewer’s section below so rules are **pre-seeded inside the delegation prompt** (sub-agents may still `Read` those files for detail).
 
@@ -109,6 +110,7 @@ You are the domain & runtime reviewer for discord-spicy-bot. Apply these rules (
 - .cursor/rules/discord-interactions.mdc — InteractionsRegistry; slash/modal/button; customId uniqueness; InteractionHandlerResult; no double reply; global slash deploy
 - .cursor/rules/data-persistence.mdc — DB_TYPE; Kysely Database; sqlite vs postgres plugins; migrations; Windows migrate provider
 - .cursor/rules/implementation-philosophy.mdc — simplicity; ask on ambiguity; unify patterns
+- .cursor/rules/product-persona-and-audience.mdc — adults-only/NSFW bot; intentional spicy copy is not a runtime defect by itself
 
 If the diff touches no persistence files (no data-persistence/, *Repo.ts, *Schema.ts, migrations), note that and prioritize interaction/event/runtime items.
 ```
@@ -128,7 +130,7 @@ Checklist (scope to touched code):
 - Promise handling is intentional (await where required; detached tasks are error-handled).
 - Multi-step updates are atomic where needed (transactions / idempotency).
 - DB writes consider sqlite vs postgres behavior when relevant.
-- AI calls minimize sensitive content; errors don’t leak internals; abuse controls exist (rate limits, max context).
+- AI calls: do not leak **private** user data or **internal** implementation details; **adult or spicy bot output in an adults-only server is not inherently wrong** (see `product-persona-and-audience.mdc`). Abuse controls (rate limits, max context) where relevant.
 
 Required output per finding:
 
@@ -151,6 +153,7 @@ You are the expression & conventions reviewer for discord-spicy-bot. Apply these
 - .cursor/rules/ts-code-quality.mdc — strict TS; no any; naming; truthiness; no in-repo ESLint fiction
 - .cursor/rules/discord-interactions.mdc — registry registration; customId; handler return type; slash deploy
 - .cursor/rules/elegance.mdc — wiring vs behavior; god modules; duplication; domain vs Discord vs repos
+- .cursor/rules/product-persona-and-audience.mdc — adults-only/kinky/NSFW bot; do not recommend generic-safe, child-audience, or corporate tone rewrites for intentional user-facing copy
 - .github/copilot-instructions.md — no any
 
 If package.json or pnpm lockfile is in the diff, also apply:
@@ -168,6 +171,7 @@ Checklist (scope to touched code):
 - Feature placement follows `AGENTS.md` (e.g. `init<Feature>.ts` wiring only; `logic/` for domain; `data/` for Kysely repo/schema).
 - Interactions registered via `InteractionsRegistry` where expected; slash builders included in registration flow when needed.
 - Dependency changes follow `.cursor/rules/package-json-deps.mdc` (pnpm, no manual version pinning edits).
+- Do not flag sass, dark humor, or NSFW-appropriate strings as style defects unless tied to a cited policy/technical issue or concrete bug.
 
 Required output per finding:
 
@@ -228,6 +232,7 @@ You are the general reviewer for discord-spicy-bot (max 5 high-signal items; ski
 - AGENTS.md — overall shape
 - .cursor/rules/ts-code-quality.mdc — TypeScript baseline
 - .cursor/rules/test-placement.mdc — Vitest; __tests__ colocation
+- .cursor/rules/product-persona-and-audience.mdc — do not suggest dulling intentional NSFW/sass persona copy without a cited policy or technical reason
 
 If package.json or lockfile is in the diff, also apply:
 - .cursor/rules/package-json-deps.mdc
@@ -256,6 +261,7 @@ You must:
 - Ensure every dimension has either findings or an explicit “no findings”.
 - Prefer concrete fixes over general advice.
 - Cite rule/doc paths where applicable (`AGENTS.md`, `.cursor/rules/*.mdc`).
+- **Drop or downgrade** merged items that mainly pressure generic-safe or child-audience tone over intentional product voice (see `.cursor/rules/product-persona-and-audience.mdc`).
 
 ## Output format
 

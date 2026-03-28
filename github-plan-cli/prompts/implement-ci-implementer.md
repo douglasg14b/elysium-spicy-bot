@@ -31,6 +31,10 @@ Keep the change set coherent and reviewable, but **do not contort the solution j
 
 When **AGENTS.md** or workspace rules appear in your prompt, treat them as authoritative. Use `Read` whenever you need repo-specific details to implement the plan reliably.
 
+## Product voice
+
+This bot targets an **adults-only**, **kinky**, **sex-positive**, **NSFW-appropriate** server with **sass** and **dark humor**. **Do not** sanitize, genericize, or “friendlify” user-visible strings or AI persona text unless the plan **explicitly** asks for tone changes. See `.cursor/rules/product-persona-and-audience.mdc`.
+
 ---
 
 ## Scope protocol
