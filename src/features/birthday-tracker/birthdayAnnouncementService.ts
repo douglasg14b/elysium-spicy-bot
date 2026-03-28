@@ -16,6 +16,18 @@ let schedulerStarted = false;
 let schedulerIntervalId: ReturnType<typeof setInterval> | undefined;
 let announcementTickChain: Promise<void> = Promise.resolve();
 
+/**
+ * Guild+user keys for which a public announcement was already sent this process lifetime but
+ * {@link BirthdayRepository.markAnnounced} has not yet succeeded. Prevents duplicate Discord posts
+ * while persistence is retried on later ticks (DB outage, transient errors). Cleared on scheduler stop.
+ * Process restart drops this guard — duplicates are still possible across restarts until the row updates.
+ */
+const pendingPersistAfterSuccessfulSend = new Set<string>();
+
+function announcementDedupeKey(guildId: string, userId: string): string {
+    return `${guildId}:${userId}`;
+}
+
 function delay(ms: number): Promise<void> {
     return new Promise((resolve) => {
         setTimeout(resolve, ms);
@@ -46,6 +58,7 @@ export function stopBirthdayAnnouncementScheduler(): void {
     }
     schedulerStarted = false;
     announcementTickChain = Promise.resolve();
+    pendingPersistAfterSuccessfulSend.clear();
 }
 
 /**
@@ -62,7 +75,8 @@ export function enqueueBirthdayAnnouncementTick(client: Client): void {
 /**
  * Runs one announcement pass: due birthdays, per-guild channel, AI + outbound finalize, send.
  * Persists {@link BirthdayRepository.markAnnounced} only after {@link TextChannel.send} succeeds
- * so failed sends retry on a later tick without clearing state.
+ * so failed sends retry on a later tick without clearing state. After a successful send, an in-memory
+ * dedupe key is held until mark succeeds so a failed persist does not cause duplicate posts on the next tick.
  */
 export async function executeBirthdayAnnouncementTick(client: Client): Promise<void> {
     if (!client.user) {
@@ -74,6 +88,20 @@ export async function executeBirthdayAnnouncementTick(client: Client): Promise<v
         const channelByGuild = new Map<string, TextChannel | null>();
 
         for (const row of due) {
+            const dedupeKey = announcementDedupeKey(row.guildId, row.userId);
+            if (pendingPersistAfterSuccessfulSend.has(dedupeKey)) {
+                try {
+                    await markAnnouncedWithRetry(row.guildId, row.userId);
+                    pendingPersistAfterSuccessfulSend.delete(dedupeKey);
+                } catch (error) {
+                    console.error(
+                        `Birthday announcement was already posted for user ${row.userId} in guild ${row.guildId} but lastAnnouncedAt still could not be saved after retries; will retry persist on the next tick without sending again.`,
+                        error
+                    );
+                }
+                continue;
+            }
+
             let channel = channelByGuild.get(row.guildId);
             if (channel === undefined) {
                 const configRow = await birthdayConfigRepository.getByGuildId(row.guildId);
@@ -138,11 +166,13 @@ export async function executeBirthdayAnnouncementTick(client: Client): Promise<v
                 continue;
             }
 
+            pendingPersistAfterSuccessfulSend.add(dedupeKey);
             try {
                 await markAnnouncedWithRetry(row.guildId, row.userId);
+                pendingPersistAfterSuccessfulSend.delete(dedupeKey);
             } catch (error) {
                 console.error(
-                    `Birthday announcement posted but lastAnnouncedAt could not be saved after retries for user ${row.userId} in guild ${row.guildId}; the next tick may duplicate the message until the row is updated.`,
+                    `Birthday announcement posted but lastAnnouncedAt could not be saved after retries for user ${row.userId} in guild ${row.guildId}; persist will be retried on later ticks without sending again until the row updates.`,
                     error
                 );
             }

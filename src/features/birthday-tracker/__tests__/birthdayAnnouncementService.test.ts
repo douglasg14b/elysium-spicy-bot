@@ -50,6 +50,10 @@ describe('executeBirthdayAnnouncementTick', () => {
         hoisted.resolveChannel.mockReset();
     });
 
+    afterEach(() => {
+        stopBirthdayAnnouncementScheduler();
+    });
+
     it('skips when no announcement channel is configured and does not mark announced', async () => {
         hoisted.findDue.mockResolvedValue([
             {
@@ -210,7 +214,7 @@ describe('executeBirthdayAnnouncementTick', () => {
         expect(hoisted.markAnnounced).toHaveBeenCalledTimes(3);
     });
 
-    it('sends the message even when markAnnounced never succeeds, and logs persistence failure', async () => {
+    it('sends once when markAnnounced never succeeds; later ticks retry persist only', async () => {
         const send = vi.fn().mockResolvedValue(undefined);
         const channel = { send } as unknown as TextChannel;
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -231,14 +235,50 @@ describe('executeBirthdayAnnouncementTick', () => {
         hoisted.markAnnounced.mockRejectedValue(new Error('db down'));
 
         await executeBirthdayAnnouncementTick(minimalClient);
+        await executeBirthdayAnnouncementTick(minimalClient);
 
         expect(send).toHaveBeenCalledTimes(1);
-        expect(hoisted.markAnnounced).toHaveBeenCalledTimes(4);
+        expect(hoisted.markAnnounced).toHaveBeenCalledTimes(8);
         expect(errorSpy).toHaveBeenCalledWith(
             expect.stringContaining('posted but lastAnnouncedAt could not be saved'),
             expect.any(Error)
         );
+        expect(errorSpy).toHaveBeenCalledWith(
+            expect.stringContaining('already posted'),
+            expect.any(Error)
+        );
         errorSpy.mockRestore();
+    });
+
+    it('on a later tick completes persist without a second send after prior persist failure', async () => {
+        const send = vi.fn().mockResolvedValue(undefined);
+        const channel = { send } as unknown as TextChannel;
+        hoisted.findDue.mockResolvedValue([
+            {
+                guildId: 'g1',
+                userId: 'u1',
+                displayName: 'Pat',
+                username: 'pat',
+                month: 3,
+                day: 1,
+                year: null,
+            },
+        ]);
+        hoisted.getConfig.mockResolvedValue({ announcementChannelId: 'ch1' });
+        hoisted.resolveChannel.mockResolvedValue(channel);
+        hoisted.generate.mockResolvedValue('Short line');
+        hoisted.markAnnounced
+            .mockRejectedValueOnce(new Error('db busy'))
+            .mockRejectedValueOnce(new Error('db busy'))
+            .mockRejectedValueOnce(new Error('db busy'))
+            .mockRejectedValueOnce(new Error('db busy'))
+            .mockResolvedValue(undefined);
+
+        await executeBirthdayAnnouncementTick(minimalClient);
+        await executeBirthdayAnnouncementTick(minimalClient);
+
+        expect(send).toHaveBeenCalledTimes(1);
+        expect(hoisted.markAnnounced).toHaveBeenCalledTimes(5);
     });
 });
 

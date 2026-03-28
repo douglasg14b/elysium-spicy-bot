@@ -44,6 +44,10 @@ Shared helpers live in `birthdayCelebration.ts` and drive both listing/announcem
 
 After `ClientReady`, `startBirthdayAnnouncementScheduler` runs a **single** `setInterval` (5 minutes) per process, with a module guard so duplicate starts do not stack. `SIGINT` clears the interval. **v1 assumes one bot replica;** multiple replicas could double-post until a distributed lock exists.
 
+### Announcement send vs `last_announced_at`
+
+The bot posts to Discord first, then updates `last_announced_at`. If the DB write fails after a successful send, the scheduler keeps an **in-process** key `(guildId, userId)` until `markAnnounced` succeeds so **later ticks retry persistence only** and do not post a second message in the same process. **Alerts:** failures are logged at `error` (persist still failing after send, or retry-only path still failing). **Operational note:** restarting the process clears that guard; until the row is updated, a rare duplicate post is possible across restarts. Monitor logs if the database is unhealthy.
+
 ## File structure (high level)
 
 ```
