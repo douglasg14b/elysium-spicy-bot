@@ -226,6 +226,43 @@ Respond with your bratty personality now:`;
             return 'Ugh, my brain is being bratty and not working right now! 🙄 Try again later~';
         }
     }
+
+    /**
+     * Short bratty birthday line for announcement posts (same completion stack as {@link generateReply}).
+     */
+    async generateBirthdayAnnouncement(params: { displayName: string; username: string }): Promise<string> {
+        const userPrompt = `It's ${params.displayName}'s birthday today in this Discord server (username: ${params.username}).
+Write ONE short birthday shout-out in BrattyBot's voice.
+Rules: dry wit, mature, concise; no pep-talks; no questions; do not include @mentions, @everyone, or @here; max 60 words.`;
+
+        try {
+            const completion = await openai.chat.completions.create({
+                model: AI_MODEL,
+                messages: [
+                    {
+                        role: 'system',
+                        content: BRATTY_BOT_SYSTEM_PROMPT,
+                    },
+                    {
+                        role: 'user',
+                        content: userPrompt,
+                    },
+                ],
+                max_completion_tokens: 200,
+                reasoning_effort: 'low',
+            });
+
+            const reply = completion.choices[0]?.message?.content?.trim();
+            if (!reply) {
+                console.log('Birthday AI completion empty:', completion);
+                throw new Error('Empty birthday completion');
+            }
+            return reply;
+        } catch (error) {
+            console.error('Error generating birthday announcement:', error);
+            throw error;
+        }
+    }
 }
 
 export const aiService = new AIService();

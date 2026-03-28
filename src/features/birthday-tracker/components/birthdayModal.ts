@@ -9,6 +9,8 @@ import {
 } from 'discord.js';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { birthdayRepository } from '../data/birthdayRepo';
+import { birthdayConfigRepository } from '../data/birthdayConfigRepo';
+import { BIRTHDAY_ANNOUNCEMENT_CONFIG_WARNING } from '../constants';
 import { Birthday } from '../data/birthdaySchema';
 import { commandSuccess, commandError } from '../../../features-system/commands';
 import { parseBirthdayInput, formatBirthday } from '../utils';
@@ -113,9 +115,11 @@ export class BirthdayModalComponent {
 
             // Format response
             const formattedDate = formatBirthday(month, day, year);
+            const configured = await birthdayConfigRepository.isConfigured(guildId);
+            const extra = configured ? '' : `\n\n${BIRTHDAY_ANNOUNCEMENT_CONFIG_WARNING}`;
 
             await interaction.reply({
-                content: `🎉 Your birthday has been set to **${formattedDate}**!`,
+                content: `🎉 Your birthday has been set to **${formattedDate}**!${extra}`,
                 ephemeral: true,
             });
 

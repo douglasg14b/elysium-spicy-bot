@@ -1,5 +1,15 @@
 import { database } from '../../../features-system/data-persistence/database';
 import { Birthday, NewBirthday, BirthdayUpdate, BirthdayDisplay } from './birthdaySchema';
+import {
+    getDbMatchPairsForToday,
+    isBirthdayCelebratedToday,
+    wasAnnouncedOnSameLocalDayAsNow,
+} from '../birthdayCelebration';
+
+export type BirthdayUpsertInput = Omit<
+    NewBirthday,
+    'createdAt' | 'updatedAt' | 'configVersion' | 'lastAnnouncedAt' | 'id'
+>;
 
 export class BirthdayRepository {
     /**
@@ -13,7 +23,7 @@ export class BirthdayRepository {
             .where('userId', '=', userId)
             .executeTakeFirst();
 
-        return birthday || null;
+        return birthday ?? null;
     }
 
     /**
@@ -32,18 +42,52 @@ export class BirthdayRepository {
     }
 
     /**
-     * Get birthdays for today across all guilds
+     * Get birthdays for today across all guilds (local process timezone + leap-year observation).
      */
     async getTodaysBirthdays(): Promise<Birthday[]> {
         const now = new Date();
-        const month = now.getMonth() + 1; // JavaScript months are 0-indexed
-        const day = now.getDate();
-
-        return await database
+        const pairs = getDbMatchPairsForToday(now);
+        const candidates = await database
             .selectFrom('birthdays')
             .selectAll()
-            .where('month', '=', month)
-            .where('day', '=', day)
+            .where((eb) => eb.or(pairs.map(([month, day]) => eb.and([eb('month', '=', month), eb('day', '=', day)]))))
+            .execute();
+
+        return candidates.filter((row) => isBirthdayCelebratedToday(row.month, row.day, now));
+    }
+
+    /**
+     * Birthdays that should receive a public announcement today and have not yet been announced today (local celebration day).
+     */
+    async findDueForAnnouncementToday(): Promise<Birthday[]> {
+        const now = new Date();
+        const pairs = getDbMatchPairsForToday(now);
+        const candidates = await database
+            .selectFrom('birthdays')
+            .selectAll()
+            .where((eb) => eb.or(pairs.map(([month, day]) => eb.and([eb('month', '=', month), eb('day', '=', day)]))))
+            .execute();
+
+        return candidates.filter((row) => {
+            if (!isBirthdayCelebratedToday(row.month, row.day, now)) {
+                return false;
+            }
+            if (!row.lastAnnouncedAt) {
+                return true;
+            }
+            return !wasAnnouncedOnSameLocalDayAsNow(row.lastAnnouncedAt, now);
+        });
+    }
+
+    async markAnnounced(guildId: string, userId: string, at: Date = new Date()): Promise<void> {
+        await database
+            .updateTable('birthdays')
+            .set({
+                lastAnnouncedAt: at.toISOString(),
+                updatedAt: new Date().toISOString(),
+            })
+            .where('guildId', '=', guildId)
+            .where('userId', '=', userId)
             .execute();
     }
 
@@ -90,9 +134,12 @@ export class BirthdayRepository {
     /**
      * Create or update a user's birthday
      */
-    async upsert(birthdayData: Omit<NewBirthday, 'createdAt' | 'updatedAt' | 'configVersion'>): Promise<Birthday> {
+    async upsert(birthdayData: BirthdayUpsertInput): Promise<Birthday> {
         const existing = await this.get(birthdayData.guildId, birthdayData.userId);
         const now = new Date().toISOString();
+
+        const monthDayChanged =
+            !!existing && (existing.month !== birthdayData.month || existing.day !== birthdayData.day);
 
         if (existing) {
             await database
@@ -100,6 +147,7 @@ export class BirthdayRepository {
                 .set({
                     ...birthdayData,
                     updatedAt: now,
+                    ...(monthDayChanged ? { lastAnnouncedAt: null } : {}),
                 })
                 .where('guildId', '=', birthdayData.guildId)
                 .where('userId', '=', birthdayData.userId)
@@ -134,11 +182,23 @@ export class BirthdayRepository {
         userId: string,
         updates: Omit<BirthdayUpdate, 'guildId' | 'userId' | 'createdAt'>
     ): Promise<void> {
+        const existing = await this.get(guildId, userId);
+        let clearLastAnnounced = false;
+        if (existing) {
+            if (updates.month !== undefined && updates.month !== existing.month) {
+                clearLastAnnounced = true;
+            }
+            if (updates.day !== undefined && updates.day !== existing.day) {
+                clearLastAnnounced = true;
+            }
+        }
+
         await database
             .updateTable('birthdays')
             .set({
                 ...updates,
                 updatedAt: new Date().toISOString(),
+                ...(clearLastAnnounced ? { lastAnnouncedAt: null } : {}),
             })
             .where('guildId', '=', guildId)
             .where('userId', '=', userId)

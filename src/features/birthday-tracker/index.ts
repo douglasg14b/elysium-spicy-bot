@@ -1,4 +1,6 @@
 export * from './commands/birthdayCommand';
+export * from './commands/birthdayConfigCommand';
+export * from './birthdayAnnouncementService';
 export * from './birthdayModalHandler';
 export * from './birthdayActionSelectHandler';
 export * from './initBirthdayFeature';

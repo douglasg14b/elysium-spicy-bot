@@ -1,102 +1,60 @@
 # Birthday Tracker Feature
 
-A Discord bot feature that allows users to set, update, and manage their birthdays within a server.
+A Discord bot feature that allows users to set, update, and manage their birthdays within a server, with optional **public birthday announcements** in a configured channel.
 
 ## Overview
 
 The Birthday Tracker feature allows users to:
 
--   Set their birthday using a simple slash command
--   Update their existing birthday information
--   Delete their birthday from the server
--   Optionally include their birth year for age display
--   Store birthdays per server (guild-specific)
+- Set their birthday using `/birthday` (modal) or manage an existing record (ephemeral embed + buttons)
+- Update or delete their birthday
+- Optionally include birth year for age display
+- Store birthdays per server (guild-specific)
 
-## Usage
+**Announcements:** Admins run `/birthday-config channel:<text channel>` (Manage Server) so the bot can post **once per local calendar celebration day** per user, with AI-generated bratty copy (same completion path as `AIService` elsewhere). There is **no fallback channel**—if config is missing, the scheduler skips that guild and `/birthday` surfaces an informational note.
 
-### Setting a Birthday
+## Timezones and “today”
 
-Users can use the `/birthday` command to open a modal where they can:
+Celebration eligibility uses the **Node process local timezone** (`Date` getters), consistent with historical `getTodaysBirthdays()` behavior. Operators should run the bot in the timezone they want “today” to mean.
 
-1. Enter their birth month (1-12)
-2. Enter their birth day (1-31)
-3. Optionally enter their birth year for age calculation
-4. Choose to save or delete their birthday
+## Leap years (February 29)
 
-### Modal Fields
+Storage is month + day; Feb 29 is allowed in validation.
 
--   **Month**: Number from 1-12 (January-December)
--   **Day**: Number from 1-31 (validated against month)
--   **Year**: Optional 4-digit year (1900-current year)
--   **Action**: "save" to save the birthday or "delete" to remove it
+- **Leap year:** Feb 29 birthdays are celebrated on **February 29**.
+- **Non–leap year:** Feb 29 birthdays are observed on **February 28** (not March 1).
 
-## Technical Implementation
+Shared helpers live in `birthdayCelebration.ts` and drive both listing/announcement queries and deduplication against `last_announced_at`.
 
-### Database Schema
+## Database
 
-The feature uses a `birthdays` table with the following structure:
+- `birthdays`: per-guild user row; includes `last_announced_at` (nullable) for one-announce-per-local-day dedup. Changing **month or day** clears `last_announced_at` so corrected dates are not suppressed.
+- `birthday_config`: one row per guild (`guild_id` PK) with `announcement_channel_id` and timestamps.
 
--   `id`: Primary key
--   `guild_id`: Discord guild/server ID
--   `user_id`: Discord user ID
--   `month`: Birth month (1-12)
--   `day`: Birth day (1-31)
--   `year`: Birth year (nullable for privacy)
--   `display_name`: User's display name when birthday was set
--   `username`: User's username when birthday was set
--   `created_at`: Timestamp when birthday was first set
--   `updated_at`: Timestamp when birthday was last updated
--   `config_version`: For schema migrations
+## Commands
 
-### Components
+| Command            | Who        | Purpose                                              |
+| ------------------ | ---------- | ---------------------------------------------------- |
+| `/birthday`        | Everyone   | Set / view / update / delete own birthday            |
+| `/birthday-config` | ManageGuild | Set announcement text channel (bot needs View + Send) |
 
-1. **Command**: `/birthday` - Opens the birthday management modal
-2. **Modal**: Interactive form for setting/updating/deleting birthdays
-3. **Repository**: Database operations for birthday management
-4. **Schema**: TypeScript types and database table definition
+## Scheduler
 
-### Features
+After `ClientReady`, `startBirthdayAnnouncementScheduler` runs a **single** `setInterval` (5 minutes) per process, with a module guard so duplicate starts do not stack. `SIGINT` clears the interval. **v1 assumes one bot replica;** multiple replicas could double-post until a distributed lock exists.
 
--   **Validation**: Ensures valid dates (e.g., no February 30th)
--   **Privacy**: Year is optional to protect user privacy
--   **Guild-specific**: Each server has its own birthday list
--   **Update/Delete**: Users can modify or remove their birthday
--   **Ephemeral responses**: All interactions are private to the user
-
-### Future Enhancements
-
-Potential future features could include:
-
--   Birthday notifications/announcements
--   Birthday list viewing for server admins
--   Upcoming birthdays display
--   Birthday reminders
--   Custom birthday messages
-
-## File Structure
+## File structure (high level)
 
 ```
 birthday-tracker/
+├── birthdayAnnouncementService.ts  # interval + tick orchestration
+├── birthdayCelebration.ts          # leap + “today” matching helpers
+├── birthdayChannelResolver.ts      # channel + bot permission check
+├── birthdayMessageUtils.ts         # outbound sanitize for announcements
 ├── commands/
-│   └── birthdayCommand.ts      # /birthday slash command
 ├── components/
-│   ├── index.ts                # Component exports
-│   └── birthdayModal.ts        # Modal component and handler
 ├── data/
-│   ├── birthdayRepo.ts         # Database operations
-│   └── birthdaySchema.ts       # TypeScript types and schema
-├── birthdayModalHandler.ts     # Modal handler registration
-└── index.ts                    # Feature exports
-```
-
-## Integration
-
-The feature is integrated into the main bot through:
-
-1. Database schema addition in `database.ts`
-2. Migration file for table creation
-3. Command and modal registration in `bot.ts`
-
-```
-
+│   ├── birthdayRepo.ts
+│   ├── birthdayConfigRepo.ts
+│   └── *Schema.ts
+└── initBirthdayFeature.ts
 ```
