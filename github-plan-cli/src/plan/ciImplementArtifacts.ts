@@ -1,5 +1,9 @@
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { z } from "zod";
+import type { DiscussionKind } from "./planBranch.js";
 import type { PrDraft } from "./prDraftSchema.js";
+import type { CiProductDiffMetrics } from "./ciBranchProductDiff.js";
 
 /** CI-only artifacts under `.jarvis/ci/` (gitignored). */
 export const JARVIS_CI_DIR_RELATIVE = ".jarvis/ci";
@@ -12,6 +16,22 @@ export const VERIFY_FEEDBACK_RELATIVE = ".jarvis/ci/verify-feedback.md";
 export const CI_VERIFY_FEEDBACK_MAX_CHARS = 48_000;
 /** Single merged output from the orchestrating reviewer (`.cursor/agents/reviewer.md` + Task → generic reviewers). */
 export const REVIEW_AGGREGATE_RELATIVE = ".jarvis/ci/review-aggregate.json";
+/** Copy of the last round’s aggregate before a fresh review pass; used for reviewer prompt continuity. */
+export const REVIEW_AGGREGATE_PREVIOUS_RELATIVE = ".jarvis/ci/review-aggregate-previous.json";
+
+/** Cap prior-round JSON embedded in the CI reviewer prompt. */
+export const CI_PREVIOUS_REVIEW_AGGREGATE_PROMPT_MAX_CHARS = 24_000;
+
+const NO_PRIOR_REVIEW_AGGREGATE_PROMPT_NOTE = "_No prior review aggregate in this CI run._";
+
+function errnoCode(error: unknown): string | undefined {
+    return error !== null &&
+        typeof error === "object" &&
+        "code" in error &&
+        typeof (error as NodeJS.ErrnoException).code === "string"
+        ? (error as NodeJS.ErrnoException).code
+        : undefined;
+}
 
 const findingSeveritySchema = z.enum(["critical", "high", "medium", "low"]);
 
@@ -122,6 +142,75 @@ export function collectBlockingFindingsFromAggregate(aggregate: CiReviewAggregat
     return aggregate.findings.filter(isBlockingCiFinding);
 }
 
+/**
+ * Before spawning a fresh CI reviewer, copy the current `review-aggregate.json` to
+ * `review-aggregate-previous.json` so the next prompt can reference the prior round.
+ * Round 1 removes any stale previous file; round 2+ copies when the current aggregate exists.
+ */
+export function archiveCiReviewAggregateBeforeFreshReview(root: string, round: number): void {
+    const previousAbsolute = join(root, REVIEW_AGGREGATE_PREVIOUS_RELATIVE);
+    const currentAbsolute = join(root, REVIEW_AGGREGATE_RELATIVE);
+
+    if (round <= 1) {
+        try {
+            unlinkSync(previousAbsolute);
+        } catch (error) {
+            if (errnoCode(error) !== "ENOENT") {
+                throw error;
+            }
+        }
+        return;
+    }
+
+    try {
+        const raw = readFileSync(currentAbsolute, "utf8");
+        writeFileSync(previousAbsolute, raw, "utf8");
+    } catch (error) {
+        if (errnoCode(error) === "ENOENT") {
+            try {
+                unlinkSync(previousAbsolute);
+            } catch (error2) {
+                if (errnoCode(error2) !== "ENOENT") {
+                    throw error2;
+                }
+            }
+            return;
+        }
+        throw error;
+    }
+}
+
+export function truncateForCiPreviousReviewPrompt(
+    body: string,
+    maxChars: number = CI_PREVIOUS_REVIEW_AGGREGATE_PROMPT_MAX_CHARS,
+): string {
+    const trimmed = body.trimEnd();
+    if (trimmed.length <= maxChars) {
+        return trimmed;
+    }
+    return `${trimmed.slice(0, maxChars)}\n\n… [truncated for prompt size; original length ${String(trimmed.length)} chars]`;
+}
+
+/** Markdown/plain text for the CI reviewer prompt: prior JSON (possibly truncated) or a short “no prior” note. */
+export function buildPreviousReviewAggregatePromptBody(root: string, round: number): string {
+    if (round <= 1) {
+        return NO_PRIOR_REVIEW_AGGREGATE_PROMPT_NOTE;
+    }
+    const absolute = join(root, REVIEW_AGGREGATE_PREVIOUS_RELATIVE);
+    try {
+        const raw = readFileSync(absolute, "utf8").trim();
+        if (raw.length === 0) {
+            return NO_PRIOR_REVIEW_AGGREGATE_PROMPT_NOTE;
+        }
+        return truncateForCiPreviousReviewPrompt(raw);
+    } catch (error) {
+        if (errnoCode(error) === "ENOENT") {
+            return NO_PRIOR_REVIEW_AGGREGATE_PROMPT_NOTE;
+        }
+        throw error;
+    }
+}
+
 export function truncateForCiVerifyFeedback(
     output: string,
     maxChars: number = CI_VERIFY_FEEDBACK_MAX_CHARS,
@@ -218,9 +307,34 @@ export function formatBlockingFailureMessage(findings: CiReviewFinding[]): strin
     return `CI review still has blocking findings after max implement rounds:\n${preview}${more}`;
 }
 
+/** Combines blocking summary with exit-gate parse failure or gate refusal rationale for a loud failure message. */
+export function formatExitGateFailureMessage(input: {
+    blockingSummary: string;
+    gateRationale?: string;
+    artifactProblem?: string;
+}): string {
+    const lines = [input.blockingSummary];
+    if (input.artifactProblem !== undefined && input.artifactProblem.trim() !== "") {
+        lines.push("", `**Exit gate artifact:** ${input.artifactProblem.trim()}`);
+    }
+    if (input.gateRationale !== undefined && input.gateRationale.trim() !== "") {
+        lines.push("", "## Exit gate rationale", "", input.gateRationale.trim());
+    }
+    return lines.join("\n");
+}
+
+export type BuildPrDraftFromCiReportsOptions = {
+    /** When set, PR body documents that automation waived blocking findings after max rounds. */
+    exitGate?: {
+        rationaleMarkdown: string;
+        waivedBlockingFindings: CiReviewFinding[];
+    };
+};
+
 export function buildPrDraftFromCiReports(
     implement: CiImplementReport,
     aggregate: CiReviewAggregate,
+    options?: BuildPrDraftFromCiReportsOptions,
 ): PrDraft {
     const title = implement.prTitleSuggestion ?? "Implement plan";
     let bodyMarkdown = implement.prBodyMarkdownSuggestion ?? implement.summaryMarkdown;
@@ -231,6 +345,19 @@ export function buildPrDraftFromCiReports(
     if (nonBlocking.length > 0) {
         bodyMarkdown += "\n\n### Automated review notes (non-blocking)\n\n";
         for (const finding of nonBlocking) {
+            bodyMarkdown += `- **${finding.severity}** \`${finding.location}\`: ${finding.impact}\n`;
+        }
+    }
+
+    if (options?.exitGate !== undefined) {
+        const gate = options.exitGate;
+        bodyMarkdown += "\n\n### CI exit gate (automation)\n\n";
+        bodyMarkdown += gate.rationaleMarkdown.trim();
+        bodyMarkdown +=
+            "\n\nThis run hit the **maximum** CI implement rounds with **critical/high** items still present in the last review aggregate. " +
+            "The exit-gate step **accepted** shipping anyway. **Verify manually** unless you agree with the rationale below.\n\n";
+        bodyMarkdown += "**Waived blocking findings (last aggregate):**\n\n";
+        for (const finding of gate.waivedBlockingFindings) {
             bodyMarkdown += `- **${finding.severity}** \`${finding.location}\`: ${finding.impact}\n`;
         }
     }
@@ -250,4 +377,89 @@ export function isCiCodeOrchestratedImplement(): boolean {
     return process.env.GITHUB_ACTIONS === "true";
 }
 
-export const CI_MAX_IMPLEMENT_ROUNDS = 3;
+/** Default when `CI_MAX_IMPLEMENT_ROUNDS` is unset or invalid. */
+export const CI_MAX_IMPLEMENT_ROUNDS_DEFAULT = 6;
+
+const ciMaxRoundsEnvSchema = z.coerce.number().int().min(1).max(20);
+
+/**
+ * Max CI implement/review cycles (each cycle may run implementer, runner build/test, reviewer).
+ * Override with env `CI_MAX_IMPLEMENT_ROUNDS` (integer 1–20).
+ */
+export function resolveCiMaxImplementRounds(): number {
+    const raw = process.env.CI_MAX_IMPLEMENT_ROUNDS;
+    if (raw === undefined || raw.trim() === "") {
+        return CI_MAX_IMPLEMENT_ROUNDS_DEFAULT;
+    }
+    const parsed = ciMaxRoundsEnvSchema.safeParse(raw);
+    return parsed.success ? parsed.data : CI_MAX_IMPLEMENT_ROUNDS_DEFAULT;
+}
+
+/** Written by the CI exit-gate agent when max rounds still have blocking review findings. */
+export const EXIT_GATE_REPORT_RELATIVE = ".jarvis/ci/exit-gate.json";
+
+export const ciExitGateReportSchema = z.object({
+    version: z.literal(1),
+    shipOk: z.boolean(),
+    rationaleMarkdown: z.string().min(1),
+});
+
+export type CiExitGateReport = z.infer<typeof ciExitGateReportSchema>;
+
+export const CI_EXIT_GATE_JSON_SCHEMA = JSON.stringify(ciExitGateReportSchema.toJSONSchema(), null, 2);
+
+/**
+ * Parses exit-gate JSON (`.jarvis/ci/exit-gate.json`).
+ * @throws If invalid JSON or schema validation fails.
+ */
+export function parseCiExitGateReport(raw: string, pathLabel: string): CiExitGateReport {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(raw) as unknown;
+    } catch {
+        throw new Error(`${pathLabel} is not valid JSON.`);
+    }
+    const result = ciExitGateReportSchema.safeParse(parsed);
+    if (!result.success) {
+        throw new Error(`${pathLabel} failed validation: ${result.error.message}`);
+    }
+    return result.data;
+}
+
+const SYNTHETIC_CHANGED_PATHS_CAP = 200;
+
+/**
+ * When round 1 skips the CI implementer (substantial product diff already on branch), the runner still needs a valid
+ * {@link CiImplementReport} for PR draft assembly.
+ */
+export function buildSyntheticCiImplementReportForSkippedHeavyPass(input: {
+    discussionKind: DiscussionKind;
+    discussionNumber: number;
+    branchRef: string;
+    metrics: CiProductDiffMetrics;
+}): CiImplementReport {
+    const changedPaths = [...input.metrics.productPaths].slice(0, SYNTHETIC_CHANGED_PATHS_CAP);
+    const title = `jarvis: verify existing branch work (${input.branchRef})`;
+    const kindLabel = input.discussionKind === "pull_request" ? "PR" : "issue";
+    const bodyMarkdown = [
+        `Continuation run for **${kindLabel} #${String(input.discussionNumber)}** on \`${input.branchRef}\`.`,
+        "",
+        "The CI workflow **skipped the full implementer** on round 1 because this branch already has **substantial product changes** vs the default branch (per diff thresholds).",
+        "",
+        `- **Product files touched (unique paths):** ${String(input.metrics.productFileCount)}`,
+        `- **Line churn (add+del on product paths):** ${String(input.metrics.productLineChurn)}`,
+        "",
+        "Use **runner verification** (`pnpm build` / `pnpm test`) and **review feedback** only; avoid broad rewrites of unrelated code.",
+    ].join("\n");
+
+    return {
+        version: 1,
+        status: "completed",
+        blockedReason: null,
+        buildSucceeded: false,
+        changedPaths,
+        summaryMarkdown: bodyMarkdown,
+        prTitleSuggestion: title,
+        prBodyMarkdownSuggestion: bodyMarkdown,
+    };
+}

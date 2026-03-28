@@ -25,28 +25,36 @@ import { loadPrompt } from "../prompts/loadPrompt.js";
 import { recordAgentTelemetryStep } from "../telemetry/recordAgentTelemetryStep.js";
 import { buildPlanBranchRef, type DiscussionKind } from "./planBranch.js";
 import {
+    buildSyntheticCiImplementReportForSkippedHeavyPass,
+    CI_EXIT_GATE_JSON_SCHEMA,
     CI_IMPLEMENT_REPORT_JSON_SCHEMA,
-    CI_MAX_IMPLEMENT_ROUNDS,
     CI_REVIEW_AGGREGATE_JSON_SCHEMA,
     type CiImplementReport,
     type CiReviewAggregate,
+    archiveCiReviewAggregateBeforeFreshReview,
+    buildPreviousReviewAggregatePromptBody,
     buildPrDraftFromCiReports,
     collectBlockingFindingsFromAggregate,
+    EXIT_GATE_REPORT_RELATIVE,
     formatBlockingFailureMessage,
     formatCiVerifyRoundsExhaustedMessage,
+    formatExitGateFailureMessage,
     formatReviewFeedbackMarkdown,
     formatVerifyFailureMarkdown,
     IMPLEMENT_REPORT_RELATIVE,
     isCiCodeOrchestratedImplement,
     JARVIS_CI_DIR_RELATIVE,
+    parseCiExitGateReport,
     parseCiImplementReport,
     parseCiReviewAggregate,
+    resolveCiMaxImplementRounds,
     REVIEW_AGGREGATE_RELATIVE,
     REVIEW_FEEDBACK_RELATIVE,
     tailForCiErrorMessage,
     truncateForCiVerifyFeedback,
     VERIFY_FEEDBACK_RELATIVE,
 } from "./ciImplementArtifacts.js";
+import { getCiBranchProductDiffMetrics, shouldSkipFirstCiImplementPass } from "./ciBranchProductDiff.js";
 import { planDebugLog } from "./planDebug.js";
 import {
     checkoutMergedPlanBranch,
@@ -178,7 +186,22 @@ function removeVerifyFeedbackIfPresent(root: string): void {
     }
 }
 
-function readCiImplementRoundFeedbackBody(root: string, round: number): string {
+function removeExitGateReportIfPresent(root: string): void {
+    const absolute = join(root, EXIT_GATE_REPORT_RELATIVE);
+    try {
+        unlinkSync(absolute);
+    } catch (error) {
+        if (errnoCode(error) !== "ENOENT") {
+            throw error;
+        }
+    }
+}
+
+function readCiImplementRoundFeedbackBody(
+    root: string,
+    round: number,
+    options?: { skippedHeavyImplementerOnRound1?: boolean },
+): string {
     if (round <= 1) {
         return [
             "_First implement round — no prior CI feedback._",
@@ -186,6 +209,13 @@ function readCiImplementRoundFeedbackBody(root: string, round: number): string {
             "After you finish, this workflow runs **`pnpm build`** then **`pnpm test`** on the GitHub Actions runner. If either fails, the next round includes captured output under **Runner verification** below (alongside any blocking review items).",
         ].join("\n");
     }
+    const implementerSkipContext =
+        options?.skippedHeavyImplementerOnRound1 === true
+            ? [
+                  "> **Context:** Round 1 skipped the full CI implementer (substantial product diff vs default branch); only runner verification and code review ran before this follow-up round.",
+                  "",
+              ].join("\n")
+            : "";
     let verifySection =
         "_No verify artifact: build and tests passed on the runner before the last review step, or the failure file was already cleared._";
     try {
@@ -206,6 +236,7 @@ function readCiImplementRoundFeedbackBody(root: string, round: number): string {
         /* absent */
     }
     return [
+        implementerSkipContext,
         "# Prior round feedback",
         "",
         "## Runner verification (`pnpm build` / `pnpm test`)",
@@ -253,6 +284,7 @@ function logRunnerVerifyFailure(script: PnpmVerifyScript, outcome: { exitCode: n
 type CiImplementCommitContext = {
     git: SimpleGit;
     branch: string;
+    defaultBranch: string;
     discussionKind: DiscussionKind;
     discussionNumber: number;
 };
@@ -266,45 +298,111 @@ async function runCiImplementOrchestration(
     totalAgentDurationMs: number;
 }> {
     prepareJarvisCiDir(root);
+    const maxRounds = resolveCiMaxImplementRounds();
     let totalAgentDurationMs = 0;
     let lastImplementReport: CiImplementReport | undefined;
     let lastReviewAggregate: CiReviewAggregate | undefined;
+    let skippedHeavyImplementerOnRound1 = false;
+    let prDraftFromCiOptions: Parameters<typeof buildPrDraftFromCiReports>[2] | undefined;
 
-    for (let round = 1; round <= CI_MAX_IMPLEMENT_ROUNDS; round++) {
-        planDebugLog("runPlanImplementation: CI implement round", { round });
-        const feedbackBody = readCiImplementRoundFeedbackBody(root, round);
-        const implementerPromptName =
-            round === 1 ? "implement-ci-implementer.md" : "implement-ci-implementer-followup.md";
-        const implPrompt = loadPrompt(implementerPromptName, {
-            PLAN_PATH: planRelative,
-            IMPLEMENT_REPORT_PATH: IMPLEMENT_REPORT_RELATIVE,
-            IMPLEMENT_REPORT_JSON_SCHEMA: CI_IMPLEMENT_REPORT_JSON_SCHEMA,
-            REVIEW_FEEDBACK_BODY: feedbackBody,
-        });
-        const implSpawn: SpawnCursorAgentOptions = {
-            name: `implementer-ci-r${String(round)}`,
-            workspaceRoot: root,
-            mode: "agent",
-            prompt: implPrompt,
-        };
-        const implResult = await spawnCursorAgent(implSpawn);
-        totalAgentDurationMs += implResult.durationMs;
-        assertCursorAgentSucceeded("agent (CI implementer)", implResult, implSpawn);
-        recordAgentTelemetryStep({
-            name: `CI implementer round ${String(round)}`,
-            durationMs: implResult.durationMs,
-            usage: implResult.usage,
-        });
+    for (let round = 1; round <= maxRounds; round++) {
+        planDebugLog("runPlanImplementation: CI implement round", { round, maxRounds });
+        let implReport: CiImplementReport;
 
-        let implRaw: string;
-        try {
-            implRaw = readFileSync(join(root, IMPLEMENT_REPORT_RELATIVE), "utf8");
-        } catch {
-            throw new Error(
-                `CI implementer did not write ${IMPLEMENT_REPORT_RELATIVE}.\n\nAgent transcript preview:\n${agentTranscriptPreviewForError(implResult.assistantTranscript)}`,
+        const shouldTrySkipHeavyImplementer = round === 1;
+        if (shouldTrySkipHeavyImplementer) {
+            const diffMetrics = await getCiBranchProductDiffMetrics(
+                commitContext.git,
+                commitContext.defaultBranch,
             );
+            if (shouldSkipFirstCiImplementPass(diffMetrics)) {
+                skippedHeavyImplementerOnRound1 = true;
+                implReport = buildSyntheticCiImplementReportForSkippedHeavyPass({
+                    discussionKind: commitContext.discussionKind,
+                    discussionNumber: commitContext.discussionNumber,
+                    branchRef: commitContext.branch,
+                    metrics: diffMetrics,
+                });
+                writeFileSync(
+                    join(root, IMPLEMENT_REPORT_RELATIVE),
+                    `${JSON.stringify(implReport, null, 2)}\n`,
+                    "utf8",
+                );
+                planDebugLog("runPlanImplementation: skipped CI implementer round 1 (substantial branch diff)", {
+                    productFileCount: diffMetrics.productFileCount,
+                    productLineChurn: diffMetrics.productLineChurn,
+                });
+            } else {
+                const feedbackBody = readCiImplementRoundFeedbackBody(root, round, {
+                    skippedHeavyImplementerOnRound1: false,
+                });
+                const implPrompt = loadPrompt("implement-ci-implementer.md", {
+                    PLAN_PATH: planRelative,
+                    IMPLEMENT_REPORT_PATH: IMPLEMENT_REPORT_RELATIVE,
+                    IMPLEMENT_REPORT_JSON_SCHEMA: CI_IMPLEMENT_REPORT_JSON_SCHEMA,
+                    REVIEW_FEEDBACK_BODY: feedbackBody,
+                });
+                const implSpawn: SpawnCursorAgentOptions = {
+                    name: `implementer-ci-r${String(round)}`,
+                    workspaceRoot: root,
+                    mode: "agent",
+                    prompt: implPrompt,
+                };
+                const implResult = await spawnCursorAgent(implSpawn);
+                totalAgentDurationMs += implResult.durationMs;
+                assertCursorAgentSucceeded("agent (CI implementer)", implResult, implSpawn);
+                recordAgentTelemetryStep({
+                    name: `CI implementer round ${String(round)}`,
+                    durationMs: implResult.durationMs,
+                    usage: implResult.usage,
+                });
+
+                let implRaw: string;
+                try {
+                    implRaw = readFileSync(join(root, IMPLEMENT_REPORT_RELATIVE), "utf8");
+                } catch {
+                    throw new Error(
+                        `CI implementer did not write ${IMPLEMENT_REPORT_RELATIVE}.\n\nAgent transcript preview:\n${agentTranscriptPreviewForError(implResult.assistantTranscript)}`,
+                    );
+                }
+                implReport = parseCiImplementReport(implRaw);
+            }
+        } else {
+            const feedbackBody = readCiImplementRoundFeedbackBody(root, round, {
+                skippedHeavyImplementerOnRound1,
+            });
+            const implPrompt = loadPrompt("implement-ci-implementer-followup.md", {
+                PLAN_PATH: planRelative,
+                IMPLEMENT_REPORT_PATH: IMPLEMENT_REPORT_RELATIVE,
+                IMPLEMENT_REPORT_JSON_SCHEMA: CI_IMPLEMENT_REPORT_JSON_SCHEMA,
+                REVIEW_FEEDBACK_BODY: feedbackBody,
+            });
+            const implSpawn: SpawnCursorAgentOptions = {
+                name: `implementer-ci-r${String(round)}`,
+                workspaceRoot: root,
+                mode: "agent",
+                prompt: implPrompt,
+            };
+            const implResult = await spawnCursorAgent(implSpawn);
+            totalAgentDurationMs += implResult.durationMs;
+            assertCursorAgentSucceeded("agent (CI implementer)", implResult, implSpawn);
+            recordAgentTelemetryStep({
+                name: `CI implementer round ${String(round)}`,
+                durationMs: implResult.durationMs,
+                usage: implResult.usage,
+            });
+
+            let implRaw: string;
+            try {
+                implRaw = readFileSync(join(root, IMPLEMENT_REPORT_RELATIVE), "utf8");
+            } catch {
+                throw new Error(
+                    `CI implementer did not write ${IMPLEMENT_REPORT_RELATIVE}.\n\nAgent transcript preview:\n${agentTranscriptPreviewForError(implResult.assistantTranscript)}`,
+                );
+            }
+            implReport = parseCiImplementReport(implRaw);
         }
-        const implReport = parseCiImplementReport(implRaw);
+
         if (implReport.status === "blocked") {
             throw new Error(`CI implementer blocked: ${implReport.blockedReason ?? "unknown"}`);
         }
@@ -329,11 +427,11 @@ async function runCiImplementOrchestration(
                 }),
                 "utf8",
             );
-            if (round === CI_MAX_IMPLEMENT_ROUNDS) {
+            if (round === maxRounds) {
                 throw new Error(
                     formatCiVerifyRoundsExhaustedMessage({
                         phase: "build",
-                        rounds: CI_MAX_IMPLEMENT_ROUNDS,
+                        rounds: maxRounds,
                         outputTail: tailForCiErrorMessage(buildOutcome.output),
                     }),
                 );
@@ -366,11 +464,11 @@ async function runCiImplementOrchestration(
                 }),
                 "utf8",
             );
-            if (round === CI_MAX_IMPLEMENT_ROUNDS) {
+            if (round === maxRounds) {
                 throw new Error(
                     formatCiVerifyRoundsExhaustedMessage({
                         phase: "test",
-                        rounds: CI_MAX_IMPLEMENT_ROUNDS,
+                        rounds: maxRounds,
                         outputTail: tailForCiErrorMessage(testOutcome.output),
                     }),
                 );
@@ -380,12 +478,20 @@ async function runCiImplementOrchestration(
 
         removeVerifyFeedbackIfPresent(root);
 
+        archiveCiReviewAggregateBeforeFreshReview(root, round);
         removeCiReviewAggregateIfPresent(root);
 
+        const firstRoundReviewerContext =
+            round === 1 && skippedHeavyImplementerOnRound1
+                ? "_**Round 1 context:** The CI workflow skipped the full implementer because this branch already had substantial product changes vs the default branch; focus on **runner verification** and **blocking review** only._\n\n"
+                : "";
+
         const revPrompt = loadPrompt("implement-ci-reviewer-orchestrator.md", {
+            FIRST_ROUND_IMPLEMENTER_CONTEXT: firstRoundReviewerContext,
             REVIEWER_AGENT_PATH: ".cursor/agents/reviewer.md",
             REVIEW_AGGREGATE_PATH: REVIEW_AGGREGATE_RELATIVE,
             CI_REVIEW_AGGREGATE_JSON_SCHEMA: CI_REVIEW_AGGREGATE_JSON_SCHEMA,
+            PREVIOUS_REVIEW_AGGREGATE_BODY: buildPreviousReviewAggregatePromptBody(root, round),
         });
         const revSpawn: SpawnCursorAgentOptions = {
             name: `reviewer-orchestrator-ci-r${String(round)}`,
@@ -419,8 +525,66 @@ async function runCiImplementOrchestration(
         if (blocking.length === 0) {
             break;
         }
-        if (round === CI_MAX_IMPLEMENT_ROUNDS) {
-            throw new Error(formatBlockingFailureMessage(blocking));
+        if (round === maxRounds) {
+            removeExitGateReportIfPresent(root);
+            const gatePrompt = loadPrompt("implement-ci-exit-gate.md", {
+                PLAN_PATH: planRelative,
+                REVIEW_AGGREGATE_PATH: REVIEW_AGGREGATE_RELATIVE,
+                EXIT_GATE_REPORT_PATH: EXIT_GATE_REPORT_RELATIVE,
+                CI_EXIT_GATE_JSON_SCHEMA,
+            });
+            const gateSpawn: SpawnCursorAgentOptions = {
+                name: `implement-ci-exit-gate-r${String(round)}`,
+                workspaceRoot: root,
+                mode: "agent",
+                prompt: gatePrompt,
+            };
+            const gateResult = await spawnCursorAgent(gateSpawn);
+            totalAgentDurationMs += gateResult.durationMs;
+            assertCursorAgentSucceeded("agent (CI exit gate)", gateResult, gateSpawn);
+            recordAgentTelemetryStep({
+                name: gateSpawn.name,
+                durationMs: gateResult.durationMs,
+                usage: gateResult.usage,
+            });
+
+            let gateRaw: string;
+            try {
+                gateRaw = readFileSync(join(root, EXIT_GATE_REPORT_RELATIVE), "utf8");
+            } catch {
+                throw new Error(
+                    formatExitGateFailureMessage({
+                        blockingSummary: formatBlockingFailureMessage(blocking),
+                        artifactProblem: `Missing ${EXIT_GATE_REPORT_RELATIVE} after exit-gate agent.`,
+                    }),
+                );
+            }
+            let gateReport;
+            try {
+                gateReport = parseCiExitGateReport(gateRaw, EXIT_GATE_REPORT_RELATIVE);
+            } catch (error) {
+                throw new Error(
+                    formatExitGateFailureMessage({
+                        blockingSummary: formatBlockingFailureMessage(blocking),
+                        artifactProblem: error instanceof Error ? error.message : String(error),
+                    }),
+                );
+            }
+            if (gateReport.shipOk) {
+                prDraftFromCiOptions = {
+                    exitGate: {
+                        rationaleMarkdown: gateReport.rationaleMarkdown,
+                        waivedBlockingFindings: blocking,
+                    },
+                };
+                break;
+            }
+            throw new Error(
+                formatExitGateFailureMessage({
+                    blockingSummary: formatBlockingFailureMessage(blocking),
+                    gateRationale: gateReport.rationaleMarkdown,
+                }),
+            );
         }
         writeFileSync(join(root, REVIEW_FEEDBACK_RELATIVE), formatReviewFeedbackMarkdown(blocking), "utf8");
     }
@@ -429,7 +593,11 @@ async function runCiImplementOrchestration(
         throw new Error("CI implement loop produced no result.");
     }
 
-    const prDraftDraft = buildPrDraftFromCiReports(lastImplementReport, lastReviewAggregate);
+    const prDraftDraft = buildPrDraftFromCiReports(
+        lastImplementReport,
+        lastReviewAggregate,
+        prDraftFromCiOptions,
+    );
     const prDraft = parsePrDraftJson(JSON.stringify(prDraftDraft));
     writeFileSync(join(root, PR_DRAFT_RELATIVE_PATH), `${JSON.stringify(prDraft, null, 2)}\n`, "utf8");
     return { prDraft, totalAgentDurationMs };
@@ -524,7 +692,8 @@ async function createOrUpdatePullRequestWithRetry(input: {
  * Build/test failures feed the next implement round as `.jarvis/ci/verify-feedback.md` without spawning the reviewer.
  * When verification passes, a reviewer orchestrator runs (`.cursor/agents/reviewer.md`, Task → generic sub-reviewers),
  * writes `.jarvis/ci/review-aggregate.json`, and blocking findings feed the next round via `review-feedback.md`.
- * Up to `CI_MAX_IMPLEMENT_ROUNDS` rounds, then assembles `pr-draft.json`.
+ * Up to `resolveCiMaxImplementRounds()` rounds (default **6**, override `CI_MAX_IMPLEMENT_ROUNDS` 1–20), then assembles `pr-draft.json`.
+ * On round 1, the implementer may be skipped when product diff vs `origin/<default>` exceeds thresholds; after max rounds with blocking review, an exit-gate agent may allow success.
  */
 export async function runPlanImplementation(input: {
     octokit: Octokit;
@@ -588,6 +757,7 @@ export async function runPlanImplementation(input: {
             {
                 git,
                 branch,
+                defaultBranch,
                 discussionKind: input.discussionKind,
                 discussionNumber: input.discussionNumber,
             },

@@ -15,7 +15,7 @@ This prompt is your **full** behavioral contract for CI follow-up rounds.
 ## Inputs
 
 - **Plan (source of truth):** `{{PLAN_PATH}}`
-- **Prior round feedback** (below): may include **runner verification** (`pnpm build` / `pnpm test` output from GitHub Actions) and/or **blocking code review** from the prior cycle. Treat every concrete failure or finding as mandatory before claiming `completed`.
+- **Prior round feedback** (below): may include **runner verification** (`pnpm build` / `pnpm test` output from GitHub Actions) and/or **blocking code review** from the prior cycle. **Runner failures are mandatory**—fix them. **Review findings** are critical/high but you must still **evaluate** them against repo norms before editing (see **Evaluating feedback** below); do not churn code just to appease wording.
 
 {{REVIEW_FEEDBACK_BODY}}
 
@@ -31,6 +31,13 @@ You are in a **loop iteration after the first CI round**. Assume that **some or 
 Do **not** restart the implementation from scratch. Do **not** rework already-correct sections just to match the plan’s wording. Prefer **surgical fixes** that directly satisfy the feedback and preserve the existing design.
 
 If the feedback is empty or clearly stale, re-check the plan and repo state to identify what is still missing, then complete only the missing pieces.
+
+## Evaluating feedback (follow-up)
+
+- **No churn:** Do not change files, APIs, or patterns that are **not** implicated by runner output or by a cited review location/rule. Avoid “drive-by” cleanups and rewrites whose only motivation is to look busy.
+- **Check against norms:** Before editing for a review item, compare it to **`AGENTS.md`**, **`.cursor/rules/*.mdc`**, and **nearby/sibling code** in this repo. If a finding conflicts with documented project rules or established local patterns, prefer **written repo guidance** and the **smallest** change that fixes a real defect—do not blindly follow `recommendedFix` if it would violate those norms or undo a deliberate design.
+- **Substance over suggestion text:** Address the **underlying risk** (correctness, safety, contract, tests). You are not required to implement the review’s prose verbatim if a narrower fix satisfies the same cited rule.
+- **Optional note in report:** If you resolved a finding by aligning with repo docs against a misleading suggestion, you may say so briefly in `summaryMarkdown` (no argument essays).
 
 ---
 
@@ -48,7 +55,7 @@ If the feedback is empty or clearly stale, re-check the plan and repo state to i
 - Strict TypeScript; do not use `any`.
 - Follow existing repo conventions (`AGENTS.md`, `.cursor/rules/*`) when present in context.
 - Dependencies via pnpm only; env changes through `src/environment.ts` (`env-var`).
-- Do not claim `completed` while any concrete prior-round verification failure or blocking review finding is unaddressed.
+- Do not claim `completed` while any **runner** verification failure is unaddressed. For **review** feedback, do not claim `completed` while any blocking item’s **substance** is still a real problem in the tree— but do not invent extra work beyond what norms and the feedback require.
 
 ---
 

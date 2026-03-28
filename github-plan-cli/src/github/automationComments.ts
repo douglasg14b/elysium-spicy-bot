@@ -23,7 +23,13 @@ export function failureBody(runUrl: string): string {
 }
 
 export function failureBodyImplement(runUrl: string): string {
-    return `Workflow failed while implementing from the plan.\n\nDetails: [View workflow run](${runUrl})`;
+    return [
+        "Workflow failed while implementing from the plan.",
+        "",
+        `Details: [View workflow run](${runUrl})`,
+        "",
+        'If you see `GitHub Actions is not permitted to create or approve pull requests`, enable Settings → Actions → General → Workflow permissions → "Allow GitHub Actions to create and approve pull requests".',
+    ].join("\n");
 }
 
 /** Intent-detection job failed before plan or implement workflows ran. */
