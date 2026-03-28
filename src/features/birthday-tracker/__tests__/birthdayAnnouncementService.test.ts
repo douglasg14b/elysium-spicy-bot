@@ -11,6 +11,7 @@ import {
 const hoisted = vi.hoisted(() => ({
     findDue: vi.fn(),
     markAnnounced: vi.fn(),
+    clearLastAnnouncedAt: vi.fn(),
     getConfig: vi.fn(),
     generate: vi.fn(),
     resolveChannel: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock('../data/birthdayRepo', () => ({
     birthdayRepository: {
         findDueForAnnouncementToday: hoisted.findDue,
         markAnnounced: hoisted.markAnnounced,
+        clearLastAnnouncedAt: hoisted.clearLastAnnouncedAt,
     },
 }));
 
@@ -45,9 +47,11 @@ describe('executeBirthdayAnnouncementTick', () => {
     beforeEach(() => {
         hoisted.findDue.mockReset();
         hoisted.markAnnounced.mockReset();
+        hoisted.clearLastAnnouncedAt.mockReset();
         hoisted.getConfig.mockReset();
         hoisted.generate.mockReset();
         hoisted.resolveChannel.mockReset();
+        hoisted.clearLastAnnouncedAt.mockResolvedValue(undefined);
     });
 
     it('skips when no announcement channel is configured and does not mark announced', async () => {
@@ -70,7 +74,7 @@ describe('executeBirthdayAnnouncementTick', () => {
         expect(hoisted.markAnnounced).not.toHaveBeenCalled();
     });
 
-    it('marks announced only after successful send with AI text', async () => {
+    it('persists lastAnnouncedAt immediately before a successful send with AI text', async () => {
         const send = vi.fn().mockResolvedValue(undefined);
         const channel = { send } as unknown as TextChannel;
         hoisted.findDue.mockResolvedValue([
@@ -92,9 +96,10 @@ describe('executeBirthdayAnnouncementTick', () => {
 
         expect(send).toHaveBeenCalledTimes(1);
         expect(hoisted.markAnnounced).toHaveBeenCalledWith('g1', 'u1');
-        expect(hoisted.markAnnounced.mock.invocationCallOrder[0]).toBeGreaterThan(
-            send.mock.invocationCallOrder[0] ?? -1
+        expect(send.mock.invocationCallOrder[0]).toBeGreaterThan(
+            hoisted.markAnnounced.mock.invocationCallOrder[0] ?? -1
         );
+        expect(hoisted.clearLastAnnouncedAt).not.toHaveBeenCalled();
     });
 
     it('uses fallback when AI fails and still marks announced after send', async () => {
@@ -123,7 +128,7 @@ describe('executeBirthdayAnnouncementTick', () => {
         expect(hoisted.markAnnounced).toHaveBeenCalledWith('g1', 'u1');
     });
 
-    it('does not mark announced when send fails', async () => {
+    it('clears lastAnnouncedAt when send fails after a successful pre-send mark', async () => {
         const send = vi.fn().mockRejectedValue(new Error('network'));
         const channel = { send } as unknown as TextChannel;
         hoisted.findDue.mockResolvedValue([
@@ -144,7 +149,8 @@ describe('executeBirthdayAnnouncementTick', () => {
         await executeBirthdayAnnouncementTick(minimalClient);
 
         expect(send).toHaveBeenCalledTimes(1);
-        expect(hoisted.markAnnounced).not.toHaveBeenCalled();
+        expect(hoisted.markAnnounced).toHaveBeenCalledWith('g1', 'u1');
+        expect(hoisted.clearLastAnnouncedAt).toHaveBeenCalledWith('g1', 'u1');
     });
 
     it('does not run two ticks concurrently so a second pass cannot duplicate-send before markAnnounced', async () => {
@@ -182,7 +188,7 @@ describe('executeBirthdayAnnouncementTick', () => {
         expect(hoisted.markAnnounced).toHaveBeenCalledTimes(1);
     });
 
-    it('retries markAnnounced after send and succeeds on a later attempt', async () => {
+    it('retries markAnnounced before send and succeeds on a later attempt', async () => {
         const send = vi.fn().mockResolvedValue(undefined);
         const channel = { send } as unknown as TextChannel;
         hoisted.findDue.mockResolvedValue([
@@ -210,7 +216,7 @@ describe('executeBirthdayAnnouncementTick', () => {
         expect(hoisted.markAnnounced).toHaveBeenCalledTimes(3);
     });
 
-    it('sends once but logs when markAnnounced never succeeds after send', async () => {
+    it('does not send when markAnnounced never succeeds before send', async () => {
         const send = vi.fn().mockResolvedValue(undefined);
         const channel = { send } as unknown as TextChannel;
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -232,10 +238,10 @@ describe('executeBirthdayAnnouncementTick', () => {
 
         await executeBirthdayAnnouncementTick(minimalClient);
 
-        expect(send).toHaveBeenCalledTimes(1);
+        expect(send).not.toHaveBeenCalled();
         expect(hoisted.markAnnounced).toHaveBeenCalledTimes(4);
         expect(errorSpy).toHaveBeenCalledWith(
-            expect.stringContaining('lastAnnouncedAt could not be persisted'),
+            expect.stringContaining('could not persist lastAnnouncedAt before send'),
             expect.any(Error)
         );
         errorSpy.mockRestore();

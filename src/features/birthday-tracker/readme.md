@@ -15,7 +15,9 @@ The Birthday Tracker feature allows users to:
 
 ## Timezones and “today”
 
-Celebration eligibility uses the **Node process local timezone** (`Date` getters), consistent with historical `getTodaysBirthdays()` behavior. Operators should run the bot in the timezone they want “today” to mean.
+Celebration eligibility uses the **Node process local timezone** (`Date` getters), consistent with historical `getTodaysBirthdays()` behavior.
+
+**Deployment:** Set the process timezone explicitly (recommended: `TZ` to an IANA zone such as `Europe/London` or `America/New_York` in your service definition, systemd unit, or container image) so “today” matches your community. If the host default differs from that intent, announcements and same-day dedup can land on the wrong calendar date.
 
 ## Leap years (February 29)
 

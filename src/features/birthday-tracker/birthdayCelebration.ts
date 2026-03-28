@@ -1,5 +1,11 @@
 /**
- * Celebration rules use the Node process local timezone (same as `Date` getters).
+ * Celebration rules use the Node process local timezone (same as `Date` getters:
+ * `getFullYear()`, `getMonth()`, `getDate()`).
+ *
+ * **Deployment contract:** Operators must align the process timezone with the community’s
+ * “calendar day” for birthdays—typically by setting the `TZ` environment variable (IANA name,
+ * e.g. `America/Chicago`) or equivalent container/host timezone. A mismatch yields wrong
+ * eligibility, missed announcements, or inconsistent dedup versus member expectations.
  *
  * February 29 birthdays: in a leap year the observed calendar day is Feb 29; in a
  * non-leap year it is Feb 28 (not Mar 1). Used for eligibility and announcement dedup.
