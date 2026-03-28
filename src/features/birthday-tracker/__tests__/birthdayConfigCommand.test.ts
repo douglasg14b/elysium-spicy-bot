@@ -3,7 +3,9 @@ import { ChannelType, PermissionsBitField } from 'discord.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
 import { handleBirthdayConfigCommand } from '../commands/birthdayConfigCommand';
 
-const upsertAnnouncementChannel = vi.fn();
+const { upsertAnnouncementChannel } = vi.hoisted(() => ({
+    upsertAnnouncementChannel: vi.fn(),
+}));
 
 vi.mock('../data/birthdayConfigRepo', () => ({
     birthdayConfigRepository: {

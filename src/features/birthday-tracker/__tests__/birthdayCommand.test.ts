@@ -3,8 +3,10 @@ import type { ChatInputCommandInteraction } from 'discord.js';
 import { handleBirthdayCommand } from '../commands/birthdayCommand';
 import { BIRTHDAY_ANNOUNCEMENT_CONFIG_WARNING } from '../constants';
 
-const get = vi.fn();
-const isConfigured = vi.fn();
+const { get, isConfigured } = vi.hoisted(() => ({
+    get: vi.fn(),
+    isConfigured: vi.fn(),
+}));
 
 vi.mock('../data/birthdayRepo', () => ({
     birthdayRepository: {
