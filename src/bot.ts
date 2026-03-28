@@ -7,7 +7,11 @@ import { initFlashChat } from './features/flash-chat';
 import { flagBotReady } from './healthcheck/botHearthbeat';
 import { deployTicketSystemCommand, handleDeployTicketSystem, initTicketsFeature } from './features/tickets';
 import { initAIReply } from './features/ai-reply';
-import { initBirthdayFeature } from './features/birthday-tracker';
+import {
+    initBirthdayFeature,
+    startBirthdayAnnouncementScheduler,
+    stopBirthdayAnnouncementScheduler,
+} from './features/birthday-tracker';
 
 interactionsRegistry.register(flashChatCommand, handleFlashChatCommand);
 interactionsRegistry.register(deployTicketSystemCommand, handleDeployTicketSystem);
@@ -29,6 +33,8 @@ DISCORD_CLIENT.once(Events.ClientReady, async (readyClient) => {
     console.log(`✅ Bot is ready! Logged in as ${readyClient.user.tag}`);
     console.log(`🏠 Bot is in ${readyClient.guilds.cache.size} server(s)`);
     flagBotReady();
+
+    startBirthdayAnnouncementScheduler(readyClient);
 
     // List all servers and channels the bot can see
     readyClient.guilds.cache.forEach((guild) => {
@@ -69,6 +75,8 @@ process.on('unhandledRejection', (error: Error) => {
 // Graceful shutdown
 process.on('SIGINT', () => {
     console.log('\n🛑 Shutting down bot...');
+
+    stopBirthdayAnnouncementScheduler();
 
     // // Clear all pending timers
     // messageTimers.forEach((timer) => clearTimeout(timer));
