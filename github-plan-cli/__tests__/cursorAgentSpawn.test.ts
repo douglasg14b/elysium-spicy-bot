@@ -96,11 +96,25 @@ describe("cursorAgentStdoutFormatFromPlanDebug", () => {
 
     it("uses json when GITHUB_PLAN_DEBUG opts out", () => {
         vi.stubEnv("GITHUB_PLAN_DEBUG", "0");
+        vi.stubEnv("GITHUB_ACTIONS", "");
         expect(cursorAgentStdoutFormatFromPlanDebug()).toBe("json");
     });
 
-    it("uses stream-json when debug is default (unset)", () => {
+    it("uses stream-json when debug is default (unset) outside Actions", () => {
         vi.stubEnv("GITHUB_PLAN_DEBUG", "");
+        vi.stubEnv("GITHUB_ACTIONS", "");
+        expect(cursorAgentStdoutFormatFromPlanDebug()).toBe("stream-json");
+    });
+
+    it("uses json on GitHub Actions when GITHUB_PLAN_DEBUG is unset", () => {
+        vi.stubEnv("GITHUB_PLAN_DEBUG", "");
+        vi.stubEnv("GITHUB_ACTIONS", "true");
+        expect(cursorAgentStdoutFormatFromPlanDebug()).toBe("json");
+    });
+
+    it("uses stream-json on GitHub Actions when GITHUB_PLAN_DEBUG is explicitly on", () => {
+        vi.stubEnv("GITHUB_PLAN_DEBUG", "1");
+        vi.stubEnv("GITHUB_ACTIONS", "true");
         expect(cursorAgentStdoutFormatFromPlanDebug()).toBe("stream-json");
     });
 });
@@ -122,6 +136,26 @@ describe("buildCursorAgentArgv", () => {
         const streamArgv = buildCursorAgentArgv(baseOptions, "stream-json");
         const streamIdx = streamArgv.indexOf("--output-format");
         expect(streamArgv[streamIdx + 1]).toBe("stream-json");
+    });
+
+    it("omits --stream-partial-output unless GITHUB_PLAN_STREAM_PARTIAL is truthy", () => {
+        vi.stubEnv("GITHUB_PLAN_STREAM_PARTIAL", "");
+        const withoutPartial = buildCursorAgentArgv(baseOptions, "stream-json");
+        expect(withoutPartial).not.toContain("--stream-partial-output");
+
+        vi.stubEnv("GITHUB_PLAN_STREAM_PARTIAL", "1");
+        const withPartial = buildCursorAgentArgv(baseOptions, "stream-json");
+        expect(withPartial).toContain("--stream-partial-output");
+        vi.unstubAllEnvs();
+    });
+
+    it("passes --force on GitHub Actions only", () => {
+        vi.stubEnv("GITHUB_ACTIONS", "");
+        expect(buildCursorAgentArgv(baseOptions, "json")).not.toContain("--force");
+
+        vi.stubEnv("GITHUB_ACTIONS", "true");
+        expect(buildCursorAgentArgv(baseOptions, "json")).toContain("--force");
+        vi.unstubAllEnvs();
     });
 
     it("omits --mode when mode is agent (CLI default is agent)", () => {
