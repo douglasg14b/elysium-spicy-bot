@@ -127,10 +127,18 @@ export class BirthdayModalComponent {
         } catch (error) {
             console.error('Error handling birthday modal submission:', error);
 
-            await interaction.reply({
+            const errorPayload = {
                 content: '❌ An error occurred while saving your birthday. Please try again.',
                 ephemeral: true,
-            });
+            } as const;
+
+            if (!interaction.replied && !interaction.deferred) {
+                await interaction.reply(errorPayload);
+            } else if (interaction.isRepliable()) {
+                await interaction.followUp(errorPayload).catch((followUpError) => {
+                    console.error('Failed to send birthday modal error follow-up:', followUpError);
+                });
+            }
 
             return commandError(error instanceof Error ? error.message : 'Unknown error');
         }
