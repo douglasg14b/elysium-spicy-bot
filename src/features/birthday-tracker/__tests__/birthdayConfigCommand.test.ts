@@ -31,6 +31,14 @@ function buildInteraction(channel: ReturnType<typeof buildTextChannel>): ChatInp
         members: {
             me: { id: 'bot' },
         },
+        channels: {
+            fetch: vi.fn().mockImplementation(async (channelId: string) => {
+                if (channelId === channel.id) {
+                    return channel;
+                }
+                return null;
+            }),
+        },
     };
     return {
         inGuild: () => true,
