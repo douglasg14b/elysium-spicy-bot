@@ -11,6 +11,7 @@ import {
 const hoisted = vi.hoisted(() => ({
     findDue: vi.fn(),
     markAnnounced: vi.fn(),
+    clearAnnouncementClaim: vi.fn(),
     getConfig: vi.fn(),
     generate: vi.fn(),
     resolveChannel: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock('../data/birthdayRepo', () => ({
     birthdayRepository: {
         findDueForAnnouncementToday: hoisted.findDue,
         markAnnounced: hoisted.markAnnounced,
+        clearAnnouncementClaim: hoisted.clearAnnouncementClaim,
     },
 }));
 
@@ -45,6 +47,7 @@ describe('executeBirthdayAnnouncementTick', () => {
     beforeEach(() => {
         hoisted.findDue.mockReset();
         hoisted.markAnnounced.mockReset();
+        hoisted.clearAnnouncementClaim.mockReset();
         hoisted.getConfig.mockReset();
         hoisted.generate.mockReset();
         hoisted.resolveChannel.mockReset();
@@ -68,6 +71,7 @@ describe('executeBirthdayAnnouncementTick', () => {
 
         expect(hoisted.resolveChannel).not.toHaveBeenCalled();
         expect(hoisted.markAnnounced).not.toHaveBeenCalled();
+        expect(hoisted.clearAnnouncementClaim).not.toHaveBeenCalled();
     });
 
     it('marks announced after successful send with AI text', async () => {
@@ -92,6 +96,10 @@ describe('executeBirthdayAnnouncementTick', () => {
 
         expect(send).toHaveBeenCalledTimes(1);
         expect(hoisted.markAnnounced).toHaveBeenCalledWith('g1', 'u1');
+        expect(hoisted.clearAnnouncementClaim).not.toHaveBeenCalled();
+        expect(hoisted.markAnnounced.mock.invocationCallOrder[0]).toBeLessThan(
+            send.mock.invocationCallOrder[0] ?? Infinity
+        );
     });
 
     it('uses fallback when AI fails and still marks announced after send', async () => {
@@ -118,9 +126,10 @@ describe('executeBirthdayAnnouncementTick', () => {
         const payload = send.mock.calls[0][0] as { content: string };
         expect(payload.content).toContain('Pat');
         expect(hoisted.markAnnounced).toHaveBeenCalledWith('g1', 'u1');
+        expect(hoisted.clearAnnouncementClaim).not.toHaveBeenCalled();
     });
 
-    it('does not mark announced when send fails', async () => {
+    it('clears announcement claim when send fails after a successful persist', async () => {
         const send = vi.fn().mockRejectedValue(new Error('network'));
         const channel = { send } as unknown as TextChannel;
         hoisted.findDue.mockResolvedValue([
@@ -138,9 +147,12 @@ describe('executeBirthdayAnnouncementTick', () => {
         hoisted.resolveChannel.mockResolvedValue(channel);
         hoisted.generate.mockResolvedValue('Short line');
 
+        hoisted.clearAnnouncementClaim.mockResolvedValue(undefined);
+
         await executeBirthdayAnnouncementTick(minimalClient);
 
-        expect(hoisted.markAnnounced).not.toHaveBeenCalled();
+        expect(hoisted.markAnnounced).toHaveBeenCalledWith('g1', 'u1');
+        expect(hoisted.clearAnnouncementClaim).toHaveBeenCalledWith('g1', 'u1');
     });
 
     it('does not run two ticks concurrently so a second pass cannot duplicate-send before markAnnounced', async () => {
@@ -170,6 +182,7 @@ describe('executeBirthdayAnnouncementTick', () => {
         hoisted.markAnnounced.mockImplementation(async () => {
             persistCompleted = true;
         });
+        hoisted.clearAnnouncementClaim.mockResolvedValue(undefined);
 
         enqueueBirthdayAnnouncementTick(minimalClient);
         enqueueBirthdayAnnouncementTick(minimalClient);
@@ -178,9 +191,10 @@ describe('executeBirthdayAnnouncementTick', () => {
 
         expect(send).toHaveBeenCalledTimes(1);
         expect(hoisted.markAnnounced).toHaveBeenCalledTimes(1);
+        expect(hoisted.clearAnnouncementClaim).not.toHaveBeenCalled();
     });
 
-    it('retries markAnnounced after a successful send and succeeds on a later attempt', async () => {
+    it('retries markAnnounced before send and succeeds on a later attempt', async () => {
         const send = vi.fn().mockResolvedValue(undefined);
         const channel = { send } as unknown as TextChannel;
         hoisted.findDue.mockResolvedValue([
@@ -200,15 +214,17 @@ describe('executeBirthdayAnnouncementTick', () => {
         hoisted.markAnnounced
             .mockRejectedValueOnce(new Error('db busy'))
             .mockRejectedValueOnce(new Error('db busy'))
-            .mockResolvedValueOnce(undefined);
+            .mockResolvedValue(undefined);
+        hoisted.clearAnnouncementClaim.mockResolvedValue(undefined);
 
         await executeBirthdayAnnouncementTick(minimalClient);
 
         expect(send).toHaveBeenCalledTimes(1);
         expect(hoisted.markAnnounced).toHaveBeenCalledTimes(3);
+        expect(hoisted.clearAnnouncementClaim).not.toHaveBeenCalled();
     });
 
-    it('logs persist path separately when send succeeds but markAnnounced never succeeds', async () => {
+    it('does not send when markAnnounced never succeeds', async () => {
         const send = vi.fn().mockResolvedValue(undefined);
         const channel = { send } as unknown as TextChannel;
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -230,10 +246,10 @@ describe('executeBirthdayAnnouncementTick', () => {
 
         await executeBirthdayAnnouncementTick(minimalClient);
 
-        expect(send).toHaveBeenCalledTimes(1);
+        expect(send).not.toHaveBeenCalled();
         expect(hoisted.markAnnounced).toHaveBeenCalledTimes(4);
         expect(errorSpy).toHaveBeenCalledWith(
-            expect.stringContaining('delivered to Discord but lastAnnouncedAt could not be persisted'),
+            expect.stringContaining('announcement claim could not be persisted'),
             expect.any(Error)
         );
         errorSpy.mockRestore();
