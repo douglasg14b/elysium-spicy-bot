@@ -15,6 +15,8 @@ let announcementTickChain: Promise<void> = Promise.resolve();
 
 /**
  * Runs one announcement pass: due birthdays, per-guild channel, AI + outbound finalize, send.
+ * Uses one {@link Date} for the whole tick so eligibility in {@link BirthdayRepository.findDueForAnnouncementToday}
+ * and {@link BirthdayRepository.claimAnnouncementIfDue} cannot diverge if local midnight passes mid-tick.
  * Uses {@link BirthdayRepository.claimAnnouncementIfDue} before {@link TextChannel.send} so only one
  * writer (across processes) holds the slot for that local celebration day; if send fails,
  * {@link BirthdayRepository.revertAnnouncementClaim} restores the prior `last_announced_at` so a later tick retries.
@@ -24,8 +26,10 @@ export async function executeBirthdayAnnouncementTick(client: Client): Promise<v
         return;
     }
 
+    const tickNow = new Date();
+
     try {
-        const due = await birthdayRepository.findDueForAnnouncementToday();
+        const due = await birthdayRepository.findDueForAnnouncementToday(tickNow);
         const channelByGuild = new Map<string, TextChannel | null>();
 
         for (const row of due) {
@@ -85,7 +89,7 @@ export async function executeBirthdayAnnouncementTick(client: Client): Promise<v
                 body = finalizeBirthdayAnnouncementBody(buildBirthdayFallbackAnnouncement(displayName));
             }
 
-            const claim = await birthdayRepository.claimAnnouncementIfDue(row.guildId, row.userId);
+            const claim = await birthdayRepository.claimAnnouncementIfDue(row.guildId, row.userId, tickNow);
             if (!claim.claimed) {
                 continue;
             }

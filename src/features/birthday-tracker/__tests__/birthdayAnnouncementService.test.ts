@@ -81,6 +81,7 @@ describe('executeBirthdayAnnouncementTick', () => {
 
         await executeBirthdayAnnouncementTick(minimalClient);
 
+        expect(hoisted.findDue).toHaveBeenCalledWith(expect.any(Date));
         expect(hoisted.resolveChannel).not.toHaveBeenCalled();
         expect(hoisted.claim).not.toHaveBeenCalled();
     });
@@ -106,7 +107,8 @@ describe('executeBirthdayAnnouncementTick', () => {
         await executeBirthdayAnnouncementTick(minimalClient);
 
         expect(send).toHaveBeenCalledTimes(1);
-        expect(hoisted.claim).toHaveBeenCalledWith('g1', 'u1');
+        const tickNow = hoisted.findDue.mock.calls[0][0] as Date;
+        expect(hoisted.claim).toHaveBeenCalledWith('g1', 'u1', tickNow);
         expect(hoisted.claim.mock.invocationCallOrder[0]).toBeLessThan(send.mock.invocationCallOrder[0] ?? Infinity);
         expect(hoisted.revert).not.toHaveBeenCalled();
     });
@@ -132,6 +134,7 @@ describe('executeBirthdayAnnouncementTick', () => {
         await executeBirthdayAnnouncementTick(minimalClient);
 
         expect(send).toHaveBeenCalledTimes(1);
+        expect(hoisted.claim).toHaveBeenCalledWith('g1', 'u1', hoisted.findDue.mock.calls[0][0]);
         const payload = send.mock.calls[0][0] as { content: string };
         expect(payload.content).toContain('Pat');
         expect(hoisted.revert).not.toHaveBeenCalled();
@@ -164,6 +167,7 @@ describe('executeBirthdayAnnouncementTick', () => {
         await executeBirthdayAnnouncementTick(minimalClient);
 
         expect(send).toHaveBeenCalledTimes(1);
+        expect(hoisted.claim).toHaveBeenCalledWith('g1', 'u1', hoisted.findDue.mock.calls[0][0]);
         expect(hoisted.revert).toHaveBeenCalledWith('g1', 'u1', claimAt, null);
     });
 
@@ -198,6 +202,7 @@ describe('executeBirthdayAnnouncementTick', () => {
 
         expect(send).toHaveBeenCalledTimes(1);
         expect(hoisted.claim).toHaveBeenCalledTimes(1);
+        expect(hoisted.claim).toHaveBeenCalledWith('g1', 'u1', hoisted.findDue.mock.calls[0][0]);
     });
 
     it('skips send when claim loses the race', async () => {
@@ -222,6 +227,7 @@ describe('executeBirthdayAnnouncementTick', () => {
         await executeBirthdayAnnouncementTick(minimalClient);
 
         expect(send).not.toHaveBeenCalled();
+        expect(hoisted.claim).toHaveBeenCalledWith('g1', 'u1', hoisted.findDue.mock.calls[0][0]);
         expect(hoisted.revert).not.toHaveBeenCalled();
     });
 
@@ -255,6 +261,8 @@ describe('executeBirthdayAnnouncementTick', () => {
         expect(send).toHaveBeenCalledTimes(2);
         expect(hoisted.revert).toHaveBeenCalledTimes(1);
         expect(hoisted.claim).toHaveBeenCalledTimes(2);
+        expect(hoisted.claim.mock.calls[0][2]).toBe(hoisted.findDue.mock.calls[0][0]);
+        expect(hoisted.claim.mock.calls[1][2]).toBe(hoisted.findDue.mock.calls[1][0]);
     });
 });
 

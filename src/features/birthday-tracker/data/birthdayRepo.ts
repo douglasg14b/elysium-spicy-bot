@@ -74,9 +74,9 @@ export class BirthdayRepository {
 
     /**
      * Birthdays that should receive a public announcement today and have not yet been announced today (local celebration day).
+     * @param now Celebration-day reference instant; pass the same value as {@link BirthdayRepository.claimAnnouncementIfDue} for a single tick.
      */
-    async findDueForAnnouncementToday(): Promise<Birthday[]> {
-        const now = new Date();
+    async findDueForAnnouncementToday(now: Date = new Date()): Promise<Birthday[]> {
         const pairs = getDbMatchPairsForToday(now);
         const candidates = await database
             .selectFrom('birthdays')
