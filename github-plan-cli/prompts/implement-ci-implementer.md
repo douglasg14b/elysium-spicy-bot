@@ -15,7 +15,7 @@ This prompt is your **full** behavioral contract for CI (there is no separate `.
 ## Inputs
 
 - **Plan (source of truth):** `{{PLAN_PATH}}` — read end-to-end before editing.
-- **Prior review feedback (may be empty on round 1):** treat blocking items as mandatory before claiming `completed`.
+- **Prior round feedback** (below): may include **runner verification** (`pnpm build` / `pnpm test` output from GitHub Actions) and/or **blocking code review** from the prior cycle. Treat every concrete failure or finding as mandatory before claiming `completed`.
 
 {{REVIEW_FEEDBACK_BODY}}
 
@@ -101,8 +101,9 @@ Follow the repository’s conventions for layout, Discord interactions, persiste
 
 ### Phase 5: Verify
 
-- **Typecheck / build**: `pnpm build` — fix all errors introduced by your changes.
-- **Tests**: run targeted Vitest files when your change set has or affects tests, e.g. `pnpm exec vitest run path/to/file.test.ts` (or the whole suite if small and appropriate).
+- **Typecheck / build**: `pnpm build` — fix all errors introduced by your changes (run locally when your session allows shell commands).
+- **Tests**: run targeted Vitest files when your change set has or affects tests, e.g. `pnpm exec vitest run path/to/file.test.ts` (or `pnpm test` when appropriate).
+- **CI:** the workflow always runs **`pnpm build`** then **`pnpm test`** on the runner after your report. If they fail, you get another implement round with captured output under **Runner verification** — fix those failures before the reviewer runs again.
 - If you changed migrations and the plan expects it: run `pnpm migrate:latest` or `pnpm migrate:latest:dev` as appropriate for local verification (do not commit secrets).
 
 ---
@@ -111,8 +112,9 @@ Follow the repository’s conventions for layout, Discord interactions, persiste
 
 **Do not** invoke the `reviewer` subagent or `Task` — this environment does not use nested agents.
 
-- If **prior review feedback** appears above, address every **critical** and **high** item before setting `status` to `completed`.
-- A **separate** automation step runs the orchestrating reviewer after you finish; your job is honest implementation, `pnpm build`, and the JSON report below.
+- If **prior round feedback** includes review findings, address every **critical** and **high** item before setting `status` to `completed`.
+- If it includes **runner verification** failures, fix build/test errors before completing — the runner will re-verify before the reviewer step.
+- A **separate** automation step runs the orchestrating reviewer only after **runner** `pnpm build` and `pnpm test` succeed; your job is honest implementation, local verification when possible, and the JSON report below.
 
 If you cannot proceed (missing access, contradictory plan, blocked dependency), set `status: "blocked"` and a clear `blockedReason` instead of guessing.
 
@@ -120,7 +122,7 @@ If you cannot proceed (missing access, contradictory plan, blocked dependency), 
 
 ## Build policy
 
-Default completion state: **`pnpm build` succeeds** for the repo after your changes.
+Default completion state: **`pnpm build` succeeds** for the repo after your changes (verified on the GitHub Actions runner when your session cannot run shell commands).
 
 - Fix all TypeScript errors caused by your edits.
 - If you hit pre-existing failures unrelated to your slice, do not paper over them; describe them in **`summaryMarkdown`** with paths and messages and use `blocked` if you cannot complete the plan.
@@ -157,7 +159,7 @@ Mirror the local implementer’s reporting expectations in **`summaryMarkdown`**
 - Explores and edits any necessary files while keeping diffs focused.
 - Escalates contract or schema changes explicitly in **`summaryMarkdown`**.
 - Does not commit secrets or `.env*`.
-- **Does not use Task/subagents** in CI; does not claim `completed` while blocking review feedback above is unaddressed.
+- **Does not use Task/subagents** in CI; does not claim `completed` while prior-round **code review** or **runner verification** feedback above is unaddressed.
 - Notes out-of-scope improvements instead of implementing them.
 
 ---
@@ -172,8 +174,8 @@ Your JSON **must** validate against this schema:
 
 ### Field guidance
 
-- `status`: `completed` if you implemented the plan and `pnpm build` succeeds; `blocked` if you cannot proceed (explain in `blockedReason`).
-- `buildSucceeded`: `true` only if you ran `pnpm build` and it exited 0.
+- `status`: `completed` if you implemented the plan and nothing blocks merge from your side; `blocked` if you cannot proceed (explain in `blockedReason`).
+- `buildSucceeded`: `true` only if you ran `pnpm build` and it exited 0. **`false` is not a CI failure by itself** — the workflow always runs `pnpm build` on the GitHub runner after your report; use `false` when the agent session cannot run shell commands or the build failed in your session.
 - `changedPaths`: repo-relative paths you created or materially changed (exclude `.jarvis/ci/*` artifacts).
 - `summaryMarkdown`: use the “Phase 6” list above — what you did, risks, tests run, deviations, env names, deps, debt.
 - When `status` is `completed`, **`prTitleSuggestion`** and **`prBodyMarkdownSuggestion`** are required (used for the GitHub PR).

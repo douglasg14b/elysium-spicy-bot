@@ -33,7 +33,9 @@ import {
     buildPrDraftFromCiReports,
     collectBlockingFindingsFromAggregate,
     formatBlockingFailureMessage,
+    formatCiVerifyRoundsExhaustedMessage,
     formatReviewFeedbackMarkdown,
+    formatVerifyFailureMarkdown,
     IMPLEMENT_REPORT_RELATIVE,
     isCiCodeOrchestratedImplement,
     JARVIS_CI_DIR_RELATIVE,
@@ -41,6 +43,9 @@ import {
     parseCiReviewAggregate,
     REVIEW_AGGREGATE_RELATIVE,
     REVIEW_FEEDBACK_RELATIVE,
+    tailForCiErrorMessage,
+    truncateForCiVerifyFeedback,
+    VERIFY_FEEDBACK_RELATIVE,
 } from "./ciImplementArtifacts.js";
 import { planDebugLog } from "./planDebug.js";
 import {
@@ -161,15 +166,87 @@ function prepareJarvisCiDir(root: string): void {
     }
 }
 
-function readReviewFeedbackBodyForCi(root: string, round: number): string {
-    if (round <= 1) {
-        return "_No prior review feedback (first implement round)._";
-    }
+function removeVerifyFeedbackIfPresent(root: string): void {
+    const absolute = join(root, VERIFY_FEEDBACK_RELATIVE);
     try {
-        return readFileSync(join(root, REVIEW_FEEDBACK_RELATIVE), "utf8");
-    } catch {
-        return "_No review-feedback file found._";
+        unlinkSync(absolute);
+    } catch (error) {
+        if (errnoCode(error) !== "ENOENT") {
+            throw error;
+        }
     }
+}
+
+function readCiImplementRoundFeedbackBody(root: string, round: number): string {
+    if (round <= 1) {
+        return [
+            "_First implement round — no prior CI feedback._",
+            "",
+            "After you finish, this workflow runs **`pnpm build`** then **`pnpm test`** on the GitHub Actions runner. If either fails, the next round includes captured output under **Runner verification** below (alongside any blocking review items).",
+        ].join("\n");
+    }
+    let verifySection =
+        "_No verify artifact: build and tests passed on the runner before the last review step, or the failure file was already cleared._";
+    try {
+        const verifyText = readFileSync(join(root, VERIFY_FEEDBACK_RELATIVE), "utf8").trim();
+        if (verifyText.length > 0) {
+            verifySection = verifyText;
+        }
+    } catch {
+        /* absent is expected when verification passed */
+    }
+    let reviewSection = "_No prior blocking review feedback._";
+    try {
+        const reviewText = readFileSync(join(root, REVIEW_FEEDBACK_RELATIVE), "utf8").trim();
+        if (reviewText.length > 0) {
+            reviewSection = reviewText;
+        }
+    } catch {
+        /* absent */
+    }
+    return [
+        "# Prior round feedback",
+        "",
+        "## Runner verification (`pnpm build` / `pnpm test`)",
+        "",
+        verifySection,
+        "",
+        "## Code review (blocking)",
+        "",
+        reviewSection,
+        "",
+        "Treat every section above that contains concrete failures or findings as **mandatory** before you set `status` to `completed`.",
+    ].join("\n");
+}
+
+type PnpmVerifyScript = "build" | "test";
+
+function runPnpmScriptOnRunner(root: string, script: PnpmVerifyScript): {
+    ok: boolean;
+    exitCode: number | null;
+    output: string;
+} {
+    const useShell = process.platform === "win32";
+    const result = spawnSync("pnpm", [script], {
+        cwd: root,
+        encoding: "utf8",
+        maxBuffer: 50 * 1024 * 1024,
+        env: process.env,
+        shell: useShell,
+    });
+    const stdout = typeof result.stdout === "string" ? result.stdout : "";
+    const stderr = typeof result.stderr === "string" ? result.stderr : "";
+    const output = [stdout, stderr].filter((chunk) => chunk.length > 0).join("\n---\n") || "(no output)";
+    if (result.error) {
+        return { ok: false, exitCode: null, output: `${result.error.message}\n${output}` };
+    }
+    return { ok: result.status === 0, exitCode: result.status, output };
+}
+
+function logRunnerVerifyFailure(script: PnpmVerifyScript, outcome: { exitCode: number | null; output: string }): void {
+    console.error(
+        `[github-plan] pnpm ${script} failed on runner (exit ${String(outcome.exitCode)}). Output:\n${outcome.output}`,
+    );
 }
 
 async function runCiImplementOrchestration(root: string, planRelative: string): Promise<{
@@ -183,7 +260,7 @@ async function runCiImplementOrchestration(root: string, planRelative: string): 
 
     for (let round = 1; round <= CI_MAX_IMPLEMENT_ROUNDS; round++) {
         planDebugLog("runPlanImplementation: CI implement round", { round });
-        const feedbackBody = readReviewFeedbackBodyForCi(root, round);
+        const feedbackBody = readCiImplementRoundFeedbackBody(root, round);
         const implPrompt = loadPrompt("implement-ci-implementer.md", {
             PLAN_PATH: planRelative,
             IMPLEMENT_REPORT_PATH: IMPLEMENT_REPORT_RELATIVE,
@@ -218,10 +295,65 @@ async function runCiImplementOrchestration(root: string, planRelative: string): 
             throw new Error(`CI implementer blocked: ${implReport.blockedReason ?? "unknown"}`);
         }
         if (!implReport.buildSucceeded) {
-            throw new Error(
-                `CI implementer reported build failure.\n\n${implReport.summaryMarkdown}`,
+            planDebugLog(
+                "runPlanImplementation: CI implementer did not run a green pnpm build in-agent (common when shell is unavailable); verifying on runner",
+                { round },
             );
         }
+
+        const buildOutcome = runPnpmScriptOnRunner(root, "build");
+        if (!buildOutcome.ok) {
+            logRunnerVerifyFailure("build", buildOutcome);
+            const forAgent = truncateForCiVerifyFeedback(buildOutcome.output);
+            writeFileSync(
+                join(root, VERIFY_FEEDBACK_RELATIVE),
+                formatVerifyFailureMarkdown({
+                    phase: "build",
+                    command: "pnpm build",
+                    exitCode: buildOutcome.exitCode,
+                    output: forAgent,
+                }),
+                "utf8",
+            );
+            if (round === CI_MAX_IMPLEMENT_ROUNDS) {
+                throw new Error(
+                    formatCiVerifyRoundsExhaustedMessage({
+                        phase: "build",
+                        rounds: CI_MAX_IMPLEMENT_ROUNDS,
+                        outputTail: tailForCiErrorMessage(buildOutcome.output),
+                    }),
+                );
+            }
+            continue;
+        }
+
+        const testOutcome = runPnpmScriptOnRunner(root, "test");
+        if (!testOutcome.ok) {
+            logRunnerVerifyFailure("test", testOutcome);
+            const forAgent = truncateForCiVerifyFeedback(testOutcome.output);
+            writeFileSync(
+                join(root, VERIFY_FEEDBACK_RELATIVE),
+                formatVerifyFailureMarkdown({
+                    phase: "test",
+                    command: "pnpm test",
+                    exitCode: testOutcome.exitCode,
+                    output: forAgent,
+                }),
+                "utf8",
+            );
+            if (round === CI_MAX_IMPLEMENT_ROUNDS) {
+                throw new Error(
+                    formatCiVerifyRoundsExhaustedMessage({
+                        phase: "test",
+                        rounds: CI_MAX_IMPLEMENT_ROUNDS,
+                        outputTail: tailForCiErrorMessage(testOutcome.output),
+                    }),
+                );
+            }
+            continue;
+        }
+
+        removeVerifyFeedbackIfPresent(root);
 
         removeCiReviewAggregateIfPresent(root);
 
@@ -361,9 +493,12 @@ async function createOrUpdatePullRequestWithRetry(input: {
  * Checkout plan branch, run Cursor implement orchestrator (delegates to generic-implementer),
  * verify build, commit/push product changes, open or update a PR from PR draft JSON.
  *
- * On GitHub Actions (`GITHUB_ACTIONS=true`), uses **code orchestration**: CI implementer + one reviewer
- * orchestrator per round (follows `.cursor/agents/reviewer.md`, Task → four generic sub-reviewers), writes
- * `.jarvis/ci/review-aggregate.json`, up to three implement rounds, then assembles `pr-draft.json`.
+ * On GitHub Actions (`GITHUB_ACTIONS=true`), uses **code orchestration**: each round runs the CI implementer,
+ * then the runner enforces **`pnpm build`** and **`pnpm test`** (failures feed the next implement round as
+ * `.jarvis/ci/verify-feedback.md` without spawning the reviewer). When verification passes, a reviewer
+ * orchestrator runs (`.cursor/agents/reviewer.md`, Task → generic sub-reviewers), writes
+ * `.jarvis/ci/review-aggregate.json`, and blocking findings feed the next round via `review-feedback.md`.
+ * Up to `CI_MAX_IMPLEMENT_ROUNDS` rounds, then assembles `pr-draft.json`.
  */
 export async function runPlanImplementation(input: {
     octokit: Octokit;
@@ -476,7 +611,9 @@ export async function runPlanImplementation(input: {
         planDebugLog("runPlanImplementation: validated PR draft", { titleChars: prDraft.title.length });
     }
 
-    runPnpmBuild(root);
+    if (!isCiCodeOrchestratedImplement()) {
+        runPnpmBuild(root);
+    }
 
     const stagedDiff = await stageImplementWorktreeExcludingPrDraft(git);
     if (!stagedDiff.trim()) {

@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
     buildPrDraftFromCiReports,
+    CI_VERIFY_FEEDBACK_MAX_CHARS,
     collectBlockingFindingsFromAggregate,
     formatBlockingFailureMessage,
+    formatCiVerifyRoundsExhaustedMessage,
     formatReviewFeedbackMarkdown,
+    formatVerifyFailureMarkdown,
     parseCiImplementReport,
     parseCiReviewAggregate,
+    tailForCiErrorMessage,
+    truncateForCiVerifyFeedback,
 } from "../src/plan/ciImplementArtifacts.js";
 
 describe("ciImplementArtifacts", () => {
@@ -133,5 +138,42 @@ describe("ciImplementArtifacts", () => {
 
     it("formatReviewFeedbackMarkdown returns empty string when no findings", () => {
         expect(formatReviewFeedbackMarkdown([])).toBe("");
+    });
+
+    it("formatVerifyFailureMarkdown wraps output in a fenced block", () => {
+        const md = formatVerifyFailureMarkdown({
+            phase: "build",
+            command: "pnpm build",
+            exitCode: 1,
+            output: "error TS1005",
+        });
+        expect(md).toContain("# CI runner verification failed");
+        expect(md).toContain("```text");
+        expect(md).toContain("error TS1005");
+    });
+
+    it("truncateForCiVerifyFeedback truncates long output", () => {
+        const long = "x".repeat(CI_VERIFY_FEEDBACK_MAX_CHARS + 50);
+        const t = truncateForCiVerifyFeedback(long);
+        expect(t.length).toBeLessThan(long.length);
+        expect(t).toContain("truncated");
+    });
+
+    it("tailForCiErrorMessage keeps the end of long output", () => {
+        const long = `HEAD\n${"y".repeat(20_000)}`;
+        const tail = tailForCiErrorMessage(long, 100);
+        expect(tail).toContain("yyyy");
+        expect(tail).not.toContain("HEAD");
+    });
+
+    it("formatCiVerifyRoundsExhaustedMessage includes phase and tail", () => {
+        const msg = formatCiVerifyRoundsExhaustedMessage({
+            phase: "test",
+            rounds: 3,
+            outputTail: "AssertionError: expected 1 to be 2",
+        });
+        expect(msg).toContain("pnpm test");
+        expect(msg).toContain("3 implement round");
+        expect(msg).toContain("AssertionError");
     });
 });
