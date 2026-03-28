@@ -82,17 +82,41 @@ export async function handleBirthdayConfigCommand(
 
     try {
         await birthdayConfigRepository.upsertAnnouncementChannel(interaction.guildId, guildChannel.id);
-        await interaction.reply({
-            content: `Birthday announcements will post in ${guildChannel}.`,
-            ephemeral: true,
-        });
-        return commandSuccess();
     } catch (error) {
         console.error('birthday-config upsert failed:', error);
-        await interaction.reply({
+        const errorPayload = {
             content: 'Could not save configuration. Try again later.',
             ephemeral: true,
-        });
-        return commandError(error instanceof Error ? error.message : 'Upsert failed');
+        } as const;
+        if (!interaction.replied && !interaction.deferred) {
+            await interaction.reply(errorPayload);
+        } else if (interaction.isRepliable()) {
+            await interaction.followUp(errorPayload).catch((followUpError) => {
+                console.error('Failed to send birthday-config error follow-up:', followUpError);
+            });
+        }
+        return commandError('Birthday config upsert failed');
     }
+
+    const successPayload = {
+        content: `Birthday announcements will post in ${guildChannel}.`,
+        ephemeral: true,
+    } as const;
+
+    try {
+        await interaction.reply(successPayload);
+    } catch (replyError) {
+        console.error('Failed to send birthday-config success reply:', replyError);
+        if (!interaction.replied && !interaction.deferred) {
+            await interaction.reply(successPayload).catch((retryError) => {
+                console.error('Failed to retry birthday-config success reply:', retryError);
+            });
+        } else if (interaction.isRepliable()) {
+            await interaction.followUp(successPayload).catch((followUpError) => {
+                console.error('Failed to send birthday-config success follow-up:', followUpError);
+            });
+        }
+    }
+
+    return commandSuccess();
 }
