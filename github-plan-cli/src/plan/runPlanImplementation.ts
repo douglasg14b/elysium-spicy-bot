@@ -31,6 +31,8 @@ import {
     CI_REVIEW_AGGREGATE_JSON_SCHEMA,
     type CiImplementReport,
     type CiReviewAggregate,
+    archiveCiReviewAggregateBeforeFreshReview,
+    buildPreviousReviewAggregatePromptBody,
     buildPrDraftFromCiReports,
     collectBlockingFindingsFromAggregate,
     EXIT_GATE_REPORT_RELATIVE,
@@ -476,6 +478,7 @@ async function runCiImplementOrchestration(
 
         removeVerifyFeedbackIfPresent(root);
 
+        archiveCiReviewAggregateBeforeFreshReview(root, round);
         removeCiReviewAggregateIfPresent(root);
 
         const firstRoundReviewerContext =
@@ -488,6 +491,7 @@ async function runCiImplementOrchestration(
             REVIEWER_AGENT_PATH: ".cursor/agents/reviewer.md",
             REVIEW_AGGREGATE_PATH: REVIEW_AGGREGATE_RELATIVE,
             CI_REVIEW_AGGREGATE_JSON_SCHEMA: CI_REVIEW_AGGREGATE_JSON_SCHEMA,
+            PREVIOUS_REVIEW_AGGREGATE_BODY: buildPreviousReviewAggregatePromptBody(root, round),
         });
         const revSpawn: SpawnCursorAgentOptions = {
             name: `reviewer-orchestrator-ci-r${String(round)}`,

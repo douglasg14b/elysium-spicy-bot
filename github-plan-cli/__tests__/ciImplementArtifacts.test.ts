@@ -1,6 +1,12 @@
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+    archiveCiReviewAggregateBeforeFreshReview,
+    buildPreviousReviewAggregatePromptBody,
     buildPrDraftFromCiReports,
+    CI_PREVIOUS_REVIEW_AGGREGATE_PROMPT_MAX_CHARS,
     CI_VERIFY_FEEDBACK_MAX_CHARS,
     collectBlockingFindingsFromAggregate,
     formatBlockingFailureMessage,
@@ -12,9 +18,14 @@ import {
     parseCiImplementReport,
     parseCiReviewAggregate,
     resolveCiMaxImplementRounds,
+    REVIEW_AGGREGATE_PREVIOUS_RELATIVE,
+    REVIEW_AGGREGATE_RELATIVE,
     tailForCiErrorMessage,
+    truncateForCiPreviousReviewPrompt,
     truncateForCiVerifyFeedback,
 } from "../src/plan/ciImplementArtifacts.js";
+
+const NO_PRIOR_NOTE = "_No prior review aggregate in this CI run._";
 
 describe("ciImplementArtifacts", () => {
     it("parses completed implement report", () => {
@@ -247,6 +258,58 @@ describe("ciImplementArtifacts", () => {
         expect(msg).toContain("Exit gate artifact");
         expect(msg).toContain("missing file");
         expect(msg).toContain("still broken");
+    });
+});
+
+describe("archiveCiReviewAggregateBeforeFreshReview + buildPreviousReviewAggregatePromptBody", () => {
+    const sampleAggregate = JSON.stringify({ version: 1, findings: [] }, null, 2);
+
+    it("round 1 removes stale previous file and prompt body has no-prior note", () => {
+        const root = mkdtempSync(join(tmpdir(), "jarvis-archive-r1-"));
+        try {
+            mkdirSync(join(root, ".jarvis", "ci"), { recursive: true });
+            writeFileSync(join(root, REVIEW_AGGREGATE_PREVIOUS_RELATIVE), sampleAggregate, "utf8");
+            archiveCiReviewAggregateBeforeFreshReview(root, 1);
+            expect(existsSync(join(root, REVIEW_AGGREGATE_PREVIOUS_RELATIVE))).toBe(false);
+            expect(buildPreviousReviewAggregatePromptBody(root, 1)).toBe(NO_PRIOR_NOTE);
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    it("round 2+ copies aggregate to previous; main can be removed and prompt still reads previous", () => {
+        const root = mkdtempSync(join(tmpdir(), "jarvis-archive-r2-"));
+        try {
+            mkdirSync(join(root, ".jarvis", "ci"), { recursive: true });
+            const mainPath = join(root, REVIEW_AGGREGATE_RELATIVE);
+            writeFileSync(mainPath, sampleAggregate, "utf8");
+            archiveCiReviewAggregateBeforeFreshReview(root, 2);
+            expect(readFileSync(join(root, REVIEW_AGGREGATE_PREVIOUS_RELATIVE), "utf8")).toBe(sampleAggregate);
+            unlinkSync(mainPath);
+            expect(buildPreviousReviewAggregatePromptBody(root, 2)).toBe(sampleAggregate);
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    it("round 2+ with missing aggregate removes previous and prompt falls back to no-prior note", () => {
+        const root = mkdtempSync(join(tmpdir(), "jarvis-archive-miss-"));
+        try {
+            mkdirSync(join(root, ".jarvis", "ci"), { recursive: true });
+            writeFileSync(join(root, REVIEW_AGGREGATE_PREVIOUS_RELATIVE), sampleAggregate, "utf8");
+            archiveCiReviewAggregateBeforeFreshReview(root, 2);
+            expect(existsSync(join(root, REVIEW_AGGREGATE_PREVIOUS_RELATIVE))).toBe(false);
+            expect(buildPreviousReviewAggregatePromptBody(root, 2)).toBe(NO_PRIOR_NOTE);
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    it("truncateForCiPreviousReviewPrompt adds truncation marker when over cap", () => {
+        const longBody = "z".repeat(CI_PREVIOUS_REVIEW_AGGREGATE_PROMPT_MAX_CHARS + 100);
+        const t = truncateForCiPreviousReviewPrompt(longBody);
+        expect(t.length).toBeLessThan(longBody.length);
+        expect(t).toContain("truncated for prompt size");
     });
 });
 

@@ -1,3 +1,5 @@
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { z } from "zod";
 import type { DiscussionKind } from "./planBranch.js";
 import type { PrDraft } from "./prDraftSchema.js";
@@ -14,6 +16,22 @@ export const VERIFY_FEEDBACK_RELATIVE = ".jarvis/ci/verify-feedback.md";
 export const CI_VERIFY_FEEDBACK_MAX_CHARS = 48_000;
 /** Single merged output from the orchestrating reviewer (`.cursor/agents/reviewer.md` + Task → generic reviewers). */
 export const REVIEW_AGGREGATE_RELATIVE = ".jarvis/ci/review-aggregate.json";
+/** Copy of the last round’s aggregate before a fresh review pass; used for reviewer prompt continuity. */
+export const REVIEW_AGGREGATE_PREVIOUS_RELATIVE = ".jarvis/ci/review-aggregate-previous.json";
+
+/** Cap prior-round JSON embedded in the CI reviewer prompt. */
+export const CI_PREVIOUS_REVIEW_AGGREGATE_PROMPT_MAX_CHARS = 24_000;
+
+const NO_PRIOR_REVIEW_AGGREGATE_PROMPT_NOTE = "_No prior review aggregate in this CI run._";
+
+function errnoCode(error: unknown): string | undefined {
+    return error !== null &&
+        typeof error === "object" &&
+        "code" in error &&
+        typeof (error as NodeJS.ErrnoException).code === "string"
+        ? (error as NodeJS.ErrnoException).code
+        : undefined;
+}
 
 const findingSeveritySchema = z.enum(["critical", "high", "medium", "low"]);
 
@@ -122,6 +140,75 @@ export function isBlockingCiFinding(finding: CiReviewFinding): boolean {
 
 export function collectBlockingFindingsFromAggregate(aggregate: CiReviewAggregate): CiReviewFinding[] {
     return aggregate.findings.filter(isBlockingCiFinding);
+}
+
+/**
+ * Before spawning a fresh CI reviewer, copy the current `review-aggregate.json` to
+ * `review-aggregate-previous.json` so the next prompt can reference the prior round.
+ * Round 1 removes any stale previous file; round 2+ copies when the current aggregate exists.
+ */
+export function archiveCiReviewAggregateBeforeFreshReview(root: string, round: number): void {
+    const previousAbsolute = join(root, REVIEW_AGGREGATE_PREVIOUS_RELATIVE);
+    const currentAbsolute = join(root, REVIEW_AGGREGATE_RELATIVE);
+
+    if (round <= 1) {
+        try {
+            unlinkSync(previousAbsolute);
+        } catch (error) {
+            if (errnoCode(error) !== "ENOENT") {
+                throw error;
+            }
+        }
+        return;
+    }
+
+    try {
+        const raw = readFileSync(currentAbsolute, "utf8");
+        writeFileSync(previousAbsolute, raw, "utf8");
+    } catch (error) {
+        if (errnoCode(error) === "ENOENT") {
+            try {
+                unlinkSync(previousAbsolute);
+            } catch (error2) {
+                if (errnoCode(error2) !== "ENOENT") {
+                    throw error2;
+                }
+            }
+            return;
+        }
+        throw error;
+    }
+}
+
+export function truncateForCiPreviousReviewPrompt(
+    body: string,
+    maxChars: number = CI_PREVIOUS_REVIEW_AGGREGATE_PROMPT_MAX_CHARS,
+): string {
+    const trimmed = body.trimEnd();
+    if (trimmed.length <= maxChars) {
+        return trimmed;
+    }
+    return `${trimmed.slice(0, maxChars)}\n\n… [truncated for prompt size; original length ${String(trimmed.length)} chars]`;
+}
+
+/** Markdown/plain text for the CI reviewer prompt: prior JSON (possibly truncated) or a short “no prior” note. */
+export function buildPreviousReviewAggregatePromptBody(root: string, round: number): string {
+    if (round <= 1) {
+        return NO_PRIOR_REVIEW_AGGREGATE_PROMPT_NOTE;
+    }
+    const absolute = join(root, REVIEW_AGGREGATE_PREVIOUS_RELATIVE);
+    try {
+        const raw = readFileSync(absolute, "utf8").trim();
+        if (raw.length === 0) {
+            return NO_PRIOR_REVIEW_AGGREGATE_PROMPT_NOTE;
+        }
+        return truncateForCiPreviousReviewPrompt(raw);
+    } catch (error) {
+        if (errnoCode(error) === "ENOENT") {
+            return NO_PRIOR_REVIEW_AGGREGATE_PROMPT_NOTE;
+        }
+        throw error;
+    }
 }
 
 export function truncateForCiVerifyFeedback(
