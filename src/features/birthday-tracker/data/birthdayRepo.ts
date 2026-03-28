@@ -6,6 +6,22 @@ import {
     wasAnnouncedOnSameLocalDayAsNow,
 } from '../birthdayCelebration';
 
+export type AnnouncementClaimResult =
+    | {
+          claimed: true;
+          claimAt: Date;
+          previousLastAnnouncedAt: Date | null;
+      }
+    | { claimed: false };
+
+function numUpdatedIsOne(numUpdatedRows: bigint | number | undefined): boolean {
+    if (numUpdatedRows === undefined) {
+        return false;
+    }
+    const n = typeof numUpdatedRows === 'bigint' ? numUpdatedRows : BigInt(numUpdatedRows);
+    return n === 1n;
+}
+
 export type BirthdayUpsertInput = Omit<
     NewBirthday,
     'createdAt' | 'updatedAt' | 'configVersion' | 'lastAnnouncedAt' | 'id'
@@ -89,6 +105,75 @@ export class BirthdayRepository {
             .where('guildId', '=', guildId)
             .where('userId', '=', userId)
             .execute();
+    }
+
+    /**
+     * Atomically reserves the announcement slot for this local celebration day (process timezone)
+     * if the row is still due. Losers of a cross-process race get `claimed: false` and must not post.
+     * Call {@link BirthdayRepository.revertAnnouncementClaim} if {@link TextChannel.send} fails afterward.
+     */
+    async claimAnnouncementIfDue(guildId: string, userId: string, now: Date = new Date()): Promise<AnnouncementClaimResult> {
+        const row = await this.get(guildId, userId);
+        if (!row) {
+            return { claimed: false };
+        }
+        if (!isBirthdayCelebratedToday(row.month, row.day, now)) {
+            return { claimed: false };
+        }
+        if (row.lastAnnouncedAt && wasAnnouncedOnSameLocalDayAsNow(row.lastAnnouncedAt, now)) {
+            return { claimed: false };
+        }
+
+        const claimAt = new Date();
+        const updatedAt = new Date().toISOString();
+        const claimIso = claimAt.toISOString();
+        const previous = row.lastAnnouncedAt;
+
+        const updateBase = database
+            .updateTable('birthdays')
+            .set({
+                lastAnnouncedAt: claimIso,
+                updatedAt,
+            })
+            .where('guildId', '=', guildId)
+            .where('userId', '=', userId);
+
+        const result =
+            previous === null || previous === undefined
+                ? await updateBase.where('lastAnnouncedAt', 'is', null).executeTakeFirst()
+                : await updateBase.where('lastAnnouncedAt', '=', new Date(previous)).executeTakeFirst();
+
+        if (!numUpdatedIsOne(result.numUpdatedRows)) {
+            return { claimed: false };
+        }
+
+        return {
+            claimed: true,
+            claimAt,
+            previousLastAnnouncedAt: previous ?? null,
+        };
+    }
+
+    /**
+     * Restores `last_announced_at` after a failed send, only if it still matches the claim timestamp
+     * (avoids clobbering another writer).
+     */
+    async revertAnnouncementClaim(
+        guildId: string,
+        userId: string,
+        claimAt: Date,
+        previousLastAnnouncedAt: Date | null
+    ): Promise<void> {
+        await database
+            .updateTable('birthdays')
+            .set({
+                lastAnnouncedAt: previousLastAnnouncedAt ? previousLastAnnouncedAt.toISOString() : null,
+                updatedAt: new Date().toISOString(),
+            })
+            .where('guildId', '=', guildId)
+            .where('userId', '=', userId)
+            .where('lastAnnouncedAt', '=', claimAt)
+            .executeTakeFirst();
     }
 
     /**

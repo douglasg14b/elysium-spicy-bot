@@ -42,11 +42,17 @@ Shared helpers live in `birthdayCelebration.ts` and drive both listing/announcem
 
 ## Scheduler
 
-After `ClientReady`, `startBirthdayAnnouncementScheduler` runs a **single** `setInterval` (5 minutes) per process, with a module guard so duplicate starts do not stack. `SIGINT` clears the interval. **v1 assumes one bot replica;** multiple replicas could double-post until a distributed lock exists.
+After `ClientReady`, `startBirthdayAnnouncementScheduler` runs a **single** `setInterval` (5 minutes) per process, with a module guard so duplicate starts do not stack. `SIGINT` clears the interval.
 
-### Announcement send vs `last_announced_at`
+### Announcement send vs `last_announced_at` (cross-process idempotency)
 
-The bot posts to Discord first, then updates `last_announced_at`. If the DB write fails after a successful send, the scheduler keeps an **in-process** key `(guildId, userId)` until `markAnnounced` succeeds so **later ticks retry persistence only** and do not post a second message in the same process. **Alerts:** failures are logged at `error` (persist still failing after send, or retry-only path still failing). **Operational note:** restarting the process clears that guard; until the row is updated, a rare duplicate post is possible across restarts. Monitor logs if the database is unhealthy.
+Before posting, the scheduler calls **`claimAnnouncementIfDue`**: an optimistic `UPDATE` on `birthdays` that sets `last_announced_at` to “now” **only if** the row is still due for today (same rules as the due query). Only the winning process proceeds to `channel.send`, so **multiple bot replicas** do not double-post the same user for the same local celebration day.
+
+If **`send` fails** after a successful claim, `revertAnnouncementClaim` restores the previous `last_announced_at` (matching the claim timestamp) so a **later tick retries** the outbound message.
+
+**Rare edge:** a crash or `SIGKILL` after the claim `UPDATE` but before a successful Discord send can leave `last_announced_at` set for that local day with no message posted; that user would not get a retry until the next calendar celebration day unless an operator clears or adjusts the row. Monitor logs if Discord or the host is unstable.
+
+**Alerts:** send failures are logged at `warn`; tick-level failures at `error`.
 
 ## File structure (high level)
 

@@ -9,74 +9,15 @@ import { buildBirthdayFallbackAnnouncement } from './constants';
 /** Visible for tests and tuning; production tick is five minutes. */
 export const BIRTHDAY_ANNOUNCEMENT_INTERVAL_MS = 5 * 60 * 1000;
 
-const MARK_ANNOUNCED_MAX_ATTEMPTS = 4;
-const MARK_ANNOUNCED_BASE_DELAY_MS = 50;
-
 let schedulerStarted = false;
 let schedulerIntervalId: ReturnType<typeof setInterval> | undefined;
 let announcementTickChain: Promise<void> = Promise.resolve();
 
 /**
- * Guild+user keys for which a public announcement was already sent this process lifetime but
- * {@link BirthdayRepository.markAnnounced} has not yet succeeded. Prevents duplicate Discord posts
- * while persistence is retried on later ticks (DB outage, transient errors). Cleared on scheduler stop.
- * Process restart drops this guard — duplicates are still possible across restarts until the row updates.
- */
-const pendingPersistAfterSuccessfulSend = new Set<string>();
-
-function announcementDedupeKey(guildId: string, userId: string): string {
-    return `${guildId}:${userId}`;
-}
-
-function delay(ms: number): Promise<void> {
-    return new Promise((resolve) => {
-        setTimeout(resolve, ms);
-    });
-}
-
-async function markAnnouncedWithRetry(guildId: string, userId: string): Promise<void> {
-    let lastError: unknown;
-    for (let attemptIndex = 0; attemptIndex < MARK_ANNOUNCED_MAX_ATTEMPTS; attemptIndex++) {
-        try {
-            await birthdayRepository.markAnnounced(guildId, userId);
-            return;
-        } catch (error) {
-            lastError = error;
-            if (attemptIndex < MARK_ANNOUNCED_MAX_ATTEMPTS - 1) {
-                const backoffMs = MARK_ANNOUNCED_BASE_DELAY_MS * 2 ** attemptIndex;
-                await delay(backoffMs);
-            }
-        }
-    }
-    throw lastError;
-}
-
-export function stopBirthdayAnnouncementScheduler(): void {
-    if (schedulerIntervalId !== undefined) {
-        clearInterval(schedulerIntervalId);
-        schedulerIntervalId = undefined;
-    }
-    schedulerStarted = false;
-    announcementTickChain = Promise.resolve();
-    pendingPersistAfterSuccessfulSend.clear();
-}
-
-/**
- * Queues a tick after any prior tick completes so interval callbacks cannot overlap.
- */
-export function enqueueBirthdayAnnouncementTick(client: Client): void {
-    announcementTickChain = announcementTickChain
-        .then(() => executeBirthdayAnnouncementTick(client))
-        .catch((error) => {
-            console.error('Birthday announcement tick failed:', error);
-        });
-}
-
-/**
  * Runs one announcement pass: due birthdays, per-guild channel, AI + outbound finalize, send.
- * Persists {@link BirthdayRepository.markAnnounced} only after {@link TextChannel.send} succeeds
- * so failed sends retry on a later tick without clearing state. After a successful send, an in-memory
- * dedupe key is held until mark succeeds so a failed persist does not cause duplicate posts on the next tick.
+ * Uses {@link BirthdayRepository.claimAnnouncementIfDue} before {@link TextChannel.send} so only one
+ * writer (across processes) holds the slot for that local celebration day; if send fails,
+ * {@link BirthdayRepository.revertAnnouncementClaim} restores the prior `last_announced_at` so a later tick retries.
  */
 export async function executeBirthdayAnnouncementTick(client: Client): Promise<void> {
     if (!client.user) {
@@ -88,20 +29,6 @@ export async function executeBirthdayAnnouncementTick(client: Client): Promise<v
         const channelByGuild = new Map<string, TextChannel | null>();
 
         for (const row of due) {
-            const dedupeKey = announcementDedupeKey(row.guildId, row.userId);
-            if (pendingPersistAfterSuccessfulSend.has(dedupeKey)) {
-                try {
-                    await markAnnouncedWithRetry(row.guildId, row.userId);
-                    pendingPersistAfterSuccessfulSend.delete(dedupeKey);
-                } catch (error) {
-                    console.error(
-                        `Birthday announcement was already posted for user ${row.userId} in guild ${row.guildId} but lastAnnouncedAt still could not be saved after retries; will retry persist on the next tick without sending again.`,
-                        error
-                    );
-                }
-                continue;
-            }
-
             let channel = channelByGuild.get(row.guildId);
             if (channel === undefined) {
                 const configRow = await birthdayConfigRepository.getByGuildId(row.guildId);
@@ -158,28 +85,47 @@ export async function executeBirthdayAnnouncementTick(client: Client): Promise<v
                 body = finalizeBirthdayAnnouncementBody(buildBirthdayFallbackAnnouncement(displayName));
             }
 
+            const claim = await birthdayRepository.claimAnnouncementIfDue(row.guildId, row.userId);
+            if (!claim.claimed) {
+                continue;
+            }
+
             try {
                 await channel.send({ content: `${mention}\n${body}` });
                 console.info(`Birthday announcement sent for user ${row.userId} in guild ${row.guildId}`);
             } catch (error) {
                 console.warn(`Birthday announcement send failed for user ${row.userId} in guild ${row.guildId}:`, error);
-                continue;
-            }
-
-            pendingPersistAfterSuccessfulSend.add(dedupeKey);
-            try {
-                await markAnnouncedWithRetry(row.guildId, row.userId);
-                pendingPersistAfterSuccessfulSend.delete(dedupeKey);
-            } catch (error) {
-                console.error(
-                    `Birthday announcement posted but lastAnnouncedAt could not be saved after retries for user ${row.userId} in guild ${row.guildId}; persist will be retried on later ticks without sending again until the row updates.`,
-                    error
+                await birthdayRepository.revertAnnouncementClaim(
+                    row.guildId,
+                    row.userId,
+                    claim.claimAt,
+                    claim.previousLastAnnouncedAt
                 );
             }
         }
     } catch (error) {
         console.error('Birthday announcement tick failed:', error);
     }
+}
+
+export function stopBirthdayAnnouncementScheduler(): void {
+    if (schedulerIntervalId !== undefined) {
+        clearInterval(schedulerIntervalId);
+        schedulerIntervalId = undefined;
+    }
+    schedulerStarted = false;
+    announcementTickChain = Promise.resolve();
+}
+
+/**
+ * Queues a tick after any prior tick completes so interval callbacks cannot overlap.
+ */
+export function enqueueBirthdayAnnouncementTick(client: Client): void {
+    announcementTickChain = announcementTickChain
+        .then(() => executeBirthdayAnnouncementTick(client))
+        .catch((error) => {
+            console.error('Birthday announcement tick failed:', error);
+        });
 }
 
 /**
