@@ -134,15 +134,14 @@ describe("handleNdjsonLine", () => {
         expect(terminalResult).toMatchObject({ type: "result", result: "done" });
     });
 
-    it("logs to stderr when emitStreamDebugLog and debug enabled", () => {
+    it("logs raw NDJSON line to stdout when emitStreamDebugLog and plan debug enabled", () => {
         vi.stubEnv("GITHUB_ACTIONS", "");
         vi.stubEnv("GITHUB_PLAN_DEBUG", "1");
-        const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+        const spy = vi.spyOn(console, "log").mockImplementation(() => {});
         const payload = JSON.stringify({ type: "system", subtype: "init", model: "m" });
         handleNdjsonLine(payload, true);
         expect(spy).toHaveBeenCalled();
-        expect(String(spy.mock.calls[0][0])).toContain("[github-plan:agent:raw-json]");
-        expect(String(spy.mock.calls[0][0])).toContain(payload);
+        expect(String(spy.mock.calls[0][0])).toBe(payload);
         spy.mockRestore();
     });
 });

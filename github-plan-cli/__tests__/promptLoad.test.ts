@@ -37,4 +37,17 @@ describe("promptLoad", () => {
         expect(text).toContain(".jarvis/pr-draft.json");
         expect(text).not.toContain("{{PR_DRAFT_JSON_SCHEMA}}");
     });
+
+    it("loadPrompt substitutes CI implementer follow-up placeholders", () => {
+        const text = loadPrompt("implement-ci-implementer-followup.md", {
+            PLAN_PATH: ".jarvis/plan.md",
+            IMPLEMENT_REPORT_PATH: ".jarvis/ci/implement-report.json",
+            IMPLEMENT_REPORT_JSON_SCHEMA: '{"type":"object"}',
+            REVIEW_FEEDBACK_BODY: "prior feedback here",
+        });
+        expect(text).toContain(".jarvis/ci/implement-report.json");
+        expect(text).toContain("prior feedback here");
+        expect(text).not.toContain("{{IMPLEMENT_REPORT_PATH}}");
+        expect(text).not.toContain("{{REVIEW_FEEDBACK_BODY}}");
+    });
 });

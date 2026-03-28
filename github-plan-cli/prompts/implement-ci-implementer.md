@@ -102,7 +102,7 @@ Follow the repository’s conventions for layout, Discord interactions, persiste
 ### Phase 5: Verify
 
 - **Typecheck / build**: `pnpm build` — fix all errors introduced by your changes (run locally when your session allows shell commands).
-- **Tests**: run targeted Vitest files when your change set has or affects tests, e.g. `pnpm exec vitest run path/to/file.test.ts` (or `pnpm test` when appropriate).
+- **Tests (required when feasible)**: run the **smallest relevant test set** for the code you changed (and anything your changes impact), e.g. `pnpm exec vitest run path/to/file.test.ts`. Avoid running the entire suite unless the change is broad or the suite is small. If your session cannot run shell commands, **say so explicitly** in `summaryMarkdown` (the GitHub Actions runner will run `pnpm test` after your report).
 - **CI:** the workflow always runs **`pnpm build`** then **`pnpm test`** on the runner after your report. If they fail, you get another implement round with captured output under **Runner verification** — fix those failures before the reviewer runs again.
 - If you changed migrations and the plan expects it: run `pnpm migrate:latest` or `pnpm migrate:latest:dev` as appropriate for local verification (do not commit secrets).
 

@@ -209,3 +209,28 @@ export async function stageImplementWorktreeExcludingPrDraft(git: SimpleGit): Pr
     }
     return await git.diff(["--cached"]);
 }
+
+export type CommitAndPushIfStagedInput = {
+    git: SimpleGit;
+    branch: string;
+    remote: string;
+    message: string;
+};
+
+/**
+ * Stages product changes (excluding PR draft + CI artifacts), commits if non-empty, and pushes.
+ * @returns whether a commit was created
+ */
+export async function commitAndPushIfStaged(input: CommitAndPushIfStagedInput): Promise<boolean> {
+    const stagedDiff = await stageImplementWorktreeExcludingPrDraft(input.git);
+    if (!stagedDiff.trim()) {
+        return false;
+    }
+    await input.git.commit(input.message);
+    await pushBranchWithRecovery({ git: input.git, remote: input.remote, branch: input.branch });
+    planDebugLog("planImplementationGit: commit pushed", {
+        branch: input.branch,
+        messageChars: input.message.length,
+    });
+    return true;
+}

@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
-import simpleGit from "simple-git";
+import simpleGit, { type SimpleGit } from "simple-git";
 import type { Octokit } from "@octokit/rest";
 import { withAutomationPrefix } from "../config/githubPlanConstants.js";
 import {
@@ -50,6 +50,7 @@ import {
 import { planDebugLog } from "./planDebug.js";
 import {
     checkoutMergedPlanBranch,
+    commitAndPushIfStaged,
     pushBranchWithRecovery,
     remotePlanBranchExists,
     stageImplementWorktreeExcludingPrDraft,
@@ -249,7 +250,18 @@ function logRunnerVerifyFailure(script: PnpmVerifyScript, outcome: { exitCode: n
     );
 }
 
-async function runCiImplementOrchestration(root: string, planRelative: string): Promise<{
+type CiImplementCommitContext = {
+    git: SimpleGit;
+    branch: string;
+    discussionKind: DiscussionKind;
+    discussionNumber: number;
+};
+
+async function runCiImplementOrchestration(
+    root: string,
+    planRelative: string,
+    commitContext: CiImplementCommitContext,
+): Promise<{
     prDraft: PrDraft;
     totalAgentDurationMs: number;
 }> {
@@ -261,7 +273,9 @@ async function runCiImplementOrchestration(root: string, planRelative: string): 
     for (let round = 1; round <= CI_MAX_IMPLEMENT_ROUNDS; round++) {
         planDebugLog("runPlanImplementation: CI implement round", { round });
         const feedbackBody = readCiImplementRoundFeedbackBody(root, round);
-        const implPrompt = loadPrompt("implement-ci-implementer.md", {
+        const implementerPromptName =
+            round === 1 ? "implement-ci-implementer.md" : "implement-ci-implementer-followup.md";
+        const implPrompt = loadPrompt(implementerPromptName, {
             PLAN_PATH: planRelative,
             IMPLEMENT_REPORT_PATH: IMPLEMENT_REPORT_RELATIVE,
             IMPLEMENT_REPORT_JSON_SCHEMA: CI_IMPLEMENT_REPORT_JSON_SCHEMA,
@@ -326,6 +340,17 @@ async function runCiImplementOrchestration(root: string, planRelative: string): 
             }
             continue;
         }
+
+        const pushedAfterBuild = await commitAndPushIfStaged({
+            git: commitContext.git,
+            branch: commitContext.branch,
+            remote: "origin",
+            message: `jarvis(implement): ${commitContext.discussionKind} #${String(commitContext.discussionNumber)} — CI round ${String(round)} (build ok)`,
+        });
+        planDebugLog("runPlanImplementation: post-build commit/push", {
+            round,
+            pushedAfterBuild,
+        });
 
         const testOutcome = runPnpmScriptOnRunner(root, "test");
         if (!testOutcome.ok) {
@@ -494,10 +519,11 @@ async function createOrUpdatePullRequestWithRetry(input: {
  * verify build, commit/push product changes, open or update a PR from PR draft JSON.
  *
  * On GitHub Actions (`GITHUB_ACTIONS=true`), uses **code orchestration**: each round runs the CI implementer,
- * then the runner enforces **`pnpm build`** and **`pnpm test`** (failures feed the next implement round as
- * `.jarvis/ci/verify-feedback.md` without spawning the reviewer). When verification passes, a reviewer
- * orchestrator runs (`.cursor/agents/reviewer.md`, Task → generic sub-reviewers), writes
- * `.jarvis/ci/review-aggregate.json`, and blocking findings feed the next round via `review-feedback.md`.
+ * then the runner runs **`pnpm build`**, **commits and pushes** incremental progress when there are staged
+ * product changes, then **`pnpm test`**.
+ * Build/test failures feed the next implement round as `.jarvis/ci/verify-feedback.md` without spawning the reviewer.
+ * When verification passes, a reviewer orchestrator runs (`.cursor/agents/reviewer.md`, Task → generic sub-reviewers),
+ * writes `.jarvis/ci/review-aggregate.json`, and blocking findings feed the next round via `review-feedback.md`.
  * Up to `CI_MAX_IMPLEMENT_ROUNDS` rounds, then assembles `pr-draft.json`.
  */
 export async function runPlanImplementation(input: {
@@ -559,6 +585,12 @@ export async function runPlanImplementation(input: {
         const { prDraft: draft, totalAgentDurationMs } = await runCiImplementOrchestration(
             root,
             planRelative,
+            {
+                git,
+                branch,
+                discussionKind: input.discussionKind,
+                discussionNumber: input.discussionNumber,
+            },
         );
         prDraft = draft;
         recordAgentTelemetryStep({
@@ -617,16 +649,23 @@ export async function runPlanImplementation(input: {
 
     const stagedDiff = await stageImplementWorktreeExcludingPrDraft(git);
     if (!stagedDiff.trim()) {
-        const hint = isCiCodeOrchestratedImplement()
-            ? "The CI implementer (prompt `implement-ci-implementer.md`) should modify tracked project files; see agent logs."
-            : "The generic-implementer should modify tracked project files; see agent logs.";
-        throw new Error(`Implementation produced no staged changes after \`pnpm build\`. ${hint}`);
+        if (isCiCodeOrchestratedImplement()) {
+            planDebugLog(
+                "runPlanImplementation: no final staged changes (CI already pushed incremental commits)",
+                { branch },
+            );
+        } else {
+            const hint =
+                "The generic-implementer should modify tracked project files; see agent logs.";
+            throw new Error(`Implementation produced no staged changes after \`pnpm build\`. ${hint}`);
+        }
+    } else {
+        await git.commit(
+            `implement: ${input.discussionKind} #${String(input.discussionNumber)} — ${prDraft.title}`,
+        );
+        await pushBranchWithRecovery({ git, remote: "origin", branch });
+        planDebugLog("runPlanImplementation: pushed commit", { branch });
     }
-    await git.commit(
-        `implement: ${input.discussionKind} #${String(input.discussionNumber)} — ${prDraft.title}`,
-    );
-    await pushBranchWithRecovery({ git, remote: "origin", branch });
-    planDebugLog("runPlanImplementation: pushed commit", { branch });
 
     const bodyForGithub = appendDiscussionFooter({
         bodyMarkdown: prDraft.bodyMarkdown,

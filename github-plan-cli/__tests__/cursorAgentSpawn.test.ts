@@ -124,9 +124,9 @@ describe("buildCursorAgentArgv", () => {
         expect(streamArgv[streamIdx + 1]).toBe("stream-json");
     });
 
-    it("passes --mode=agent when mode is agent", () => {
+    it("omits --mode when mode is agent (CLI default is agent)", () => {
         const argv = buildCursorAgentArgv({ ...baseOptions, mode: "agent" }, "json");
-        expect(argv).toContain("--mode=agent");
+        expect(argv.filter((a) => a === "--mode")).toHaveLength(0);
     });
 });
 
