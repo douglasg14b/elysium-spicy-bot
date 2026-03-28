@@ -89,7 +89,8 @@ Follow the repository’s conventions for layout, Discord interactions, persiste
 ### Phase 5: Verify
 
 - **Typecheck / build**: `pnpm build` — fix all errors introduced by your changes.
-- **Tests**: run targeted Vitest files when your change set has or affects tests, e.g. `pnpm exec vitest run path/to/file.test.ts` (or the whole suite if small and appropriate).
+- **Tests (required)**: run the **smallest relevant test set** for the code you changed (and anything your changes impact), e.g. `pnpm exec vitest run path/to/file.test.ts`. Avoid running the entire suite unless the change is broad or the suite is small.
+- If you cannot run tests in this environment, stop with **`BLOCKED: unable to run tests`** and include the specific commands you would have run.
 - If you changed migrations and the task expects it: run `pnpm migrate:latest` or `pnpm migrate:latest:dev` as appropriate for local verification (do not commit secrets).
 
 ---
@@ -131,6 +132,7 @@ Default completion state: **`pnpm build` succeeds** for the repo after your chan
 - What you implemented and **which files** were added or changed.
 - Integration risks (Discord API, DB dialect, env, concurrent listeners, AI safety).
 - Deviations from the task/plan and why.
+- Tests run (exact commands; keep them scoped to what you changed).
 - **Migrations**: whether you added one, or that one is still needed.
 - New or required **env vars** (names only; no values).
 - Dependencies added via pnpm (package names).

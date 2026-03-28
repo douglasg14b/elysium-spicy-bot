@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": ["Shell(pnpm)", "Shell(vitest)", "Shell(cd)"],
+    "deny": ["Shell(rm)"]
+  }
+}
+
