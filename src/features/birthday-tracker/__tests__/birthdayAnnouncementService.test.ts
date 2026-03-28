@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Client, TextChannel } from 'discord.js';
 import {
     BIRTHDAY_ANNOUNCEMENT_INTERVAL_MS,
+    enqueueBirthdayAnnouncementTick,
     executeBirthdayAnnouncementTick,
     startBirthdayAnnouncementScheduler,
     stopBirthdayAnnouncementScheduler,
@@ -140,6 +141,102 @@ describe('executeBirthdayAnnouncementTick', () => {
         await executeBirthdayAnnouncementTick(minimalClient);
 
         expect(hoisted.markAnnounced).not.toHaveBeenCalled();
+    });
+
+    it('does not run two ticks concurrently so a second pass cannot duplicate-send before markAnnounced', async () => {
+        const dueRow = {
+            guildId: 'g1',
+            userId: 'u1',
+            displayName: 'Pat',
+            username: 'pat',
+            month: 3,
+            day: 1,
+            year: null,
+        };
+        let persistCompleted = false;
+        hoisted.findDue.mockImplementation(async () => {
+            if (persistCompleted) {
+                return [];
+            }
+            return [dueRow];
+        });
+        const send = vi.fn(
+            () => new Promise<void>((resolve) => setTimeout(resolve, 40))
+        );
+        const channel = { send } as unknown as TextChannel;
+        hoisted.getConfig.mockResolvedValue({ announcementChannelId: 'ch1' });
+        hoisted.resolveChannel.mockResolvedValue(channel);
+        hoisted.generate.mockResolvedValue('Happy day.');
+        hoisted.markAnnounced.mockImplementation(async () => {
+            persistCompleted = true;
+        });
+
+        enqueueBirthdayAnnouncementTick(minimalClient);
+        enqueueBirthdayAnnouncementTick(minimalClient);
+
+        await new Promise((resolve) => setTimeout(resolve, 200));
+
+        expect(send).toHaveBeenCalledTimes(1);
+        expect(hoisted.markAnnounced).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries markAnnounced after a successful send and succeeds on a later attempt', async () => {
+        const send = vi.fn().mockResolvedValue(undefined);
+        const channel = { send } as unknown as TextChannel;
+        hoisted.findDue.mockResolvedValue([
+            {
+                guildId: 'g1',
+                userId: 'u1',
+                displayName: 'Pat',
+                username: 'pat',
+                month: 3,
+                day: 1,
+                year: null,
+            },
+        ]);
+        hoisted.getConfig.mockResolvedValue({ announcementChannelId: 'ch1' });
+        hoisted.resolveChannel.mockResolvedValue(channel);
+        hoisted.generate.mockResolvedValue('Short line');
+        hoisted.markAnnounced
+            .mockRejectedValueOnce(new Error('db busy'))
+            .mockRejectedValueOnce(new Error('db busy'))
+            .mockResolvedValueOnce(undefined);
+
+        await executeBirthdayAnnouncementTick(minimalClient);
+
+        expect(send).toHaveBeenCalledTimes(1);
+        expect(hoisted.markAnnounced).toHaveBeenCalledTimes(3);
+    });
+
+    it('logs persist path separately when send succeeds but markAnnounced never succeeds', async () => {
+        const send = vi.fn().mockResolvedValue(undefined);
+        const channel = { send } as unknown as TextChannel;
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        hoisted.findDue.mockResolvedValue([
+            {
+                guildId: 'g1',
+                userId: 'u1',
+                displayName: 'Pat',
+                username: 'pat',
+                month: 3,
+                day: 1,
+                year: null,
+            },
+        ]);
+        hoisted.getConfig.mockResolvedValue({ announcementChannelId: 'ch1' });
+        hoisted.resolveChannel.mockResolvedValue(channel);
+        hoisted.generate.mockResolvedValue('Short line');
+        hoisted.markAnnounced.mockRejectedValue(new Error('db down'));
+
+        await executeBirthdayAnnouncementTick(minimalClient);
+
+        expect(send).toHaveBeenCalledTimes(1);
+        expect(hoisted.markAnnounced).toHaveBeenCalledTimes(4);
+        expect(errorSpy).toHaveBeenCalledWith(
+            expect.stringContaining('delivered to Discord but lastAnnouncedAt could not be persisted'),
+            expect.any(Error)
+        );
+        errorSpy.mockRestore();
     });
 });
 
