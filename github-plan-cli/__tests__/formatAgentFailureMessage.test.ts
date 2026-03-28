@@ -5,7 +5,7 @@ describe("formatAgentFailureMessage", () => {
     it("uses bounded stderr/stdout without dumping full streams", () => {
         const huge = "e".repeat(50_000);
         const msg = formatAgentFailureMessage("agent", 1, huge, huge);
-        expect(msg.length).toBeLessThan(3500);
+        expect(msg.length).toBeLessThan(17_000);
         expect(msg).toContain("agent");
         expect(msg).toContain("exited 1");
         expect(msg).toContain("stderr:");

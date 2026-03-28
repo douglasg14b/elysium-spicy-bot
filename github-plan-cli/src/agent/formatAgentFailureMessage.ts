@@ -1,5 +1,5 @@
-const MAX_STDERR_IN_MESSAGE = 1500;
-const MAX_STDOUT_IN_MESSAGE = 800;
+const MAX_STDERR_IN_MESSAGE = 8_000;
+const MAX_STDOUT_IN_MESSAGE = 8_000;
 
 /**
  * Error line for agent failures: bounded stderr/stdout (no full stream concat).
