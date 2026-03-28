@@ -5,6 +5,11 @@ import type { PrDraft } from "./prDraftSchema.js";
 export const JARVIS_CI_DIR_RELATIVE = ".jarvis/ci";
 export const IMPLEMENT_REPORT_RELATIVE = ".jarvis/ci/implement-report.json";
 export const REVIEW_FEEDBACK_RELATIVE = ".jarvis/ci/review-feedback.md";
+/** Written when the GitHub Actions runner’s `pnpm build` or `pnpm test` fails; consumed on the next implement round. */
+export const VERIFY_FEEDBACK_RELATIVE = ".jarvis/ci/verify-feedback.md";
+
+/** Cap captured stdout/stderr in verify feedback so implement prompts stay bounded. */
+export const CI_VERIFY_FEEDBACK_MAX_CHARS = 48_000;
 /** Single merged output from the orchestrating reviewer (`.cursor/agents/reviewer.md` + Task → generic reviewers). */
 export const REVIEW_AGGREGATE_RELATIVE = ".jarvis/ci/review-aggregate.json";
 
@@ -117,6 +122,66 @@ export function collectBlockingFindingsFromAggregate(aggregate: CiReviewAggregat
     return aggregate.findings.filter(isBlockingCiFinding);
 }
 
+export function truncateForCiVerifyFeedback(
+    output: string,
+    maxChars: number = CI_VERIFY_FEEDBACK_MAX_CHARS,
+): string {
+    const trimmed = output.trimEnd();
+    if (trimmed.length <= maxChars) {
+        return trimmed;
+    }
+    return `${trimmed.slice(0, maxChars)}\n\n… [truncated; original length ${String(trimmed.length)} chars]`;
+}
+
+export function tailForCiErrorMessage(output: string, maxChars: number = 12_000): string {
+    const trimmed = output.trimEnd();
+    if (trimmed.length <= maxChars) {
+        return trimmed;
+    }
+    return `… [${String(trimmed.length - maxChars)} chars omitted from start]\n${trimmed.slice(-maxChars)}`;
+}
+
+export function formatVerifyFailureMarkdown(input: {
+    phase: "build" | "test";
+    command: string;
+    exitCode: number | null;
+    output: string;
+}): string {
+    const body = input.output.trimEnd() || "(empty)";
+    return [
+        "# CI runner verification failed",
+        "",
+        `**Phase:** \`${input.phase}\``,
+        `**Command:** \`${input.command}\``,
+        `**Exit code:** ${input.exitCode === null ? "(unknown)" : String(input.exitCode)}`,
+        "",
+        "## Output",
+        "",
+        "```text",
+        body,
+        "```",
+        "",
+        "Fix the errors above. The workflow will run `pnpm build` and `pnpm test` on the runner again after your next report.",
+    ].join("\n");
+}
+
+export function formatCiVerifyRoundsExhaustedMessage(input: {
+    phase: "build" | "test";
+    rounds: number;
+    outputTail: string;
+}): string {
+    const script = input.phase === "build" ? "pnpm build" : "pnpm test";
+    return [
+        `CI implementation used ${String(input.rounds)} implement round(s) but \`${script}\` still failed on the GitHub Actions runner.`,
+        "",
+        "Last captured output (tail):",
+        "",
+        "```text",
+        input.outputTail.trimEnd() || "(empty)",
+        "```",
+    ].join("\n");
+}
+
 export function formatReviewFeedbackMarkdown(findings: CiReviewFinding[]): string {
     if (findings.length === 0) {
         return "";
@@ -124,7 +189,7 @@ export function formatReviewFeedbackMarkdown(findings: CiReviewFinding[]): strin
     const lines = [
         "# Review feedback (blocking)",
         "",
-        "Address every **critical** and **high** item below, then re-run verification (`pnpm build` and tests as appropriate).",
+        "Address every **critical** and **high** item below, then re-run verification (`pnpm build` and `pnpm test` as appropriate).",
         "",
     ];
     let index = 1;
