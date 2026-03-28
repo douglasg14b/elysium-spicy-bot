@@ -92,22 +92,6 @@ export class BirthdayRepository {
     }
 
     /**
-     * Clears {@link BirthdayTable.lastAnnouncedAt} after a failed Discord send so the same local day can be retried.
-     * Pairs with {@link markAnnounced} when using claim-before-send idempotency.
-     */
-    async clearAnnouncementClaim(guildId: string, userId: string): Promise<void> {
-        await database
-            .updateTable('birthdays')
-            .set({
-                lastAnnouncedAt: null,
-                updatedAt: new Date().toISOString(),
-            })
-            .where('guildId', '=', guildId)
-            .where('userId', '=', userId)
-            .execute();
-    }
-
-    /**
      * Get upcoming birthdays for a guild within the next N days
      */
     async getUpcomingBirthdays(guildId: string, daysAhead = 7): Promise<BirthdayDisplay[]> {
