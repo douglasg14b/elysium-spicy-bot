@@ -1,5 +1,10 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import {
+    assembleThinkingFromStreamLog,
+    formatCursorAgentStreamReportHuman,
+    parseCursorAgentStreamLogFile,
+} from "./agent/parseCursorAgentStreamLog.js";
 import { defineCommand, runMain } from "citty";
 import { parseDiscussionKind, parseDiscussionNumber, parseEnvBoolTrue } from "./config/parseGithubPlanEnv.js";
 import {
@@ -367,6 +372,69 @@ const issueCommand = defineCommand({
     },
 });
 
+const agentParseStreamLogCommand = defineCommand({
+    meta: {
+        name: "parse-stream-log",
+        description:
+            "Summarize a Cursor agent NDJSON log (`--output-format stream-json`, often with `--stream-partial-output`).",
+    },
+    args: {
+        file: {
+            type: "string",
+            description: "Path to the log file (one JSON object per line)",
+            required: true,
+        },
+        json: {
+            type: "boolean",
+            description: "Print full structured report as JSON",
+            default: false,
+        },
+        thinking: {
+            type: "boolean",
+            description: "Include per-block thinking stats (deltas merged until subtype completed)",
+            default: false,
+        },
+    },
+    async run({ args }) {
+        const absolutePath = resolve(process.cwd(), args.file);
+        const report = parseCursorAgentStreamLogFile(absolutePath);
+        if (args.json) {
+            const payload: Record<string, unknown> = { ...report };
+            if (args.thinking) {
+                const content = readFileSync(absolutePath, "utf8");
+                payload.thinkingBlocks = assembleThinkingFromStreamLog(content);
+            }
+            process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+            return;
+        }
+        process.stdout.write(`${formatCursorAgentStreamReportHuman(report)}\n`);
+        if (args.thinking) {
+            const content = readFileSync(absolutePath, "utf8");
+            const blocks = assembleThinkingFromStreamLog(content);
+            process.stdout.write(`\nThinking blocks (delta → completed): ${String(blocks.length)}\n`);
+            const previewLimit = 40;
+            for (const block of blocks.slice(0, previewLimit)) {
+                process.stdout.write(
+                    `  session=${block.sessionId} block#=${String(block.blockIndex)} deltas=${String(block.deltaCount)} chars=${String(block.assembledChars)}\n`,
+                );
+            }
+            if (blocks.length > previewLimit) {
+                process.stdout.write(`  … ${String(blocks.length - previewLimit)} more\n`);
+            }
+        }
+    },
+});
+
+const agentCommand = defineCommand({
+    meta: {
+        name: "agent",
+        description: "Cursor agent log utilities (stream-json NDJSON).",
+    },
+    subCommands: {
+        "parse-stream-log": agentParseStreamLogCommand,
+    },
+});
+
 const main = defineCommand({
     meta: {
         name: "github-plan",
@@ -380,6 +448,7 @@ const main = defineCommand({
         classify: classifyCommand,
         plan: planCommand,
         issue: issueCommand,
+        agent: agentCommand,
     },
 });
 

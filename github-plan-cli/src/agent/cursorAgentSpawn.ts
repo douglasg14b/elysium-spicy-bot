@@ -12,6 +12,7 @@ import {
     toCursorAgentResultPayload,
     transcriptFromCursorAgentPayload,
 } from './cursorAgentJsonTypes.js';
+import { envValueIsExplicitlyOff, envValueIsTruthy } from '../config/envTruthy.js';
 import { formatAgentFailureMessage } from './formatAgentFailureMessage.js';
 import { isPlanCliDebugEnabled, truncateForPlanDebug } from '../plan/planDebug.js';
 
@@ -194,10 +195,20 @@ function usageFromPayload(payload: CursorAgentResultPayload): CursorAgentUsage |
 function buildAgentArgv(options: SpawnCursorAgentOptions, outputFormat: CursorAgentStdoutFormat): string[] {
     const model = options.model ?? agentModelFromEnv();
     const modeArg = options.mode === 'agent' ? undefined : `--mode=${options.mode}`;
-    const streamPartialArg = outputFormat === 'stream-json' ? ['--stream-partial-output'] : [];
+    /** Token-level `thinking` / assistant deltas; explodes GitHub Actions log line count. Opt in with `GITHUB_PLAN_STREAM_PARTIAL=1`. */
+    const streamPartialArg =
+        outputFormat === 'stream-json' && envValueIsTruthy(process.env.GITHUB_PLAN_STREAM_PARTIAL)
+            ? ['--stream-partial-output']
+            : [];
+    /**
+     * Headless CI has no human to approve each shell tool call; `--force` matches Cursor CLI “allow commands unless
+     * explicitly denied” (see CLI docs). `cli.json` `deny` (e.g. `Shell(rm)`) still applies.
+     */
+    const forceArg = process.env.GITHUB_ACTIONS === 'true' ? (['--force'] as const) : [];
     return [
         '-p',
         '--trust',
+        ...forceArg,
         '--workspace',
         options.workspaceRoot,
         ...(modeArg ? [modeArg] : []),
@@ -210,8 +221,23 @@ function buildAgentArgv(options: SpawnCursorAgentOptions, outputFormat: CursorAg
     ];
 }
 
-/** Resolves `stream-json` vs `json` from `GITHUB_PLAN_DEBUG` (default on → `stream-json`). */
+/**
+ * Resolves Cursor `agent` `--output-format`:
+ * - **`json`**: one JSON object on stdout when the run finishes — fewest log lines (best for GitHub Actions).
+ * - **`stream-json`**: NDJSON events (tool calls, etc.); without `GITHUB_PLAN_STREAM_PARTIAL=1` we omit `--stream-partial-output` so logs stay much smaller than token-level deltas.
+ *
+ * Rules:
+ * - `GITHUB_PLAN_DEBUG` explicitly off (`0`, `false`, …) → `json`.
+ * - **`GITHUB_ACTIONS=true`** and debug **not** explicitly on (`1`, `true`, `yes`) → **`json`** (CI default).
+ * - Otherwise → `stream-json`.
+ */
 export function cursorAgentStdoutFormatFromPlanDebug(): CursorAgentStdoutFormat {
+    if (envValueIsExplicitlyOff(process.env.GITHUB_PLAN_DEBUG)) {
+        return 'json';
+    }
+    if (process.env.GITHUB_ACTIONS === 'true' && !envValueIsTruthy(process.env.GITHUB_PLAN_DEBUG)) {
+        return 'json';
+    }
     return isPlanCliDebugEnabled() ? 'stream-json' : 'json';
 }
 

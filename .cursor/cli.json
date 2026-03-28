@@ -1,7 +1,39 @@
 {
   "permissions": {
-    "allow": ["Shell(pnpm)", "Shell(vitest)", "Shell(cd)"],
-    "deny": ["Shell(rm)"]
+    "allow": [
+      "Shell(cd)",
+      "Shell(git)",
+      "Shell(head)",
+      "Shell(node)",
+      "Shell(pnpm)",
+      "Shell(python3)",
+      "Shell(tail)",
+      "Shell(vitest)",
+      "WebFetch(cursor.com)",
+      "WebFetch(discord.js.org)",
+      "WebFetch(docs.github.com)",
+      "WebFetch(github.com)",
+      "WebFetch(kysely.dev)",
+      "WebFetch(nodejs.org)",
+      "WebFetch(old.discordjs.dev)",
+      "WebFetch(platform.openai.com)",
+      "WebFetch(raw.githubusercontent.com)",
+      "WebFetch(typescriptlang.org)",
+      "WebFetch(vitest.dev)",
+      "WebFetch(www.typescriptlang.org)"
+    ],
+    "deny": [
+      "Shell(curl)",
+      "Shell(ftp)",
+      "Shell(nc)",
+      "Shell(ncat)",
+      "Shell(rm)",
+      "Shell(rsync)",
+      "Shell(scp)",
+      "Shell(sftp)",
+      "Shell(ssh)",
+      "Shell(telnet)",
+      "Shell(wget)"
+    ]
   }
 }
-
