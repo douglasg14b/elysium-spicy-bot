@@ -2,6 +2,10 @@
 
 Discord bot (discord.js v14, ESM TypeScript). Entry: `src/bot.ts` → `DISCORD_CLIENT.login`; slash/components/modals route through `InteractionsRegistry` (`src/features-system/commands/interactionsRegistry.ts`). Feature modules call `init*()` to register handlers and side effects; some commands also registered in `bot.ts`.
 
+## Product context
+
+The bot is aimed at an **adults-only** Discord: **kinky**, **sex-positive**, **NSFW-appropriate** content, **dark humor**, and a **sassy** persona are intentional. Agents and code review must **not** push user-facing copy toward generic, child-safe, or corporate-friendly defaults. See `.cursor/rules/product-persona-and-audience.mdc`.
+
 ## Stack
 
 | Area               | Choice                                                                                                               |
