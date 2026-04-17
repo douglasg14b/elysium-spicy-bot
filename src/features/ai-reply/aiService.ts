@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { Agent, AgentInputItem, Runner } from '@openai/agents';
 import { AI_MODEL, OPENAI_API_KEY } from '../../environment';
 
 const openai = new OpenAI({
@@ -117,6 +118,24 @@ const structuredExamples = FEW_SHOT_EXAMPLES.map((example) => [
     },
 ]).flatMap((pair) => pair) as { role: 'user' | 'assistant'; content: string }[];
 
+const BIRTHDAY_ANNOUNCEMENT_AGENT = new Agent({
+    name: 'Birthday Announcement Agent',
+    instructions: `${BRATTY_BOT_SYSTEM_PROMPT}
+
+Write concise birthday announcements for a Discord member in a public guild text channel.
+- Keep each output 12 to 80 words.
+- Keep the BrattyBot voice: dry wit, playful sass, celebratory.
+- Output plain text only.
+- Never include @everyone or @here.
+- Do not include someone's real name, username, age, location, or other personal profile details.
+- Use context only for harmless vibe cues (interests, tone, hobbies), not identity details.`,
+    model: AI_MODEL,
+    modelSettings: {
+        maxTokens: 220,
+        store: false,
+    },
+});
+
 export interface MessageContext {
     author: string;
     content: string;
@@ -133,6 +152,13 @@ export interface AIReplyOptions {
     channelName?: string;
     isReplyToBot?: boolean;
     referencedBotMessage?: string;
+}
+
+export interface BirthdayAnnouncementOptions {
+    displayName: string;
+    username: string;
+    contextualMessages?: string[];
+    retryFeedback?: string;
 }
 
 export class AIService {
@@ -206,7 +232,7 @@ Respond with your bratty personality now:`;
                     },
                 ],
                 max_completion_tokens: 1000,
-                reasoning_effort: 'low',
+                reasoning_effort: 'medium',
                 // temperature: 0.8, // Higher temperature for more creative/bratty responses
                 // presence_penalty: 0.1,
                 // frequency_penalty: 0.1,
@@ -225,6 +251,44 @@ Respond with your bratty personality now:`;
             console.error('Error generating AI reply:', error);
             return 'Ugh, my brain is being bratty and not working right now! 🙄 Try again later~';
         }
+    }
+
+    async generateBirthdayAnnouncement(options: BirthdayAnnouncementOptions): Promise<string> {
+        const { displayName, username, contextualMessages = [], retryFeedback } = options;
+
+        const userPrompt = `Write one short public birthday announcement for a Discord member.
+
+Known account labels (do not quote these): displayName="${displayName}", username="${username}"
+
+Rules:
+- 12 to 80 words
+- BrattyBot vibe: dry wit, playful sass, adult-community appropriate
+- Keep it celebratory and concise
+- No advice, no moderation talk, no emoji spam
+- No @everyone or @here
+- Do not mention real names, ages, or personal demographics
+- Output plain text only`;
+
+        const retryPrompt = retryFeedback
+            ? `\n\nYour previous attempt was rejected. Fix these issues and rewrite from scratch:\n${retryFeedback}`
+            : '';
+
+        const birthdayInput: AgentInputItem[] = [
+            ...contextualMessages.map((messageText) => ({
+                role: 'user' as const,
+                content: [{ type: 'input_text' as const, text: messageText }],
+            })),
+            { role: 'user', content: [{ type: 'input_text', text: `${userPrompt}${retryPrompt}` }] },
+        ];
+        const runner = new Runner();
+        const result = await runner.run(BIRTHDAY_ANNOUNCEMENT_AGENT, birthdayInput);
+        const announcement = result.finalOutput?.trim();
+
+        if (!announcement) {
+            throw new Error('AI returned empty birthday announcement');
+        }
+
+        return announcement;
     }
 }
 

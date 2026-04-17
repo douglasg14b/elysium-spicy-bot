@@ -2,6 +2,7 @@ import { ChatInputCommandInteraction, SlashCommandBuilder } from 'discord.js';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { commandSuccess, commandError } from '../../../features-system/commands';
 import { birthdayRepository } from '../data/birthdayRepo';
+import { birthdayConfigRepo } from '../data/birthdayConfigRepo';
 import { BirthdayModalComponent } from '../components';
 import { BirthdayActionSelectComponent } from '../components/birthdayActionSelect';
 
@@ -27,11 +28,16 @@ export const handleBirthdayCommand = async (
         const existingBirthday = await birthdayRepository.get(guildId, userId);
 
         if (existingBirthday) {
+            const isConfigured = await birthdayConfigRepo.isConfigured(guildId);
+
             // Show action select with current birthday info
             const embed = BirthdayActionSelectComponent.buildBirthdayInfoEmbed(existingBirthday);
             const actionRow = BirthdayActionSelectComponent.buildComponent(existingBirthday);
 
             await interaction.reply({
+                content: isConfigured
+                    ? undefined
+                    : 'Announcements are not configured yet. Ask an admin to run `/birthday-config channel:<channel>`.',
                 embeds: [embed],
                 components: [actionRow],
                 ephemeral: true,

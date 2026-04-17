@@ -1,7 +1,7 @@
-import { GuildMember } from 'discord.js';
+import type { GuildMember } from 'discord.js';
 
 export function memberHasModeratorRole(member: GuildMember, roleIds: string[]) {
-    return roleIds.some((role) => member.roles.cache.some((r) => r.name === role));
+    return roleIds.some((roleId) => member.roles.cache.has(roleId));
 }
 
 export function memberHasModeratorPerms(member: GuildMember) {

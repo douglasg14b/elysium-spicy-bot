@@ -1,5 +1,10 @@
 import { database } from '../../../features-system/data-persistence/database';
+import { BIRTHDAY_TIMEZONE } from '../../../environment';
 import { Birthday, NewBirthday, BirthdayUpdate, BirthdayDisplay } from './birthdaySchema';
+import { getDatePartsForTimeZone, getLocalDateKey, isBirthdayCelebratedOnDate } from '../birthdayCelebration';
+
+const BIRTHDAY_ANNOUNCEMENT_START_HOUR = 7;
+const BIRTHDAY_ANNOUNCEMENT_END_HOUR = 20;
 
 export class BirthdayRepository {
     /**
@@ -34,17 +39,48 @@ export class BirthdayRepository {
     /**
      * Get birthdays for today across all guilds
      */
-    async getTodaysBirthdays(): Promise<Birthday[]> {
-        const now = new Date();
-        const month = now.getMonth() + 1; // JavaScript months are 0-indexed
-        const day = now.getDate();
+    async getTodaysBirthdays(now: Date = new Date()): Promise<Birthday[]> {
+        const dateParts = getDatePartsForTimeZone(now, BIRTHDAY_TIMEZONE);
+        const month = dateParts.month;
+        const day = dateParts.day;
+        const candidateRows =
+            month === 2 && day === 28
+                ? await database
+                      .selectFrom('birthdays')
+                      .selectAll()
+                      .where('month', '=', 2)
+                      .where((expressionBuilder) => expressionBuilder('day', 'in', [28, 29]))
+                      .execute()
+                : await database
+                      .selectFrom('birthdays')
+                      .selectAll()
+                      .where('month', '=', month)
+                      .where('day', '=', day)
+                      .execute();
 
-        return await database
-            .selectFrom('birthdays')
-            .selectAll()
-            .where('month', '=', month)
-            .where('day', '=', day)
-            .execute();
+        return candidateRows.filter((birthdayRow) =>
+            isBirthdayCelebratedOnDate(birthdayRow.month, birthdayRow.day, now, BIRTHDAY_TIMEZONE)
+        );
+    }
+
+    /**
+     * Get birthdays due for announcement today that have not been announced yet.
+     */
+    async findDueForAnnouncementToday(now: Date = new Date()): Promise<Birthday[]> {
+        if (!isWithinBirthdayAnnouncementWindow(now)) {
+            return [];
+        }
+
+        const todayBirthdays = await this.getTodaysBirthdays(now);
+        const todayDateKey = getLocalDateKey(now, BIRTHDAY_TIMEZONE);
+
+        return todayBirthdays.filter((birthdayRow) => {
+            if (!birthdayRow.lastAnnouncedAt) {
+                return true;
+            }
+
+            return getLocalDateKey(birthdayRow.lastAnnouncedAt, BIRTHDAY_TIMEZONE) !== todayDateKey;
+        });
     }
 
     /**
@@ -90,16 +126,20 @@ export class BirthdayRepository {
     /**
      * Create or update a user's birthday
      */
-    async upsert(birthdayData: Omit<NewBirthday, 'createdAt' | 'updatedAt' | 'configVersion'>): Promise<Birthday> {
+    async upsert(
+        birthdayData: Omit<NewBirthday, 'createdAt' | 'updatedAt' | 'configVersion' | 'lastAnnouncedAt'>
+    ): Promise<Birthday> {
         const existing = await this.get(birthdayData.guildId, birthdayData.userId);
         const now = new Date().toISOString();
 
         if (existing) {
+            const didBirthdayDateChange = existing.month !== birthdayData.month || existing.day !== birthdayData.day;
             await database
                 .updateTable('birthdays')
                 .set({
                     ...birthdayData,
                     updatedAt: now,
+                    lastAnnouncedAt: didBirthdayDateChange ? null : undefined,
                 })
                 .where('guildId', '=', birthdayData.guildId)
                 .where('userId', '=', birthdayData.userId)
@@ -111,6 +151,7 @@ export class BirthdayRepository {
                     ...birthdayData,
                     createdAt: now,
                     updatedAt: now,
+                    lastAnnouncedAt: null,
                     configVersion: 1,
                 })
                 .execute();
@@ -134,11 +175,30 @@ export class BirthdayRepository {
         userId: string,
         updates: Omit<BirthdayUpdate, 'guildId' | 'userId' | 'createdAt'>
     ): Promise<void> {
+        const existing = await this.get(guildId, userId);
+        const didBirthdayDateChange =
+            !!existing &&
+            ((updates.month !== undefined && updates.month !== existing.month) ||
+                (updates.day !== undefined && updates.day !== existing.day));
+
         await database
             .updateTable('birthdays')
             .set({
                 ...updates,
+                lastAnnouncedAt: didBirthdayDateChange ? null : updates.lastAnnouncedAt,
                 updatedAt: new Date().toISOString(),
+            })
+            .where('guildId', '=', guildId)
+            .where('userId', '=', userId)
+            .execute();
+    }
+
+    async markAnnounced(guildId: string, userId: string, at: Date = new Date()): Promise<void> {
+        await database
+            .updateTable('birthdays')
+            .set({
+                lastAnnouncedAt: at.toISOString(),
+                updatedAt: at.toISOString(),
             })
             .where('guildId', '=', guildId)
             .where('userId', '=', userId)
@@ -147,3 +207,12 @@ export class BirthdayRepository {
 }
 
 export const birthdayRepository = new BirthdayRepository();
+
+export function isWithinBirthdayAnnouncementWindow(now: Date = new Date()): boolean {
+    const dateParts = getDatePartsForTimeZone(now, BIRTHDAY_TIMEZONE);
+
+    return (
+        dateParts.hour >= BIRTHDAY_ANNOUNCEMENT_START_HOUR &&
+        dateParts.hour < BIRTHDAY_ANNOUNCEMENT_END_HOUR
+    );
+}

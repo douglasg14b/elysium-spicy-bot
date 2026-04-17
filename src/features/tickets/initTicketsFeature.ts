@@ -6,6 +6,7 @@ import {
     TicketUnclaimButtonComponent,
     TicketCloseButtonComponent,
     TicketDeleteButtonComponent,
+    TicketConfirmDeleteButtonComponent,
     TicketReopenButtonComponent,
     TicketConfigModalComponent,
     TicketConfigButtonComponent,
@@ -34,5 +35,9 @@ export function initTicketsFeature(): void {
     );
     interactionsRegistry.register(TicketCloseButtonComponent().component(true), TicketCloseButtonComponent().handler);
     interactionsRegistry.register(TicketDeleteButtonComponent().component(true), TicketDeleteButtonComponent().handler);
+    interactionsRegistry.register(
+        TicketConfirmDeleteButtonComponent().component(true),
+        TicketConfirmDeleteButtonComponent().handler
+    );
     interactionsRegistry.register(TicketReopenButtonComponent().component(true), TicketReopenButtonComponent().handler);
 }

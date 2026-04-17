@@ -7,7 +7,7 @@ import { initFlashChat } from './features/flash-chat';
 import { flagBotReady } from './healthcheck/botHearthbeat';
 import { deployTicketSystemCommand, handleDeployTicketSystem, initTicketsFeature } from './features/tickets';
 import { initAIReply } from './features/ai-reply';
-import { initBirthdayFeature } from './features/birthday-tracker';
+import { initBirthdayFeature, startBirthdayAnnouncementScheduler, stopBirthdayAnnouncementScheduler } from './features/birthday-tracker';
 
 interactionsRegistry.register(flashChatCommand, handleFlashChatCommand);
 interactionsRegistry.register(deployTicketSystemCommand, handleDeployTicketSystem);
@@ -38,6 +38,7 @@ DISCORD_CLIENT.once(Events.ClientReady, async (readyClient) => {
     });
 
     await initFlashChat();
+    startBirthdayAnnouncementScheduler(DISCORD_CLIENT);
 });
 
 // Emulate the "hello there" behavior Kat mentioned
@@ -74,6 +75,7 @@ process.on('SIGINT', () => {
     // messageTimers.forEach((timer) => clearTimeout(timer));
     // messageTimers.clear();
 
+    stopBirthdayAnnouncementScheduler();
     DISCORD_CLIENT.destroy();
     process.exit(0);
 });

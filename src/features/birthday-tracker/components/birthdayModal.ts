@@ -9,6 +9,7 @@ import {
 } from 'discord.js';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { birthdayRepository } from '../data/birthdayRepo';
+import { birthdayConfigRepo } from '../data/birthdayConfigRepo';
 import { Birthday } from '../data/birthdaySchema';
 import { commandSuccess, commandError } from '../../../features-system/commands';
 import { parseBirthdayInput, formatBirthday } from '../utils';
@@ -101,7 +102,7 @@ export class BirthdayModalComponent {
             const { month, day, year } = parseResult.data!;
 
             // Save the birthday
-            const birthday = await birthdayRepository.upsert({
+            await birthdayRepository.upsert({
                 guildId,
                 userId,
                 month,
@@ -110,12 +111,16 @@ export class BirthdayModalComponent {
                 displayName,
                 username,
             });
+            const isConfigured = await birthdayConfigRepo.isConfigured(guildId);
 
             // Format response
             const formattedDate = formatBirthday(month, day, year);
+            const configWarning = isConfigured
+                ? ''
+                : '\n\nAnnouncements are not configured yet. Ask an admin to run `/birthday-config channel:<channel>`.';
 
             await interaction.reply({
-                content: `🎉 Your birthday has been set to **${formattedDate}**!`,
+                content: `🎉 Your birthday has been set to **${formattedDate}**!${configWarning}`,
                 ephemeral: true,
             });
 

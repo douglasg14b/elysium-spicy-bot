@@ -38,6 +38,12 @@ export const TICKET_BUTTON_CONFIGS = {
         style: ButtonStyle.Danger,
         emoji: '🗑️',
     },
+    CONFIRM_DELETE: {
+        customId: 'ticket_confirm_delete_button',
+        label: 'Confirm Delete',
+        style: ButtonStyle.Danger,
+        emoji: '⚠️',
+    },
 } as const;
 
 // Export the individual IDs for backward compatibility
@@ -46,3 +52,4 @@ export const TICKET_UNCLAIM_BUTTON_ID = TICKET_BUTTON_CONFIGS.UNCLAIM.customId;
 export const TICKET_CLOSE_BUTTON_ID = TICKET_BUTTON_CONFIGS.CLOSE.customId;
 export const TICKET_REOPEN_BUTTON_ID = TICKET_BUTTON_CONFIGS.REOPEN.customId;
 export const TICKET_DELETE_BUTTON_ID = TICKET_BUTTON_CONFIGS.DELETE.customId;
+export const TICKET_CONFIRM_DELETE_BUTTON_ID = TICKET_BUTTON_CONFIGS.CONFIRM_DELETE.customId;

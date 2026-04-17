@@ -24,6 +24,8 @@ export interface BirthdayTable {
     updatedAt: ColumnType<Date, string, string>;
     /** When the birthday was first set */
     createdAt: ColumnType<Date, string, string>;
+    /** Last date this birthday announcement was sent */
+    lastAnnouncedAt: ColumnType<Date | null, string | null, string | null>;
 
     configVersion: number; // For schema migrations
 }

@@ -11,6 +11,7 @@ The Birthday Tracker feature allows users to:
 -   Delete their birthday from the server
 -   Optionally include their birth year for age display
 -   Store birthdays per server (guild-specific)
+-   Receive automatic birthday shout-outs in a configured announcement channel
 
 ## Usage
 
@@ -51,9 +52,11 @@ The feature uses a `birthdays` table with the following structure:
 ### Components
 
 1. **Command**: `/birthday` - Opens the birthday management modal
+2. **Command**: `/birthday-config channel:<channel>` - Admin config for announcement channel
 2. **Modal**: Interactive form for setting/updating/deleting birthdays
-3. **Repository**: Database operations for birthday management
-4. **Schema**: TypeScript types and database table definition
+3. **Repository**: Database operations for birthday and config management
+4. **Scheduler service**: Periodic birthday announcements with one-send-per-day dedup
+5. **Schema**: TypeScript types and database table definitions
 
 ### Features
 
@@ -62,12 +65,16 @@ The feature uses a `birthdays` table with the following structure:
 -   **Guild-specific**: Each server has its own birthday list
 -   **Update/Delete**: Users can modify or remove their birthday
 -   **Ephemeral responses**: All interactions are private to the user
+-   **Announcement config**: Per-guild destination channel stored in `birthday_config`
+-   **Leap-year rule**: Feb 29 birthdays celebrate on Feb 28 in non-leap years
+-   **Timezone behavior**: Birthday day-boundary defaults to Pacific time (`America/Los_Angeles`); this is global and not user-configurable in-product
+-   **Ops override**: `BIRTHDAY_TIMEZONE` env can override the global timezone if needed
+-   **Deduplication**: Birthday rows track `last_announced_at` so one member is not announced twice on the same celebration day
 
 ### Future Enhancements
 
 Potential future features could include:
 
--   Birthday notifications/announcements
 -   Birthday list viewing for server admins
 -   Upcoming birthdays display
 -   Birthday reminders
@@ -79,12 +86,17 @@ Potential future features could include:
 birthday-tracker/
 ├── commands/
 │   └── birthdayCommand.ts      # /birthday slash command
+│   └── birthdayConfigCommand.ts # /birthday-config slash command
 ├── components/
 │   ├── index.ts                # Component exports
 │   └── birthdayModal.ts        # Modal component and handler
 ├── data/
 │   ├── birthdayRepo.ts         # Database operations
-│   └── birthdaySchema.ts       # TypeScript types and schema
+│   ├── birthdaySchema.ts       # Birthday row types and schema
+│   ├── birthdayConfigRepo.ts   # Birthday config persistence
+│   └── birthdayConfigSchema.ts # Birthday config row types
+├── birthdayAnnouncementService.ts # Scheduler + announcement sending
+├── birthdayCelebration.ts      # Leap-year and date helpers
 ├── birthdayModalHandler.ts     # Modal handler registration
 └── index.ts                    # Feature exports
 ```
@@ -96,6 +108,7 @@ The feature is integrated into the main bot through:
 1. Database schema addition in `database.ts`
 2. Migration file for table creation
 3. Command and modal registration in `bot.ts`
+4. Scheduler starts once at client ready and shuts down on SIGINT
 
 ```
 

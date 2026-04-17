@@ -19,3 +19,6 @@ export const PG_CONNECTION_STRING = DB_TYPE === 'postgres' ? getString('PG_CONNE
 export const OPENAI_API_KEY = getString('OPENAI_API_KEY');
 export const AI_MODEL = getStringOptional('AI_MODEL') || 'gpt-5.1-chat-latest';
 export const AI_MAX_CONTEXT_MESSAGES = env.get('AI_MAX_CONTEXT_MESSAGES').asIntPositive() || 50;
+// Birthday scheduling always runs on Pacific Time by default.
+// This can be overridden via env for ops emergencies, but there is no in-product setting for it.
+export const BIRTHDAY_TIMEZONE = getStringOptional('BIRTHDAY_TIMEZONE') || 'America/Los_Angeles';
