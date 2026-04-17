@@ -12,7 +12,11 @@ import type {
 } from 'kysely';
 
 type DateOnlyKeys<TSchema> = {
-    [K in keyof TSchema]: TSchema[K] extends ColumnType<Date, any, any> | Date ? K : never;
+    [K in keyof TSchema]: TSchema[K] extends ColumnType<Date, any, any> | Date
+        ? K
+        : TSchema[K] extends ColumnType<Date | null, any, any>
+          ? K
+          : never;
 }[keyof TSchema];
 
 type DateColumns<DB> = {

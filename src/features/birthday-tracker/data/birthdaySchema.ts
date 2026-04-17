@@ -25,6 +25,9 @@ export interface BirthdayTable {
     /** When the birthday was first set */
     createdAt: ColumnType<Date, string, string>;
 
+    /** Last time a public birthday announcement was posted for this row (dedup per local celebration day) */
+    lastAnnouncedAt: ColumnType<Date | null, string | null, string | null>;
+
     configVersion: number; // For schema migrations
 }
 

@@ -16,13 +16,14 @@ describe("ciBranchProductDiff", () => {
             "10\t5\tsrc/foo.ts",
             "99\t1\tREADME.md",
             "0\t0\t.jarvis/ci/x.json",
-            "2\t3\tgithub-plan-cli/src/x.ts",
+            "2\t3\tmigrations/001_x.ts",
+            "1\t1\tgithub-plan-cli/src/x.ts",
         ].join("\n");
         const m = parseGitNumstatForProductMetrics(stdout);
         expect(m.productFileCount).toBe(2);
         expect(m.productLineChurn).toBe(10 + 5 + 2 + 3);
         expect(m.productPaths).toContain("src/foo.ts");
-        expect(m.productPaths).toContain("github-plan-cli/src/x.ts");
+        expect(m.productPaths).toContain("migrations/001_x.ts");
     });
 
     it("shouldSkipFirstCiImplementPass is true when file count meets threshold", () => {
