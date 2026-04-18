@@ -4,7 +4,7 @@ import { Birthday, NewBirthday, BirthdayUpdate, BirthdayDisplay } from './birthd
 import { getDatePartsForTimeZone, getLocalDateKey, isBirthdayCelebratedOnDate } from '../birthdayCelebration';
 
 const BIRTHDAY_ANNOUNCEMENT_START_HOUR = 7;
-const BIRTHDAY_ANNOUNCEMENT_END_HOUR = 20;
+const BIRTHDAY_ANNOUNCEMENT_END_HOUR = 22;
 
 export class BirthdayRepository {
     /**
@@ -208,6 +208,10 @@ export class BirthdayRepository {
 
 export const birthdayRepository = new BirthdayRepository();
 
+/**
+ * Returns true when the current Pacific hour is inside the birthday announcement window.
+ * The window starts at 7:00 a.m. and ends before 10:00 p.m.
+ */
 export function isWithinBirthdayAnnouncementWindow(now: Date = new Date()): boolean {
     const dateParts = getDatePartsForTimeZone(now, BIRTHDAY_TIMEZONE);
 
