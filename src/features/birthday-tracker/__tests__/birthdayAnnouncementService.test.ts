@@ -177,4 +177,80 @@ describe('runBirthdayAnnouncementTick', () => {
             vi.useRealTimers();
         }
     });
+
+    it('does not re-post in the same runtime when marking announced fails', async () => {
+        vi.useFakeTimers();
+        try {
+            vi.setSystemTime(new Date('2026-04-17T15:05:00.000Z'));
+
+            const send = vi.fn(async (_payload: { content: string; allowedMentions: { parse: string[]; users: string[] } }) => ({}));
+            const markAnnounced = vi.fn(async () => {
+                throw new Error('database unavailable');
+            });
+
+            const dependencies = {
+                birthdayRepository: {
+                    findDueForAnnouncementToday: vi.fn(async () => [
+                        {
+                            guildId: 'g-2',
+                            userId: 'u-2',
+                            displayName: 'Raven',
+                            username: 'raven',
+                        },
+                    ]),
+                    markAnnounced,
+                },
+                birthdayConfigRepo: {
+                    getByGuildId: vi.fn(async () => ({
+                        announcementChannelId: 'c-2',
+                        contextChannelId: null,
+                    })),
+                },
+                aiService: {
+                    generateBirthdayAnnouncement: vi.fn(async () => 'Happy birthday, darling.'),
+                },
+            } as unknown as BirthdayAnnouncementDependencies;
+
+            const fakeClient = {
+                user: { id: 'bot-user' },
+                guilds: {
+                    cache: new Map([
+                        [
+                            'g-2',
+                            {
+                                id: 'g-2',
+                                channels: {
+                                    fetch: vi.fn(async () => ({
+                                        id: 'c-2',
+                                        isTextBased: () => true,
+                                        isDMBased: () => false,
+                                        permissionsFor: () => ({
+                                            has: () => true,
+                                        }),
+                                        send,
+                                    })),
+                                },
+                                members: {
+                                    me: { id: 'bot-user' },
+                                    fetchMe: vi.fn(),
+                                    fetch: vi.fn(async () => null),
+                                },
+                            },
+                        ],
+                    ]),
+                    fetch: vi.fn(),
+                },
+            } as unknown as Client;
+
+            const firstTick = runBirthdayAnnouncementTick(fakeClient, dependencies);
+            await vi.runAllTimersAsync();
+            await firstTick;
+            await runBirthdayAnnouncementTick(fakeClient, dependencies);
+
+            expect(send).toHaveBeenCalledTimes(1);
+            expect(markAnnounced).toHaveBeenCalledTimes(3);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });

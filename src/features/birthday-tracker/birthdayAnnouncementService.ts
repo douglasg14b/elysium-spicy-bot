@@ -1,7 +1,9 @@
 import { Client, Guild, GuildBasedChannel, Message, PermissionsBitField } from 'discord.js';
+import { BIRTHDAY_TIMEZONE } from '../../environment';
 import { aiService, AIService } from '../ai-reply/aiService';
 import { BirthdayConfigRepo, birthdayConfigRepo } from './data/birthdayConfigRepo';
 import { BirthdayRepository, birthdayRepository, isWithinBirthdayAnnouncementWindow } from './data/birthdayRepo';
+import { getLocalDateKey } from './birthdayCelebration';
 
 const BIRTHDAY_ANNOUNCEMENT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_BIRTHDAY_ANNOUNCEMENT_LENGTH = 500;
@@ -26,6 +28,7 @@ const defaultDependencies: BirthdayAnnouncementDependencies = {
 let birthdayAnnouncementInterval: ReturnType<typeof setInterval> | null = null;
 let isTickRunning = false;
 const contextChannelMessageCache = new Map<string, ContextChannelCacheState>();
+const sentBirthdayAnnouncementDateKeys = new Map<string, string>();
 
 type CachedContextMessage = {
     id: string;
@@ -74,6 +77,7 @@ export async function runBirthdayAnnouncementTick(
     }
 
     if (!client.user) {
+        console.info('[birthday-announcements] Skipping tick because Discord client user is not ready yet');
         return;
     }
 
@@ -81,14 +85,26 @@ export async function runBirthdayAnnouncementTick(
 
     try {
         const now = new Date();
+        console.info(
+            `[birthday-announcements] Tick triggered at ${now.toISOString()} (${formatBirthdayTimeForLog(now)} in ${BIRTHDAY_TIMEZONE})`,
+        );
+
         if (!isWithinBirthdayAnnouncementWindow(now)) {
             console.info(
-                '[birthday-announcements] Skipping tick because it is outside the Pacific announcement window',
+                `[birthday-announcements] Skipping tick because it is outside the birthday announcement window (${formatBirthdayTimeForLog(now)}; allowed 7:00 AM up to but not including 10:00 PM in ${BIRTHDAY_TIMEZONE})`,
             );
             return;
         }
 
         const birthdaysDueToday = await dependencies.birthdayRepository.findDueForAnnouncementToday(now);
+        if (birthdaysDueToday.length === 0) {
+            console.info('[birthday-announcements] Birthday lookup returned 0 due entries; nothing to send this tick');
+            return;
+        }
+
+        console.info(
+            `[birthday-announcements] Birthday lookup returned ${birthdaysDueToday.length} due entr${birthdaysDueToday.length === 1 ? 'y' : 'ies'}`,
+        );
 
         for (const birthdayRecord of birthdaysDueToday) {
             const resolvedChannel = await resolveBirthdayAnnouncementChannel(
@@ -99,7 +115,16 @@ export async function runBirthdayAnnouncementTick(
 
             if (!resolvedChannel) {
                 console.warn(
-                    `[birthday-announcements] Skipping user ${birthdayRecord.userId} in guild ${birthdayRecord.guildId}: no valid configured channel`,
+                    `[birthday-announcements] Skipping user ${birthdayRecord.userId} in guild ${birthdayRecord.guildId}: could not resolve an announcement channel`,
+                );
+                continue;
+            }
+
+            const announcementDateKey = getLocalDateKey(now, BIRTHDAY_TIMEZONE);
+            const dedupeKey = getBirthdayAnnouncementDedupeKey(birthdayRecord.guildId, birthdayRecord.userId);
+            if (sentBirthdayAnnouncementDateKeys.get(dedupeKey) === announcementDateKey) {
+                console.info(
+                    `[birthday-announcements] Skipping user ${birthdayRecord.userId} in guild ${birthdayRecord.guildId}: already announced today in this runtime`,
                 );
                 continue;
             }
@@ -145,7 +170,17 @@ export async function runBirthdayAnnouncementTick(
                         users: [birthdayRecord.userId],
                     },
                 });
+            } catch (error) {
+                console.warn(
+                    `[birthday-announcements] Failed to send announcement for user ${birthdayRecord.userId} in guild ${birthdayRecord.guildId}:`,
+                    error,
+                );
+                continue;
+            }
 
+            sentBirthdayAnnouncementDateKeys.set(dedupeKey, announcementDateKey);
+
+            try {
                 await markBirthdayAnnouncedWithRetry(
                     dependencies.birthdayRepository,
                     birthdayRecord.guildId,
@@ -153,11 +188,11 @@ export async function runBirthdayAnnouncementTick(
                 );
 
                 console.info(
-                    `[birthday-announcements] Sent announcement for user ${birthdayRecord.userId} in guild ${birthdayRecord.guildId}`,
+                    `[birthday-announcements] Birthday announcement posted to Discord and recorded for user ${birthdayRecord.userId} in guild ${birthdayRecord.guildId}`,
                 );
             } catch (error) {
                 console.warn(
-                    `[birthday-announcements] Failed to send announcement for user ${birthdayRecord.userId} in guild ${birthdayRecord.guildId}:`,
+                    `[birthday-announcements] Birthday announcement posted to Discord for user ${birthdayRecord.userId} in guild ${birthdayRecord.guildId}, but failed to mark it as announced. It will not be re-posted again in this runtime:`,
                     error,
                 );
             }
@@ -165,6 +200,19 @@ export async function runBirthdayAnnouncementTick(
     } finally {
         isTickRunning = false;
     }
+}
+
+function formatBirthdayTimeForLog(now: Date): string {
+    return new Intl.DateTimeFormat('en-US', {
+        timeZone: BIRTHDAY_TIMEZONE,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+    }).format(now);
 }
 
 async function resolveBirthdayAnnouncementChannel(
@@ -239,6 +287,10 @@ async function markBirthdayAnnouncedWithRetry(
             await sleep(retryDelay);
         }
     }
+}
+
+function getBirthdayAnnouncementDedupeKey(guildId: string, userId: string): string {
+    return `${guildId}:${userId}`;
 }
 
 function sleep(milliseconds: number): Promise<void> {
