@@ -3,11 +3,8 @@ import { Migrator, MigrationProvider, Migration } from 'kysely';
 import os from 'os';
 import path from 'path';
 import { promises as fs } from 'fs';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { database } from './database';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // ⚠ Typical JS-ecosystem bullshit below ⚠
 // ========================================
@@ -32,16 +29,9 @@ class FileMigrationProvider implements MigrationProvider {
         const migrations: Record<string, Migration> = {};
 
         for (const file of files) {
-            const pathParts = [directoryPath, file];
-
-            // This is the main addition we're making to the original code from
-            // Kysely. On Windows, we need all absolute URLs to be "file URLs", so
-            // we add this prefix.
-            if (os.platform() === 'win32') {
-                pathParts.unshift('file://');
-            }
-
-            const absolutePathToMigration = path.join(...pathParts);
+            const absolutePathToMigration = os.platform() === 'win32'
+                ? pathToFileURL(path.join(directoryPath, file)).href
+                : path.join(directoryPath, file);
 
             const migration = await import(absolutePathToMigration);
 
@@ -63,30 +53,36 @@ const migrator = new Migrator({
 async function main() {
     console.log('🚀 Running migrations...');
 
-    const { error, results } = await migrator.migrateToLatest();
+    try {
+        const { error, results } = await migrator.migrateToLatest();
 
-    if (results?.length === 0) {
-        console.log('✅ No migrations needed');
-        await database.destroy();
-        console.log('🎉 Migrations complete');
-        return;
-    }
-
-    for (const r of results ?? []) {
-        if (r.status === 'Success') {
-            console.log(`✅ ${r.direction} ${r.migrationName}`);
-        } else if (r.status === 'Error') {
-            console.error(`❌ ${r.direction} ${r.migrationName}`);
+        if (results?.length === 0) {
+            console.log('✅ No migrations needed');
+            console.log('🎉 Migrations complete');
+            return;
         }
-    }
 
-    if (error) {
-        console.error('Migration failed:', error);
-        process.exit(1);
-    }
+        for (const migrationResult of results ?? []) {
+            if (migrationResult.status === 'Success') {
+                console.log(`✅ ${migrationResult.direction} ${migrationResult.migrationName}`);
+            } else if (migrationResult.status === 'Error') {
+                console.error(`❌ ${migrationResult.direction} ${migrationResult.migrationName}`);
+            }
+        }
 
-    await database.destroy();
-    console.log('🎉 Migrations complete');
+        if (error) {
+            console.error('Migration failed:', error);
+            process.exitCode = 1;
+            return;
+        }
+
+        console.log('🎉 Migrations complete');
+    } finally {
+        await database.destroy();
+    }
 }
 
-main();
+void main().catch((error: unknown) => {
+    console.error('Unexpected migration failure:', error);
+    process.exitCode = 1;
+});
