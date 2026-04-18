@@ -37,8 +37,14 @@ DISCORD_CLIENT.once(Events.ClientReady, async (readyClient) => {
         console.log(`📝 Text channels: ${textChannels.size}`);
     });
 
-    await initFlashChat();
+    // Keep birthday scheduler independent so another feature init cannot block announcements.
     startBirthdayAnnouncementScheduler(DISCORD_CLIENT);
+
+    try {
+        await initFlashChat();
+    } catch (error) {
+        console.error('❌ Failed to initialize flash chat feature:', error);
+    }
 });
 
 // Emulate the "hello there" behavior Kat mentioned
