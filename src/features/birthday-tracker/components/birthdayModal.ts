@@ -4,8 +4,6 @@ import {
     TextInputBuilder,
     TextInputStyle,
     ModalSubmitInteraction,
-    StringSelectMenuBuilder,
-    StringSelectMenuInteraction,
 } from 'discord.js';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { birthdayRepository } from '../data/birthdayRepo';
@@ -15,11 +13,10 @@ import { commandSuccess, commandError } from '../../../features-system/commands'
 import { parseBirthdayInput, formatBirthday } from '../utils';
 
 const BIRTHDAY_MODAL_ID = 'birthday_modal';
-const BIRTHDAY_ACTION_SELECT_ID = 'birthday_action_select';
 
 const MONTH_INPUT_ID = 'birthday_month';
 const DAY_INPUT_ID = 'birthday_day';
-const YEAR_INPUT_ID = 'birthday_year';
+export const YEAR_INPUT_ID = 'birthday_year';
 
 export class BirthdayModalComponent {
     static buildComponent(existingBirthday?: Birthday | null): ModalBuilder {
@@ -47,7 +44,6 @@ export class BirthdayModalComponent {
             .setStyle(TextInputStyle.Short)
             .setPlaceholder('e.g., 1990')
             .setRequired(false)
-            .setMinLength(4)
             .setMaxLength(4);
 
         // Pre-fill with existing data if available

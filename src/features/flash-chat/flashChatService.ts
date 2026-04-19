@@ -1,6 +1,6 @@
 import { User } from 'discord.js';
 import { flashChatManager } from './flashChatManager';
-import { boolToInt, fail, ok } from '../../shared';
+import { boolToInt } from '../../shared';
 import { flashChatRepo } from './data/flashChatRepo';
 
 type FlashChatArgs = {
@@ -96,18 +96,23 @@ export class FlashChatService {
 
     async startAll() {
         const configs = await flashChatRepo.getAllEnabled();
-        const results = configs.map((config) => {
+        for (const config of configs) {
             if (flashChatManager.has(config.guildId, config.channelId)) {
-                return fail(`Flash chat already running for ${config.guildId}/${config.channelId}`);
+                const guildLabel = flashChatManager.getGuildLabel(config.guildId);
+                console.log(`Flash chat already running for ${guildLabel}/${config.channelId}`);
+                continue;
             }
 
-            console.log(`🚀 Starting flash chat for ${config.guildId}/${config.channelId}`);
-            flashChatManager.startInstance(config);
-            return ok(`Started flash chat for ${config.guildId}/${config.channelId}`);
-        });
-
-        // TODO: Their result pattern lib is broken and doesn't have proper module exports that match their TS defs
-        // return ResultUtils.combine(results as Result[]);
+            try {
+                const guildLabel = flashChatManager.getGuildLabel(config.guildId);
+                console.log(`🚀 Starting flash chat for ${guildLabel}/${config.channelId}`);
+                flashChatManager.startInstance(config);
+                console.log(`✅ Started flash chat for ${guildLabel}/${config.channelId}`);
+            } catch (error) {
+                const guildLabel = flashChatManager.getGuildLabel(config.guildId);
+                console.error(`❌ Failed to start flash chat for ${guildLabel}/${config.channelId}:`, error);
+            }
+        }
     }
 }
 

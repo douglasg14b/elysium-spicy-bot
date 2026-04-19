@@ -17,6 +17,15 @@ export class FlashChatManager {
         return this._instances;
     }
 
+    public getGuildLabel(guildId: string): string {
+        const guild = this.client.guilds.cache.get(guildId);
+        if (!guild) {
+            return `Guild ${guildId}`;
+        }
+
+        return `${guild.name} (${guild.id})`;
+    }
+
     // public async getInstance(guildId: string, channelId: string): Promise<FlashChatInstance | undefined> {
     //     // First check if we already have the instance in memory
     //     // If not, and a config exists, create one
@@ -48,9 +57,18 @@ export class FlashChatManager {
         }
 
         const instance = new FlashChatInstance(config, this.client);
-        this._instances.get(config.guildId)?.set(config.channelId, instance);
+        const guildInstances = this._instances.get(config.guildId);
+        guildInstances?.set(config.channelId, instance);
 
-        instance.start();
+        try {
+            instance.start();
+        } catch (error) {
+            guildInstances?.delete(config.channelId);
+            if (guildInstances?.size === 0) {
+                this._instances.delete(config.guildId);
+            }
+            throw error;
+        }
 
         return instance;
     }
