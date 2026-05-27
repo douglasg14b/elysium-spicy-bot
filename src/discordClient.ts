@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits } from 'discord.js';
+import { Client, GatewayIntentBits, Partials } from 'discord.js';
 import { DISCORD_BOT_TOKEN } from './environment';
 
 const DISCORD_CLIENT = new Client({
@@ -6,10 +6,11 @@ const DISCORD_CLIENT = new Client({
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMessages,
         GatewayIntentBits.GuildVoiceStates,
         GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildMessageReactions,
     ],
+    partials: [Partials.Message, Partials.Reaction],
 });
 
 DISCORD_CLIENT.token = DISCORD_BOT_TOKEN;
