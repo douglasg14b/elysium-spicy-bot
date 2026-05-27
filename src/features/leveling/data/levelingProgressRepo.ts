@@ -37,6 +37,27 @@ export class LevelingProgressRepo {
         return progress || null;
     }
 
+    async getGuildTopByTotalXp(guildId: string, limit: number): Promise<LevelingProgress[]> {
+        return database
+            .selectFrom('leveling_progress')
+            .selectAll()
+            .where('guildId', '=', guildId)
+            .orderBy('totalXp', 'desc')
+            .orderBy('updatedAt', 'asc')
+            .limit(limit)
+            .execute();
+    }
+
+    async countGuildRankedMembers(guildId: string): Promise<number> {
+        const result = await database
+            .selectFrom('leveling_progress')
+            .select(({ fn }) => fn.countAll<number>().as('count'))
+            .where('guildId', '=', guildId)
+            .executeTakeFirst();
+
+        return Number(result?.count ?? 0);
+    }
+
     async grantXp(input: GrantXpInput): Promise<GrantXpResult | null> {
         return this.grantXpOnce(input, false);
     }

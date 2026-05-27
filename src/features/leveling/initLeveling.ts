@@ -3,6 +3,8 @@ import { interactionsRegistry } from '../../features-system/commands';
 import { DISCORD_CLIENT } from '../../discordClient';
 import { levelingConfigCommand, handleLevelingConfigCommand } from './commands/levelingConfigCommand';
 import { handleLevelCommand, levelCommand } from './commands/levelCommand';
+import { handleLevelRankingsCommand, levelRankingsCommand } from './commands/levelRankingsCommand';
+import { handleLevelStatsCommand, levelStatsCommand } from './commands/levelStatsCommand';
 import { LevelingService } from './levelingService';
 
 let levelingInitialized = false;
@@ -16,6 +18,8 @@ export function initLeveling(): void {
 
     interactionsRegistry.register(levelingConfigCommand, handleLevelingConfigCommand);
     interactionsRegistry.register(levelCommand, handleLevelCommand);
+    interactionsRegistry.register(levelStatsCommand, handleLevelStatsCommand);
+    interactionsRegistry.register(levelRankingsCommand, handleLevelRankingsCommand);
 
     const levelingService = new LevelingService(DISCORD_CLIENT);
 

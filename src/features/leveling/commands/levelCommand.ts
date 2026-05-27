@@ -1,16 +1,15 @@
-import { ChatInputCommandInteraction, SlashCommandBuilder } from 'discord.js';
+import { AttachmentBuilder, ChatInputCommandInteraction, SlashCommandBuilder } from 'discord.js';
 import { commandError, commandSuccess } from '../../../features-system/commands';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
-import { levelingActivityEventRepo } from '../data/levelingActivityEventRepo';
-import { levelingProgressRepo } from '../data/levelingProgressRepo';
 import { buildUserLevelEmbed } from '../logic/buildUserLevelEmbed';
-import { buildUserLevelProfile, getRecentActivitySince } from '../logic/userLevelProfile';
+import { loadUserLevelProfile } from '../logic/loadUserLevelProfile';
+import { renderLevelCard } from '../cards/levelCard/renderLevelCard';
 
 export const LEVEL_COMMAND_NAME = 'level';
 
 export const levelCommand = new SlashCommandBuilder()
     .setName(LEVEL_COMMAND_NAME)
-    .setDescription('View leveling progress and activity for a member')
+    .setDescription('View leveling progress for a member')
     .addUserOption((option) =>
         option.setName('user').setDescription('Member to inspect (defaults to you)').setRequired(false)
     );
@@ -24,30 +23,29 @@ export async function handleLevelCommand(
     }
 
     const targetUser = interaction.options.getUser('user') ?? interaction.user;
-    const guildId = interaction.guildId;
 
-    await interaction.deferReply();
+    await interaction.deferReply({ ephemeral: true });
 
     try {
-        const [progress, recentActivity, totalActivity] = await Promise.all([
-            levelingProgressRepo.get(guildId, targetUser.id),
-            levelingActivityEventRepo.getUserActivityTotals(guildId, targetUser.id, {
-                since: getRecentActivitySince(),
-            }),
-            levelingActivityEventRepo.getUserActivityTotals(guildId, targetUser.id),
-        ]);
+        const profile = await loadUserLevelProfile(interaction.guildId, targetUser.id);
 
-        const profile = buildUserLevelProfile({
-            userId: targetUser.id,
-            progress,
-            recentActivity,
-            totalActivity,
-        });
+        try {
+            const cardPng = await renderLevelCard({
+                profile,
+                displayName: targetUser.displayName,
+                avatarUrl: targetUser.displayAvatarURL({ extension: 'png', size: 256 }),
+            });
+            const attachment = new AttachmentBuilder(cardPng, { name: 'level-card.png' });
 
-        const embed = buildUserLevelEmbed(profile, targetUser);
+            await interaction.editReply({ files: [attachment] });
+            return commandSuccess();
+        } catch (cardError) {
+            console.error('[leveling] Level card render failed, falling back to embed:', cardError);
 
-        await interaction.editReply({ embeds: [embed] });
-        return commandSuccess();
+            const embed = buildUserLevelEmbed(profile, targetUser);
+            await interaction.editReply({ embeds: [embed] });
+            return commandSuccess();
+        }
     } catch (error) {
         console.error('[leveling] Error handling level command:', error);
 
