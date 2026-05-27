@@ -5,7 +5,7 @@ const { Pool } = pg;
 
 import { Kysely, SqliteDialect, CamelCasePlugin, PostgresDialect } from 'kysely';
 import { CommandAuditLogTable } from '../commands';
-import { SqlBooleanPlugin } from './plugins/sqlBooleanPlugin';
+import { SqliteBindingPlugin } from './plugins/sqliteBindingPlugin';
 import { SqliteJsonPlugin } from './plugins/sqliteJsonPlugin';
 import { SqlDatePlugin } from './plugins/sqlDatePlugin';
 import { DB_TYPE, PG_CONNECTION_STRING, SQLITE_DB_PATH } from '../../environment';
@@ -13,6 +13,9 @@ import { FlashChatConfigTable } from '../../features/flash-chat/data/flashChatSc
 import { TicketingConfigTable } from '../../features/tickets/data/ticketingSchema';
 import { BirthdayTable } from '../../features/birthday-tracker/data/birthdaySchema';
 import { BirthdayConfigTable } from '../../features/birthday-tracker/data/birthdayConfigSchema';
+import { LevelingConfigTable } from '../../features/leveling/data/levelingConfigSchema';
+import { LevelingProgressTable } from '../../features/leveling/data/levelingProgressSchema';
+import { LevelingActivityEventTable } from '../../features/leveling/data/levelingActivityEventSchema';
 
 export interface Database {
     flash_chat_config: FlashChatConfigTable;
@@ -20,6 +23,9 @@ export interface Database {
     ticketing_config: TicketingConfigTable;
     birthdays: BirthdayTable;
     birthday_config: BirthdayConfigTable;
+    leveling_config: LevelingConfigTable;
+    leveling_progress: LevelingProgressTable;
+    leveling_activity_events: LevelingActivityEventTable;
 }
 
 function getDbDialect() {
@@ -52,6 +58,9 @@ function getDatabaseClient() {
             command_audit_logs: ['timestamp'],
                 birthdays: ['createdAt', 'updatedAt', 'lastAnnouncedAt'],
                 birthday_config: ['createdAt', 'updatedAt'],
+                leveling_config: ['createdAt', 'updatedAt'],
+                leveling_progress: ['createdAt', 'updatedAt', 'lastMessageXpAt', 'lastReactionXpAt'],
+                leveling_activity_events: ['occurredAt'],
         }),
     ];
 
@@ -59,8 +68,10 @@ function getDatabaseClient() {
         return new Kysely<Database>({
             dialect: dbDialect,
             plugins: [
-                new SqlBooleanPlugin<Database>({
+                new SqliteBindingPlugin<Database>({
                     flash_chat_config: ['enabled', 'removed', 'preserveHistory', 'preservePinned'],
+                    leveling_config: ['enabled', 'reactionXpEnabled', 'photoBonusEnabled'],
+                    leveling_activity_events: ['photoBonus'],
                 }),
                 new SqliteJsonPlugin<Database>({
                     ticketing_config: ['config'],

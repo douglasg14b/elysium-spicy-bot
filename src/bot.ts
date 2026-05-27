@@ -8,6 +8,7 @@ import { flagBotReady } from './healthcheck/botHearthbeat';
 import { deployTicketSystemCommand, handleDeployTicketSystem, initTicketsFeature } from './features/tickets';
 import { initAIReply } from './features/ai-reply';
 import { initBirthdayFeature, startBirthdayAnnouncementScheduler, stopBirthdayAnnouncementScheduler } from './features/birthday-tracker';
+import { initLeveling } from './features/leveling';
 
 interactionsRegistry.register(flashChatCommand, handleFlashChatCommand);
 interactionsRegistry.register(deployTicketSystemCommand, handleDeployTicketSystem);
@@ -17,6 +18,9 @@ initTicketsFeature();
 
 // Initialize birthday tracker handlers
 initBirthdayFeature();
+
+// Initialize leveling system handlers
+initLeveling();
 
 // Initialize AI reply feature
 initAIReply();

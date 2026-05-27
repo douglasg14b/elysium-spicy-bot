@@ -22,3 +22,4 @@ export const AI_MAX_CONTEXT_MESSAGES = env.get('AI_MAX_CONTEXT_MESSAGES').asIntP
 // Birthday scheduling always runs on Pacific Time by default.
 // This can be overridden via env for ops emergencies, but there is no in-product setting for it.
 export const BIRTHDAY_TIMEZONE = getStringOptional('BIRTHDAY_TIMEZONE') || 'America/Los_Angeles';
+export const LEVELING_TIMEZONE = getStringOptional('LEVELING_TIMEZONE') || BIRTHDAY_TIMEZONE;

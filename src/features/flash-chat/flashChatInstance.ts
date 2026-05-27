@@ -98,7 +98,7 @@ export class FlashChatInstance {
 
     // Cleans up expired messages that may have been missed (e.g., bot was offline)
     private async cleanupExpiredMessages() {
-        console.log(`🧹 Starting cleanup of expired messages in #${this._config.channelId}...`);
+        // console.log(`🧹 Starting cleanup of expired messages in #${this._config.channelId}...`);
 
         this.checkStopped();
         const channel = this.client.channels.cache.get(this._config.channelId) as TextChannel;
@@ -122,7 +122,7 @@ export class FlashChatInstance {
         }
 
         const nextInterval = getPeriodicCleanupInterval(this._config.timeoutSeconds * 1000);
-        console.log(`⏲️ Next periodic cleanup in ${Math.round(nextInterval / 1000)} seconds`);
+        // console.log(`⏲️ Next periodic cleanup in ${Math.round(nextInterval / 1000)} seconds`);
         this.cleanupTimer = setTimeout(() => this.cleanupExpiredMessages(), nextInterval);
     }
 
