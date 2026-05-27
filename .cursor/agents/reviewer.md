@@ -1,6 +1,6 @@
 ---
 name: reviewer
-model: default
+model: composer-2.5[fast=false]
 description: Orchestrating reviewer for discord-spicy-bot (Node/TS/discord.js). Runs 4 sub-reviewers and merges one actionable report with a findings table.
 tools: Read, Glob, Grep, Bash, Task
 color: purple

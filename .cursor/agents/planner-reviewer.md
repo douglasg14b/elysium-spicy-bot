@@ -1,6 +1,6 @@
 ---
 name: planner-reviewer
-model: default
+model: composer-2.5[fast=false]
 description: Orchestrating plan reviewer for discord-spicy-bot. Runs 2 plan-focused sub-reviewers and merges one actionable report with a findings table.
 tools: Read, Glob, Grep, Bash, Task
 color: purple

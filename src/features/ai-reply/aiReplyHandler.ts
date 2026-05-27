@@ -74,7 +74,6 @@ async function handleAIReply(message: Message): Promise<void> {
     // Check if we should respond to this message
     const shouldRespond = shouldRespondToMessage(message, botUser.id);
     if (!shouldRespond) {
-        console.log('Not responding to message, does not meet criteria.');
         return;
     }
 

@@ -5,6 +5,7 @@ import {
     DEFAULT_GUILD_RANKINGS_LIMIT,
     loadGuildLevelRankings,
 } from '../logic/loadGuildLevelRankings';
+import { cardAvatarUrlFromUser } from '../cards/shared/cardAvatarUrl';
 import { renderRankingsCard, type RankingsCardMember } from '../cards/rankingsCard/renderRankingsCard';
 
 export const LEVEL_RANKINGS_COMMAND_NAME = 'level-rankings';
@@ -73,7 +74,7 @@ async function resolveRankingsMembers(
             return {
                 userId,
                 displayName: member?.displayName ?? `Member ${userId.slice(-4)}`,
-                avatarUrl: member?.displayAvatarURL({ size: 128 }) ?? null,
+                avatarUrl: member ? cardAvatarUrlFromUser(member.user, 128) : null,
             } satisfies RankingsCardMember;
         })
     );

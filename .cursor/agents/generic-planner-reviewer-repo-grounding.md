@@ -1,6 +1,6 @@
 ---
 name: generic-planner-reviewer-repo-grounding
-model: default
+model: composer-2.5[fast=false]
 description: Reviews implementation plans against this repository's layout, existing artifacts, and documented conventions.
 ---
 

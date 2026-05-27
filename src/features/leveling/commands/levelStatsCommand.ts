@@ -2,6 +2,7 @@ import { AttachmentBuilder, ChatInputCommandInteraction, SlashCommandBuilder } f
 import { commandError, commandSuccess } from '../../../features-system/commands';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { loadUserLevelStats } from '../logic/loadUserLevelStats';
+import { cardAvatarUrlFromUser } from '../cards/shared/cardAvatarUrl';
 import { renderStatsCard } from '../cards/statsCard/renderStatsCard';
 
 export const LEVEL_STATS_COMMAND_NAME = 'level-stats';
@@ -30,7 +31,7 @@ export async function handleLevelStatsCommand(
         const cardPng = await renderStatsCard({
             ...stats,
             displayName: targetUser.displayName,
-            avatarUrl: targetUser.displayAvatarURL({ size: 256 }),
+            avatarUrl: cardAvatarUrlFromUser(targetUser),
         });
         const attachment = new AttachmentBuilder(cardPng, { name: 'stats-card.png' });
 

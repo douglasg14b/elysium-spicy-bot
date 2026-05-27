@@ -3,6 +3,7 @@ import { commandError, commandSuccess } from '../../../features-system/commands'
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { buildUserLevelEmbed } from '../logic/buildUserLevelEmbed';
 import { loadUserLevelProfile } from '../logic/loadUserLevelProfile';
+import { cardAvatarUrlFromUser } from '../cards/shared/cardAvatarUrl';
 import { renderLevelCard } from '../cards/levelCard/renderLevelCard';
 
 export const LEVEL_COMMAND_NAME = 'level';
@@ -33,7 +34,7 @@ export async function handleLevelCommand(
             const cardPng = await renderLevelCard({
                 profile,
                 displayName: targetUser.displayName,
-                avatarUrl: targetUser.displayAvatarURL({ extension: 'png', size: 256 }),
+                avatarUrl: cardAvatarUrlFromUser(targetUser),
             });
             const attachment = new AttachmentBuilder(cardPng, { name: 'level-card.png' });
 

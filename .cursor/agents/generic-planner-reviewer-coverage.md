@@ -1,6 +1,6 @@
 ---
 name: generic-planner-reviewer-coverage
-model: default
+model: composer-2.5[fast=false]
 description: Reviews implementation plans for gaps, assumptions, undisclosed decisions, risks, and sequencing (completeness vs intent).
 ---
 

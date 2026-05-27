@@ -2,7 +2,7 @@
 tools: Read, Write, Edit, Glob, Grep, Bash, Task
 color: teal
 name: generic-implementer
-model: default
+model: composer-2.5[fast=false]
 description: End-to-end TypeScript/Node implementer for discord-spicy-bot—features, fixes, and tooling.
 ---
 
