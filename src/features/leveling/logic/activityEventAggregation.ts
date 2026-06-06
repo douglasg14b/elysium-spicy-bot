@@ -121,6 +121,45 @@ export function subtractActivityDays(from: Date, days: number): Date {
     return result;
 }
 
+export function getActivityDateStart(dateKey: string): Date {
+    return parseActivityDate(dateKey);
+}
+
+export function filterEventsByActivityDateRange(
+    events: ReadonlyArray<LevelingActivityEvent>,
+    startDate: string,
+    endDate: string
+): LevelingActivityEvent[] {
+    return events.filter((event) => {
+        const activityDate = getActivityDateKey(toDate(event.occurredAt));
+        return activityDate >= startDate && activityDate <= endDate;
+    });
+}
+
+export function aggregateDailyIntoWeeklyBuckets(
+    dailyBuckets: ReadonlyArray<DailyActivityBucket>
+): DailyActivityBucket[] {
+    if (dailyBuckets.length === 0) {
+        return [];
+    }
+
+    const weeklyBuckets: DailyActivityBucket[] = [];
+
+    for (let index = 0; index < dailyBuckets.length; index += 7) {
+        const weekDays = dailyBuckets.slice(index, index + 7);
+        const totals = sumDailyActivity(weekDays);
+
+        weeklyBuckets.push({
+            activityDate: weekDays[0].activityDate,
+            messageCount: totals.messageCount,
+            reactionCount: totals.reactionCount,
+            photoUploadCount: totals.photoUploadCount,
+        });
+    }
+
+    return weeklyBuckets;
+}
+
 function toDate(value: Date | string): Date {
     return value instanceof Date ? value : new Date(value);
 }

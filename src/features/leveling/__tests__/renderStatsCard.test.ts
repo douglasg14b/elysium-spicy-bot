@@ -40,10 +40,17 @@ function makeStatsCardInput() {
         recentActivity,
         totalActivity,
         recentEvents: [],
-        dailyActivity,
+        chartBuckets: dailyActivity,
     });
 
-    return { profile, progress: null, dailyActivity, metrics, displayName: 'Spicy Member' };
+    return {
+        profile,
+        progress: null,
+        activityChart: { buckets: dailyActivity, granularity: 'daily' as const },
+        statsPeriod: 'week' as const,
+        metrics,
+        displayName: 'Spicy Member',
+    };
 }
 
 describe('renderStatsCard', () => {

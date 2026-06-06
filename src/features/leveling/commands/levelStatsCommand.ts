@@ -2,6 +2,7 @@ import { AttachmentBuilder, ChatInputCommandInteraction, SlashCommandBuilder } f
 import { commandError, commandSuccess } from '../../../features-system/commands';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { loadUserLevelStats } from '../logic/loadUserLevelStats';
+import { parseStatsPeriod } from '../logic/statsPeriod';
 import { cardAvatarUrlFromUser } from '../cards/shared/cardAvatarUrl';
 import { renderStatsCard } from '../cards/statsCard/renderStatsCard';
 
@@ -12,6 +13,17 @@ export const levelStatsCommand = new SlashCommandBuilder()
     .setDescription('View leveling activity stats for a member')
     .addUserOption((option) =>
         option.setName('user').setDescription('Member to inspect (defaults to you)').setRequired(false)
+    )
+    .addStringOption((option) =>
+        option
+            .setName('period')
+            .setDescription('Activity window for stats and chart (default: last week)')
+            .setRequired(false)
+            .addChoices(
+                { name: 'Last week', value: 'week' },
+                { name: 'Last month', value: 'month' },
+                { name: 'Last year', value: 'year' }
+            )
     );
 
 export async function handleLevelStatsCommand(
@@ -27,7 +39,8 @@ export async function handleLevelStatsCommand(
     await interaction.deferReply({ ephemeral: true });
 
     try {
-        const stats = await loadUserLevelStats(interaction.guildId, targetUser.id);
+        const period = parseStatsPeriod(interaction.options.getString('period'));
+        const stats = await loadUserLevelStats(interaction.guildId, targetUser.id, { period });
         const cardPng = await renderStatsCard({
             ...stats,
             displayName: targetUser.displayName,

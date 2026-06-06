@@ -27,14 +27,14 @@ export type BuildStatsCardMetricsInput = {
     recentActivity: LevelingActivityTotals;
     totalActivity: LevelingActivityTotals;
     recentEvents: ReadonlyArray<LevelingActivityEvent>;
-    dailyActivity: ReadonlyArray<DailyActivityBucket>;
+    chartBuckets: ReadonlyArray<DailyActivityBucket>;
     recentPeriodDays?: number;
     now?: Date;
 };
 
 export function buildStatsCardMetrics(input: BuildStatsCardMetricsInput): StatsCardMetrics {
     const recentPeriodDays = input.recentPeriodDays ?? LEVELING_RECENT_ACTIVITY_DAYS;
-    const { recentActivity, totalActivity, dailyActivity, recentEvents, progress } = input;
+    const { recentActivity, totalActivity, chartBuckets, recentEvents, progress } = input;
 
     const tenureDays = Math.max(1, computeTenureDays(progress, input.now ?? new Date()));
     const engagementTotal = recentActivity.messageCount + recentActivity.reactionCount;
@@ -46,13 +46,13 @@ export function buildStatsCardMetrics(input: BuildStatsCardMetricsInput): StatsC
             ? Math.round((recentActivity.photoUploadCount / recentActivity.messageCount) * 100)
             : 0;
 
-    const dailyPeakEvents = dailyActivity.reduce(
+    const dailyPeakEvents = chartBuckets.reduce(
         (peak, day) => Math.max(peak, day.messageCount + day.reactionCount),
         0
     );
 
     return {
-        activityStatus: resolveActivityStatus(recentActivity, totalActivity),
+        activityStatus: resolveActivityStatus(recentActivity, totalActivity, recentPeriodDays),
         lastActiveAt: getLastActiveAt(progress),
         memberSince: progress?.createdAt ? toDate(progress.createdAt) : null,
         tenureDays,
@@ -117,7 +117,8 @@ export function formatActivityStatus(status: ActivityStatus): string {
 
 function resolveActivityStatus(
     recentActivity: LevelingActivityTotals,
-    totalActivity: LevelingActivityTotals
+    totalActivity: LevelingActivityTotals,
+    recentPeriodDays: number
 ): ActivityStatus {
     if (totalActivity.eventCount === 0) {
         return 'none';
@@ -127,7 +128,11 @@ function resolveActivityStatus(
         return 'dormant';
     }
 
-    if (recentActivity.messageCount >= 5 || recentActivity.eventCount >= 12) {
+    const periodScale = recentPeriodDays / LEVELING_RECENT_ACTIVITY_DAYS;
+    const activeMessageThreshold = Math.max(1, Math.round(5 * periodScale));
+    const activeEventThreshold = Math.max(1, Math.round(12 * periodScale));
+
+    if (recentActivity.messageCount >= activeMessageThreshold || recentActivity.eventCount >= activeEventThreshold) {
         return 'active';
     }
 

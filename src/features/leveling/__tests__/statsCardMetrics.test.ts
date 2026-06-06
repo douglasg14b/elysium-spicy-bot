@@ -58,7 +58,7 @@ describe('statsCardMetrics', () => {
             recentActivity: makeTotals({ messageCount: 8, reactionCount: 4, eventCount: 12 }),
             totalActivity: makeTotals({ messageCount: 50, eventCount: 80 }),
             recentEvents: [],
-            dailyActivity: [],
+            chartBuckets: [],
         });
 
         expect(metrics.activityStatus).toBe('active');
@@ -70,7 +70,7 @@ describe('statsCardMetrics', () => {
             recentActivity: makeTotals(),
             totalActivity: makeTotals({ messageCount: 50, eventCount: 80 }),
             recentEvents: [],
-            dailyActivity: [],
+            chartBuckets: [],
         });
 
         expect(metrics.activityStatus).toBe('dormant');
@@ -91,7 +91,7 @@ describe('statsCardMetrics', () => {
                 makeMessageEvent('2026-05-26T12:00:00Z', 40),
                 makeMessageEvent('2026-05-26T13:00:00Z', 80),
             ],
-            dailyActivity: [],
+            chartBuckets: [],
             recentPeriodDays: 7,
         });
 
@@ -108,5 +108,27 @@ describe('statsCardMetrics', () => {
 
         expect(formatRelativeTime(new Date('2026-05-26T11:30:00Z'), now)).toBe('30m ago');
         expect(formatActivityStatus('quiet')).toBe('Quiet');
+    });
+
+    it('scales active thresholds with the selected period length', () => {
+        const quietMonth = buildStatsCardMetrics({
+            progress: makeProgress(),
+            recentActivity: makeTotals({ messageCount: 15, eventCount: 40 }),
+            totalActivity: makeTotals({ messageCount: 50, eventCount: 80 }),
+            recentEvents: [],
+            chartBuckets: [],
+            recentPeriodDays: 30,
+        });
+        const activeMonth = buildStatsCardMetrics({
+            progress: makeProgress(),
+            recentActivity: makeTotals({ messageCount: 22, eventCount: 40 }),
+            totalActivity: makeTotals({ messageCount: 50, eventCount: 80 }),
+            recentEvents: [],
+            chartBuckets: [],
+            recentPeriodDays: 30,
+        });
+
+        expect(quietMonth.activityStatus).toBe('quiet');
+        expect(activeMonth.activityStatus).toBe('active');
     });
 });

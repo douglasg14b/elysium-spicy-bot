@@ -1,5 +1,7 @@
 import type { DailyActivityBucket } from '../../data/levelingActivityEventSchema';
 import type { UserLevelStats } from '../../logic/loadUserLevelStats';
+import { formatStatsPeriodChartLabel } from '../../logic/statsPeriod';
+import type { ActivityChartGranularity } from '../../logic/statsPeriod';
 import {
     formatActivityStatus,
     formatRelativeTime,
@@ -216,59 +218,121 @@ function buildPanelBox(children: SatoriChild): SatoriElement {
     });
 }
 
-function buildDailyChart(dailyActivity: DailyActivityBucket[], peakEvents: number): SatoriElement {
+function formatChartBucketLabel(
+    activityDate: string,
+    granularity: ActivityChartGranularity,
+    bucketIndex: number,
+    bucketCount: number
+): string {
+    if (granularity === 'weekly') {
+        const [year, month, day] = activityDate.split('-').map(Number);
+        const weekStart = new Date(Date.UTC(year, month - 1, day));
+        return formatShortDate(weekStart);
+    }
+
+    if (bucketCount > 14 && bucketIndex % 2 !== 0) {
+        return '';
+    }
+
+    return activityDate.slice(8);
+}
+
+function buildActivityChart(
+    buckets: DailyActivityBucket[],
+    peakEvents: number,
+    granularity: ActivityChartGranularity
+): SatoriElement {
     const barMaxHeight = STATS_CARD_CHART_BAR_MAX_HEIGHT;
-    const barWidth = STATS_CARD_CHART_BAR_WIDTH;
-    const chartHeight = barMaxHeight + 14;
+    const denseChart = buckets.length > 14;
+    const barWidth = denseChart
+        ? Math.max(4, Math.min(STATS_CARD_CHART_BAR_WIDTH, Math.floor(280 / buckets.length)))
+        : STATS_CARD_CHART_BAR_WIDTH;
+    const labelRowHeight = 14;
+    const chartGap = 4;
+    const chartHeight = barMaxHeight + chartGap + labelRowHeight;
+    const labelFontSize = denseChart ? 8 : 10;
+    const slotGap = denseChart ? 2 : 6;
 
     return el('div', {
         style: {
             display: 'flex',
             alignItems: 'flex-end',
             justifyContent: 'space-between',
-            gap: 6,
+            gap: slotGap,
             width: '100%',
             height: chartHeight,
             flexShrink: 0,
         },
-        children: dailyActivity.map((day) => {
-            const eventCount = day.messageCount + day.reactionCount;
-            const height =
-                peakEvents > 0 ? Math.max(4, Math.round((eventCount / peakEvents) * barMaxHeight)) : 4;
-            const dayLabel = day.activityDate.slice(8);
+        children: buckets.map((bucket, bucketIndex) => {
+            const eventCount = bucket.messageCount + bucket.reactionCount;
+            const barHeight =
+                peakEvents > 0
+                    ? Math.max(4, Math.round((eventCount / peakEvents) * barMaxHeight))
+                    : 4;
+            const spacerHeight = barMaxHeight - barHeight;
+            const bucketLabel = formatChartBucketLabel(
+                bucket.activityDate,
+                granularity,
+                bucketIndex,
+                buckets.length
+            );
 
             return el('div', {
                 style: {
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
-                    justifyContent: 'flex-end',
-                    gap: 4,
+                    gap: chartGap,
                     flex: 1,
+                    minWidth: 0,
+                    height: chartHeight,
                 },
                 children: [
                     el('div', {
                         style: {
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
                             width: barWidth,
-                            height,
-                            borderRadius: 6,
-                            ...(eventCount > 0
-                                ? {
-                                      backgroundImage: `linear-gradient(180deg, ${STATS_CARD_COLORS.accentSoft}, ${STATS_CARD_COLORS.accent})`,
-                                  }
-                                : {
-                                      backgroundColor: STATS_CARD_COLORS.track,
-                                  }),
+                            height: barMaxHeight,
                         },
+                        children: [
+                            el('div', { style: { width: barWidth, height: spacerHeight } }),
+                            el('div', {
+                                style: {
+                                    width: barWidth,
+                                    height: barHeight,
+                                    borderRadius: denseChart ? 4 : 6,
+                                    ...(eventCount > 0
+                                        ? {
+                                              backgroundImage: `linear-gradient(180deg, ${STATS_CARD_COLORS.accentSoft}, ${STATS_CARD_COLORS.accent})`,
+                                          }
+                                        : {
+                                              backgroundColor: STATS_CARD_COLORS.track,
+                                          }),
+                                },
+                            }),
+                        ],
                     }),
                     el('div', {
                         style: {
-                            fontSize: 10,
-                            color: STATS_CARD_COLORS.textMuted,
-                            fontFamily: 'Inter',
-                            flexShrink: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: '100%',
+                            height: labelRowHeight,
                         },
-                        children: dayLabel,
+                        children: el('div', {
+                            style: {
+                                fontSize: labelFontSize,
+                                lineHeight: `${labelRowHeight}px`,
+                                color: STATS_CARD_COLORS.textMuted,
+                                fontFamily: 'Inter',
+                                whiteSpace: 'nowrap',
+                                textAlign: 'center',
+                            },
+                            children: bucketLabel || '\u00a0',
+                        }),
                     }),
                 ],
             });
@@ -405,8 +469,9 @@ function buildEmptyState(): SatoriElement {
 }
 
 function buildActiveBody(input: BuildStatsCardElementInput): SatoriElement {
-    const { profile, dailyActivity, metrics } = input;
-    const { recentActivity, recentPeriodDays } = profile;
+    const { profile, activityChart, statsPeriod, metrics } = input;
+    const { recentActivity } = profile;
+    const periodLabel = formatStatsPeriodChartLabel(statsPeriod);
 
     return el('div', {
         style: {
@@ -452,8 +517,12 @@ function buildActiveBody(input: BuildStatsCardElementInput): SatoriElement {
                             minWidth: 0,
                         },
                         children: buildPanelBox([
-                            buildSectionTitle(`Activity trend (${recentPeriodDays}d)`),
-                            buildDailyChart(dailyActivity, metrics.dailyPeakEvents),
+                            buildSectionTitle(`Activity trend (${periodLabel})`),
+                            buildActivityChart(
+                                activityChart.buckets,
+                                metrics.dailyPeakEvents,
+                                activityChart.granularity
+                            ),
                         ]),
                     }),
                     el('div', {
