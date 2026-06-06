@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
     aggregateActivityTotals,
+    aggregateDailyIntoWeeklyBuckets,
     aggregateEventsByDate,
     fillActivityDateRange,
+    filterEventsByActivityDateRange,
     sumDailyActivity,
     sumEventXp,
 } from '../logic/activityEventAggregation';
@@ -125,6 +127,54 @@ describe('activityEventAggregation', () => {
                 makeEvent({ id: 2, occurredAt: new Date(), xpAmount: 25 }),
             ])
         ).toBe(40);
+    });
+
+    it('filters events to an inclusive activity-date range', () => {
+        const events = [
+            makeEvent({ id: 1, occurredAt: new Date('2026-05-19T12:00:00Z') }),
+            makeEvent({ id: 2, occurredAt: new Date('2026-05-20T12:00:00Z') }),
+            makeEvent({ id: 3, occurredAt: new Date('2026-05-27T12:00:00Z') }),
+        ];
+
+        expect(filterEventsByActivityDateRange(events, '2026-05-20', '2026-05-26')).toEqual([
+            events[1],
+        ]);
+    });
+
+    it('rolls daily buckets into weekly chart buckets', () => {
+        const dailyBuckets = fillActivityDateRange(
+            [
+                {
+                    activityDate: '2026-01-01',
+                    messageCount: 1,
+                    reactionCount: 0,
+                    photoUploadCount: 0,
+                },
+                {
+                    activityDate: '2026-01-08',
+                    messageCount: 2,
+                    reactionCount: 1,
+                    photoUploadCount: 0,
+                },
+            ],
+            '2026-01-01',
+            '2026-01-14'
+        );
+
+        expect(aggregateDailyIntoWeeklyBuckets(dailyBuckets)).toEqual([
+            {
+                activityDate: '2026-01-01',
+                messageCount: 1,
+                reactionCount: 0,
+                photoUploadCount: 0,
+            },
+            {
+                activityDate: '2026-01-08',
+                messageCount: 2,
+                reactionCount: 1,
+                photoUploadCount: 0,
+            },
+        ]);
     });
 
     it('aggregates raw events into lifetime totals', () => {

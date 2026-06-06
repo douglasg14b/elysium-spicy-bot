@@ -58,13 +58,14 @@ describe('buildStatsCardElement', () => {
             recentActivity,
             totalActivity,
             recentEvents: [],
-            dailyActivity,
+            chartBuckets: dailyActivity,
         });
 
         const element = buildStatsCardElement({
             profile,
             progress: null,
-            dailyActivity,
+            activityChart: { buckets: dailyActivity, granularity: 'daily' },
+            statsPeriod: 'week',
             metrics,
             displayName: 'Spicy Member',
             avatarDataUri: null,
@@ -92,13 +93,14 @@ describe('buildStatsCardElement', () => {
             recentActivity: makeTotals(),
             totalActivity: makeTotals(),
             recentEvents: [],
-            dailyActivity: [],
+            chartBuckets: [],
         });
 
         const element = buildStatsCardElement({
             profile,
             progress: null,
-            dailyActivity: [],
+            activityChart: { buckets: [], granularity: 'daily' },
+            statsPeriod: 'week',
             metrics,
             displayName: 'Quiet Member',
             avatarDataUri: null,
