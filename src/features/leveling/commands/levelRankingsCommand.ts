@@ -1,4 +1,9 @@
-import { AttachmentBuilder, ChatInputCommandInteraction, SlashCommandBuilder } from 'discord.js';
+import {
+    AttachmentBuilder,
+    ChatInputCommandInteraction,
+    GuildMember,
+    SlashCommandBuilder,
+} from 'discord.js';
 import { commandError, commandSuccess } from '../../../features-system/commands';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 import {
@@ -25,15 +30,30 @@ export async function handleLevelRankingsCommand(
     await interaction.deferReply({ ephemeral: true });
 
     try {
+        const resolvedMembers = new Map<string, GuildMember>();
+
         const rankings = await loadGuildLevelRankings({
             guildId: interaction.guildId,
             limit: DEFAULT_GUILD_RANKINGS_LIMIT,
+            isCurrentMember: async (userId) => {
+                const member = await interaction.guild!.members.fetch(userId).catch(() => null);
+                if (member) {
+                    resolvedMembers.set(userId, member);
+                }
+
+                return member != null;
+            },
         });
 
-        const members = await resolveRankingsMembers(
-            interaction.guild.members,
-            rankings.entries.map((entry) => entry.userId)
-        );
+        const members = rankings.entries.map((entry) => {
+            const member = resolvedMembers.get(entry.userId)!;
+
+            return {
+                userId: entry.userId,
+                displayName: member.displayName,
+                avatarUrl: cardAvatarUrlFromUser(member.user, 128),
+            } satisfies RankingsCardMember;
+        });
 
         const cardPng = await renderRankingsCard({
             guildName: interaction.guild.name,
@@ -53,29 +73,4 @@ export async function handleLevelRankingsCommand(
 
         return commandError(error instanceof Error ? error.message : 'Unknown error');
     }
-}
-
-async function resolveRankingsMembers(
-    guildMembers: ChatInputCommandInteraction['guild']['members'],
-    userIds: readonly string[]
-): Promise<RankingsCardMember[]> {
-    if (!guildMembers) {
-        return userIds.map((userId) => ({
-            userId,
-            displayName: `Member ${userId.slice(-4)}`,
-            avatarUrl: null,
-        }));
-    }
-
-    return Promise.all(
-        userIds.map(async (userId) => {
-            const member = await guildMembers.fetch(userId).catch(() => null);
-
-            return {
-                userId,
-                displayName: member?.displayName ?? `Member ${userId.slice(-4)}`,
-                avatarUrl: member ? cardAvatarUrlFromUser(member.user, 128) : null,
-            } satisfies RankingsCardMember;
-        })
-    );
 }

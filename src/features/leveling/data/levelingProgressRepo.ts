@@ -37,13 +37,18 @@ export class LevelingProgressRepo {
         return progress || null;
     }
 
-    async getGuildTopByTotalXp(guildId: string, limit: number): Promise<LevelingProgress[]> {
+    async getGuildTopByTotalXp(
+        guildId: string,
+        limit: number,
+        offset: number = 0
+    ): Promise<LevelingProgress[]> {
         return database
             .selectFrom('leveling_progress')
             .selectAll()
             .where('guildId', '=', guildId)
             .orderBy('totalXp', 'desc')
             .orderBy('updatedAt', 'asc')
+            .offset(offset)
             .limit(limit)
             .execute();
     }

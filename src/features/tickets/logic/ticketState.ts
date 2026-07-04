@@ -6,6 +6,7 @@ import {
     Guild,
     TextChannel,
     Message,
+    APIEmbed,
     APIEmbedField,
 } from 'discord.js';
 import {
@@ -31,6 +32,15 @@ export interface TicketState {
 
 const TTL_SECONDS = 60 * 60 * 48; // 48 hours
 const CACHE_POLLING_INTERVAL_SECONDS = 60 * 60; // 60 minutes
+const EMBED_FIELD_VALUE_MAX_LENGTH = 1024;
+
+function truncateEmbedFieldValue(value: string, maxLength = EMBED_FIELD_VALUE_MAX_LENGTH): string {
+    if (value.length <= maxLength) {
+        return value;
+    }
+
+    return `${value.slice(0, maxLength - 3)}...`;
+}
 
 const ticketChannelStateMessageIdCache = new NodeCache({
     stdTTL: TTL_SECONDS,
@@ -38,15 +48,14 @@ const ticketChannelStateMessageIdCache = new NodeCache({
 });
 
 /**
- * Creates the hidden ticket state data for embed fields (base64 encoded)
+ * Creates the hidden ticket state data for embed fields (base64 encoded).
+ * Title and reason are stored in visible embed fields to stay within Discord's 1024-char field limit.
  */
 export function createTicketStateData(state: TicketState): string {
     const jsonData = JSON.stringify({
         id: state.ticketId,
         target: state.targetUserId,
         creator: state.creatorUserId,
-        title: state.title,
-        reason: state.reason,
         status: state.status,
         claimedBy: state.claimedByUserId,
         created: state.createdAt.toISOString(),
@@ -57,10 +66,20 @@ export function createTicketStateData(state: TicketState): string {
     return Buffer.from(jsonData, 'utf8').toString('base64');
 }
 
+function extractTitleFromEmbed(embed: APIEmbed): string {
+    const match = embed.description?.match(/\*\*Title:\*\* (.+)/);
+    return match?.[1] ?? 'Unknown';
+}
+
+function extractReasonFromEmbed(embed: APIEmbed): string {
+    const reasonField = embed.fields?.find((field) => field.name === '📝 Reason');
+    return reasonField?.value ?? 'No additional details provided';
+}
+
 /**
  * Parses ticket state data from embed field value (base64 decoded)
  */
-export function parseTicketStateData(stateData: string): TicketState | null {
+export function parseTicketStateData(stateData: string, embed?: APIEmbed): TicketState | null {
     try {
         // Base64 decode the data first
         const jsonData = Buffer.from(stateData, 'base64').toString('utf8');
@@ -69,8 +88,8 @@ export function parseTicketStateData(stateData: string): TicketState | null {
             ticketId: data.id,
             targetUserId: data.target,
             creatorUserId: data.creator,
-            title: data.title,
-            reason: data.reason,
+            title: data.title ?? (embed ? extractTitleFromEmbed(embed) : 'Unknown'),
+            reason: data.reason ?? (embed ? extractReasonFromEmbed(embed) : 'No additional details provided'),
             status: data.status,
             claimedByUserId: data.claimedBy,
             createdAt: new Date(data.created),
@@ -121,7 +140,7 @@ export function createTicketEmbed(
 
     embed.addFields(
         { name: '📊 Status', value: statusText, inline: true },
-        { name: '📝 Reason', value: state.reason, inline: false }
+        { name: '📝 Reason', value: truncateEmbedFieldValue(state.reason), inline: false }
     );
 
     // Add hidden state data field (base64 encoded for less intimidation)
@@ -169,12 +188,12 @@ function isMessageTicketStateEmbed(message: Message): APIEmbedField | false {
     return stateField || false;
 }
 
-function extractTicketEmbedData(stateField: APIEmbedField): TicketState | null {
+function extractTicketEmbedData(stateField: APIEmbedField, embed: APIEmbed): TicketState | null {
     try {
         // Extract base64 data from code block
         const base64Match = stateField.value.match(/`([A-Za-z0-9+/=]+)`/);
         if (base64Match) {
-            const state = parseTicketStateData(base64Match[1]);
+            const state = parseTicketStateData(base64Match[1], embed);
             return state;
         }
         return null;
@@ -193,7 +212,7 @@ async function findPinnedTicketStateMessage(
         for (const message of pinnedMessages.values()) {
             const stateField = isMessageTicketStateEmbed(message);
             if (stateField) {
-                const state = extractTicketEmbedData(stateField);
+                const state = extractTicketEmbedData(stateField, message.embeds[0].data);
                 if (state) {
                     return { message, state };
                 }
@@ -216,7 +235,7 @@ async function tryGetTicketStateFromViaCache(
             const message = await channel.messages.fetch(cachedMessageId);
             const stateField = isMessageTicketStateEmbed(message);
             if (stateField) {
-                const state = extractTicketEmbedData(stateField);
+                const state = extractTicketEmbedData(stateField, message.embeds[0].data);
                 if (state) {
                     return { message, state };
                 }
@@ -255,7 +274,7 @@ export async function findTicketStateMessage(
         for (const message of messages.values()) {
             const stateField = isMessageTicketStateEmbed(message);
             if (stateField) {
-                const state = extractTicketEmbedData(stateField);
+                const state = extractTicketEmbedData(stateField, message.embeds[0].data);
                 if (state) {
                     ticketChannelStateMessageIdCache.set(channel.id, message.id);
                     return { message, state };

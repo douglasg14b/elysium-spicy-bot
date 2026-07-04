@@ -49,4 +49,65 @@ describe('loadGuildLevelRankings', () => {
         ]);
         expect(result.totalRankedMembers).toBe(42);
     });
+
+    it('skips departed members and backfills the leaderboard from lower ranks', async () => {
+        const rows = [
+            {
+                id: 1,
+                guildId: 'guild-1',
+                userId: 'departed',
+                totalXp: 9000,
+                level: 20,
+                messageCount: 200,
+                reactionCount: 50,
+                photoUploadCount: 10,
+                lastMessageXpAt: new Date('2026-05-26T10:00:00Z'),
+                lastReactionXpAt: null,
+                createdAt: new Date('2026-05-01T00:00:00Z'),
+                updatedAt: new Date('2026-05-01T00:00:00Z'),
+            },
+            {
+                id: 2,
+                guildId: 'guild-1',
+                userId: 'active-a',
+                totalXp: 8000,
+                level: 18,
+                messageCount: 180,
+                reactionCount: 40,
+                photoUploadCount: 8,
+                lastMessageXpAt: new Date('2026-05-25T10:00:00Z'),
+                lastReactionXpAt: null,
+                createdAt: new Date('2026-05-01T00:00:00Z'),
+                updatedAt: new Date('2026-05-02T00:00:00Z'),
+            },
+            {
+                id: 3,
+                guildId: 'guild-1',
+                userId: 'active-b',
+                totalXp: 7000,
+                level: 16,
+                messageCount: 150,
+                reactionCount: 35,
+                photoUploadCount: 5,
+                lastMessageXpAt: new Date('2026-05-24T10:00:00Z'),
+                lastReactionXpAt: null,
+                createdAt: new Date('2026-05-01T00:00:00Z'),
+                updatedAt: new Date('2026-05-03T00:00:00Z'),
+            },
+        ];
+
+        vi.mocked(levelingProgressRepo.getGuildTopByTotalXp).mockResolvedValue(rows);
+        vi.mocked(levelingProgressRepo.countGuildRankedMembers).mockResolvedValue(3);
+
+        const result = await loadGuildLevelRankings({
+            guildId: 'guild-1',
+            limit: 2,
+            isCurrentMember: async (userId) => userId !== 'departed',
+        });
+
+        expect(result.entries).toEqual([
+            expect.objectContaining({ rank: 1, userId: 'active-a', totalXp: 8000 }),
+            expect.objectContaining({ rank: 2, userId: 'active-b', totalXp: 7000 }),
+        ]);
+    });
 });

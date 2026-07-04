@@ -82,9 +82,9 @@ async function handleAIReply(message: Message): Promise<void> {
         const isActualReplyToBot = await isReplyToBotMessage(message, botUser.id);
         const isReplyToOtherButMentionsBot = await isReplyToNonBotMessageWIthBotCallout(message, botUser.id);
         if (!isActualReplyToBot && !isReplyToOtherButMentionsBot) {
-            console.log(
-                `Message is a reply but not to bot's message and does not mention bot (${botUser.id}), skipping.`,
-            );
+            // console.log(
+            //     `Message is a reply but not to bot's message and does not mention bot (${botUser.id}), skipping.`,
+            // );
             return;
         }
     }
