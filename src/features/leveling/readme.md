@@ -39,7 +39,7 @@ Voice XP uses a small state machine reconciled against live Discord voice state:
 - **Permanent** `leveling_activity_events` rows record each completed session (`voice_eligible_seconds`, start/end, channel, eligibility rule) so XP can be recalculated later if the formula changes.
 - `leveling_progress` counters (`voice_session_count`, `total_voice_seconds`) are derived and can be rebuilt from events.
 
-A `VoiceStateUpdate` handler is the primary input. On ready, and every 5 minutes, the bot fetches guild voice states from Discord and reconciles open rows (orphans, missing sessions, channel mismatches, occupancy drift). Missed leave events cannot leave a session stuck accruing forever.
+A `VoiceStateUpdate` handler is the primary input. On ready, and every 5 minutes, the bot reconciles open rows against the gateway voice-state cache (`GuildVoiceStates` intent) and confirms each open-session user with a per-user fetch. discord.js cannot bulk-fetch guild voice states; a no-arg `voiceStates.fetch()` would call `/voice-states/null` and Discord would reject it. Missed leave events cannot leave a session stuck accruing forever.
 
 Bot restarts preserve in-flight eligible time via the transient table; Discord remains the source of truth for who is actually connected.
 

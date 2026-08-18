@@ -20,7 +20,6 @@ import { XpActivityType } from './logic/xpGrant';
 import { announceLevelUp } from './levelUpAnnouncer';
 import {
     createVoiceSessionCoordinator,
-    fetchLiveVoiceStates,
     VoiceSessionCoordinator,
     type EndedVoiceSession,
 } from './logic/voiceSessionCoordinator';
@@ -137,9 +136,7 @@ export class LevelingService {
         try {
             const config = await levelingConfigRepo.getByGuildId(guild.id);
             const allowStartSessions = isActiveConfig(config) && getVoiceXpSettings().voiceXpEnabled;
-            const voiceStates = await fetchLiveVoiceStates(guild);
             await this.voiceSessionCoordinator.reconcileGuild(guild, {
-                voiceStates,
                 allowStartSessions,
                 now,
             });

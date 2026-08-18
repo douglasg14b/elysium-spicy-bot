@@ -1,4 +1,4 @@
-import type { Collection, Guild, VoiceState } from 'discord.js';
+import { DiscordAPIError, type Collection, type Guild, type VoiceState } from 'discord.js';
 import type { LevelingVoiceSessionRepo } from '../data/levelingVoiceSessionRepo';
 import {
     planGuildReconciliation,
@@ -65,10 +65,14 @@ export class VoiceSessionCoordinator {
         }
     ): Promise<void> {
         const now = options?.now ?? this.now();
-        const voiceStates = options?.voiceStates ?? (await fetchLiveVoiceStates(guild));
+        const sessions = await this.voiceSessionRepo.listByGuild(guild.id);
+        const voiceStates =
+            options?.voiceStates ??
+            (await fetchLiveVoiceStates(guild, {
+                refreshUserIds: sessions.map((session) => session.userId),
+            }));
         const liveMembers = collectLiveNonBotMembers(voiceStates);
         const occupancyByChannel = buildOccupancyByChannel(liveMembers);
-        const sessions = await this.voiceSessionRepo.listByGuild(guild.id);
         const events = planGuildReconciliation({
             guildId: guild.id,
             sessions,
@@ -127,21 +131,41 @@ export function createVoiceSessionCoordinator(
     return new VoiceSessionCoordinator(dependencies);
 }
 
-export async function fetchLiveVoiceStates(guild: Guild): Promise<ReadonlyMap<string, VoiceState>> {
-    try {
-        const manager = guild.voiceStates as {
-            fetch: (user?: unknown) => Promise<unknown>;
-            cache: ReadonlyMap<string, VoiceState>;
-        };
-        const fetched = await manager.fetch();
-        if (isVoiceStateMap(fetched)) {
-            return fetched;
+const DISCORD_SNOWFLAKE_PATTERN = /^\d{17,20}$/;
+const UNKNOWN_VOICE_STATE_ERROR_CODE = 10065;
+
+/**
+ * discord.js `VoiceStateManager.fetch()` requires a user snowflake. A no-arg call
+ * hits `GET /guilds/{id}/voice-states/null` and Discord rejects it (50035).
+ * Guild voice state is already in the gateway cache (`GuildVoiceStates` intent).
+ * Open-session user IDs are confirmed per-user so missed leaves can still be caught.
+ */
+export async function fetchLiveVoiceStates(
+    guild: Guild,
+    options?: { refreshUserIds?: ReadonlyArray<string> }
+): Promise<ReadonlyMap<string, VoiceState>> {
+    const live = new Map(guild.voiceStates.cache);
+
+    for (const userId of options?.refreshUserIds ?? []) {
+        if (!DISCORD_SNOWFLAKE_PATTERN.test(userId)) {
+            continue;
         }
-        return manager.cache;
-    } catch (error) {
-        console.warn('[leveling] Failed to fetch guild voice states; using cache:', error);
-        return guild.voiceStates.cache;
+
+        try {
+            const state = await guild.voiceStates.fetch(userId);
+            if (state.channelId) {
+                live.set(state.id, state);
+            } else {
+                live.delete(userId);
+            }
+        } catch (error) {
+            if (isMissingVoiceStateError(error)) {
+                live.delete(userId);
+            }
+        }
     }
+
+    return live;
 }
 
 function collectLiveNonBotMembers(
@@ -170,6 +194,10 @@ function buildOccupancyByChannel(
     return occupancy;
 }
 
-function isVoiceStateMap(value: unknown): value is ReadonlyMap<string, VoiceState> {
-    return !!value && typeof value === 'object' && typeof (value as Map<string, VoiceState>).values === 'function';
+function isMissingVoiceStateError(error: unknown): boolean {
+    if (!(error instanceof DiscordAPIError)) {
+        return false;
+    }
+
+    return error.status === 404 || error.code === UNKNOWN_VOICE_STATE_ERROR_CODE;
 }
