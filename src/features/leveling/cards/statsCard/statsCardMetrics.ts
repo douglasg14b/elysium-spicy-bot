@@ -77,7 +77,11 @@ export function buildStatsCardMetrics(input: BuildStatsCardMetricsInput): StatsC
     };
 }
 
-export function formatRelativeTime(from: Date, now: Date = new Date()): string {
+export function formatRelativeTime(
+    from: Date,
+    now: Date = new Date(),
+    options?: { alwaysRelative?: boolean }
+): string {
     const diffMs = now.getTime() - from.getTime();
     if (diffMs < 0) {
         return 'just now';
@@ -97,7 +101,7 @@ export function formatRelativeTime(from: Date, now: Date = new Date()): string {
     }
 
     const days = Math.floor(hours / 24);
-    if (days < 14) {
+    if (options?.alwaysRelative || days < 14) {
         return `${days}d ago`;
     }
 

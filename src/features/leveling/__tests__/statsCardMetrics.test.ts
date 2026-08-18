@@ -117,6 +117,8 @@ describe('statsCardMetrics', () => {
         const now = new Date('2026-05-26T12:00:00Z');
 
         expect(formatRelativeTime(new Date('2026-05-26T11:30:00Z'), now)).toBe('30m ago');
+        expect(formatRelativeTime(new Date('2026-03-17T12:00:00Z'), now)).toBe('Mar 17');
+        expect(formatRelativeTime(new Date('2026-03-17T12:00:00Z'), now, { alwaysRelative: true })).toBe('70d ago');
         expect(formatActivityStatus('quiet')).toBe('Quiet');
     });
 

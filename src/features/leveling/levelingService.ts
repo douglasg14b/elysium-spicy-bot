@@ -20,7 +20,6 @@ import { XpActivityType } from './logic/xpGrant';
 import { announceLevelUp } from './levelUpAnnouncer';
 import {
     createVoiceSessionCoordinator,
-    fetchLiveVoiceStates,
     VoiceSessionCoordinator,
     type EndedVoiceSession,
 } from './logic/voiceSessionCoordinator';
@@ -123,7 +122,7 @@ export class LevelingService {
             }
 
             const config = await levelingConfigRepo.getByGuildId(guild.id);
-            if (!isActiveConfig(config) || !getVoiceXpSettings().voiceXpEnabled) {
+            if (!isActiveConfig(config)) {
                 return;
             }
 
@@ -136,10 +135,8 @@ export class LevelingService {
     async reconcileGuild(guild: Guild, now: Date = new Date()): Promise<void> {
         try {
             const config = await levelingConfigRepo.getByGuildId(guild.id);
-            const allowStartSessions = isActiveConfig(config) && getVoiceXpSettings().voiceXpEnabled;
-            const voiceStates = await fetchLiveVoiceStates(guild);
+            const allowStartSessions = isActiveConfig(config);
             await this.voiceSessionCoordinator.reconcileGuild(guild, {
-                voiceStates,
                 allowStartSessions,
                 now,
             });
@@ -159,6 +156,13 @@ export class LevelingService {
     }
 
     async processVoiceSessionEnd(ended: EndedVoiceSession): Promise<void> {
+        if (!getVoiceXpSettings().voiceXpEnabled) {
+            console.info(
+                `[leveling] Skipping voice XP grant while rewards are disabled (guild=${ended.guildId} user=${ended.userId} eligibleMs=${ended.eligibleMs})`
+            );
+            return;
+        }
+
         const config = await levelingConfigRepo.getByGuildId(ended.guildId);
         const { xpAmount, eligibleSeconds } = calculateVoiceXpFromEligibleMs(ended.eligibleMs);
         const grantedAt = ended.endedAt;
