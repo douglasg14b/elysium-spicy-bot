@@ -36,7 +36,8 @@ export const DEFAULT_PHOTO_XP_BONUS_ENABLED = true;
 export const DEFAULT_VOICE_XP_PER_MINUTE = 12;
 export const DEFAULT_VOICE_MIN_ELIGIBLE_SECONDS = 60;
 export const DEFAULT_VOICE_COOLDOWN_MS = 60_000;
-export const DEFAULT_VOICE_XP_ENABLED = true;
+/** When false, voice sessions still track and reconcile; completed sessions are not granted XP. */
+export const DEFAULT_VOICE_XP_ENABLED = false;
 
 /** Periodic Discord voice-state sweep so missed leave events cannot leave sessions stuck. */
 export const VOICE_SESSION_RECONCILE_INTERVAL_MS = 5 * 60 * 1000;

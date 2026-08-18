@@ -4,6 +4,7 @@ import { getTotalXpForLevel } from '../logic/xpCalculator';
 const mockGetByGuildId = vi.fn();
 const mockGrantXp = vi.fn();
 const mockAnnounceLevelUp = vi.fn();
+const mockGetVoiceXpSettings = vi.fn();
 
 vi.mock('../data/levelingConfigRepo', () => ({
     levelingConfigRepo: {
@@ -21,11 +22,35 @@ vi.mock('../levelUpAnnouncer', () => ({
     announceLevelUp: (...args: unknown[]) => mockAnnounceLevelUp(...args),
 }));
 
+vi.mock('../logic/voiceXp', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../logic/voiceXp')>();
+    return {
+        ...actual,
+        getVoiceXpSettings: (...args: unknown[]) => mockGetVoiceXpSettings(...args),
+    };
+});
+
 import { LevelingService } from '../levelingService';
+import {
+    DEFAULT_VOICE_COOLDOWN_MS,
+    DEFAULT_VOICE_MIN_ELIGIBLE_SECONDS,
+    DEFAULT_VOICE_XP_PER_MINUTE,
+} from '../constants';
+
+function voiceXpSettings(overrides?: { voiceXpEnabled?: boolean }) {
+    return {
+        voiceXpPerMinute: DEFAULT_VOICE_XP_PER_MINUTE,
+        voiceMinEligibleSeconds: DEFAULT_VOICE_MIN_ELIGIBLE_SECONDS,
+        voiceCooldownMs: DEFAULT_VOICE_COOLDOWN_MS,
+        voiceXpEnabled: false,
+        ...overrides,
+    };
+}
 
 describe('LevelingService', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mockGetVoiceXpSettings.mockReturnValue(voiceXpSettings());
         mockGetByGuildId.mockResolvedValue({
             enabled: true,
             notificationChannelId: '999',
@@ -159,7 +184,51 @@ describe('LevelingService', () => {
         expect(mockGrantXp).not.toHaveBeenCalled();
     });
 
+    it('still tracks voice sessions when XP rewards are disabled', async () => {
+        const handleVoiceStateUpdate = vi.fn();
+        const reconcileGuild = vi.fn();
+        const service = new LevelingService({} as never, {
+            handleVoiceStateUpdate,
+            reconcileGuild,
+        } as never);
+
+        await service.handleVoiceStateUpdate(
+            { guild: { id: 'guild-1' }, member: { user: { bot: false } } } as never,
+            { guild: { id: 'guild-1' }, member: { user: { bot: false } } } as never
+        );
+        await service.reconcileGuild({ id: 'guild-1' } as never);
+
+        expect(handleVoiceStateUpdate).toHaveBeenCalled();
+        expect(reconcileGuild).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'guild-1' }),
+            expect.objectContaining({ allowStartSessions: true })
+        );
+        expect(mockGrantXp).not.toHaveBeenCalled();
+    });
+
+    it('does not grant voice XP when a session ends while rewards are disabled', async () => {
+        const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+        const service = new LevelingService({} as never);
+
+        await service.processVoiceSessionEnd({
+            guildId: 'guild-1',
+            userId: 'user-1',
+            channelId: 'vc-1',
+            eligibleMs: 180_000,
+            sessionStartedAt: new Date('2026-08-17T11:57:00.000Z'),
+            endedAt: new Date('2026-08-17T12:00:00.000Z'),
+        });
+
+        expect(mockGrantXp).not.toHaveBeenCalled();
+        expect(mockAnnounceLevelUp).not.toHaveBeenCalled();
+        expect(consoleInfo).toHaveBeenCalledWith(
+            expect.stringContaining('Skipping voice XP grant while rewards are disabled')
+        );
+        consoleInfo.mockRestore();
+    });
+
     it('grants voice XP and announces level-ups when a session ends', async () => {
+        mockGetVoiceXpSettings.mockReturnValue(voiceXpSettings({ voiceXpEnabled: true }));
         const levelThreeTotalXp = getTotalXpForLevel(3);
         mockGrantXp.mockResolvedValue({
             previousTotalXp: 0,

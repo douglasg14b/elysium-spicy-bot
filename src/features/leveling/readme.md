@@ -25,7 +25,7 @@ Reaction XP, photo bonus, message XP ranges, cooldowns, and voice XP rates are t
 - Message XP: keyframed log curve — **8 XP @ 5 chars**, **25 XP @ 300 chars**, **50 XP cap @ 3,000 chars**; 20s cooldown
 - Reaction XP: 1–2 (random), 180s cooldown
 - Photo bonus: 10–20 extra XP on image uploads (when enabled)
-- Voice XP: **12 XP per full eligible minute** in a voice/video channel with at least one other non-bot; 60s minimum eligible time; 60s cooldown between session grants. Mute, deafen, and AFK channels do not change eligibility.
+- Voice XP: **12 XP per full eligible minute** in a voice/video channel with at least one other non-bot; 60s minimum eligible time; 60s cooldown between session grants. Mute, deafen, and AFK channels do not change eligibility. **Rewards are currently off** (`DEFAULT_VOICE_XP_ENABLED`) so sessions still track and reconcile without granting XP.
 
 Tune anchors in `MESSAGE_XP_KEYFRAMES` in [`constants.ts`](constants.ts). Empty text still uses the configured min (15 XP) for attachment-only posts. Photo bonus stacks on top of message XP.
 
@@ -43,7 +43,7 @@ A `VoiceStateUpdate` handler is the primary input. On ready, and every 5 minutes
 
 Bot restarts preserve in-flight eligible time via the transient table; Discord remains the source of truth for who is actually connected.
 
-Voice XP is isolated from the rest of leveling. A failure in the voice coordinator, session table, sweep, or voice grant is logged and contained — message and reaction XP keep writing. Voice session rows are only deleted after a successful session-end grant so a failed grant can retry on the next leave/reconcile.
+Voice XP is isolated from the rest of leveling. A failure in the voice coordinator, session table, sweep, or voice grant is logged and contained — message and reaction XP keep writing. Voice session rows are only deleted after a successful session-end grant so a failed grant can retry on the next leave/reconcile. While `DEFAULT_VOICE_XP_ENABLED` is false, session-end skips the grant (no XP, progress, or activity event) and still deletes the transient row so tracking can keep running.
 
 ## Activity history
 

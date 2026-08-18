@@ -41,7 +41,7 @@ describe('voiceXp', () => {
     });
 
     it('exposes code-default voice settings', () => {
-        expect(getVoiceXpSettings().voiceXpEnabled).toBe(true);
+        expect(getVoiceXpSettings().voiceXpEnabled).toBe(false);
         expect(getVoiceXpSettings().voiceXpPerMinute).toBe(DEFAULT_VOICE_XP_PER_MINUTE);
     });
 });
