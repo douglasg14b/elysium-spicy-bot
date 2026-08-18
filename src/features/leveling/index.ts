@@ -1,1 +1,1 @@
-export { initLeveling, resetLevelingInitializationForTests } from './initLeveling';
+export { initLeveling, resetLevelingInitializationForTests, stopLeveling } from './initLeveling';

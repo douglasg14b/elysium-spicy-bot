@@ -8,7 +8,7 @@ import { flagBotReady } from './healthcheck/botHearthbeat';
 import { deployTicketSystemCommand, handleDeployTicketSystem, initTicketsFeature } from './features/tickets';
 import { initAIReply } from './features/ai-reply';
 import { initBirthdayFeature, startBirthdayAnnouncementScheduler, stopBirthdayAnnouncementScheduler } from './features/birthday-tracker';
-import { initLeveling } from './features/leveling';
+import { initLeveling, stopLeveling } from './features/leveling';
 
 interactionsRegistry.register(flashChatCommand, handleFlashChatCommand);
 interactionsRegistry.register(deployTicketSystemCommand, handleDeployTicketSystem);
@@ -64,10 +64,6 @@ DISCORD_CLIENT.on(Events.MessageCreate, (message) => {
     }
 });
 
-DISCORD_CLIENT.on(Events.VoiceStateUpdate, (oldState, newState) => {
-    newState.member;
-});
-
 // Handle errors gracefully
 DISCORD_CLIENT.on(Events.Error, (error: Error) => {
     console.error('❌ Discord client error:', error);
@@ -86,6 +82,7 @@ process.on('SIGINT', () => {
     // messageTimers.clear();
 
     stopBirthdayAnnouncementScheduler();
+    stopLeveling();
     DISCORD_CLIENT.destroy();
     process.exit(0);
 });

@@ -15,6 +15,7 @@ function makeStatsCardInput() {
         messageCount: 18,
         reactionCount: 7,
         photoUploadCount: 2,
+        voiceSessionCount: 0,
         totalXp: 320,
         eventCount: 27,
     };
@@ -23,11 +24,12 @@ function makeStatsCardInput() {
         messageCount: 120,
         reactionCount: 45,
         photoUploadCount: 6,
+        voiceSessionCount: 0,
         totalXp: 2140,
         eventCount: 171,
     };
     const dailyActivity: DailyActivityBucket[] = [
-        { activityDate: '2026-05-26', messageCount: 2, reactionCount: 0, photoUploadCount: 0 },
+        { activityDate: '2026-05-26', messageCount: 2, reactionCount: 0, photoUploadCount: 0 , voiceSessionCount: 0 },
     ];
     const profile = buildUserLevelProfile({
         userId: 'user-1',

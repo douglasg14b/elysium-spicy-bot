@@ -19,6 +19,11 @@ function makeEvent(overrides: Partial<LevelingActivityEvent> & Pick<LevelingActi
         xpAmount: 20,
         messageLength: 100,
         photoBonus: false,
+        voiceEligibleSeconds: null,
+        voiceSessionStartedAt: null,
+        voiceSessionEndedAt: null,
+        voiceChannelId: null,
+        voiceEligibilityRule: null,
         ...overrides,
     };
 }
@@ -40,6 +45,14 @@ describe('activityEventAggregation', () => {
                 occurredAt: new Date('2026-05-25T12:00:00Z'),
                 xpAmount: 1,
             }),
+            makeEvent({
+                id: 4,
+                activityType: 'voice',
+                messageLength: null,
+                occurredAt: new Date('2026-05-25T13:00:00Z'),
+                xpAmount: 24,
+                voiceEligibleSeconds: 120,
+            }),
         ]);
 
         expect(buckets).toEqual([
@@ -48,6 +61,7 @@ describe('activityEventAggregation', () => {
                 messageCount: 2,
                 reactionCount: 0,
                 photoUploadCount: 1,
+                voiceSessionCount: 0,
                 totalXp: 50,
             },
             {
@@ -55,7 +69,8 @@ describe('activityEventAggregation', () => {
                 messageCount: 0,
                 reactionCount: 1,
                 photoUploadCount: 0,
-                totalXp: 1,
+                voiceSessionCount: 1,
+                totalXp: 25,
             },
         ]);
     });
@@ -68,6 +83,7 @@ describe('activityEventAggregation', () => {
                     messageCount: 3,
                     reactionCount: 0,
                     photoUploadCount: 1,
+                    voiceSessionCount: 0,
                 },
             ],
             '2026-05-24',
@@ -80,18 +96,21 @@ describe('activityEventAggregation', () => {
                 messageCount: 3,
                 reactionCount: 0,
                 photoUploadCount: 1,
+                voiceSessionCount: 0,
             },
             {
                 activityDate: '2026-05-25',
                 messageCount: 0,
                 reactionCount: 0,
                 photoUploadCount: 0,
+                voiceSessionCount: 0,
             },
             {
                 activityDate: '2026-05-26',
                 messageCount: 0,
                 reactionCount: 0,
                 photoUploadCount: 0,
+                voiceSessionCount: 0,
             },
         ]);
     });
@@ -104,12 +123,14 @@ describe('activityEventAggregation', () => {
                     messageCount: 3,
                     reactionCount: 1,
                     photoUploadCount: 0,
+                    voiceSessionCount: 1,
                 },
                 {
                     activityDate: '2026-05-25',
                     messageCount: 2,
                     reactionCount: 4,
                     photoUploadCount: 1,
+                    voiceSessionCount: 2,
                 },
             ])
         ).toEqual({
@@ -117,6 +138,7 @@ describe('activityEventAggregation', () => {
             messageCount: 5,
             reactionCount: 5,
             photoUploadCount: 1,
+            voiceSessionCount: 3,
         });
     });
 
@@ -149,12 +171,14 @@ describe('activityEventAggregation', () => {
                     messageCount: 1,
                     reactionCount: 0,
                     photoUploadCount: 0,
+                    voiceSessionCount: 1,
                 },
                 {
                     activityDate: '2026-01-08',
                     messageCount: 2,
                     reactionCount: 1,
                     photoUploadCount: 0,
+                    voiceSessionCount: 0,
                 },
             ],
             '2026-01-01',
@@ -167,12 +191,14 @@ describe('activityEventAggregation', () => {
                 messageCount: 1,
                 reactionCount: 0,
                 photoUploadCount: 0,
+                voiceSessionCount: 1,
             },
             {
                 activityDate: '2026-01-08',
                 messageCount: 2,
                 reactionCount: 1,
                 photoUploadCount: 0,
+                voiceSessionCount: 0,
             },
         ]);
     });
@@ -194,14 +220,22 @@ describe('activityEventAggregation', () => {
                     occurredAt: new Date('2026-05-25T12:00:00Z'),
                     xpAmount: 1,
                 }),
+                makeEvent({
+                    id: 4,
+                    activityType: 'voice',
+                    messageLength: null,
+                    occurredAt: new Date('2026-05-25T13:00:00Z'),
+                    xpAmount: 12,
+                }),
             ])
         ).toEqual({
             activityDate: 'total',
             messageCount: 2,
             reactionCount: 1,
             photoUploadCount: 1,
-            totalXp: 16,
-            eventCount: 3,
+            voiceSessionCount: 1,
+            totalXp: 28,
+            eventCount: 4,
         });
     });
 });

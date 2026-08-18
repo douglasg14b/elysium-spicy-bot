@@ -1,6 +1,12 @@
 import { database } from '../../../features-system/data-persistence/database';
 import { getLevelFromTotalXp } from '../logic/xpCalculator';
-import { computeXpGrant, getRecordedActivityXpAmount, toTimestampValue, XpActivityType } from '../logic/xpGrant';
+import {
+    computeXpGrant,
+    getRecordedActivityXpAmount,
+    toTimestampValue,
+    type XpActivityType,
+    type XpGrantComputation,
+} from '../logic/xpGrant';
 import { levelingActivityEventRepo } from './levelingActivityEventRepo';
 import { LevelingProgress } from './levelingProgressSchema';
 
@@ -21,8 +27,15 @@ export type GrantXpInput = {
     incrementMessageCount?: boolean;
     incrementReactionCount?: boolean;
     incrementPhotoUploadCount?: boolean;
+    incrementVoiceSessionCount?: boolean;
+    addVoiceSeconds?: number;
     messageLength?: number | null;
     photoBonusApplied?: boolean;
+    voiceEligibleSeconds?: number | null;
+    voiceSessionStartedAt?: Date | null;
+    voiceSessionEndedAt?: Date | null;
+    voiceChannelId?: string | null;
+    voiceEligibilityRule?: string | null;
 };
 
 export class LevelingProgressRepo {
@@ -63,6 +76,14 @@ export class LevelingProgressRepo {
         return Number(result?.count ?? 0);
     }
 
+    async getAllByGuildId(guildId: string): Promise<LevelingProgress[]> {
+        return database
+            .selectFrom('leveling_progress')
+            .selectAll()
+            .where('guildId', '=', guildId)
+            .execute();
+    }
+
     async grantXp(input: GrantXpInput): Promise<GrantXpResult | null> {
         return this.grantXpOnce(input, false);
     }
@@ -88,6 +109,8 @@ export class LevelingProgressRepo {
                     incrementMessageCount: input.incrementMessageCount,
                     incrementReactionCount: input.incrementReactionCount,
                     incrementPhotoUploadCount: input.incrementPhotoUploadCount,
+                    incrementVoiceSessionCount: input.incrementVoiceSessionCount,
+                    addVoiceSeconds: input.addVoiceSeconds,
                 });
 
                 await levelingActivityEventRepo.recordActivityEvent(transaction, {
@@ -98,28 +121,58 @@ export class LevelingProgressRepo {
                     messageLength: input.messageLength,
                     photoBonusApplied: input.photoBonusApplied,
                     occurredAt: grantedAt,
+                    voiceEligibleSeconds: input.voiceEligibleSeconds,
+                    voiceSessionStartedAt: input.voiceSessionStartedAt,
+                    voiceSessionEndedAt: input.voiceSessionEndedAt,
+                    voiceChannelId: input.voiceChannelId,
+                    voiceEligibilityRule: input.voiceEligibilityRule,
                 });
 
                 if (!computation) {
+                    if (input.incrementVoiceSessionCount) {
+                        const now = grantedAt.toISOString();
+                        if (existing) {
+                            await transaction
+                                .updateTable('leveling_progress')
+                                .set({
+                                    voiceSessionCount: (existing.voiceSessionCount ?? 0) + 1,
+                                    updatedAt: now,
+                                })
+                                .where('guildId', '=', input.guildId)
+                                .where('userId', '=', input.userId)
+                                .execute();
+                        } else {
+                            await transaction
+                                .insertInto('leveling_progress')
+                                .values({
+                                    guildId: input.guildId,
+                                    userId: input.userId,
+                                    totalXp: 0,
+                                    level: 1,
+                                    messageCount: 0,
+                                    reactionCount: 0,
+                                    photoUploadCount: 0,
+                                    voiceSessionCount: 1,
+                                    totalVoiceSeconds: 0,
+                                    lastMessageXpAt: null,
+                                    lastReactionXpAt: null,
+                                    lastVoiceXpAt: null,
+                                    createdAt: now,
+                                    updatedAt: now,
+                                })
+                                .execute();
+                        }
+                    }
                     return null;
                 }
 
                 const now = grantedAt.toISOString();
-                const level = getLevelFromTotalXp(computation.newTotalXp);
+                const progressWrite = progressWriteFromComputation(computation, input.activityType, now);
 
                 if (existing) {
                     await transaction
                         .updateTable('leveling_progress')
-                        .set({
-                            totalXp: computation.newTotalXp,
-                            level,
-                            messageCount: computation.messageCount,
-                            reactionCount: computation.reactionCount,
-                            photoUploadCount: computation.photoUploadCount,
-                            lastMessageXpAt: toTimestampValue(computation.lastMessageXpAt),
-                            lastReactionXpAt: toTimestampValue(computation.lastReactionXpAt),
-                            updatedAt: now,
-                        })
+                        .set(progressWrite)
                         .where('guildId', '=', input.guildId)
                         .where('userId', '=', input.userId)
                         .execute();
@@ -129,15 +182,8 @@ export class LevelingProgressRepo {
                         .values({
                             guildId: input.guildId,
                             userId: input.userId,
-                            totalXp: computation.newTotalXp,
-                            level,
-                            messageCount: computation.messageCount,
-                            reactionCount: computation.reactionCount,
-                            photoUploadCount: computation.photoUploadCount,
-                            lastMessageXpAt: toTimestampValue(computation.lastMessageXpAt),
-                            lastReactionXpAt: toTimestampValue(computation.lastReactionXpAt),
+                            ...progressWrite,
                             createdAt: now,
-                            updatedAt: now,
                         })
                         .execute();
                 }
@@ -167,6 +213,34 @@ export class LevelingProgressRepo {
 }
 
 export const levelingProgressRepo = new LevelingProgressRepo();
+
+function progressWriteFromComputation(
+    computation: XpGrantComputation,
+    activityType: XpActivityType,
+    now: string
+) {
+    const shared = {
+        totalXp: computation.newTotalXp,
+        level: getLevelFromTotalXp(computation.newTotalXp),
+        messageCount: computation.messageCount,
+        reactionCount: computation.reactionCount,
+        photoUploadCount: computation.photoUploadCount,
+        lastMessageXpAt: toTimestampValue(computation.lastMessageXpAt),
+        lastReactionXpAt: toTimestampValue(computation.lastReactionXpAt),
+        updatedAt: now,
+    };
+
+    if (activityType !== 'voice') {
+        return shared;
+    }
+
+    return {
+        ...shared,
+        voiceSessionCount: computation.voiceSessionCount,
+        totalVoiceSeconds: computation.totalVoiceSeconds,
+        lastVoiceXpAt: toTimestampValue(computation.lastVoiceXpAt),
+    };
+}
 
 function isUniqueConstraintViolation(error: unknown): boolean {
     if (!(error instanceof Error)) {

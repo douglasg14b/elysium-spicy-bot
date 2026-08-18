@@ -44,6 +44,9 @@ const PREVIEW_SCENARIO = {
         photoUploadCount: 6,
         lastMessageXpAt: new Date('2026-05-26T09:15:00Z'),
         lastReactionXpAt: new Date('2026-05-25T22:40:00Z'),
+        voiceSessionCount: 0,
+        totalVoiceSeconds: 0,
+        lastVoiceXpAt: null,
         createdAt: new Date('2026-04-01T00:00:00Z'),
         updatedAt: new Date('2026-05-26T09:15:00Z'),
     } satisfies LevelingProgress,
@@ -52,6 +55,7 @@ const PREVIEW_SCENARIO = {
         messageCount: 18,
         reactionCount: 7,
         photoUploadCount: 2,
+        voiceSessionCount: 0,
         totalXp: 320,
         eventCount: 27,
     } satisfies LevelingActivityTotals,
@@ -60,17 +64,18 @@ const PREVIEW_SCENARIO = {
         messageCount: 120,
         reactionCount: 45,
         photoUploadCount: 6,
+        voiceSessionCount: 0,
         totalXp: 2_140,
         eventCount: 171,
     } satisfies LevelingActivityTotals,
     dailyActivity: [
-        { activityDate: '2026-05-20', messageCount: 2, reactionCount: 1, photoUploadCount: 0 },
-        { activityDate: '2026-05-21', messageCount: 0, reactionCount: 0, photoUploadCount: 0 },
-        { activityDate: '2026-05-22', messageCount: 4, reactionCount: 2, photoUploadCount: 1 },
-        { activityDate: '2026-05-23', messageCount: 3, reactionCount: 1, photoUploadCount: 0 },
-        { activityDate: '2026-05-24', messageCount: 5, reactionCount: 0, photoUploadCount: 1 },
-        { activityDate: '2026-05-25', messageCount: 2, reactionCount: 3, photoUploadCount: 0 },
-        { activityDate: '2026-05-26', messageCount: 2, reactionCount: 0, photoUploadCount: 0 },
+        { activityDate: '2026-05-20', messageCount: 2, reactionCount: 1, photoUploadCount: 0 , voiceSessionCount: 0 },
+        { activityDate: '2026-05-21', messageCount: 0, reactionCount: 0, photoUploadCount: 0 , voiceSessionCount: 0 },
+        { activityDate: '2026-05-22', messageCount: 4, reactionCount: 2, photoUploadCount: 1 , voiceSessionCount: 0 },
+        { activityDate: '2026-05-23', messageCount: 3, reactionCount: 1, photoUploadCount: 0 , voiceSessionCount: 0 },
+        { activityDate: '2026-05-24', messageCount: 5, reactionCount: 0, photoUploadCount: 1 , voiceSessionCount: 0 },
+        { activityDate: '2026-05-25', messageCount: 2, reactionCount: 3, photoUploadCount: 0 , voiceSessionCount: 0 },
+        { activityDate: '2026-05-26', messageCount: 2, reactionCount: 0, photoUploadCount: 0 , voiceSessionCount: 0 },
     ] satisfies DailyActivityBucket[],
     recentEvents: [
         {
@@ -81,6 +86,11 @@ const PREVIEW_SCENARIO = {
             xpAmount: 18,
             messageLength: 120,
             photoBonus: false,
+            voiceEligibleSeconds: null,
+            voiceSessionStartedAt: null,
+            voiceSessionEndedAt: null,
+            voiceChannelId: null,
+            voiceEligibilityRule: null,
             occurredAt: new Date('2026-05-26T09:15:00Z'),
         },
         {
@@ -91,6 +101,11 @@ const PREVIEW_SCENARIO = {
             xpAmount: 22,
             messageLength: 240,
             photoBonus: true,
+            voiceEligibleSeconds: null,
+            voiceSessionStartedAt: null,
+            voiceSessionEndedAt: null,
+            voiceChannelId: null,
+            voiceEligibilityRule: null,
             occurredAt: new Date('2026-05-25T14:00:00Z'),
         },
     ] satisfies LevelingActivityEvent[],
@@ -121,7 +136,13 @@ function makeSyntheticDailyActivity(startDate: string, endDate: string): DailyAc
         const photoUploadCount = dayIndex % 9 === 0 ? 1 : 0;
 
         if (messageCount > 0 || reactionCount > 0 || photoUploadCount > 0) {
-            sparseBuckets.push({ activityDate, messageCount, reactionCount, photoUploadCount });
+            sparseBuckets.push({
+                activityDate,
+                messageCount,
+                reactionCount,
+                photoUploadCount,
+                voiceSessionCount: 0,
+            });
         }
     }
 
@@ -150,6 +171,7 @@ function bucketsToRecentActivity(buckets: DailyActivityBucket[]): LevelingActivi
         messageCount: summed.messageCount,
         reactionCount: summed.reactionCount,
         photoUploadCount: summed.photoUploadCount,
+        voiceSessionCount: summed.voiceSessionCount,
         totalXp,
         eventCount,
     };
@@ -248,6 +270,11 @@ describe('stats card introspection', () => {
                     xpAmount: 18,
                     messageLength: 142,
                     photoBonus: false,
+                    voiceEligibleSeconds: null,
+                    voiceSessionStartedAt: null,
+                    voiceSessionEndedAt: null,
+                    voiceChannelId: null,
+                    voiceEligibilityRule: null,
                     occurredAt: new Date('2026-05-26T09:15:00Z'),
                 },
                 {
@@ -258,6 +285,11 @@ describe('stats card introspection', () => {
                     xpAmount: 22,
                     messageLength: 228,
                     photoBonus: true,
+                    voiceEligibleSeconds: null,
+                    voiceSessionStartedAt: null,
+                    voiceSessionEndedAt: null,
+                    voiceChannelId: null,
+                    voiceEligibilityRule: null,
                     occurredAt: new Date('2026-05-18T14:00:00Z'),
                 },
                 {
@@ -268,6 +300,11 @@ describe('stats card introspection', () => {
                     xpAmount: 15,
                     messageLength: 96,
                     photoBonus: false,
+                    voiceEligibleSeconds: null,
+                    voiceSessionStartedAt: null,
+                    voiceSessionEndedAt: null,
+                    voiceChannelId: null,
+                    voiceEligibilityRule: null,
                     occurredAt: new Date('2026-05-04T11:30:00Z'),
                 },
             ],

@@ -32,6 +32,21 @@ export const DEFAULT_PHOTO_XP_BONUS_MAX = 20;
 export const DEFAULT_REACTION_XP_ENABLED = true;
 export const DEFAULT_PHOTO_XP_BONUS_ENABLED = true;
 
+/** XP granted per full eligible minute in voice with at least one other non-bot. */
+export const DEFAULT_VOICE_XP_PER_MINUTE = 12;
+export const DEFAULT_VOICE_MIN_ELIGIBLE_SECONDS = 60;
+export const DEFAULT_VOICE_COOLDOWN_MS = 60_000;
+export const DEFAULT_VOICE_XP_ENABLED = true;
+
+/** Periodic Discord voice-state sweep so missed leave events cannot leave sessions stuck. */
+export const VOICE_SESSION_RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
+export const VOICE_GUILD_SWEEP_DELAY_MS = 200;
+export const VOICE_GUILD_SWEEP_DELAY_THRESHOLD = 10;
+
+/** Occupancy rule stamped on completed voice activity events for future recalculation. */
+export const VOICE_ELIGIBILITY_RULE = 'min_2_non_bots';
+export const VOICE_ELIGIBLE_OCCUPANCY_THRESHOLD = 2;
+
 export const LEVELING_CONFIG_VERSION = 1;
 
 /** Rolling window for "recent activity" on `/level`. */

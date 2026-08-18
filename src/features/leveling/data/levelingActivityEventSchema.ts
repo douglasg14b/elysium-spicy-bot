@@ -7,10 +7,15 @@ export interface LevelingActivityEventTable {
     userId: string;
     activityType: LevelingActivityEventType;
     xpAmount: number;
-    /** Message length at grant time; null for reactions. Used for retroactive XP recalculation. */
+    /** Message length at grant time; null for reactions and voice. Used for retroactive XP recalculation. */
     messageLength: number | null;
     photoBonus: ColumnType<boolean, boolean | number, boolean | number>;
     occurredAt: ColumnType<Date, string, string>;
+    voiceEligibleSeconds: ColumnType<number | null, number | null | undefined, number | null | undefined>;
+    voiceSessionStartedAt: ColumnType<Date | null, string | null | undefined, string | null | undefined>;
+    voiceSessionEndedAt: ColumnType<Date | null, string | null | undefined, string | null | undefined>;
+    voiceChannelId: ColumnType<string | null, string | null | undefined, string | null | undefined>;
+    voiceEligibilityRule: ColumnType<string | null, string | null | undefined, string | null | undefined>;
 }
 
 export type LevelingActivityEvent = Selectable<LevelingActivityEventTable>;
@@ -22,6 +27,7 @@ export type DailyActivityBucket = {
     messageCount: number;
     reactionCount: number;
     photoUploadCount: number;
+    voiceSessionCount: number;
 };
 
 export type DailyXpBucket = DailyActivityBucket & {
