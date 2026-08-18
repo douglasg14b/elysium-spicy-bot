@@ -63,6 +63,27 @@ describe('buildBelowThresholdCardElement', () => {
         expect(serialized).not.toContain('user-10');
     });
 
+    it('shows last active as relative time even after two weeks', () => {
+        const element = buildBelowThresholdCardElement({
+            guildName: 'Spicy Server',
+            report: {
+                filter: { level: 10, xp: null, scope: 'current' },
+                totalConsidered: 1,
+                entries: [],
+            },
+            cardEntries: [
+                makeEntry(1, {
+                    lastActiveAt: new Date('2026-03-17T12:00:00Z'),
+                }),
+            ],
+            now: new Date('2026-05-26T12:00:00Z'),
+        });
+
+        const serialized = JSON.stringify(element);
+        expect(serialized).toContain('70d ago');
+        expect(serialized).not.toContain('Mar 17');
+    });
+
     it('shows an empty state when nobody is below the bar', () => {
         const element = buildBelowThresholdCardElement({
             guildName: 'Spicy Server',

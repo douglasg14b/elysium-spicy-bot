@@ -236,7 +236,9 @@ function buildMemberCell(entry: BelowThresholdCardDisplayEntry): SatoriElement {
 }
 
 function buildTableRow(entry: BelowThresholdCardDisplayEntry, now: Date): SatoriElement {
-    const lastActive = entry.lastActiveAt ? formatRelativeTime(entry.lastActiveAt, now) : '—';
+    const lastActive = entry.lastActiveAt
+        ? formatRelativeTime(entry.lastActiveAt, now, { alwaysRelative: true })
+        : '—';
 
     return el('div', {
         style: {
