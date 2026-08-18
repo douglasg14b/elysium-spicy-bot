@@ -14,6 +14,7 @@ function emptyTotals(): LevelingActivityTotals {
         messageCount: 0,
         reactionCount: 0,
         photoUploadCount: 0,
+        voiceSessionCount: 0,
         totalXp: 0,
         eventCount: 0,
     };
@@ -31,6 +32,9 @@ function makeProgress(overrides: Partial<LevelingProgress> = {}): LevelingProgre
         photoUploadCount: 0,
         lastMessageXpAt: null,
         lastReactionXpAt: null,
+        voiceSessionCount: 0,
+        totalVoiceSeconds: 0,
+        lastVoiceXpAt: null,
         createdAt: new Date('2026-05-01T00:00:00Z'),
         updatedAt: new Date('2026-05-01T00:00:00Z'),
         ...overrides,
@@ -47,6 +51,7 @@ describe('userLevelProfile', () => {
                 messageCount: 12,
                 reactionCount: 4,
                 photoUploadCount: 2,
+                voiceSessionCount: 0,
                 totalXp: 180,
                 eventCount: 16,
             },
@@ -55,6 +60,7 @@ describe('userLevelProfile', () => {
                 messageCount: 40,
                 reactionCount: 10,
                 photoUploadCount: 5,
+                voiceSessionCount: 0,
                 totalXp: 355,
                 eventCount: 50,
             },
@@ -91,6 +97,7 @@ describe('userLevelProfile', () => {
             messageCount: 12,
             reactionCount: 4,
             photoUploadCount: 2,
+            voiceSessionCount: 0,
             totalXp: 180,
             eventCount: 16,
         });
@@ -98,6 +105,7 @@ describe('userLevelProfile', () => {
         expect(line).toContain('Messages: **12**');
         expect(line).toContain('Reactions: **4**');
         expect(line).toContain('Photo uploads: **2**');
+        expect(line).toContain('Voice sessions: **0**');
         expect(line).toContain('XP earned: **180**');
     });
 

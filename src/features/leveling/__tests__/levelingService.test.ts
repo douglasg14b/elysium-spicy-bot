@@ -144,4 +144,87 @@ describe('LevelingService', () => {
 
         expect(mockAnnounceLevelUp).not.toHaveBeenCalled();
     });
+
+    it('skips voice XP when guild config is inactive', async () => {
+        mockGetByGuildId.mockResolvedValue(null);
+        const handleVoiceStateUpdate = vi.fn();
+        const service = new LevelingService({} as never, { handleVoiceStateUpdate } as never);
+
+        await service.handleVoiceStateUpdate(
+            { guild: { id: 'guild-1' }, member: { user: { bot: false } } } as never,
+            { guild: { id: 'guild-1' }, member: { user: { bot: false } } } as never
+        );
+
+        expect(handleVoiceStateUpdate).not.toHaveBeenCalled();
+        expect(mockGrantXp).not.toHaveBeenCalled();
+    });
+
+    it('grants voice XP and announces level-ups when a session ends', async () => {
+        const levelThreeTotalXp = getTotalXpForLevel(3);
+        mockGrantXp.mockResolvedValue({
+            previousTotalXp: 0,
+            newTotalXp: levelThreeTotalXp,
+            xpGranted: 36,
+            progress: { totalXp: levelThreeTotalXp },
+        });
+
+        const service = new LevelingService({
+            guilds: {
+                cache: new Map([['guild-1', { id: 'guild-1' }]]),
+            },
+        } as never);
+
+        await service.processVoiceSessionEnd({
+            guildId: 'guild-1',
+            userId: 'user-1',
+            channelId: 'vc-1',
+            eligibleMs: 180_000,
+            sessionStartedAt: new Date('2026-08-17T11:57:00.000Z'),
+            endedAt: new Date('2026-08-17T12:00:00.000Z'),
+        });
+
+        expect(mockGrantXp).toHaveBeenCalledWith(
+            expect.objectContaining({
+                activityType: 'voice',
+                xpAmount: 36,
+                incrementVoiceSessionCount: true,
+                addVoiceSeconds: 180,
+                voiceEligibleSeconds: 180,
+                voiceChannelId: 'vc-1',
+                voiceEligibilityRule: 'min_2_non_bots',
+            })
+        );
+        expect(mockAnnounceLevelUp).toHaveBeenCalledTimes(2);
+    });
+
+    it('still grants message XP after voice handling throws', async () => {
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const handleVoiceStateUpdate = vi.fn().mockRejectedValue(new Error('voice exploded'));
+        const service = new LevelingService({} as never, { handleVoiceStateUpdate } as never);
+        mockGrantXp.mockResolvedValue(null);
+
+        await expect(
+            service.handleVoiceStateUpdate(
+                { guild: { id: 'guild-1' }, member: { user: { bot: false } } } as never,
+                { guild: { id: 'guild-1' }, member: { user: { bot: false } } } as never
+            )
+        ).resolves.toBeUndefined();
+
+        await service.handleMessageCreate({
+            system: false,
+            guildId: 'guild-1',
+            guild: { id: 'guild-1' },
+            author: { id: 'user-1', bot: false },
+            content: 'hello',
+            attachments: { values: () => [] },
+        } as never);
+
+        expect(mockGrantXp).toHaveBeenCalledWith(
+            expect.objectContaining({
+                activityType: 'message',
+            })
+        );
+        expect(consoleError).toHaveBeenCalled();
+        consoleError.mockRestore();
+    });
 });

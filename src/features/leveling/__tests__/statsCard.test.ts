@@ -11,6 +11,7 @@ function makeTotals(overrides: Partial<LevelingActivityTotals> = {}): LevelingAc
         messageCount: 0,
         reactionCount: 0,
         photoUploadCount: 0,
+        voiceSessionCount: 0,
         totalXp: 0,
         eventCount: 0,
         ...overrides,
@@ -19,13 +20,13 @@ function makeTotals(overrides: Partial<LevelingActivityTotals> = {}): LevelingAc
 
 function makeDailyActivity(): DailyActivityBucket[] {
     return [
-        { activityDate: '2026-05-20', messageCount: 2, reactionCount: 1, photoUploadCount: 0 },
-        { activityDate: '2026-05-21', messageCount: 0, reactionCount: 0, photoUploadCount: 0 },
-        { activityDate: '2026-05-22', messageCount: 4, reactionCount: 2, photoUploadCount: 1 },
-        { activityDate: '2026-05-23', messageCount: 3, reactionCount: 1, photoUploadCount: 0 },
-        { activityDate: '2026-05-24', messageCount: 5, reactionCount: 0, photoUploadCount: 1 },
-        { activityDate: '2026-05-25', messageCount: 2, reactionCount: 3, photoUploadCount: 0 },
-        { activityDate: '2026-05-26', messageCount: 2, reactionCount: 0, photoUploadCount: 0 },
+        { activityDate: '2026-05-20', messageCount: 2, reactionCount: 1, photoUploadCount: 0 , voiceSessionCount: 0 },
+        { activityDate: '2026-05-21', messageCount: 0, reactionCount: 0, photoUploadCount: 0 , voiceSessionCount: 0 },
+        { activityDate: '2026-05-22', messageCount: 4, reactionCount: 2, photoUploadCount: 1 , voiceSessionCount: 0 },
+        { activityDate: '2026-05-23', messageCount: 3, reactionCount: 1, photoUploadCount: 0 , voiceSessionCount: 0 },
+        { activityDate: '2026-05-24', messageCount: 5, reactionCount: 0, photoUploadCount: 1 , voiceSessionCount: 0 },
+        { activityDate: '2026-05-25', messageCount: 2, reactionCount: 3, photoUploadCount: 0 , voiceSessionCount: 0 },
+        { activityDate: '2026-05-26', messageCount: 2, reactionCount: 0, photoUploadCount: 0 , voiceSessionCount: 0 },
     ];
 }
 

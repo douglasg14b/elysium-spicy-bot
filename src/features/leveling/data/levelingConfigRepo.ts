@@ -72,6 +72,16 @@ export class LevelingConfigRepo {
 
         return (await this.getByGuildId(input.guildId)) as LevelingConfig;
     }
+
+    async listEnabledGuildIds(): Promise<string[]> {
+        const rows = await database
+            .selectFrom('leveling_config')
+            .select('guildId')
+            .where('enabled', '=', true)
+            .execute();
+
+        return rows.map((row) => row.guildId);
+    }
 }
 
 export const levelingConfigRepo = new LevelingConfigRepo();

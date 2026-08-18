@@ -14,6 +14,7 @@ function makeTotals(overrides: Partial<LevelingActivityTotals> = {}): LevelingAc
         messageCount: 0,
         reactionCount: 0,
         photoUploadCount: 0,
+        voiceSessionCount: 0,
         totalXp: 0,
         eventCount: 0,
         ...overrides,
@@ -32,6 +33,9 @@ function makeProgress(overrides: Partial<LevelingProgress> = {}): LevelingProgre
         photoUploadCount: 3,
         lastMessageXpAt: new Date('2026-05-26T10:00:00Z'),
         lastReactionXpAt: new Date('2026-05-25T18:00:00Z'),
+        voiceSessionCount: 0,
+        totalVoiceSeconds: 0,
+        lastVoiceXpAt: null,
         createdAt: new Date('2026-05-01T00:00:00Z'),
         updatedAt: new Date('2026-05-26T10:00:00Z'),
         ...overrides,
@@ -47,6 +51,11 @@ function makeMessageEvent(occurredAt: string, messageLength: number): LevelingAc
         xpAmount: 15,
         messageLength,
         photoBonus: false,
+        voiceEligibleSeconds: null,
+        voiceSessionStartedAt: null,
+        voiceSessionEndedAt: null,
+        voiceChannelId: null,
+        voiceEligibilityRule: null,
         occurredAt: new Date(occurredAt),
     };
 }
@@ -97,6 +106,7 @@ describe('statsCardMetrics', () => {
 
         expect(metrics.messageSharePercent).toBe(60);
         expect(metrics.reactionSharePercent).toBe(40);
+        expect(metrics.voiceSharePercent).toBe(0);
         expect(metrics.photoRatePercent).toBe(33);
         expect(metrics.avgMessageLengthRecent).toBe(60);
         expect(metrics.avgXpPerMessageRecent).toBe(20);

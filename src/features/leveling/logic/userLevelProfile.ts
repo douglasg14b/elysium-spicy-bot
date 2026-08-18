@@ -74,6 +74,7 @@ export function formatActivityTotalsLine(totals: LevelingActivityTotals): string
         `💬 Messages: **${totals.messageCount.toLocaleString()}**`,
         `👍 Reactions: **${totals.reactionCount.toLocaleString()}**`,
         `📷 Photo uploads: **${totals.photoUploadCount.toLocaleString()}**`,
+        `🎙️ Voice sessions: **${totals.voiceSessionCount.toLocaleString()}**`,
         `✨ XP earned: **${totals.totalXp.toLocaleString()}**`,
     ].join('\n');
 }

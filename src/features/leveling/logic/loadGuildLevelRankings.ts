@@ -34,9 +34,10 @@ export type LoadGuildLevelRankingsInput = {
 
 function getLastActiveAt(
     lastMessageXpAt: Date | string | null,
-    lastReactionXpAt: Date | string | null
+    lastReactionXpAt: Date | string | null,
+    lastVoiceXpAt: Date | string | null
 ): Date | null {
-    const timestamps = [lastMessageXpAt, lastReactionXpAt]
+    const timestamps = [lastMessageXpAt, lastReactionXpAt, lastVoiceXpAt]
         .filter((value): value is Date | string => value != null)
         .map((value) => (value instanceof Date ? value : new Date(value)));
 
@@ -56,7 +57,7 @@ function mapProgressToRankingEntry(row: LevelingProgress, rank: number): GuildLe
         messageCount: row.messageCount,
         reactionCount: row.reactionCount,
         photoUploadCount: row.photoUploadCount,
-        lastActiveAt: getLastActiveAt(row.lastMessageXpAt, row.lastReactionXpAt),
+        lastActiveAt: getLastActiveAt(row.lastMessageXpAt, row.lastReactionXpAt, row.lastVoiceXpAt),
     };
 }
 

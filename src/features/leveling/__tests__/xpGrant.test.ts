@@ -20,8 +20,11 @@ describe('computeXpGrant', () => {
             messageCount: 1,
             reactionCount: 0,
             photoUploadCount: 0,
+            voiceSessionCount: 0,
+            totalVoiceSeconds: 0,
             lastMessageXpAt: grantedAt,
             lastReactionXpAt: null,
+            lastVoiceXpAt: null,
         });
     });
 
@@ -66,6 +69,55 @@ describe('computeXpGrant', () => {
         expect(result?.reactionCount).toBe(2);
         expect(result?.lastMessageXpAt).toEqual(new Date('2026-05-26T11:59:30.000Z'));
         expect(result?.lastReactionXpAt).toEqual(grantedAt);
+        expect(result?.lastVoiceXpAt).toBeNull();
+    });
+
+    it('uses a separate cooldown bucket for voice grants', () => {
+        const result = computeXpGrant({
+            existing: {
+                totalXp: 100,
+                messageCount: 3,
+                reactionCount: 1,
+                photoUploadCount: 0,
+                lastMessageXpAt: grantedAt,
+                lastReactionXpAt: grantedAt,
+                lastVoiceXpAt: new Date('2026-05-26T11:59:30.000Z'),
+            },
+            xpAmount: 24,
+            activityType: 'voice',
+            cooldownMs: 60_000,
+            grantedAt,
+            incrementVoiceSessionCount: true,
+            addVoiceSeconds: 120,
+        });
+
+        expect(result).toBeNull();
+
+        const granted = computeXpGrant({
+            existing: {
+                totalXp: 100,
+                messageCount: 3,
+                reactionCount: 1,
+                photoUploadCount: 0,
+                voiceSessionCount: 2,
+                totalVoiceSeconds: 300,
+                lastMessageXpAt: grantedAt,
+                lastReactionXpAt: grantedAt,
+                lastVoiceXpAt: new Date('2026-05-26T11:58:00.000Z'),
+            },
+            xpAmount: 24,
+            activityType: 'voice',
+            cooldownMs: 60_000,
+            grantedAt,
+            incrementVoiceSessionCount: true,
+            addVoiceSeconds: 120,
+        });
+
+        expect(granted?.newTotalXp).toBe(124);
+        expect(granted?.voiceSessionCount).toBe(3);
+        expect(granted?.totalVoiceSeconds).toBe(420);
+        expect(granted?.lastVoiceXpAt).toEqual(grantedAt);
+        expect(granted?.lastMessageXpAt).toEqual(grantedAt);
     });
 
     it('stacks photo upload counters on message grants', () => {
@@ -100,8 +152,11 @@ describe('computeXpGrant', () => {
                     messageCount: 1,
                     reactionCount: 0,
                     photoUploadCount: 0,
+                    voiceSessionCount: 0,
+                    totalVoiceSeconds: 0,
                     lastMessageXpAt: grantedAt,
                     lastReactionXpAt: null,
+                    lastVoiceXpAt: null,
                 },
                 20
             )

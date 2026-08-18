@@ -16,6 +16,7 @@ export type StatsCardMetrics = {
     allTimeMsgsPerDay: number;
     messageSharePercent: number;
     reactionSharePercent: number;
+    voiceSharePercent: number;
     photoRatePercent: number;
     avgMessageLengthRecent: number | null;
     avgXpPerMessageRecent: number | null;
@@ -37,17 +38,21 @@ export function buildStatsCardMetrics(input: BuildStatsCardMetricsInput): StatsC
     const { recentActivity, totalActivity, chartBuckets, recentEvents, progress } = input;
 
     const tenureDays = Math.max(1, computeTenureDays(progress, input.now ?? new Date()));
-    const engagementTotal = recentActivity.messageCount + recentActivity.reactionCount;
+    const engagementTotal =
+        recentActivity.messageCount + recentActivity.reactionCount + recentActivity.voiceSessionCount;
     const messageSharePercent =
         engagementTotal > 0 ? Math.round((recentActivity.messageCount / engagementTotal) * 100) : 0;
-    const reactionSharePercent = engagementTotal > 0 ? 100 - messageSharePercent : 0;
+    const reactionSharePercent =
+        engagementTotal > 0 ? Math.round((recentActivity.reactionCount / engagementTotal) * 100) : 0;
+    const voiceSharePercent =
+        engagementTotal > 0 ? Math.max(0, 100 - messageSharePercent - reactionSharePercent) : 0;
     const photoRatePercent =
         recentActivity.messageCount > 0
             ? Math.round((recentActivity.photoUploadCount / recentActivity.messageCount) * 100)
             : 0;
 
     const dailyPeakEvents = chartBuckets.reduce(
-        (peak, day) => Math.max(peak, day.messageCount + day.reactionCount),
+        (peak, day) => Math.max(peak, day.messageCount + day.reactionCount + day.voiceSessionCount),
         0
     );
 
@@ -61,6 +66,7 @@ export function buildStatsCardMetrics(input: BuildStatsCardMetricsInput): StatsC
         allTimeMsgsPerDay: roundOneDecimal(totalActivity.messageCount / tenureDays),
         messageSharePercent,
         reactionSharePercent,
+        voiceSharePercent,
         photoRatePercent,
         avgMessageLengthRecent: computeAvgMessageLength(recentEvents),
         avgXpPerMessageRecent:
@@ -144,9 +150,12 @@ function getLastActiveAt(progress: LevelingProgress | null): Date | null {
         return null;
     }
 
-    const timestamps = [progress.lastMessageXpAt, progress.lastReactionXpAt]
-        .filter((value): value is Date | string => value != null)
-        .map((value) => toDate(value));
+    const timestamps: Date[] = [];
+    for (const value of [progress.lastMessageXpAt, progress.lastReactionXpAt, progress.lastVoiceXpAt]) {
+        if (value) {
+            timestamps.push(toDate(value));
+        }
+    }
 
     if (timestamps.length === 0) {
         return null;

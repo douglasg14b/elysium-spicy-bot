@@ -11,25 +11,38 @@ export function getActivityDateKey(date: Date): string {
     return getLocalDateKey(date, LEVELING_TIMEZONE);
 }
 
+export function emptyDailyActivityBucket(activityDate: string): DailyActivityBucket {
+    return {
+        activityDate,
+        messageCount: 0,
+        reactionCount: 0,
+        photoUploadCount: 0,
+        voiceSessionCount: 0,
+    };
+}
+
 export function aggregateEventsByDate(events: ReadonlyArray<LevelingActivityEvent>): DailyXpBucket[] {
     const buckets = new Map<string, DailyXpBucket>();
 
     for (const event of events) {
         const activityDate = getActivityDateKey(toDate(event.occurredAt));
         const bucket = buckets.get(activityDate) ?? {
-            activityDate,
-            messageCount: 0,
-            reactionCount: 0,
-            photoUploadCount: 0,
+            ...emptyDailyActivityBucket(activityDate),
             totalXp: 0,
         };
 
         bucket.totalXp += event.xpAmount;
 
-        if (event.activityType === 'message') {
-            bucket.messageCount += 1;
-        } else {
-            bucket.reactionCount += 1;
+        switch (event.activityType) {
+            case 'message':
+                bucket.messageCount += 1;
+                break;
+            case 'reaction':
+                bucket.reactionCount += 1;
+                break;
+            case 'voice':
+                bucket.voiceSessionCount += 1;
+                break;
         }
 
         if (event.photoBonus) {
@@ -51,15 +64,7 @@ export function fillActivityDateRange(
     const filled: DailyActivityBucket[] = [];
 
     for (const activityDate of iterateActivityDates(startDate, endDate)) {
-        const existing = byDate.get(activityDate);
-        filled.push(
-            existing ?? {
-                activityDate,
-                messageCount: 0,
-                reactionCount: 0,
-                photoUploadCount: 0,
-            }
-        );
+        filled.push(byDate.get(activityDate) ?? emptyDailyActivityBucket(activityDate));
     }
 
     return filled;
@@ -72,13 +77,9 @@ export function sumDailyActivity(buckets: ReadonlyArray<DailyActivityBucket>): D
             messageCount: totals.messageCount + bucket.messageCount,
             reactionCount: totals.reactionCount + bucket.reactionCount,
             photoUploadCount: totals.photoUploadCount + bucket.photoUploadCount,
+            voiceSessionCount: totals.voiceSessionCount + bucket.voiceSessionCount,
         }),
-        {
-            activityDate: 'total',
-            messageCount: 0,
-            reactionCount: 0,
-            photoUploadCount: 0,
-        }
+        emptyDailyActivityBucket('total')
     );
 }
 
@@ -92,10 +93,16 @@ export function aggregateActivityTotals(events: ReadonlyArray<LevelingActivityEv
             totals.eventCount += 1;
             totals.totalXp += event.xpAmount;
 
-            if (event.activityType === 'message') {
-                totals.messageCount += 1;
-            } else {
-                totals.reactionCount += 1;
+            switch (event.activityType) {
+                case 'message':
+                    totals.messageCount += 1;
+                    break;
+                case 'reaction':
+                    totals.reactionCount += 1;
+                    break;
+                case 'voice':
+                    totals.voiceSessionCount += 1;
+                    break;
             }
 
             if (event.photoBonus) {
@@ -105,10 +112,7 @@ export function aggregateActivityTotals(events: ReadonlyArray<LevelingActivityEv
             return totals;
         },
         {
-            activityDate: 'total',
-            messageCount: 0,
-            reactionCount: 0,
-            photoUploadCount: 0,
+            ...emptyDailyActivityBucket('total'),
             totalXp: 0,
             eventCount: 0,
         }
@@ -154,6 +158,7 @@ export function aggregateDailyIntoWeeklyBuckets(
             messageCount: totals.messageCount,
             reactionCount: totals.reactionCount,
             photoUploadCount: totals.photoUploadCount,
+            voiceSessionCount: totals.voiceSessionCount,
         });
     }
 

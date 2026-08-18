@@ -264,7 +264,7 @@ function buildActivityChart(
             flexShrink: 0,
         },
         children: buckets.map((bucket, bucketIndex) => {
-            const eventCount = bucket.messageCount + bucket.reactionCount;
+            const eventCount = bucket.messageCount + bucket.reactionCount + bucket.voiceSessionCount;
             const barHeight =
                 peakEvents > 0
                     ? Math.max(4, Math.round((eventCount / peakEvents) * barMaxHeight))
@@ -340,7 +340,11 @@ function buildActivityChart(
     });
 }
 
-function buildMixBar(messagePercent: number, reactionPercent: number): SatoriElement {
+function buildMixBar(
+    messagePercent: number,
+    reactionPercent: number,
+    voicePercent: number
+): SatoriElement {
     const segments: SatoriElement[] = [];
 
     if (messagePercent > 0) {
@@ -362,6 +366,18 @@ function buildMixBar(messagePercent: number, reactionPercent: number): SatoriEle
                     width: `${reactionPercent}%`,
                     height: '100%',
                     backgroundColor: STATS_CARD_COLORS.accentSoft,
+                },
+            })
+        );
+    }
+
+    if (voicePercent > 0) {
+        segments.push(
+            el('div', {
+                style: {
+                    width: `${voicePercent}%`,
+                    height: '100%',
+                    backgroundColor: '#c084fc',
                 },
             })
         );
@@ -462,7 +478,7 @@ function buildEmptyState(): SatoriElement {
                     maxWidth: 520,
                 },
                 children:
-                    'Messages, reactions, and photo bonuses will populate this card once this member earns XP.',
+                    'Messages, reactions, voice time, and photo bonuses will populate this card once this member earns XP.',
             }),
         ],
     });
@@ -534,7 +550,11 @@ function buildActiveBody(input: BuildStatsCardElementInput): SatoriElement {
                         },
                         children: buildPanelBox([
                         buildSectionTitle('Engagement mix'),
-                        buildMixBar(metrics.messageSharePercent, metrics.reactionSharePercent),
+                        buildMixBar(
+                            metrics.messageSharePercent,
+                            metrics.reactionSharePercent,
+                            metrics.voiceSharePercent
+                        ),
                         el('div', {
                             style: {
                                 display: 'flex',
@@ -550,6 +570,9 @@ function buildActiveBody(input: BuildStatsCardElementInput): SatoriElement {
                                 }),
                                 el('span', {
                                     children: `Reactions ${metrics.reactionSharePercent}%`,
+                                }),
+                                el('span', {
+                                    children: `Voice ${metrics.voiceSharePercent}%`,
                                 }),
                             ],
                         }),

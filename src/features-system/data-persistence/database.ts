@@ -16,6 +16,7 @@ import { BirthdayConfigTable } from '../../features/birthday-tracker/data/birthd
 import { LevelingConfigTable } from '../../features/leveling/data/levelingConfigSchema';
 import { LevelingProgressTable } from '../../features/leveling/data/levelingProgressSchema';
 import { LevelingActivityEventTable } from '../../features/leveling/data/levelingActivityEventSchema';
+import { LevelingVoiceSessionTable } from '../../features/leveling/data/levelingVoiceSessionSchema';
 
 export interface Database {
     flash_chat_config: FlashChatConfigTable;
@@ -26,6 +27,7 @@ export interface Database {
     leveling_config: LevelingConfigTable;
     leveling_progress: LevelingProgressTable;
     leveling_activity_events: LevelingActivityEventTable;
+    leveling_voice_sessions: LevelingVoiceSessionTable;
 }
 
 function getDbDialect() {
@@ -59,8 +61,15 @@ function getDatabaseClient() {
                 birthdays: ['createdAt', 'updatedAt', 'lastAnnouncedAt'],
                 birthday_config: ['createdAt', 'updatedAt'],
                 leveling_config: ['createdAt', 'updatedAt'],
-                leveling_progress: ['createdAt', 'updatedAt', 'lastMessageXpAt', 'lastReactionXpAt'],
-                leveling_activity_events: ['occurredAt'],
+                leveling_progress: [
+                    'createdAt',
+                    'updatedAt',
+                    'lastMessageXpAt',
+                    'lastReactionXpAt',
+                    'lastVoiceXpAt',
+                ],
+                leveling_activity_events: ['occurredAt', 'voiceSessionStartedAt', 'voiceSessionEndedAt'],
+                leveling_voice_sessions: ['sessionStartedAt', 'eligibleSince', 'updatedAt'],
         }),
     ];
 
