@@ -9,6 +9,7 @@ import { deployTicketSystemCommand, handleDeployTicketSystem, initTicketsFeature
 import { initAIReply } from './features/ai-reply';
 import { initBirthdayFeature, startBirthdayAnnouncementScheduler, stopBirthdayAnnouncementScheduler } from './features/birthday-tracker';
 import { initLeveling, stopLeveling } from './features/leveling';
+import { initWarnings } from './features/warnings';
 
 interactionsRegistry.register(flashChatCommand, handleFlashChatCommand);
 interactionsRegistry.register(deployTicketSystemCommand, handleDeployTicketSystem);
@@ -21,6 +22,9 @@ initBirthdayFeature();
 
 // Initialize leveling system handlers
 initLeveling();
+
+// Initialize staff warnings
+initWarnings();
 
 // Initialize AI reply feature
 initAIReply();

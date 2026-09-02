@@ -17,6 +17,7 @@ import { LevelingConfigTable } from '../../features/leveling/data/levelingConfig
 import { LevelingProgressTable } from '../../features/leveling/data/levelingProgressSchema';
 import { LevelingActivityEventTable } from '../../features/leveling/data/levelingActivityEventSchema';
 import { LevelingVoiceSessionTable } from '../../features/leveling/data/levelingVoiceSessionSchema';
+import { WarningTable } from '../../features/warnings/data/warningsSchema';
 
 export interface Database {
     flash_chat_config: FlashChatConfigTable;
@@ -28,6 +29,7 @@ export interface Database {
     leveling_progress: LevelingProgressTable;
     leveling_activity_events: LevelingActivityEventTable;
     leveling_voice_sessions: LevelingVoiceSessionTable;
+    warnings: WarningTable;
 }
 
 function getDbDialect() {
@@ -70,6 +72,7 @@ function getDatabaseClient() {
                 ],
                 leveling_activity_events: ['occurredAt', 'voiceSessionStartedAt', 'voiceSessionEndedAt'],
                 leveling_voice_sessions: ['sessionStartedAt', 'eligibleSince', 'updatedAt'],
+                warnings: ['issuedAt', 'expiresAt', 'clearedAt', 'createdAt'],
         }),
     ];
 
