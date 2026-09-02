@@ -3,7 +3,8 @@ import { Resvg } from '@resvg/resvg-js';
 import { fetchImageAsDataUri, loadCardFonts } from '../../../leveling/cards/shared/cardRenderAssets';
 import {
     buildActiveWarningsCardElement,
-    type ActiveWarningsCardDisplayEntry,
+    type ActiveWarningsDetailRow,
+    type ActiveWarningsMemberRow,
 } from './buildActiveWarningsCardElement';
 import { ACTIVE_WARNINGS_CARD_WIDTH, getActiveWarningsCardHeight } from './activeWarningsCardConstants';
 
@@ -13,47 +14,88 @@ export type ActiveWarningsCardMember = {
     avatarUrl: string | null;
 };
 
-export type RenderActiveWarningsCardInput = {
-    guildName: string;
-    entries: Array<Omit<ActiveWarningsCardDisplayEntry, 'displayName' | 'avatarDataUri'>>;
-    members: ActiveWarningsCardMember[];
-    totalActive: number;
+type RenderCardShared = {
     fetchImpl?: typeof fetch;
 };
 
-export async function renderActiveWarningsCard(input: RenderActiveWarningsCardInput): Promise<Buffer> {
-    const fetchImpl = input.fetchImpl ?? fetch;
-    const memberById = new Map(input.members.map((member) => [member.userId, member]));
+export type RenderActiveWarningsCardInput = RenderCardShared &
+    (
+        | {
+              kind: 'summary';
+              guildName: string;
+              summaries: Array<Omit<ActiveWarningsMemberRow, 'displayName' | 'avatarDataUri'>>;
+              totalWarnings: number;
+              totalMembers: number;
+              members: ActiveWarningsCardMember[];
+          }
+        | {
+              kind: 'member';
+              memberName: string;
+              entries: ActiveWarningsDetailRow[];
+              totalActive: number;
+          }
+    );
 
-    const uniqueMembers = [...new Map(input.members.map((member) => [member.userId, member])).values()];
+export function departedWarningMemberDisplayName(userId: string): string {
+    return `Left server (${userId.slice(-4)})`;
+}
+
+async function loadAvatarDataUris(
+    members: ActiveWarningsCardMember[],
+    fetchImpl: typeof fetch
+): Promise<Map<string, string | null>> {
+    const uniqueMembers = [...new Map(members.map((member) => [member.userId, member])).values()];
     const avatarDataUris = await Promise.all(
         uniqueMembers.map(async (member) => ({
             userId: member.userId,
             avatarDataUri: member.avatarUrl ? await fetchImageAsDataUri(member.avatarUrl, fetchImpl) : null,
         }))
     );
-    const avatarById = new Map(avatarDataUris.map((entry) => [entry.userId, entry.avatarDataUri]));
 
-    const entries: ActiveWarningsCardDisplayEntry[] = input.entries.map((entry) => {
-        const member = memberById.get(entry.userId);
+    return new Map(avatarDataUris.map((entry) => [entry.userId, entry.avatarDataUri]));
+}
 
-        return {
-            ...entry,
-            displayName: member?.displayName ?? `Member ${entry.userId.slice(-4)}`,
-            avatarDataUri: avatarById.get(entry.userId) ?? null,
-        };
-    });
+async function hydrateSummaryEntries(
+    input: Extract<RenderActiveWarningsCardInput, { kind: 'summary' }>,
+    fetchImpl: typeof fetch
+): Promise<ActiveWarningsMemberRow[]> {
+    const memberById = new Map(input.members.map((member) => [member.userId, member]));
+    const avatarById = await loadAvatarDataUris(input.members, fetchImpl);
+
+    return input.summaries.map((summary) => ({
+        ...summary,
+        displayName: memberDisplay(memberById, summary.userId),
+        avatarDataUri: avatarById.get(summary.userId) ?? null,
+    }));
+}
+
+function memberDisplay(members: Map<string, ActiveWarningsCardMember>, userId: string): string {
+    return members.get(userId)?.displayName ?? departedWarningMemberDisplayName(userId);
+}
+
+export async function renderActiveWarningsCard(input: RenderActiveWarningsCardInput): Promise<Buffer> {
+    const fetchImpl = input.fetchImpl ?? fetch;
+    const element =
+        input.kind === 'summary'
+            ? buildActiveWarningsCardElement({
+                  kind: 'summary',
+                  guildName: input.guildName,
+                  totalWarnings: input.totalWarnings,
+                  totalMembers: input.totalMembers,
+                  entries: await hydrateSummaryEntries(input, fetchImpl),
+              })
+            : buildActiveWarningsCardElement({
+                  kind: 'member',
+                  memberName: input.memberName,
+                  totalActive: input.totalActive,
+                  entries: input.entries,
+              });
 
     const fonts = await loadCardFonts(fetchImpl);
-    const element = buildActiveWarningsCardElement({
-        guildName: input.guildName,
-        entries,
-        totalActive: input.totalActive,
-    });
-
+    const rowCount = input.kind === 'summary' ? input.summaries.length : input.entries.length;
     const svg = await satori(element, {
         width: ACTIVE_WARNINGS_CARD_WIDTH,
-        height: getActiveWarningsCardHeight(entries.length),
+        height: getActiveWarningsCardHeight(rowCount),
         fonts,
     });
 

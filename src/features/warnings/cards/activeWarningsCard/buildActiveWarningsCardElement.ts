@@ -30,20 +30,34 @@ function el(
     return { type, props };
 }
 
-export type ActiveWarningsCardDisplayEntry = {
-    slug: string;
+export type ActiveWarningsMemberRow = {
     userId: string;
-    rule: string;
-    expiresAt: Date;
+    warningCount: number;
+    soonestExpiresAt: Date;
     displayName: string;
     avatarDataUri: string | null;
 };
 
-export type BuildActiveWarningsCardElementInput = {
-    guildName: string;
-    entries: ActiveWarningsCardDisplayEntry[];
-    totalActive: number;
+export type ActiveWarningsDetailRow = {
+    slug: string;
+    rule: string;
+    expiresAt: Date;
 };
+
+export type BuildActiveWarningsCardElementInput =
+    | {
+          kind: 'summary';
+          guildName: string;
+          entries: ActiveWarningsMemberRow[];
+          totalWarnings: number;
+          totalMembers: number;
+      }
+    | {
+          kind: 'member';
+          memberName: string;
+          entries: ActiveWarningsDetailRow[];
+          totalActive: number;
+      };
 
 type TableColumn = {
     key: string;
@@ -52,11 +66,16 @@ type TableColumn = {
     align?: 'left' | 'right' | 'center';
 };
 
-const TABLE_COLUMNS: readonly TableColumn[] = [
-    { key: 'slug', label: 'Slug', width: 148, align: 'left' },
-    { key: 'member', label: 'Member', width: 220, align: 'left' },
-    { key: 'rule', label: 'Rule', width: 318, align: 'left' },
-    { key: 'expires', label: 'Expires', width: 96, align: 'right' },
+const SUMMARY_COLUMNS: readonly TableColumn[] = [
+    { key: 'member', label: 'Member', width: 420, align: 'left' },
+    { key: 'count', label: 'Warnings', width: 110, align: 'right' },
+    { key: 'expires', label: 'Next drop-off', width: 250, align: 'right' },
+] as const;
+
+const MEMBER_COLUMNS: readonly TableColumn[] = [
+    { key: 'slug', label: 'Slug', width: 180, align: 'left' },
+    { key: 'rule', label: 'Rule', width: 430, align: 'left' },
+    { key: 'expires', label: 'Expires', width: 170, align: 'right' },
 ] as const;
 
 function truncateText(value: string, maxLength: number): string {
@@ -109,15 +128,7 @@ function buildAvatar(avatarDataUri: string | null): SatoriElement {
     });
 }
 
-function buildHeader(input: BuildActiveWarningsCardElementInput): SatoriElement {
-    const hiddenCount = Math.max(0, input.totalActive - input.entries.length);
-    const subtitle =
-        input.totalActive === 0
-            ? 'Nobody is in the doghouse'
-            : hiddenCount > 0
-              ? `${input.totalActive} active · ${hiddenCount} more not shown`
-              : `${input.totalActive} active · soonest drop-off first`;
-
+function buildHeader(title: string, subtitle: string): SatoriElement {
     return el('div', {
         style: {
             display: 'flex',
@@ -136,7 +147,7 @@ function buildHeader(input: BuildActiveWarningsCardElementInput): SatoriElement 
                     lineHeight: 1.1,
                     fontFamily: 'Inter',
                 },
-                children: `Active Warnings — ${truncateText(input.guildName, 36)}`,
+                children: title,
             }),
             el('div', {
                 style: {
@@ -148,6 +159,28 @@ function buildHeader(input: BuildActiveWarningsCardElementInput): SatoriElement 
             }),
         ],
     });
+}
+
+function summarySubtitle(input: Extract<BuildActiveWarningsCardElementInput, { kind: 'summary' }>): string {
+    if (input.totalWarnings === 0) {
+        return 'Nobody is in the doghouse';
+    }
+
+    const hiddenMembers = Math.max(0, input.totalMembers - input.entries.length);
+    const counts = `${input.totalWarnings} active · ${input.totalMembers} members`;
+
+    return hiddenMembers > 0 ? `${counts} · ${hiddenMembers} more not shown` : counts;
+}
+
+function memberSubtitle(input: Extract<BuildActiveWarningsCardElementInput, { kind: 'member' }>): string {
+    if (input.totalActive === 0) {
+        return 'No active warnings';
+    }
+
+    const hiddenCount = Math.max(0, input.totalActive - input.entries.length);
+    return hiddenCount > 0
+        ? `${input.totalActive} active · ${hiddenCount} more not shown`
+        : `${input.totalActive} active · soonest drop-off first`;
 }
 
 function buildTableHeaderCell(column: TableColumn): SatoriElement {
@@ -167,7 +200,7 @@ function buildTableHeaderCell(column: TableColumn): SatoriElement {
     });
 }
 
-function buildTableHeader(): SatoriElement {
+function buildTableHeader(columns: readonly TableColumn[]): SatoriElement {
     return el('div', {
         style: {
             display: 'flex',
@@ -181,7 +214,7 @@ function buildTableHeader(): SatoriElement {
             borderBottomStyle: 'solid',
             flexShrink: 0,
         },
-        children: TABLE_COLUMNS.map((column) => buildTableHeaderCell(column)),
+        children: columns.map((column) => buildTableHeaderCell(column)),
     });
 }
 
@@ -201,17 +234,17 @@ function buildTableCell(content: string, column: TableColumn, emphasis: boolean 
     });
 }
 
-function buildMemberCell(entry: ActiveWarningsCardDisplayEntry): SatoriElement {
+function buildMemberCell(displayName: string, avatarDataUri: string | null, width: number): SatoriElement {
     return el('div', {
         style: {
-            width: 220,
+            width,
             display: 'flex',
             alignItems: 'center',
             gap: 10,
             flexShrink: 0,
         },
         children: [
-            buildAvatar(entry.avatarDataUri),
+            buildAvatar(avatarDataUri),
             el('div', {
                 style: {
                     fontSize: 14,
@@ -219,13 +252,13 @@ function buildMemberCell(entry: ActiveWarningsCardDisplayEntry): SatoriElement {
                     color: ACTIVE_WARNINGS_CARD_COLORS.textPrimary,
                     fontFamily: 'Inter',
                 },
-                children: truncateText(entry.displayName, 18),
+                children: truncateText(displayName, 28),
             }),
         ],
     });
 }
 
-function buildTableRow(entry: ActiveWarningsCardDisplayEntry): SatoriElement {
+function buildRow(children: SatoriElement[]): SatoriElement {
     return el('div', {
         style: {
             display: 'flex',
@@ -240,16 +273,31 @@ function buildTableRow(entry: ActiveWarningsCardDisplayEntry): SatoriElement {
             borderBottomStyle: 'solid',
             flexShrink: 0,
         },
-        children: [
-            buildTableCell(truncateText(entry.slug, 16), TABLE_COLUMNS[0], true),
-            buildMemberCell(entry),
-            buildTableCell(truncateText(entry.rule, 32), TABLE_COLUMNS[2]),
-            buildTableCell(formatCalendarDate(calendarDateFromUtcMidnight(entry.expiresAt)), TABLE_COLUMNS[3], true),
-        ],
+        children,
     });
 }
 
-function buildEmptyState(): SatoriElement {
+function buildSummaryRow(entry: ActiveWarningsMemberRow): SatoriElement {
+    return buildRow([
+        buildMemberCell(entry.displayName, entry.avatarDataUri, SUMMARY_COLUMNS[0].width),
+        buildTableCell(String(entry.warningCount), SUMMARY_COLUMNS[1], true),
+        buildTableCell(
+            formatCalendarDate(calendarDateFromUtcMidnight(entry.soonestExpiresAt)),
+            SUMMARY_COLUMNS[2],
+            true
+        ),
+    ]);
+}
+
+function buildDetailRow(entry: ActiveWarningsDetailRow): SatoriElement {
+    return buildRow([
+        buildTableCell(truncateText(entry.slug, 20), MEMBER_COLUMNS[0], true),
+        buildTableCell(truncateText(entry.rule, 42), MEMBER_COLUMNS[1]),
+        buildTableCell(formatCalendarDate(calendarDateFromUtcMidnight(entry.expiresAt)), MEMBER_COLUMNS[2], true),
+    ]);
+}
+
+function buildEmptyState(message: string): SatoriElement {
     return el('div', {
         style: {
             display: 'flex',
@@ -262,16 +310,35 @@ function buildEmptyState(): SatoriElement {
             fontFamily: 'Inter',
             flexShrink: 0,
         },
-        children: 'Nobody is in the doghouse right now.',
+        children: message,
     });
+}
+
+function headerFor(input: BuildActiveWarningsCardElementInput): { title: string; subtitle: string } {
+    if (input.kind === 'summary') {
+        return {
+            title: `Active Warnings — ${truncateText(input.guildName, 36)}`,
+            subtitle: summarySubtitle(input),
+        };
+    }
+
+    return {
+        title: `Active Warnings — ${truncateText(input.memberName, 36)}`,
+        subtitle: memberSubtitle(input),
+    };
 }
 
 export function buildActiveWarningsCardElement(input: BuildActiveWarningsCardElementInput): SatoriElement {
     const cardHeight = getActiveWarningsCardHeight(input.entries.length);
+    const { title, subtitle } = headerFor(input);
 
     const body =
         input.entries.length === 0
-            ? buildEmptyState()
+            ? buildEmptyState(
+                  input.kind === 'summary'
+                      ? 'Nobody is in the doghouse right now.'
+                      : "They're clean. For now."
+              )
             : el('div', {
                   style: {
                       display: 'flex',
@@ -280,7 +347,10 @@ export function buildActiveWarningsCardElement(input: BuildActiveWarningsCardEle
                       flexShrink: 0,
                       paddingBottom: ACTIVE_WARNINGS_CARD_PANEL_BOTTOM_INSET,
                   },
-                  children: [buildTableHeader(), ...input.entries.map((entry) => buildTableRow(entry))],
+                  children:
+                      input.kind === 'summary'
+                          ? [buildTableHeader(SUMMARY_COLUMNS), ...input.entries.map((entry) => buildSummaryRow(entry))]
+                          : [buildTableHeader(MEMBER_COLUMNS), ...input.entries.map((entry) => buildDetailRow(entry))],
               });
 
     return el('div', {
@@ -307,7 +377,7 @@ export function buildActiveWarningsCardElement(input: BuildActiveWarningsCardEle
                 borderStyle: 'solid',
                 backgroundColor: ACTIVE_WARNINGS_CARD_COLORS.panelFill,
             },
-            children: [buildHeader(input), body],
+            children: [buildHeader(title, subtitle), body],
         }),
     });
 }

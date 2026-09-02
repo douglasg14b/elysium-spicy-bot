@@ -4,7 +4,12 @@ import { CamelCasePlugin, Kysely, SqliteDialect, sql } from 'kysely';
 import type { Database, DatabaseClient } from '../../../../features-system/data-persistence/database';
 import { SqlDatePlugin } from '../../../../features-system/data-persistence/plugins/sqlDatePlugin';
 import { SqliteBindingPlugin } from '../../../../features-system/data-persistence/plugins/sqliteBindingPlugin';
-import { getActiveAsOfUtcMidnight, isWarningActive } from '../../logic/warningDates';
+import {
+    calendarDateFromUtcMidnight,
+    formatCalendarDate,
+    getActiveAsOfUtcMidnight,
+    isWarningActive,
+} from '../../logic/warningDates';
 import { WarningsRepo } from '../warningsRepo';
 
 describe('WarningsRepo active filters (sqlite)', () => {
@@ -104,11 +109,100 @@ describe('WarningsRepo active filters (sqlite)', () => {
             createdAt: '2026-03-01T00:00:00.000Z',
         });
 
-        const active = await repo.listActive('guild-1', asOf, 10);
-        const count = await repo.countActive('guild-1', asOf);
+        await repo.insert({
+            guildId: 'guild-1',
+            userId: 'user-active',
+            issuerId: 'mod-1',
+            slug: 'consent-active-2',
+            rule: 'Harassment',
+            description: 'Second active warning for the same member',
+            issuedAt: '2026-04-01T00:00:00.000Z',
+            expiresAt: '2026-10-01T00:00:00.000Z',
+            clearedAt: null,
+            clearedById: null,
+            createdAt: '2026-04-01T00:00:00.000Z',
+        });
+        await repo.insert({
+            guildId: 'guild-1',
+            userId: 'user-one',
+            issuerId: 'mod-1',
+            slug: 'privacy-one',
+            rule: 'Privacy',
+            description: 'Single warning on a different member',
+            issuedAt: '2026-05-01T00:00:00.000Z',
+            expiresAt: '2026-12-01T00:00:00.000Z',
+            clearedAt: null,
+            clearedById: null,
+            createdAt: '2026-05-01T00:00:00.000Z',
+        });
+        await repo.insert({
+            guildId: 'guild-1',
+            userId: 'user-two-later',
+            issuerId: 'mod-1',
+            slug: 'consent-later-a',
+            rule: 'Consent',
+            description: 'Same count as user-active, later soonest drop-off',
+            issuedAt: '2026-05-01T00:00:00.000Z',
+            expiresAt: '2026-11-01T00:00:00.000Z',
+            clearedAt: null,
+            clearedById: null,
+            createdAt: '2026-05-01T00:00:00.000Z',
+        });
+        await repo.insert({
+            guildId: 'guild-1',
+            userId: 'user-two-later',
+            issuerId: 'mod-1',
+            slug: 'consent-later-b',
+            rule: 'Consent',
+            description: 'Second warning for the later-expiring pair',
+            issuedAt: '2026-06-01T00:00:00.000Z',
+            expiresAt: '2027-01-01T00:00:00.000Z',
+            clearedAt: null,
+            clearedById: null,
+            createdAt: '2026-06-01T00:00:00.000Z',
+        });
 
-        expect(active.map((warning) => warning.slug)).toEqual(['consent-active']);
-        expect(count).toBe(1);
+        const active = await repo.listActive('guild-1', asOf, { limit: 10 });
+        const count = await repo.countActive('guild-1', asOf);
+        const summaries = await repo.listActiveMemberSummaries('guild-1', asOf, 10);
+        const memberCount = await repo.countActiveMembers('guild-1', asOf);
+        const memberWarnings = await repo.listActive('guild-1', asOf, {
+            limit: 10,
+            userId: 'user-active',
+        });
+
+        expect(active.map((warning) => warning.slug)).toEqual([
+            'consent-active',
+            'consent-active-2',
+            'consent-later-a',
+            'privacy-one',
+            'consent-later-b',
+        ]);
+        expect(count).toBe(5);
+        expect(memberCount).toBe(3);
+        expect(summaries.map((summary) => summary.userId)).toEqual(['user-active', 'user-two-later', 'user-one']);
+        expect(summaries[0]).toEqual(
+            expect.objectContaining({
+                userId: 'user-active',
+                warningCount: 2,
+            })
+        );
+        expect(summaries[0].soonestExpiresAt).toBeInstanceOf(Date);
+        expect(formatCalendarDate(calendarDateFromUtcMidnight(summaries[0].soonestExpiresAt))).toBe('2026-09-01');
+        expect(summaries[1]).toEqual(
+            expect.objectContaining({
+                userId: 'user-two-later',
+                warningCount: 2,
+            })
+        );
+        expect(formatCalendarDate(calendarDateFromUtcMidnight(summaries[1].soonestExpiresAt))).toBe('2026-11-01');
+        expect(summaries[2]).toEqual(
+            expect.objectContaining({
+                userId: 'user-one',
+                warningCount: 1,
+            })
+        );
+        expect(memberWarnings.map((warning) => warning.slug)).toEqual(['consent-active', 'consent-active-2']);
         expect(active.every((warning) => isWarningActive(warning, now))).toBe(true);
     });
 });
