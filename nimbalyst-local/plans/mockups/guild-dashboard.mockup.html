@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spicy Bot — Guild Dashboard</title>
+<style>
+  :root {
+    --accent: #00A2FF;
+    --accent-hover: #0088d6;
+    --accent-soft: rgba(0,162,255,0.16);
+    --accent-border: rgba(0,162,255,0.4);
+    --bg-darkest: #1a1b23;
+    --bg-dark: #202128;
+    --bg-panel: #2a2b34;
+    --bg-panel-2: #313340;
+    --bg-input: #1e1f26;
+    --border: #383a47;
+    --text: #e8e9ed;
+    --text-muted: #9aa0ac;
+    --text-dim: #6c7079;
+    --green: #43b581;
+    --amber: #faa61a;
+    --pink: #eb459e;
+    --red: #ed4245;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "gg sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg-darkest);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    font-size: 14px;
+    line-height: 1.4;
+  }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    height: 56px;
+    background: var(--bg-dark);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    position: relative;
+    z-index: 10;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-logo {
+    width: 40px; height: 40px; border-radius: 10px;
+    object-fit: contain;
+    background: #10131a;
+    box-shadow: 0 2px 10px rgba(0,162,255,0.28);
+  }
+  .brand-name { font-weight: 700; font-size: 16px; letter-spacing: .2px; }
+  .brand-name span { color: var(--accent); }
+  .brand-tag {
+    font-size: 11px; color: var(--text-dim);
+    border: 1px solid var(--border); border-radius: 20px;
+    padding: 2px 8px; margin-left: 6px; text-transform: uppercase; letter-spacing: .5px;
+  }
+  .user-chip {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--bg-panel); border: 1px solid var(--border);
+    padding: 5px 12px 5px 5px; border-radius: 24px; cursor: pointer;
+  }
+  .user-chip:hover { background: var(--bg-panel-2); }
+  .avatar {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: var(--bg-panel-2); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 14px; color: var(--accent);
+  }
+  .user-meta { display: flex; flex-direction: column; line-height: 1.15; }
+  .user-name { font-weight: 600; font-size: 13px; }
+  .user-status { font-size: 11px; color: var(--green); }
+  .caret { color: var(--text-dim); font-size: 10px; margin-left: 2px; }
+
+  /* ---------- Layout ---------- */
+  .shell { display: flex; height: calc(100vh - 56px); }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar {
+    width: 264px; background: var(--bg-dark);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow-y: auto;
+  }
+  .side-section { padding: 16px 12px 8px; }
+  .side-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .7px;
+    color: var(--text-dim); font-weight: 700; padding: 0 8px 8px;
+  }
+  .guild {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px; border-radius: 8px; cursor: pointer; margin-bottom: 2px;
+    position: relative;
+  }
+  .guild:hover { background: var(--bg-panel); }
+  .guild.active { background: var(--bg-panel-2); }
+  .guild.active::before {
+    content: ""; position: absolute; left: -12px; top: 50%; transform: translateY(-50%);
+    width: 4px; height: 28px; border-radius: 0 4px 4px 0; background: var(--accent);
+  }
+  .guild-icon {
+    width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 13px; color: var(--text);
+    background: var(--bg-panel-2); border: 1px solid var(--border);
+  }
+  .guild-info { overflow: hidden; }
+  .guild-name { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .guild-sub { font-size: 11px; color: var(--text-dim); }
+
+  .divider { height: 1px; background: var(--border); margin: 6px 16px; }
+
+  .nav-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 12px; border-radius: 8px; cursor: pointer;
+    color: var(--text-muted); font-weight: 500; margin-bottom: 1px;
+  }
+  .nav-item:hover { background: var(--bg-panel); color: var(--text); }
+  .nav-item.active { background: var(--accent); color: #041017; }
+  .nav-ico { width: 18px; text-align: center; font-size: 15px; }
+  .badge-new {
+    margin-left: auto; font-size: 9.5px; font-weight: 800; letter-spacing: .5px;
+    background: var(--accent); color: #041017; padding: 2px 7px; border-radius: 20px;
+    text-transform: uppercase; box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .nav-item.flows { color: var(--text); }
+
+  .sidebar-footer {
+    margin-top: auto; padding: 12px; font-size: 11px; color: var(--text-dim);
+    border-top: 1px solid var(--border);
+  }
+
+  /* ---------- Main ---------- */
+  .main { flex: 1; overflow-y: auto; padding: 28px 36px; }
+  .breadcrumb { font-size: 12.5px; color: var(--text-dim); margin-bottom: 4px; }
+  .breadcrumb b { color: var(--text-muted); }
+  .page-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; }
+  .page-title { font-size: 24px; font-weight: 800; letter-spacing: -.3px; }
+  .page-sub { color: var(--text-muted); margin-top: 4px; font-size: 13.5px; max-width: 540px; }
+
+  .content-grid { display: grid; grid-template-columns: 1fr 320px; gap: 24px; align-items: start; }
+
+  .card {
+    background: var(--bg-panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 22px 24px;
+  }
+  .card-title { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .card-desc { color: var(--text-muted); font-size: 13px; margin-bottom: 20px; }
+
+  .field { margin-bottom: 20px; }
+  .field-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); margin-bottom: 8px; display: block; }
+  .field-hint { font-size: 12px; color: var(--text-dim); margin-top: 6px; }
+
+  .select {
+    width: 100%; background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 9px; padding: 11px 14px; color: var(--text); font-size: 14px;
+    display: flex; align-items: center; justify-content: space-between; cursor: pointer;
+  }
+  .select:hover { border-color: #4a4d5c; }
+  .channel-pill { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+  .channel-hash { color: var(--text-dim); font-weight: 700; }
+
+  .toggle-row { display: flex; align-items: center; justify-content: space-between;
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 9px; padding: 14px 16px; }
+  .toggle-text b { display: block; font-size: 13.5px; }
+  .toggle-text span { font-size: 12px; color: var(--text-dim); }
+  .switch { width: 46px; height: 26px; border-radius: 20px; background: var(--green); position: relative; cursor: pointer; flex-shrink: 0; }
+  .switch::after { content:""; position:absolute; top:3px; right:3px; width:20px; height:20px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.4); }
+
+  .form-actions { display: flex; align-items: center; gap: 12px; margin-top: 26px; padding-top: 20px; border-top: 1px solid var(--border); }
+  .btn { border: none; border-radius: 9px; padding: 11px 20px; font-size: 13.5px; font-weight: 700; cursor: pointer; font-family: inherit; }
+  .btn-primary { background: var(--accent); color: #041017; }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-ghost { background: transparent; color: var(--text-muted); }
+  .btn-ghost:hover { color: var(--text); }
+  .saved-note { margin-left: auto; font-size: 12px; color: var(--text-dim); }
+
+  /* ---------- Flows teaser ---------- */
+  .flow-card {
+    background: linear-gradient(145deg, var(--accent-soft), rgba(0,162,255,0.05));
+    border: 1px solid var(--accent-border);
+    border-radius: 14px; padding: 22px 22px 24px; position: relative; overflow: hidden;
+  }
+  .flow-card::after {
+    content: "⚡"; position: absolute; right: -10px; bottom: -18px; font-size: 96px; opacity: .07;
+  }
+  .flow-badge { display:inline-block; font-size: 10px; font-weight: 800; letter-spacing: .6px;
+    background: var(--accent); color: #041017; padding: 3px 9px; border-radius: 20px; text-transform: uppercase; margin-bottom: 12px; }
+  .flow-card h3 { font-size: 17px; font-weight: 800; margin-bottom: 8px; }
+  .flow-card p { font-size: 13px; color: var(--text-muted); margin-bottom: 18px; }
+  .mini-flow { display: flex; align-items: center; gap: 6px; margin-bottom: 20px; }
+  .mini-node { font-size: 10.5px; font-weight: 700; padding: 6px 9px; border-radius: 7px; white-space: nowrap; }
+  .mn-trig { background: rgba(67,181,129,.22); color: #7ee2b8; border: 1px solid rgba(67,181,129,.4); }
+  .mn-act { background: var(--accent-soft); color: #7fd3ff; border: 1px solid var(--accent-border); }
+  .mini-arrow { color: var(--text-dim); font-size: 13px; }
+  .flow-cta { background: #fff; color: #1a1b23; border: none; border-radius: 9px; padding: 11px 18px; font-weight: 800; font-size: 13.5px; cursor: pointer; font-family: inherit; width: 100%; }
+  .flow-cta:hover { background: #e8e9ed; }
+
+  .stat-strip { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; margin-top: 24px; }
+  .stat { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .stat-num { font-size: 22px; font-weight: 800; }
+  .stat-lbl { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+</style>
+</head>
+<body>
+  <!-- Top bar -->
+  <div class="topbar">
+    <div class="brand">
+      <img class="brand-logo" src="../../../assets/brand/spicybot-logo.png" alt="SpicyBot logo">
+      <div class="brand-name">Spicy<span>Bot</span></div>
+      <div class="brand-tag">18+ Admin</div>
+    </div>
+    <div class="user-chip">
+      <div class="avatar">DG</div>
+      <div class="user-meta">
+        <div class="user-name">DirtyMartini</div>
+        <div class="user-status">● Connected via Discord</div>
+      </div>
+      <div class="caret">▼</div>
+    </div>
+  </div>
+
+  <div class="shell">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="side-section">
+        <div class="side-label">Server</div>
+        <div class="guild active">
+          <div class="guild-icon">AL</div>
+          <div class="guild-info">
+            <div class="guild-name">Afterdark Lounge</div>
+            <div class="guild-sub">2,481 members</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="side-section">
+        <div class="side-label">Configure</div>
+        <div class="nav-item"><span class="nav-ico">📊</span> Overview</div>
+        <div class="nav-item active"><span class="nav-ico">🛡️</span> Warnings</div>
+        <div class="nav-item"><span class="nav-ico">📈</span> Leveling</div>
+        <div class="nav-item"><span class="nav-ico">🎫</span> Tickets</div>
+        <div class="nav-item"><span class="nav-ico">🎂</span> Birthdays</div>
+        <div class="nav-item flows"><span class="nav-ico">⚡</span> Flows <span class="badge-new">New</span></div>
+      </div>
+
+      <div class="sidebar-footer">
+        SpicyBot v3.2 · <span style="color:var(--green)">All systems naughty</span>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+      <div class="breadcrumb"><b>Afterdark Lounge</b> › Configure › Warnings</div>
+      <div class="page-head">
+        <div>
+          <div class="page-title">Warnings</div>
+          <div class="page-sub">Keep the troublemakers in line. Configure where infractions get logged and how the bot handles repeat offenders.</div>
+        </div>
+      </div>
+
+      <div class="content-grid">
+        <!-- Config editor -->
+        <div class="card">
+          <div class="card-title">🛡️ Warning Settings</div>
+          <div class="card-desc">Warnings let your mods flag misbehavior. Every strike gets receipts in your log channel — no more "he said / she said."</div>
+
+          <div class="field">
+            <label class="field-label">Mod Log Channel</label>
+            <div class="select">
+              <span class="channel-pill"><span class="channel-hash">#</span> mod-logs</span>
+              <span class="caret">▼</span>
+            </div>
+            <div class="field-hint">All warnings, mutes and bans get posted here. Keep it staff-only, obviously.</div>
+          </div>
+
+          <div class="field">
+            <label class="field-label">Enabled</label>
+            <div class="toggle-row">
+              <div class="toggle-text">
+                <b>Warning system is live</b>
+                <span>Mods can issue warnings with <code>/warn</code>.</span>
+              </div>
+              <div class="switch"></div>
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="field-label">Auto-action after</label>
+            <div class="select">
+              <span>3 warnings → 24h timeout</span>
+              <span class="caret">▼</span>
+            </div>
+            <div class="field-hint">Rack up enough strikes and the bot handles it so you don't have to.</div>
+          </div>
+
+          <div class="form-actions">
+            <button class="btn btn-primary">Save changes</button>
+            <button class="btn btn-ghost">Cancel</button>
+            <span class="saved-note">Last saved 4 minutes ago</span>
+          </div>
+        </div>
+
+        <!-- Flows teaser -->
+        <div class="flow-card">
+          <div class="flow-badge">✨ New</div>
+          <h3>Meet Flows</h3>
+          <p>Build onboarding, reaction roles &amp; more — no code. Drag, drop, done.</p>
+          <div class="mini-flow">
+            <span class="mini-node mn-trig">Button Click</span>
+            <span class="mini-arrow">→</span>
+            <span class="mini-node mn-act">Assign Role</span>
+            <span class="mini-arrow">→</span>
+            <span class="mini-node mn-act">Send DM</span>
+          </div>
+          <button class="flow-cta">Open the Flow Builder →</button>
+        </div>
+      </div>
+
+      <div class="stat-strip">
+        <div class="stat"><div class="stat-num">47</div><div class="stat-lbl">Warnings issued this week</div></div>
+        <div class="stat"><div class="stat-num">12</div><div class="stat-lbl">Active mods</div></div>
+        <div class="stat"><div class="stat-num">3</div><div class="stat-lbl">Flows running</div></div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
