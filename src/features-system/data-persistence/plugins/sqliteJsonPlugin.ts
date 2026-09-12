@@ -24,12 +24,24 @@ type ObjectArrayColumns<TSchema> = {
     [TTable in keyof TSchema]?: readonly ObjectArrayOnlyKeys<TSchema[TTable]>[];
 };
 
+/** `contextSnapshot` -> `context_snapshot`, matching Kysely's CamelCasePlugin. */
+function toSnakeCase(value: string): string {
+    return value.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+}
+
 export class SqliteJsonPlugin<TSchema> implements KyselyPlugin {
     private readonly allJsonColumns: Set<string>;
 
     constructor(private readonly columns: ObjectArrayColumns<TSchema>) {
-        // Flatten all JSON columns into a single set for efficient lookup
-        this.allJsonColumns = new Set<string>(Object.values(this.columns ?? {}).flat() as string[]);
+        // Flatten all JSON columns into a single set for efficient lookup.
+        // Both spellings are registered: this plugin runs BEFORE CamelCasePlugin
+        // in the result pipeline, so a multi-word column still arrives as
+        // snake_case here (single-word ones are identical either way).
+        this.allJsonColumns = new Set<string>();
+        for (const column of Object.values(this.columns ?? {}).flat() as string[]) {
+            this.allJsonColumns.add(column);
+            this.allJsonColumns.add(toSnakeCase(column));
+        }
     }
 
     transformQuery(args: PluginTransformQueryArgs): RootOperationNode {

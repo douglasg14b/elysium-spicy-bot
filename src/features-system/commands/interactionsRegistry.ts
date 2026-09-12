@@ -45,8 +45,30 @@ type InteractionCommandOrId = string;
 /**
  * A registry for all commands and interactions, will route incoming interactions to their handlers
  */
+type DynamicComponentHandler = InteractionHandler<MessageComponentInteraction>;
+
 export class InteractionsRegistry {
     private interactionHandlers = new Map<InteractionCommandOrId, InteractionHandlerWrapper>();
+
+    /**
+     * Prefix-matched message-component handlers, checked only when no exact
+     * custom_id match exists. Enables dynamically-generated custom_ids (e.g. the
+     * flow engine's `flow:<flowId>:<nodeId>` buttons) that the exact-match Map
+     * cannot handle. Additive: exact-match handlers always win.
+     */
+    private dynamicComponentHandlers = new Map<string, DynamicComponentHandler>();
+
+    /**
+     * Register a handler for all message components whose custom_id starts with
+     * `prefix` (e.g. `flow:`). Exact-match handlers take precedence; among
+     * dynamic handlers the longest matching prefix wins.
+     */
+    registerDynamic(prefix: string, handler: DynamicComponentHandler): void {
+        if (this.dynamicComponentHandlers.has(prefix)) {
+            throw new Error(`Dynamic handler already registered for prefix: ${prefix}`);
+        }
+        this.dynamicComponentHandlers.set(prefix, handler);
+    }
 
     register<TBuilder extends SupportedInteractionBuilder>(
         builder: TBuilder,
@@ -158,11 +180,27 @@ export class InteractionsRegistry {
     ): Promise<InteractionHandlerResult> {
         const command = this.interactionHandlers.get(interaction.customId);
 
-        if (!command) {
-            throw new Error(`No handler found for message component: ${interaction.customId}`);
+        if (command) {
+            return await command.handler(interaction);
         }
 
-        return await command.handler(interaction);
+        // Fall back to prefix-matched dynamic handlers (longest prefix wins).
+        const dynamicHandler = this.resolveDynamicHandler(interaction.customId);
+        if (dynamicHandler) {
+            return await dynamicHandler(interaction);
+        }
+
+        throw new Error(`No handler found for message component: ${interaction.customId}`);
+    }
+
+    private resolveDynamicHandler(customId: string): DynamicComponentHandler | undefined {
+        let bestPrefix: string | null = null;
+        for (const prefix of this.dynamicComponentHandlers.keys()) {
+            if (customId.startsWith(prefix) && (bestPrefix === null || prefix.length > bestPrefix.length)) {
+                bestPrefix = prefix;
+            }
+        }
+        return bestPrefix === null ? undefined : this.dynamicComponentHandlers.get(bestPrefix);
     }
 }
 

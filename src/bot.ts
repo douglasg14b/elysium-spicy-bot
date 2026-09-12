@@ -10,6 +10,8 @@ import { initAIReply } from './features/ai-reply';
 import { initBirthdayFeature, startBirthdayAnnouncementScheduler, stopBirthdayAnnouncementScheduler } from './features/birthday-tracker';
 import { initLeveling, stopLeveling } from './features/leveling';
 import { initWarnings } from './features/warnings';
+import { initFlows, stopFlowRunScheduler } from './features/flows';
+import { startWebServer, stopWebServer } from './web/server';
 
 interactionsRegistry.register(flashChatCommand, handleFlashChatCommand);
 interactionsRegistry.register(deployTicketSystemCommand, handleDeployTicketSystem);
@@ -26,8 +28,14 @@ initLeveling();
 // Initialize staff warnings
 initWarnings();
 
+// Initialize flow engine (headless node-graph flows)
+initFlows();
+
 // Initialize AI reply feature
 initAIReply();
+
+// Start the in-process web dashboard (no-op unless web env vars are set).
+startWebServer();
 
 // Register with Discord API
 await registerCommandsWithDiscord(interactionsRegistry.getSlashCommandBuilders());
@@ -86,7 +94,9 @@ process.on('SIGINT', () => {
     // messageTimers.clear();
 
     stopBirthdayAnnouncementScheduler();
+    stopFlowRunScheduler();
     stopLeveling();
+    stopWebServer();
     DISCORD_CLIENT.destroy();
     process.exit(0);
 });

@@ -18,6 +18,9 @@ import { LevelingProgressTable } from '../../features/leveling/data/levelingProg
 import { LevelingActivityEventTable } from '../../features/leveling/data/levelingActivityEventSchema';
 import { LevelingVoiceSessionTable } from '../../features/leveling/data/levelingVoiceSessionSchema';
 import { WarningTable } from '../../features/warnings/data/warningsSchema';
+import { WarningsConfigTable } from '../../features/warnings/data/warningsConfigSchema';
+import { FlowTable } from '../../features/flows/data/flowsSchema';
+import { FlowRunTable } from '../../features/flows/data/flowRunsSchema';
 
 export interface Database {
     flash_chat_config: FlashChatConfigTable;
@@ -30,6 +33,9 @@ export interface Database {
     leveling_activity_events: LevelingActivityEventTable;
     leveling_voice_sessions: LevelingVoiceSessionTable;
     warnings: WarningTable;
+    warnings_config: WarningsConfigTable;
+    flows: FlowTable;
+    flow_runs: FlowRunTable;
 }
 
 function getDbDialect() {
@@ -73,6 +79,9 @@ function getDatabaseClient() {
                 leveling_activity_events: ['occurredAt', 'voiceSessionStartedAt', 'voiceSessionEndedAt'],
                 leveling_voice_sessions: ['sessionStartedAt', 'eligibleSince', 'updatedAt'],
                 warnings: ['issuedAt', 'expiresAt', 'clearedAt', 'createdAt'],
+                warnings_config: ['createdAt', 'updatedAt'],
+                flows: ['createdAt', 'updatedAt'],
+                flow_runs: ['wakeAt', 'createdAt', 'updatedAt'],
         }),
     ];
 
@@ -84,9 +93,14 @@ function getDatabaseClient() {
                     flash_chat_config: ['enabled', 'removed', 'preserveHistory', 'preservePinned'],
                     leveling_config: ['enabled', 'reactionXpEnabled', 'photoBonusEnabled'],
                     leveling_activity_events: ['photoBonus'],
+                    flows: ['enabled'],
                 }),
                 new SqliteJsonPlugin<Database>({
                     ticketing_config: ['config'],
+                    flows: ['graph'],
+                    // `flow_runs` has no boolean columns, so it is absent from
+                    // SqliteBindingPlugin above — only its JSON blobs need parsing.
+                    flow_runs: ['waitConfig', 'contextSnapshot', 'log'],
                 }),
                 ...plugins,
             ],
