@@ -91,10 +91,30 @@ export async function runFlowRunTick(
             }
         }
     } catch (error) {
+        if (isMissingTableError(error)) {
+            // Almost always an un-migrated database rather than a real fault, and
+            // the tick repeats every 15s — so say what to do instead of dumping a
+            // stack trace on a loop.
+            console.error(
+                '[flow-runs] The flow_runs table does not exist. Run `pnpm migrate:latest:dev` ' +
+                    '(or `pnpm migrate:latest`) to apply pending migrations.'
+            );
+            return;
+        }
         console.error('[flow-runs] Tick failed while looking for due runs:', error);
     } finally {
         isTickRunning = false;
     }
+}
+
+/**
+ * True for "no such table"/"relation does not exist" from SQLite and Postgres —
+ * i.e. the schema has not been migrated yet.
+ */
+function isMissingTableError(error: unknown): boolean {
+    if (!(error instanceof Error)) return false;
+    const message = error.message.toLowerCase();
+    return message.includes('no such table') || message.includes('does not exist');
 }
 
 export function resetFlowRunSchedulerForTests(): void {

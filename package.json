@@ -7,7 +7,8 @@
     "scripts": {
         "build": "tsc",
         "start": "node dist/bot.js",
-        "dev": "cross-env TSX=true dotenvx run --env-file=.env.local -- tsx watch src/bot.ts",
+        "dev": "pnpm migrate:latest:dev && pnpm dev:bot",
+        "dev:bot": "cross-env TSX=true dotenvx run --env-file=.env.local -- tsx watch src/bot.ts",
         "dev:web": "pnpm --filter spicybot-web dev",
         "build:web": "pnpm --filter spicybot-web build",
         "test": "vitest run",
