@@ -32,12 +32,32 @@ export const AI_MAX_CONTEXT_MESSAGES = env.get('AI_MAX_CONTEXT_MESSAGES').asIntP
 // so bot-only deployments keep working with no new config. Never throw at load.
 // ---------------------------------------------------------------------------
 export const WEB_PORT = env.get('WEB_PORT').asIntPositive() || 8080;
-/** Public origin the dashboard is served from, e.g. https://bot.example.com. Used for the OAuth redirect URI. */
-export const WEB_PUBLIC_URL = getStringOptional('WEB_PUBLIC_URL');
+
+const IS_DEVELOPMENT = ENV === 'development';
+
+/**
+ * Public origin the dashboard is served from, e.g. https://bot.example.com. Used
+ * to build the OAuth redirect URI, so it must match a redirect registered on the
+ * Discord application exactly.
+ *
+ * In development it defaults to localhost on {@link WEB_PORT} — there is nothing
+ * to guess there. It is never defaulted in production: an origin that does not
+ * match the deployment would break the OAuth round-trip in a confusing way, so
+ * we would rather refuse to start the web server.
+ */
+export const WEB_PUBLIC_URL = getStringOptional('WEB_PUBLIC_URL') ?? (IS_DEVELOPMENT ? `http://localhost:${WEB_PORT}` : undefined);
 /** Discord OAuth2 client secret (the app's secret, distinct from the bot token). */
 export const DISCORD_OAUTH_CLIENT_SECRET = getStringOptional('DISCORD_OAUTH_CLIENT_SECRET');
-/** Secret used to sign the stateless session JWT cookie. */
-export const SESSION_SECRET = getStringOptional('SESSION_SECRET');
+/**
+ * Secret used to sign the stateless session JWT cookie.
+ *
+ * Development falls back to a fixed throwaway value so the dashboard just runs.
+ * Production must set a real one: sessions are stateless, so the secret IS the
+ * security boundary, and a per-process random default would sign people out on
+ * every restart.
+ */
+export const SESSION_SECRET =
+    getStringOptional('SESSION_SECRET') ?? (IS_DEVELOPMENT ? 'dev-only-insecure-session-secret' : undefined);
 /** Comma-separated Discord user IDs allowed to sign in (single-tenant allowlist). */
 export const ADMIN_DISCORD_IDS = (getStringOptional('ADMIN_DISCORD_IDS') || '')
     .split(',')
@@ -52,13 +72,25 @@ export const WEB_ENABLED = Boolean(
     WEB_PUBLIC_URL && DISCORD_OAUTH_CLIENT_SECRET && SESSION_SECRET && ADMIN_DISCORD_IDS.length > 0
 );
 
-/** Lists which required web env vars are missing, for a helpful startup log. */
+/**
+ * Which required web env vars are missing, each with a note on where its value
+ * comes from. Neither of the two that cannot be defaulted is guessable — one is
+ * a secret, the other is a human — so the startup log says where to get them.
+ */
 export function getMissingWebEnv(): string[] {
     const missing: string[] = [];
-    if (!WEB_PUBLIC_URL) missing.push('WEB_PUBLIC_URL');
-    if (!DISCORD_OAUTH_CLIENT_SECRET) missing.push('DISCORD_OAUTH_CLIENT_SECRET');
-    if (!SESSION_SECRET) missing.push('SESSION_SECRET');
-    if (ADMIN_DISCORD_IDS.length === 0) missing.push('ADMIN_DISCORD_IDS');
+    if (!WEB_PUBLIC_URL) missing.push('WEB_PUBLIC_URL (origin the dashboard is served from)');
+    if (!DISCORD_OAUTH_CLIENT_SECRET) {
+        missing.push(
+            'DISCORD_OAUTH_CLIENT_SECRET (Discord Developer Portal → your app → OAuth2 → Client Secret)'
+        );
+    }
+    if (!SESSION_SECRET) missing.push('SESSION_SECRET (any long random string)');
+    if (ADMIN_DISCORD_IDS.length === 0) {
+        missing.push(
+            'ADMIN_DISCORD_IDS (your own Discord *user* ID — enable Developer Mode, right-click yourself, Copy User ID)'
+        );
+    }
     return missing;
 }
 
