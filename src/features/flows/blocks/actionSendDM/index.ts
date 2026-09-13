@@ -27,6 +27,9 @@ export const block: BlockManifest<SendDMConfig> = {
             maxLength: 2000,
         },
     ],
+    cardSummary: [
+        { key: 'message', quote: true, truncate: 30, emptyText: 'no message yet' },
+    ],
     handles: [{ label: 'Then', tone: 'neutral' }],
     outputs: [],
     requires: ['member'],

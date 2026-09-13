@@ -69,6 +69,7 @@ marks it optional; arrays are declared empty rather than omitted, so a reader ca
 | `icon` | One emoji. It is the glyph in the palette and on the card. |
 | `configSchema` | A Zod **object** schema. This is the authority on `node.data`: it validates at save time and again before your block runs. |
 | `configFields` | The form, in the order the inspector should render it. See [Config fields](#config-fields). |
+| `cardSummary` | **Optional.** The one-line config summary on the canvas card, e.g. `Assign @Moderator`. See [Card summary](#card-summary). Omit it and the card falls back to "Click to configure" — fine for a block with nothing worth summarising, but check the real thing looks right before deciding that's you. |
 | `note` | **Optional.** A block-level aside rendered under the form — presentation only, never read by the engine. For what is true of the block *as a whole*: a caveat spanning every field, or the reassurance that a block with no fields is meant to have none. Prefer a field's own `description` when the copy is about one field; a note that would read identically under a single control is a description wearing a disguise. Omit it rather than declaring it empty — conformance rejects a present-but-empty one. |
 | `handles` | Every way a run can leave your block. See [Output handles](#output-handles). |
 | `outputs` | Values your block writes for later blocks to read. Empty for now — blocks have nowhere to write until run variables exist. |
@@ -190,6 +191,63 @@ value. Declaring the default in one place and not the other is the drift this co
 to prevent, so conformance treats disagreement — and a schema default the field forgot to
 mirror — as a failure.
 
+## Card summary
+
+The canvas card shows your `label`, then one more line underneath — the current config, at a
+glance, without opening the inspector: `Assign @Moderator`, `#general · "Say something…"`,
+`Wait 5m`. `cardSummary` is how you say what that line is, without the browser knowing your
+`type` or your fields' meaning.
+
+It's an ordered list of **parts**, concatenated with no separator of their own:
+
+```ts
+cardSummary: [
+    { key: 'roleId', prefix: 'Assign ', emptyText: 'no role picked' },
+]
+// -> "Assign @Moderator", or "Assign no role picked" before a role is chosen
+
+cardSummary: [
+    { key: 'channelId', emptyText: 'no channel picked' },
+    { key: 'message', prefix: ' · ', quote: true, truncate: 20, hideWhenEmpty: true },
+]
+// -> "#general", or "#general · "Say something…"" once a message is set
+```
+
+Each part is **either** a field reference (`key`, naming a `configFields` entry) **or** a
+literal (`text`) — never both, never neither. A block with nothing to reference at all still
+summarises with a literal: `trigger.memberJoin` declares `[{ text: 'Any new member' }]`.
+
+A field reference renders the field's *current* `node.data` value, resolved and formatted the
+way that field's own `control` already implies:
+
+| `control` | Renders as |
+| --- | --- |
+| `rolePicker` | `@name` |
+| `channelPicker` | `#name` |
+| `duration` | `5m` (via the same formatter the inspector uses) |
+| `segmented` / `select` | the matching option's `label`, not the raw stored value — `action.waitForEvent`'s `eventKind: 'buttonClick'` renders as "They click a flow button", never `buttonClick` |
+| `text` / `longText` / `colour` | the raw string value |
+
+`cardSummary` never repeats that resolution logic; it only says which field, what surrounds it,
+and what to show in its place when it's unset:
+
+| Option | Does |
+| --- | --- |
+| `prefix` / `suffix` | Literal text immediately before/after the resolved value, **only when the value renders** — so it disappears along with the value under `hideWhenEmpty`, rather than leaving a dangling `" · "`. |
+| `quote` | Wraps the resolved value in `"double quotes"`. For message-shaped fields. |
+| `truncate` | Maximum characters of the resolved value before an ellipsis. Card-summary truncation, not the field's own `maxLength` — a card line is shorter than an inspector field. |
+| `emptyText` | Rendered **instead of** `prefix`/value/`suffix`, as this part's whole contribution, when the field is unset. Omit it and an unset field renders as nothing, which is rarely what you want — declare it. |
+| `hideWhenEmpty` | Drop this part (and its `prefix`/`suffix`) entirely when the field is unset, rather than showing `emptyText`. For a trailing, genuinely optional detail (`action.sendMessage`'s message preview) where "channel, nothing else" reads better than "channel, no message yet". |
+| `stopIfEmpty` | When the field is unset, render only this part's `emptyText` as the **entire** summary and discard every part after it. For when later parts stop making sense without this one — an unlabelled button (`trigger.buttonClick`) has no style worth showing either. Requires `emptyText` — conformance rejects `stopIfEmpty` without it, since otherwise the empty case renders nothing. |
+
+`hideWhenEmpty` and `stopIfEmpty` are mutually exclusive on one part: the first drops just that
+part, the second discards the whole line, and a part cannot mean both.
+
+Conformance checks that every `key` here names a real `configFields` entry, that `truncate` is
+a positive whole number when set, and that a part is well-formed (exactly one of `key`/`text`,
+`hideWhenEmpty` and `stopIfEmpty` not both set). It does **not** check that the composed text
+reads well — that's a judgement call, same as `label` and `description`.
+
 ## Output handles
 
 ```ts
@@ -254,6 +312,8 @@ that has not caught up fails by name. It checks, from your declaration alone, th
   declared field the schema ignores, and a schema key no field lets an author set
 - every declared default is one the schema accepts, and agrees with any schema default
 - your handles are well formed: at least one, no duplicate ids, at most one default, all labelled
+- your `cardSummary`, if you declared one, only references fields that exist and is otherwise
+  well formed — see [Card summary](#card-summary)
 
 and, when driven with a config and a context, that `run` returns a declared outcome and
 continues only by a handle you declared.

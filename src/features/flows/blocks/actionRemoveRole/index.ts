@@ -25,6 +25,7 @@ export const block: BlockManifest<RemoveRoleConfig> = {
             control: 'rolePicker',
         },
     ],
+    cardSummary: [{ key: 'roleId', prefix: 'Remove ', emptyText: 'no role picked' }],
     handles: [{ label: 'Then', tone: 'neutral' }],
     outputs: [],
     requires: ['member'],

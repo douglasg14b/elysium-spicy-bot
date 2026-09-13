@@ -48,6 +48,11 @@ export const block: BlockManifest<ReactionAddConfig> = {
             placeholder: '🌶️',
         },
     ],
+    cardSummary: [
+        { key: 'emoji', emptyText: '—' },
+        { text: ' in ' },
+        { key: 'channelId', emptyText: 'no channel picked' },
+    ],
     handles: [{ label: 'Then', tone: 'neutral' }],
     outputs: [],
     requires: ['member'],

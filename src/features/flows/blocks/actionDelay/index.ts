@@ -50,6 +50,7 @@ export const block: BlockManifest<DelayConfig> = {
             defaultValue: 300_000,
         },
     ],
+    cardSummary: [{ key: 'durationMs', prefix: 'Wait ', emptyText: 'no duration set' }],
     note: 'Max 30 days. Put one of these inside a loop and the run will keep cycling — the visit cap still stops it running away.',
     handles: [{ label: 'Then', tone: 'neutral' }],
     outputs: [],

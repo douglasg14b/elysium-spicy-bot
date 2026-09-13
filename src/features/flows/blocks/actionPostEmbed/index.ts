@@ -71,6 +71,10 @@ export const block: BlockManifest<PostEmbedConfig> = {
             swatches: ['#00A2FF', '#FF2D95', '#7A5CFF', '#FF6B35'],
         },
     ],
+    cardSummary: [
+        { key: 'channelId', emptyText: 'no channel picked' },
+        { key: 'title', prefix: ' · ', quote: true, truncate: 20, hideWhenEmpty: true },
+    ],
     handles: [{ label: 'Then', tone: 'neutral' }],
     outputs: [],
     requires: [],

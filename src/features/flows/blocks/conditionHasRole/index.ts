@@ -25,6 +25,7 @@ export const block: BlockManifest<HasRoleConfig> = {
             control: 'rolePicker',
         },
     ],
+    cardSummary: [{ key: 'roleId', prefix: 'Checks for ', emptyText: 'no role picked' }],
     handles: [
         { id: 'true', label: 'Yes', tone: 'positive' },
         { id: 'false', label: 'No', tone: 'negative' },

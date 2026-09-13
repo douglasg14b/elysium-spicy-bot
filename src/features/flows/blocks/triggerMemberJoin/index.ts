@@ -17,6 +17,7 @@ export const block: BlockManifest<MemberJoinConfig> = {
     icon: '🚪',
     configSchema: memberJoinConfigSchema,
     configFields: [],
+    cardSummary: [{ text: 'Any new member' }],
     note: 'No knobs on this one. It fires for every new arrival — wire it straight into whatever welcome you have planned.',
     handles: [{ label: 'Then', tone: 'neutral' }],
     outputs: [],

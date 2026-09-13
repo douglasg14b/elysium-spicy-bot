@@ -33,6 +33,10 @@ export const block: BlockManifest<SendMessageConfig> = {
             maxLength: 2000,
         },
     ],
+    cardSummary: [
+        { key: 'channelId', emptyText: 'no channel picked' },
+        { key: 'message', prefix: ' · ', quote: true, truncate: 20, hideWhenEmpty: true },
+    ],
     handles: [{ label: 'Then', tone: 'neutral' }],
     outputs: [],
     requires: [],

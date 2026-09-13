@@ -59,6 +59,16 @@ export const block: BlockManifest<ButtonClickConfig> = {
             ],
         },
     ],
+    cardSummary: [
+        {
+            key: 'label',
+            quote: true,
+            truncate: 24,
+            emptyText: 'Unlabelled button',
+            stopIfEmpty: true,
+        },
+        { key: 'style', prefix: ' · ' },
+    ],
     handles: [{ label: 'Then', tone: 'neutral' }],
     outputs: [],
     requires: ['member', 'interaction'],

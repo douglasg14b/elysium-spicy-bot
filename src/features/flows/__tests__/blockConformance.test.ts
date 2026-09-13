@@ -455,6 +455,110 @@ describe('a declared maxLength that is not the limit the schema enforces', () =>
     });
 });
 
+describe('a card summary that does not describe the fields it claims to', () => {
+    it('accepts a manifest with no cardSummary at all', () => {
+        expect(checkBlockConformance(validManifest())).toEqual([]);
+    });
+
+    it('accepts a well-formed field reference and a well-formed literal', () => {
+        expect(
+            checkBlockConformance(
+                manifestWith({
+                    cardSummary: [
+                        { key: 'roleId', prefix: 'Assign ', emptyText: 'no role picked' },
+                        { text: ' · fixed text' },
+                    ],
+                })
+            )
+        ).toEqual([]);
+    });
+
+    it('rejects a cardSummary that is not an array', () => {
+        expect(checkBlockConformance(manifestWith({ cardSummary: 'Assign @role' })).join('\n')).toMatch(
+            /cardSummary must be an array of parts/
+        );
+    });
+
+    it('catches a part naming a field configFields does not declare', () => {
+        const issues = checkBlockConformance(
+            manifestWith({ cardSummary: [{ key: 'mystery', prefix: 'Do ' }] })
+        );
+
+        expect(issues.join('\n')).toMatch(
+            /cardSummary\[0\] references the config field "mystery", which configFields does not declare/
+        );
+    });
+
+    it('catches a part declaring neither key nor text', () => {
+        expect(checkBlockConformance(manifestWith({ cardSummary: [{ prefix: 'Assign ' }] })).join('\n')).toMatch(
+            /must set exactly one of "key".*or "text".*found neither/
+        );
+    });
+
+    it('catches a part declaring both key and text', () => {
+        expect(
+            checkBlockConformance(
+                manifestWith({ cardSummary: [{ key: 'roleId', text: 'Assign a role' }] })
+            ).join('\n')
+        ).toMatch(/must set exactly one of "key".*or "text".*found both/);
+    });
+
+    it('catches a literal part with an empty or non-string text', () => {
+        expect(checkBlockConformance(manifestWith({ cardSummary: [{ text: '' }] })).join('\n')).toMatch(
+            /cardSummary\[0\]\.text must be a non-empty string/
+        );
+        expect(checkBlockConformance(manifestWith({ cardSummary: [{ text: 42 }] })).join('\n')).toMatch(
+            /cardSummary\[0\]\.text must be a non-empty string/
+        );
+    });
+
+    it('catches a truncate that is not a positive whole number', () => {
+        for (const truncate of [0, -1, 2.5, '20']) {
+            const issues = checkBlockConformance(
+                manifestWith({ cardSummary: [{ key: 'roleId', truncate }] })
+            );
+
+            expect(issues.join('\n'), `truncate ${JSON.stringify(truncate)}`).toMatch(
+                /cardSummary\[0\]\.truncate must be a positive whole number of characters/
+            );
+        }
+    });
+
+    it('accepts a valid positive integer truncate', () => {
+        expect(
+            checkBlockConformance(manifestWith({ cardSummary: [{ key: 'roleId', truncate: 20 }] }))
+        ).toEqual([]);
+    });
+
+    it('catches a part that sets both hideWhenEmpty and stopIfEmpty', () => {
+        const issues = checkBlockConformance(
+            manifestWith({
+                cardSummary: [{ key: 'roleId', hideWhenEmpty: true, stopIfEmpty: true, emptyText: 'none' }],
+            })
+        );
+
+        expect(issues.join('\n')).toMatch(/sets both hideWhenEmpty and stopIfEmpty/);
+    });
+
+    it('catches a part that stops the summary early with nothing to show in its place', () => {
+        const issues = checkBlockConformance(
+            manifestWith({ cardSummary: [{ key: 'roleId', stopIfEmpty: true }] })
+        );
+
+        expect(issues.join('\n')).toMatch(/sets stopIfEmpty without emptyText/);
+    });
+
+    it('accepts stopIfEmpty paired with emptyText', () => {
+        expect(
+            checkBlockConformance(
+                manifestWith({
+                    cardSummary: [{ key: 'roleId', stopIfEmpty: true, emptyText: 'nothing picked' }],
+                })
+            )
+        ).toEqual([]);
+    });
+});
+
 describe('a malformed set of output handles', () => {
     it('catches a block a run could never leave', () => {
         expect(checkBlockConformance(manifestWith({ handles: [] })).join('\n')).toMatch(

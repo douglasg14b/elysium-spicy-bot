@@ -143,6 +143,42 @@ export type BlockConfigField =
           defaultValue?: string;
       });
 
+/**
+ * One piece of the one-line config summary on a node's canvas card.
+ *
+ * Parts are concatenated with **no** implicit separator — a part wanting `" · "`
+ * before it writes that into its own `prefix`, because blocks join differently
+ * (`#general · "hi"` vs `🌶️ in #rules` vs `Is it #rules?`).
+ *
+ * Either `key` or `text`, never both. A `key` names a `configFields` entry whose
+ * value the browser resolves using that field's own `control`: a picker becomes
+ * `@name`/`#name`, a `duration` becomes `5m`, and a `segmented`/`select` becomes
+ * the matching option's `label` rather than the raw stored value.
+ */
+export type BlockCardSummaryPart =
+    | {
+          key: string;
+          text?: undefined;
+          /** Literal text immediately before the resolved value, when it renders. */
+          prefix?: string;
+          /** Literal text immediately after the resolved value, when it renders. */
+          suffix?: string;
+          /** Wrap the resolved value in double quotes, e.g. a message body. */
+          quote?: boolean;
+          /** Maximum characters of the resolved value before an ellipsis. */
+          truncate?: number;
+          /** Shown as the whole part, ignoring the decorations above, when the field is unset. */
+          emptyText?: string;
+          /** Drop this part entirely when the field is unset, rather than showing `emptyText`. */
+          hideWhenEmpty?: boolean;
+          /** When unset, render only this part's `emptyText` as the entire summary. */
+          stopIfEmpty?: boolean;
+      }
+    | {
+          key?: undefined;
+          text: string;
+      };
+
 /** Meaning of an output handle. The builder maps a tone to a colour. */
 export const BLOCK_HANDLE_TONES = ['neutral', 'positive', 'negative', 'caution'] as const;
 
@@ -202,6 +238,8 @@ export interface NodeDescriptor {
     note?: string;
     /** Config fields in the order the inspector should show them. */
     configFields: BlockConfigField[];
+    /** The one-line config summary on the canvas card. Absent when nothing is worth summarising. */
+    cardSummary?: BlockCardSummaryPart[];
     /** Every way a run can leave this block. */
     handles: BlockOutputHandle[];
     /** Values this block writes for later blocks. */
@@ -239,6 +277,7 @@ export const NODE_DESCRIPTOR_KEYS = [
     'icon',
     'note',
     'configFields',
+    'cardSummary',
     'handles',
     'outputs',
     'requires',

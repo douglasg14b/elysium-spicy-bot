@@ -25,6 +25,9 @@ export const block: BlockManifest<InChannelConfig> = {
             control: 'channelPicker',
         },
     ],
+    cardSummary: [
+        { key: 'channelId', prefix: 'Is it ', suffix: '?', emptyText: 'no channel picked' },
+    ],
     handles: [
         { id: 'true', label: 'Yes', tone: 'positive' },
         { id: 'false', label: 'No', tone: 'negative' },

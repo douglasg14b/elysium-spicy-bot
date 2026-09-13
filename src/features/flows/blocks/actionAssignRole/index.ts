@@ -25,6 +25,7 @@ export const block: BlockManifest<AssignRoleConfig> = {
             control: 'rolePicker',
         },
     ],
+    cardSummary: [{ key: 'roleId', prefix: 'Assign ', emptyText: 'no role picked' }],
     handles: [{ label: 'Then', tone: 'neutral' }],
     outputs: [],
     requires: ['member'],

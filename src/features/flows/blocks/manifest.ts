@@ -158,6 +158,60 @@ export type BlockConfigField =
       });
 
 /**
+ * One piece of the one-line config summary shown on a node's canvas card, e.g.
+ * `action.assignRole` -> `Assign @Moderator`, `action.sendMessage` ->
+ * `#general · "Say something…"`.
+ *
+ * A card summary is an ordered list of parts, concatenated with **no** implicit
+ * separator — a part that wants `" · "` between it and its neighbour writes that
+ * into its own `prefix`, because some blocks join on `·` (`sendMessage`) and
+ * others join on a word (`reactionAdd`'s `"🌶️ in #rules"`) or nothing at all
+ * (`inChannel`'s `"Is it #rules?"`).
+ *
+ * Either `key` or `text` is set, never both: `key` names a `configFields` entry
+ * whose current `node.data` value the browser resolves and formats using that
+ * field's own `control` — a `rolePicker`/`channelPicker` value becomes `@name`/
+ * `#name`, a `duration` value becomes `5m`, and a `segmented`/`select` value
+ * becomes the matching option's `label` rather than the raw stored value (e.g.
+ * `action.waitForEvent`'s `eventKind: 'buttonClick'` renders as "They click a
+ * flow button", not `buttonClick`) — `text` is a literal, for the words around
+ * a value and for a block with no fields at all (`trigger.memberJoin`'s whole
+ * summary is one literal part).
+ */
+export type BlockCardSummaryPart =
+    | {
+          readonly key: string;
+          readonly text?: undefined;
+          /** Literal text immediately before the resolved value, when it renders. */
+          readonly prefix?: string;
+          /** Literal text immediately after the resolved value, when it renders. */
+          readonly suffix?: string;
+          /** Wrap the resolved value in double quotes, e.g. a message body. */
+          readonly quote?: boolean;
+          /** Maximum characters of the resolved value before an ellipsis. */
+          readonly truncate?: number;
+          /**
+           * Rendered — as the whole part, ignoring `prefix`/`suffix`/`quote`/
+           * `truncate` — in place of the resolved value when the field is unset.
+           * Omit to fall back to the field's own empty copy.
+           */
+          readonly emptyText?: string;
+          /** Drop this part (and its `prefix`/`suffix`) entirely when the field is unset, rather than showing `emptyText`. */
+          readonly hideWhenEmpty?: boolean;
+          /**
+           * When the field is unset, render only this part's `emptyText` as the
+           * **entire** summary, discarding every later part. For a block whose
+           * later parts only make sense once this one has a value — an unlabelled
+           * button has no style worth showing either.
+           */
+          readonly stopIfEmpty?: boolean;
+      }
+    | {
+          readonly key?: undefined;
+          readonly text: string;
+      };
+
+/**
  * Meaning of an output handle, rather than its CSS. The builder maps a tone to
  * a colour; the engine stays free of stylesheet vocabulary.
  */
@@ -258,6 +312,17 @@ export interface BlockManifest<TConfig = unknown> {
     readonly configSchema: ZodType<TConfig>;
     /** Config fields in the order the inspector should show them. */
     readonly configFields: readonly BlockConfigField[];
+    /**
+     * The one-line config summary the canvas card shows under the label, e.g.
+     * `Assign @Moderator` or `#general · "Say something…"`.
+     *
+     * **Optional** — a block with nothing worth summarising (`trigger.memberJoin`)
+     * can omit it, and the card falls back to a generic "Click to configure"
+     * rather than an empty line. See {@link BlockCardSummaryPart} for how the
+     * pieces render; conformance checks that every `key` here names a real
+     * `configFields` entry.
+     */
+    readonly cardSummary?: readonly BlockCardSummaryPart[];
     /**
      * A block-level aside, rendered under the form.
      *

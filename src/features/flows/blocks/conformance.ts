@@ -97,6 +97,7 @@ export function checkBlockConformance(candidate: unknown): readonly string[] {
     issues.push(...checkVocabulary(label, block));
     issues.push(...checkHandles(label, block.handles));
     issues.push(...checkConfigFields(label, block.configFields, block.configSchema));
+    issues.push(...checkCardSummary(label, block.cardSummary, block.configFields));
 
     return issues;
 }
@@ -246,6 +247,91 @@ function checkConfigFields(label: string, configFields: unknown, configSchema: u
         if (!declared.has(key)) {
             issues.push(
                 `${label}: its configSchema validates "${key}", but no config field lets an author set it.`
+            );
+        }
+    }
+
+    return issues;
+}
+
+/**
+ * The canvas card summary must describe fields that actually exist, and each
+ * part must be unambiguously a value reference or a literal — never both, and
+ * never neither, or the browser has no way to know what to render.
+ *
+ * `cardSummary` is optional, so an absent one is not a finding: a block with
+ * nothing worth summarising (`trigger.memberJoin` aside, which still summarises
+ * with a literal) simply leaves the card to fall back to "Click to configure".
+ */
+function checkCardSummary(label: string, cardSummary: unknown, configFields: unknown): readonly string[] {
+    if (cardSummary === undefined) {
+        return [];
+    }
+
+    if (!Array.isArray(cardSummary)) {
+        return [`${label}: cardSummary must be an array of parts when declared.`];
+    }
+
+    const declaredKeys = new Set(
+        asArray(configFields)
+            .map((field) => readProperty(field, 'key'))
+            .filter((key): key is string => typeof key === 'string')
+    );
+
+    const issues: string[] = [];
+
+    for (const [index, part] of cardSummary.entries()) {
+        const where = `cardSummary[${index}]`;
+        const key = readProperty(part, 'key');
+        const text = readProperty(part, 'text');
+        const hasKey = key !== undefined;
+        const hasText = text !== undefined;
+
+        if (hasKey === hasText) {
+            issues.push(
+                `${label}: ${where} must set exactly one of "key" (a field reference) or "text" ` +
+                    `(a literal), found ${hasKey ? 'both' : 'neither'}.`
+            );
+            continue;
+        }
+
+        if (hasText) {
+            if (typeof text !== 'string' || !text) {
+                issues.push(`${label}: ${where}.text must be a non-empty string.`);
+            }
+            continue;
+        }
+
+        if (typeof key !== 'string' || !key) {
+            issues.push(`${label}: ${where}.key must be a non-empty string.`);
+            continue;
+        }
+
+        if (!declaredKeys.has(key)) {
+            issues.push(
+                `${label}: ${where} references the config field "${key}", which configFields does not declare.`
+            );
+        }
+
+        const truncate = readProperty(part, 'truncate');
+        if (truncate !== undefined && (typeof truncate !== 'number' || !Number.isInteger(truncate) || truncate < 1)) {
+            issues.push(
+                `${label}: ${where}.truncate must be a positive whole number of characters, found ` +
+                    `${JSON.stringify(truncate)}.`
+            );
+        }
+
+        if (readProperty(part, 'hideWhenEmpty') === true && readProperty(part, 'stopIfEmpty') === true) {
+            issues.push(
+                `${label}: ${where} sets both hideWhenEmpty and stopIfEmpty — one drops this part, the ` +
+                    'other discards the whole summary, and a part cannot mean both at once.'
+            );
+        }
+
+        if (readProperty(part, 'stopIfEmpty') === true && readProperty(part, 'emptyText') === undefined) {
+            issues.push(
+                `${label}: ${where} sets stopIfEmpty without emptyText, so the empty case would render ` +
+                    'nothing — the whole point of stopping early is to show emptyText in place of the rest.'
             );
         }
     }

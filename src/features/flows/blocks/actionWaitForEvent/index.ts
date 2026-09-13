@@ -67,6 +67,10 @@ export const block: BlockManifest<WaitForEventConfig> = {
             placeholder: 'No limit',
         },
     ],
+    cardSummary: [
+        { key: 'eventKind', prefix: 'Await ' },
+        { key: 'timeoutMs', prefix: ' · ', suffix: ' cap', hideWhenEmpty: true },
+    ],
     handles: [
         { label: 'It happened', tone: 'positive' },
         { id: WAIT_TIMEOUT_HANDLE, label: 'Timed out', tone: 'caution' },
