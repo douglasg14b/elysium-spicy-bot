@@ -5,7 +5,7 @@
     "main": "src/bot.ts",
     "type": "module",
     "scripts": {
-        "build": "tsc",
+        "build": "tsc --noEmit",
         "start": "tsx src/bot.ts",
         "dev": "pnpm migrate:latest:dev && pnpm dev:bot",
         "dev:bot": "cross-env TSX=true dotenvx run --env-file=.env.local -- tsx watch src/bot.ts",

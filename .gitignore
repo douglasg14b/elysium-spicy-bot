@@ -148,3 +148,10 @@ db.sqlite
 
 # RPI lifecycle tracking artifacts (local working state)
 .claude/rpi-tracking/
+
+# Throwaway probe/scratch scripts. Agents and humans alike write one-off files to
+# poke at a module; they belong in the system temp dir, but when one does land in
+# the tree it should not be committable by accident.
+__probe*
+*.probe.ts
+*.scratch.ts
