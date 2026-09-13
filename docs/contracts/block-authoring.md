@@ -56,8 +56,8 @@ every later caller the same registry.
 ## The manifest
 
 `block` is a `BlockManifest<TConfig>`, where `TConfig` is your validated config — what your
-schema produces and what your `run` receives. Every member is required; arrays are declared
-empty rather than omitted, so a reader can see you meant it.
+schema produces and what your `run` receives. Every member is required unless the table below
+marks it optional; arrays are declared empty rather than omitted, so a reader can see you meant it.
 
 | Member | What it is |
 | --- | --- |
@@ -69,11 +69,12 @@ empty rather than omitted, so a reader can see you meant it.
 | `icon` | One emoji. It is the glyph in the palette and on the card. |
 | `configSchema` | A Zod **object** schema. This is the authority on `node.data`: it validates at save time and again before your block runs. |
 | `configFields` | The form, in the order the inspector should render it. See [Config fields](#config-fields). |
+| `note` | **Optional.** A block-level aside rendered under the form — presentation only, never read by the engine. For what is true of the block *as a whole*: a caveat spanning every field, or the reassurance that a block with no fields is meant to have none. Prefer a field's own `description` when the copy is about one field; a note that would read identically under a single control is a description wearing a disguise. Omit it rather than declaring it empty — conformance rejects a present-but-empty one. |
 | `handles` | Every way a run can leave your block. See [Output handles](#output-handles). |
 | `outputs` | Values your block writes for later blocks to read. Empty for now — blocks have nowhere to write until run variables exist. |
 | `requires` | Run context you cannot work without. See [Context requirements](#context-requirements). |
 | `capabilities` | Discord permissions the bot needs for your block to work. Declared, not yet enforced. |
-| `startedBy` | **Triggers only.** What fires you: `buttonClick`, `memberJoin`, or `reactionAdd`. The gateway dispatchers select on this, so a new trigger for an existing source needs no dispatcher edit. Leave it off any condition or action. |
+| `startedBy` | **Optional. Triggers only.** What fires you: `buttonClick`, `memberJoin`, or `reactionAdd`. The gateway dispatchers select on this, so a new trigger for an existing source needs no dispatcher edit. Leave it off any condition or action. |
 | `canSuspend` | Whether `run` may park the run. State it truthfully; conformance holds you to it. |
 | `run` | The entry point. See [The entry point](#the-entry-point). |
 
@@ -178,9 +179,9 @@ only renders** — never the other way round.
 | `channelPicker` | channel id | any channel. Same. |
 | `text` | string | one line. `maxLength`, `placeholder`. |
 | `longText` | string | a message body. `maxLength`, `placeholder`. |
-| `duration` | milliseconds | any span. Shows a number plus a unit, so nobody hand-computes `604800000`. Set `optional: true` when absence is meaningful — clearing it removes the key rather than writing a zero. |
-| `segmented` | string | two to four choices, all visible. Needs `options`. |
-| `select` | string | more choices than that, in a dropdown. Needs `options`. |
+| `duration` | milliseconds | any span. Shows a number plus a unit, so nobody hand-computes `604800000`. Set `optional: true` when absence is meaningful — clearing it removes the key rather than writing a zero. `placeholder` hints the empty number box — worth having chiefly on an `optional` field (e.g. `'No limit'`), where an empty box is a real setting rather than a blank. A field with a `defaultValue` is never empty, so a hint for it could never render. |
+| `segmented` | string | a few short choices, all visible at once. Needs `options`. Roughly two to four, but **label width decides**: segments split the inspector's width evenly, so one-word labels fit and full clauses do not. |
+| `select` | string | a dropdown. Needs `options`. Use it once the labels are long enough to be unreadable side by side, or there are more of them than segments can hold — `action.waitForEvent` has only three choices but picks this, because "They click a flow button" cannot be squeezed into a third of the panel. |
 | `colour` | `#RRGGBB` | a colour. `swatches` to suggest some. |
 
 `defaultValue` is the starting value when a node is dropped on the canvas. It is **schema
@@ -194,12 +195,12 @@ mirror — as a failure.
 ```ts
 handles: [{ label: 'Next', tone: 'neutral' }]                       // one exit
 handles: [                                                          // a condition
-    { id: 'true',  label: 'True',  tone: 'positive' },
-    { id: 'false', label: 'False', tone: 'negative' },
+    { id: 'true',  label: 'Yes', tone: 'positive' },
+    { id: 'false', label: 'No',  tone: 'negative' },
 ]
 handles: [                                                          // an event wait
-    { label: 'Got it', tone: 'positive' },
-    { id: 'timeout', label: 'Timeout', tone: 'caution' },
+    { label: 'It happened', tone: 'positive' },
+    { id: 'timeout', label: 'Timed out', tone: 'caution' },
 ]
 ```
 

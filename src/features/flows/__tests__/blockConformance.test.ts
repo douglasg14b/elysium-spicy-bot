@@ -351,6 +351,110 @@ describe('a choice control that offers nothing an author can pick', () => {
     });
 });
 
+describe('an optional note that says nothing', () => {
+    it('accepts a note with something in it, and a manifest with none at all', () => {
+        expect(checkBlockConformance(manifestWith({ note: 'Max 30 days.' }))).toEqual([]);
+        expect(checkBlockConformance(validManifest())).toEqual([]);
+    });
+
+    it('catches a note that is present but empty, rather than simply omitted', () => {
+        // The one outcome neither omitting it nor writing it would produce: it
+        // reads as "declared" to every reader and renders as a blank line.
+        const issues = checkBlockConformance(manifestWith({ note: '' }));
+
+        expect(issues.join('\n')).toMatch(/note must be a non-empty string when declared/);
+        expect(issues.join('\n')).toMatch(/Omit it rather than declaring it empty/);
+    });
+
+    it('catches a note that is only whitespace, which renders the same blank line', () => {
+        expect(checkBlockConformance(manifestWith({ note: '   ' })).join('\n')).toMatch(
+            /note must be a non-empty string when declared/
+        );
+    });
+
+    it('catches a note that is not a string at all', () => {
+        expect(checkBlockConformance(manifestWith({ note: 42 })).join('\n')).toMatch(
+            /note must be a non-empty string when declared/
+        );
+    });
+});
+
+describe('a declared maxLength that is not the limit the schema enforces', () => {
+    /** A single text field over a `.max(100)` string, patched per case. */
+    function lengthManifest(maxLength: number): Record<string, unknown> {
+        return manifestWith({
+            configSchema: z.object({ message: z.string().min(1).max(100) }),
+            configFields: [{ key: 'message', label: 'Message', control: 'text', maxLength }],
+        });
+    }
+
+    it('accepts a maxLength that matches the schema exactly', () => {
+        expect(checkBlockConformance(lengthManifest(100))).toEqual([]);
+    });
+
+    it('catches a control that would allow a length the save then refuses', () => {
+        expect(checkBlockConformance(lengthManifest(200)).join('\n')).toMatch(
+            /declares maxLength 200, but its configSchema rejects a value of exactly that length/
+        );
+    });
+
+    it('catches a control that would stop an author short of what the schema allows', () => {
+        expect(checkBlockConformance(lengthManifest(50)).join('\n')).toMatch(
+            /declares maxLength 50, but its configSchema accepts a longer value/
+        );
+    });
+
+    it('says nothing about a field that declares no maxLength', () => {
+        expect(
+            checkBlockConformance(
+                manifestWith({
+                    configSchema: z.object({ message: z.string().min(1).max(100) }),
+                    configFields: [{ key: 'message', label: 'Message', control: 'text' }],
+                })
+            )
+        ).toEqual([]);
+    });
+
+    it('reports a maxLength no probe could be built from, rather than throwing', () => {
+        // `String.repeat` rejects these outright. A throw would abort the whole
+        // registry sweep inside a string builtin, losing every other block's
+        // issues — so each must come back as a named contract violation.
+        for (const maxLength of [-1, 0, 2.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+            const issues = checkBlockConformance(lengthManifest(maxLength));
+
+            expect(issues.join('\n'), `maxLength ${maxLength}`).toMatch(
+                /which is not a positive whole number of characters/
+            );
+        }
+    });
+
+    it('reports a non-numeric maxLength the same way', () => {
+        expect(
+            checkBlockConformance(
+                manifestWith({
+                    configSchema: z.object({ message: z.string().min(1).max(100) }),
+                    configFields: [
+                        { key: 'message', label: 'Message', control: 'text', maxLength: '100' },
+                    ],
+                })
+            ).join('\n')
+        ).toMatch(/declares maxLength "100", which is not a positive whole number/);
+    });
+
+    it('stays quiet when the schema constrains format rather than length', () => {
+        // The probe would fail on the pattern, not the limit, and report a
+        // correct maxLength as wrong.
+        expect(
+            checkBlockConformance(
+                manifestWith({
+                    configSchema: z.object({ color: z.string().regex(/^#[0-9a-fA-F]{6}$/).max(7) }),
+                    configFields: [{ key: 'color', label: 'Colour', control: 'text', maxLength: 7 }],
+                })
+            )
+        ).toEqual([]);
+    });
+});
+
 describe('a malformed set of output handles', () => {
     it('catches a block a run could never leave', () => {
         expect(checkBlockConformance(manifestWith({ handles: [] })).join('\n')).toMatch(

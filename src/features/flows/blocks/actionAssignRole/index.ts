@@ -13,15 +13,15 @@ export const block: BlockManifest<AssignRoleConfig> = {
     type: ACTION_ASSIGN_ROLE,
     kind: 'action',
     label: 'Assign Role',
-    description: 'Give them a role. The usual way to let someone in.',
+    description: 'Give them a role. The usual way to let someone in — this is what unlocks the good stuff.',
     group: 'actions',
     icon: '➕',
     configSchema: assignRoleConfigSchema,
     configFields: [
         {
             key: 'roleId',
-            label: 'Role',
-            description: 'The role to hand out.',
+            label: 'Role to assign',
+            description: 'The role to hand out. Given to the member this run is about.',
             control: 'rolePicker',
         },
     ],

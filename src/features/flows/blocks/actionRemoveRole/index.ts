@@ -13,15 +13,15 @@ export const block: BlockManifest<RemoveRoleConfig> = {
     type: ACTION_REMOVE_ROLE,
     kind: 'action',
     label: 'Remove Role',
-    description: 'Take a role away. Good for clearing a temporary pass.',
+    description: 'Take a role away. Good for clearing a temporary pass, or the waiting room.',
     group: 'actions',
     icon: '➖',
     configSchema: removeRoleConfigSchema,
     configFields: [
         {
             key: 'roleId',
-            label: 'Role',
-            description: 'The role to take back.',
+            label: 'Role to remove',
+            description: 'The role to take back. Taken from the member this run is about.',
             control: 'rolePicker',
         },
     ],

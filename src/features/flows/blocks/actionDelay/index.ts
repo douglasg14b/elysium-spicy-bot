@@ -33,7 +33,7 @@ export const block: BlockManifest<DelayConfig> = {
     type: ACTION_DELAY,
     kind: 'action',
     label: 'Delay',
-    description: 'Park the run for a while, then pick up where it left off.',
+    description: 'Park the run for a while, then pick up where it left off. Survives restarts.',
     group: 'actions',
     icon: '⏳',
     configSchema: delayConfigSchema,
@@ -41,10 +41,16 @@ export const block: BlockManifest<DelayConfig> = {
         {
             key: 'durationMs',
             label: 'Wait for',
-            description: 'How long to hold the run here before carrying on.',
+            description: 'How long to hold the run here before carrying on. It survives a bot restart.',
             control: 'duration',
+            // Five minutes: a sane, obviously-editable starting point. No
+            // placeholder to go with it — this field is never empty, because the
+            // default seeds it and the schema rejects a non-positive value, so a
+            // hint for the empty box could never be shown.
+            defaultValue: 300_000,
         },
     ],
+    note: 'Max 30 days. Put one of these inside a loop and the run will keep cycling — the visit cap still stops it running away.',
     handles: [{ label: 'Then', tone: 'neutral' }],
     outputs: [],
     requires: [],

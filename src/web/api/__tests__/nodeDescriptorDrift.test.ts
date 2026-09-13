@@ -86,7 +86,7 @@ const CONFIG_FIELD_FIXTURES = {
     channelPicker: { key: 'k', label: 'l', description: 'd', control: 'channelPicker', defaultValue: '' },
     text: { key: 'k', label: 'l', description: 'd', control: 'text', placeholder: '', maxLength: 1, defaultValue: '' },
     longText: { key: 'k', label: 'l', description: 'd', control: 'longText', placeholder: '', maxLength: 1, defaultValue: '' },
-    duration: { key: 'k', label: 'l', description: 'd', control: 'duration', optional: true, defaultValue: 1 },
+    duration: { key: 'k', label: 'l', description: 'd', control: 'duration', optional: true, placeholder: 'p', defaultValue: 1 },
     segmented: { key: 'k', label: 'l', description: 'd', control: 'segmented', options: [], defaultValue: '' },
     select: { key: 'k', label: 'l', description: 'd', control: 'select', options: [], defaultValue: '' },
     colour: { key: 'k', label: 'l', description: 'd', control: 'colour', swatches: [], defaultValue: '' },

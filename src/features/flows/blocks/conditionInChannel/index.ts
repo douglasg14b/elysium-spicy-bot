@@ -20,8 +20,8 @@ export const block: BlockManifest<InChannelConfig> = {
     configFields: [
         {
             key: 'channelId',
-            label: 'Channel',
-            description: 'The channel the run must have started in.',
+            label: 'Channel to check',
+            description: 'The channel the run must have started in. Leave by Yes when it did.',
             control: 'channelPicker',
         },
     ],

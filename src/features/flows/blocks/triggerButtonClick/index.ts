@@ -30,21 +30,23 @@ export const block: BlockManifest<ButtonClickConfig> = {
     type: TRIGGER_BUTTON_CLICK,
     kind: 'trigger',
     label: 'Button Click',
-    description: 'Someone presses a button you put in a channel. The usual way in.',
+    description: 'Start the run when someone clicks your button. The classic rules-gate opener.',
     group: 'triggers',
     icon: '🔘',
     configSchema: buttonClickConfigSchema,
     configFields: [
         {
             key: 'label',
-            label: 'Button text',
-            description: 'What the button says. Keep it short and inviting.',
+            label: 'Button label',
+            description: 'What the button says. 1–80 characters — keep it short and inviting.',
             control: 'text',
+            placeholder: 'Agree to rules',
             maxLength: 80,
+            defaultValue: 'Click me',
         },
         {
             key: 'style',
-            label: 'Style',
+            label: 'Button style',
             control: 'segmented',
             // Matches the schema's own `.default('Primary')` — conformance holds
             // the two together rather than letting them drift apart.

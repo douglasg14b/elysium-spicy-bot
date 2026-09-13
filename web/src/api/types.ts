@@ -123,6 +123,8 @@ export type BlockConfigField =
           /** Clearing the number removes the key entirely rather than writing a zero. */
           control: 'duration';
           optional?: boolean;
+          /** Hint shown in the empty number input — what an absent duration means. */
+          placeholder?: string;
           defaultValue?: number;
       })
     | (BlockConfigFieldBase & {
@@ -191,6 +193,13 @@ export interface NodeDescriptor {
     group: BlockPaletteGroup;
     /** Palette and card glyph. */
     icon: string;
+    /**
+     * A block-level aside to render under the form. Presentation only.
+     *
+     * For what is true of the block as a whole — a caveat spanning every field, or
+     * the reassurance that a block with no fields is meant to have none.
+     */
+    note?: string;
     /** Config fields in the order the inspector should show them. */
     configFields: BlockConfigField[];
     /** Every way a run can leave this block. */
@@ -228,6 +237,7 @@ export const NODE_DESCRIPTOR_KEYS = [
     'description',
     'group',
     'icon',
+    'note',
     'configFields',
     'handles',
     'outputs',
@@ -256,7 +266,7 @@ export const BLOCK_CONFIG_FIELD_KEYS = {
     channelPicker: ['key', 'label', 'description', 'control', 'defaultValue'],
     text: ['key', 'label', 'description', 'control', 'placeholder', 'maxLength', 'defaultValue'],
     longText: ['key', 'label', 'description', 'control', 'placeholder', 'maxLength', 'defaultValue'],
-    duration: ['key', 'label', 'description', 'control', 'optional', 'defaultValue'],
+    duration: ['key', 'label', 'description', 'control', 'optional', 'placeholder', 'defaultValue'],
     segmented: ['key', 'label', 'description', 'control', 'options', 'defaultValue'],
     select: ['key', 'label', 'description', 'control', 'options', 'defaultValue'],
     colour: ['key', 'label', 'description', 'control', 'swatches', 'defaultValue'],

@@ -37,7 +37,7 @@ export const block: BlockManifest<WaitForEventConfig> = {
     type: ACTION_WAIT_FOR_EVENT,
     kind: 'action',
     label: 'Wait for Event',
-    description: 'Hold the run until this member does something, or until time runs out.',
+    description: 'Hold the run until this member does something — or until your timeout runs out.',
     group: 'actions',
     icon: '⏸️',
     configSchema: waitForEventConfigSchema,
@@ -46,19 +46,25 @@ export const block: BlockManifest<WaitForEventConfig> = {
             key: 'eventKind',
             label: 'Wait for',
             description: 'Which event wakes this run, when it happens to this member.',
-            control: 'segmented',
+            // A dropdown rather than a segmented control: three choices sit inside
+            // the segmented range, but these labels are full clauses and would be
+            // unreadable squeezed into thirds of the inspector's width.
+            control: 'select',
+            defaultValue: 'buttonClick',
             options: [
-                { value: 'memberJoin', label: 'They join' },
-                { value: 'reactionAdd', label: 'They react' },
-                { value: 'buttonClick', label: 'They click a button' },
+                { value: 'buttonClick', label: 'They click a flow button' },
+                { value: 'reactionAdd', label: 'They add a reaction' },
+                { value: 'memberJoin', label: 'They rejoin the server' },
             ],
         },
         {
             key: 'timeoutMs',
             label: 'Give up after',
-            description: 'Leave empty to wait indefinitely. Otherwise the run leaves by the timeout handle.',
+            description:
+                'Leave empty to wait indefinitely. Otherwise the run leaves by the Timed out handle — wire it up, or the run fails.',
             control: 'duration',
             optional: true,
+            placeholder: 'No limit',
         },
     ],
     handles: [

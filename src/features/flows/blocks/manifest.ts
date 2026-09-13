@@ -131,6 +131,14 @@ export type BlockConfigField =
           /** Clearing the number removes the key entirely rather than writing a zero. */
           readonly control: 'duration';
           readonly optional?: boolean;
+          /**
+           * Hint shown in the empty number input, e.g. `'No limit'`.
+           *
+           * Worth having on a duration precisely because the control is two widgets:
+           * the hint is the only place to say what an empty box means for an
+           * `optional` field, where absence is a real setting rather than a blank.
+           */
+          readonly placeholder?: string;
           readonly defaultValue?: number;
       })
     | (BlockConfigFieldBase & {
@@ -250,6 +258,20 @@ export interface BlockManifest<TConfig = unknown> {
     readonly configSchema: ZodType<TConfig>;
     /** Config fields in the order the inspector should show them. */
     readonly configFields: readonly BlockConfigField[];
+    /**
+     * A block-level aside, rendered under the form.
+     *
+     * **Presentation only — nothing in the engine reads this.** It is not a
+     * constraint, not a warning the executor acts on, and not a substitute for a
+     * field `description`, which belongs to one control. This is for what is true
+     * of the block as a whole: a caveat spanning every field, or the reassurance
+     * that a block with no fields is meant to have none.
+     *
+     * Prefer a field's own `description` whenever the copy is about one field. A
+     * note that would read identically under a single control is a description
+     * wearing a disguise.
+     */
+    readonly note?: string;
     /** Every way a run can leave this block. */
     readonly handles: readonly BlockOutputHandle[];
     /** Values this block writes for later blocks. Empty until run variables exist. */

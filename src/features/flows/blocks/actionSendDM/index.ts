@@ -21,8 +21,9 @@ export const block: BlockManifest<SendDMConfig> = {
         {
             key: 'message',
             label: 'Message',
-            description: 'What to say. Their DMs may be closed, which fails the run.',
+            description: 'What to say. Keep it classy-ish. Their DMs may be closed, which fails the run.',
             control: 'longText',
+            placeholder: 'Welcome to Afterdark 😈',
             maxLength: 2000,
         },
     ],

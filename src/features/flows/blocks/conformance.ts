@@ -93,11 +93,34 @@ export function checkBlockConformance(candidate: unknown): readonly string[] {
         missing('configSchema', 'must be a Zod schema — it is the authority on node data');
     }
 
+    issues.push(...checkOptionalProse(label, 'note', block.note));
     issues.push(...checkVocabulary(label, block));
     issues.push(...checkHandles(label, block.handles));
     issues.push(...checkConfigFields(label, block.configFields, block.configSchema));
 
     return issues;
+}
+
+/**
+ * An optional string member is either absent or says something.
+ *
+ * Present-but-empty is the failure worth naming: it reads as "declared" to every
+ * reader and renders as a blank line in the builder, which is the one outcome
+ * neither omitting it nor writing it would have produced.
+ */
+function checkOptionalProse(label: string, field: string, value: unknown): readonly string[] {
+    if (value === undefined) {
+        return [];
+    }
+
+    if (typeof value !== 'string' || !value.trim()) {
+        return [
+            `${label}: ${field} must be a non-empty string when declared, found ` +
+                `${JSON.stringify(value)}. Omit it rather than declaring it empty.`,
+        ];
+    }
+
+    return [];
 }
 
 /** Every closed vocabulary the manifest draws on, checked in one pass. */
@@ -216,6 +239,7 @@ function checkConfigFields(label: string, configFields: unknown, configSchema: u
 
         issues.push(...checkFieldDefault(label, key, field.defaultValue, fieldSchema));
         issues.push(...checkFieldChoices(label, key, field, fieldSchema));
+        issues.push(...checkFieldMaxLength(label, key, field, fieldSchema));
     }
 
     for (const key of Object.keys(shape)) {
@@ -309,6 +333,77 @@ function checkFieldChoices(
             `${label}: the field "${key}" offers ${JSON.stringify(value)}, which its ` +
                 'configSchema rejects, so choosing it in the builder would fail to save: ' +
                 (parsed.success ? '' : parsed.error.issues.map((issue) => issue.message).join(', '))
+        );
+    }
+
+    return issues;
+}
+
+/**
+ * A declared `maxLength` must be the limit the schema actually enforces.
+ *
+ * These are two statements of one number: the browser stops typing at
+ * `maxLength`, and the schema rejects the save past `.max()`. Drift either way is
+ * a bad experience the author cannot diagnose — a form that refuses a length the
+ * server would have taken, or one that invites a length the server then rejects
+ * with a validation error naming a limit the control never showed.
+ *
+ * Probed at the boundary rather than by reading Zod's internals, which keeps this
+ * working across `.min()`/`.trim()`/`.optional()` wrappers: a string of exactly
+ * `maxLength` must pass, and one character more must not. The probe character is
+ * load-bearing — `'a'` is non-whitespace, so a `.trim()` in the chain cannot
+ * shorten the probe out from under the comparison the way `' '` would.
+ *
+ * Only asked of schemas that take arbitrary strings. A schema constraining
+ * *format* rejects the probe on its pattern rather than its length, and an enum
+ * accepts only its own members, so in both cases the boundary says nothing about
+ * a length limit and would report a correct `maxLength` as wrong.
+ */
+function checkFieldMaxLength(
+    label: string,
+    key: string,
+    field: Partial<BlockConfigField>,
+    fieldSchema: ZodType
+): readonly string[] {
+    const maxLength = 'maxLength' in field ? field.maxLength : undefined;
+    if (maxLength === undefined) {
+        return [];
+    }
+
+    // Reported rather than thrown: `String.repeat` rejects a negative or
+    // non-finite count, and this suite takes `unknown` precisely so a manifest
+    // that does not satisfy the type reaches it. Throwing here would abort the
+    // whole registry sweep inside `String.repeat`, losing every other block's
+    // issues to a stack trace instead of naming this one.
+    if (typeof maxLength !== 'number' || !Number.isInteger(maxLength) || maxLength < 1) {
+        return [
+            `${label}: the field "${key}" declares maxLength ${JSON.stringify(maxLength)}, which is not ` +
+                'a positive whole number of characters.',
+        ];
+    }
+
+    // A format or enum constraint makes the boundary meaningless — see above.
+    // `acceptsAnyString` is the wrong probe here: it unwraps to the base type, so
+    // a `.regex()`-constrained string still reports as string-bearing. What
+    // matters is whether *this* probe shape is acceptable at all, which a single
+    // short run of the probe character answers.
+    if (!fieldSchema.safeParse('a').success) {
+        return [];
+    }
+
+    const issues: string[] = [];
+
+    if (!fieldSchema.safeParse('a'.repeat(maxLength)).success) {
+        issues.push(
+            `${label}: the field "${key}" declares maxLength ${maxLength}, but its configSchema rejects ` +
+                'a value of exactly that length. The control would allow a length the save then refuses.'
+        );
+    }
+
+    if (fieldSchema.safeParse('a'.repeat(maxLength + 1)).success) {
+        issues.push(
+            `${label}: the field "${key}" declares maxLength ${maxLength}, but its configSchema accepts ` +
+                'a longer value. The control would stop an author short of what the schema allows.'
         );
     }
 

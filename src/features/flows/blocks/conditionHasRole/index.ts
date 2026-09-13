@@ -20,8 +20,8 @@ export const block: BlockManifest<HasRoleConfig> = {
     configFields: [
         {
             key: 'roleId',
-            label: 'Role',
-            description: 'The role to check for.',
+            label: 'Role to check',
+            description: 'The role they must already hold. Leave by Yes if they do, No if they do not.',
             control: 'rolePicker',
         },
     ],

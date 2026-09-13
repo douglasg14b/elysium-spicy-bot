@@ -4,7 +4,17 @@ import type { BlockManifest } from '../manifest';
 
 export const ACTION_POST_EMBED = 'action.postEmbed';
 
-/** Hex colour like `#00A2FF` (the SpicyBot cyan). Optional — Discord picks a default. */
+/**
+ * Hex colour like `#00A2FF` (the SpicyBot cyan).
+ *
+ * **Stays optional.** A newly dropped node is seeded with the brand cyan by the
+ * field's `defaultValue`, so an author who never opens the colour picker still
+ * gets the product's own colour rather than Discord's grey. But absence remains
+ * valid and must: every graph saved before that default existed carries no
+ * `color`, as does anything written straight through the API, and `run` still
+ * guards with `if (config.color)`. Removing `.optional()` to match the default
+ * would make those existing rows unparseable.
+ */
 const hexColorSchema = z
     .string()
     .regex(/^#[0-9a-fA-F]{6}$/, 'Colour must be a hex value like #00A2FF');
@@ -27,7 +37,7 @@ export const block: BlockManifest<PostEmbedConfig> = {
     type: ACTION_POST_EMBED,
     kind: 'action',
     label: 'Post Embed',
-    description: 'Post something that looks like you meant it — title, body, colour.',
+    description: 'Post something that looks like you meant it — title, blurb, and a colour stripe.',
     group: 'actions',
     icon: '🖼️',
     configSchema: postEmbedConfigSchema,
@@ -35,26 +45,29 @@ export const block: BlockManifest<PostEmbedConfig> = {
         {
             key: 'channelId',
             label: 'Channel',
-            description: 'Where to post.',
+            description: 'Where the embed gets posted.',
             control: 'channelPicker',
         },
         {
             key: 'title',
             label: 'Title',
             control: 'text',
+            placeholder: 'House Rules',
             maxLength: 256,
         },
         {
             key: 'description',
             label: 'Body',
             control: 'longText',
+            placeholder: 'The fine print nobody reads…',
             maxLength: 4096,
         },
         {
             key: 'color',
-            label: 'Colour',
-            description: 'Optional. Discord picks one if you do not.',
+            label: 'Accent colour',
+            description: 'The stripe down the side of the embed.',
             control: 'colour',
+            defaultValue: '#00A2FF',
             swatches: ['#00A2FF', '#FF2D95', '#7A5CFF', '#FF6B35'],
         },
     ],
