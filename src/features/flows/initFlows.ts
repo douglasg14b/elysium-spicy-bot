@@ -1,6 +1,7 @@
 import { Events } from 'discord.js';
 import { interactionsRegistry } from '../../features-system/commands';
 import { DISCORD_CLIENT } from '../../discordClient';
+import { ensureBlocksDiscovered } from './blocks/registry';
 import { flowDeployCommand, handleFlowDeployCommand } from './commands/flowDeployCommand';
 import { FLOW_CUSTOM_ID_PREFIX } from './constants';
 import { startFlowRunScheduler } from './engine/flowRunScheduler';
@@ -8,14 +9,30 @@ import { handleFlowButtonInteraction } from './engine/flowTriggerDispatch';
 import { handleMemberJoin } from './engine/memberJoinDispatch';
 import { handleReactionAdd } from './engine/reactionAddDispatch';
 
-let flowsInitialized = false;
+let initialization: Promise<void> | undefined;
 
-export function initFlows(): void {
-    if (flowsInitialized) {
-        return;
-    }
+/**
+ * Wire the flow engine up.
+ *
+ * Awaited, and awaited early, because blocks are discovered from the filesystem:
+ * nothing that can start or resume a run — the deploy command, the `flow:` button
+ * dispatcher, the two gateway listeners, the durable-run scheduler — is
+ * registered until the registry is populated. The in-process web server starts
+ * after this returns, so the builder's palette and graph validation cannot race
+ * the scan either.
+ *
+ * Idempotent by memoizing the work rather than by flipping a flag: a second
+ * caller awaits the same completion. A flag set before the await would tell that
+ * caller initialization had finished while the scan was still running, which is
+ * the very race this function exists to close.
+ */
+export function initFlows(): Promise<void> {
+    initialization ??= initializeFlows();
+    return initialization;
+}
 
-    flowsInitialized = true;
+async function initializeFlows(): Promise<void> {
+    await ensureBlocksDiscovered();
 
     // Admin slash command to post a flow's trigger button(s) to a channel.
     interactionsRegistry.register(flowDeployCommand, handleFlowDeployCommand);
@@ -55,8 +72,4 @@ export function initFlows(): void {
     DISCORD_CLIENT.once(Events.ClientReady, (readyClient) => {
         startFlowRunScheduler(readyClient);
     });
-}
-
-export function resetFlowsInitializationForTests(): void {
-    flowsInitialized = false;
 }

@@ -41,13 +41,14 @@ Each feature lives under `src/features/<kebab-name>/`. Expect this shape; add su
 
 | Piece                             | Role                                                                                                                                                                                                                                           |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`init<Feature>.ts`**            | Wiring only: `interactionsRegistry.register(...)`, `DISCORD_CLIENT.on(...)`, or async startup. Import and invoke from `bot.ts` (sync init) or from `ClientReady` / other lifecycle hooks when the feature must wait until the client is ready. |
+| **`init<Feature>.ts`**            | Wiring only: `interactionsRegistry.register(...)`, `DISCORD_CLIENT.on(...)`, or async startup. Import and invoke from `bot.ts` or from `ClientReady` / other lifecycle hooks when the feature must wait until the client is ready. Most are synchronous; `initFlows()` is `async` and **must be awaited before the web server starts**, because it discovers the block registry that the builder API reads. |
 | **`index.ts`**                    | Barrel re-exports for what other packages import (commands, init, services, types). Depth varies by feature—mirror siblings when adding a new one.                                                                                             |
 | **`commands/`**                   | Slash command `SlashCommandBuilder` + handler pairs; may split “deploy / admin” vs “user” commands across files (`deployTicketCommand.ts` vs `ticketCommands.ts`).                                                                             |
 | **`components/`**                 | Message components and modals: builder + handler, often as factories (e.g. `FooComponent(enabled).component` / `.handler`) registered in `init*`. Re-export from `components/index.ts` when the folder exists.                                 |
 | **`data/`**                       | **`<feature>Schema.ts`** — Kysely table interfaces (and Zod where used); **`<feature>Repo.ts`** — queries/mutations. Register tables on `Database` in `data-persistence/database.ts` + new migration.                                          |
 | **`logic/`**                      | Domain rules that are not Discord handlers and not raw SQL (permissions, channel naming, state). Used heavily by `tickets`.                                                                                                                    |
 | **`utils/`**                      | Feature-local helpers (validation, formatting, Discord-specific glue).                                                                                                                                                                         |
+| **`templates/`**                  | Seed data the feature ships: a factory returning a ready-made record plus the script that installs it, kept together so the copy and its installer cannot drift (`flows/templates/onboardingFlow.ts` + `seedOnboardingFlow.ts`).                |
 | **`constants.ts`**                | IDs, labels, static config for the feature (see `tickets`).                                                                                                                                                                                    |
 | **`*Service.ts` / `*Manager.ts`** | Optional coordinators (lifecycle, per-guild workers) kept at feature root when not just DB I/O (`flash-chat`).                                                                                                                                 |
 | **`readme.md`**                   | Optional feature-level notes for humans/agents.                                                                                                                                                                                                |
@@ -60,6 +61,8 @@ Each feature lives under `src/features/<kebab-name>/`. Expect this shape; add su
 
 **New DB table:** add table type to `src/features-system/data-persistence/database.ts`, feature schema file, migration under `migrations/`, run `pnpm migrate:latest` (or `:dev`).
 
+**New flow block:** create one directory under `src/features/flows/blocks/` and nothing else — the registry discovers it and the builder draws it from what it declares. Read `docs/contracts/block-authoring.md` first; it is the contract, not a tutorial.
+
 ## Env (required unless noted)
 
 `DISCORD_APP_ID`, `DISCORD_BOT_TOKEN`, `DB_TYPE` (`sqlite` \| `postgres`), `OPENROUTER_API_KEY` (reply generation), `OPENAI_API_KEY` (guardrails only); plus `SQLITE_DB_PATH` or `PG_CONNECTION_STRING` per `DB_TYPE`. Optional: `ENV`, `OPENROUTER_BASE_URL`, `AI_MODEL` (OpenRouter slug), `AI_MAX_CONTEXT_MESSAGES`.
@@ -67,7 +70,8 @@ Each feature lives under `src/features/<kebab-name>/`. Expect this shape; add su
 ## Commands
 
 - `pnpm dev` — apply pending migrations, then watch `src/bot.ts` with env from `.env.local`. (`pnpm dev:bot` skips the migration step.)
-- `pnpm build` / `pnpm start` — `tsc` → `dist/`, run `node dist/bot.js`.
+- `pnpm build` — `tsc` → `dist/`. A local typecheck convenience, not wired into CI, and it currently reports pre-existing errors unrelated to any one change. Nothing runs the compiled output.
+- `pnpm start` — run the bot from source with `tsx`. `src/scripts/dockerEntrypoint.sh` is the real container entrypoint: it applies migrations first, then `exec pnpm start`. Block discovery scans `src/features/flows/blocks/` for `index.ts` files, so the source tree is the one that runs — which is why `tsx` is a runtime dependency.
 - `pnpm migrate:latest` / `migrate:latest:dev` — DB migrations.
 - `pnpm github-plan` — CLI for the Jarvis issue/PR plan workflow (see `github-plan-cli/src/cli.ts`).
 

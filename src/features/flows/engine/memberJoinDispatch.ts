@@ -1,9 +1,9 @@
 import type { GuildMember } from 'discord.js';
 import { flowsRepo } from '../data/flowsRepo';
-import { TRIGGER_MEMBER_JOIN } from '../nodes/triggerMemberJoin';
+import { TRIGGER_MEMBER_JOIN } from '../blocks/triggerMemberJoin';
 import { executeFlow } from './executor';
 import { resumeWaitingRunsForEvent } from './waitingRunDispatch';
-import type { FlowRunContext } from '../nodes/types';
+import type { FlowRunContext } from '../blocks/types';
 
 /**
  * On a member join, run every enabled flow in that guild whose first node is a

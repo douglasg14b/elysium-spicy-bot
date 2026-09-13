@@ -1,5 +1,5 @@
 import type { FlowGraph } from '../data/flowGraph';
-import { getNodeDefinition } from '../nodes/registry';
+import { getBlockDefinition } from '../blocks/registry';
 
 export type NodeDataValidationResult = { valid: true } | { valid: false; errors: string[] };
 
@@ -17,7 +17,7 @@ export function validateNodeData(graph: FlowGraph): NodeDataValidationResult {
     const errors: string[] = [];
 
     for (const node of graph.nodes) {
-        const definition = getNodeDefinition(node.type);
+        const definition = getBlockDefinition(node.type);
         if (!definition) {
             errors.push(`${node.id}: unknown node type "${node.type}"`);
             continue;

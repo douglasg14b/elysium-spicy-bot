@@ -6,7 +6,7 @@
     "type": "module",
     "scripts": {
         "build": "tsc",
-        "start": "node dist/bot.js",
+        "start": "tsx src/bot.ts",
         "dev": "pnpm migrate:latest:dev && pnpm dev:bot",
         "dev:bot": "cross-env TSX=true dotenvx run --env-file=.env.local -- tsx watch src/bot.ts",
         "dev:web": "pnpm --filter spicybot-web dev",
@@ -18,7 +18,7 @@
         "migrate:latest": "tsx src/features-system/data-persistence/migrate.ts",
         "migrate:latest:dev": "dotenvx run --env-file=.env.local -- tsx src/features-system/data-persistence/migrate.ts",
         "clean": "rimraf dist",
-    "sync-rules": "node scripts/sync-rules.mjs",
+        "sync-rules": "node scripts/sync-rules.mjs",
         "github-plan": "tsx github-plan-cli/src/cli.ts",
         "github-plan:plan-local": "dotenvx run --env-file=.env.local -- tsx github-plan-cli/src/cli.ts plan run-local"
     },
@@ -46,6 +46,7 @@
         "pg": "^8.16.3",
         "satori": "^0.26.0",
         "simple-git": "^3.33.0",
+        "tsx": "^4.23.13",
         "zod": "^4.3.5"
     },
     "devDependencies": {
@@ -58,7 +59,6 @@
         "cross-env": "^10.1.0",
         "nodemon": "^3.1.10",
         "rimraf": "^6.0.1",
-        "tsx": "^4.20.4",
         "typescript": "^5.9.2",
         "vitest": "^3.2.4"
     },

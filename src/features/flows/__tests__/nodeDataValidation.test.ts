@@ -1,13 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../data/flowGraph';
 import { validateNodeData } from '../engine/nodeDataValidation';
-import { ACTION_ASSIGN_ROLE } from '../nodes/actionAssignRole';
-import { ACTION_POST_EMBED } from '../nodes/actionPostEmbed';
-import { TRIGGER_BUTTON_CLICK } from '../nodes/triggerButtonClick';
+import { ensureBlocksDiscovered } from '../blocks/registry';
+import { ACTION_ASSIGN_ROLE } from '../blocks/actionAssignRole';
+import { ACTION_POST_EMBED } from '../blocks/actionPostEmbed';
+import { TRIGGER_BUTTON_CLICK } from '../blocks/triggerButtonClick';
 
 function graphWith(nodes: FlowGraph['nodes']): FlowGraph {
     return { version: FLOW_GRAPH_VERSION, nodes, edges: [] };
 }
+
+// Validation reads the registry, which is populated by scanning the blocks tree.
+beforeAll(ensureBlocksDiscovered);
 
 describe('validateNodeData', () => {
     it('accepts a graph whose node data matches each configSchema', () => {

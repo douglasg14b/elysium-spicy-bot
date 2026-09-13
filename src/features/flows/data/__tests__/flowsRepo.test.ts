@@ -6,7 +6,7 @@ import { SqlDatePlugin } from '../../../../features-system/data-persistence/plug
 import { SqliteBindingPlugin } from '../../../../features-system/data-persistence/plugins/sqliteBindingPlugin';
 import { SqliteJsonPlugin } from '../../../../features-system/data-persistence/plugins/sqliteJsonPlugin';
 import { FlowsRepo } from '../flowsRepo';
-import { buildOnboardingFlowGraph } from '../../logic/onboardingFlow';
+import { buildOnboardingFlowGraph } from '../../templates/onboardingFlow';
 
 describe('FlowsRepo (sqlite)', () => {
     const sqlite = new SqliteDatabase(':memory:');

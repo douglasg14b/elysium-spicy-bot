@@ -28,8 +28,10 @@ initLeveling();
 // Initialize staff warnings
 initWarnings();
 
-// Initialize flow engine (headless node-graph flows)
-initFlows();
+// Initialize flow engine (headless node-graph flows). Awaited before the web
+// server starts: blocks are discovered from the filesystem, and no flow surface
+// may be reachable before that finishes.
+await initFlows();
 
 // Initialize AI reply feature
 initAIReply();

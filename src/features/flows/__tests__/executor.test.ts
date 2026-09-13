@@ -1,15 +1,16 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'crypto';
+import { ensureBlocksDiscovered } from '../blocks/registry';
 import { executeFlow } from '../engine/executor';
 import { hasCycle, validateFlowGraph } from '../engine/graphValidation';
 import { FLOW_MAX_NODE_VISITS } from '../constants';
-import { buildOnboardingFlowGraph } from '../logic/onboardingFlow';
+import { buildOnboardingFlowGraph } from '../templates/onboardingFlow';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../data/flowGraph';
-import { CONDITION_HAS_ROLE } from '../nodes/conditionHasRole';
-import { TRIGGER_BUTTON_CLICK } from '../nodes/triggerButtonClick';
-import { ACTION_SEND_DM } from '../nodes/actionSendDM';
-import { ACTION_ASSIGN_ROLE } from '../nodes/actionAssignRole';
-import type { FlowRunContext } from '../nodes/types';
+import { CONDITION_HAS_ROLE } from '../blocks/conditionHasRole';
+import { TRIGGER_BUTTON_CLICK } from '../blocks/triggerButtonClick';
+import { ACTION_SEND_DM } from '../blocks/actionSendDM';
+import { ACTION_ASSIGN_ROLE } from '../blocks/actionAssignRole';
+import type { FlowRunContext } from '../blocks/types';
 
 const MEMBER_ROLE_ID = 'role-member-123';
 const WELCOME_TEXT = 'Welcome to the dungeon, darling. 😈';
@@ -43,6 +44,10 @@ function makeContext(options: { hasRoles?: string[] } = {}): MockContext {
 
     return { context, rolesAdd, userSend };
 }
+
+// The executor looks blocks up in the registry, which is populated by scanning
+// the blocks tree rather than by importing a static array.
+beforeAll(ensureBlocksDiscovered);
 
 describe('flow executor', () => {
     it('runs the onboarding flow: assigns the Member role then DMs the welcome text', async () => {

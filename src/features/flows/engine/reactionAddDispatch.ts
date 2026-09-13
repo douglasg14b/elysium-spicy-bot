@@ -1,9 +1,9 @@
 import { GuildMember, type MessageReaction, type PartialMessageReaction, type PartialUser, type User } from 'discord.js';
 import { flowsRepo } from '../data/flowsRepo';
-import { reactionAddConfigSchema, TRIGGER_REACTION_ADD } from '../nodes/triggerReactionAdd';
+import { reactionAddConfigSchema, TRIGGER_REACTION_ADD } from '../blocks/triggerReactionAdd';
 import { executeFlow } from './executor';
 import { resumeWaitingRunsForEvent } from './waitingRunDispatch';
-import type { FlowRunContext } from '../nodes/types';
+import type { FlowRunContext } from '../blocks/types';
 
 /**
  * True when a reaction's emoji matches the configured value. Accepts a unicode

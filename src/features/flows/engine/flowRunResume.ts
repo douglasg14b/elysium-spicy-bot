@@ -3,8 +3,8 @@ import { FLOW_MAX_NODE_VISITS } from '../constants';
 import { FlowRunsRepo, flowRunsRepo } from '../data/flowRunsRepo';
 import type { FlowRunEntity } from '../data/flowRunsSchema';
 import { FlowsRepo, flowsRepo } from '../data/flowsRepo';
-import { ACTION_WAIT_FOR_EVENT } from '../nodes/actionWaitForEvent';
-import type { FlowRunContext } from '../nodes/types';
+import { ACTION_WAIT_FOR_EVENT } from '../blocks/actionWaitForEvent';
+import type { FlowRunContext } from '../blocks/types';
 import { executeFlowSegment, resolveWaitExit } from './executor';
 
 export interface ResumeFlowRunDependencies {

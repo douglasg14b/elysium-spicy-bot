@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../data/flowGraph';
 import type { FlowEntity } from '../data/flowsSchema';
-import { ACTION_ASSIGN_ROLE } from '../nodes/actionAssignRole';
-import { TRIGGER_MEMBER_JOIN } from '../nodes/triggerMemberJoin';
-import { TRIGGER_REACTION_ADD } from '../nodes/triggerReactionAdd';
+import { ACTION_ASSIGN_ROLE } from '../blocks/actionAssignRole';
+import { TRIGGER_MEMBER_JOIN } from '../blocks/triggerMemberJoin';
+import { TRIGGER_REACTION_ADD } from '../blocks/triggerReactionAdd';
 import type { MessageReaction, PartialMessageReaction, User } from 'discord.js';
 
 const getByGuildId = vi.fn();

@@ -1,14 +1,14 @@
 import { FLOW_MAX_NODE_VISITS } from '../constants';
 import type { FlowEdge, FlowGraph, FlowNode } from '../data/flowGraph';
 import { flowRunsRepo } from '../data/flowRunsRepo';
-import { ACTION_DELAY, delayConfigSchema } from '../nodes/actionDelay';
+import { ACTION_DELAY, delayConfigSchema } from '../blocks/actionDelay';
 import {
     ACTION_WAIT_FOR_EVENT,
     WAIT_TIMEOUT_HANDLE,
     waitForEventConfigSchema,
-} from '../nodes/actionWaitForEvent';
-import { getNodeDefinition, isActionNode, isConditionNode, isTriggerNode } from '../nodes/registry';
-import type { FlowRunContext } from '../nodes/types';
+} from '../blocks/actionWaitForEvent';
+import { getBlockDefinition } from '../blocks/registry';
+import { isActionNode, isConditionNode, isTriggerNode, type FlowRunContext } from '../blocks/types';
 import type { FlowStepSuspension } from './stepOutcome';
 
 export interface NodeRunLog {
@@ -112,7 +112,7 @@ export async function executeFlowSegment(
     }
 
     if (options.requireTrigger) {
-        const startDef = getNodeDefinition(startNode.type);
+        const startDef = getBlockDefinition(startNode.type);
         if (!startDef || !isTriggerNode(startDef)) {
             return fail(`Node ${options.startNodeId} (${startNode.type}) is not a registered trigger`);
         }
@@ -133,7 +133,7 @@ export async function executeFlowSegment(
         }
         visitedNodeIds.push(node.id);
 
-        const definition = getNodeDefinition(node.type);
+        const definition = getBlockDefinition(node.type);
         if (!definition) {
             return fail(`No registered node definition for type ${node.type}`);
         }

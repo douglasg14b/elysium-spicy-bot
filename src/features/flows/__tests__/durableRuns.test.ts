@@ -1,5 +1,6 @@
 import type { Client } from 'discord.js';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ensureBlocksDiscovered } from '../blocks/registry';
 import { FLOW_MAX_NODE_VISITS } from '../constants';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../data/flowGraph';
 import type { CreateFlowRunInput, ParkFlowRunInput } from '../data/flowRunsRepo';
@@ -8,12 +9,12 @@ import type { FlowEntity } from '../data/flowsSchema';
 import { executeFlow, executeFlowSegment } from '../engine/executor';
 import { resumeFlowRun } from '../engine/flowRunResume';
 import { resumeWaitingRunsForEvent } from '../engine/waitingRunDispatch';
-import { ACTION_ASSIGN_ROLE } from '../nodes/actionAssignRole';
-import { ACTION_DELAY } from '../nodes/actionDelay';
-import { ACTION_SEND_DM } from '../nodes/actionSendDM';
-import { ACTION_WAIT_FOR_EVENT } from '../nodes/actionWaitForEvent';
-import { TRIGGER_BUTTON_CLICK } from '../nodes/triggerButtonClick';
-import type { FlowRunContext } from '../nodes/types';
+import { ACTION_ASSIGN_ROLE } from '../blocks/actionAssignRole';
+import { ACTION_DELAY } from '../blocks/actionDelay';
+import { ACTION_SEND_DM } from '../blocks/actionSendDM';
+import { ACTION_WAIT_FOR_EVENT } from '../blocks/actionWaitForEvent';
+import { TRIGGER_BUTTON_CLICK } from '../blocks/triggerButtonClick';
+import type { FlowRunContext } from '../blocks/types';
 
 const GUILD_ID = 'guild-1';
 const USER_ID = 'user-1';
@@ -227,6 +228,10 @@ function makeRunsRepoDouble(run?: FlowRunEntity) {
         }),
     };
 }
+
+// The executor looks blocks up in the registry, which is populated by scanning
+// the blocks tree rather than by importing a static array.
+beforeAll(ensureBlocksDiscovered);
 
 describe('action.delay', () => {
     it('suspends with the node after the delay as resumeNodeId and wakeAt ≈ now + durationMs', async () => {

@@ -1,8 +1,8 @@
 import { EmbedBuilder } from 'discord.js';
 import { describe, expect, it, vi } from 'vitest';
-import { actionPostEmbedNode, hexColorToInt } from '../nodes/actionPostEmbed';
-import { conditionInChannelNode } from '../nodes/conditionInChannel';
-import type { FlowRunContext } from '../nodes/types';
+import { block as actionPostEmbedNode, hexColorToInt } from '../blocks/actionPostEmbed';
+import { block as conditionInChannelNode } from '../blocks/conditionInChannel';
+import type { FlowRunContext } from '../blocks/types';
 
 const CHANNEL_ID = 'channel-abc';
 

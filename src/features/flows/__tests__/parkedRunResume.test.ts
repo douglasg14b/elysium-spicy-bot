@@ -1,6 +1,7 @@
 import type { Client } from 'discord.js';
 import { sql } from 'kysely';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ensureBlocksDiscovered } from '../blocks/registry';
 import { flowGraphSchema, type FlowGraph } from '../data/flowGraph';
 import { FlowRunsRepo } from '../data/flowRunsRepo';
 import type { FlowRunEntity } from '../data/flowRunsSchema';
@@ -60,6 +61,9 @@ function makeClient(): { client: Client; userSend: ReturnType<typeof vi.fn>; rol
  * `log`) is read as written, with no translation on either side, which is why
  * these fixtures are committed verbatim rather than regenerated from live code.
  */
+// Resuming walks the graph, which reads the registry.
+beforeAll(ensureBlocksDiscovered);
+
 describe('runs parked before M1', () => {
     let testDb: FlowRunsTestDb;
     let repo: FlowRunsRepo;

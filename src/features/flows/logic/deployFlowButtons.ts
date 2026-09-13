@@ -8,7 +8,7 @@ import {
 import { DISCORD_CLIENT } from '../../../discordClient';
 import { flowsRepo, type FlowsRepo } from '../data/flowsRepo';
 import type { FlowEntity } from '../data/flowsSchema';
-import { BUTTON_STYLE_MAP, buttonClickConfigSchema, TRIGGER_BUTTON_CLICK } from '../nodes/triggerButtonClick';
+import { BUTTON_STYLE_MAP, buttonClickConfigSchema, TRIGGER_BUTTON_CLICK } from '../blocks/triggerButtonClick';
 import { buildFlowCustomId } from '../utils/customId';
 
 export type DeployFlowButtonsResult =
