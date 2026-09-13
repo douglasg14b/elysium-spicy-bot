@@ -58,6 +58,7 @@ import type {
     GuildRole,
     NodeDescriptor,
 } from '../api/types';
+import { FLOW_GRAPH_VERSION } from '../api/types';
 import { FlowNodeCard, type FlowCardNode, type FlowNodeCardData } from '../flows/FlowNodeCard';
 import { NodePalette, NODE_DRAG_MIME } from '../flows/NodePalette';
 import { NodeInspector } from '../flows/NodeInspector';
@@ -415,7 +416,7 @@ function FlowBuilder() {
     const serialize = useCallback((): FlowGraph => {
         const liveIds = new Set(nodes.map((n) => n.id));
         return {
-            version: 1,
+            version: FLOW_GRAPH_VERSION,
             nodes: nodes.map((n) => ({
                 id: n.id,
                 type: n.data.nodeType,

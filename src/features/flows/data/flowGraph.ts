@@ -12,8 +12,8 @@ import { z } from 'zod';
  * persisted on the run row and carried across suspend/resume.
  *
  * These types + Zod schemas describe the *shape* of the graph. Per-node
- * `data` payloads are validated separately by each node definition's
- * `configSchema` in the node registry.
+ * `data` payloads are validated separately, against the `configSchema` on the
+ * manifest of the block that node instantiates.
  */
 
 export const FLOW_GRAPH_VERSION = 1 as const;
@@ -26,11 +26,19 @@ export const flowNodePositionSchema = z.object({
 export const flowNodeSchema = z.object({
     /** UUID unique within the graph. Referenced by edges and button custom_ids. */
     id: z.string().min(1),
-    /** Node registry key, e.g. "trigger.buttonClick", "action.assignRole". */
+    /**
+     * Which block this node instantiates — the `type` on that block's manifest.
+     *
+     * Kept as an open string rather than a union of the shipped types: the set is
+     * discovered from the filesystem at startup, so it is not known at compile time,
+     * and a graph saved against a build that has a block must still parse on a build
+     * that does not. Whether the type resolves is checked by graph validation, which
+     * reports an unknown one rather than failing to parse.
+     */
     type: z.string().min(1),
-    /** Canvas position (used by the Phase 4 builder; unused at runtime). */
+    /** Canvas position, authored by the builder and unused at runtime. */
     position: flowNodePositionSchema,
-    /** Node-type-specific config, validated by that node's `configSchema`. */
+    /** Config for this node, validated against its block's `configSchema`. */
     data: z.record(z.string(), z.unknown()),
 });
 

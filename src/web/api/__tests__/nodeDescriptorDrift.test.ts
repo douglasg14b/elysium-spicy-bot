@@ -10,6 +10,7 @@ import {
 } from '../../../features/flows/blocks/manifest';
 import type { BlockConfigField, BlockControlType } from '../../../features/flows/blocks/manifest';
 import { ensureBlocksDiscovered, listBlockDefinitions } from '../../../features/flows/blocks/registry';
+import { FLOW_GRAPH_VERSION } from '../../../features/flows/data/flowGraph';
 import { NON_WIRE_MEMBERS } from '../nodeRoutes';
 import * as browserTypes from '../../../../web/src/api/types';
 
@@ -215,4 +216,24 @@ describe('node descriptor drift between server and browser', () => {
             ).toEqual(serverMembers);
         }
     );
+
+    /**
+     * The graph-shape version, which is declared on both sides for the same reason
+     * the descriptor is and has the same failure mode.
+     *
+     * Not descriptor drift, but it belongs here: this is the file that already holds
+     * both sides in one program, and the alternative is a second test importing the
+     * same two modules. The failure it prevents is quiet and total — the server
+     * parses `version` with `z.literal`, so a bump that never reached the browser
+     * leaves the builder writing graphs that every save rejects, with a green suite
+     * and no browser-side error to read.
+     */
+    it('serves the graph version the browser writes', () => {
+        expect(
+            browserTypes.FLOW_GRAPH_VERSION,
+            'FLOW_GRAPH_VERSION disagrees between `src/features/flows/data/flowGraph.ts` ' +
+                'and `web/src/api/types.ts`. The save endpoint parses this with `z.literal`, ' +
+                'so until they match the builder cannot save at all.'
+        ).toBe(FLOW_GRAPH_VERSION);
+    });
 });

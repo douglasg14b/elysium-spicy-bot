@@ -360,8 +360,18 @@ export interface FlowEdge {
     targetHandle?: string;
 }
 
+/**
+ * The graph-shape version the server's `flowGraph.ts` parses with `z.literal`.
+ *
+ * Mirrored rather than imported for the same reason the rest of this file is, and
+ * checked against the server's own `FLOW_GRAPH_VERSION` by the descriptor drift
+ * gate — a bumped version that never reached here would have the builder writing
+ * graphs the save endpoint rejects.
+ */
+export const FLOW_GRAPH_VERSION = 1 as const;
+
 export interface FlowGraph {
-    version: 1;
+    version: typeof FLOW_GRAPH_VERSION;
     nodes: FlowNode[];
     edges: FlowEdge[];
 }

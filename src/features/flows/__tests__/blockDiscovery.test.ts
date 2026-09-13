@@ -14,12 +14,17 @@ const FIXTURE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fi
 const fixtureRoot = (name: string): string => path.join(FIXTURE_ROOT, name);
 
 /**
- * The twelve blocks that ship today, in the order a directory scan yields them.
+ * The thirteen blocks that ship today, in the order a directory scan yields them.
  *
  * Pinned rather than counted: the palette shows them in this order, and the
  * point of discovery is that this list is derived from the tree instead of
  * hand-maintained. If a block is added or renamed, this is the one place that
  * says so — which is the opposite of the registry array it replaced.
+ *
+ * So this list is an **inventory**, not a catalogue, and the difference is the
+ * whole of M1: nothing here decides how a block looks, validates or runs. Adding
+ * `condition.isBooster` — the block that proved the one-directory claim — needed
+ * one directory and this one line, and no edit anywhere in the browser.
  */
 const SHIPPED_BLOCK_TYPES = [
     'action.assignRole',
@@ -31,6 +36,7 @@ const SHIPPED_BLOCK_TYPES = [
     'action.waitForEvent',
     'condition.hasRole',
     'condition.inChannel',
+    'condition.isBooster',
     'trigger.buttonClick',
     'trigger.memberJoin',
     'trigger.reactionAdd',
