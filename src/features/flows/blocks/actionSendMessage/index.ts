@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ActionNodeDefinition } from '../types';
+import type { BlockManifest } from '../manifest';
 
 export const ACTION_SEND_MESSAGE = 'action.sendMessage';
 
@@ -10,16 +10,43 @@ export const sendMessageConfigSchema = z.object({
 
 export type SendMessageConfig = z.infer<typeof sendMessageConfigSchema>;
 
-export const block: ActionNodeDefinition<SendMessageConfig> = {
+export const block: BlockManifest<SendMessageConfig> = {
     type: ACTION_SEND_MESSAGE,
     kind: 'action',
     label: 'Send Message',
+    description: 'Say something out loud, in a channel everyone can see.',
+    group: 'actions',
+    icon: '💬',
     configSchema: sendMessageConfigSchema,
-    async execute(config, context) {
+    configFields: [
+        {
+            key: 'channelId',
+            label: 'Channel',
+            description: 'Where to post.',
+            control: 'channelPicker',
+        },
+        {
+            key: 'message',
+            label: 'Message',
+            control: 'longText',
+            maxLength: 2000,
+        },
+    ],
+    handles: [{ label: 'Then', tone: 'neutral' }],
+    outputs: [],
+    requires: [],
+    capabilities: ['sendMessages'],
+    canSuspend: false,
+    async run(config, context) {
         const channel = await context.client.channels.fetch(config.channelId);
+        // Thrown rather than returned as `fail`: a channel that has stopped being
+        // sendable is not an expected outcome of this block, it is the world
+        // having changed underneath a saved flow. M1 keeps the existing behaviour;
+        // giving these a typed failure is a later milestone's taxonomy work.
         if (!channel || !channel.isTextBased() || !('send' in channel)) {
             throw new Error(`Channel ${config.channelId} is not a sendable text channel`);
         }
         await channel.send(config.message);
+        return { kind: 'continue' };
     },
 };

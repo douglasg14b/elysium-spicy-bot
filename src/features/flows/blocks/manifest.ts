@@ -34,6 +34,21 @@ export const BLOCK_PALETTE_GROUPS = ['triggers', 'conditions', 'actions'] as con
 export type BlockPaletteGroup = (typeof BLOCK_PALETTE_GROUPS)[number];
 
 /**
+ * What makes a trigger fire.
+ *
+ * A gateway dispatcher asks the registry which trigger its event starts, rather
+ * than importing one block's type constant and comparing against it. That is the
+ * difference between a dispatcher that works for every block declaring the same
+ * source and one that has to be edited each time a trigger is added.
+ *
+ * `buttonClick` is the interaction case: the button is rendered by the deploy
+ * path and arrives back as a component interaction rather than a gateway event.
+ */
+export const BLOCK_TRIGGER_SOURCES = ['buttonClick', 'memberJoin', 'reactionAdd'] as const;
+
+export type BlockTriggerSource = (typeof BLOCK_TRIGGER_SOURCES)[number];
+
+/**
  * The editor widgets a block may ask for. Each member is implemented once in
  * the builder and reusable by any block, which is what stops the inspector
  * growing a branch per block type.
@@ -175,8 +190,12 @@ export interface BlockOutputDeclaration {
  *
  * `interaction` is the one that can genuinely be absent: a run started by a
  * gateway event has no originating interaction, and neither does any resumed
- * run. That makes it checkable at save time — a requirement-bearing block
- * reachable only along such a path is rejected naming node and requirement.
+ * run. That makes it checkable at save time, and `validateAuthoredGraph` does
+ * check it — a block needing one on a path that can never carry one is rejected
+ * naming the node.
+ *
+ * `member` is always present, so declaring it is documentation rather than a
+ * constraint anything can violate.
  */
 export const FLOW_CONTEXT_REQUIREMENTS = ['member', 'interaction'] as const;
 
@@ -224,6 +243,15 @@ export interface BlockManifest<TConfig = unknown> {
     readonly outputs: readonly BlockOutputDeclaration[];
     /** Run-context this block cannot work without. */
     readonly requires: readonly FlowContextRequirement[];
+    /**
+     * What fires this trigger. Set by triggers and by nothing else — a condition
+     * or an action is reached by an edge, not by an event.
+     *
+     * This is what the gateway dispatchers select on, so adding a trigger for an
+     * existing source needs no dispatcher edit; adding one for a *new* source
+     * extends the vocabulary and writes the dispatcher once, for everyone.
+     */
+    readonly startedBy?: BlockTriggerSource;
     /** Discord permissions the bot needs for this block. */
     readonly capabilities: readonly BlockCapability[];
     /**

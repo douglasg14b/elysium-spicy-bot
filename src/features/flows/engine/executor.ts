@@ -1,23 +1,23 @@
 import { FLOW_MAX_NODE_VISITS } from '../constants';
 import type { FlowEdge, FlowGraph, FlowNode } from '../data/flowGraph';
 import { flowRunsRepo } from '../data/flowRunsRepo';
-import { ACTION_DELAY, delayConfigSchema } from '../blocks/actionDelay';
-import {
-    ACTION_WAIT_FOR_EVENT,
-    WAIT_TIMEOUT_HANDLE,
-    waitForEventConfigSchema,
-} from '../blocks/actionWaitForEvent';
+import type { BlockKind, BlockManifest } from '../blocks/manifest';
 import { getBlockDefinition } from '../blocks/registry';
-import { isActionNode, isConditionNode, isTriggerNode, type FlowRunContext } from '../blocks/types';
-import type { FlowStepSuspension } from './stepOutcome';
+import type { FlowResume, FlowRunContext } from '../blocks/types';
+import type { FlowStepOutcome, FlowStepSuspension } from './stepOutcome';
 
 export interface NodeRunLog {
     nodeId: string;
     type: string;
-    kind: 'trigger' | 'condition' | 'action';
+    kind: BlockKind;
     status: 'ok' | 'error';
-    /** For condition nodes, which handle was followed. */
-    branch?: 'true' | 'false';
+    /**
+     * Which declared output handle the run left by, when the block named one.
+     * A plain string rather than the condition vocabulary: any block may declare
+     * handles, and a wait leaving by `timeout` is the same kind of fact as a
+     * condition leaving by `false`.
+     */
+    branch?: string;
     error?: string;
 }
 
@@ -69,17 +69,29 @@ export interface ExecuteSegmentOptions {
     visitsUsed?: number;
     /** Log accumulated by earlier segments of this run. */
     log?: NodeRunLog[];
+    /**
+     * The node that parked this run, and why it is waking.
+     *
+     * Addressed to a node rather than to "whatever this segment starts at": a run
+     * parked by an older build resumes at the node *after* a delay, which never
+     * parked. Naming the node means such a row simply never matches and runs
+     * forward normally, instead of the node it lands on being told it woke up.
+     */
+    resume?: FlowResume;
 }
 
 /**
  * Run one segment of a flow, starting at `options.startNodeId`.
  *
- * Action nodes run in order; a condition node evaluates and follows its matching
- * output handle ('true'/'false'). Graphs may contain cycles (Phase 5), so the
- * visit budget — carried in via `options.visitsUsed` and back out on suspension
- * — is the only thing stopping a loop. A suspending node (`action.delay`,
- * `action.waitForEvent`) ends the segment with `kind: 'suspended'` instead of
- * running to the end.
+ * Every node is the same shape of work: validate its config, call its one entry
+ * point, and act on the outcome it returns. Nothing here knows what any block
+ * *is* — a block that parks the run does so by returning `suspend`, and the
+ * segment ends with `kind: 'suspended'` because of what came back, not because
+ * of which type was matched.
+ *
+ * Graphs may contain cycles (Phase 5), so the visit budget — carried in via
+ * `options.visitsUsed` and back out on suspension — is the only thing stopping
+ * a loop.
  *
  * Per-node errors are captured in the log and abort that run without crashing
  * the bot.
@@ -113,87 +125,107 @@ export async function executeFlowSegment(
 
     if (options.requireTrigger) {
         const startDef = getBlockDefinition(startNode.type);
-        if (!startDef || !isTriggerNode(startDef)) {
+        if (!startDef || startDef.kind !== 'trigger') {
             return fail(`Node ${options.startNodeId} (${startNode.type}) is not a registered trigger`);
         }
     }
 
     let currentNodeId: string | undefined = options.startNodeId;
     let visits = options.visitsUsed ?? 0;
+    let pendingResume: FlowResume | undefined = options.resume;
 
     while (currentNodeId) {
-        if (visits >= FLOW_MAX_NODE_VISITS) {
-            return fail(`Exceeded max node visits (${FLOW_MAX_NODE_VISITS})`);
-        }
-        visits += 1;
-
         const node = nodesById.get(currentNodeId);
         if (!node) {
             return fail(`Node ${currentNodeId} not found`);
         }
-        visitedNodeIds.push(node.id);
 
         const definition = getBlockDefinition(node.type);
         if (!definition) {
             return fail(`No registered node definition for type ${node.type}`);
         }
 
-        // Trigger nodes are pass-through: just follow the single outgoing edge.
-        if (isTriggerNode(definition)) {
-            log.push({ nodeId: node.id, type: node.type, kind: 'trigger', status: 'ok' });
-            currentNodeId = followEdge(edgesBySource, node.id);
-            continue;
+        /**
+         * Is this node being woken, as opposed to merely being where the run
+         * picks up?
+         *
+         * Both halves matter. The node id alone is not enough: a run parked by an
+         * older build names the node *after* a delay, which never parked, and
+         * telling that node it woke would make a condition report a timeout it
+         * never waited for. Only a block that can park can be waking.
+         */
+        const isWaking = pendingResume?.nodeId === node.id && definition.canSuspend;
+
+        // Waking is the second half of one visit, not a new one: the node was
+        // already charged when it parked, and charging it again would halve how
+        // many times an authored loop containing a delay can go round.
+        if (!isWaking) {
+            if (visits >= FLOW_MAX_NODE_VISITS) {
+                return fail(`Exceeded max node visits (${FLOW_MAX_NODE_VISITS})`);
+            }
+            visits += 1;
         }
+
+        visitedNodeIds.push(node.id);
 
         const parsed = definition.configSchema.safeParse(node.data);
         if (!parsed.success) {
             const message = `Invalid config for ${node.type}: ${parsed.error.issues
-                .map((i) => i.message)
+                .map((issue) => issue.message)
                 .join(', ')}`;
             log.push({ nodeId: node.id, type: node.type, kind: definition.kind, status: 'error', error: message });
             return fail(message);
         }
 
-        // Suspending actions are intercepted before `execute` — they park the run
-        // rather than performing a side effect.
-        if (node.type === ACTION_DELAY) {
-            const delayConfig = delayConfigSchema.parse(node.data);
-            log.push({ nodeId: node.id, type: node.type, kind: 'action', status: 'ok' });
+        const resumedHere = isWaking ? pendingResume?.reason : undefined;
+        const stepContext: FlowRunContext = resumedHere ? { ...context, resume: resumedHere } : context;
+        pendingResume = undefined;
 
-            const resumeNodeId = followEdge(edgesBySource, node.id);
-            if (!resumeNodeId) {
-                // Nothing after the delay: sleeping would accomplish nothing.
+        let outcome: FlowStepOutcome;
+        try {
+            outcome = await definition.run(parsed.data, stepContext);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : `Unknown ${definition.kind} error`;
+            log.push({ nodeId: node.id, type: node.type, kind: definition.kind, status: 'error', error: message });
+            return fail(message);
+        }
+
+        if (outcome.kind === 'fail') {
+            log.push({
+                nodeId: node.id,
+                type: node.type,
+                kind: definition.kind,
+                status: 'error',
+                error: outcome.error,
+            });
+            return fail(outcome.error);
+        }
+
+        if (outcome.kind === 'suspend') {
+            log.push({ nodeId: node.id, type: node.type, kind: definition.kind, status: 'ok' });
+
+            // Parking is only worth the row if there is somewhere to go afterwards.
+            // A block with nothing wired to any handle it actually declares would
+            // wake, find the graph over, and complete — so complete now rather
+            // than holding a run open to reach the same end later. Edges on
+            // handles the block does not declare do not count: nothing could
+            // follow them, which is what save-time validation now rejects.
+            const outgoing = edgesBySource.get(node.id) ?? [];
+            const reachable = outgoing.some((edge) =>
+                definition.handles.some((handle) => (handle.id ?? undefined) === (edge.sourceHandle ?? undefined))
+            );
+            if (!reachable) {
                 return completed(successResult(flowId, triggerNodeId, log, visitedNodeIds));
             }
 
             return {
                 kind: 'suspended',
                 suspension: {
-                    resumeNodeId,
-                    wakeAt: new Date(Date.now() + delayConfig.durationMs),
-                    visitsUsed: visits,
-                    log,
-                    visitedNodeIds,
-                },
-            };
-        }
-
-        if (node.type === ACTION_WAIT_FOR_EVENT) {
-            const waitConfig = waitForEventConfigSchema.parse(node.data);
-            log.push({ nodeId: node.id, type: node.type, kind: 'action', status: 'ok' });
-
-            // The wait node itself is the resume point: on wake we need to know
-            // which handle to leave by (the plain one, or `timeout`).
-            return {
-                kind: 'suspended',
-                suspension: {
+                    ...outcome.suspension,
+                    // The block parks at its own node: it is re-entered on wake and
+                    // told why, which is how it picks its exit without the executor
+                    // knowing which block it is.
                     resumeNodeId: node.id,
-                    wakeAt:
-                        waitConfig.timeoutMs === undefined
-                            ? undefined
-                            : new Date(Date.now() + waitConfig.timeoutMs),
-                    waitKind: waitConfig.eventKind,
-                    waitConfig,
                     visitsUsed: visits,
                     log,
                     visitedNodeIds,
@@ -201,58 +233,41 @@ export async function executeFlowSegment(
             };
         }
 
-        if (isConditionNode(definition)) {
-            try {
-                const branch = await definition.evaluate(parsed.data, context);
-                log.push({ nodeId: node.id, type: node.type, kind: 'condition', status: 'ok', branch });
-                currentNodeId = followEdge(edgesBySource, node.id, branch);
-            } catch (error) {
-                const message = error instanceof Error ? error.message : 'Unknown condition error';
-                log.push({ nodeId: node.id, type: node.type, kind: 'condition', status: 'error', error: message });
-                return fail(message);
-            }
-            continue;
+        const next = resolveNextNode(edgesBySource, node, definition, outcome.handle);
+
+        // A run that parked, woke, and then found its chosen branch wired to
+        // nothing has not finished — it stopped having done none of what it
+        // waited for. An ordinary dead end is how an author ends a path; this one
+        // is a gap in the graph, and saying so is the difference between a flow
+        // that quietly does nothing and one an author can fix.
+        const wokeOntoNothing = Boolean(resumedHere) && outcome.handle !== undefined && next.ok && !next.target;
+
+        const failure = !next.ok
+            ? next.error
+            : wokeOntoNothing
+              ? `Node ${node.id} (${node.type}) waited and then ${resumedHere === 'timeout' ? 'timed out' : 'woke'}, ` +
+                `leaving by its "${outcome.handle}" output — but the flow has no "${outcome.handle}" branch to follow.`
+              : undefined;
+
+        // One row per visit: a node that failed logs the failure, not a success
+        // followed by a contradiction.
+        log.push({
+            nodeId: node.id,
+            type: node.type,
+            kind: definition.kind,
+            ...(failure === undefined
+                ? { status: 'ok', ...(outcome.handle === undefined ? {} : { branch: outcome.handle }) }
+                : { status: 'error', error: failure }),
+        });
+
+        if (failure !== undefined) {
+            return fail(failure);
         }
 
-        if (isActionNode(definition)) {
-            try {
-                await definition.execute(parsed.data, context);
-                log.push({ nodeId: node.id, type: node.type, kind: 'action', status: 'ok' });
-                currentNodeId = followEdge(edgesBySource, node.id);
-            } catch (error) {
-                const message = error instanceof Error ? error.message : 'Unknown action error';
-                log.push({ nodeId: node.id, type: node.type, kind: 'action', status: 'error', error: message });
-                return fail(message);
-            }
-            continue;
-        }
-
-        // Unreachable given the kind union, but keeps the loop total.
-        currentNodeId = undefined;
+        currentNodeId = next.ok ? next.target : undefined;
     }
 
     return completed(successResult(flowId, triggerNodeId, log, visitedNodeIds));
-}
-
-/**
- * Resume a parked run **from** a `action.waitForEvent` node, leaving by the
- * given handle: the plain outgoing edge when the awaited event arrived, or the
- * `timeout` handle when the wait expired.
- *
- * Returns `null` when there is no edge to follow — for a timeout that means the
- * graph gave no timeout branch, which the caller reports as a run failure.
- */
-export function resolveWaitExit(
-    graph: FlowGraph,
-    waitNodeId: string,
-    exit: 'event' | 'timeout'
-): string | null {
-    const edges = graph.edges.filter((edge) => edge.source === waitNodeId);
-    if (exit === 'timeout') {
-        return edges.find((edge) => edge.sourceHandle === WAIT_TIMEOUT_HANDLE)?.target ?? null;
-    }
-    const plain = edges.find((edge) => edge.sourceHandle !== WAIT_TIMEOUT_HANDLE);
-    return plain?.target ?? null;
 }
 
 /**
@@ -333,20 +348,67 @@ async function persistNewSuspendedRun(
     });
 }
 
-/** Follow the outgoing edge from `nodeId`, optionally matching a source handle. */
-function followEdge(
+/** Where the run goes next, or why it cannot be decided. */
+type NextNode = { ok: true; target: string | undefined } | { ok: false; error: string };
+
+/**
+ * Follow the edge leaving `node` by the handle the block named.
+ *
+ * Two outgoing edges on the same handle is a **named failure**, not a silent
+ * first-match. Save-time validation rejects that graph, so reaching it here means
+ * the graph predates the check or was written around it — and quietly picking one
+ * of two branches is how a run does something its author never asked for.
+ *
+ * An exit leading nowhere is not an error here, whichever handle it is: an
+ * author ends a path by wiring nothing after it, and a condition whose `false`
+ * side is deliberately empty is an ordinary flow. The one case the caller does
+ * treat as a failure is a run that *parked* and woke onto an empty branch, which
+ * it can tell because it knows the node was being resumed.
+ */
+function resolveNextNode(
     edgesBySource: Map<string, FlowEdge[]>,
-    nodeId: string,
-    handle?: 'true' | 'false'
-): string | undefined {
-    const edges = edgesBySource.get(nodeId) ?? [];
-    if (handle) {
-        const match = edges.find((e) => e.sourceHandle === handle);
-        return match?.target;
+    node: FlowNode,
+    block: BlockManifest,
+    handle: string | undefined
+): NextNode {
+    const edges = edgesBySource.get(node.id) ?? [];
+    // An unnamed handle means the block's default exit, which is the edge the
+    // graph persists without a `sourceHandle`.
+    const matching = edges.filter((edge) => (edge.sourceHandle ?? undefined) === handle);
+
+    if (matching.length > 1) {
+        const named = handle === undefined ? 'its default output' : `its "${handle}" output`;
+        return {
+            ok: false,
+            error:
+                `Node ${node.id} (${node.type}) has ${matching.length} edges leaving ${named}, ` +
+                'so which branch the run should take is ambiguous. Remove the extra edges — a handle ' +
+                'may have at most one.',
+        };
     }
-    // No handle: take the first edge without a sourceHandle, else the first edge.
-    const plain = edges.find((e) => !e.sourceHandle);
-    return (plain ?? edges[0])?.target;
+
+    const target = matching[0]?.target;
+
+    // An author ends a path by wiring nothing, so a dead end is usually fine.
+    // What is not fine is an edge sitting on a handle the block never declared:
+    // save-time validation rejects those now, but a graph stored before that
+    // check can still carry one, and the run ends reporting success having
+    // skipped whatever the author actually drew. Warn, because a silent success
+    // is the one failure nobody goes looking for.
+    if (!target) {
+        const declared = new Set(block.handles.map((candidate) => candidate.id ?? undefined));
+        const stranded = edges.filter((edge) => !declared.has(edge.sourceHandle ?? undefined));
+        if (stranded.length > 0) {
+            const names = stranded.map((edge) => edge.sourceHandle ?? '<default>').join(', ');
+            console.warn(
+                `[flows] Node ${node.id} (${node.type}) has ${stranded.length} edge(s) on handle(s) it does ` +
+                    `not declare: ${names}. Those branches can never run, so this path stops here. ` +
+                    'Re-saving the flow will report the mismatch properly.'
+            );
+        }
+    }
+
+    return { ok: true, target };
 }
 
 function successResult(

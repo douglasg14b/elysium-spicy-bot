@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ConditionNodeDefinition } from '../types';
+import type { BlockManifest } from '../manifest';
 
 export const CONDITION_IN_CHANNEL = 'condition.inChannel';
 
@@ -9,15 +9,36 @@ export const inChannelConfigSchema = z.object({
 
 export type InChannelConfig = z.infer<typeof inChannelConfigSchema>;
 
-export const block: ConditionNodeDefinition<InChannelConfig> = {
+export const block: BlockManifest<InChannelConfig> = {
     type: CONDITION_IN_CHANNEL,
     kind: 'condition',
     label: 'In Channel?',
+    description: 'Split the path on where the run started.',
+    group: 'conditions',
+    icon: '📍',
     configSchema: inChannelConfigSchema,
-    evaluate(config, context) {
+    configFields: [
+        {
+            key: 'channelId',
+            label: 'Channel',
+            description: 'The channel the run must have started in.',
+            control: 'channelPicker',
+        },
+    ],
+    handles: [
+        { id: 'true', label: 'Yes', tone: 'positive' },
+        { id: 'false', label: 'No', tone: 'negative' },
+    ],
+    outputs: [],
+    // Declared rather than merely documented: a run with no interaction cannot
+    // answer this question, and save-time validation says so before it runs.
+    requires: ['interaction'],
+    capabilities: [],
+    canSuspend: false,
+    run(config, context) {
         // Only interaction-originated runs know "where" they happened; a gateway
         // trigger (member join) has no channel, so it takes the false branch.
         const channelId = context.interaction?.channelId;
-        return channelId === config.channelId ? 'true' : 'false';
+        return { kind: 'continue', handle: channelId === config.channelId ? 'true' : 'false' };
     },
 };

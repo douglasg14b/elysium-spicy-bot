@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ActionNodeDefinition } from '../types';
+import type { BlockManifest } from '../manifest';
 
 export const ACTION_REMOVE_ROLE = 'action.removeRole';
 
@@ -9,12 +9,29 @@ export const removeRoleConfigSchema = z.object({
 
 export type RemoveRoleConfig = z.infer<typeof removeRoleConfigSchema>;
 
-export const block: ActionNodeDefinition<RemoveRoleConfig> = {
+export const block: BlockManifest<RemoveRoleConfig> = {
     type: ACTION_REMOVE_ROLE,
     kind: 'action',
     label: 'Remove Role',
+    description: 'Take a role away. Good for clearing a temporary pass.',
+    group: 'actions',
+    icon: '➖',
     configSchema: removeRoleConfigSchema,
-    async execute(config, context) {
+    configFields: [
+        {
+            key: 'roleId',
+            label: 'Role',
+            description: 'The role to take back.',
+            control: 'rolePicker',
+        },
+    ],
+    handles: [{ label: 'Then', tone: 'neutral' }],
+    outputs: [],
+    requires: ['member'],
+    capabilities: ['manageRoles'],
+    canSuspend: false,
+    async run(config, context) {
         await context.member.roles.remove(config.roleId);
+        return { kind: 'continue' };
     },
 };

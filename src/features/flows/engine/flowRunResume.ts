@@ -3,9 +3,8 @@ import { FLOW_MAX_NODE_VISITS } from '../constants';
 import { FlowRunsRepo, flowRunsRepo } from '../data/flowRunsRepo';
 import type { FlowRunEntity } from '../data/flowRunsSchema';
 import { FlowsRepo, flowsRepo } from '../data/flowsRepo';
-import { ACTION_WAIT_FOR_EVENT } from '../blocks/actionWaitForEvent';
 import type { FlowRunContext } from '../blocks/types';
-import { executeFlowSegment, resolveWaitExit } from './executor';
+import { executeFlowSegment } from './executor';
 
 export interface ResumeFlowRunDependencies {
     flowsRepo: Pick<FlowsRepo, 'getByFlowId'>;
@@ -80,10 +79,10 @@ export async function rebuildResumeContext(
  * the claim works from the row the claim returned, not from whatever the caller
  * selected a moment earlier.
  *
- * `exit` decides how a run parked on `action.waitForEvent` leaves that node:
- * 'event' when the awaited event arrived, 'timeout' when its `wakeAt` elapsed.
- * It is ignored for a plain delay, whose `resumeNodeId` already points past the
- * delay node.
+ * `exit` says why the run is waking: 'event' when the gateway event it was
+ * parked on arrived, 'timeout' when its `wakeAt` elapsed. It is handed to the
+ * node that parked, which maps it to one of its own declared handles — this
+ * module names no block and knows nothing about what any of them wait for.
  */
 export async function resumeFlowRun(
     client: Client,
@@ -148,30 +147,17 @@ async function advanceClaimedRun(
         return { status: 'failed', error: rebuilt.reason };
     }
 
-    // A run parked on a wait node resumes AT that node, so first work out which
-    // handle it should leave by.
-    let startNodeId = run.resumeNodeId;
-    const resumeNode = flow.graph.nodes.find((node) => node.id === run.resumeNodeId);
-    if (resumeNode?.type === ACTION_WAIT_FOR_EVENT) {
-        const next = resolveWaitExit(flow.graph, run.resumeNodeId, exit);
-        if (!next) {
-            if (exit === 'timeout') {
-                const error = `Wait node ${run.resumeNodeId} timed out and the flow has no "timeout" branch`;
-                await dependencies.flowRunsRepo.fail(run.runId, error, run.log);
-                return { status: 'failed', error };
-            }
-            // Event arrived but nothing follows the wait — the run is simply done.
-            await dependencies.flowRunsRepo.complete(run.runId, run.log);
-            return { status: 'completed' };
-        }
-        startNodeId = next;
-    }
-
+    // The run resumes AT the node that parked it, which is re-entered and told
+    // why it woke. Choosing the exit is that block's job, not this one's.
     const outcome = await executeFlowSegment(run.flowId, flow.graph, rebuilt.context, {
-        startNodeId,
+        startNodeId: run.resumeNodeId,
         triggerNodeId: run.resumeNodeId,
         visitsUsed: run.visitsUsed,
         log: run.log,
+        // Addressed to the parked node. A pre-M1 delay row names the node *after*
+        // the delay, which never parked, so this matches nothing and that run
+        // simply carries on from there — exactly as it did before M1.
+        resume: { nodeId: run.resumeNodeId, reason: exit },
     });
 
     if (outcome.kind === 'suspended') {

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { FLOW_MAX_DELAY_MS } from '../../constants';
-import type { ActionNodeDefinition } from '../types';
+import type { BlockManifest } from '../manifest';
 
 export const ACTION_WAIT_FOR_EVENT = 'action.waitForEvent';
 
@@ -25,20 +25,64 @@ export const waitForEventConfigSchema = z.object({
 export type WaitForEventConfig = z.infer<typeof waitForEventConfigSchema>;
 
 /**
- * A *suspending* action — see the note on `action.delay`. The executor
- * intercepts this type, writes a `flow_runs` row with `waitKind`/`waitConfig`,
- * and the event dispatchers wake it when a matching event arrives.
+ * Hold the run until something happens to this member, or until time runs out.
+ *
+ * The block that proves suspension needs no special case. It parks at its own
+ * node, so waking re-enters `run` with `context.resume` saying which of the two
+ * things it was waiting for actually happened — and it answers with one of its
+ * own declared handles. The executor follows that handle the same way it follows
+ * a condition's, which is the whole reason it no longer names this block.
  */
-export const block: ActionNodeDefinition<WaitForEventConfig> = {
+export const block: BlockManifest<WaitForEventConfig> = {
     type: ACTION_WAIT_FOR_EVENT,
     kind: 'action',
     label: 'Wait for Event',
+    description: 'Hold the run until this member does something, or until time runs out.',
+    group: 'actions',
+    icon: '⏸️',
     configSchema: waitForEventConfigSchema,
-    execute() {
-        return Promise.reject(
-            new Error(
-                `${ACTION_WAIT_FOR_EVENT} is a suspending node and must be handled by the executor, not executed`
-            )
-        );
+    configFields: [
+        {
+            key: 'eventKind',
+            label: 'Wait for',
+            description: 'Which event wakes this run, when it happens to this member.',
+            control: 'segmented',
+            options: [
+                { value: 'memberJoin', label: 'They join' },
+                { value: 'reactionAdd', label: 'They react' },
+                { value: 'buttonClick', label: 'They click a button' },
+            ],
+        },
+        {
+            key: 'timeoutMs',
+            label: 'Give up after',
+            description: 'Leave empty to wait indefinitely. Otherwise the run leaves by the timeout handle.',
+            control: 'duration',
+            optional: true,
+        },
+    ],
+    handles: [
+        { label: 'It happened', tone: 'positive' },
+        { id: WAIT_TIMEOUT_HANDLE, label: 'Timed out', tone: 'caution' },
+    ],
+    outputs: [],
+    requires: [],
+    capabilities: [],
+    canSuspend: true,
+    run(config, context) {
+        if (context.resume) {
+            return context.resume === 'timeout'
+                ? { kind: 'continue', handle: WAIT_TIMEOUT_HANDLE }
+                : { kind: 'continue' };
+        }
+
+        return {
+            kind: 'suspend',
+            suspension: {
+                wakeAt: config.timeoutMs === undefined ? undefined : new Date(Date.now() + config.timeoutMs),
+                waitKind: config.eventKind,
+                waitConfig: config,
+            },
+        };
     },
 };

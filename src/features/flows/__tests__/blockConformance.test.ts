@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { checkBlockConformance, checkBlockOutcome } from '../blocks/conformance';
 import type { BlockManifest } from '../blocks/manifest';
-import { discoverBlocks } from '../blocks/registry';
+import { discoverBlocks, ensureBlocksDiscovered, listBlockDefinitions } from '../blocks/registry';
 import type { FlowRunContext } from '../blocks/types';
 import { block as fixtureBlock, FIXTURE_BLOCK_TYPE } from './fixtures/blocks/conforming/fixtureBlock';
 
@@ -438,6 +438,61 @@ describe('driving a block through its entry point', () => {
         );
 
         expect(issues.join()).toMatch(/parked a run while declaring canSuspend: false/);
+    });
+});
+
+describe('every block that ships', () => {
+    let shipped: readonly BlockManifest[] = [];
+
+    beforeAll(async () => {
+        await ensureBlocksDiscovered();
+        shipped = listBlockDefinitions();
+    });
+
+    // The point of the suite. Up to now it was proven against fixtures while the
+    // real blocks still wore the legacy shape; from here it governs them, so a
+    // manifest that drifts from its own schema fails by name in this one place.
+    it('conforms to the contract', () => {
+        const offenders = shipped.flatMap((block) => checkBlockConformance(block));
+
+        expect(offenders).toEqual([]);
+    });
+
+    it('declares a suspending block honestly', () => {
+        // `canSuspend` is documentation the executor never reads, so nothing else
+        // would notice a block that lies about it. The two that park say so.
+        const suspending = shipped.filter((block) => block.canSuspend).map((block) => block.type);
+
+        expect(suspending.toSorted()).toEqual(['action.delay', 'action.waitForEvent']);
+    });
+
+    it('comes back when a suspending block is woken, rather than parking forever', async () => {
+        // The guard that matters most, run against what actually ships rather
+        // than only the fixture: a block that forgets to check `context.resume`
+        // parks, wakes, parks again, and nothing downstream ever notices.
+        const configs: Readonly<Record<string, unknown>> = {
+            'action.delay': { durationMs: 1000 },
+            'action.waitForEvent': { eventKind: 'memberJoin' },
+        };
+
+        const suspending = shipped.filter((block) => block.canSuspend);
+        expect(suspending.length).toBeGreaterThan(0);
+
+        for (const block of suspending) {
+            const config = configs[block.type];
+            expect(config, `no probe config for the suspending block ${block.type}`).toBeDefined();
+            expect(await checkBlockOutcome(block, config, context)).toEqual([]);
+        }
+    });
+
+    it('gives every trigger a source, and no other block one', () => {
+        for (const block of shipped) {
+            if (block.kind === 'trigger') {
+                expect(block.startedBy, `${block.type} is a trigger with no source`).toBeDefined();
+            } else {
+                expect(block.startedBy, `${block.type} is not a trigger but names a source`).toBeUndefined();
+            }
+        }
     });
 });
 

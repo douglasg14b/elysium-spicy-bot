@@ -1,6 +1,6 @@
 import { EmbedBuilder } from 'discord.js';
 import { z } from 'zod';
-import type { ActionNodeDefinition } from '../types';
+import type { BlockManifest } from '../manifest';
 
 export const ACTION_POST_EMBED = 'action.postEmbed';
 
@@ -23,13 +23,49 @@ export function hexColorToInt(hex: string): number {
     return Number.parseInt(hex.slice(1), 16);
 }
 
-export const block: ActionNodeDefinition<PostEmbedConfig> = {
+export const block: BlockManifest<PostEmbedConfig> = {
     type: ACTION_POST_EMBED,
     kind: 'action',
     label: 'Post Embed',
+    description: 'Post something that looks like you meant it — title, body, colour.',
+    group: 'actions',
+    icon: '🖼️',
     configSchema: postEmbedConfigSchema,
-    async execute(config, context) {
+    configFields: [
+        {
+            key: 'channelId',
+            label: 'Channel',
+            description: 'Where to post.',
+            control: 'channelPicker',
+        },
+        {
+            key: 'title',
+            label: 'Title',
+            control: 'text',
+            maxLength: 256,
+        },
+        {
+            key: 'description',
+            label: 'Body',
+            control: 'longText',
+            maxLength: 4096,
+        },
+        {
+            key: 'color',
+            label: 'Colour',
+            description: 'Optional. Discord picks one if you do not.',
+            control: 'colour',
+            swatches: ['#00A2FF', '#FF2D95', '#7A5CFF', '#FF6B35'],
+        },
+    ],
+    handles: [{ label: 'Then', tone: 'neutral' }],
+    outputs: [],
+    requires: [],
+    capabilities: ['sendMessages', 'embedLinks'],
+    canSuspend: false,
+    async run(config, context) {
         const channel = await context.client.channels.fetch(config.channelId);
+        // Thrown rather than returned as `fail` — see the note on `action.sendMessage`.
         if (!channel || !channel.isTextBased() || !('send' in channel)) {
             throw new Error(`Channel ${config.channelId} is not a sendable text channel`);
         }
@@ -40,5 +76,6 @@ export const block: ActionNodeDefinition<PostEmbedConfig> = {
         }
 
         await channel.send({ embeds: [embed] });
+        return { kind: 'continue' };
     },
 };

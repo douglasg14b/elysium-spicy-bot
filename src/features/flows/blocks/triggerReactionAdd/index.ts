@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { TriggerNodeDefinition } from '../types';
+import type { BlockManifest } from '../manifest';
 
 export const TRIGGER_REACTION_ADD = 'trigger.reactionAdd';
 
@@ -18,9 +18,41 @@ export const reactionAddConfigSchema = z.object({
 
 export type ReactionAddConfig = z.infer<typeof reactionAddConfigSchema>;
 
-export const block: TriggerNodeDefinition<ReactionAddConfig> = {
+export const block: BlockManifest<ReactionAddConfig> = {
     type: TRIGGER_REACTION_ADD,
     kind: 'trigger',
     label: 'Reaction Added',
+    description: 'Someone reacts to a particular message with a particular emoji.',
+    group: 'triggers',
+    icon: '💥',
     configSchema: reactionAddConfigSchema,
+    configFields: [
+        {
+            key: 'channelId',
+            label: 'Channel',
+            description: 'Where the message lives.',
+            control: 'channelPicker',
+        },
+        {
+            key: 'messageId',
+            label: 'Message ID',
+            description: 'Right-click the message and Copy Message ID.',
+            control: 'text',
+        },
+        {
+            key: 'emoji',
+            label: 'Emoji',
+            description: 'The emoji itself, or a custom emoji’s name or id.',
+            control: 'text',
+        },
+    ],
+    handles: [{ label: 'Then', tone: 'neutral' }],
+    outputs: [],
+    requires: ['member'],
+    capabilities: [],
+    startedBy: 'reactionAdd',
+    canSuspend: false,
+    run() {
+        return { kind: 'continue' };
+    },
 };

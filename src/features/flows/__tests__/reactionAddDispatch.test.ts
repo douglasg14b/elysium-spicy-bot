@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ensureBlocksDiscovered } from '../blocks/registry';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../data/flowGraph';
 import type { FlowEntity } from '../data/flowsSchema';
 import { ACTION_ASSIGN_ROLE } from '../blocks/actionAssignRole';
@@ -26,6 +27,10 @@ vi.mock('../engine/waitingRunDispatch', () => ({
 
 // Imported after the mocks so the dispatcher picks them up.
 const { handleReactionAdd } = await import('../engine/reactionAddDispatch');
+
+// The dispatcher asks the registry which trigger a reaction starts, rather than
+// comparing against an imported type constant, so it needs the blocks discovered.
+beforeAll(ensureBlocksDiscovered);
 
 const GUILD_ID = 'guild-1';
 const CHANNEL_ID = 'channel-1';

@@ -1,6 +1,7 @@
 import { GuildMember, type MessageReaction, type PartialMessageReaction, type PartialUser, type User } from 'discord.js';
 import { flowsRepo } from '../data/flowsRepo';
-import { reactionAddConfigSchema, TRIGGER_REACTION_ADD } from '../blocks/triggerReactionAdd';
+import { isTriggerStartedBy } from '../blocks/registry';
+import { reactionAddConfigSchema } from '../blocks/triggerReactionAdd';
 import { executeFlow } from './executor';
 import { resumeWaitingRunsForEvent } from './waitingRunDispatch';
 import type { FlowRunContext } from '../blocks/types';
@@ -64,7 +65,7 @@ export async function handleReactionAdd(
         }
 
         const triggerNode = flow.graph.nodes.find((node) => {
-            if (node.type !== TRIGGER_REACTION_ADD) {
+            if (!isTriggerStartedBy(node.type, 'reactionAdd')) {
                 return false;
             }
             const parsed = reactionAddConfigSchema.safeParse(node.data);

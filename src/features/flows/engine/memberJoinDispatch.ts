@@ -1,6 +1,6 @@
 import type { GuildMember } from 'discord.js';
 import { flowsRepo } from '../data/flowsRepo';
-import { TRIGGER_MEMBER_JOIN } from '../blocks/triggerMemberJoin';
+import { isTriggerStartedBy } from '../blocks/registry';
 import { executeFlow } from './executor';
 import { resumeWaitingRunsForEvent } from './waitingRunDispatch';
 import type { FlowRunContext } from '../blocks/types';
@@ -25,7 +25,7 @@ export async function handleMemberJoin(member: GuildMember): Promise<void> {
             continue;
         }
 
-        const triggerNode = flow.graph.nodes.find((node) => node.type === TRIGGER_MEMBER_JOIN);
+        const triggerNode = flow.graph.nodes.find((node) => isTriggerStartedBy(node.type, 'memberJoin'));
         if (!triggerNode) {
             continue;
         }

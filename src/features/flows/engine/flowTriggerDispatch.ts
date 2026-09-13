@@ -1,7 +1,7 @@
 import { ButtonInteraction, GuildMember } from 'discord.js';
 import type { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { flowsRepo } from '../data/flowsRepo';
-import { TRIGGER_BUTTON_CLICK } from '../blocks/triggerButtonClick';
+import { isTriggerStartedBy } from '../blocks/registry';
 import { parseFlowCustomId } from '../utils/customId';
 import { executeFlow } from './executor';
 import { resumeWaitingRunsForEvent } from './waitingRunDispatch';
@@ -45,7 +45,7 @@ export async function handleFlowButtonInteraction(
     }
 
     const triggerNode = flow.graph.nodes.find((node) => node.id === parsed.nodeId);
-    if (!triggerNode || triggerNode.type !== TRIGGER_BUTTON_CLICK) {
+    if (!triggerNode || !isTriggerStartedBy(triggerNode.type, 'buttonClick')) {
         return { status: 'error', message: 'This button is not wired to a valid trigger.' };
     }
 

@@ -234,7 +234,7 @@ function makeRunsRepoDouble(run?: FlowRunEntity) {
 beforeAll(ensureBlocksDiscovered);
 
 describe('action.delay', () => {
-    it('suspends with the node after the delay as resumeNodeId and wakeAt ≈ now + durationMs', async () => {
+    it('suspends at its own node with wakeAt ≈ now + durationMs', async () => {
         const { context, rolesAdd, userSend } = makeContext();
         const before = Date.now();
 
@@ -246,7 +246,9 @@ describe('action.delay', () => {
         expect(outcome.kind).toBe('suspended');
         if (outcome.kind !== 'suspended') return;
 
-        expect(outcome.suspension.resumeNodeId).toBe('dm');
+        // Every suspending block parks at itself and is re-entered on wake, which
+        // is what lets the executor resume one without knowing which it is.
+        expect(outcome.suspension.resumeNodeId).toBe('delay');
         expect(outcome.suspension.wakeAt).toBeInstanceOf(Date);
         const wakeMs = outcome.suspension.wakeAt!.getTime();
         expect(wakeMs).toBeGreaterThanOrEqual(before + DELAY_MS);
@@ -278,7 +280,7 @@ describe('action.delay', () => {
         // The segment that ran succeeded; the rest is the poller's job.
         expect(result.status).toBe('success');
         expect(runsRepo.created).toHaveLength(1);
-        expect(runsRepo.created[0]?.resumeNodeId).toBe('dm');
+        expect(runsRepo.created[0]?.resumeNodeId).toBe('delay');
         // Only guildId + userId are snapshotted — no interaction, no member object.
         expect(runsRepo.created[0]?.contextSnapshot).toEqual({ guildId: GUILD_ID, userId: USER_ID });
     });
@@ -297,6 +299,22 @@ describe('action.delay', () => {
         if (outcome.kind !== 'completed') return;
         expect(outcome.result.status).toBe('success');
     });
+
+    it('resumes by re-entering the delay node, then runs on', async () => {
+        // The delay block's other half. Without this, deleting its
+        // `if (context.resume)` guard leaves every other test green while every
+        // delayed run parks forever.
+        const { client, userSend } = makeClient();
+        const run = makeRunEntity({ resumeNodeId: 'delay', waitKind: null });
+        const runsRepo = makeRunsRepoDouble(run);
+        const flowsRepo = { getByFlowId: vi.fn().mockResolvedValue(makeFlowEntity(buildDelayGraph())) };
+
+        const outcome = await resumeFlowRun(client, run, 'timeout', { flowsRepo, flowRunsRepo: runsRepo });
+
+        expect(outcome.status).toBe('completed');
+        expect(userSend).toHaveBeenCalledWith(DM_TEXT);
+    });
+
 });
 
 describe('resuming a suspended run', () => {
@@ -373,6 +391,27 @@ describe('resuming a suspended run', () => {
 });
 
 describe('visit budget across resumes', () => {
+    it('does not charge a second visit for waking a parked node', async () => {
+        // A parked node is charged once, when it parks. Charging it again on wake
+        // would halve how many times an authored "remind them daily" loop can go
+        // round, and end it in error rather than completion.
+        const { client } = makeClient();
+        const flowsRepo = { getByFlowId: vi.fn().mockResolvedValue(makeFlowEntity(buildDelayGraph())) };
+        // trigger + assign + delay are already spent; one visit remains for the DM.
+        const run = makeRunEntity({
+            resumeNodeId: 'delay',
+            waitKind: null,
+            visitsUsed: FLOW_MAX_NODE_VISITS - 1,
+        });
+        const runsRepo = makeRunsRepoDouble(run);
+
+        const outcome = await resumeFlowRun(client, run, 'timeout', { flowsRepo, flowRunsRepo: runsRepo });
+
+        // Were waking charged, the last visit would go to re-entering the delay
+        // and the DM would never run.
+        expect(outcome.status).toBe('completed');
+    });
+
     it('fails with the max-visits error rather than resetting the budget', async () => {
         const { client, userSend } = makeClient();
         const flowsRepo = { getByFlowId: vi.fn().mockResolvedValue(makeFlowEntity(buildDelayGraph())) };

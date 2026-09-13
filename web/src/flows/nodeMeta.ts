@@ -43,7 +43,13 @@ export const KIND_STYLES: Record<NodeKind, KindStyle> = {
     },
 };
 
-/** Emoji per node type, matching the mockup's palette glyphs. */
+/**
+ * Emoji per node type, matching the mockup's palette glyphs.
+ *
+ * Each block also declares its own `icon` on the server, and these are kept in
+ * step by hand until the builder reads the descriptor off the wire — at which
+ * point this map goes away rather than being maintained twice.
+ */
 const NODE_EMOJI: Record<string, string> = {
     'trigger.buttonClick': '🔘',
     'trigger.memberJoin': '🚪',
@@ -63,7 +69,12 @@ export function nodeEmoji(type: string): string {
     return NODE_EMOJI[type] ?? '⚙️';
 }
 
-/** One-line description shown in the inspector header. Cheeky, per the persona. */
+/**
+ * One-line description shown in the inspector header. Cheeky, per the persona.
+ *
+ * Like the emoji above, the server declares its own `description` per block.
+ * Both copies go when the builder renders from the descriptor.
+ */
 const NODE_DESCRIPTION: Record<string, string> = {
     'trigger.buttonClick': 'Fires when a member clicks your button. The classic rules-gate opener.',
     'trigger.memberJoin': 'Fires the moment someone walks through the door. No config needed.',
@@ -106,7 +117,10 @@ export function isWaitForEvent(type: string): boolean {
 /**
  * Output handle ids for nodes that fork. Conditions use `true`/`false`; the wait
  * node uses its default (unnamed) edge for "event arrived" plus a `timeout` handle.
- * The executor's `resolveWaitExit` reads the same `timeout` id.
+ *
+ * These ids are the server's, declared on each block's manifest as `handles` and
+ * matched against them when a graph is saved. This copy goes away when the
+ * builder reads the descriptor off the wire.
  */
 export function branchHandles(type: string): { id: string | undefined; label: string; color: string }[] {
     if (isCondition(type)) {

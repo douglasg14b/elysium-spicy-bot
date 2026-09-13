@@ -8,7 +8,8 @@ import {
 import { DISCORD_CLIENT } from '../../../discordClient';
 import { flowsRepo, type FlowsRepo } from '../data/flowsRepo';
 import type { FlowEntity } from '../data/flowsSchema';
-import { BUTTON_STYLE_MAP, buttonClickConfigSchema, TRIGGER_BUTTON_CLICK } from '../blocks/triggerButtonClick';
+import { isTriggerStartedBy } from '../blocks/registry';
+import { BUTTON_STYLE_MAP, buttonClickConfigSchema } from '../blocks/triggerButtonClick';
 import { buildFlowCustomId } from '../utils/customId';
 
 export type DeployFlowButtonsResult =
@@ -35,7 +36,7 @@ async function defaultGetGuild(guildId: string): Promise<Guild | null> {
 export function buildFlowTriggerButtons(
     flow: FlowEntity
 ): { ok: true; buttons: ButtonBuilder[] } | { ok: false; message: string } {
-    const buttonNodes = flow.graph.nodes.filter((node) => node.type === TRIGGER_BUTTON_CLICK);
+    const buttonNodes = flow.graph.nodes.filter((node) => isTriggerStartedBy(node.type, 'buttonClick'));
     if (buttonNodes.length === 0) {
         return { ok: false, message: 'This flow has no button-click triggers to deploy.' };
     }

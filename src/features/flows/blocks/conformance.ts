@@ -13,7 +13,7 @@ import {
     type BlockManifest,
     type BlockOutputHandle,
 } from './manifest';
-import type { FlowRunContext } from './types';
+import { FLOW_RESUME_REASONS, type FlowRunContext } from './types';
 
 /**
  * Does a block actually satisfy the contract it claims to?
@@ -25,11 +25,8 @@ import type { FlowRunContext } from './types';
  * default the schema would reject, is a test failure rather than a form that
  * saves garbage.
  *
- * Proven on fixtures, not yet registry-wide. The blocks that ship today still
- * declare the earlier per-kind shape, so a suite run over the live registry
- * could not be green until they migrate; it is applied to every registered block
- * in the same change that migrates them. Until then this checks the contract
- * itself, and the fixtures are the only conforming implementors.
+ * {@link checkBlockConformance} runs over every registered block, so a manifest
+ * that drifts from its own schema fails in one place for the whole registry.
  *
  * Deliberately split in two. {@link checkBlockConformance} needs nothing but the
  * manifest and so can run over every registered block. {@link checkBlockOutcome}
@@ -411,6 +408,46 @@ export async function checkBlockOutcome(
             issues.push(
                 `${block.type}: continued by the handle ${JSON.stringify(handle)}, which it never declared. ` +
                     'The builder draws only declared handles, so that edge could not exist on the canvas.'
+            );
+        }
+    }
+
+    issues.push(...(await checkResumeTerminates(block, config, context)));
+
+    return issues;
+}
+
+/**
+ * A block that parks must come back when it is woken.
+ *
+ * The one way to write a suspending block that is catastrophically wrong and
+ * silent about it: forget to check `context.resume`, and every run that reaches
+ * the block parks, wakes, parks again, forever. Nothing downstream notices,
+ * because parking is exactly what the block is supposed to do.
+ *
+ * So drive it: park it, then hand it back each resume reason and require it
+ * stop asking. Only asked of blocks that declare `canSuspend`.
+ */
+async function checkResumeTerminates(
+    block: BlockManifest,
+    config: unknown,
+    context: FlowRunContext
+): Promise<readonly string[]> {
+    if (!block.canSuspend) {
+        return [];
+    }
+
+    const issues: string[] = [];
+
+    for (const reason of FLOW_RESUME_REASONS) {
+        const resumed: unknown = await block.run(config, { ...context, resume: reason });
+        const kind = (resumed as { kind?: unknown } | null)?.kind;
+
+        if (kind === 'suspend') {
+            issues.push(
+                `${block.type}: parked again when resumed with reason "${reason}" instead of carrying on. ` +
+                    'A suspending block must check `context.resume` before returning a suspension, or every ' +
+                    'run that reaches it parks forever.'
             );
         }
     }

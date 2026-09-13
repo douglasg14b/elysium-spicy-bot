@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { TriggerNodeDefinition } from '../types';
+import type { BlockManifest } from '../manifest';
 
 export const TRIGGER_MEMBER_JOIN = 'trigger.memberJoin';
 
@@ -8,9 +8,22 @@ export const memberJoinConfigSchema = z.object({});
 
 export type MemberJoinConfig = z.infer<typeof memberJoinConfigSchema>;
 
-export const block: TriggerNodeDefinition<MemberJoinConfig> = {
+export const block: BlockManifest<MemberJoinConfig> = {
     type: TRIGGER_MEMBER_JOIN,
     kind: 'trigger',
     label: 'Member Joins',
+    description: 'Someone new turns up. Start here to greet them, or to vet them.',
+    group: 'triggers',
+    icon: '🚪',
     configSchema: memberJoinConfigSchema,
+    configFields: [],
+    handles: [{ label: 'Then', tone: 'neutral' }],
+    outputs: [],
+    requires: ['member'],
+    capabilities: [],
+    startedBy: 'memberJoin',
+    canSuspend: false,
+    run() {
+        return { kind: 'continue' };
+    },
 };

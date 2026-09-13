@@ -8,7 +8,6 @@ import {
     getBlockDefinition,
     listBlockDefinitions,
 } from '../blocks/registry';
-import type { NodeDefinition } from '../blocks/types';
 
 const FIXTURE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'blocks');
 
@@ -39,7 +38,7 @@ const SHIPPED_BLOCK_TYPES = [
 
 describe('scanning the blocks tree', () => {
     it('finds every shipped block, in a stable order', async () => {
-        const discovered = await discoverBlocks<NodeDefinition>();
+        const discovered = await discoverBlocks<BlockManifest>();
 
         expect([...discovered.keys()]).toEqual([...SHIPPED_BLOCK_TYPES]);
     });

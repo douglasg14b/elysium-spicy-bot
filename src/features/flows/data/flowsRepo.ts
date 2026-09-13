@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { database, type DatabaseClient } from '../../../features-system/data-persistence/database';
 import { FLOW_ENTITY_VERSION } from '../constants';
-import { validateFlowGraph } from '../engine/graphValidation';
+import { validateFlowGraph, validateGraphForWrite } from '../engine/graphValidation';
 import type { FlowGraph } from './flowGraph';
 import type { FlowEntity } from './flowsSchema';
 
@@ -49,7 +49,7 @@ export class FlowsRepo {
     }
 
     async create(input: CreateFlowInput): Promise<FlowEntity> {
-        const result = validateFlowGraph(input.graph);
+        const result = validateGraphForWrite(input.graph);
         if (!result.valid) {
             throw new Error(`Cannot create flow with invalid graph: ${result.errors.join('; ')}`);
         }
@@ -89,7 +89,7 @@ export class FlowsRepo {
             updateData.enabled = input.enabled;
         }
         if (input.graph !== undefined) {
-            const result = validateFlowGraph(input.graph);
+            const result = validateGraphForWrite(input.graph);
             if (!result.valid) {
                 throw new Error(`Cannot update flow with invalid graph: ${result.errors.join('; ')}`);
             }

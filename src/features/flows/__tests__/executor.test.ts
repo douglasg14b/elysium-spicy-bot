@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'crypto';
 import { ensureBlocksDiscovered } from '../blocks/registry';
 import { executeFlow } from '../engine/executor';
-import { hasCycle, validateFlowGraph } from '../engine/graphValidation';
+import { hasCycle, validateAuthoredGraph, validateFlowGraph } from '../engine/graphValidation';
 import { FLOW_MAX_NODE_VISITS } from '../constants';
 import { buildOnboardingFlowGraph } from '../templates/onboardingFlow';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../data/flowGraph';
@@ -10,6 +10,9 @@ import { CONDITION_HAS_ROLE } from '../blocks/conditionHasRole';
 import { TRIGGER_BUTTON_CLICK } from '../blocks/triggerButtonClick';
 import { ACTION_SEND_DM } from '../blocks/actionSendDM';
 import { ACTION_ASSIGN_ROLE } from '../blocks/actionAssignRole';
+import { ACTION_WAIT_FOR_EVENT } from '../blocks/actionWaitForEvent';
+import { CONDITION_IN_CHANNEL } from '../blocks/conditionInChannel';
+import { TRIGGER_MEMBER_JOIN } from '../blocks/triggerMemberJoin';
 import type { FlowRunContext } from '../blocks/types';
 
 const MEMBER_ROLE_ID = 'role-member-123';
@@ -127,6 +130,213 @@ describe('flow executor', () => {
 
         expect(result.status).toBe('error');
         expect(result.error).toContain('Missing Permissions');
+    });
+});
+
+/**
+ * Two edges leaving one handle is rejected at save time, naming the node.
+ *
+ * Each case is a different handle *kind*, because a fix scoped to one of them
+ * leaves the requirement violated while looking done: the unnamed default exit,
+ * a condition's named branch, and a suspending block's declared timeout.
+ */
+describe('a handle with more than one outgoing edge', () => {
+    it('rejects two edges leaving an unhandled default output', () => {
+        const graph = buildConditionGraph();
+        graph.edges.push({ id: 'e4', source: 'trigger', target: 'assign' });
+
+        const result = validateAuthoredGraph(graph);
+
+        expect(result.valid).toBe(false);
+        if (result.valid) return;
+        expect(result.errors.join('\n')).toMatch(/Node trigger has 2 edges leaving its default output/);
+    });
+
+    it('rejects two edges leaving the same true handle', () => {
+        const graph = buildConditionGraph();
+        graph.edges.push({ id: 'e4', source: 'cond', sourceHandle: 'true', target: 'assign' });
+
+        const result = validateAuthoredGraph(graph);
+
+        expect(result.valid).toBe(false);
+        if (result.valid) return;
+        expect(result.errors.join('\n')).toMatch(/Node cond has 2 edges leaving its "true" output/);
+    });
+
+    it('rejects two edges leaving a declared timeout handle', () => {
+        const graph: FlowGraph = {
+            version: FLOW_GRAPH_VERSION,
+            nodes: [
+                { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { label: 'Go' } },
+                {
+                    id: 'wait',
+                    type: ACTION_WAIT_FOR_EVENT,
+                    position: { x: 200, y: 0 },
+                    data: { eventKind: 'memberJoin', timeoutMs: 60_000 },
+                },
+                { id: 'dm', type: ACTION_SEND_DM, position: { x: 400, y: 0 }, data: { message: 'hi' } },
+                {
+                    id: 'assign',
+                    type: ACTION_ASSIGN_ROLE,
+                    position: { x: 400, y: 100 },
+                    data: { roleId: MEMBER_ROLE_ID },
+                },
+            ],
+            edges: [
+                { id: 'e1', source: 'trigger', target: 'wait' },
+                { id: 'e2', source: 'wait', sourceHandle: 'timeout', target: 'dm' },
+                { id: 'e3', source: 'wait', sourceHandle: 'timeout', target: 'assign' },
+            ],
+        };
+
+        const result = validateAuthoredGraph(graph);
+
+        expect(result.valid).toBe(false);
+        if (result.valid) return;
+        expect(result.errors.join('\n')).toMatch(/Node wait has 2 edges leaving its "timeout" output/);
+    });
+
+    it('accepts a node whose several edges each leave a different handle', () => {
+        // The ordinary condition shape: one edge on `true`, one on `false`.
+        expect(validateAuthoredGraph(buildConditionGraph()).valid).toBe(true);
+    });
+
+    it('does not reject a stored graph on read, so one bad flow cannot hide the rest', () => {
+        // Fan-out is an authoring mistake, not corruption. Enforcing it on the
+        // read path would make every flow in a guild unloadable the moment one
+        // old row stopped satisfying a rule added later.
+        const graph = buildConditionGraph();
+        graph.edges.push({ id: 'e4', source: 'cond', sourceHandle: 'true', target: 'assign' });
+
+        expect(validateFlowGraph(graph).valid).toBe(true);
+    });
+});
+
+describe('an edge leaving a handle its block never declared', () => {
+    it('is rejected at save time, naming the outputs the block does have', () => {
+        // Previously this saved cleanly, then the run reported success having
+        // silently skipped the action: the old resolver fell back to `edges[0]`.
+        const graph = buildConditionGraph();
+        graph.edges = [{ id: 'e1', source: 'trigger', sourceHandle: 'out', target: 'cond' }];
+
+        const result = validateAuthoredGraph(graph);
+
+        expect(result.valid).toBe(false);
+        if (result.valid) return;
+        expect(result.errors.join('\n')).toMatch(/Node trigger .* has an edge leaving its "out" output/);
+    });
+});
+
+describe('a block that needs the interaction that started the run', () => {
+    /** trigger.memberJoin -> condition.inChannel. No interaction ever exists. */
+    function gatewayStartedGraph(): FlowGraph {
+        return {
+            version: FLOW_GRAPH_VERSION,
+            nodes: [
+                { id: 'trigger', type: TRIGGER_MEMBER_JOIN, position: { x: 0, y: 0 }, data: {} },
+                {
+                    id: 'where',
+                    type: CONDITION_IN_CHANNEL,
+                    position: { x: 200, y: 0 },
+                    data: { channelId: 'channel-1' },
+                },
+            ],
+            edges: [{ id: 'e1', source: 'trigger', target: 'where' }],
+        };
+    }
+
+    it('is rejected when every path to it starts from a gateway event', () => {
+        const result = validateAuthoredGraph(gatewayStartedGraph());
+
+        expect(result.valid).toBe(false);
+        if (result.valid) return;
+        expect(result.errors.join('\n')).toMatch(/needs the interaction that started the run/);
+    });
+
+    it('is rejected when the only path to it passes through a block that parks', () => {
+        const graph = gatewayStartedGraph();
+        graph.nodes[0] = {
+            id: 'trigger',
+            type: TRIGGER_BUTTON_CLICK,
+            position: { x: 0, y: 0 },
+            data: { label: 'Go' },
+        };
+        graph.nodes.push({
+            id: 'wait',
+            type: ACTION_WAIT_FOR_EVENT,
+            position: { x: 100, y: 0 },
+            data: { eventKind: 'memberJoin' },
+        });
+        graph.edges = [
+            { id: 'e1', source: 'trigger', target: 'wait' },
+            { id: 'e2', source: 'wait', target: 'where' },
+        ];
+
+        // A resumed run has no interaction, however it originally started.
+        expect(validateAuthoredGraph(graph).valid).toBe(false);
+    });
+
+    it('is accepted when a button trigger reaches it without parking', () => {
+        const graph = gatewayStartedGraph();
+        graph.nodes[0] = {
+            id: 'trigger',
+            type: TRIGGER_BUTTON_CLICK,
+            position: { x: 0, y: 0 },
+            data: { label: 'Go' },
+        };
+
+        expect(validateAuthoredGraph(graph).valid).toBe(true);
+    });
+
+    it('is rejected even when a good path also exists, because the bad one still runs', () => {
+        // The case existence-based reachability gets wrong. Reached directly from
+        // the button on the first lap, and again through the wait on the second —
+        // where the interaction is gone. Accepting it means a graph that validates
+        // clean and then fails on its own second iteration.
+        const graph: FlowGraph = {
+            version: FLOW_GRAPH_VERSION,
+            nodes: [
+                { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { label: 'Go' } },
+                {
+                    id: 'wait',
+                    type: ACTION_WAIT_FOR_EVENT,
+                    position: { x: 200, y: 100 },
+                    data: { eventKind: 'memberJoin' },
+                },
+                {
+                    id: 'where',
+                    type: CONDITION_IN_CHANNEL,
+                    position: { x: 200, y: 0 },
+                    data: { channelId: 'channel-1' },
+                },
+            ],
+            edges: [
+                { id: 'e1', source: 'trigger', target: 'where' },
+                { id: 'e2', source: 'where', sourceHandle: 'false', target: 'wait' },
+                { id: 'e3', source: 'wait', target: 'where' },
+            ],
+        };
+
+        const result = validateAuthoredGraph(graph);
+
+        expect(result.valid).toBe(false);
+        if (result.valid) return;
+        expect(result.errors.join('\n')).toMatch(/reached after a block that parks the run/);
+    });
+
+    it('tolerates a back-edge that never passes through a block that parks', () => {
+        // A loop is only a problem when a wait is in it. This one keeps its
+        // interaction on every lap.
+        const graph = gatewayStartedGraph();
+        graph.nodes[0] = {
+            id: 'trigger',
+            type: TRIGGER_BUTTON_CLICK,
+            position: { x: 0, y: 0 },
+            data: { label: 'Go' },
+        };
+        graph.edges.push({ id: 'e2', source: 'where', sourceHandle: 'true', target: 'where' });
+
+        expect(validateAuthoredGraph(graph).valid).toBe(true);
     });
 });
 

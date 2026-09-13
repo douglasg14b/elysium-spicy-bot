@@ -5,6 +5,7 @@ import type { Database, DatabaseClient } from '../../../../features-system/data-
 import { SqlDatePlugin } from '../../../../features-system/data-persistence/plugins/sqlDatePlugin';
 import { SqliteBindingPlugin } from '../../../../features-system/data-persistence/plugins/sqliteBindingPlugin';
 import { SqliteJsonPlugin } from '../../../../features-system/data-persistence/plugins/sqliteJsonPlugin';
+import { ensureBlocksDiscovered } from '../../blocks/registry';
 import { FlowsRepo } from '../flowsRepo';
 import { buildOnboardingFlowGraph } from '../../templates/onboardingFlow';
 
@@ -23,6 +24,10 @@ describe('FlowsRepo (sqlite)', () => {
     const repo = new FlowsRepo(db);
 
     beforeAll(async () => {
+        // Saving a graph validates it against what each block declares, so the
+        // repo's write path reads the registry.
+        await ensureBlocksDiscovered();
+
         await sql`
             CREATE TABLE flows (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

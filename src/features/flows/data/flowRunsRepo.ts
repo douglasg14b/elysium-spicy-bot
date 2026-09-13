@@ -3,6 +3,7 @@ import type { UpdateQueryBuilder, UpdateResult } from 'kysely';
 import { z } from 'zod';
 import type { Database } from '../../../features-system/data-persistence/database';
 import { database, type DatabaseClient } from '../../../features-system/data-persistence/database';
+import { BLOCK_KINDS } from '../blocks/manifest';
 import { FLOW_RUN_ENTITY_VERSION, FLOW_RUN_POLL_BATCH_SIZE } from '../constants';
 import type { FlowSuspension, NodeRunLog } from '../engine/executor';
 import {
@@ -69,9 +70,19 @@ export interface FindWaitingFilter {
 const nodeRunLogSchema = z.object({
     nodeId: z.string(),
     type: z.string(),
-    kind: z.enum(['trigger', 'condition', 'action']),
+    kind: z.enum(BLOCK_KINDS),
     status: z.enum(['ok', 'error']),
-    branch: z.enum(['true', 'false']).optional(),
+    /**
+     * Any declared handle, not just a condition's. A block names whichever of its
+     * own handles the run left by — a wait that expires logs `timeout` — and
+     * pinning this to the condition vocabulary would reject a log the engine
+     * legitimately wrote.
+     *
+     * Widening needs no migration: every value an older build wrote still parses.
+     * It is one-way, though — roll the code back and a log containing `timeout`
+     * becomes unreadable, failing the run that carries it.
+     */
+    branch: z.string().optional(),
     error: z.string().optional(),
 });
 

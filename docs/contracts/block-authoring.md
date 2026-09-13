@@ -73,6 +73,7 @@ empty rather than omitted, so a reader can see you meant it.
 | `outputs` | Values your block writes for later blocks to read. Empty for now — blocks have nowhere to write until run variables exist. |
 | `requires` | Run context you cannot work without. See [Context requirements](#context-requirements). |
 | `capabilities` | Discord permissions the bot needs for your block to work. Declared, not yet enforced. |
+| `startedBy` | **Triggers only.** What fires you: `buttonClick`, `memberJoin`, or `reactionAdd`. The gateway dispatchers select on this, so a new trigger for an existing source needs no dispatcher edit. Leave it off any condition or action. |
 | `canSuspend` | Whether `run` may park the run. State it truthfully; conformance holds you to it. |
 | `run` | The entry point. See [The entry point](#the-entry-point). |
 
@@ -122,6 +123,41 @@ persists anything itself — the executor owns where to resume, the visit budget
 Include `wakeAt` to be woken by time, `waitKind`/`waitConfig` to be woken by a Discord event,
 or both when an event-wait also has a timeout. A parked run survives a restart, so assume
 nothing about what is still in memory when you wake.
+
+### Waking up
+
+**A parked run resumes at your node, not the one after it.** Your `run` is called a second
+time, with `context.resume` set to why you woke:
+
+```ts
+run(config, context) {
+    if (context.resume) {
+        // Second call: we parked earlier and something has now happened.
+        return context.resume === 'timeout'
+            ? { kind: 'continue', handle: 'timeout' }   // gave up waiting
+            : { kind: 'continue' };                      // the event arrived
+    }
+
+    return { kind: 'suspend', suspension: { /* … */ } };
+}
+```
+
+`context.resume` is `'event'` when the gateway event you asked for arrived, and `'timeout'`
+when your `wakeAt` came due first. A block that waits only on the clock only ever sees
+`'timeout'`, and can treat any resume as "carry on".
+
+Two things follow, and both matter:
+
+- **Check `context.resume` before anything else.** Forget it and you park again immediately,
+  every time, forever. Conformance drives this directly — it parks your block, then wakes it
+  with each reason and fails you if you ask to park again — so the mistake is caught, but only
+  once you have a conformance run over your block.
+- It is set **only** on the node that parked, and only when that block declares `canSuspend`.
+  The nodes your run reaches afterwards see a context with no `resume`, so they cannot mistake
+  your wake-up for their own.
+
+This is what keeps the executor free of block names: it hands you the reason and follows
+whichever of *your* declared handles you answer with, exactly as it would a condition's.
 
 ## Config fields
 
@@ -179,6 +215,21 @@ ends the path by connecting nothing to it, not by you declaring no way out.
 
 If you find yourself reading something off `context` that you did not declare, declare it.
 
+## Where a new graph rule goes
+
+Two functions in `engine/graphValidation.ts`, and picking the wrong one has already caused one
+outage:
+
+- **`validateFlowGraph`** — corruption only: dangling edge endpoints, duplicate node ids. It
+  runs on **read**, and the repo *throws* from it, so a rule added here makes every flow in a
+  guild unloadable the moment one stored row stops satisfying it — not just the bad one.
+- **`validateAuthoredGraph`** — everything that makes a flow *wrong* rather than unreadable:
+  fan-out, handles a block does not declare, unsatisfiable context requirements. Write path
+  only, reached through `validateGraphForWrite` in the repo, so every writer is covered and no
+  stored graph is retroactively stranded.
+
+New rule? It is almost always the second one.
+
 ## Conformance
 
 ```bash
@@ -224,7 +275,5 @@ So, in order:
    [The entry point](#the-entry-point) again. If you still do, the block contract is wrong
    somewhere else. Treat it as a report about the contract, not as an enum to append to.
 
-A migration note while it is still true: the blocks that ship today were written against an
-earlier shape with three separate per-kind entry points. They move to this contract in the same
-change that removes that shape, so both never coexist. Anything new should be written against
-this document.
+Every block that ships is written against this contract — the earlier shape, with three
+separate per-kind entry points, is gone. There is one way to declare a block.

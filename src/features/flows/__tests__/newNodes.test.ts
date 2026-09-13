@@ -22,31 +22,31 @@ function contextWithInteractionChannel(channelId?: string): FlowRunContext {
 }
 
 describe('condition.inChannel', () => {
-    it('returns true when the triggering interaction is in the configured channel', async () => {
-        const branch = await conditionInChannelNode.evaluate(
+    it('leaves by the true handle when the triggering interaction is in the configured channel', async () => {
+        const outcome = await conditionInChannelNode.run(
             { channelId: CHANNEL_ID },
             contextWithInteractionChannel(CHANNEL_ID)
         );
 
-        expect(branch).toBe('true');
+        expect(outcome).toEqual({ kind: 'continue', handle: 'true' });
     });
 
-    it('returns false when the interaction is in a different channel', async () => {
-        const branch = await conditionInChannelNode.evaluate(
+    it('leaves by the false handle when the interaction is in a different channel', async () => {
+        const outcome = await conditionInChannelNode.run(
             { channelId: CHANNEL_ID },
             contextWithInteractionChannel('some-other-channel')
         );
 
-        expect(branch).toBe('false');
+        expect(outcome).toEqual({ kind: 'continue', handle: 'false' });
     });
 
-    it('returns false when there is no interaction (gateway-triggered run)', async () => {
-        const branch = await conditionInChannelNode.evaluate(
+    it('leaves by the false handle when there is no interaction (gateway-triggered run)', async () => {
+        const outcome = await conditionInChannelNode.run(
             { channelId: CHANNEL_ID },
             contextWithInteractionChannel()
         );
 
-        expect(branch).toBe('false');
+        expect(outcome).toEqual({ kind: 'continue', handle: 'false' });
     });
 });
 
@@ -67,7 +67,7 @@ describe('action.postEmbed', () => {
         const send = vi.fn().mockResolvedValue({ id: 'message-1' });
         const context = contextWithChannel(send);
 
-        await actionPostEmbedNode.execute(
+        const outcome = await actionPostEmbedNode.run(
             {
                 channelId: CHANNEL_ID,
                 title: 'Spicy News',
@@ -76,6 +76,8 @@ describe('action.postEmbed', () => {
             },
             context
         );
+
+        expect(outcome).toEqual({ kind: 'continue' });
 
         expect(send).toHaveBeenCalledTimes(1);
         const payload = send.mock.calls[0]?.[0] as { embeds: EmbedBuilder[] };
@@ -91,7 +93,7 @@ describe('action.postEmbed', () => {
     it('omits the colour when none is configured', async () => {
         const send = vi.fn().mockResolvedValue({ id: 'message-1' });
 
-        await actionPostEmbedNode.execute(
+        await actionPostEmbedNode.run(
             { channelId: CHANNEL_ID, title: 'Plain', description: 'No colour here.' },
             contextWithChannel(send)
         );
@@ -111,10 +113,7 @@ describe('action.postEmbed', () => {
         };
 
         await expect(
-            actionPostEmbedNode.execute(
-                { channelId: CHANNEL_ID, title: 'T', description: 'D' },
-                context
-            )
+            actionPostEmbedNode.run({ channelId: CHANNEL_ID, title: 'T', description: 'D' }, context)
         ).rejects.toThrow(/not a sendable text channel/);
     });
 

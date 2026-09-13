@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import type { NodeDefinition } from './types';
+import type { BlockManifest, BlockTriggerSource } from './manifest';
 
 /**
  * The block registry, populated by scanning this directory.
@@ -164,8 +164,8 @@ function isModuleNotFound(error: unknown): boolean {
     return message.includes('cannot find') || message.includes('failed to load url');
 }
 
-let registry: ReadonlyMap<string, NodeDefinition> | undefined;
-let discovery: Promise<ReadonlyMap<string, NodeDefinition>> | undefined;
+let registry: ReadonlyMap<string, BlockManifest> | undefined;
+let discovery: Promise<ReadonlyMap<string, BlockManifest>> | undefined;
 
 /**
  * Populate the registry, once per process.
@@ -177,11 +177,11 @@ let discovery: Promise<ReadonlyMap<string, NodeDefinition>> | undefined;
  * letting a second caller run with fewer blocks than the first.
  */
 export async function ensureBlocksDiscovered(): Promise<void> {
-    discovery ??= discoverBlocks<NodeDefinition>();
+    discovery ??= discoverBlocks<BlockManifest>();
     registry = await discovery;
 }
 
-function requireRegistry(): ReadonlyMap<string, NodeDefinition> {
+function requireRegistry(): ReadonlyMap<string, BlockManifest> {
     if (!registry) {
         throw new Error(
             'The block registry was read before discovery finished. Await ensureBlocksDiscovered() ' +
@@ -192,11 +192,24 @@ function requireRegistry(): ReadonlyMap<string, NodeDefinition> {
 }
 
 /** Look up a block by the `type` a saved graph references. */
-export function getBlockDefinition(type: string): NodeDefinition | undefined {
+export function getBlockDefinition(type: string): BlockManifest | undefined {
     return requireRegistry().get(type);
 }
 
 /** Every registered block, in directory-name order. */
-export function listBlockDefinitions(): readonly NodeDefinition[] {
+export function listBlockDefinitions(): readonly BlockManifest[] {
     return [...requireRegistry().values()];
+}
+
+/**
+ * Whether a node's block is a trigger started by `source`.
+ *
+ * What the gateway dispatchers ask instead of comparing against an imported type
+ * constant. A dispatcher written this way keeps working when a second trigger
+ * declares the same source, and an unknown type is simply not a match — the
+ * loud version of that is save-time validation's job, not a listener's.
+ */
+export function isTriggerStartedBy(type: string, source: BlockTriggerSource): boolean {
+    const block = requireRegistry().get(type);
+    return block?.kind === 'trigger' && block.startedBy === source;
 }

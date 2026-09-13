@@ -1,4 +1,5 @@
 import { database } from '../../../features-system/data-persistence/database';
+import { ensureBlocksDiscovered } from '../blocks/registry';
 import { flowsRepo } from '../data/flowsRepo';
 import { buildOnboardingFlowGraph } from './onboardingFlow';
 
@@ -29,6 +30,11 @@ async function main(): Promise<void> {
         'Welcome, you filthy little rule-follower. You have your role now — go enjoy the server. 😈';
 
     const { graph } = buildOnboardingFlowGraph({ memberRoleId, welcomeMessage });
+
+    // Saving validates the graph against what each block declares, so the
+    // registry has to be populated first. The bot does this in init; a script
+    // has to say so itself.
+    await ensureBlocksDiscovered();
 
     const flow = await flowsRepo.create({
         guildId,

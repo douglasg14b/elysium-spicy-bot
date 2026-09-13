@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { flowGraphSchema, FLOW_GRAPH_VERSION, type FlowGraph } from '../../features/flows/data/flowGraph';
 import { flowsRepo } from '../../features/flows/data/flowsRepo';
 import type { FlowEntity } from '../../features/flows/data/flowsSchema';
-import { validateFlowGraph } from '../../features/flows/engine/graphValidation';
+import { validateAuthoredGraph, validateFlowGraph } from '../../features/flows/engine/graphValidation';
 import { validateNodeData } from '../../features/flows/engine/nodeDataValidation';
 import { deployFlowButtons } from '../../features/flows/logic/deployFlowButtons';
 import type { AppEnv } from '../types';
@@ -55,10 +55,18 @@ function flowSummary(flow: FlowEntity) {
 }
 
 /**
- * Full server-side graph validation: shape + structure ({@link validateFlowGraph})
- * AND each node's `data` against its registry schema ({@link validateNodeData}).
- * The repo throws on an invalid graph, so routes run this first and return a
- * 400 rather than letting it surface as a 500.
+ * Full server-side graph validation, in the order that blames the right thing:
+ * shape and structural integrity, then each node's `data` against its registry
+ * schema ({@link validateNodeData}), then the authoring rules.
+ *
+ * Node data comes in the middle so an unknown block type is reported as an
+ * unknown type, rather than as a pile of complaints about handles on a block
+ * nobody recognises.
+ *
+ * The repo enforces the same rules — it owns the write boundary, so a seed
+ * script cannot bypass them. Running them here too is not redundant: it turns
+ * what would surface as a 500 from a thrown repo error into a 400 naming the
+ * node, which is what the builder shows its author.
  */
 function validateGraphForSave(graph: FlowGraph): { ok: true; graph: FlowGraph } | { ok: false; message: string } {
     const structural = validateFlowGraph(graph);
@@ -69,6 +77,11 @@ function validateGraphForSave(graph: FlowGraph): { ok: true; graph: FlowGraph } 
     const nodeData = validateNodeData(structural.graph);
     if (!nodeData.valid) {
         return { ok: false, message: nodeData.errors.join('; ') };
+    }
+
+    const authored = validateAuthoredGraph(structural.graph);
+    if (!authored.valid) {
+        return { ok: false, message: authored.errors.join('; ') };
     }
 
     return { ok: true, graph: structural.graph };
