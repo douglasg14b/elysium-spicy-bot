@@ -8,7 +8,7 @@ const AGENT_PROMPT = buildAgentPromptInstructions(INSTRUCTIONS_PROMPT);
 export const AGENT_REPLY_JAILBREAK = new Agent({
     name: 'Jailbreak Agent',
     instructions: AGENT_PROMPT,
-    model: 'gpt-5.1-chat-latest',
+    model: 'openai/gpt-5.1-chat-latest',
     modelSettings: {
         // temperature: 1,
         topP: 1,

@@ -477,7 +477,18 @@ function FlowBuilder() {
     }
 
     return (
-        <Stack gap={0} h="calc(100vh - 56px - var(--mantine-spacing-md) * 2)" mt={-16} mx={-16}>
+        /*
+         * The builder owns its whole area, so it cancels AppShell's gutter. Main clears
+         * the header with padding (not margin), so a negative margin of one padding unit
+         * removes the gutter while leaving that offset intact. Both values reference
+         * AppShell's own variables, so they stay correct if `padding` or the header
+         * height changes.
+         */
+        <Stack
+            gap={0}
+            m="calc(var(--app-shell-padding) * -1)"
+            h="calc(100dvh - var(--app-shell-header-offset, 0rem) - var(--app-shell-footer-offset, 0rem))"
+        >
             {/* Toolbar */}
             <Group
                 h={52}

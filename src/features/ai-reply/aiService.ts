@@ -1,7 +1,29 @@
 import OpenAI from 'openai';
-import { Agent, AgentInputItem, Runner } from '@openai/agents';
-import { AI_MODEL, OPENAI_API_KEY } from '../../environment';
+import { Agent, AgentInputItem, Runner, setDefaultOpenAIClient, setOpenAIAPI, setTracingDisabled } from '@openai/agents';
+import {
+    AI_MODEL,
+    OPENAI_API_KEY,
+    OPENROUTER_API_KEY,
+    OPENROUTER_BASE_URL,
+} from '../../environment';
 
+// OpenRouter client: used for reply-generation chat completions AND, via the
+// Agents SDK global default below, for every Agent/Runner in this feature.
+const openrouter = new OpenAI({
+    apiKey: OPENROUTER_API_KEY,
+    baseURL: OPENROUTER_BASE_URL,
+});
+
+// The @openai/agents SDK defaults to the OpenAI Responses API, which OpenRouter
+// does not implement. Point it at OpenRouter over Chat Completions instead, and
+// disable tracing since OpenRouter cannot ingest OpenAI trace exports.
+setDefaultOpenAIClient(openrouter);
+setOpenAIAPI('chat_completions');
+setTracingDisabled(true);
+
+// OpenAI client kept ONLY for @openai/guardrails (Moderation/Jailbreak/PII),
+// which is not proxied by OpenRouter. Passed explicitly into the guardrails
+// runner, so it is independent of the Agents SDK global default above.
 const openai = new OpenAI({
     apiKey: OPENAI_API_KEY,
 });
@@ -162,6 +184,11 @@ export interface BirthdayAnnouncementOptions {
 }
 
 export class AIService {
+    /**
+     * OpenAI client used exclusively by @openai/guardrails, which depends on the
+     * OpenAI Moderation API and is not proxied by OpenRouter. Reply generation
+     * uses OpenRouter instead — do not use this client for it.
+     */
     public get openAiClient(): OpenAI {
         return openai;
     }
@@ -218,7 +245,7 @@ INSTRUCTIONS:
 Respond with your bratty personality now:`;
 
         try {
-            const completion = await openai.chat.completions.create({
+            const completion = await openrouter.chat.completions.create({
                 model: AI_MODEL,
                 messages: [
                     {

@@ -8,3 +8,4 @@ process.env.DISCORD_BOT_TOKEN ??= "vitest-discord-bot-token";
 process.env.DB_TYPE ??= "sqlite";
 process.env.SQLITE_DB_PATH ??= ":memory:";
 process.env.OPENAI_API_KEY ??= "sk-vitest-fake-openai-key";
+process.env.OPENROUTER_API_KEY ??= "sk-vitest-fake-openrouter-key";

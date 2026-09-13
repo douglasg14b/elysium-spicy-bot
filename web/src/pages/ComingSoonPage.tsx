@@ -1,6 +1,7 @@
 import { Badge, Card, Group, Stack, Text, Title } from '@mantine/core';
 import type { ReactNode } from 'react';
 import { useGuilds } from '../guilds/GuildContext';
+import { PAGE_MAX_WIDTH } from '../theme';
 
 interface ComingSoonPageProps {
     title: string;
@@ -13,7 +14,7 @@ export function ComingSoonPage({ title, blurb, icon }: ComingSoonPageProps) {
     const { selected } = useGuilds();
 
     return (
-        <Stack gap="lg" maw={1100}>
+        <Stack gap="lg" maw={PAGE_MAX_WIDTH}>
             <div>
                 <Text size="12.5px" c="dark.2">
                     <Text span c="dark.1" fw={600}>

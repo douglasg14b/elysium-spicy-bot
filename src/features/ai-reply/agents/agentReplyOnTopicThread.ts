@@ -8,7 +8,7 @@ const AGENT_PROMPT = buildAgentPromptInstructions(INSTRUCTIONS_PROMPT);
 export const AGENT_REPLY_ON_TOPIC_THREAD = new Agent({
     name: 'On Topic Thread Agent',
     instructions: AGENT_PROMPT,
-    model: 'gpt-5',
+    model: 'openai/gpt-5',
     modelSettings: {
         temperature: 1,
         topP: 1,

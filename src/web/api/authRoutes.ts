@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
-import { ADMIN_DISCORD_IDS, WEB_PUBLIC_URL } from '../../environment';
+import { WEB_PUBLIC_URL } from '../../environment';
 import type { AppEnv } from '../types';
+import { hasManageableBotGuild, isSuperuser } from './guildAccess';
 import {
     buildAuthorizeUrl,
     exchangeCode,
@@ -48,10 +49,17 @@ export function authRoutes(): Hono<AppEnv> {
             return c.json({ error: 'Failed to complete Discord sign-in.' }, 502);
         }
 
-        // Single-tenant allowlist gate.
-        if (!ADMIN_DISCORD_IDS.includes(user.id)) {
+        // Authorization is Discord's own: you get in if you can manage at least one
+        // server the bot is in. Superusers bypass the check so they can reach a server
+        // they hold no role in. Rejecting here (rather than showing an empty dashboard)
+        // keeps the "why can't I see anything?" case an explicit, readable error.
+        if (!isSuperuser(user.id) && !hasManageableBotGuild(manageableGuildIds)) {
             return c.json(
-                { error: 'This account is not on the SpicyBot admin allowlist. Access denied.' },
+                {
+                    error:
+                        "You don't manage any servers that SpicyBot is in. You need Manage Server " +
+                        'or Administrator on a server the bot has been invited to.',
+                },
                 403
             );
         }

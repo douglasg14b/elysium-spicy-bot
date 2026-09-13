@@ -20,6 +20,7 @@ import {
     WARNING_DEFAULT_DURATION_MONTHS,
 } from '../constants';
 import { issueGuildWarning } from '../logic/issueGuildWarning';
+import { formatWarnSuccessMessage, notifyWarningIssued } from '../logic/warningIssuedNotice';
 import {
     addCalendarMonths,
     calendarDateFromUtcMidnight,
@@ -155,7 +156,7 @@ export function WarnModalComponent() {
     }
 
     async function handler(interaction: ModalSubmitInteraction): Promise<InteractionHandlerResult> {
-        if (!interaction.inGuild() || !interaction.guildId) {
+        if (!interaction.inGuild() || !interaction.guildId || !interaction.guild) {
             return commandError('This command can only be used in a server.');
         }
 
@@ -171,6 +172,7 @@ export function WarnModalComponent() {
         const startedAt = Date.now();
         await interaction.deferReply({ ephemeral: true });
 
+        let warning: Warning;
         try {
             const result = await issueGuildWarning({
                 guildId: interaction.guildId,
@@ -194,17 +196,7 @@ export function WarnModalComponent() {
                 return commandError(message);
             }
 
-            const { warning } = result;
-            const expiresLabel = formatCalendarDate(calendarDateFromUtcMidnight(warning.expiresAt));
-
-            await interaction.editReply({
-                content: `Warned <@${warning.userId}>. Slug \`${warning.slug}\` — they can stew until ${expiresLabel}.`,
-                allowedMentions: { users: [] },
-            });
-
-            await logWarnIssuance(interaction, warning, Date.now() - startedAt);
-
-            return commandSuccess();
+            warning = result.warning;
         } catch (error) {
             console.error('[warnings] Failed to issue warning:', error);
 
@@ -214,6 +206,18 @@ export function WarnModalComponent() {
 
             return commandError(error instanceof Error ? error.message : 'Unknown error');
         }
+
+        const expiresLabel = formatCalendarDate(calendarDateFromUtcMidnight(warning.expiresAt));
+        const noticeStatus = await notifyWarningIssued(interaction.guild, warning);
+
+        await interaction.editReply({
+            content: formatWarnSuccessMessage(warning.userId, warning.slug, expiresLabel, noticeStatus),
+            allowedMentions: { users: [] },
+        });
+
+        await logWarnIssuance(interaction, warning, Date.now() - startedAt);
+
+        return commandSuccess();
     }
 
     return {

@@ -142,3 +142,9 @@ db.sqlite
 .jarvis/ci/
 
 .jarvis/
+
+# PRD builder local session scratch (not for commits)
+.claude/prd-sessions/
+
+# RPI lifecycle tracking artifacts (local working state)
+.claude/rpi-tracking/

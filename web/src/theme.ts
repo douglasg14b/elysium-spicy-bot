@@ -61,6 +61,14 @@ export const theme = createTheme({
             '"gg sans", "Inter", "Segoe UI", system-ui, -apple-system, sans-serif',
         fontWeight: '800',
     },
+    other: {
+        /**
+         * Shared measure for dashboard pages, so every page caps at the same width
+         * instead of each repeating its own magic number. Read via `useMantineTheme()`
+         * or the `PAGE_MAX_WIDTH` re-export below.
+         */
+        pageMaxWidth: 1100,
+    },
     components: {
         Button: {
             defaultProps: { radius: 'md', fw: 700 },
@@ -82,3 +90,6 @@ export const theme = createTheme({
         },
     },
 });
+
+/** Convenience re-export of `theme.other.pageMaxWidth` for page-level `maw`. */
+export const PAGE_MAX_WIDTH = theme.other!.pageMaxWidth as number;

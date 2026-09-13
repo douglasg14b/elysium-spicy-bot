@@ -143,15 +143,17 @@ Not needed for v1 (linear + branch executes synchronously). When we add `delay` 
 
 ### 5.1 HTTP server (new: `src/web/`)
 
-- Boots from `bot.ts` after login (or in parallel — it only needs `database`; it can serve before the client is `ready`). New env: `WEB_PORT`, `WEB_PUBLIC_URL`, `DISCORD_OAUTH_CLIENT_SECRET`, `SESSION_SECRET`, `ADMIN_DISCORD_IDS` (allowlist).
+- Boots from `bot.ts` after login (or in parallel — it only needs `database`; it can serve before the client is `ready`). New env: `WEB_PORT`, `WEB_PUBLIC_URL`, `DISCORD_OAUTH_CLIENT_SECRET`, `SESSION_SECRET`, and the optional `ADMIN_DISCORD_IDS` (superuser override).
 - **Framework**: Hono (already resolvable; tiny, ESM-native, Node-server adapter exists).
 - **Serving**: Vite builds `web/` into static assets; **Hono serves those static files from the same port as the API**. One container, one exposed port on Coolify — simplest deploy. The Docker image build gains a `pnpm --filter web build` step and copies `web/dist` into the image.
 - **Dev**: Vite dev server proxies `/api` to the bot process, so `pnpm dev` runs bot + web together.
 
 ### 5.2 Discord OAuth + authorization
 
-- Standard OAuth2 `identify` + `guilds` scopes. On callback: exchange code, fetch the user's guilds, intersect with guilds the bot is in **and** check the user against `ADMIN_DISCORD_IDS` (single-tenant gate). Store a session.
-- Per-guild authorization: a user may configure a guild only if they have `Manage Guild` there (from the OAuth `guilds` payload) *and* pass the allowlist. This rule is the single seam we'd relax to go multi-tenant.
+- Standard OAuth2 `identify` + `guilds` scopes. On callback: exchange code, fetch the user's guilds, keep those they can manage, and reject sign-in only if none of them is a guild the bot is in. Store a session.
+- **Authorization is Discord's own** — ~~an `ADMIN_DISCORD_IDS` allowlist~~ **superseded.** A user may configure a guild if they own it, are `Administrator`, or hold `Manage Guild` there. `ADMIN_DISCORD_IDS` remains as an *optional* superuser override (reach a server you hold no role in); empty is the normal case. Moderator permissions (Kick/Ban/Timeout) deliberately do not qualify: the dashboard edits server *configuration*, which is distinct from moderating members.
+- Because the session JWT lasts 7 days, `mayAccessGuild` re-checks the permission against the bot's live view of the guild on every guild-scoped request, so revoked access takes effect immediately rather than at token expiry. It fails closed.
+- Enforcement is one middleware (`requireGuildAccess`) mounted on `/api/guilds/:guildId/*`, not a per-handler check — a per-handler check is one forgotten line away from an unguarded route.
 
 ### 5.3 Config API (Phase 1 deliverable — proves the whole stack end to end)
 

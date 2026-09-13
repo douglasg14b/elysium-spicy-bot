@@ -56,9 +56,9 @@ export function DashboardLayout() {
     const location = useLocation();
 
     return (
-        <AppShell header={{ height: 56 }} navbar={{ width: 264, breakpoint: 'sm' }} bg="dark.9">
+        <AppShell header={{ height: 56 }} navbar={{ width: 264, breakpoint: 'sm' }} padding="md" bg="dark.9">
             <AppShell.Header bg="dark.8">
-                <Group h="100%" px="lg" justify="space-between">
+                <Group h="100%" px="md" justify="space-between">
                     <Group gap="sm">
                         <Image src="/spicybot-logo.png" alt="SpicyBot" h={40} w={40} radius="md" fit="contain" />
                         <Text fw={700} size="16px">
@@ -120,7 +120,9 @@ export function DashboardLayout() {
                 </Group>
             </AppShell.Header>
 
-            <AppShell.Navbar bg="dark.8" p="xs">
+            {/* `p` matches the header's `px` so the logo, the server card and the nav
+                items share one left edge. Children therefore set no `px` of their own. */}
+            <AppShell.Navbar bg="dark.8" p="md">
                 <Stack gap="xs" h="100%">
                     <div>
                         <Text
@@ -128,8 +130,6 @@ export function DashboardLayout() {
                             fw={700}
                             tt="uppercase"
                             c="dark.2"
-                            px="sm"
-                            pt="sm"
                             pb={6}
                             style={{ letterSpacing: '.7px' }}
                         >
@@ -140,7 +140,7 @@ export function DashboardLayout() {
                                 <Loader size="xs" color="brand" />
                             </Center>
                         ) : selected ? (
-                            <Group gap={10} px="sm" py={8} style={{ borderRadius: 8 }} bg="dark.6">
+                            <Group gap={10} px="xs" py={8} style={{ borderRadius: 8 }} bg="dark.6">
                                 <Avatar src={selected.iconURL ?? undefined} radius="md" size={34} color="gray">
                                     {monogram(selected.name)}
                                 </Avatar>
@@ -154,7 +154,7 @@ export function DashboardLayout() {
                                 </Stack>
                             </Group>
                         ) : (
-                            <Text size="xs" c="dimmed" px="sm">
+                            <Text size="xs" c="dimmed">
                                 No servers yet.
                             </Text>
                         )}
@@ -165,7 +165,6 @@ export function DashboardLayout() {
                         fw={700}
                         tt="uppercase"
                         c="dark.2"
-                        px="sm"
                         pt="xs"
                         pb={4}
                         style={{ letterSpacing: '.7px' }}
@@ -190,12 +189,13 @@ export function DashboardLayout() {
                                         </Badge>
                                     ) : undefined
                                 }
-                                styles={{ root: { borderRadius: 8 } }}
+                                // Match the server card's inner padding above.
+                                styles={{ root: { borderRadius: 8, paddingInline: 'var(--mantine-spacing-xs)' } }}
                             />
                         ))}
                     </Stack>
 
-                    <Text size="11px" c="dark.2" mt="auto" p="sm" style={{ borderTop: '1px solid var(--mantine-color-dark-5)' }}>
+                    <Text size="11px" c="dark.2" mt="auto" pt="sm" style={{ borderTop: '1px solid var(--mantine-color-dark-5)' }}>
                         SpicyBot · <Text span c="green">All systems naughty</Text>
                     </Text>
                 </Stack>

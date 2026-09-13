@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterFileEdit": [
+      {
+        "command": "node scripts/sync-rules.mjs --from-cursor-hook",
+        "timeout": 10,
+        "failClosed": false
+      }
+    ]
+  }
+}

@@ -8,7 +8,7 @@ const AGENT_PROMPT = buildAgentPromptInstructions(INSTRUCTIONS_PROMPT);
 export const AGENT_REPLY_OFF_TOPIC = new Agent({
     name: 'Off Topic Agent',
     instructions: AGENT_PROMPT,
-    model: 'gpt-5.1-chat-latest',
+    model: 'openai/gpt-5.1-chat-latest',
     modelSettings: {
         // temperature: 1.5,
         topP: 1,

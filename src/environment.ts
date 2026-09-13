@@ -58,7 +58,14 @@ export const DISCORD_OAUTH_CLIENT_SECRET = getStringOptional('DISCORD_OAUTH_CLIE
  */
 export const SESSION_SECRET =
     getStringOptional('SESSION_SECRET') ?? (IS_DEVELOPMENT ? 'dev-only-insecure-session-secret' : undefined);
-/** Comma-separated Discord user IDs allowed to sign in (single-tenant allowlist). */
+/**
+ * Optional comma-separated Discord user IDs that bypass per-guild permission checks.
+ *
+ * This is NOT a login gate. Who may sign in is decided by Discord: you get access to
+ * the servers where you own, administer, or hold Manage Guild (see
+ * `src/web/api/guildAccess.ts`). This list only exists so an operator can reach a
+ * server they hold no role in. Empty is the normal case.
+ */
 export const ADMIN_DISCORD_IDS = (getStringOptional('ADMIN_DISCORD_IDS') || '')
     .split(',')
     .map((id) => id.trim())
@@ -68,14 +75,12 @@ export const ADMIN_DISCORD_IDS = (getStringOptional('ADMIN_DISCORD_IDS') || '')
  * The web server only starts when the full required web config is present.
  * DISCORD_APP_ID doubles as the OAuth client id (already required for the bot).
  */
-export const WEB_ENABLED = Boolean(
-    WEB_PUBLIC_URL && DISCORD_OAUTH_CLIENT_SECRET && SESSION_SECRET && ADMIN_DISCORD_IDS.length > 0
-);
+export const WEB_ENABLED = Boolean(WEB_PUBLIC_URL && DISCORD_OAUTH_CLIENT_SECRET && SESSION_SECRET);
 
 /**
- * Which required web env vars are missing, each with a note on where its value
- * comes from. Neither of the two that cannot be defaulted is guessable — one is
- * a secret, the other is a human — so the startup log says where to get them.
+ * Which required web env vars are missing, each with a note on where its value comes
+ * from. The one that cannot be defaulted is a secret, so the startup log says where to
+ * get it.
  */
 export function getMissingWebEnv(): string[] {
     const missing: string[] = [];
@@ -86,11 +91,6 @@ export function getMissingWebEnv(): string[] {
         );
     }
     if (!SESSION_SECRET) missing.push('SESSION_SECRET (any long random string)');
-    if (ADMIN_DISCORD_IDS.length === 0) {
-        missing.push(
-            'ADMIN_DISCORD_IDS (your own Discord *user* ID — enable Developer Mode, right-click yourself, Copy User ID)'
-        );
-    }
     return missing;
 }
 

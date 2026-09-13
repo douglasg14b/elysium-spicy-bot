@@ -21,8 +21,16 @@ export const OAUTH_STATE_COOKIE = 'spicy_oauth_state';
 /** State cookie TTL — the login round-trip is short-lived. */
 const STATE_TTL_SECONDS = 10 * 60;
 
-/** Discord's `Manage Guild` permission bit. Present in the OAuth `guilds` payload's `permissions`. */
+/**
+ * Permission bits that mean "may configure this server", as they appear in the OAuth
+ * `guilds` payload's `permissions` field.
+ *
+ * `ADMINISTRATOR` is checked explicitly: Discord does not expand it into the other
+ * bits, so an Administrator who lacks Manage Guild would otherwise be refused even
+ * though Administrator overrides every permission in practice.
+ */
 const MANAGE_GUILD = 0x20n;
+const ADMINISTRATOR = 0x8n;
 
 /** The `/users/@me` shape we care about. */
 export interface DiscordUser {
@@ -32,7 +40,7 @@ export interface DiscordUser {
 }
 
 /** A single entry from `/users/@me/guilds`. */
-interface DiscordPartialGuild {
+export interface DiscordPartialGuild {
     id: string;
     name: string;
     owner: boolean;
@@ -136,8 +144,31 @@ export async function fetchDiscordUser(accessToken: string): Promise<DiscordUser
 }
 
 /**
- * Fetches the user's guilds (`/users/@me/guilds`) and returns the ids of guilds where
- * they own or hold Manage Guild — the set the dashboard treats as "manageable".
+ * Whether a guild entry from `/users/@me/guilds` grants dashboard access: the user
+ * owns it, is an Administrator, or holds Manage Guild.
+ *
+ * This is Discord's own "can configure this server" bar. Moderator permissions
+ * (Kick/Ban/Timeout) deliberately do not qualify — the dashboard changes server
+ * *configuration*, which is a different thing from moderating members.
+ */
+export function canManageGuild(guild: Pick<DiscordPartialGuild, 'owner' | 'permissions'>): boolean {
+    if (guild.owner) return true;
+    try {
+        const permissions = BigInt(guild.permissions);
+        return (
+            (permissions & ADMINISTRATOR) === ADMINISTRATOR ||
+            (permissions & MANAGE_GUILD) === MANAGE_GUILD
+        );
+    } catch {
+        // Malformed permissions string — fail closed.
+        return false;
+    }
+}
+
+/**
+ * Fetches the user's guilds (`/users/@me/guilds`) and returns the ids of guilds they
+ * may manage — the set the dashboard treats as "manageable". Callers intersect this
+ * with the guilds the bot is actually in.
  */
 export async function fetchManageableGuildIds(accessToken: string): Promise<string[]> {
     const res = await fetch(`${DISCORD_API_BASE}/users/@me/guilds`, {
@@ -147,14 +178,5 @@ export async function fetchManageableGuildIds(accessToken: string): Promise<stri
         throw new Error(`Discord /users/@me/guilds failed: ${res.status} ${await res.text()}`);
     }
     const guilds = (await res.json()) as DiscordPartialGuild[];
-    return guilds
-        .filter((g) => {
-            if (g.owner) return true;
-            try {
-                return (BigInt(g.permissions) & MANAGE_GUILD) === MANAGE_GUILD;
-            } catch {
-                return false;
-            }
-        })
-        .map((g) => g.id);
+    return guilds.filter(canManageGuild).map((g) => g.id);
 }

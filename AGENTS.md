@@ -62,11 +62,11 @@ Each feature lives under `src/features/<kebab-name>/`. Expect this shape; add su
 
 ## Env (required unless noted)
 
-`DISCORD_APP_ID`, `DISCORD_BOT_TOKEN`, `DB_TYPE` (`sqlite` \| `postgres`), `OPENAI_API_KEY`; plus `SQLITE_DB_PATH` or `PG_CONNECTION_STRING` per `DB_TYPE`. Optional: `ENV`, `AI_MODEL`, `AI_MAX_CONTEXT_MESSAGES`.
+`DISCORD_APP_ID`, `DISCORD_BOT_TOKEN`, `DB_TYPE` (`sqlite` \| `postgres`), `OPENROUTER_API_KEY` (reply generation), `OPENAI_API_KEY` (guardrails only); plus `SQLITE_DB_PATH` or `PG_CONNECTION_STRING` per `DB_TYPE`. Optional: `ENV`, `OPENROUTER_BASE_URL`, `AI_MODEL` (OpenRouter slug), `AI_MAX_CONTEXT_MESSAGES`.
 
 ## Commands
 
-- `pnpm dev` — watch `src/bot.ts` with env from `.env.local`.
+- `pnpm dev` — apply pending migrations, then watch `src/bot.ts` with env from `.env.local`. (`pnpm dev:bot` skips the migration step.)
 - `pnpm build` / `pnpm start` — `tsc` → `dist/`, run `node dist/bot.js`.
 - `pnpm migrate:latest` / `migrate:latest:dev` — DB migrations.
 - `pnpm github-plan` — CLI for the Jarvis issue/PR plan workflow (see `github-plan-cli/src/cli.ts`).

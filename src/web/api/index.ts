@@ -1,6 +1,6 @@
 import type { Hono } from 'hono';
 import type { AppEnv } from '../types';
-import { requireAuth } from '../auth/middleware';
+import { requireAuth, requireGuildAccess } from '../auth/middleware';
 import { authRoutes } from './authRoutes';
 import { flowRoutes } from './flowRoutes';
 import { guildRoutes } from './guildRoutes';
@@ -29,6 +29,10 @@ export function registerApiRoutes(app: Hono<AppEnv>): void {
     // Data routes require a valid session.
     app.use('/api/guilds/*', requireAuth);
     app.use('/api/guilds', requireAuth);
+    // Everything scoped to a specific guild is authorized once, here. `/api/guilds`
+    // itself is deliberately not covered: it lists the guilds you may access, so it
+    // filters rather than rejects.
+    app.use('/api/guilds/:guildId/*', requireGuildAccess);
     app.route('/api/guilds', guildRoutes());
     // Flow CRUD + deploy share the /api/guilds/:guildId prefix (and its auth).
     app.route('/api/guilds', flowRoutes());

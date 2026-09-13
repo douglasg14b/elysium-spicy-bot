@@ -34,6 +34,7 @@ import { ApiError } from '../api/client';
 import { createFlow, deleteFlow, listFlows, updateFlow } from '../api/flows';
 import type { FlowSummary } from '../api/types';
 import { useGuilds } from '../guilds/GuildContext';
+import { PAGE_MAX_WIDTH } from '../theme';
 
 function formatUpdated(iso: string): string {
     const date = new Date(iso);
@@ -169,7 +170,7 @@ export function FlowsListPage() {
     }
 
     return (
-        <Stack gap="lg" maw={1100}>
+        <Stack gap="lg" maw={PAGE_MAX_WIDTH}>
             <div>
                 <Text size="12.5px" c="dark.2">
                     <Text span c="dark.1" fw={600}>

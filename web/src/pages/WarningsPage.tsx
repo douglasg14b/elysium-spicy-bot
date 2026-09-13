@@ -17,6 +17,7 @@ import { ApiError } from '../api/client';
 import { getGuildChannels, getWarningsConfig, updateWarningsConfig } from '../api/config';
 import type { GuildChannel, WarningsConfig } from '../api/types';
 import { useGuilds } from '../guilds/GuildContext';
+import { PAGE_MAX_WIDTH } from '../theme';
 
 /**
  * Editable warnings config for the selected guild (Phase 2). Loads the current
@@ -114,7 +115,7 @@ export function WarningsPage() {
     }
 
     return (
-        <Stack gap="lg" maw={1100}>
+        <Stack gap="lg" maw={PAGE_MAX_WIDTH}>
             <div>
                 <Text size="12.5px" c="dark.2">
                     <Text span c="dark.1" fw={600}>

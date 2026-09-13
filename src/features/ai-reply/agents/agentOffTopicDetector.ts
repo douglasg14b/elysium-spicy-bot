@@ -28,7 +28,7 @@ Respond with JSON:
 }
 
 `,
-    model: 'gpt-5-nano',
+    model: 'openai/gpt-5-nano',
     outputType: OFF_TOPIC_DETECTION_SCHEMA,
     modelSettings: {
         reasoning: {
