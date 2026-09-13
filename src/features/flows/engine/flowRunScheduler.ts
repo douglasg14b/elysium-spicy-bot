@@ -4,7 +4,7 @@ import { FlowRunsRepo, flowRunsRepo } from '../data/flowRunsRepo';
 import { resumeFlowRun } from './flowRunResume';
 
 export type FlowRunSchedulerDependencies = {
-    flowRunsRepo: Pick<FlowRunsRepo, 'findDue'>;
+    flowRunsRepo: Pick<FlowRunsRepo, 'findDue' | 'reclaimAbandonedClaims'>;
 };
 
 const defaultDependencies: FlowRunSchedulerDependencies = {
@@ -17,8 +17,11 @@ let isTickRunning = false;
 /**
  * Start polling for durable flow runs whose `wakeAt` has passed.
  *
- * A sweep runs immediately on start, not just after the first interval, so
- * delays that elapsed while the bot was down fire as soon as it is back up.
+ * A sweep runs immediately on start, not just after the first interval, so delays
+ * that elapsed while the bot was down fire as soon as it is back up. That sweep
+ * first reclaims every resume claim left over from an earlier process — a run left
+ * at `running` by a SIGKILL matches neither parked-run query, so nothing else would
+ * ever find it.
  */
 export function startFlowRunScheduler(
     client: Client,
@@ -35,8 +38,55 @@ export function startFlowRunScheduler(
 
     console.info(`[flow-runs] Scheduler started with interval ${intervalMs}ms`);
 
-    // Catch-up sweep for anything that came due while the bot was offline.
-    void runFlowRunTick(client, dependencies);
+    void runStartupSweep(client, dependencies).catch((error: unknown) => {
+        console.error('[flow-runs] Startup sweep failed:', error);
+    });
+}
+
+/**
+ * Reclaim abandoned claims, then resume anything already due.
+ *
+ * The order is load-bearing: a run stranded at `running` by a killed process
+ * matches neither parked-run query, so it only becomes visible to `findDue` once
+ * its claim has been handed back.
+ */
+async function runStartupSweep(client: Client, dependencies: FlowRunSchedulerDependencies): Promise<void> {
+    await reclaimStrandedFlowRuns(dependencies);
+    await runFlowRunTick(client, dependencies);
+}
+
+/**
+ * Hand back resume claims left behind by a process that died holding them.
+ *
+ * Startup only. See {@link FlowRunsRepo.reclaimAbandonedClaims} for why that
+ * timing is what makes reclaiming *every* outstanding claim safe, and what would
+ * have to change first before this could run on a timer.
+ */
+export async function reclaimStrandedFlowRuns(
+    dependencies: FlowRunSchedulerDependencies = defaultDependencies
+): Promise<number> {
+    try {
+        const reclaimed = await dependencies.flowRunsRepo.reclaimAbandonedClaims();
+        if (reclaimed > 0) {
+            console.warn(
+                `[flow-runs] Reclaimed ${reclaimed} stranded run claim(s) left behind by an earlier process`
+            );
+        }
+        return reclaimed;
+    } catch (error) {
+        if (isMissingFlowRunsTableError(error)) {
+            // The tick that follows reports this once, with the fix.
+            return 0;
+        }
+        // Recovery is off for the life of this process now, so this has to be loud.
+        // A half-applied migration lands here, not in the branch above.
+        console.error(
+            '[flow-runs] Could not reclaim stranded run claims, so a run stranded by an ' +
+                'earlier process will not resume until the next restart:',
+            error
+        );
+        return 0;
+    }
 }
 
 export function stopFlowRunScheduler(): void {
@@ -91,7 +141,7 @@ export async function runFlowRunTick(
             }
         }
     } catch (error) {
-        if (isMissingTableError(error)) {
+        if (isMissingFlowRunsTableError(error)) {
             // Almost always an un-migrated database rather than a real fault, and
             // the tick repeats every 15s — so say what to do instead of dumping a
             // stack trace on a loop.
@@ -108,12 +158,17 @@ export async function runFlowRunTick(
 }
 
 /**
- * True for "no such table"/"relation does not exist" from SQLite and Postgres —
+ * True only for "the `flow_runs` table is not there" from SQLite or Postgres —
  * i.e. the schema has not been migrated yet.
+ *
+ * Deliberately requires the table name. A bare "does not exist" match would also
+ * swallow a missing *column* from a half-applied migration, and this predicate
+ * decides whether an error is reported at all.
  */
-function isMissingTableError(error: unknown): boolean {
+function isMissingFlowRunsTableError(error: unknown): boolean {
     if (!(error instanceof Error)) return false;
     const message = error.message.toLowerCase();
+    if (!message.includes('flow_runs')) return false;
     return message.includes('no such table') || message.includes('does not exist');
 }
 

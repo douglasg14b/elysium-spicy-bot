@@ -3,6 +3,7 @@ export { flowDeployCommand, handleFlowDeployCommand } from './commands/flowDeplo
 export * from './data/flowGraph';
 export * from './data/flowsSchema';
 export * from './data/flowRunsSchema';
+export * from './data/flowRunLifecycle';
 export { flowsRepo, FlowsRepo } from './data/flowsRepo';
 export { flowRunsRepo, FlowRunsRepo } from './data/flowRunsRepo';
 export { deployFlowButtons, buildFlowTriggerButtons } from './logic/deployFlowButtons';

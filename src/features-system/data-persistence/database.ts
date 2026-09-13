@@ -81,7 +81,7 @@ function getDatabaseClient() {
                 warnings: ['issuedAt', 'expiresAt', 'clearedAt', 'createdAt'],
                 warnings_config: ['createdAt', 'updatedAt'],
                 flows: ['createdAt', 'updatedAt'],
-                flow_runs: ['wakeAt', 'createdAt', 'updatedAt'],
+                flow_runs: ['wakeAt', 'claimedAt', 'createdAt', 'updatedAt'],
         }),
     ];
 

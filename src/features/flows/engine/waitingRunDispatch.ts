@@ -16,7 +16,7 @@ const defaultDependencies: WaitingRunDependencies = {
  * Wake every run parked on `action.waitForEvent` that this event satisfies.
  *
  * Matching is deliberately conservative — a run wakes only when ALL of:
- *  - it is still `pending` and has a `waitKind` (enforced by `findWaiting`)
+ *  - it is still `suspended` and has a `waitKind` (enforced by `findWaiting`)
  *  - the event's guild matches the run's `guildId`
  *  - the event's `eventKind` matches the run's `waitKind`
  *  - the event's user is the run's OWN user (`contextSnapshot.userId`)

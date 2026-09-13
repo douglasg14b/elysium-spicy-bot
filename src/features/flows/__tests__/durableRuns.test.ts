@@ -2,7 +2,7 @@ import type { Client } from 'discord.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FLOW_MAX_NODE_VISITS } from '../constants';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../data/flowGraph';
-import type { CreateFlowRunInput, UpdateFlowRunInput } from '../data/flowRunsRepo';
+import type { CreateFlowRunInput, ParkFlowRunInput } from '../data/flowRunsRepo';
 import type { FlowRunEntity } from '../data/flowRunsSchema';
 import type { FlowEntity } from '../data/flowsSchema';
 import { executeFlow, executeFlowSegment } from '../engine/executor';
@@ -163,7 +163,8 @@ function makeRunEntity(overrides: Partial<FlowRunEntity> = {}): FlowRunEntity {
         runId: 'run-1',
         flowId: 'flow-1',
         guildId: GUILD_ID,
-        status: 'pending',
+        status: 'suspended',
+        claimedAt: null,
         resumeNodeId: 'dm',
         wakeAt: new Date(Date.now() - 1000),
         waitKind: null,
@@ -179,10 +180,19 @@ function makeRunEntity(overrides: Partial<FlowRunEntity> = {}): FlowRunEntity {
     } as FlowRunEntity;
 }
 
-/** A repo double capturing every write, so assertions read off plain objects. */
+/** What a lifecycle write recorded, without reaching for the repo's input types. */
+type RecordedWrite = { runId: string; patch: Record<string, unknown> };
+
+/**
+ * A repo double capturing every write, so assertions read off plain objects.
+ *
+ * `claimForResume` mirrors the real conditional write: it only hands back a row
+ * when the run is actually suspended, which is what makes a "someone else already
+ * took it" path testable without a database.
+ */
 function makeRunsRepoDouble(run?: FlowRunEntity) {
     const created: CreateFlowRunInput[] = [];
-    const updated: Array<{ runId: string; patch: UpdateFlowRunInput }> = [];
+    const updated: RecordedWrite[] = [];
 
     return {
         created,
@@ -192,8 +202,19 @@ function makeRunsRepoDouble(run?: FlowRunEntity) {
             return makeRunEntity({ runId: 'run-created' });
         }),
         getByRunId: vi.fn(async () => run ?? null),
-        update: vi.fn(async (runId: string, patch: UpdateFlowRunInput) => {
-            updated.push({ runId, patch });
+        claimForResume: vi.fn(async (runId: string) => {
+            if (!run || run.status !== 'suspended') {
+                return null;
+            }
+            updated.push({ runId, patch: { status: 'running' } });
+            return { ...run, status: 'running', claimedAt: new Date() } as FlowRunEntity;
+        }),
+        releaseClaim: vi.fn(async (runId: string) => {
+            updated.push({ runId, patch: { status: 'suspended', claimedAt: null } });
+            return makeRunEntity({ runId });
+        }),
+        park: vi.fn(async (runId: string, patch: ParkFlowRunInput) => {
+            updated.push({ runId, patch: { status: 'suspended', ...patch } });
             return makeRunEntity({ runId });
         }),
         complete: vi.fn(async (runId: string) => {
@@ -233,7 +254,7 @@ describe('action.delay', () => {
         expect(outcome.suspension.visitsUsed).toBe(3);
     });
 
-    it('persists a pending run row through executeFlow when it suspends', async () => {
+    it('persists a suspended run row through executeFlow when it suspends', async () => {
         const { context } = makeContext();
         const runsRepo = makeRunsRepoDouble();
 
@@ -331,7 +352,7 @@ describe('resuming a suspended run', () => {
         expect(outcome.error).toMatch(/no longer exists/i);
     });
 
-    it('skips a run that is not pending', async () => {
+    it('skips a run that is no longer suspended, without touching it', async () => {
         const { client } = makeClient();
         const run = makeRunEntity({ status: 'completed' });
         const runsRepo = makeRunsRepoDouble(run);
@@ -340,6 +361,9 @@ describe('resuming a suspended run', () => {
 
         expect(outcome.status).toBe('skipped');
         expect(runsRepo.fail).not.toHaveBeenCalled();
+        expect(runsRepo.complete).not.toHaveBeenCalled();
+        // Losing the claim must not look like an error to the caller.
+        expect(runsRepo.releaseClaim).not.toHaveBeenCalled();
     });
 });
 

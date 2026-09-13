@@ -1,0 +1,69 @@
+{
+    "version": 1,
+    "nodes": [
+        {
+            "id": "8f1c0c2e-0a1b-4c3d-9e5f-6a7b8c9d0e1f",
+            "type": "trigger.buttonClick",
+            "position": { "x": 0, "y": 0 },
+            "data": { "label": "Verify me" }
+        },
+        {
+            "id": "1a2b3c4d-5e6f-4071-8293-a4b5c6d7e8f9",
+            "type": "action.delay",
+            "position": { "x": 220, "y": 0 },
+            "data": { "durationMs": 3600000 }
+        },
+        {
+            "id": "2b3c4d5e-6f70-4182-93a4-b5c6d7e8f901",
+            "type": "action.sendDM",
+            "position": { "x": 440, "y": 0 },
+            "data": { "message": "Still with us? Good." }
+        },
+        {
+            "id": "3c4d5e6f-7081-4293-a4b5-c6d7e8f90123",
+            "type": "action.waitForEvent",
+            "position": { "x": 660, "y": 0 },
+            "data": { "eventKind": "memberJoin", "timeoutMs": 3600000 }
+        },
+        {
+            "id": "4d5e6f70-8192-43a4-b5c6-d7e8f9012345",
+            "type": "action.assignRole",
+            "position": { "x": 880, "y": 0 },
+            "data": { "roleId": "role-verified" }
+        },
+        {
+            "id": "5e6f7081-92a3-44b5-86d7-e8f901234567",
+            "type": "action.sendDM",
+            "position": { "x": 880, "y": 140 },
+            "data": { "message": "You took too long. Try again when you mean it." }
+        }
+    ],
+    "edges": [
+        {
+            "id": "edge-trigger-delay",
+            "source": "8f1c0c2e-0a1b-4c3d-9e5f-6a7b8c9d0e1f",
+            "target": "1a2b3c4d-5e6f-4071-8293-a4b5c6d7e8f9"
+        },
+        {
+            "id": "edge-delay-dm",
+            "source": "1a2b3c4d-5e6f-4071-8293-a4b5c6d7e8f9",
+            "target": "2b3c4d5e-6f70-4182-93a4-b5c6d7e8f901"
+        },
+        {
+            "id": "edge-dm-wait",
+            "source": "2b3c4d5e-6f70-4182-93a4-b5c6d7e8f901",
+            "target": "3c4d5e6f-7081-4293-a4b5-c6d7e8f90123"
+        },
+        {
+            "id": "edge-wait-assign",
+            "source": "3c4d5e6f-7081-4293-a4b5-c6d7e8f90123",
+            "target": "4d5e6f70-8192-43a4-b5c6-d7e8f9012345"
+        },
+        {
+            "id": "edge-wait-timeout",
+            "source": "3c4d5e6f-7081-4293-a4b5-c6d7e8f90123",
+            "sourceHandle": "timeout",
+            "target": "5e6f7081-92a3-44b5-86d7-e8f901234567"
+        }
+    ]
+}

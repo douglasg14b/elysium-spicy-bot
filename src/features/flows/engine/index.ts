@@ -1,3 +1,4 @@
+export * from './stepOutcome';
 export * from './executor';
 export * from './graphValidation';
 export * from './nodeDataValidation';

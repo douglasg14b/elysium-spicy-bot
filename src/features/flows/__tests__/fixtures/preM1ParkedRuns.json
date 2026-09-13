@@ -1,0 +1,36 @@
+[
+    {
+        "run_id": "pre-m1-delay-parked",
+        "flow_id": "pre-m1-flow",
+        "guild_id": "guild-1",
+        "status": "pending",
+        "resume_node_id": "2b3c4d5e-6f70-4182-93a4-b5c6d7e8f901",
+        "wake_at": "2026-09-11T12:00:00.000Z",
+        "wait_kind": null,
+        "wait_config": null,
+        "context_snapshot": "{\"guildId\":\"guild-1\",\"userId\":\"user-1\"}",
+        "visits_used": 3,
+        "log": "[{\"nodeId\":\"8f1c0c2e-0a1b-4c3d-9e5f-6a7b8c9d0e1f\",\"type\":\"trigger.buttonClick\",\"kind\":\"trigger\",\"status\":\"ok\"},{\"nodeId\":\"1a2b3c4d-5e6f-4071-8293-a4b5c6d7e8f9\",\"type\":\"action.delay\",\"kind\":\"action\",\"status\":\"ok\"}]",
+        "error": null,
+        "entity_version": 1,
+        "created_at": "2026-09-11T11:00:00.000Z",
+        "updated_at": "2026-09-11T11:00:00.000Z"
+    },
+    {
+        "run_id": "pre-m1-wait-parked",
+        "flow_id": "pre-m1-flow",
+        "guild_id": "guild-1",
+        "status": "pending",
+        "resume_node_id": "3c4d5e6f-7081-4293-a4b5-c6d7e8f90123",
+        "wake_at": "2026-09-11T13:00:00.000Z",
+        "wait_kind": "memberJoin",
+        "wait_config": "{\"eventKind\":\"memberJoin\",\"timeoutMs\":3600000}",
+        "context_snapshot": "{\"guildId\":\"guild-1\",\"userId\":\"user-1\"}",
+        "visits_used": 5,
+        "log": "[{\"nodeId\":\"8f1c0c2e-0a1b-4c3d-9e5f-6a7b8c9d0e1f\",\"type\":\"trigger.buttonClick\",\"kind\":\"trigger\",\"status\":\"ok\"},{\"nodeId\":\"1a2b3c4d-5e6f-4071-8293-a4b5c6d7e8f9\",\"type\":\"action.delay\",\"kind\":\"action\",\"status\":\"ok\"},{\"nodeId\":\"2b3c4d5e-6f70-4182-93a4-b5c6d7e8f901\",\"type\":\"action.sendDM\",\"kind\":\"action\",\"status\":\"ok\"},{\"nodeId\":\"3c4d5e6f-7081-4293-a4b5-c6d7e8f90123\",\"type\":\"action.waitForEvent\",\"kind\":\"action\",\"status\":\"ok\"}]",
+        "error": null,
+        "entity_version": 1,
+        "created_at": "2026-09-11T11:00:00.000Z",
+        "updated_at": "2026-09-11T12:00:00.000Z"
+    }
+]

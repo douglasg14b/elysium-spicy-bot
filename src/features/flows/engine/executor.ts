@@ -1,7 +1,6 @@
 import { FLOW_MAX_NODE_VISITS } from '../constants';
 import type { FlowEdge, FlowGraph, FlowNode } from '../data/flowGraph';
 import { flowRunsRepo } from '../data/flowRunsRepo';
-import type { FlowRunWaitConfig } from '../data/flowRunsSchema';
 import { ACTION_DELAY, delayConfigSchema } from '../nodes/actionDelay';
 import {
     ACTION_WAIT_FOR_EVENT,
@@ -10,6 +9,7 @@ import {
 } from '../nodes/actionWaitForEvent';
 import { getNodeDefinition, isActionNode, isConditionNode, isTriggerNode } from '../nodes/registry';
 import type { FlowRunContext } from '../nodes/types';
+import type { FlowStepSuspension } from './stepOutcome';
 
 export interface NodeRunLog {
     nodeId: string;
@@ -30,15 +30,16 @@ export interface FlowRunResult {
     error?: string;
 }
 
-/** Why a segment stopped short of finishing the graph. */
-export interface FlowSuspension {
+/**
+ * Why a segment stopped short of finishing the graph.
+ *
+ * The parking request itself — when to wake, what to wake on — is
+ * {@link FlowStepSuspension}, which is what a block declares. What this adds is
+ * the executor's own bookkeeping: where to resume and what has been spent so far.
+ */
+export interface FlowSuspension extends FlowStepSuspension {
     /** The node the run should resume AT when it wakes. */
     resumeNodeId: string;
-    /** When the run becomes due (a delay, or a wait's timeout). */
-    wakeAt?: Date;
-    /** Set when parked on an event rather than a plain delay. */
-    waitKind?: FlowRunWaitConfig['eventKind'];
-    waitConfig?: FlowRunWaitConfig;
     /** Visit budget consumed so far — must be carried into the next segment. */
     visitsUsed: number;
     /** Log accumulated so far — must be carried into the next segment. */
@@ -329,7 +330,6 @@ async function persistNewSuspendedRun(
         waitConfig: suspension.waitConfig ?? null,
         visitsUsed: suspension.visitsUsed,
         log: suspension.log,
-        status: 'pending',
     });
 }
 

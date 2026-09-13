@@ -5,11 +5,11 @@ import type { FlowRunEntity } from '../data/flowRunsSchema';
 import { FlowsRepo, flowsRepo } from '../data/flowsRepo';
 import { ACTION_WAIT_FOR_EVENT } from '../nodes/actionWaitForEvent';
 import type { FlowRunContext } from '../nodes/types';
-import { executeFlowSegment, resolveWaitExit, type FlowSuspension } from './executor';
+import { executeFlowSegment, resolveWaitExit } from './executor';
 
 export interface ResumeFlowRunDependencies {
     flowsRepo: Pick<FlowsRepo, 'getByFlowId'>;
-    flowRunsRepo: Pick<FlowRunsRepo, 'getByRunId' | 'update' | 'complete' | 'fail'>;
+    flowRunsRepo: Pick<FlowRunsRepo, 'claimForResume' | 'releaseClaim' | 'park' | 'complete' | 'fail'>;
 }
 
 const defaultDependencies: ResumeFlowRunDependencies = {
@@ -73,6 +73,13 @@ export async function rebuildResumeContext(
 /**
  * Resume one parked run and persist whatever happens next.
  *
+ * The run is first *claimed*: a single conditional write moving it from
+ * `suspended` to `running`. Only one caller can win, so a moderator's click
+ * arriving at the same moment as the run's timeout can no longer advance the same
+ * run twice — the loser is told it was skipped and does nothing. Everything after
+ * the claim works from the row the claim returned, not from whatever the caller
+ * selected a moment earlier.
+ *
  * `exit` decides how a run parked on `action.waitForEvent` leaves that node:
  * 'event' when the awaited event arrived, 'timeout' when its `wakeAt` elapsed.
  * It is ignored for a plain delay, whose `resumeNodeId` already points past the
@@ -84,11 +91,38 @@ export async function resumeFlowRun(
     exit: 'event' | 'timeout' = 'timeout',
     dependencies: ResumeFlowRunDependencies = defaultDependencies
 ): Promise<ResumeOutcome> {
-    if (run.status !== 'pending') {
-        return { status: 'skipped', reason: `Run ${run.runId} is ${run.status}, not pending` };
+    const claimed = await dependencies.flowRunsRepo.claimForResume(run.runId);
+    if (!claimed) {
+        // The claim is all we know: the run may have been taken by another
+        // resumer, already finished, been cancelled, or be gone entirely. Say what
+        // is true rather than guessing which.
+        return {
+            status: 'skipped',
+            reason: `Run ${run.runId} could not be claimed — it is already claimed, finished, or gone`,
+        };
     }
+
+    try {
+        return await advanceClaimedRun(client, claimed, exit, dependencies);
+    } catch (error) {
+        // The run itself is fine; something around it broke. Give the claim back so
+        // the next poll retries, rather than leaving it for the startup sweep.
+        await dependencies.flowRunsRepo.releaseClaim(claimed.runId).catch((releaseError: unknown) => {
+            console.error(`[flow-runs] Could not release the claim on run ${claimed.runId}:`, releaseError);
+        });
+        throw error;
+    }
+}
+
+/** Advance a run this process has already claimed. */
+async function advanceClaimedRun(
+    client: Client,
+    run: FlowRunEntity,
+    exit: 'event' | 'timeout',
+    dependencies: ResumeFlowRunDependencies
+): Promise<ResumeOutcome> {
     if (!run.resumeNodeId) {
-        const error = `Run ${run.runId} is pending but has no resumeNodeId`;
+        const error = `Run ${run.runId} was parked but has no resumeNodeId`;
         await dependencies.flowRunsRepo.fail(run.runId, error);
         return { status: 'failed', error };
     }
@@ -141,7 +175,7 @@ export async function resumeFlowRun(
     });
 
     if (outcome.kind === 'suspended') {
-        await persistSuspension(dependencies.flowRunsRepo, run.runId, outcome.suspension);
+        await dependencies.flowRunsRepo.park(run.runId, outcome.suspension);
         return { status: 'suspended' };
     }
 
@@ -153,22 +187,4 @@ export async function resumeFlowRun(
 
     await dependencies.flowRunsRepo.complete(run.runId, outcome.result.log);
     return { status: 'completed' };
-}
-
-/** Write a fresh suspension onto an existing run row. */
-export async function persistSuspension(
-    runsRepo: Pick<FlowRunsRepo, 'update'>,
-    runId: string,
-    suspension: FlowSuspension
-): Promise<void> {
-    await runsRepo.update(runId, {
-        status: 'pending',
-        resumeNodeId: suspension.resumeNodeId,
-        wakeAt: suspension.wakeAt ?? null,
-        waitKind: suspension.waitKind ?? null,
-        waitConfig: suspension.waitConfig ?? null,
-        visitsUsed: suspension.visitsUsed,
-        log: suspension.log,
-        error: null,
-    });
 }

@@ -1,8 +1,6 @@
 import type { ColumnType, Generated, Insertable, JSONColumnType, Selectable, Updateable } from 'kysely';
 import type { NodeRunLog } from '../engine/executor';
-
-/** Lifecycle of a durable flow run. */
-export type FlowRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+import type { FlowRunStatus } from './flowRunLifecycle';
 
 /** The gateway events a parked `action.waitForEvent` node can wake on. */
 export type FlowWaitKind = 'memberJoin' | 'reactionAdd' | 'buttonClick';
@@ -40,6 +38,13 @@ export interface FlowRunTable {
     guildId: string;
 
     status: FlowRunStatus;
+
+    /**
+     * When a resumer claimed this run, i.e. moved it to `running`. Null whenever
+     * the run is not claimed. A claim still set long after the fact means the
+     * process holding it died, which is what the startup sweep looks for.
+     */
+    claimedAt: ColumnType<Date | null, string | null, string | null>;
 
     /** The node to resume AT when the run wakes. */
     resumeNodeId: string | null;
