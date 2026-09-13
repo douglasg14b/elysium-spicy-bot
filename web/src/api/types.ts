@@ -167,7 +167,7 @@ export type BlockCardSummaryPart =
           quote?: boolean;
           /** Maximum characters of the resolved value before an ellipsis. */
           truncate?: number;
-          /** Shown as the whole part, ignoring the decorations above, when the field is unset. */
+          /** Shown in place of the value when unset, still inside `prefix`/`suffix`. */
           emptyText?: string;
           /** Drop this part entirely when the field is unset, rather than showing `emptyText`. */
           hideWhenEmpty?: boolean;

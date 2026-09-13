@@ -52,9 +52,12 @@ export const block: BlockManifest<WaitForEventConfig> = {
             control: 'select',
             defaultValue: 'buttonClick',
             options: [
-                { value: 'buttonClick', label: 'They click a flow button' },
-                { value: 'reactionAdd', label: 'They add a reaction' },
-                { value: 'memberJoin', label: 'They rejoin the server' },
+                // Short enough to read twice: under the "Wait for" label in the
+                // inspector, and inside "Await …" on a 210px card, where the old
+                // full-sentence forms wrapped.
+                { value: 'buttonClick', label: 'a flow button click' },
+                { value: 'reactionAdd', label: 'a reaction' },
+                { value: 'memberJoin', label: 'a rejoin' },
             ],
         },
         {

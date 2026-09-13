@@ -61,21 +61,35 @@ import type {
 import { FlowNodeCard, type FlowCardNode, type FlowNodeCardData } from '../flows/FlowNodeCard';
 import { NodePalette, NODE_DRAG_MIME } from '../flows/NodePalette';
 import { NodeInspector } from '../flows/NodeInspector';
-import { defaultDataFor, emptyGraph, isCondition } from '../flows/nodeMeta';
+import {
+    defaultDataFor,
+    emptyGraph,
+    handlesAreLabelled,
+    HANDLE_TONE_HEX,
+    KIND_STYLES,
+} from '../flows/nodeMeta';
 import { useGuilds } from '../guilds/GuildContext';
 
 const nodeTypes: NodeTypes = { flowCard: FlowNodeCard };
 
-/** Edge styling: condition branches inherit their handle's colour. */
-function styleEdge(edge: Edge): Edge {
-    const isFalse = edge.sourceHandle === 'false';
-    const isTrue = edge.sourceHandle === 'true';
-    const stroke = isTrue ? '#43b581' : isFalse ? '#ed4245' : '#5b5f6d';
+/**
+ * Edge styling: an edge inherits the colour and label of the handle it leaves by.
+ *
+ * Resolved off the source block's declared `handles` rather than off magic handle
+ * ids, so a condition declaring `pass`/`fail` — or any future tone — draws correctly
+ * without editing this page. Labelled on the same shared rule the card uses.
+ */
+function styleEdge(edge: Edge, sourceDescriptor: NodeDescriptor | undefined): Edge {
+    const handles = sourceDescriptor?.handles ?? [];
+    const handle = handles.find((candidate) => (candidate.id ?? null) === (edge.sourceHandle ?? null));
+    const stroke = handle ? HANDLE_TONE_HEX[handle.tone] : HANDLE_TONE_HEX.neutral;
+    const label = handle && handlesAreLabelled(handles) ? handle.label : undefined;
+
     return {
         ...edge,
         animated: true,
         style: { stroke, strokeWidth: 2.5 },
-        label: isTrue ? 'true' : isFalse ? 'false' : undefined,
+        label,
         labelStyle: { fill: stroke, fontSize: 10, fontWeight: 700 },
         labelBgStyle: { fill: '#1a1b23' },
     };
@@ -85,6 +99,25 @@ function styleEdge(edge: Edge): Edge {
 interface Snapshot {
     nodes: FlowCardNode[];
     edges: Edge[];
+}
+
+/**
+ * Clone a graph for the undo stack, deep-copying only what can actually change.
+ *
+ * `config` is the mutable part and is cloned. `descriptor`, `roles` and `channels`
+ * are shared immutable catalogue data riding along on each node: deep-cloning them
+ * would copy every block's full manifest once per node per snapshot, fifty deep, and
+ * would break referential identity with the live catalogue for no benefit.
+ */
+function snapshot(source: Snapshot): Snapshot {
+    return {
+        nodes: source.nodes.map((node) => ({
+            ...node,
+            position: { ...node.position },
+            data: { ...node.data, config: structuredClone(node.data.config) },
+        })),
+        edges: structuredClone(source.edges),
+    };
 }
 
 export function FlowBuilderPage() {
@@ -136,10 +169,7 @@ function FlowBuilder() {
     /** Push the current graph onto the undo stack before a mutating change. */
     const pushHistory = useCallback(() => {
         if (skipHistory.current) return;
-        past.current.push({
-            nodes: structuredClone(latest.current.nodes),
-            edges: structuredClone(latest.current.edges),
-        });
+        past.current.push(snapshot(latest.current));
         if (past.current.length > 50) past.current.shift();
         future.current = [];
         setHistoryTick((t) => t + 1);
@@ -169,34 +199,60 @@ function FlowBuilder() {
                 setEnabled(flow.enabled);
 
                 const graph = flow.graph ?? emptyGraph();
-                const labelFor = (type: string): string =>
-                    catalog.find((c) => c.type === type)?.label ?? type;
 
                 skipHistory.current = true;
                 setNodes(
-                    graph.nodes.map((n) => ({
-                        id: n.id,
-                        type: 'flowCard' as const,
-                        position: n.position,
-                        data: {
-                            nodeType: n.type,
-                            label: labelFor(n.type),
-                            config: n.data ?? {},
-                            roles: guildRoles,
-                            channels: guildChannels,
-                        } satisfies FlowNodeCardData,
-                    }))
+                    graph.nodes.map((node) => {
+                        // Absent when a saved graph names a type this build has no
+                        // block for; the card and inspector render that as broken.
+                        const descriptor = catalog.find((entry) => entry.type === node.type);
+                        return {
+                            id: node.id,
+                            type: 'flowCard' as const,
+                            position: node.position,
+                            data: {
+                                nodeType: node.type,
+                                label: descriptor?.label ?? node.type,
+                                /*
+                                 * Backfill any field whose default was declared after
+                                 * this graph was written, so a control never displays
+                                 * a value the graph does not actually contain. Done
+                                 * here, once, inside the `skipHistory` window — a
+                                 * control that repaired itself while rendering would
+                                 * dirty the flow and clear the redo stack just for
+                                 * selecting a node. Stored values always win.
+                                 *
+                                 * This leaves the in-memory graph ahead of the saved
+                                 * one while the toolbar still reads "All changes
+                                 * saved", which is deliberate: every value added here
+                                 * is one the server's own schema would have defaulted
+                                 * to anyway, so there is nothing worth prompting a
+                                 * save for until the author actually edits something.
+                                 */
+                                config: descriptor
+                                    ? { ...defaultDataFor(descriptor), ...(node.data ?? {}) }
+                                    : node.data ?? {},
+                                descriptor,
+                                roles: guildRoles,
+                                channels: guildChannels,
+                            } satisfies FlowNodeCardData,
+                        };
+                    })
                 );
                 setEdges(
-                    graph.edges.map((e) =>
-                        styleEdge({
-                            id: e.id,
-                            source: e.source,
-                            target: e.target,
-                            sourceHandle: e.sourceHandle ?? null,
-                            targetHandle: e.targetHandle ?? null,
-                        })
-                    )
+                    graph.edges.map((edge) => {
+                        const sourceType = graph.nodes.find((node) => node.id === edge.source)?.type;
+                        return styleEdge(
+                            {
+                                id: edge.id,
+                                source: edge.source,
+                                target: edge.target,
+                                sourceHandle: edge.sourceHandle ?? null,
+                                targetHandle: edge.targetHandle ?? null,
+                            },
+                            catalog.find((entry) => entry.type === sourceType)
+                        );
+                    })
                 );
                 past.current = [];
                 future.current = [];
@@ -231,7 +287,8 @@ function FlowBuilder() {
                 data: {
                     nodeType: entry.type,
                     label: entry.label,
-                    config: defaultDataFor(entry.type),
+                    config: defaultDataFor(entry),
+                    descriptor: entry,
                     roles,
                     channels,
                 },
@@ -247,7 +304,10 @@ function FlowBuilder() {
             pushHistory();
             // Style only the edge we just created; `addEdge` leaves the rest untouched.
             const id = `e-${connection.source}${connection.sourceHandle ?? ''}-${connection.target}`;
-            setEdges((prev) => addEdge(styleEdge({ ...connection, id }), prev));
+            const sourceDescriptor = latest.current.nodes.find(
+                (node) => node.id === connection.source
+            )?.data.descriptor;
+            setEdges((prev) => addEdge(styleEdge({ ...connection, id }, sourceDescriptor), prev));
         },
         [pushHistory, setEdges]
     );
@@ -262,25 +322,48 @@ function FlowBuilder() {
             event.preventDefault();
             const type = event.dataTransfer.getData(NODE_DRAG_MIME);
             if (!type) return;
-            const entry = nodeCatalog.find((c) => c.type === type);
-            if (!entry) return;
+            const entry = nodeCatalog.find((candidate) => candidate.type === type);
+            if (!entry) {
+                // The drag came from our own palette, so a type we cannot find means
+                // the catalog moved underneath this page. Say so rather than
+                // swallowing the drop and looking broken.
+                notifications.show({
+                    color: 'red',
+                    title: 'Unknown block',
+                    message: `"${type}" isn't in this build. Reload the page and try again.`,
+                });
+                return;
+            }
             const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
             addNode(entry, position);
         },
         [nodeCatalog, screenToFlowPosition, addNode]
     );
 
-    /** Live-edit the selected node's engine `data`. */
+    /**
+     * Live-edit the selected node's engine `data`.
+     *
+     * A patch entry of `undefined` **removes** the key, which is the contract the
+     * controls are written against — an `optional` duration says "unset" that way.
+     * Spreading alone would leave the key present holding `undefined`, which only
+     * looks equivalent: `JSON.stringify` drops it on save, so an in-session graph
+     * and the same graph after a reload would disagree the moment a field declared
+     * both `optional` and a `defaultValue`, because the load-path backfill would
+     * re-seed the default over a key that had genuinely been cleared.
+     */
     const updateNodeConfig = useCallback(
         (patch: Record<string, unknown>) => {
             if (!selectedNodeId) return;
             pushHistory();
             setNodes((prev) =>
-                prev.map((n) =>
-                    n.id === selectedNodeId
-                        ? { ...n, data: { ...n.data, config: { ...n.data.config, ...patch } } }
-                        : n
-                )
+                prev.map((node) => {
+                    if (node.id !== selectedNodeId) return node;
+                    const config = { ...node.data.config, ...patch };
+                    for (const [key, value] of Object.entries(patch)) {
+                        if (value === undefined) delete config[key];
+                    }
+                    return { ...node, data: { ...node.data, config } };
+                })
             );
         },
         [selectedNodeId, pushHistory, setNodes]
@@ -299,10 +382,10 @@ function FlowBuilder() {
     /* ---------------------------- history ---------------------------- */
 
     const restore = useCallback(
-        (snapshot: Snapshot) => {
+        (target: Snapshot) => {
             skipHistory.current = true;
-            setNodes(snapshot.nodes);
-            setEdges(snapshot.edges);
+            setNodes(target.nodes);
+            setEdges(target.edges);
             setDirty(true);
             requestAnimationFrame(() => {
                 skipHistory.current = false;
@@ -314,10 +397,7 @@ function FlowBuilder() {
     const undo = useCallback(() => {
         const previous = past.current.pop();
         if (!previous) return;
-        future.current.push({
-            nodes: structuredClone(latest.current.nodes),
-            edges: structuredClone(latest.current.edges),
-        });
+        future.current.push(snapshot(latest.current));
         restore(previous);
         setHistoryTick((t) => t + 1);
     }, [restore]);
@@ -325,10 +405,7 @@ function FlowBuilder() {
     const redo = useCallback(() => {
         const next = future.current.pop();
         if (!next) return;
-        past.current.push({
-            nodes: structuredClone(latest.current.nodes),
-            edges: structuredClone(latest.current.edges),
-        });
+        past.current.push(snapshot(latest.current));
         restore(next);
         setHistoryTick((t) => t + 1);
     }, [restore]);
@@ -424,9 +501,14 @@ function FlowBuilder() {
         [nodes, selectedNodeId]
     );
 
-    /** Deploy only makes sense when there's a button to post. */
+    /**
+     * Deploy only makes sense when there's a button to post — that is, when some
+     * node's block declares it is started by a button click. Asked of the descriptor
+     * rather than of a type string, so a second button-shaped trigger would enable
+     * Deploy without editing this page.
+     */
     const hasButtonTrigger = useMemo(
-        () => nodes.some((n) => n.data.nodeType === 'trigger.buttonClick'),
+        () => nodes.some((node) => node.data.descriptor?.startedBy === 'buttonClick'),
         [nodes]
     );
 
@@ -642,10 +724,12 @@ function FlowBuilder() {
                             }}
                             maskColor="rgba(22,23,29,0.75)"
                             nodeColor={(node) => {
-                                const type = (node.data as FlowNodeCardData).nodeType;
-                                if (type.startsWith('trigger.')) return '#43b581';
-                                if (isCondition(type)) return '#faa61a';
-                                return '#00a2ff';
+                                const { descriptor } = node.data as FlowNodeCardData;
+                                // An unknown block has no kind to colour by; red
+                                // matches how its card reads on the canvas.
+                                return descriptor
+                                    ? KIND_STYLES[descriptor.kind].miniMapColor
+                                    : '#ed4245';
                             }}
                         />
                     </ReactFlow>
@@ -663,6 +747,7 @@ function FlowBuilder() {
                     {selectedNode ? (
                         <NodeInspector
                             key={selectedNode.id}
+                            descriptor={selectedNode.data.descriptor}
                             nodeType={selectedNode.data.nodeType}
                             label={selectedNode.data.label}
                             config={selectedNode.data.config}

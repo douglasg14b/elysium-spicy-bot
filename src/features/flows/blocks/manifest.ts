@@ -191,9 +191,14 @@ export type BlockCardSummaryPart =
           /** Maximum characters of the resolved value before an ellipsis. */
           readonly truncate?: number;
           /**
-           * Rendered — as the whole part, ignoring `prefix`/`suffix`/`quote`/
-           * `truncate` — in place of the resolved value when the field is unset.
-           * Omit to fall back to the field's own empty copy.
+           * Rendered in place of the resolved value when the field is unset, still
+           * inside this part's `prefix` and `suffix` — `prefix: 'Assign '` with
+           * `emptyText: 'no role picked'` reads "Assign no role picked", which is
+           * why the shipped copy is a lowercase fragment rather than a sentence.
+           *
+           * `quote` and `truncate` are skipped: empty copy is the contract's words,
+           * not the author's own text. Under `stopIfEmpty` it *is* the whole line,
+           * decorations and all discarded.
            */
           readonly emptyText?: string;
           /** Drop this part (and its `prefix`/`suffix`) entirely when the field is unset, rather than showing `emptyText`. */

@@ -1,10 +1,34 @@
 /**
- * Per-node-type presentation metadata: the emoji/colour language shared by the
- * palette, the canvas cards and the inspector. Node *kinds* drive colour
- * (trigger=green, condition=amber, action=brand cyan) per the flow-builder mockup.
+ * Presentation helpers shared by the palette, the canvas cards and the inspector.
+ * Node *kinds* drive colour (trigger=green, condition=amber, action=brand cyan)
+ * per the flow-builder mockup.
+ *
+ * **Half of this file is already dead.** Every per-block catalogue below —
+ * `NODE_EMOJI`, `NODE_DESCRIPTION`, `branchHandles`, `summarizeNode`, `kindOf`,
+ * `isCondition`, `isWaitForEvent`, `WAIT_EVENT_LABELS` — has zero callers: the
+ * builder now renders from the block descriptor the server sends. They are kept
+ * only so their deletion is one reviewable act rather than noise inside this
+ * change, and they are the *last* copy of block metadata in the browser.
+ *
+ * **Do not edit them, and do not add to them.** Changing how a card reads means
+ * changing that block's `cardSummary` in `src/features/flows/blocks/<block>/`;
+ * editing `summarizeNode` changes nothing a user can see.
+ *
+ * Not everything here is dead, which is why the boundary is worth stating rather
+ * than inferring from position in the file: `formatDuration`, `roleColorHex`,
+ * `emptyGraph`, `KIND_STYLES`, the handle-tone palettes, `handlesAreLabelled` and
+ * `defaultDataFor` are live and generic, and they stay.
  */
 
-import type { FlowGraph, GuildChannel, GuildRole, NodeKind } from '../api/types';
+import type {
+    BlockHandleTone,
+    BlockOutputHandle,
+    FlowGraph,
+    GuildChannel,
+    GuildRole,
+    NodeDescriptor,
+    NodeKind,
+} from '../api/types';
 
 export interface KindStyle {
     /** Mantine colour key for badges/icons. */
@@ -15,6 +39,8 @@ export interface KindStyle {
     headerText: string;
     /** Translucent tint for palette icon chips. */
     softBg: string;
+    /** Flat hex for the minimap, which cannot take a gradient or a CSS variable. */
+    miniMapColor: string;
     label: string;
 }
 
@@ -24,6 +50,7 @@ export const KIND_STYLES: Record<NodeKind, KindStyle> = {
         headerGradient: 'linear-gradient(135deg, #3aa876, #43b581)',
         headerText: '#ffffff',
         softBg: 'rgba(67,181,129,.2)',
+        miniMapColor: '#43b581',
         label: 'Trigger',
     },
     condition: {
@@ -31,6 +58,7 @@ export const KIND_STYLES: Record<NodeKind, KindStyle> = {
         headerGradient: 'linear-gradient(135deg, #e0940f, #faa61a)',
         headerText: '#ffffff',
         softBg: 'rgba(250,166,26,.2)',
+        miniMapColor: '#faa61a',
         label: 'Condition',
     },
     action: {
@@ -39,6 +67,7 @@ export const KIND_STYLES: Record<NodeKind, KindStyle> = {
             'linear-gradient(135deg, var(--mantine-color-brand-7), var(--mantine-color-brand-6))',
         headerText: '#041017',
         softBg: 'rgba(0,162,255,.16)',
+        miniMapColor: '#00a2ff',
         label: 'Action',
     },
 };
@@ -142,6 +171,56 @@ export function branchHandles(type: string): { id: string | undefined; label: st
 export function hasTargetHandle(type: string): boolean {
     return kindOf(type) !== 'trigger';
 }
+
+/**
+ * A handle's declared tone as a colour, in the two forms the builder draws in.
+ *
+ * Tone is meaning; the stylesheet lives here, which is why the engine never carries
+ * one. Both forms are needed because the two renderers cannot share a value: DOM
+ * nodes take a Mantine CSS variable, while React Flow paints edges into SVG
+ * `stroke`/`fill`, which cannot resolve one. They are not the same colour in every
+ * case either — the neutral edge is deliberately dimmer than a neutral handle ring.
+ *
+ * One table keyed by tone, so adding a tone to the vocabulary cannot supply one form
+ * and forget the other.
+ */
+const HANDLE_TONE_PALETTE: Record<BlockHandleTone, { css: string; hex: string }> = {
+    positive: { css: 'var(--mantine-color-green-5)', hex: '#43b581' },
+    negative: { css: 'var(--mantine-color-red-5)', hex: '#ed4245' },
+    caution: { css: 'var(--mantine-color-yellow-5)', hex: '#faa61a' },
+    neutral: { css: 'var(--mantine-color-dark-3)', hex: '#5b5f6d' },
+};
+
+/** Tone → Mantine CSS variable, for handles and labels in the DOM. */
+export const HANDLE_TONE_COLORS: Record<BlockHandleTone, string> = {
+    positive: HANDLE_TONE_PALETTE.positive.css,
+    negative: HANDLE_TONE_PALETTE.negative.css,
+    caution: HANDLE_TONE_PALETTE.caution.css,
+    neutral: HANDLE_TONE_PALETTE.neutral.css,
+};
+
+/**
+ * Whether a block's exits should be drawn with their declared labels.
+ *
+ * Only when a block declares more than one. Every block declares at least one
+ * handle, and the single-exit blocks all call theirs "Then" — labelling those would
+ * stamp "THEN" on every such card and edge for no information gained. One exit is
+ * the unlabelled default arrow it has always been.
+ *
+ * Shared by the card and the edge renderer so the two cannot disagree about which
+ * exits are worth naming.
+ */
+export function handlesAreLabelled(handles: readonly BlockOutputHandle[]): boolean {
+    return handles.length > 1;
+}
+
+/** Tone → flat hex, for edges React Flow paints into SVG. */
+export const HANDLE_TONE_HEX: Record<BlockHandleTone, string> = {
+    positive: HANDLE_TONE_PALETTE.positive.hex,
+    negative: HANDLE_TONE_PALETTE.negative.hex,
+    caution: HANDLE_TONE_PALETTE.caution.hex,
+    neutral: HANDLE_TONE_PALETTE.neutral.hex,
+};
 
 function str(data: Record<string, unknown>, key: string): string {
     const value = data[key];
@@ -265,35 +344,22 @@ export function formatDuration(ms: number): string {
     return parts.length > 0 ? parts.join(' ') : `${ms}ms`;
 }
 
-/** Sensible starting `data` when a node is dropped onto the canvas. */
-export function defaultDataFor(type: string): Record<string, unknown> {
-    switch (type) {
-        case 'trigger.buttonClick':
-            return { label: 'Click me', style: 'Primary' };
-        case 'trigger.reactionAdd':
-            return { channelId: '', messageId: '', emoji: '' };
-        case 'condition.hasRole':
-        case 'action.assignRole':
-        case 'action.removeRole':
-            return { roleId: '' };
-        case 'condition.inChannel':
-            return { channelId: '' };
-        case 'action.sendDM':
-            return { message: '' };
-        case 'action.sendMessage':
-            return { channelId: '', message: '' };
-        case 'action.postEmbed':
-            return { channelId: '', title: '', description: '', color: '#00A2FF' };
-        case 'action.delay':
-            // Five minutes is a sane, obviously-editable starting point.
-            return { durationMs: 5 * 60_000 };
-        case 'action.waitForEvent':
-            // `timeoutMs` is optional server-side and must be positive when present,
-            // so leave it off entirely rather than seeding a zero.
-            return { eventKind: 'buttonClick' };
-        default:
-            return {};
+/**
+ * Sensible starting `data` when a node is dropped onto the canvas, seeded from the
+ * block's own declared `defaultValue`s.
+ *
+ * A field with no declared default seeds nothing. That is deliberate: an empty
+ * string was never a meaningful default, and the schema rejects one anyway, so a
+ * key is better absent than present-and-invalid.
+ */
+export function defaultDataFor(descriptor: NodeDescriptor): Record<string, unknown> {
+    const data: Record<string, unknown> = {};
+    for (const field of descriptor.configFields) {
+        if (field.defaultValue !== undefined) {
+            data[field.key] = field.defaultValue;
+        }
     }
+    return data;
 }
 
 /** An empty graph, used when creating a flow or recovering from a missing one. */
