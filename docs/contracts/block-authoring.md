@@ -77,6 +77,14 @@ empty rather than omitted, so a reader can see you meant it.
 | `canSuspend` | Whether `run` may park the run. State it truthfully; conformance holds you to it. |
 | `run` | The entry point. See [The entry point](#the-entry-point). |
 
+**Your manifest is served to the browser.** `GET /api/nodes` sends every member except
+`configSchema` and `run`, so the builder can draw your node — palette entry, card, and
+inspector form — from what you declare rather than from a copy of it. That is a subtraction,
+not a list: a member added to `BlockManifest` is public to every authenticated dashboard user
+the moment it exists. A server-only member must be named in `NON_WIRE_MEMBERS` in
+`src/web/api/nodeRoutes.ts`, which will not compile until that route withholds it as well —
+the list and the route cannot drift.
+
 ## The entry point
 
 Every block — trigger, condition, action, suspending or not — implements exactly one method:
@@ -274,6 +282,38 @@ So, in order:
 3. If you think you need a fourth step outcome: you almost certainly do not — read
    [The entry point](#the-entry-point) again. If you still do, the block contract is wrong
    somewhere else. Treat it as a report about the contract, not as an enum to append to.
+
+### Extending the vocabulary or the manifest means editing the browser too
+
+The one-directory rule covers **adding a block**. Changing the *contract* — a new vocabulary
+member under step 1, or a new manifest member under step 2 — is the case where you do edit a
+shared file, because the browser holds a hand-written mirror of the manifest in
+`web/src/api/types.ts` (`NodeDescriptor` and the `BLOCK_*` vocabularies beside it).
+
+The mirror exists because the web workspace cannot import the bot's types: one `import type`
+from `src/` drags the whole bot tree into `tsc -b` and breaks `pnpm build:web`. So the two are
+kept together by `src/web/api/__tests__/nodeDescriptorDrift.test.ts`, which fails naming the
+field or union that drifted, in either direction. You do not have to remember this rule — the
+test tells you, and it tells you which of the two fixes you want:
+
+- the member is for the builder → declare it in `web/src/api/types.ts` (add it to
+  `NodeDescriptor` **and** `NODE_DESCRIPTOR_KEYS`, or to the vocabulary array)
+- the member is server-only → add it to `NON_WIRE_MEMBERS` in `src/web/api/nodeRoutes.ts`, which
+  will not compile until the route withholds it too
+
+This covers the arms of `BlockConfigField` too, member by member — adding `maxLength` to one
+control's arm and not the other side fails, because a member the browser does not declare is one
+the inspector cannot read off a field it is being sent.
+
+One gap to know about: the test derives what is served from the blocks that actually exist, so a
+**new optional top-level member no block sets yet** is served-as-absent and the test stays quiet
+about it. That is the one case you have to carry yourself — declare it in the mirror when you add
+it, not when the first block sets it. (It does not apply to the config-field arms, which are
+compared against an exhaustive fixture rather than live blocks.)
+
+Everything a manifest declares except `configSchema` and `run` is served to the browser by
+`GET /api/nodes`, so a new member is published to every authenticated dashboard user by
+default. That is the reason the second option has to be a deliberate act.
 
 Every block that ships is written against this contract — the earlier shape, with three
 separate per-kind entry points, is gone. There is one way to declare a block.

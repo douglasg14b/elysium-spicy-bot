@@ -221,6 +221,19 @@ export type BlockCapability = (typeof BLOCK_CAPABILITIES)[number];
  * parameter: validity of declared defaults against the schema is proven by
  * parsing them in the conformance suite, which catches a wrong type, an
  * out-of-range value, and disagreement with a schema `.default()` alike.
+ *
+ * **Every member here except `configSchema` and `run` is served to the browser**
+ * by `GET /api/nodes`, so that the builder can draw a node from what this declares
+ * rather than from a copy. Adding a member therefore publishes it to every
+ * authenticated dashboard user by default. A server-only member must be added to
+ * `NON_WIRE_MEMBERS` in `src/web/api/nodeRoutes.ts`, which will not compile until
+ * that route withholds it too.
+ *
+ * The browser mirrors this by hand in `web/src/api/types.ts`, and
+ * `src/web/api/__tests__/nodeDescriptorDrift.test.ts` fails when the two disagree —
+ * with one exception to carry yourself: it reads what is served off the blocks that
+ * exist, so **a new optional member here that no block sets yet is invisible to it.**
+ * Mirror an optional member when you add it, not when the first block sets it.
  */
 export interface BlockManifest<TConfig = unknown> {
     /** Stable identifier persisted in every saved graph, e.g. `action.assignRole`. */

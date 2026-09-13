@@ -1,4 +1,15 @@
-/** Shapes returned by the SpicyBot API. Kept in sync with `src/web/api/*` by hand. */
+/**
+ * Shapes returned by the SpicyBot API. Kept in sync with `src/web/api/*` by hand,
+ * with one exception: {@link NodeDescriptor} and the block vocabularies around it
+ * are held to the server's block manifest by
+ * `src/web/api/__tests__/nodeDescriptorDrift.test.ts`, which fails naming the field
+ * or the union whenever the two disagree.
+ *
+ * The mirror is hand-written because it has to be. A single `import type` from
+ * `src/` inside this workspace drags the whole bot tree into `tsc -b` — the first
+ * half of `pnpm build:web` — and the build fails. This is the one file where that
+ * trade is made, and the drift test is the price of making it.
+ */
 
 export interface AuthUser {
     id: string;
@@ -36,14 +47,254 @@ export interface GuildRole {
  * Flows
  * ------------------------------------------------------------------ */
 
-export type NodeKind = 'trigger' | 'condition' | 'action';
+/**
+ * The block vocabularies, mirroring the server's closed unions.
+ *
+ * Declared `as const` arrays rather than bare unions so the drift test can compare
+ * them against the server's own constants as **data**, member by member — a widened
+ * vocabulary is otherwise invisible to a check that only compares field names.
+ */
+export const NODE_KINDS = ['trigger', 'condition', 'action'] as const;
 
-/** An available node type from the engine's registry (`GET /api/nodes`). */
-export interface NodeTypeInfo {
-    type: string;
-    kind: NodeKind;
+export type NodeKind = (typeof NODE_KINDS)[number];
+
+/** Palette section a block is offered in. */
+export const BLOCK_PALETTE_GROUPS = ['triggers', 'conditions', 'actions'] as const;
+
+export type BlockPaletteGroup = (typeof BLOCK_PALETTE_GROUPS)[number];
+
+/** What makes a trigger fire. Set by triggers and by nothing else. */
+export const BLOCK_TRIGGER_SOURCES = ['buttonClick', 'memberJoin', 'reactionAdd'] as const;
+
+export type BlockTriggerSource = (typeof BLOCK_TRIGGER_SOURCES)[number];
+
+/** The editor widget a config field asks for. Each is implemented once here. */
+export const BLOCK_CONTROL_TYPES = [
+    'rolePicker',
+    'channelPicker',
+    'text',
+    'longText',
+    'duration',
+    'segmented',
+    'select',
+    'colour',
+] as const;
+
+export type BlockControlType = (typeof BLOCK_CONTROL_TYPES)[number];
+
+/** One choice offered by a `segmented` or `select` control. */
+export interface BlockConfigOption {
+    /** The value persisted in `node.data`. */
+    value: string;
     label: string;
 }
+
+interface BlockConfigFieldBase {
+    /** The `node.data` key this control edits. */
+    key: string;
+    label: string;
+    /** Helper text under the control. */
+    description?: string;
+}
+
+/**
+ * One editable config field, ordered as the inspector should render it.
+ *
+ * Discriminated on `control` exactly as the server declares it, so each widget
+ * carries only its own options — narrowing on `control` gives the inspector the
+ * right extras and nothing else.
+ */
+export type BlockConfigField =
+    | (BlockConfigFieldBase & { control: 'rolePicker'; defaultValue?: string })
+    | (BlockConfigFieldBase & { control: 'channelPicker'; defaultValue?: string })
+    | (BlockConfigFieldBase & {
+          control: 'text';
+          placeholder?: string;
+          maxLength?: number;
+          defaultValue?: string;
+      })
+    | (BlockConfigFieldBase & {
+          control: 'longText';
+          placeholder?: string;
+          maxLength?: number;
+          defaultValue?: string;
+      })
+    | (BlockConfigFieldBase & {
+          /** Clearing the number removes the key entirely rather than writing a zero. */
+          control: 'duration';
+          optional?: boolean;
+          defaultValue?: number;
+      })
+    | (BlockConfigFieldBase & {
+          control: 'segmented';
+          options: BlockConfigOption[];
+          defaultValue?: string;
+      })
+    | (BlockConfigFieldBase & {
+          control: 'select';
+          options: BlockConfigOption[];
+          defaultValue?: string;
+      })
+    | (BlockConfigFieldBase & {
+          control: 'colour';
+          swatches?: string[];
+          defaultValue?: string;
+      });
+
+/** Meaning of an output handle. The builder maps a tone to a colour. */
+export const BLOCK_HANDLE_TONES = ['neutral', 'positive', 'negative', 'caution'] as const;
+
+export type BlockHandleTone = (typeof BLOCK_HANDLE_TONES)[number];
+
+/** One way a run can leave a block. */
+export interface BlockOutputHandle {
+    /** Omitted for the default, unnamed outgoing edge. */
+    id?: string;
+    label: string;
+    tone: BlockHandleTone;
+}
+
+/** A value a block writes for later blocks to read. */
+export interface BlockOutputDeclaration {
+    /** Reference name later blocks use. */
+    key: string;
+    label: string;
+    description?: string;
+}
+
+/** What a block needs to be present in the run context. */
+export const FLOW_CONTEXT_REQUIREMENTS = ['member', 'interaction'] as const;
+
+export type FlowContextRequirement = (typeof FLOW_CONTEXT_REQUIREMENTS)[number];
+
+/** A Discord permission the bot must hold for a block to work. */
+export const BLOCK_CAPABILITIES = ['manageRoles', 'sendMessages', 'embedLinks'] as const;
+
+export type BlockCapability = (typeof BLOCK_CAPABILITIES)[number];
+
+/**
+ * An available block from the engine's registry (`GET /api/nodes`) — everything
+ * the builder needs in order to draw it.
+ *
+ * The server derives this by subtracting `configSchema` and `run` from its own
+ * `BlockManifest`, so every other manifest member arrives here. Why it is mirrored
+ * by hand, and what holds the mirror honest, is in the file header.
+ */
+export interface NodeDescriptor {
+    /** Stable identifier persisted in every saved graph, e.g. `action.assignRole`. */
+    type: string;
+    kind: NodeKind;
+    /** Short name shown in the palette, on the card, and in the inspector. */
+    label: string;
+    /** One line explaining what the block does. */
+    description: string;
+    group: BlockPaletteGroup;
+    /** Palette and card glyph. */
+    icon: string;
+    /** Config fields in the order the inspector should show them. */
+    configFields: BlockConfigField[];
+    /** Every way a run can leave this block. */
+    handles: BlockOutputHandle[];
+    /** Values this block writes for later blocks. */
+    outputs: BlockOutputDeclaration[];
+    /** Run-context this block cannot work without. */
+    requires: FlowContextRequirement[];
+    /** Discord permissions the bot needs for this block. */
+    capabilities: BlockCapability[];
+    /** Whether this block may park its run. */
+    canSuspend: boolean;
+    /** What fires this trigger. Absent on conditions and actions. */
+    startedBy?: BlockTriggerSource;
+}
+
+/**
+ * Every member of {@link NodeDescriptor}, as data the drift test can read.
+ *
+ * The list and the interface are held together **by the compiler**, in both
+ * directions and without parsing anything: `satisfies` rejects a name that is not
+ * a member, and {@link NodeDescriptorKeysAreComplete} below rejects a member that
+ * is missing from the list. `tsc -b` runs as the first half of `pnpm build:web`, so
+ * the two cannot disagree in a build that passes.
+ *
+ * Exported for `src/web/api/__tests__/nodeDescriptorDrift.test.ts`, which compares
+ * it against the fields the bot actually serves. That test runs in the root
+ * workspace and imports this array at runtime; it is not typechecked there, which
+ * is exactly why the guarantee has to live here.
+ */
+export const NODE_DESCRIPTOR_KEYS = [
+    'type',
+    'kind',
+    'label',
+    'description',
+    'group',
+    'icon',
+    'configFields',
+    'handles',
+    'outputs',
+    'requires',
+    'capabilities',
+    'canSuspend',
+    'startedBy',
+] as const satisfies readonly (keyof NodeDescriptor)[];
+
+/**
+ * Every member of each {@link BlockConfigField} arm, keyed by its control.
+ *
+ * The top-level descriptor is not the only hand-mirrored shape: `configFields` is a
+ * discriminated union whose arms are mirrored member by member, and it is the shape
+ * most likely to change next, since the inspector renders from it. A property added
+ * to one arm on the server alone is invisible to a check that only compares
+ * top-level names — the browser would be sent a value it cannot type.
+ *
+ * Same mechanism as {@link NODE_DESCRIPTOR_KEYS}, one level down: `satisfies` rejects
+ * a name that is not a member of that arm, {@link ConfigFieldKeysAreComplete} rejects
+ * a member missing from its list, and the drift test compares the whole table against
+ * the server's own union.
+ */
+export const BLOCK_CONFIG_FIELD_KEYS = {
+    rolePicker: ['key', 'label', 'description', 'control', 'defaultValue'],
+    channelPicker: ['key', 'label', 'description', 'control', 'defaultValue'],
+    text: ['key', 'label', 'description', 'control', 'placeholder', 'maxLength', 'defaultValue'],
+    longText: ['key', 'label', 'description', 'control', 'placeholder', 'maxLength', 'defaultValue'],
+    duration: ['key', 'label', 'description', 'control', 'optional', 'defaultValue'],
+    segmented: ['key', 'label', 'description', 'control', 'options', 'defaultValue'],
+    select: ['key', 'label', 'description', 'control', 'options', 'defaultValue'],
+    colour: ['key', 'label', 'description', 'control', 'swatches', 'defaultValue'],
+} as const satisfies { [TControl in BlockControlType]: readonly (keyof Extract<BlockConfigField, { control: TControl }>)[] };
+
+/**
+ * Fails to compile if any {@link BlockConfigField} arm gains a member absent from
+ * {@link BLOCK_CONFIG_FIELD_KEYS}. `satisfies` above only checks the other direction.
+ */
+type ConfigFieldKeysAreComplete = {
+    [TControl in BlockControlType]: Exclude<
+        keyof Extract<BlockConfigField, { control: TControl }>,
+        (typeof BLOCK_CONFIG_FIELD_KEYS)[TControl][number]
+    >;
+}[BlockControlType];
+
+/** Do not delete as unused: removing it erases the guard above. */
+const configFieldKeysAreComplete: [ConfigFieldKeysAreComplete] extends [never]
+    ? true
+    : ['BLOCK_CONFIG_FIELD_KEYS is missing', ConfigFieldKeysAreComplete] = true;
+
+void configFieldKeysAreComplete;
+
+/**
+ * Fails to compile if {@link NodeDescriptor} gains a member absent from
+ * {@link NODE_DESCRIPTOR_KEYS}. `satisfies` alone only checks the other direction.
+ */
+type NodeDescriptorKeysAreComplete = Exclude<
+    keyof NodeDescriptor,
+    (typeof NODE_DESCRIPTOR_KEYS)[number]
+> extends never
+    ? true
+    : ['NODE_DESCRIPTOR_KEYS is missing', Exclude<keyof NodeDescriptor, (typeof NODE_DESCRIPTOR_KEYS)[number]>];
+
+/** Do not delete as unused: removing it erases the guard above. */
+const nodeDescriptorKeysAreComplete: NodeDescriptorKeysAreComplete = true;
+
+void nodeDescriptorKeysAreComplete;
 
 export interface FlowNode {
     id: string;

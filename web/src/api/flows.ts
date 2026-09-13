@@ -7,12 +7,12 @@ import type {
     FlowGraph,
     FlowSummary,
     GuildRole,
-    NodeTypeInfo,
+    NodeDescriptor,
 } from './types';
 
 /** The node registry — what the palette can offer. Not guild-scoped. */
-export function getNodeTypes(): Promise<NodeTypeInfo[]> {
-    return api.get<{ nodes: NodeTypeInfo[] }>('/api/nodes').then((res) => res.nodes);
+export function getNodeTypes(): Promise<NodeDescriptor[]> {
+    return api.get<{ nodes: NodeDescriptor[] }>('/api/nodes').then((res) => res.nodes);
 }
 
 /** Guild roles, for the role pickers. */

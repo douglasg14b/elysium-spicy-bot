@@ -7,7 +7,7 @@
 import { useMemo, useState } from 'react';
 import { ScrollArea, Stack, Text, TextInput, UnstyledButton } from '@mantine/core';
 import { IconSearch } from '@tabler/icons-react';
-import type { NodeKind, NodeTypeInfo } from '../api/types';
+import type { NodeKind, NodeDescriptor } from '../api/types';
 import { KIND_STYLES, nodeEmoji } from './nodeMeta';
 
 /** The dataTransfer key the canvas reads on drop. */
@@ -20,8 +20,8 @@ const GROUPS: Array<{ kind: NodeKind; heading: string }> = [
 ];
 
 interface NodePaletteProps {
-    nodeTypes: NodeTypeInfo[];
-    onAdd: (nodeType: NodeTypeInfo) => void;
+    nodeTypes: NodeDescriptor[];
+    onAdd: (nodeType: NodeDescriptor) => void;
 }
 
 export function NodePalette({ nodeTypes, onAdd }: NodePaletteProps) {
@@ -94,8 +94,8 @@ function PaletteItem({
     entry,
     onAdd,
 }: {
-    entry: NodeTypeInfo;
-    onAdd: (nodeType: NodeTypeInfo) => void;
+    entry: NodeDescriptor;
+    onAdd: (nodeType: NodeDescriptor) => void;
 }) {
     const style = KIND_STYLES[entry.kind];
 

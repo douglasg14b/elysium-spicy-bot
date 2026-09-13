@@ -56,7 +56,7 @@ import type {
     FlowGraph,
     GuildChannel,
     GuildRole,
-    NodeTypeInfo,
+    NodeDescriptor,
 } from '../api/types';
 import { FlowNodeCard, type FlowCardNode, type FlowNodeCardData } from '../flows/FlowNodeCard';
 import { NodePalette, NODE_DRAG_MIME } from '../flows/NodePalette';
@@ -104,7 +104,7 @@ function FlowBuilder() {
     const [nodes, setNodes, onNodesChange] = useNodesState<FlowCardNode>([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
-    const [nodeCatalog, setNodeCatalog] = useState<NodeTypeInfo[]>([]);
+    const [nodeCatalog, setNodeCatalog] = useState<NodeDescriptor[]>([]);
     const [roles, setRoles] = useState<GuildRole[]>([]);
     const [channels, setChannels] = useState<GuildChannel[]>([]);
 
@@ -221,7 +221,7 @@ function FlowBuilder() {
     /* --------------------------- mutations --------------------------- */
 
     const addNode = useCallback(
-        (entry: NodeTypeInfo, position?: { x: number; y: number }) => {
+        (entry: NodeDescriptor, position?: { x: number; y: number }) => {
             pushHistory();
             const id = `${entry.type.split('.')[1] ?? 'node'}-${Date.now().toString(36)}`;
             const node: FlowCardNode = {
