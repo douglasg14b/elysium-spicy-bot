@@ -13,6 +13,8 @@ function contextInChannel(channelId?: string): FlowRunContext {
         guild: { id: 'guild-1' } as FlowRunContext['guild'],
         subject: {} as FlowRunContext['subject'],
         channel: channelId ? ({ id: channelId } as FlowRunContext['channel']) : undefined,
+        runId: 'run-1',
+        nodeId: 'node-1',
         variables: {},
         setOutput: () => {},
     };
@@ -68,6 +70,8 @@ describe('action.postEmbed', () => {
             } as unknown as FlowRunContext['client'],
             guild: { id: 'guild-1' } as FlowRunContext['guild'],
             subject: {} as FlowRunContext['subject'],
+            runId: 'run-1',
+            nodeId: 'node-1',
             variables: {},
             setOutput: () => {},
         };
@@ -119,6 +123,8 @@ describe('action.postEmbed', () => {
             } as unknown as FlowRunContext['client'],
             guild: { id: 'guild-1' } as FlowRunContext['guild'],
             subject: {} as FlowRunContext['subject'],
+            runId: 'run-1',
+            nodeId: 'node-1',
             variables: {},
             setOutput: () => {},
         };

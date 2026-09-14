@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { FLOW_MAX_NODE_VISITS, FLOW_MAX_VARIABLES_SIZE } from '../constants';
 import type { FlowEdge, FlowGraph, FlowNode } from '../data/flowGraph';
 import { flowRunsRepo } from '../data/flowRunsRepo';
@@ -74,6 +75,15 @@ export type ExecOutcome =
     | { kind: 'suspended'; suspension: FlowSuspension };
 
 export interface ExecuteSegmentOptions {
+    /**
+     * The run's durable id, handed to every block as `context.runId`.
+     *
+     * Supplied by the caller rather than minted here, because a resumed segment
+     * must carry the id of the row it came from — a fresh id would address a run
+     * that does not exist. {@link executeFlow} mints one for a new run and passes
+     * it to the row it later creates, so the two can never disagree.
+     */
+    runId: string;
     /** Node to begin at. A trigger node on a fresh run; any node on a resume. */
     startNodeId: string;
     /**
@@ -239,6 +249,8 @@ export async function executeFlowSegment(
         let acceptsWrites = true;
         const stepContext: FlowRunContext = {
             ...context,
+            runId: options.runId,
+            nodeId: node.id,
             variables,
             setOutput: (key, value) => {
                 if (!acceptsWrites) {
@@ -373,10 +385,24 @@ export async function executeFlow(
     graph: FlowGraph,
     triggerNodeId: string,
     context: FlowRunSeed,
-    onSuspend: (suspension: FlowSuspension) => Promise<void> = (suspension) =>
-        persistNewSuspendedRun(flowId, context, suspension)
+    onSuspend?: (suspension: FlowSuspension) => Promise<void>
 ): Promise<FlowRunResult> {
+    /*
+     * Minted before the walk, not when the row is written.
+     *
+     * A block that posts a component a press must route back to needs to name its
+     * own run while it is still running — and on a fresh run the row does not
+     * exist yet, because a row is only written once something parks. Generating
+     * the id here and handing the *same* one to the row closes that: the id a
+     * button carries is the id the row is later created with.
+     *
+     * A run that never parks spends this id on nothing, which costs one UUID.
+     */
+    const runId = randomUUID();
+    const persist = onSuspend ?? ((suspension) => persistNewSuspendedRun(flowId, runId, context, suspension));
+
     const outcome = await executeFlowSegment(flowId, graph, context, {
+        runId,
         startNodeId: triggerNodeId,
         requireTrigger: true,
     });
@@ -387,7 +413,7 @@ export async function executeFlow(
 
     const { suspension } = outcome;
     try {
-        await onSuspend(suspension);
+        await persist(suspension);
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown suspension-persistence error';
         return failResult(
@@ -422,10 +448,14 @@ export async function executeFlow(
  */
 async function persistNewSuspendedRun(
     flowId: string,
+    runId: string,
     context: FlowRunSeed,
     suspension: FlowSuspension
 ): Promise<void> {
     await flowRunsRepo.create({
+        // Supplied, not generated: a block that parked may already have posted a
+        // component naming this id, so the row has to be the one it named.
+        runId,
         flowId,
         guildId: context.guild.id,
         contextSnapshot: {

@@ -163,6 +163,28 @@ export interface FlowRunSeed {
  */
 export interface FlowRunContext extends FlowRunSeed {
     /**
+     * This run's durable id, and the id of the node currently running.
+     *
+     * Together they address **this member's run at this node**, which is what a
+     * block needs to post a component a press can route back to. A flow id and a
+     * node id are not enough: two members can be parked at the same node of the
+     * same flow at once, and a button naming only the graph would advance
+     * whichever run the engine found first.
+     *
+     * `runId` is minted when the run starts rather than when it parks, so it is
+     * available here on the first leg — before any row exists. That ordering is
+     * deliberate and has one consequence worth knowing: a component posted during
+     * `run` names a row that is written moments later, when the executor persists
+     * the suspension. A press landing inside that window finds no run, which the
+     * dispatcher reports as a question that is not ready rather than as a
+     * question that is gone.
+     *
+     * Present on every run, parking or not — a block that never parks simply has
+     * no use for them.
+     */
+    readonly runId: string;
+    readonly nodeId: string;
+    /**
      * Record a value for later blocks to read, under a key this block declared.
      *
      * A method rather than a slot on the step outcome because a suspending block

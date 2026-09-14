@@ -469,6 +469,7 @@ describe('a recorded value survives a park and resume', () => {
         const { context } = makeSeed();
 
         const outcome = await executeFlowSegment('flow-1', graph, context, {
+            runId: 'run-1',
             startNodeId: 'trigger',
             requireTrigger: true,
         });

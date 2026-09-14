@@ -352,6 +352,9 @@ async function advanceClaimedRun(
     // The run resumes AT the node that parked it, which is re-entered and told
     // why it woke. Choosing the exit is that block's job, not this one's.
     const outcome = await executeFlowSegment(run.flowId, flow.graph, rebuilt.context, {
+        // The row's own id, so a block re-entered here addresses the run it is
+        // actually in — a fresh one would name a run nothing can find.
+        runId: run.runId,
         startNodeId: run.resumeNodeId,
         triggerNodeId: run.resumeNodeId,
         visitsUsed: run.visitsUsed,

@@ -5,6 +5,46 @@ export const FLOW_ENTITY_VERSION = 1;
 export const FLOW_CUSTOM_ID_PREFIX = 'flow';
 
 /**
+ * Prefix for the buttons a parked run posts to ask a question:
+ * `flowc:<runId>:<nodeId>:<index>`.
+ *
+ * **A second prefix rather than a fourth segment on the first.** `parseFlowCustomId`
+ * returns null on anything but exactly three segments, so extending that scheme in
+ * place would break every trigger button already deployed in a guild.
+ *
+ * These two are safe alongside each other **because of the trailing colon**, and it
+ * is worth being exact about that, because the two obvious reasons are both wrong.
+ * It is not that the strings differ — `resolveDynamicHandler` matches by
+ * `startsWith`, so distinctness alone proves nothing. Nor is it longest-prefix-wins:
+ * `'flowc:x'.startsWith('flow:')` is **false**, so there is no contest to win.
+ * Registration adds the colon to both (`initFlows.ts`), and that is the whole of it.
+ * Register either without one and these ids route into the trigger handler, which
+ * parses them to null and answers "Malformed flow button id" — a confusing
+ * user-facing error rather than a crash, which is the worst kind to debug.
+ * `registerDynamic` throws only on an exact duplicate prefix and will not warn.
+ */
+export const FLOW_CHOICE_CUSTOM_ID_PREFIX = 'flowc';
+
+/**
+ * Discord's hard cap on a component `custom_id`, in characters.
+ *
+ * Load-bearing rather than documentation: a run whose ids would exceed it must
+ * fail while building the message, naming the run and the node, rather than
+ * having Discord reject the whole post at send time with a validation error that
+ * names none of them.
+ */
+export const DISCORD_CUSTOM_ID_MAX_LENGTH = 100;
+
+/**
+ * Most choices one question may offer.
+ *
+ * Discord's own limit on buttons in a single action row. A question needing more
+ * than five wants a select menu, which `SupportedInteractionBuilder` does not
+ * carry yet — so this is the real ceiling, not a cautious one.
+ */
+export const FLOW_MAX_CHOICES = 5;
+
+/**
  * Hard cap on how many nodes a single flow run may visit. Since Phase 5 graphs
  * may legally contain cycles, so this is *the* guard that stops a loop running
  * forever — not merely defence in depth.

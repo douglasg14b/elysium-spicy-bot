@@ -240,6 +240,7 @@ describe('action.delay', () => {
         const before = Date.now();
 
         const outcome = await executeFlowSegment('flow-1', buildDelayGraph(), context, {
+            runId: 'run-1',
             startNodeId: 'trigger',
             requireTrigger: true,
         });
@@ -292,6 +293,7 @@ describe('action.delay', () => {
         const { context } = makeContext();
 
         const outcome = await executeFlowSegment('flow-1', graph, context, {
+            runId: 'run-1',
             startNodeId: 'trigger',
             requireTrigger: true,
         });
@@ -446,6 +448,7 @@ describe('visit budget across resumes', () => {
         const { context } = makeContext();
 
         const outcome = await executeFlowSegment('flow-loop', loop, context, {
+            runId: 'run-1',
             startNodeId: 'trigger',
             visitsUsed: FLOW_MAX_NODE_VISITS - 1,
         });
@@ -462,6 +465,7 @@ describe('action.waitForEvent', () => {
         const { context, userSend } = makeContext();
 
         const outcome = await executeFlowSegment('flow-1', buildWaitGraph({ timeoutMs: DELAY_MS }), context, {
+            runId: 'run-1',
             startNodeId: 'trigger',
             requireTrigger: true,
         });
@@ -481,6 +485,7 @@ describe('action.waitForEvent', () => {
         const { context } = makeContext();
 
         const outcome = await executeFlowSegment('flow-1', buildWaitGraph(), context, {
+            runId: 'run-1',
             startNodeId: 'trigger',
             requireTrigger: true,
         });
