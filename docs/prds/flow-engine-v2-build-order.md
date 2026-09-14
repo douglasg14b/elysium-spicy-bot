@@ -37,10 +37,10 @@ The bar is PRD §1.3 exactly: *a block can consume a value another block produce
 
 | Slice | Content | Status |
 |---|---|---|
-| **A** | Context split — `subject` / `actor` / `channel` / `variables` on `FlowRunContext`, requirements declared and validated | **Done**, uncommitted |
-| **B** | Variables flow — `context.setOutput` writes, the bag rides `FlowSuspension`, one shared token renderer expands `{{subject.mention}}`, `{{actor.mention}}`, `{{guild.name}}`, `{{var.<name>}}` | Next |
-| **C** | Persist it — `flow_runs.contextSnapshot` carries subject, channel, and variables across a park | After B |
-| **D** | **Run it against the real guild** | After C |
+| **A** | Context split — `subject` / `actor` / `channel` / `variables` on `FlowRunContext`, requirements declared and validated | **Done** (`18ba61a`) |
+| **B** | Variables flow — `context.setOutput` writes, the bag rides `FlowSuspension`, one shared token renderer expands `{{subject.mention}}`, `{{actor.mention}}`, `{{guild.name}}`, `{{var.<name>}}` | **Done** (`18ba61a`) |
+| **C** | Persist it — `flow_runs.contextSnapshot` carries the channel across a park; variables get their own column | **Done** (`21ce4e7`) |
+| **D** | **Run it against the real guild** | **Next — and the only thing left in step 2** |
 
 Slice D is not optional and not a formality. **Nothing in this engine has ever been exercised against a live Discord guild or in a real browser** — M1 was verified structurally only. Every deferred decision below is a guess until D happens.
 

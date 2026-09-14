@@ -139,7 +139,21 @@ type Equals<Left, Right> = (<Probe>() => Probe extends Left ? 1 : 2) extends <Pr
     ? true
     : false;
 type AssertTrue<Condition extends true> = Condition;
-type _SnapshotShapesAgree = AssertTrue<Equals<FlowRunContextSnapshot, z.infer<typeof contextSnapshotSchema>>>;
+type SnapshotShapesAgree = AssertTrue<Equals<FlowRunContextSnapshot, z.infer<typeof contextSnapshotSchema>>>;
+
+/**
+ * Do not delete as unused: removing it erases the guard above.
+ *
+ * The alias alone is enough for `tsc` — `AssertTrue`'s constraint is checked where it
+ * is declared, not where it is used — but an alias nothing references reads as dead
+ * code, and `noUnusedLocals` would report it as exactly that. The leading-underscore
+ * convention does not help here; it exempts parameters, not type declarations. So the
+ * guard is anchored to a value the same way `nodeDescriptorDrift.test.ts` anchors its
+ * own, which is the one other compile-time guard in this repo.
+ */
+const snapshotShapesAgree: SnapshotShapesAgree = true;
+
+void snapshotShapesAgree;
 
 /**
  * The stored variable bag: flat, scalar-only, exactly as {@link FlowVariableValue}
