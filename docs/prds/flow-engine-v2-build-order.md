@@ -92,7 +92,7 @@ Slice C mutates durable data, which reads like the strategy's "irreversible" cla
 - **`birthdayAnnouncementService.test.ts`** depends on the wall clock and fails at night.
 - **Block discovery is re-run per test file.** Ten test files each call `ensureBlocksDiscovered`, and each does a filesystem scan plus a dynamic import per block directory (~2–3.5s on Windows). Slice B raised `testTimeout` to 20s because the work is genuinely slow rather than hung — but the real fix is caching discovery once per process. Worth doing when something else touches `blocks/registry.ts`.
 - **`web/` has no test runner**, so browser-side claims are proven by compile-time guards, the drift gate, or node-side unit tests over pure functions.
-- **There is no CI.** Every gate runs only for whoever runs the suite.
+- **There is no CI, and this is broader than the test suite.** `pnpm build` is `tsc --noEmit`, but nothing invokes it: the three `.github/workflows/` files are Jarvis issue/PR automation, the `Dockerfile` runs only `build:web`, and there is no ESLint, Biome, or git hook. So the vitest gates, the typecheck, *and* the compile-time guards (`_SnapshotShapesAgree` in `flowRunsRepo.ts`, `FixturesAreExhaustive` in `nodeDescriptorDrift.test.ts`) all fire only for whoever runs them locally. The 17 standing `tsc` errors are the evidence: nothing has been enforcing a typecheck for long enough that they accumulated.
 
 ## Open, to be answered by running it
 
