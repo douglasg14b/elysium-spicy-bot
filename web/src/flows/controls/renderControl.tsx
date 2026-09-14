@@ -10,6 +10,7 @@
 import type { ReactElement } from 'react';
 import { Text } from '@mantine/core';
 import type { BlockConfigField } from '../../api/types';
+import { EligibilityControl } from './EligibilityControl';
 import { ChannelPickerControl, RolePickerControl } from './PickerControls';
 import { ColourControl } from './ColourControl';
 import { DurationControl } from './DurationControl';
@@ -53,6 +54,8 @@ export function renderControl(
             return <ColourControl field={field} {...props} />;
         case 'textList':
             return <TextListControl field={field} {...props} />;
+        case 'eligibility':
+            return <EligibilityControl field={field} {...props} />;
         default: {
             // Adding a member to `BLOCK_CONTROL_TYPES` without implementing it here
             // is a compile error, by design.

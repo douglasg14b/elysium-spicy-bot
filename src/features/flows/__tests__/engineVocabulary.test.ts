@@ -92,6 +92,24 @@ const DOMAIN_VOCABULARY = [
     // two halves of the member split, and `variable` is the bag one block leaves
     // for another. None of them names a use case.
     'subject', 'actor', 'variable',
+    // Who may start or advance a run. An engine concept rather than a feature:
+    // §5.4 makes eligibility a property of *every* trigger, so the interpreter is
+    // the only place it can live — a check enforced per block would be absent from
+    // whichever surface nobody remembered. `principal` names who is admitted;
+    // neither word says what the guarded flow is *for*, which is the line this
+    // gate draws.
+    //
+    // **The concept is named `eligibility`, not `audience`, because of this
+    // test.** `audience` is a PROVEN_REJECTION — "the audience for this welcome
+    // message" is exactly the use-case noun the gate exists to keep out — and
+    // admitting it would have blinded the check to that leak to buy one word.
+    // The PRD calls the feature an audience gate; the engine calls it
+    // eligibility, which is also §5.4's own word for it.
+    //
+    // Note what is deliberately **not** here either: `moderator`. That would be
+    // the engine naming a guild's staff structure — `roles` and `permission`
+    // already express it without the engine knowing whose they are.
+    'eligibility', 'eligible', 'ineligible', 'gate', 'principal',
     // Block taxonomy
     'trigger', 'condition', 'action', 'kind', 'group', 'output', 'capability',
     'capabilities', 'requirement', 'control', 'tone',
@@ -157,6 +175,23 @@ const GENERIC_VOCABULARY = [
     // `ticket`, `prompt` or the rest. The no-slack property still holds.
     'cause', 'equals', 'assert', 'true', 'agree',
     'candidate', 'usable', 'fetched', 'report',
+    // The eligibility check's mechanism, as opposed to its vocabulary: a decision
+    // is the answer, a refusal the negative one, `refuse` the act of giving it,
+    // `evaluate` the act of deciding, `facts` what it decides over, and
+    // `held`/`resolvable` the permission read. Domain-free in any codebase — the
+    // *domain* words this check needed went into DOMAIN_VOCABULARY deliberately,
+    // and these did not. `fold` stems `refusal`/`refuses` to `refuse`; none of
+    // them reaches a proven rejection.
+    'decision', 'refuse', 'refusal', 'evaluate', 'facts', 'held', 'resolvable',
+    // `enforced` names which sources a dispatcher actually checks, and `declares`
+    // is the verb the whole conformance file already runs on. Both mechanism.
+    //
+    // **`rule` is deliberately not here**, and that is this gate working twice
+    // over. The conformance check was first written around a `declaresRule`
+    // local, which would have needed it — but `fold` stems plurals, and `rules`
+    // is a proven rejection. The local was renamed to `offersEligibility`,
+    // exactly as the `REQUIREMENT_RULES` note above prescribes.
+    'enforced', 'declares', 'offers',
     'result', 'parsed', 'default', 'update', 'current', 'definition', 'definitions',
     'next', 'declared', 'declaration', 'dependencies', 'error', 'errors', 'field',
     'fields', 'schema', 'type', 'reason', 'options', 'option', 'source', 'list',

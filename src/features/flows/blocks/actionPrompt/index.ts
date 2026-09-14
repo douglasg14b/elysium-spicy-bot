@@ -1,6 +1,11 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
 import { z } from 'zod';
 import { DISCORD_BUTTON_LABEL_MAX_LENGTH, FLOW_MAX_CHOICES, FLOW_MAX_DELAY_MS } from '../../constants';
+import {
+    eligibilityConfigSchema,
+    ELIGIBILITY_CONFIG_KEY,
+    OPEN_GATE,
+} from '../../engine/eligibility';
 import type { FlowStepOutcome } from '../../engine/stepOutcome';
 import { buildFlowChoiceCustomId } from '../../utils/customId';
 import type { BlockManifest } from '../manifest';
@@ -32,6 +37,22 @@ export const promptConfigSchema = z.object({
         .min(1)
         .max(FLOW_MAX_CHOICES),
     timeoutMs: z.number().int().positive().max(FLOW_MAX_DELAY_MS).optional(),
+    /*
+     * Who may answer, **narrowing** the dispatcher's own rule that a question is
+     * answerable only by the member whose run it is.
+     *
+     * It can only narrow, never widen: the ownership check runs first and is not
+     * authorable, because a run belongs to one member and a button naming that
+     * run is not an invitation to anybody else. So this is for the author who
+     * wants "and only if they still hold the verified role" — a second condition
+     * on the same person, not a way to let a different one answer.
+     *
+     * Letting a moderator answer somebody else's question is a real thing to want
+     * and is deliberately **not** this. It needs the ownership rule to become
+     * authorable rather than absolute, which changes what a `flowc:` button means
+     * and is not in this slice.
+     */
+    [ELIGIBILITY_CONFIG_KEY]: eligibilityConfigSchema,
 });
 
 export type PromptConfig = z.infer<typeof promptConfigSchema>;
@@ -94,10 +115,19 @@ export const block: BlockManifest<PromptConfig> = {
             optional: true,
             placeholder: 'No limit',
         },
+        {
+            key: ELIGIBILITY_CONFIG_KEY,
+            label: 'Who can answer',
+            description:
+                'Only the person this run is about can answer, always. This narrows it further — anybody else is told quietly and the question stays open.',
+            control: 'eligibility',
+            defaultValue: OPEN_GATE,
+        },
     ],
     cardSummary: [
         { key: 'question', quote: true, truncate: 28, emptyText: 'no question yet', stopIfEmpty: true },
         { key: 'choices', prefix: ' · ', hideWhenEmpty: true },
+        { key: ELIGIBILITY_CONFIG_KEY, prefix: ' · 🔒 ', hideWhenEmpty: true },
     ],
     /**
      * Five choice handles plus a timeout, always — an author offering two answers

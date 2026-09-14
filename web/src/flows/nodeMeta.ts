@@ -147,23 +147,25 @@ export function formatDuration(ms: number): string {
  * string was never a meaningful default, and the schema rejects one anyway, so a
  * key is better absent than present-and-invalid.
  *
- * A list default is **copied**, not shared. The descriptor is fetched once and
- * held for the session, so assigning its array by reference would give every node
- * dropped from that block the same array — and one node's edit would rewrite the
- * declared default and every sibling along with it.
+ * A non-primitive default is **copied**, not shared. The descriptor is fetched
+ * once and held for the session, so assigning its array or object by reference
+ * would give every node dropped from that block the same one — and a single
+ * node's edit would rewrite the declared default and every sibling along with it.
  *
- * The copy is **shallow**, which is exactly sufficient while every list default is
- * a list of strings. A control whose default holds objects would reintroduce the
- * same aliasing one level down, and needs a deep copy here rather than a second
- * test asserting the outer array differs.
+ * The copy was shallow while every non-scalar default was a list of strings, with
+ * a note that a default holding *objects* would reintroduce the aliasing one
+ * level down. `eligibility` is that default, so this is now `structuredClone`:
+ * the depth of a default is the declaring block's business, and a copy that is
+ * correct only for the shapes shipped today is a trap for the next one.
  */
 export function defaultDataFor(descriptor: NodeDescriptor): Record<string, unknown> {
     const data: Record<string, unknown> = {};
     for (const field of descriptor.configFields) {
         if (field.defaultValue !== undefined) {
-            data[field.key] = Array.isArray(field.defaultValue)
-                ? [...field.defaultValue]
-                : field.defaultValue;
+            data[field.key] =
+                typeof field.defaultValue === 'object'
+                    ? structuredClone(field.defaultValue)
+                    : field.defaultValue;
         }
     }
     return data;

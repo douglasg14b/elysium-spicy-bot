@@ -7,7 +7,7 @@
  * the block contract defines as its extension point.
  */
 
-import type { BlockConfigField, GuildChannel, GuildRole } from '../../api/types';
+import type { Eligibility, BlockConfigField, GuildChannel, GuildRole } from '../../api/types';
 
 /**
  * What a control needs from the page beyond its own declaration.
@@ -28,12 +28,17 @@ export interface ControlContext {
  * outright rather than leaving it present-but-`undefined`; see `updateNodeConfig`
  * in `FlowBuilderPage` for why the difference is load-bearing.
  *
- * `string[]` is `textList`'s value. It is a **new array every time** rather than a
- * mutated one: the patch lands in React state, so a control that edited its
- * current value in place would write a value the renderer cannot tell apart from
- * the old one.
+ * `string[]` is `textList`'s value and `Eligibility` is `eligibility`'s. Both
+ * are a **new value every time** rather than a mutated one: the patch lands in
+ * React state, so a control that edited its current value in place would write a
+ * value the renderer cannot tell apart from the old one.
+ *
+ * A union of the concrete value types rather than `unknown`, deliberately. It is
+ * the one place that says what a `node.data` value may be, so a control emitting
+ * a shape no schema accepts fails here rather than at save time in front of an
+ * author.
  */
-export type ControlChange = (value: string | number | string[] | undefined) => void;
+export type ControlChange = (value: string | number | string[] | Eligibility | undefined) => void;
 
 /** Props every control in this directory takes. */
 export interface ControlProps<TField extends BlockConfigField = BlockConfigField> {

@@ -45,7 +45,17 @@ export function buildFlowTriggerButtons(
     for (const node of buttonNodes) {
         const parsed = buttonClickConfigSchema.safeParse(node.data);
         if (!parsed.success) {
-            const issues = parsed.error.issues.map((i) => i.message).join(', ');
+            // Named by field, as `nodeDataValidation` already does. Dropping the
+            // path was survivable while this block's only settable fields were a
+            // label and a style — both of which fail with a message that names
+            // itself. An eligibility rule does not: a half-filled one reports
+            // "Invalid input", which sends an author looking at the button.
+            const issues = parsed.error.issues
+                .map((issue) => {
+                    const field = issue.path.join('.');
+                    return field ? `${field}: ${issue.message}` : issue.message;
+                })
+                .join(', ');
             return { ok: false, message: `Button node \`${node.id}\` has invalid config: ${issues}` };
         }
 

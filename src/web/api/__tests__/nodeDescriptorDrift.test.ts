@@ -9,6 +9,10 @@ import {
     FLOW_CONTEXT_REQUIREMENTS,
 } from '../../../features/flows/blocks/manifest';
 import type { BlockConfigField, BlockControlType } from '../../../features/flows/blocks/manifest';
+import {
+    ELIGIBILITY_PERMISSIONS,
+    ELIGIBILITY_PRINCIPALS,
+} from '../../../features/flows/engine/eligibility';
 import { ensureBlocksDiscovered, listBlockDefinitions } from '../../../features/flows/blocks/registry';
 import { FLOW_GRAPH_VERSION } from '../../../features/flows/data/flowGraph';
 import { NON_WIRE_MEMBERS } from '../nodeRoutes';
@@ -67,6 +71,20 @@ const VOCABULARIES = [
     { name: 'BlockHandleTone', server: BLOCK_HANDLE_TONES, browser: browserTypes.BLOCK_HANDLE_TONES },
     { name: 'FlowContextRequirement', server: FLOW_CONTEXT_REQUIREMENTS, browser: browserTypes.FLOW_CONTEXT_REQUIREMENTS },
     { name: 'BlockCapability', server: BLOCK_CAPABILITIES, browser: browserTypes.BLOCK_CAPABILITIES },
+    // Not served on a descriptor, and here anyway. The eligibility control
+    // renders its principal list from these rather than from what the server sends,
+    // so the two copies can drift without a single descriptor key changing —
+    // which is exactly the drift this file exists to catch, one level down.
+    {
+        name: 'EligibilityPrincipal',
+        server: ELIGIBILITY_PRINCIPALS,
+        browser: browserTypes.ELIGIBILITY_PRINCIPALS,
+    },
+    {
+        name: 'EligibilityPermission',
+        server: ELIGIBILITY_PERMISSIONS,
+        browser: browserTypes.ELIGIBILITY_PERMISSIONS,
+    },
 ] as const satisfies readonly { name: string; server: readonly string[]; browser: readonly string[] }[];
 
 /**
@@ -92,6 +110,7 @@ const CONFIG_FIELD_FIXTURES = {
     select: { key: 'k', label: 'l', description: 'd', control: 'select', options: [], defaultValue: '' },
     colour: { key: 'k', label: 'l', description: 'd', control: 'colour', swatches: [], defaultValue: '' },
     textList: { key: 'k', label: 'l', description: 'd', control: 'textList', placeholder: 'p', maxLength: 1, minEntries: 1, maxEntries: 1, addLabel: 'a', defaultValue: [] },
+    eligibility: { key: 'k', label: 'l', description: 'd', control: 'eligibility', defaultValue: { principal: 'anyone' } },
 } as const satisfies { [TControl in BlockControlType]: Extract<BlockConfigField, { control: TControl }> };
 
 /** Fails to compile if an arm gains a member {@link CONFIG_FIELD_FIXTURES} omits. */

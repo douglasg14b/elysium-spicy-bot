@@ -79,9 +79,58 @@ export const BLOCK_CONTROL_TYPES = [
     'select',
     'colour',
     'textList',
+    'eligibility',
 ] as const;
 
 export type BlockControlType = (typeof BLOCK_CONTROL_TYPES)[number];
+
+/**
+ * The eligibility vocabularies, mirroring `src/features/flows/engine/eligibility.ts`.
+ *
+ * Declared here rather than imported for the reason the whole file exists: the
+ * server's copy reaches `discord.js` through its schema, and pulling that into the
+ * browser would drag the bot tree into the web build. The drift test compares the
+ * two as data.
+ */
+export const ELIGIBILITY_PRINCIPALS = [
+    'anyone',
+    'subject',
+    'actor',
+    'variable',
+    'roles',
+    'discordPermission',
+] as const;
+
+export type EligibilityPrincipal = (typeof ELIGIBILITY_PRINCIPALS)[number];
+
+/** Discord permissions a gate may name — a curated subset, not every flag. */
+export const ELIGIBILITY_PERMISSIONS = [
+    'Administrator',
+    'ManageGuild',
+    'ManageRoles',
+    'ManageChannels',
+    'ManageMessages',
+    'KickMembers',
+    'BanMembers',
+    'ModerateMembers',
+] as const;
+
+export type EligibilityPermission = (typeof ELIGIBILITY_PERMISSIONS)[number];
+
+/**
+ * An authored eligibility rule, as it is stored in `node.data`.
+ *
+ * Discriminated on `principal`, so each arm carries only its own extra — which is
+ * what lets the control render one set of inputs per choice without a lookup
+ * table saying which extras belong to which principal.
+ */
+export type Eligibility =
+    | { principal: 'anyone' }
+    | { principal: 'subject' }
+    | { principal: 'actor' }
+    | { principal: 'variable'; variable: string }
+    | { principal: 'roles'; roleIds: string[] }
+    | { principal: 'discordPermission'; permissions: EligibilityPermission[] };
 
 /** One choice offered by a `segmented` or `select` control. */
 export interface BlockConfigOption {
@@ -174,6 +223,18 @@ export type BlockConfigField =
           /** Label for the button that appends a row. */
           addLabel?: string;
           defaultValue?: string[];
+      })
+    | (BlockConfigFieldBase & {
+          /**
+           * Who may do this: a principal picker plus whatever that principal
+           * needs, as one control over one object-valued key.
+           *
+           * Declares no options — the principals and the offered permissions are
+           * closed vocabularies the control reads from the constants above, so a
+           * block re-declaring them would be a second list to keep in step.
+           */
+          control: 'eligibility';
+          defaultValue?: Eligibility;
       });
 
 /**
@@ -343,6 +404,7 @@ export const BLOCK_CONFIG_FIELD_KEYS = {
     select: ['key', 'label', 'description', 'control', 'options', 'defaultValue'],
     colour: ['key', 'label', 'description', 'control', 'swatches', 'defaultValue'],
     textList: ['key', 'label', 'description', 'control', 'placeholder', 'maxLength', 'minEntries', 'maxEntries', 'addLabel', 'defaultValue'],
+    eligibility: ['key', 'label', 'description', 'control', 'defaultValue'],
 } as const satisfies { [TControl in BlockControlType]: readonly (keyof Extract<BlockConfigField, { control: TControl }>)[] };
 
 /**

@@ -97,7 +97,7 @@ Consequently the fan-outs §5.4 itself defers — the four new gateway triggers 
 | **B1** | **List control** — the first non-scalar control, and whatever `ControlChange` widening it forces across the eight existing controls | Authors can edit a list of things. No block uses it yet. **Done** (`db98870`), shipped as `textList` |
 | **B2** | **Handles from config** — whichever resolution the manifest contract gets for a block whose handle count is authored, not declared | **Decided, no commit.** Fixed numbered handles won; everything left is B3's own declaration. Folded into B3 — see below |
 | **B3** | **The prompt block** — posts a message with one button per choice, parks, resumes by the pressed choice's handle. Run-scoped custom id, new `flowc:` prefix handler | **A run asks a question in Discord and a press advances it.** This is the step's product. **Done**, over two commits (`9261171` groundwork, then the block itself) |
-| **C** | **Audience gate** — a principal list evaluated against the clicker; ephemeral refusal; applied to the prompt block *and* to the existing trigger buttons, which today check nothing | Non-moderators are refused. This completes §1.3's step text |
+| **C** | **Audience gate** — a principal list evaluated against the clicker; ephemeral refusal; applied to the prompt block *and* to the existing trigger buttons, which today check nothing | Non-moderators are refused. This completes §1.3's step text. **Done** — shipped as `eligibility`, see below |
 | **D** | **Lifecycle** — a second press refuses rather than advancing; buttons disabled on choice, timeout, and cancel; the prompt's timeout branch | A stale prompt cannot be pressed twice |
 | **E** | **Run it against the real guild** — carried over from step 2, now with something worth running | Everything above, proven |
 
@@ -107,7 +107,7 @@ Each row is a commit. E is not a commit; it is the thing that makes the previous
 
 That split was right for B1, which shipped alone (`db98870`) and turned up four unchecked declarations on its way through. It turned out **not** to be right for B2: splitting it assumed a manifest-contract change that the wire format then ruled out, leaving a slice whose entire content was the prompt block's own declaration. So B2 is a decision rather than a commit, and B is two commits in the end — see B2 below for why, and for what was given up.
 
-The visible capability therefore lands at the end of **B3**, which has now shipped — before C, D, and E, which is the sequencing property this step exists to have. **C is next.**
+The visible capability therefore lands at the end of **B3**, which has now shipped — before C, D, and E, which is the sequencing property this step exists to have. **C has now shipped too, so D is next.**
 
 B3 itself came in two commits rather than one: the groundwork that lets a block address its own run (`9261171`) went in separately, because it changes `FlowRunContext` and the executor's run-id ordering and is worth reverting independently of the block that needed it.
 
@@ -246,6 +246,16 @@ What the slice was planned to cover, kept for the reasoning:
 
 #### C — audience gate
 
+**Landed.** `engine/eligibility.ts`, the `eligibility` control arm across both trees, application in `flowTriggerDispatch` and `flowChoiceDispatch`, and `__tests__/eligibility.test.ts`. Four things below were planned one way and shipped another; each is corrected in place rather than left to mislead.
+
+**It is called `eligibility` in the code, not `audience`.** Not drift: `audience` is a *proven rejection* in `engineVocabulary.test.ts` — "the audience for this welcome message" is exactly the use-case noun that gate exists to keep out of the interpreter — so admitting it would have blinded the check to that leak in order to buy one word. `eligibility` is §5.4's own term and carries no product meaning. The feature keeps the PRD's name; the module does not.
+
+**One control, not a role-list control.** The plan called for "a role list" as the second non-scalar control. What shipped is a single `eligibility` control owning the whole `{ principal, ... }` object, because the extras are mutually exclusive and the field vocabulary cannot say "show this field only when that one is set" — three always-visible fields, two dead for any given choice, is the form that produces graphs holding a role list under a `subject` gate. The role list exists inside it.
+
+**The gate can only *narrow* on the prompt surface.** `flowChoiceDispatch`'s ownership check runs first and is not authorable, so a rule there adds a second condition on the same member — it cannot let a moderator answer somebody else's question. That would need the ownership rule to become authorable, which changes what a `flowc:` button means and is not in this slice.
+
+**The wake ordering was the slice's real hazard, and it took two attempts.** `resumeWaitingRunsForEvent` matches on guild, wait kind and member — never on *which* button was pressed. Placed above the gate, a refused press still advanced the presser's own parked runs, assigning roles and sending messages while reporting itself as a refusal that changed nothing. Moved below the gate but above the *flow-health* returns, because a deleted or disabled flow is not a refusal of that member and their run still needs waking. Both directions are now pinned by tests, and both were sabotage-verified.
+
 Two halves, and the second is the one that earns the step text.
 
 The **gate itself** is a principal list: `anyone`, `subject`, `actor`, a member reference to a run variable, `roles: [...]`, `discordPermission: [...]` (§5.4). Deliberately no "moderator" principal — §5.12 wants moderator roles promoted to a shared guild setting, that promotion is **not in this step**, and a `roles: [...]` gate already expresses "these roles" without the engine naming a subsystem. Evaluating it is a pure function over a `GuildMember` plus the run's variables, which is the testable shape; keep it out of the interaction handler.
@@ -285,6 +295,8 @@ Two of these are real dependencies. The others are preferences, and saying which
 2. **B1 before B3, and B1 before C** — *a dependency.* Both the choice list and the gate's role list are non-scalar controls.
 3. **C before D** — *a dependency.* Refusal and "already answered" are the same ephemeral surface; the lifecycle guard first means building the refusal path twice.
 4. **B3 before C** — **a preference, not a dependency**, and the one to revisit if anything slips. The reason is design quality: the gate becomes a shared vocabulary rather than a prompt-block private if it has two call sites when it is written. The cost is real, though — `flowTriggerDispatch.ts` has **no eligibility check at all today**, so this sequences an existing authorization hole behind the step's riskiest work. It stands because B1 comes first regardless, because the hole is gated behind a deployed button in a guild whose admin is the operator, and because a gate shaped by one caller is the failure this step is most likely to repeat from step 2. The escape hatch this clause reserved — invert the order if B2 turns out worse than expected — is **spent**: B2 resolved to a decision with no commit, so nothing is left to overrun. If B3 itself slips, invert then.
+
+**Settled.** The order held, and the bet paid: the gate was written with two call sites in front of it and is a shared vocabulary rather than a prompt-block private. **The authorization hole named here is closed** — `flowTriggerDispatch` now refuses before it starts a run, and before it wakes anything.
 5. **E last, and E is not optional.**
 
 ### Deliberately not in step 3

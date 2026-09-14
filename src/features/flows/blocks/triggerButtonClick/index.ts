@@ -1,5 +1,10 @@
 import { ButtonStyle } from 'discord.js';
 import { z } from 'zod';
+import {
+    eligibilityConfigSchema,
+    ELIGIBILITY_CONFIG_KEY,
+    OPEN_GATE,
+} from '../../engine/eligibility';
 import type { BlockManifest } from '../manifest';
 
 export const TRIGGER_BUTTON_CLICK = 'trigger.buttonClick';
@@ -8,6 +13,11 @@ export const TRIGGER_BUTTON_CLICK = 'trigger.buttonClick';
  * A button rendered in a Discord channel. Its custom_id is
  * `flow:<flowId>:<nodeId>`, dispatched to the executor by the `flow:` prefix
  * handler registered in initFlows.
+ *
+ * The gate is read by `flowTriggerDispatch` **before** the run starts, which is
+ * the only place it can be: once the executor is running this block, the press
+ * has already been accepted. That is why the gate lives on the trigger's config
+ * rather than being something its `run` checks.
  */
 export const buttonClickConfigSchema = z.object({
     label: z.string().min(1).max(80),
@@ -15,6 +25,7 @@ export const buttonClickConfigSchema = z.object({
     style: z
         .enum(['Primary', 'Secondary', 'Success', 'Danger'])
         .default('Primary'),
+    [ELIGIBILITY_CONFIG_KEY]: eligibilityConfigSchema,
 });
 
 export type ButtonClickConfig = z.infer<typeof buttonClickConfigSchema>;
@@ -58,6 +69,16 @@ export const block: BlockManifest<ButtonClickConfig> = {
                 { value: 'Danger', label: 'Danger' },
             ],
         },
+        {
+            key: ELIGIBILITY_CONFIG_KEY,
+            label: 'Who can press it',
+            description:
+                'Everyone can see the button. Anybody this turns away is told so quietly, and nothing runs.',
+            control: 'eligibility',
+            // Matches the schema's own `.default(OPEN_GATE)` — every button
+            // deployed before gates existed means exactly this.
+            defaultValue: OPEN_GATE,
+        },
     ],
     cardSummary: [
         {
@@ -68,6 +89,9 @@ export const block: BlockManifest<ButtonClickConfig> = {
             stopIfEmpty: true,
         },
         { key: 'style', prefix: ' · ' },
+        // Only when there is a gate: an open one resolves to empty, which
+        // `hideWhenEmpty` drops rather than writing "· Anyone" on every card.
+        { key: ELIGIBILITY_CONFIG_KEY, prefix: ' · 🔒 ', hideWhenEmpty: true },
     ],
     handles: [{ label: 'Then', tone: 'neutral' }],
     outputs: [],

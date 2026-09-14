@@ -1,4 +1,5 @@
 export * from './stepOutcome';
+export * from './eligibility';
 export * from './executor';
 export * from './graphValidation';
 export * from './nodeDataValidation';

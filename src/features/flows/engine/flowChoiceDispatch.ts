@@ -1,16 +1,21 @@
-import type { ButtonInteraction } from 'discord.js';
+import { GuildMember, type ButtonInteraction } from 'discord.js';
 import type { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { FlowRunsRepo, flowRunsRepo } from '../data/flowRunsRepo';
+import type { FlowRunEntity } from '../data/flowRunsSchema';
+import { FlowsRepo, flowsRepo } from '../data/flowsRepo';
 import { parseFlowChoiceCustomId } from '../utils/customId';
+import { evaluateEligibility, readEligibility, UNREADABLE_GATE_MESSAGE } from './eligibility';
 import { resumeFlowRun } from './flowRunResume';
 
 export interface FlowChoiceDependencies {
     flowRunsRepo: Pick<FlowRunsRepo, 'getByRunId'>;
+    flowsRepo: Pick<FlowsRepo, 'getByFlowId'>;
     resume: typeof resumeFlowRun;
 }
 
 const defaultDependencies: FlowChoiceDependencies = {
     flowRunsRepo,
+    flowsRepo,
     resume: resumeFlowRun,
 };
 
@@ -87,6 +92,11 @@ export async function handleFlowChoiceInteraction(
         return replyWith(interaction, QUESTION_CLOSED_MESSAGE, 'skipped');
     }
 
+    const refusal = await refuseIfIneligible(interaction, run, parsed.nodeId, dependencies);
+    if (refusal) {
+        return refusal;
+    }
+
     // `resumeFlowRun` does not turn every failure into an outcome: it releases the
     // claim and rethrows for a transient channel fetch or an illegal transition.
     // Unhandled, that throw escapes to the registry — which only sends its own
@@ -126,6 +136,99 @@ export async function handleFlowChoiceInteraction(
                 outcome.error
             );
     }
+}
+
+/**
+ * Refuse the presser if the question's own gate does not admit them — or
+ * `null` to carry on.
+ *
+ * Runs **after** the ownership check, and that order is the whole shape of it: by
+ * the time a gate is consulted the presser is already known to be the member the
+ * run is about, so a gate here can only add a second condition on that same
+ * person. It is not a way to let somebody else answer.
+ *
+ * Costs one extra read of the flow row. Worth it rather than persisting the gate
+ * onto the run: a gate copied onto the run at park time would keep enforcing what
+ * the author wrote *then*, so tightening a live question would not take effect
+ * until every open one had closed — which is the wrong behaviour for the one
+ * change an author makes urgently.
+ *
+ * A missing flow, node or member is refused rather than admitted, for the reason
+ * {@link evaluateEligibility} refuses an unsatisfiable gate: a gate that cannot be
+ * evaluated has not been passed.
+ */
+async function refuseIfIneligible(
+    interaction: ButtonInteraction,
+    run: FlowRunEntity,
+    nodeId: string,
+    dependencies: FlowChoiceDependencies
+): Promise<InteractionHandlerResult | null> {
+    // Wrapped for the reason the resume call below is: the interaction is already
+    // deferred by now, so a throw escaping here reaches a registry that will not
+    // send its fallback, and the member sits on "Bot is thinking…" forever.
+    let flow: Awaited<ReturnType<FlowChoiceDependencies['flowsRepo']['getByFlowId']>>;
+    try {
+        flow = await dependencies.flowsRepo.getByFlowId(run.flowId);
+    } catch (error) {
+        return replyWith(
+            interaction,
+            "❌ Couldn't check this question just now. Give it another go in a moment.",
+            'error',
+            error instanceof Error ? error.message : 'Unknown error reading the flow'
+        );
+    }
+
+    const node = flow?.graph.nodes.find((candidate) => candidate.id === nodeId);
+    if (!node) {
+        // The flow was deleted, or edited to drop the node, while somebody held
+        // the question open. Reported as closed rather than as a permission
+        // problem, because from the presser's side that is what happened.
+        return replyWith(interaction, QUESTION_CLOSED_MESSAGE, 'skipped');
+    }
+
+    const gate = readEligibility(node.data);
+    if (!gate) {
+        return replyWith(interaction, `❌ ${UNREADABLE_GATE_MESSAGE}`, 'error', 'Unreadable eligibility rule');
+    }
+
+    // An open rule admits without reading the member at all, so it is answered
+    // before the narrowing below — which matters, because that narrowing can
+    // fail for reasons that have nothing to do with the presser.
+    //
+    // This ordering is the difference between the feature being invisible on an
+    // ungated question and it breaking one. Every question authored before rules
+    // existed is open, and so is every one an author has not touched.
+    if (gate.principal === 'anyone') {
+        return null;
+    }
+
+    // `interaction.member` is a raw APIInteractionGuildMember when the gateway
+    // has no cached member, and that shape carries no `roles.cache` to ask.
+    // Refused rather than read anyway: a rule evaluated against an object with no
+    // roles would turn *everybody* away and blame their roles for it.
+    const { member } = interaction;
+    if (!(member instanceof GuildMember)) {
+        return replyWith(
+            interaction,
+            "❌ Couldn't check your permissions just now. Give it another go in a moment.",
+            'error',
+            'Interaction member was not a resolved GuildMember'
+        );
+    }
+
+    // The presser is both. Subject because the ownership check above proved it,
+    // and actor because pressing the button *is* the act advancing this step —
+    // which is exactly what an actor is. Supplying the subject and withholding
+    // the actor would leave an `actor` rule refusing the one person who satisfies
+    // it, naming a condition they meet.
+    const decision = evaluateEligibility(gate, {
+        candidate: member,
+        subject: member,
+        actor: member,
+        variables: run.variables,
+    });
+
+    return decision.allowed ? null : replyWith(interaction, `🚫 ${decision.reason}`, 'skipped');
 }
 
 /**

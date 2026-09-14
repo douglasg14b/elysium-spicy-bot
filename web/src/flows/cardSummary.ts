@@ -88,6 +88,46 @@ function resolveValue(
                 .filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '')
                 .join(' · ');
         }
+        /*
+         * An **open** gate reads as unset, so a card only ever mentions the
+         * eligibility when there is one. Every block declaring it defaults
+         * to open, so the alternative would put "Anyone" on every card in the
+         * builder — a line that is always there and never says anything.
+         *
+         * Paired with `hideWhenEmpty` on the declaring block's summary part,
+         * which is what turns "unset" into a part that vanishes rather than one
+         * that shows empty copy.
+         */
+        case 'eligibility': {
+            if (!raw || typeof raw !== 'object') return '';
+            const gate = raw as { principal?: unknown; roleIds?: unknown };
+            switch (gate.principal) {
+                case 'subject':
+                    return 'them only';
+                case 'actor':
+                    return 'the presser only';
+                case 'variable':
+                    return 'one member';
+                case 'discordPermission':
+                    return 'staff only';
+                case 'roles': {
+                    const named = Array.isArray(gate.roleIds)
+                        ? gate.roleIds
+                              .map((roleId) => context.roles.find((role) => role.id === roleId))
+                              .filter((role): role is GuildRole => Boolean(role))
+                        : [];
+                    // Named while there are few enough to read, counted after —
+                    // the point of this line is recognition at a glance, and four
+                    // role names is no longer a glance.
+                    if (named.length === 0) return '';
+                    return named.length <= 2
+                        ? named.map((role) => `@${role.name}`).join(', ')
+                        : `${named.length} roles`;
+                }
+                default:
+                    return '';
+            }
+        }
         default: {
             const unhandled: never = field;
             void unhandled;

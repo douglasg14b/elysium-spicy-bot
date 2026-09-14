@@ -1,9 +1,22 @@
-import type { ButtonInteraction, Client } from 'discord.js';
+import { GuildMember, PermissionsBitField, type ButtonInteraction, type Client } from 'discord.js';
 import { describe, expect, it, vi } from 'vitest';
-import { block as promptBlock, promptChoiceHandle, PROMPT_TIMEOUT_HANDLE } from '../blocks/actionPrompt';
+import {
+    ACTION_PROMPT,
+    block as promptBlock,
+    promptChoiceHandle,
+    promptConfigSchema,
+    PROMPT_TIMEOUT_HANDLE,
+    type PromptConfig,
+} from '../blocks/actionPrompt';
 import type { FlowRunContext } from '../blocks/types';
 import { DISCORD_CUSTOM_ID_MAX_LENGTH, FLOW_CHOICE_CUSTOM_ID_PREFIX } from '../constants';
-import { handleFlowChoiceInteraction, QUESTION_CLOSED_MESSAGE } from '../engine/flowChoiceDispatch';
+import type { FlowEntity } from '../data/flowsSchema';
+import { ELIGIBILITY_CONFIG_KEY, OPEN_GATE, type Eligibility } from '../engine/eligibility';
+import {
+    handleFlowChoiceInteraction,
+    QUESTION_CLOSED_MESSAGE,
+    type FlowChoiceDependencies,
+} from '../engine/flowChoiceDispatch';
 import { buildFlowChoiceCustomId, parseFlowChoiceCustomId, buildFlowCustomId } from '../utils/customId';
 import type { FlowRunEntity } from '../data/flowRunsSchema';
 
@@ -62,6 +75,7 @@ describe('answering a question', () => {
 
         const result = await handleFlowChoiceInteraction(interaction, {
             flowRunsRepo: { getByRunId: () => Promise.resolve(parkedRun()) },
+            flowsRepo: openGateFlow(),
             resume: resume as never,
         });
 
@@ -78,11 +92,13 @@ describe('answering a question', () => {
         // looking for a deletion that never happened.
         const notYet = await handleFlowChoiceInteraction(buttonInteraction(buildFlowChoiceCustomId(RUN_ID, NODE_ID, 0)), {
             flowRunsRepo: { getByRunId: () => Promise.resolve(null) },
+            flowsRepo: openGateFlow(),
             resume: vi.fn() as never,
         });
 
         const closed = await handleFlowChoiceInteraction(buttonInteraction(buildFlowChoiceCustomId(RUN_ID, NODE_ID, 0)), {
             flowRunsRepo: { getByRunId: () => Promise.resolve({ ...parkedRun(), status: 'completed' }) },
+            flowsRepo: openGateFlow(),
             resume: vi.fn() as never,
         });
 
@@ -94,6 +110,45 @@ describe('answering a question', () => {
         expect([notYet.status, closed.status]).toEqual(['skipped', 'skipped']);
     });
 
+    it('refuses an answer from the right member when the question narrows further', async () => {
+        // Eligibility can only *narrow* here: the ownership check above already
+        // proved this is the presser's own question. What it adds is a second
+        // condition on that same person — "and only while they hold the role".
+        const resume = vi.fn();
+
+        const result = await handleFlowChoiceInteraction(
+            buttonInteraction(buildFlowChoiceCustomId(RUN_ID, NODE_ID, 0)),
+            {
+                flowRunsRepo: { getByRunId: () => Promise.resolve(parkedRun()) },
+                flowsRepo: gatedFlow({ principal: 'roles', roleIds: ['role-they-lack'] }),
+                resume: resume as never,
+            }
+        );
+
+        // `skipped`, not `error` — a rule doing its job is not a fault.
+        expect(result.status).toBe('skipped');
+        expect(resume).not.toHaveBeenCalled();
+    });
+
+    it('still answers an ungated question when the gateway has no cached member', async () => {
+        // `interaction.member` arrives as a raw API object whenever the member is
+        // not cached. An open rule reads nothing off it, so this must not become a
+        // reason a question that always worked suddenly fails — which it would if
+        // the narrowing ran before the open case was answered.
+        const resume = vi.fn().mockResolvedValue({ status: 'completed' });
+        const uncached = buttonInteraction(buildFlowChoiceCustomId(RUN_ID, NODE_ID, 0));
+        Object.assign(uncached, { member: { user: { id: USER_ID }, roles: ['role-1'] } });
+
+        const result = await handleFlowChoiceInteraction(uncached, {
+            flowRunsRepo: { getByRunId: () => Promise.resolve(parkedRun()) },
+            flowsRepo: openGateFlow(),
+            resume: resume as never,
+        });
+
+        expect(result.status).toBe('success');
+        expect(resume).toHaveBeenCalled();
+    });
+
     it('does not let one member answer a question put to another', async () => {
         const resume = vi.fn();
         const somebodyElse: FlowRunEntity = {
@@ -103,6 +158,7 @@ describe('answering a question', () => {
 
         const result = await handleFlowChoiceInteraction(buttonInteraction(buildFlowChoiceCustomId(RUN_ID, NODE_ID, 0)), {
             flowRunsRepo: { getByRunId: () => Promise.resolve(somebodyElse) },
+            flowsRepo: openGateFlow(),
             resume: resume as never,
         });
 
@@ -113,7 +169,7 @@ describe('answering a question', () => {
 
 describe('the prompt block', () => {
     it('leaves by the handle matching the answer, and by timeout when nobody answers', async () => {
-        const config = { question: 'Well?', choices: ['Yes', 'No', 'Maybe'] };
+        const config = promptConfig({ question: 'Well?', choices: ['Yes', 'No', 'Maybe'] });
 
         expect(await promptBlock.run(config, resumedWith({ kind: 'choice', index: 2 }))).toEqual({
             kind: 'continue',
@@ -129,7 +185,7 @@ describe('the prompt block', () => {
         // The author deleted a choice while somebody had the question open. The
         // button they are holding names a branch that is gone, and continuing by
         // any handle would route them down one the author never drew for it.
-        const shrunk = { question: 'Well?', choices: ['Yes'] };
+        const shrunk = promptConfig({ question: 'Well?', choices: ['Yes'] });
 
         expect(await promptBlock.run(shrunk, resumedWith({ kind: 'choice', index: 4 }))).toEqual({
             kind: 'fail',
@@ -145,7 +201,7 @@ describe('the prompt block', () => {
         const send = vi.fn().mockResolvedValue(undefined);
 
         const outcome = await promptBlock.run(
-            { question: 'Well?', choices: ['Yes', 'No'] },
+            promptConfig({ question: 'Well?', choices: ['Yes', 'No'] }),
             { ...runContext(), channel: { send } as unknown as FlowRunContext['channel'] }
         );
 
@@ -154,6 +210,44 @@ describe('the prompt block', () => {
         expect(posted.components[0].components.map((button) => button.data.label)).toEqual(['Yes', 'No']);
     });
 });
+
+/**
+ * A prompt config, through the block's own schema.
+ *
+ * Parsed rather than written out, so these tests seed exactly what the executor
+ * hands `run` — including the eligibility default, which the schema supplies
+ * and no author has to type. Writing the defaults in by hand would make every
+ * test a place the defaults could drift from the schema.
+ */
+function promptConfig(authored: { question: string; choices: string[] }): PromptConfig {
+    return promptConfigSchema.parse(authored);
+}
+
+/**
+ * A flow whose prompt node lets anybody answer.
+ *
+ * Eligibility is checked against the node's own data, so every test that is not
+ * about gating still needs a graph to read a rule off. Open, so those tests
+ * exercise the path they are actually about — the rule's own behaviour is
+ * `eligibility.test.ts`'s subject.
+ */
+function openGateFlow(): FlowChoiceDependencies['flowsRepo'] {
+    return gatedFlow(OPEN_GATE);
+}
+
+/** A flow whose prompt node carries the given rule. */
+function gatedFlow(rule: Eligibility): FlowChoiceDependencies['flowsRepo'] {
+    return {
+        getByFlowId: () =>
+            Promise.resolve({
+                graph: {
+                    nodes: [
+                        { id: NODE_ID, type: ACTION_PROMPT, data: { [ELIGIBILITY_CONFIG_KEY]: rule } },
+                    ],
+                },
+            } as unknown as FlowEntity),
+    };
+}
 
 /** A run parked at the prompt node, as the dispatcher would read it back. */
 function parkedRun(): FlowRunEntity {
@@ -166,13 +260,41 @@ function parkedRun(): FlowRunEntity {
     } as unknown as FlowRunEntity;
 }
 
-function buttonInteraction(customId: string): ButtonInteraction {
+/**
+ * A member the eligibility check will accept as real.
+ *
+ * `Object.create` rather than a cast, because the dispatcher narrows with
+ * `instanceof GuildMember` — a plain object literal fails that however it is
+ * typed, which is the guard doing its job rather than a fixture inconvenience.
+ * Discord.js's constructor wants a live client, so the prototype is borrowed and
+ * only the members a gate reads are filled in.
+ */
+function guildMember(userId: string = USER_ID, roleIds: readonly string[] = []): GuildMember {
+    const member = Object.create(GuildMember.prototype) as GuildMember;
+    // Everything a gate reads is a prototype *getter* on a real member, and
+    // assigning over a getter throws — so each is defined as an own property
+    // instead. `id` is among them, reading through to `user.id`, which is why
+    // both are set rather than just one.
+    Object.defineProperties(member, {
+        user: { value: { id: userId } },
+        id: { value: userId },
+        roles: { value: { cache: new Map(roleIds.map((roleId) => [roleId, { id: roleId }])) } },
+        permissions: { value: new PermissionsBitField() },
+    });
+    return member;
+}
+
+function buttonInteraction(
+    customId: string,
+    member: GuildMember = guildMember()
+): ButtonInteraction {
     return {
         customId,
         isButton: () => true,
         deferred: true,
         replied: false,
         guild: { id: GUILD_ID },
+        member,
         user: { id: USER_ID },
         client: {} as Client,
         deferReply: vi.fn().mockResolvedValue(undefined),

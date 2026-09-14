@@ -1,4 +1,5 @@
 import type { ZodType } from 'zod';
+import type { Eligibility } from '../engine/eligibility';
 import type { FlowStepOutcome } from '../engine/stepOutcome';
 import type { FlowRunContext } from './types';
 
@@ -57,11 +58,12 @@ export type BlockTriggerSource = (typeof BLOCK_TRIGGER_SOURCES)[number];
  * controls; they arrive when a block needs them.
  *
  * **`textList` is the first control whose value is not a scalar**, which is why
- * {@link BlockConfigField}'s `defaultValue` is widened on that arm alone rather
- * than on the shared base. A control that edits a list of *pickable* things — a
- * list of roles, say — is deliberately **not** this control: its items come from
- * a fetched set rather than a keyboard, so it shares nothing with this but the
- * word "list". It arrives as its own arm when a block needs it.
+ * {@link BlockConfigField}'s `defaultValue` is widened on that arm rather than on
+ * the shared base. A control that edits a list of *pickable* things — a list of
+ * roles, say — is deliberately **not** that control: its items come from a
+ * fetched set rather than a keyboard, so it shares nothing with it but the word
+ * "list". `eligibility` is where that list arrived, inside a control whose whole
+ * value is an object.
  */
 export const BLOCK_CONTROL_TYPES = [
     /** Searchable role picker showing each role's own colour. */
@@ -82,6 +84,8 @@ export const BLOCK_CONTROL_TYPES = [
     'colour',
     /** An ordered, author-editable list of short strings. */
     'textList',
+    /** Who is allowed: a principal picker, plus whatever that principal needs. */
+    'eligibility',
 ] as const;
 
 export type BlockControlType = (typeof BLOCK_CONTROL_TYPES)[number];
@@ -224,6 +228,32 @@ export type BlockConfigField =
            * per entry in both places; declaring the flag before that exists would
            * be a field claiming an expansion nothing performs.
            */
+      })
+    | (BlockConfigFieldBase & {
+          /**
+           * Who may do this — the principal picker and whatever that principal
+           * needs, as **one** control over one object-valued key.
+           *
+           * One control rather than a principal `select` beside a role list and a
+           * variable name, because those extras are mutually exclusive and this
+           * field vocabulary has no way to say "show this field only when that
+           * one is set". Three always-visible fields, two of which are dead for
+           * any given choice, is the form that produces graphs holding a role
+           * list under a `subject` gate.
+           *
+           * Deliberately declares **no options**: the principals and the offered
+           * Discord permissions are closed vocabularies the control reads from
+           * `engine/eligibility.ts` directly. A block re-declaring them would be
+           * a second list to keep in step with the schema that validates them.
+           */
+          readonly control: 'eligibility';
+          /**
+           * The starting rule. In practice always `{ principal: 'anyone' }`, which
+           * is what an ungated block means and what every saved graph predating
+           * this control reads as — but declared per field like every other
+           * default, so `checkFieldDefault` holds it to the schema's `.default()`.
+           */
+          readonly defaultValue?: Eligibility;
       });
 
 /**

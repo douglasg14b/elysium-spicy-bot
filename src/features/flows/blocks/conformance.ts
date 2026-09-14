@@ -1,4 +1,5 @@
 import { z, type ZodType } from 'zod';
+import { ELIGIBILITY_CONFIG_KEY, ELIGIBILITY_ENFORCED_SOURCES } from '../engine/eligibility';
 import { FLOW_STEP_OUTCOME_KINDS } from '../engine/stepOutcome';
 import {
     BLOCK_CAPABILITIES,
@@ -98,8 +99,51 @@ export function checkBlockConformance(candidate: unknown): readonly string[] {
     issues.push(...checkHandles(label, block.handles));
     issues.push(...checkConfigFields(label, block.configFields, block.configSchema));
     issues.push(...checkCardSummary(label, block.cardSummary, block.configFields));
+    issues.push(...checkEligibilityEnforced(label, block));
 
     return issues;
+}
+
+/**
+ * A block may only offer an eligibility rule where something enforces one.
+ *
+ * The one check here about a block's relationship to the *engine* rather than to
+ * its own schema, and it earns that: a rule is a permission control, and a
+ * permission control nothing reads is worse than none at all. It saves, it draws
+ * a padlock on the card, and it admits everybody — silent at every layer a person
+ * would think to look.
+ *
+ * Only triggers are asked. An action or condition is reached by an edge rather
+ * than by an event, so `ELIGIBILITY_ENFORCED_SOURCES` says nothing about it —
+ * `action.prompt`'s rule is enforced by the dispatcher that routes its answers.
+ */
+function checkEligibilityEnforced(
+    label: string,
+    block: Partial<Record<string, unknown>>
+): readonly string[] {
+    // Named `offersEligibility`, not `declaresRule`. `rule` stems to `rules`,
+    // which is a proven rejection in `engineVocabulary.test.ts` — an onboarding
+    // noun — so recognising it would blind that gate to the leak it exists to
+    // catch. Renaming is the documented response, not widening the list.
+    const offersEligibility = asArray(block.configFields).some(
+        (field) => readProperty(field, 'key') === ELIGIBILITY_CONFIG_KEY
+    );
+    if (!offersEligibility || block.kind !== 'trigger') {
+        return [];
+    }
+
+    const enforced: readonly string[] = ELIGIBILITY_ENFORCED_SOURCES;
+    const startedBy = typeof block.startedBy === 'string' ? block.startedBy : '<none>';
+    if (enforced.includes(startedBy)) {
+        return [];
+    }
+
+    return [
+        `${label}: declares an "${ELIGIBILITY_CONFIG_KEY}" field, but nothing checks one for a ` +
+            `"${startedBy}" trigger (only ${enforced.join(', ')}). An authored rule would save, show on ` +
+            'the card, and admit everybody. Wire that source\'s dispatcher and add it to ' +
+            'ELIGIBILITY_ENFORCED_SOURCES, or drop the field.',
+    ];
 }
 
 /**
