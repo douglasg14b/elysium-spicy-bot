@@ -13,11 +13,12 @@ import {
     type FlowRunsTestDb,
     type PreM1FlowRunRow,
 } from '../../../features-system/data-persistence/__tests__/support/flowRunsTestDb';
-import { resumeFlowRun } from '../engine/flowRunResume';
+import { rebuildResumeContext, resumeFlowRun } from '../engine/flowRunResume';
 import { reclaimStrandedFlowRuns, resetFlowRunSchedulerForTests } from '../engine/flowRunScheduler';
 import { up as createFlowRuns } from '../../../features-system/data-persistence/migrations/2026-09-12-Create_Flow_Runs';
 import { up as settleFlowRunLifecycle } from '../../../features-system/data-persistence/migrations/2026-09-13-Settle_Flow_Run_Lifecycle';
 import { up as addFlowRunVariables } from '../../../features-system/data-persistence/migrations/2026-09-14-Add_Flow_Run_Variables';
+import { up as widenContextSnapshot } from '../../../features-system/data-persistence/migrations/2026-09-15-Widen_Flow_Run_Context_Snapshot';
 import { sentCopy } from './support/sentCopy';
 import preM1GraphJson from './fixtures/preM1Graph.json';
 import preM1ParkedRunsJson from './fixtures/preM1ParkedRuns.json';
@@ -62,6 +63,16 @@ function makeClient(): { client: Client; userSend: ReturnType<typeof vi.fn>; rol
  * suspension payload (`resumeNodeId`, `waitKind`, `waitConfig`, `visitsUsed`,
  * `log`) is read as written, with no translation on either side, which is why
  * these fixtures are committed verbatim rather than regenerated from live code.
+ *
+ * **`fixtures/preM1ParkedRuns.json` is frozen. Never regenerate it.** Its entire
+ * value is that it was captured *before* the shapes it pins were changed — rows
+ * with `entity_version: 1` and a two-key `context_snapshot`, written by builds
+ * that had neither a `variables` column nor a `channelId`. Re-capturing it from
+ * current code would leave every assertion here green while proving nothing at
+ * all, because it would freeze post-migration rows and quietly void the
+ * backward-compatibility guarantee this suite exists to hold. If a case here
+ * fails, the change under test broke compatibility — the fixture is not the thing
+ * to edit.
  */
 // Resuming walks the graph, which reads the registry.
 beforeAll(ensureBlocksDiscovered);
@@ -83,6 +94,7 @@ describe('runs parked before M1', () => {
         // Every migration since, in order: a pre-M1 row has to survive the whole
         // chain, not merely the one that renamed its status.
         await addFlowRunVariables(testDb.db);
+        await widenContextSnapshot(testDb.db);
 
         repo = new FlowRunsRepo(testDb.db);
         // The committed graph must still satisfy the current schema untouched.
@@ -121,12 +133,35 @@ describe('runs parked before M1', () => {
         // A row parked before variables existed recorded none, and reads back
         // saying exactly that rather than as a null every caller has to guard.
         expect(delayRun.variables).toEqual({});
+        // Likewise the channel: the snapshot is the two keys it was written with,
+        // read back unchanged. `channelId` being optional is what lets a v1 row
+        // parse under the widened schema with nothing rewritten and no tolerant
+        // union — the migration leaves stored rows alone precisely so this stays
+        // the untouched original.
+        expect(delayRun.contextSnapshot).toEqual({ guildId: GUILD_ID, userId: USER_ID });
+        expect(delayRun.contextSnapshot.channelId).toBeUndefined();
 
         expect(waitRun.status).toBe('suspended');
         expect(waitRun.resumeNodeId).toBe(WAIT_NODE);
         expect(waitRun.waitKind).toBe('memberJoin');
         expect(waitRun.waitConfig).toEqual({ eventKind: 'memberJoin', timeoutMs: 3_600_000 });
         expect(waitRun.visitsUsed).toBe(5);
+    });
+
+    it('rebuilds a pre-change row as a run that is nowhere, rather than failing it', async () => {
+        // A row written before the snapshot carried a channel has no `channelId`,
+        // so the resume path has nothing to resolve. That must come back as an
+        // ordinary absent channel — the same state a gateway-started run has, and
+        // one every block already handles — not a throw and not a failed run.
+        const { client } = makeClient();
+
+        const rebuilt = await rebuildResumeContext(client, await loadRun(DELAY_PARKED_RUN));
+
+        if (!rebuilt.ok) {
+            throw new Error(`a pre-change row should still rebuild, but: ${rebuilt.reason}`);
+        }
+        expect(rebuilt.context.channel).toBeUndefined();
+        expect(rebuilt.context.subject.id).toBe(USER_ID);
     });
 
     it('resumes a delay-parked run at the node the delay pointed at', async () => {

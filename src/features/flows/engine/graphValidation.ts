@@ -270,15 +270,14 @@ const CHECKED_REQUIREMENTS: Readonly<Record<CheckedRequirement, RequirementCheck
         advice: 'Move it before the wait.',
     },
     channel: {
-        // A parked run loses its channel today, because the snapshot has nowhere
-        // to put one — it persists `{guildId, userId}` and nothing else. That is
-        // why this message is present: the run genuinely cannot answer "where am
-        // I" after waking, so a block asking is rejected before it can quietly
-        // take the wrong branch. Widening the snapshot is what makes a parked run
-        // able to keep it, and this message should be removed in the same change
-        // that persists one — not before.
-        afterParking:
-            'it can be reached after a block that parks the run, and a resumed run does not yet remember where it was',
+        // No `afterParking` message, and its absence is load-bearing: the snapshot
+        // persists `channelId` and `rebuildResumeContext` resolves it, so parking
+        // no longer costs a run its channel.
+        //
+        // **`fromGateway` still does real work.** Parking *preserves* a channel;
+        // it does not create one, so a run that never had one still cannot answer
+        // — which is why a member join is caught by that arm alone.
+        //
         // A member join happens nowhere in particular.
         fromGateway:
             'it can be reached from a trigger that fires on a gateway event, which happens in no particular channel',

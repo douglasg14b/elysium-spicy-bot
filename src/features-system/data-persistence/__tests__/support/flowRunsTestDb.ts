@@ -8,6 +8,7 @@ import { SqliteJsonPlugin } from '../../plugins/sqliteJsonPlugin';
 import { up as createFlowRuns } from '../../migrations/2026-09-12-Create_Flow_Runs';
 import { up as settleFlowRunLifecycle } from '../../migrations/2026-09-13-Settle_Flow_Run_Lifecycle';
 import { up as addFlowRunVariables } from '../../migrations/2026-09-14-Add_Flow_Run_Variables';
+import { up as widenContextSnapshot } from '../../migrations/2026-09-15-Widen_Flow_Run_Context_Snapshot';
 
 export interface FlowRunsTestDb {
     db: DatabaseClient;
@@ -69,6 +70,7 @@ export async function createFlowRunsTestDb(): Promise<FlowRunsTestDb> {
     await createFlowRuns(testDb.db);
     await settleFlowRunLifecycle(testDb.db);
     await addFlowRunVariables(testDb.db);
+    await widenContextSnapshot(testDb.db);
 
     return testDb;
 }

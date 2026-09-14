@@ -90,10 +90,56 @@ const nodeRunLogSchema = z.object({
     error: z.string().optional(),
 });
 
+/**
+ * The stored snapshot.
+ *
+ * `channelId` is **optional, not defaulted**. A row written before the key
+ * existed and a run that parked nowhere in particular are the same fact — "no
+ * channel recorded" — so both read back as absent, and neither is an error. That
+ * is what lets a pre-change row resume without a tolerant union or a v1 arm
+ * nobody could ever prove dead: the old and new keys are disjoint, so no
+ * discriminator is needed to tell the shapes apart.
+ */
 const contextSnapshotSchema = z.object({
     guildId: z.string().min(1),
     userId: z.string().min(1),
+    channelId: z.string().min(1).optional(),
 });
+
+/**
+ * Hold this schema and {@link FlowRunContextSnapshot} to the same shape.
+ *
+ * The shape is declared twice — once as the interface the writers build, once as the
+ * schema the reader parses — and nothing structural connects them. That is survivable
+ * in one direction and silently lossy in the other: `z.object` is non-strict, so it
+ * **strips** what it does not declare. Add a key to the interface alone and every
+ * writer compiles, the value is stored, and the reader drops it on the way back with
+ * `tsc` reporting nothing. The run then behaves as though the field was never set.
+ *
+ * **Mutual assignability is not enough to catch that**, which is worth stating
+ * because it is the obvious thing to reach for and it does not work. A pair of
+ * `const a: Interface = {} as Schema` assignments only catches a *required* key
+ * appearing on one side: `{a}` and `{a, b?}` are assignable in both directions, so an
+ * optional key on one side alone compiles clean — and `channelId` was itself added as
+ * optional, so optional is the shape the next field will almost certainly take. That
+ * version of this guard was written, measured against a hypothetical `messageId?`,
+ * and found to pass while the drift it exists to catch went through.
+ *
+ * `Equals` compares the two types as written rather than asking whether values flow
+ * between them, so it is invariant: it catches an added key of either kind on either
+ * side, and an optional-versus-`| undefined` mismatch besides. Being a type, it emits
+ * no runtime binding.
+ *
+ * This is still a guard, not the fix. The fix is to derive one from the other
+ * (`z.infer`), the house pattern everywhere else in this feature; it is deferred to
+ * its own commit because moving the schema means moving decision-bearing docs on both
+ * sides.
+ */
+type Equals<Left, Right> = (<Probe>() => Probe extends Left ? 1 : 2) extends <Probe>() => Probe extends Right ? 1 : 2
+    ? true
+    : false;
+type AssertTrue<Condition extends true> = Condition;
+type _SnapshotShapesAgree = AssertTrue<Equals<FlowRunContextSnapshot, z.infer<typeof contextSnapshotSchema>>>;
 
 /**
  * The stored variable bag: flat, scalar-only, exactly as {@link FlowVariableValue}

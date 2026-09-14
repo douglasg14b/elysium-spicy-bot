@@ -33,6 +33,16 @@ const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'migr
  * `kysely_migration` somewhere real, so nothing new may ever sort before it.
  * A new migration goes at the END of this list, with a name that sorts after the
  * one above it.
+ *
+ * **Append only once a migration has actually run against the deployed database**,
+ * not when its file is written. Listing an undeployed one costs the assertion its
+ * meaning twice over: it claims a `kysely_migration` row that does not exist, and
+ * it moves that name out of the not-yet-deployed set, which is the only set the
+ * ordering check below has anything to say about. With the list as long as the
+ * directory, both assertions here run over nothing at all.
+ *
+ * Currently undeployed, and deliberately absent: `2026-09-14-Add_Flow_Run_Variables`
+ * and `2026-09-15-Widen_Flow_Run_Context_Snapshot`.
  */
 const DEPLOYED_IN_ORDER = [
     '2025-08-28-Initial_Create',
@@ -84,6 +94,28 @@ describe('migration ordering', () => {
                 'migration a name that sorts after every entry in DEPLOYED_IN_ORDER, and append it ' +
                 'there once it has been deployed.'
         ).toEqual([...DEPLOYED_IN_ORDER]);
+    });
+
+    it('keeps every not-yet-deployed migration after the deployed ones', () => {
+        // The prefix assertion above examines only the first N keys. Once
+        // `DEPLOYED_IN_ORDER` is as long as the directory it examines everything
+        // and covers nothing beyond — so a migration added later, sorting before
+        // one already run, would leave it green while Kysely refuses the entire
+        // batch and the bot fails to start.
+        //
+        // Only this direction is worth asserting. `migrationKeys()` sorts its own
+        // output, so "the pending ones are in order" is true by construction and a
+        // check for it could never fail — a green that means nothing is worse than
+        // no check at all.
+        const lastDeployed = DEPLOYED_IN_ORDER[DEPLOYED_IN_ORDER.length - 1];
+        const pending = migrationKeys().slice(DEPLOYED_IN_ORDER.length);
+
+        expect(
+            pending.filter((key) => key <= lastDeployed),
+            `These migrations sort at or before the last deployed one (${lastDeployed}), so Kysely would ` +
+                'refuse the whole batch — nothing migrates and the bot will not start. Rename them with a ' +
+                'date that sorts after it.'
+        ).toEqual([]);
     });
 
     it('holds nothing but .ts migrations, because the loader has no filter', () => {

@@ -408,8 +408,11 @@ export async function executeFlow(
 
 /**
  * Default `onSuspend`: insert a fresh `flow_runs` row for a run that has just
- * parked. Only `{ guildId, userId }` is snapshotted — everything else is
- * re-fetched on resume.
+ * parked. Only ids are snapshotted — every Discord handle is re-fetched on resume.
+ *
+ * The channel is recorded as an id and only when the run has one: a run started
+ * by a member join is genuinely nowhere, and writing a key for it would claim
+ * otherwise.
  */
 async function persistNewSuspendedRun(
     flowId: string,
@@ -419,7 +422,20 @@ async function persistNewSuspendedRun(
     await flowRunsRepo.create({
         flowId,
         guildId: context.guild.id,
-        contextSnapshot: { guildId: context.guild.id, userId: context.subject.id },
+        contextSnapshot: {
+            guildId: context.guild.id,
+            userId: context.subject.id,
+            // Spread rather than `channelId: context.channel?.id`, so a run with no
+            // channel builds an object without the key rather than one holding an
+            // explicit `undefined`. The stored JSON is identical either way —
+            // `JSON.stringify` drops undefined members — so this buys nothing at
+            // rest. What it buys is in memory: the field is optional on
+            // `FlowRunContextSnapshot`, and this is the form that matches it, so
+            // `Object.hasOwn` and anything inspecting the object before it is
+            // serialised sees "no channel recorded" rather than "channel recorded
+            // as nothing".
+            ...(context.channel ? { channelId: context.channel.id } : {}),
+        },
         resumeNodeId: suspension.resumeNodeId,
         wakeAt: suspension.wakeAt ?? null,
         waitKind: suspension.waitKind ?? null,

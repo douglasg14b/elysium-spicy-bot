@@ -8,12 +8,31 @@ export type FlowWaitKind = 'memberJoin' | 'reactionAdd' | 'buttonClick';
 
 /**
  * The minimal context persisted with a suspended run. Discord handles (guild,
- * member, interaction) are deliberately NOT stored — they are re-fetched on
- * resume, and `interaction` is simply gone by then.
+ * member, channel, interaction) are deliberately NOT stored — only their ids are,
+ * and the live objects are re-fetched on resume. `interaction` is simply gone by
+ * then, its token long expired.
+ *
+ * **`actorId` is absent by design.** A parked run has no current step, so it has
+ * nobody acting on it; persisting an actor would persist a stale one and make
+ * every resumed run look as though the original clicker were still there. The
+ * member who advances a prompt is supplied by that interaction, not from here.
+ * This is a decision, not an oversight — do not "fix" it.
  */
 export interface FlowRunContextSnapshot {
     guildId: string;
     userId: string;
+    /**
+     * Where the run was operating when it parked, when it was anywhere at all.
+     *
+     * Optional because a run started by a gateway event happens in no particular
+     * channel, and because rows written before this key existed simply do not
+     * have it — both are the same honest "nowhere recorded", and neither needs a
+     * migration to rewrite it. The id rather than the channel: a channel can be
+     * deleted between park and resume, so what is stored has to be something that
+     * survives the channel not existing, and resolving it is the resume path's
+     * job.
+     */
+    channelId?: string;
 }
 
 /** Extra matching data for a parked wait, mirroring the wait node's config. */
@@ -57,7 +76,7 @@ export interface FlowRunTable {
     waitKind: string | null;
     waitConfig: JSONColumnType<FlowRunWaitConfig> | null;
 
-    /** Only `{ guildId, userId }` — see {@link FlowRunContextSnapshot}. */
+    /** Who the run is about and where it was — see {@link FlowRunContextSnapshot}. */
     contextSnapshot: JSONColumnType<FlowRunContextSnapshot>;
 
     /**

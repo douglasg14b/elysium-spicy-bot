@@ -51,5 +51,16 @@ export const FLOW_RUN_POLL_BATCH_SIZE = 50;
  * Not bumped for a change the repo reads straight through: the `pending` →
  * `suspended` rename and the added `claimedAt` column both leave every existing row
  * fully readable, because the migration rewrote the one value that moved.
+ *
+ * **2** since the context snapshot gained `channelId`. The bump is about the
+ * direction that genuinely breaks: a rolled-back binary would hand a v2 snapshot
+ * to a schema that does not know the key, which is exactly this constant's stated
+ * bump condition. Forwards is unaffected — `channelId` is optional, so a v1 row
+ * reads cleanly as a run that recorded no channel.
+ *
+ * It is deliberately **not a read-time discriminator**. Nothing branches on it:
+ * the old and new keys are disjoint, so there is no shape to disambiguate, and a
+ * version check at read time would be a second mechanism for a fact the schema
+ * already states — one that could disagree with it.
  */
-export const FLOW_RUN_ENTITY_VERSION = 1;
+export const FLOW_RUN_ENTITY_VERSION = 2;

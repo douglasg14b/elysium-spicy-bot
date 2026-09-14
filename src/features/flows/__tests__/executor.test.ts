@@ -275,15 +275,18 @@ describe('a block that needs something the run cannot supply', () => {
         expect(validateAuthoredGraph(graph).valid).toBe(true);
     });
 
-    it('is rejected when the only path to it passes through a block that parks', () => {
-        // However the run originally started, a resumed one cannot answer this.
-        // The snapshot persists `{guildId, userId}` and nothing else, so a woken
-        // run does not remember where it was — and a block that silently took the
-        // false branch every time would be the M1 bug all over again, moved.
+    it('is accepted when the path to it passes through a block that parks, because a run keeps its channel', () => {
+        // This assertion was deliberately inverted when the snapshot gained
+        // `channelId`. It previously expected rejection, guarding a capability
+        // that did not exist: nothing persisted a channel, so a resumed run could
+        // not answer "where am I" and would have taken the false branch every
+        // time — the bug `condition.inChannel` exists to close, merely moved past
+        // the wait.
         //
-        // This case is the one that catches a premature relaxation: the moment a
-        // channel is persisted with the run, this graph becomes legal and this
-        // assertion is the thing that must be deliberately changed.
+        // A run now records the channel it parked in and resolves it back on
+        // resume, so the question is answerable again and the graph is legal. The
+        // round trip itself is proven in `parkedRunChannel.test.ts`; what this
+        // case pins is that the save-time rule agrees with the runtime.
         const graph = gatewayStartedGraph();
         graph.nodes[0] = {
             id: 'trigger',
@@ -302,11 +305,7 @@ describe('a block that needs something the run cannot supply', () => {
             { id: 'e2', source: 'wait', target: 'where' },
         ];
 
-        const result = validateAuthoredGraph(graph);
-
-        expect(result.valid).toBe(false);
-        if (result.valid) return;
-        expect(result.errors.join('\n')).toMatch(/does not yet remember where it was/);
+        expect(validateAuthoredGraph(graph).valid).toBe(true);
     });
 
     it('is rejected even when a good path also exists, because the bad one still runs', () => {

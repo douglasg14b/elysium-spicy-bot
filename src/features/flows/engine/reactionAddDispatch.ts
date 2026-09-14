@@ -52,11 +52,27 @@ export async function handleReactionAdd(
         return;
     }
 
-    // A reaction happens somewhere, and that somewhere is the run's channel. The
-    // guard narrows rather than rejects: `message.channel` is typed for DMs too,
-    // and an uncached partial can arrive without one at all. A run with no
-    // channel is a real state the context already models, so the absent case
-    // carries on rather than bailing out.
+    // A reaction happens somewhere, and that somewhere is the run's channel.
+    //
+    // **The channel is always cached by the time this runs**, so there is nothing
+    // to fetch. `MessageReactionAdd` resolves it through `Action.getChannel`,
+    // which — without `Partials.Channel`, and `discordClient.ts` enables only
+    // `Message` and `Reaction` — reads `client.channels.cache.get(id)` and
+    // returns `false` from `handle` when that misses. An uncached channel means
+    // the event is dropped upstream and this dispatcher is never called at all.
+    //
+    // So the narrowing is the only work left, and it still earns its place: it
+    // rejects a DM (where a guild run cannot post) and a forum or media parent
+    // (which holds threads rather than messages). `trigger.reactionAdd` declares
+    // `requires: ['channel']` and save-time validation treats a declaring trigger
+    // as a *supplier*, so what matters is that the requirement is met by a channel
+    // a run can actually use, or reported absent — never by a narrowing that
+    // quietly failed.
+    //
+    // Do not add a `client.channels.fetch` fallback here: it cannot be reached,
+    // and it would put a REST call on a path that runs for every reaction in the
+    // guild. If reactions on uncached channels ever need to work, the owner of
+    // that is `Partials.Channel` in `discordClient.ts`, not a branch here.
     const reactionChannel = asGuildTextChannel(reaction.message.channel);
 
     await resumeWaitingRunsForEvent(reaction.client, {

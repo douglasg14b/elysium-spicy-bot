@@ -76,35 +76,71 @@ interface ReactionOptions {
     emojiName?: string | null;
     emojiId?: string | null;
     partial?: boolean;
+    /**
+     * Make the channel something a guild run cannot post in — a DM.
+     *
+     * The narrowing is the only channel work this dispatcher does, so this is the
+     * case that proves it still happens.
+     */
+    dmChannel?: boolean;
     guild?: unknown;
 }
 
-function makeReaction(options: ReactionOptions = {}): MessageReaction | PartialMessageReaction {
+/**
+ * A reaction shaped like the ones this dispatcher actually receives.
+ *
+ * `message.channel` is a **getter** over the client's channel cache, exactly as
+ * discord.js declares it (`client.channels.resolve(this.channelId)`) — assigning
+ * to it on a real `Message` throws, so a mock with a writable property would let a
+ * fix that cannot possibly work look like one that does. That mistake has already
+ * been made here once.
+ *
+ * The cache is always populated, because that is the only state in which this
+ * handler runs: `MessageReactionAdd` resolves the channel through
+ * `Action.getChannel`, which without `Partials.Channel` reads the cache and bails
+ * out of the event entirely on a miss. Modelling an uncached channel would be
+ * modelling a call that never happens.
+ */
+function aReaction(options: ReactionOptions = {}): MessageReaction | PartialMessageReaction {
     const guild =
         options.guild === undefined
             ? { id: GUILD_ID, members: { fetch: vi.fn().mockResolvedValue({ user: { id: 'user-1' } }) } }
             : options.guild;
 
+    const channelId = options.channelId ?? CHANNEL_ID;
+    const channel = {
+        id: channelId,
+        isDMBased: () => options.dmChannel ?? false,
+        isTextBased: () => true,
+    };
+
+    const client = { channels: { resolve: (id: string) => (id === channelId ? channel : null) } };
+
+    const message = {
+        id: options.messageId ?? MESSAGE_ID,
+        channelId,
+        guild,
+        partial: false,
+        get channel() {
+            return client.channels.resolve(channelId);
+        },
+    };
+
     return {
         partial: options.partial ?? false,
         fetch: vi.fn().mockResolvedValue(undefined),
-        client: {},
-        emoji: { id: options.emojiId ?? null, name: options.emojiName === undefined ? EMOJI : options.emojiName },
-        message: {
-            id: options.messageId ?? MESSAGE_ID,
-            channelId: options.channelId ?? CHANNEL_ID,
-            // A real message always carries the channel object, not just its id.
-            // The dispatcher reads it to establish the run's channel, so a mock
-            // without one would be testing against a message discord.js cannot
-            // produce.
-            channel: {
-                id: options.channelId ?? CHANNEL_ID,
-                isDMBased: () => false,
-                isTextBased: () => true,
-            },
-            guild,
+        client,
+        emoji: {
+            id: options.emojiId ?? null,
+            name: options.emojiName === undefined ? EMOJI : options.emojiName,
         },
+        message,
     } as unknown as MessageReaction;
+}
+
+/** The run context the dispatcher handed `executeFlow`. */
+function contextFromExecuteFlow(): { channel?: { id: string } } {
+    return executeFlow.mock.calls[0]?.[3] as { channel?: { id: string } };
 }
 
 const USER = { id: 'user-1', bot: false } as unknown as User;
@@ -119,7 +155,7 @@ describe('handleReactionAdd', () => {
     it('runs a flow whose trigger matches the channel, message and emoji', async () => {
         getByGuildId.mockResolvedValue([reactionFlow()]);
 
-        await handleReactionAdd(makeReaction(), USER);
+        await handleReactionAdd(aReaction(), USER);
 
         expect(executeFlow).toHaveBeenCalledTimes(1);
         expect(executeFlow).toHaveBeenCalledWith('flow-reaction', expect.anything(), 'trigger', expect.anything());
@@ -128,7 +164,7 @@ describe('handleReactionAdd', () => {
     it('ignores a reaction on a different message', async () => {
         getByGuildId.mockResolvedValue([reactionFlow()]);
 
-        await handleReactionAdd(makeReaction({ messageId: 'some-other-message' }), USER);
+        await handleReactionAdd(aReaction({ messageId: 'some-other-message' }), USER);
 
         expect(executeFlow).not.toHaveBeenCalled();
     });
@@ -136,7 +172,7 @@ describe('handleReactionAdd', () => {
     it('ignores a reaction in a different channel', async () => {
         getByGuildId.mockResolvedValue([reactionFlow()]);
 
-        await handleReactionAdd(makeReaction({ channelId: 'some-other-channel' }), USER);
+        await handleReactionAdd(aReaction({ channelId: 'some-other-channel' }), USER);
 
         expect(executeFlow).not.toHaveBeenCalled();
     });
@@ -144,7 +180,7 @@ describe('handleReactionAdd', () => {
     it('ignores a different emoji', async () => {
         getByGuildId.mockResolvedValue([reactionFlow()]);
 
-        await handleReactionAdd(makeReaction({ emojiName: '🍆' }), USER);
+        await handleReactionAdd(aReaction({ emojiName: '🍆' }), USER);
 
         expect(executeFlow).not.toHaveBeenCalled();
     });
@@ -152,7 +188,7 @@ describe('handleReactionAdd', () => {
     it('matches a custom emoji by its id', async () => {
         getByGuildId.mockResolvedValue([reactionFlow({ emoji: 'custom-emoji-id' })]);
 
-        await handleReactionAdd(makeReaction({ emojiId: 'custom-emoji-id', emojiName: 'spicy' }), USER);
+        await handleReactionAdd(aReaction({ emojiId: 'custom-emoji-id', emojiName: 'spicy' }), USER);
 
         expect(executeFlow).toHaveBeenCalledTimes(1);
     });
@@ -160,7 +196,7 @@ describe('handleReactionAdd', () => {
     it('skips disabled flows', async () => {
         getByGuildId.mockResolvedValue([{ ...reactionFlow(), enabled: false }]);
 
-        await handleReactionAdd(makeReaction(), USER);
+        await handleReactionAdd(aReaction(), USER);
 
         expect(executeFlow).not.toHaveBeenCalled();
     });
@@ -176,20 +212,20 @@ describe('handleReactionAdd', () => {
         };
         getByGuildId.mockResolvedValue([memberJoinFlow]);
 
-        await handleReactionAdd(makeReaction(), USER);
+        await handleReactionAdd(aReaction(), USER);
 
         expect(executeFlow).not.toHaveBeenCalled();
     });
 
     it('ignores bot reactions without hitting the database', async () => {
-        await handleReactionAdd(makeReaction(), { id: 'bot-1', bot: true } as unknown as User);
+        await handleReactionAdd(aReaction(), { id: 'bot-1', bot: true } as unknown as User);
 
         expect(getByGuildId).not.toHaveBeenCalled();
         expect(executeFlow).not.toHaveBeenCalled();
     });
 
     it('ignores reactions outside a guild', async () => {
-        await handleReactionAdd(makeReaction({ guild: null }), USER);
+        await handleReactionAdd(aReaction({ guild: null }), USER);
 
         expect(getByGuildId).not.toHaveBeenCalled();
         expect(executeFlow).not.toHaveBeenCalled();
@@ -197,11 +233,37 @@ describe('handleReactionAdd', () => {
 
     it('fetches a partial reaction before matching', async () => {
         getByGuildId.mockResolvedValue([reactionFlow()]);
-        const reaction = makeReaction({ partial: true });
+        const reaction = aReaction({ partial: true });
 
         await handleReactionAdd(reaction, USER);
 
         expect(reaction.fetch).toHaveBeenCalledTimes(1);
         expect(executeFlow).toHaveBeenCalledTimes(1);
+    });
+
+    it('supplies the channel its trigger declares', async () => {
+        // `trigger.reactionAdd` declares `requires: ['channel']`, and save-time
+        // validation treats a declaring trigger as a *supplier* — so a downstream
+        // `condition.inChannel` reading no channel would answer "no" because
+        // narrowing failed rather than because the run is elsewhere, which no
+        // author could tell apart.
+        getByGuildId.mockResolvedValue([reactionFlow()]);
+
+        await handleReactionAdd(aReaction(), USER);
+
+        expect(contextFromExecuteFlow().channel?.id).toBe(CHANNEL_ID);
+    });
+
+    it('runs a flow with no channel when the reaction is somewhere a run cannot use', async () => {
+        // A DM is not somewhere a guild run can post, so the narrowing rejects it
+        // and the run carries on knowing it is nowhere — a state the context
+        // models deliberately. Dropping the flow instead would refuse work its
+        // remaining steps (assigning a role here) never needed a channel for.
+        getByGuildId.mockResolvedValue([reactionFlow()]);
+
+        await handleReactionAdd(aReaction({ dmChannel: true }), USER);
+
+        expect(executeFlow).toHaveBeenCalledTimes(1);
+        expect(contextFromExecuteFlow().channel).toBeUndefined();
     });
 });

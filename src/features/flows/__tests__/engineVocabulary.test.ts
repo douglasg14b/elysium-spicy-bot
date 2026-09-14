@@ -143,6 +143,20 @@ const GENERIC_VOCABULARY = [
     // gate keeps the no-slack property its own third test asserts.
     'copy', 'seed', 'resolver', 'drain', 'drained', 'merged', 'size', 'expanded',
     'describe',
+    // Slice C's words, every one about mechanism rather than about anything this
+    // product does. `cause` is the ES2022 `Error` option carrying why a lookup
+    // failed. `equals`/`assert`/`true`/`agree` are the type-level equality check
+    // holding the snapshot's interface and its Zod schema to one shape — a `type`
+    // rather than a pair of assignments, because mutual assignability silently
+    // misses an optional key on one side. `candidate`/`usable`/`fetched`/`report`
+    // are the channel narrowing that now names what it rejected instead of
+    // returning a bare undefined.
+    //
+    // Checked against PROVEN_REJECTIONS: `fold` only strips a suffix to reach a
+    // recognised stem, so none of these can reach `onboarding`, `rules`,
+    // `ticket`, `prompt` or the rest. The no-slack property still holds.
+    'cause', 'equals', 'assert', 'true', 'agree',
+    'candidate', 'usable', 'fetched', 'report',
     'result', 'parsed', 'default', 'update', 'current', 'definition', 'definitions',
     'next', 'declared', 'declaration', 'dependencies', 'error', 'errors', 'field',
     'fields', 'schema', 'type', 'reason', 'options', 'option', 'source', 'list',
