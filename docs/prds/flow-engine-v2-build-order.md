@@ -83,7 +83,9 @@ Steps 1 and 2 shipped no user-visible capability between them — thirteen block
 
 **So step 3 is sliced so that the visible capability lands in the middle, not at the end.** The prompt block is the deliverable, and it lands at B3 — three commits in, with three more after it. Everything after B3 is hardening that prompt block against its own failure modes. If the step is cut short at any point from B3 onward, what exists is a working button that advances a parked run.
 
-Be honest about the shape of that, though: A, B1, and B2 are all invisible, so this step still opens with three commits that show nothing. That is not evasion of the lesson — it is the smallest such prefix available, since a prompt cannot name its exit before the resume reason can carry one, and cannot offer choices before a control can edit a list. The difference from steps 1 and 2 is that the invisible prefix is three commits rather than two whole steps, and that it terminates in something to look at.
+Be honest about the shape of that, though: A and B1 are both invisible, so this step still opens with commits that show nothing. That is not evasion of the lesson — it is the smallest such prefix available, since a prompt cannot name its exit before the resume reason can carry one, and cannot offer choices before a control can edit a list. The difference from steps 1 and 2 is that the invisible prefix is a couple of commits rather than two whole steps, and that it terminates in something to look at.
+
+**It came in one commit shorter than planned.** B2 was budgeted as a third invisible commit and resolved into a decision with no code of its own, so the prefix is A and B1, and B3 is next.
 
 Consequently the fan-outs §5.4 itself defers — the four new gateway triggers — stay deferred, and §5.5's custom events are **not in this step at all**. Reasoning below.
 
@@ -92,8 +94,8 @@ Consequently the fan-outs §5.4 itself defers — the four new gateway triggers 
 | Slice | Content | Visible after it |
 |---|---|---|
 | **A** | Resume carries a **choice**, not a boolean — widen `FlowResumeReason`, thread it through `engine/flowRunResume.ts`, `engine/executor.ts`, and `blocks/conformance.ts` | Nothing. Interpreter-level, and wider than it looks — see below. **Done** (`1b58846`) |
-| **B1** | **List control** — the first non-scalar control, and whatever `ControlChange` widening it forces across the eight existing controls | Authors can edit a list of things. No block uses it yet. **Done** — shipped as `textList` |
-| **B2** | **Handles from config** — whichever resolution the manifest contract gets for a block whose handle count is authored, not declared | Nothing directly; unblocks B3 |
+| **B1** | **List control** — the first non-scalar control, and whatever `ControlChange` widening it forces across the eight existing controls | Authors can edit a list of things. No block uses it yet. **Done** (`db98870`), shipped as `textList` |
+| **B2** | **Handles from config** — whichever resolution the manifest contract gets for a block whose handle count is authored, not declared | **Decided, no commit.** Fixed numbered handles won; everything left is B3's own declaration. Folded into B3 — see below |
 | **B3** | **The prompt block** — posts a message with one button per choice, parks, resumes by the pressed choice's handle. Run-scoped custom id, new `flowp:` prefix handler | **A run asks a question in Discord and a press advances it.** This is the step's product |
 | **C** | **Audience gate** — a principal list evaluated against the clicker; ephemeral refusal; applied to the prompt block *and* to the existing trigger buttons, which today check nothing | Non-moderators are refused. This completes §1.3's step text |
 | **D** | **Lifecycle** — a second press refuses rather than advancing; buttons disabled on choice, timeout, and cancel; the prompt's timeout branch | A stale prompt cannot be pressed twice |
@@ -101,9 +103,11 @@ Consequently the fan-outs §5.4 itself defers — the four new gateway triggers 
 
 Each row is a commit. E is not a commit; it is the thing that makes the previous ones true.
 
-**B is three commits, not one.** It was one row in the first draft of this plan, and that was wrong: it bundled a control-signature widening across eight controls, a manifest-contract change, and the block itself — two of which are individually larger than slice A, which got its own commit precisely because it touches a documented contract. A commit containing all three cannot be reviewed or reverted as a unit, and the thing that stalls if it goes wrong is the one visible deliverable in the step.
+**B was split into three, and landed as two.** It was one row in the first draft of this plan, and that was wrong: it bundled a control-signature widening across eight controls, a manifest-contract change, and the block itself — two of which are individually larger than slice A, which got its own commit precisely because it touches a documented contract. A commit containing all three could not be reviewed or reverted as a unit, and the thing that stalls if it goes wrong is the one visible deliverable in the step.
 
-The visible capability therefore lands at the end of **B3**, not the end of B. That is still before C, D, and E — the sequencing property this step exists to have.
+That split was right for B1, which shipped alone (`db98870`) and turned up four unchecked declarations on its way through. It turned out **not** to be right for B2: splitting it assumed a manifest-contract change that the wire format then ruled out, leaving a slice whose entire content was the prompt block's own declaration. So B2 is a decision rather than a commit, and B is two commits in the end — see B2 below for why, and for what was given up.
+
+The visible capability therefore lands at the end of **B3**, which is now the next commit. That is still before C, D, and E — the sequencing property this step exists to have, and one commit sooner than planned.
 
 ### Why custom events (§5.5) are not in this step
 
@@ -183,16 +187,42 @@ Every existing block has a *static* `handles` array — `conditionHasRole` decla
 
 Two options, and this slice exists to pick one deliberately rather than by whichever hack compiles: either the manifest grows a way to derive handles from a node's config, or the prompt ships a fixed number of numbered choice handles that the author labels. The second is uglier and cheaper; the first is what G7 asks for.
 
-**Decide it with the browser in front of you, not the drift gate.** `nodeDescriptorDrift` compares key *names* taken off the live registry plus seven closed vocabularies; only `BLOCK_HANDLE_TONES` touches handles at all, and a block whose `handles` were computed rather than literal changes no key name, so every assertion there passes either way. The gate will not inform this decision. The binding constraints are elsewhere, and they are what make the derived option genuinely hard:
+**Decide it with the browser in front of you, not the drift gate.** `nodeDescriptorDrift` compares key *names* taken off the live registry plus seven closed vocabularies; only `BLOCK_HANDLE_TONES` touches handles at all, and a block whose `handles` were computed rather than literal changes no key name, so every assertion there passes either way. The gate will not inform this decision.
 
-- `web/src/flows/FlowNodeCard.tsx` and `FlowBuilderPage.tsx` read `descriptor.handles` straight off the **statically fetched** descriptor, with no access to a node's config. There is no per-node handle path in the browser at all.
-- `conformance.ts` walks `handles` as a static array in two places, including the check that a `continue` outcome names a handle the block declared.
-- `graphValidation.ts` does the same at save time.
-- `engine/executor.ts:293-299` (reachability) and `:591-635` (`resolveNextNode`).
+Choice identity — key versus index — is *not* settled here. It was decided before slice A, because it determined slice A's payload.
 
-Choice identity — key versus index — is *not* settled here. It is decided before slice A, because it determines slice A's payload.
+**Decided: the fixed numbered handles, with the card hiding the ones the author has not filled in.** The reasoning, because the constraint that decides it is not the one this plan first recorded.
 
-Note this is *not* where choice identity is settled — key versus index is decided before slice A, because it determines slice A's payload.
+What the plan expected to be binding was that the browser reads `descriptor.handles` off a statically fetched descriptor "with no access to a node's config". That is true as written and **misleading**: all seven readers of `.handles` already hold the node's config or reach it in one line — `FlowNodeCard.tsx:42` destructures it for the card summary, `graphValidation.ts:103` has the node, both `executor.ts` sites have the node, and both `styleEdge` call sites (`FlowBuilderPage.tsx:246`, `:311`) already `.find()` the source node and pass only its descriptor while discarding the config sitting next to it. Config availability was never the blocker.
+
+The real blocker is **serialization**, at a site this plan did not count. `NodeDescriptor` is `Omit<BlockManifest, NonWireMember>` and `toDescriptor` is a *rest-destructure* (`nodeRoutes.ts:36`, `:51-54`) — deliberately a subtraction, so a new manifest member is served automatically rather than silently dropped. A `handlesFor(config)` function would therefore be picked up by that spread, typed as present on the descriptor, and then serialized to **nothing** by `JSON.stringify`, which drops function values. Not an error; a member the browser believes in and never receives. Adding it to `NON_WIRE_MEMBERS` fixes the typing (and `NonWireMembersAreWithheld` at `:70` forces the destructure to match, so that part is well guarded) — but it does not give the browser the handles, and the browser is what draws them.
+
+That leaves two ways to get per-node handles across, and both are worse than the problem:
+
+- **Server-computed.** `GET /api/nodes` is a *catalogue* route — `listBlockDefinitions()` is process-wide and has no nodes at all, so there is no config there to compute against. Handles would have to resolve on the graph load path instead, which means the descriptor stops carrying handles, every browser site stops reading `descriptor.handles`, and the shape the drift gate polices changes meaning.
+- **Reimplemented in the browser.** A second copy of each block's derivation on the far side of the wire, held together by nothing — the drift gate compares key names and vocabularies, not function bodies. This is precisely the copy-that-rots that the manifest header and `nodeRoutes.ts:32` were written to prevent.
+
+Against that, the numbered option is **one new block directory**: `handles` stays a static array, the wire format is untouched, the drift gate passes unmodified, and all seven readers work as written. `implementation-philosophy.md`'s "framework for one call site" is decisive — the derived option builds a general config→handles mechanism for exactly one block — and `elegance.md` does not dissent, because its "single-source derived state" rule argues *against* the browser reimplementation rather than for it.
+
+It is also **forward-compatible by construction**: saved edges hold `sourceHandle: 'choice-3'`, and any later derivation that keeps index-based ids produces the same ids for a 4-choice prompt. `flowGraph.ts:49` types `sourceHandle` as `z.string().min(1).optional()` — unconstrained, no enum — so nothing at the storage layer locks either option in. The asymmetry is the argument: the numbered option is cheap and reversible, the derived one is expensive and paid at the contract boundary.
+
+Three things checked rather than assumed, because each would have changed the answer:
+
+- **A prompt with 3 of 5 handles wired still parks.** `executor.ts:299-302` is `.some()`, not `.every()` — one wired handle is enough. Early completion happens only at zero, which is the right behaviour anyway.
+- **Save-time validation does not complain about unused handles.** `graphValidation.ts` walks `handleUseByNode`, built from the graph's *edges*; an unwired handle produces no edge and so no entry. The `:122` check fires only for edges on handles the block does not declare, and `choice-3` is declared.
+- **`styleEdge` costs nothing** — it colours edges that exist, and a ghost handle has none.
+
+**The honest cost, and who pays it for now.** Today's busiest block declares two handles; a five-handle prompt is the busiest card in the builder by some margin, and three of those five carry static labels for choices the author never wrote. `handlesAreLabelled` is `handles.length > 1` (`nodeMeta.ts:109`), so they all draw, stacked at `52 + index * 26`. The card is a small lie about the block, on the step's headline deliverable.
+
+**B2 is therefore folded into B3 and ships no commit of its own**, by explicit decision rather than drift: once the wire format ruled out the derived option, everything left was either the prompt block's own declaration (B3's code) or a fix for those ghost handles. The ghosts ship as-is. That is a deliberate, visible debt, taken because the alternatives cost more than the wart does:
+
+- Trimming the card properly needs the manifest to name which config field governs the count — a small data-only member that would serialize fine and that any future authored-handle block would reuse. **Still the right fix, and still available as one commit** if the ghosts prove intolerable when slice E puts them in front of someone.
+- Special-casing the prompt block by type inside `FlowNodeCard` is the cheap version and is **rejected outright**: the manifest header's whole claim is that a block is one directory and "nothing outside that directory is edited to add it — no registry entry, no barrel line, and no file under `web/src/flows`". Buying a cosmetic fix by breaking that is a far worse trade than a busy card.
+- Inferring the trim from a `choice-N` id pattern in the browser is a magic string that silently does nothing for the next block with a different scheme.
+
+So: the block declares five handles, the card draws five, and an author with two choices sees three spare exits. The executor routes all five correctly and nothing about the contract moves. Revisit after E.
+
+One risk this creates and B3 must honour: `executor.ts:330`'s `wokeOntoNothing` fails a run that wakes onto a handle with no wired branch. So the prompt must never post a button for a choice the author did not author — which falls out of building the buttons from the `textList`, but is worth stating because it is the failure mode of getting it wrong.
 
 #### B3 — the prompt block
 
@@ -243,7 +273,7 @@ Two of these are real dependencies. The others are preferences, and saying which
 1. **A before B3** — *a dependency.* The prompt block cannot name its exit until the resume reason can carry one. Building it first means building against `'event'` and rewriting.
 2. **B1 before B3, and B1 before C** — *a dependency.* Both the choice list and the gate's role list are non-scalar controls.
 3. **C before D** — *a dependency.* Refusal and "already answered" are the same ephemeral surface; the lifecycle guard first means building the refusal path twice.
-4. **B3 before C** — **a preference, not a dependency**, and the one to revisit if anything slips. The reason is design quality: the gate becomes a shared vocabulary rather than a prompt-block private if it has two call sites when it is written. The cost is real, though — `flowTriggerDispatch.ts` has **no eligibility check at all today**, so this sequences an existing authorization hole behind the step's riskiest work. It stands because B1 comes first regardless, because the hole is gated behind a deployed button in a guild whose admin is the operator, and because a gate shaped by one caller is the failure this step is most likely to repeat from step 2. If B2 turns out worse than expected, invert this and ship the gate on the trigger path first.
+4. **B3 before C** — **a preference, not a dependency**, and the one to revisit if anything slips. The reason is design quality: the gate becomes a shared vocabulary rather than a prompt-block private if it has two call sites when it is written. The cost is real, though — `flowTriggerDispatch.ts` has **no eligibility check at all today**, so this sequences an existing authorization hole behind the step's riskiest work. It stands because B1 comes first regardless, because the hole is gated behind a deployed button in a guild whose admin is the operator, and because a gate shaped by one caller is the failure this step is most likely to repeat from step 2. The escape hatch this clause reserved — invert the order if B2 turns out worse than expected — is **spent**: B2 resolved to a decision with no commit, so nothing is left to overrun. If B3 itself slips, invert then.
 5. **E last, and E is not optional.**
 
 ### Deliberately not in step 3
