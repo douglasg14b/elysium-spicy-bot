@@ -113,9 +113,13 @@ export function checkBlockConformance(candidate: unknown): readonly string[] {
  * a padlock on the card, and it admits everybody — silent at every layer a person
  * would think to look.
  *
- * Only triggers are asked. An action or condition is reached by an edge rather
- * than by an event, so `ELIGIBILITY_ENFORCED_SOURCES` says nothing about it —
- * `action.prompt`'s rule is enforced by the dispatcher that routes its answers.
+ * **Only triggers are asked**, and the asymmetry is forced rather than lazy. A
+ * trigger's enforcement follows from `startedBy`, which is declared data this
+ * function already holds. An action's follows from whether some dispatcher reads
+ * its rule — a fact about code, in no manifest — so the only way to check one
+ * would be a list of block types here, which `blockTypeBranching` rejects as a
+ * second copy of the catalogue. See the note beside
+ * `ELIGIBILITY_ENFORCED_SOURCES` for what that leaves uncovered.
  */
 function checkEligibilityEnforced(
     label: string,
@@ -141,7 +145,7 @@ function checkEligibilityEnforced(
     return [
         `${label}: declares an "${ELIGIBILITY_CONFIG_KEY}" field, but nothing checks one for a ` +
             `"${startedBy}" trigger (only ${enforced.join(', ')}). An authored rule would save, show on ` +
-            'the card, and admit everybody. Wire that source\'s dispatcher and add it to ' +
+            "the card, and admit everybody. Wire that source's dispatcher and add it to " +
             'ELIGIBILITY_ENFORCED_SOURCES, or drop the field.',
     ];
 }

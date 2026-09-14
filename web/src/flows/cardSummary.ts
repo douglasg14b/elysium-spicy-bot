@@ -5,9 +5,11 @@
  * control type reads, which is the same knowledge the inspector already has.
  */
 
+import { ELIGIBILITY_PRINCIPALS } from '../api/types';
 import type {
     BlockCardSummaryPart,
     BlockConfigField,
+    EligibilityPrincipal,
     GuildChannel,
     GuildRole,
     NodeDescriptor,
@@ -101,7 +103,22 @@ function resolveValue(
         case 'eligibility': {
             if (!raw || typeof raw !== 'object') return '';
             const gate = raw as { principal?: unknown; roleIds?: unknown };
-            switch (gate.principal) {
+
+            // Narrowed against the vocabulary first so the switch below can be
+            // exhaustive with no `default`, matching every other consumer of it.
+            // A `default` here fails *invisibly*: the declaring blocks pair this
+            // part with `hideWhenEmpty`, so a principal with no arm returns '',
+            // the part is dropped, and a gated node draws no padlock at all —
+            // reading on the canvas as one that admits everybody.
+            const known: readonly string[] = ELIGIBILITY_PRINCIPALS;
+            if (typeof gate.principal !== 'string' || !known.includes(gate.principal)) return '';
+
+            switch (gate.principal as EligibilityPrincipal) {
+                case 'anyone':
+                    // An open rule is not worth a line: every block declaring one
+                    // defaults to open, so saying so would put "Anyone" on every
+                    // card in the builder.
+                    return '';
                 case 'subject':
                     return 'them only';
                 case 'actor':
@@ -124,8 +141,6 @@ function resolveValue(
                         ? named.map((role) => `@${role.name}`).join(', ')
                         : `${named.length} roles`;
                 }
-                default:
-                    return '';
             }
         }
         default: {

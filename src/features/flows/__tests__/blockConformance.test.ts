@@ -710,6 +710,45 @@ describe('driving a block through its entry point', () => {
         expect(returnedNonsense.join()).toMatch(/"finished", which is not one of continue, suspend, fail/);
     });
 
+    it('catches a trigger offering an eligibility rule nothing would enforce', () => {
+        // The worst failure mode a permission control has: it saves, it draws a
+        // padlock on the card, and it admits everybody — silent at every layer
+        // somebody would think to look. Only the dispatchers named in
+        // ELIGIBILITY_ENFORCED_SOURCES actually read a rule, so a trigger on any
+        // other source has to fail here instead.
+        const issues = checkBlockConformance(
+            manifestWith({
+                kind: 'trigger',
+                startedBy: 'memberJoin',
+                configSchema: z.object({ eligibility: z.unknown() }),
+                configFields: [{ key: 'eligibility', label: 'Who', control: 'eligibility' }],
+            })
+        );
+
+        expect(issues.join()).toMatch(/nothing checks one for a "memberJoin" trigger/);
+    });
+
+    it('says nothing about a non-trigger, which has no source to judge it by', () => {
+        // Pins the early return rather than trusting it, and without this a check
+        // that returned `[]` for every input would look identical to the working
+        // one above.
+        //
+        // The exemption is forced, not lax: an action is reached by an edge, so
+        // `startedBy` says nothing about it, and the only other way to judge one
+        // is a list of block types — which `blockTypeBranching` rejects as a
+        // second catalogue. `action.prompt`'s own rule is enforced by the
+        // dispatcher routing its answers.
+        const issues = checkBlockConformance(
+            manifestWith({
+                kind: 'action',
+                configSchema: z.object({ eligibility: z.unknown() }),
+                configFields: [{ key: 'eligibility', label: 'Who', control: 'eligibility' }],
+            })
+        );
+
+        expect(issues.join()).not.toMatch(/checks one/);
+    });
+
     it('catches a block continuing by a handle it never declared', async () => {
         // The builder draws only declared handles, so this edge could not exist
         // on the canvas — the run would stop dead at a node that looked fine.

@@ -167,6 +167,26 @@ export const ELIGIBILITY_CONFIG_KEY = 'eligibility';
  */
 export const ELIGIBILITY_ENFORCED_SOURCES = ['buttonClick'] as const;
 
+/*
+ * **Non-trigger blocks are deliberately not covered by an equivalent list.**
+ *
+ * The obvious symmetry — `ELIGIBILITY_ENFORCED_BLOCKS = ['action.prompt']` —
+ * was written and removed: `blockTypeBranching` rejects a block type named
+ * outside its own directory, correctly, because such a list is a second copy of
+ * the catalogue and the thing this milestone exists to delete.
+ *
+ * Nor can it be inferred. A trigger's enforcement follows from `startedBy`,
+ * which is declared data; an action's follows from whether some dispatcher
+ * happens to read its rule, which is a fact about code and appears in no
+ * manifest. So the check covers triggers, where the answer is derivable, and
+ * says nothing about actions rather than pretending to.
+ *
+ * What that leaves uncovered is one case: a **second** action declaring the
+ * field. The only one today, `action.prompt`, is enforced by
+ * `flowChoiceDispatch`. Recorded here rather than silently, because the reader
+ * who adds the second one is the person this note is for.
+ */
+
 /**
  * The gate as a block's config schema declares it.
  *
