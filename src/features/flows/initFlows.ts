@@ -3,7 +3,8 @@ import { interactionsRegistry } from '../../features-system/commands';
 import { DISCORD_CLIENT } from '../../discordClient';
 import { ensureBlocksDiscovered } from './blocks/registry';
 import { flowDeployCommand, handleFlowDeployCommand } from './commands/flowDeployCommand';
-import { FLOW_CUSTOM_ID_PREFIX } from './constants';
+import { FLOW_CHOICE_CUSTOM_ID_PREFIX, FLOW_CUSTOM_ID_PREFIX } from './constants';
+import { handleFlowChoiceInteraction } from './engine/flowChoiceDispatch';
 import { startFlowRunScheduler } from './engine/flowRunScheduler';
 import { handleFlowButtonInteraction } from './engine/flowTriggerDispatch';
 import { handleMemberJoin } from './engine/memberJoinDispatch';
@@ -48,6 +49,21 @@ async function initializeFlows(): Promise<void> {
             });
         }
         return handleFlowButtonInteraction(interaction);
+    });
+
+    // Answers to questions parked runs asked: `flowc:<runId>:<nodeId>:<index>`.
+    //
+    // Sits safely beside `flow:` because `resolveDynamicHandler` keeps the
+    // longest matching prefix — not because of the trailing colons, which is the
+    // tempting and wrong reading. See `FLOW_CHOICE_CUSTOM_ID_PREFIX`.
+    interactionsRegistry.registerDynamic(`${FLOW_CHOICE_CUSTOM_ID_PREFIX}:`, (interaction) => {
+        if (!interaction.isButton()) {
+            return Promise.resolve({
+                status: 'skipped' as const,
+                message: 'Flow answers only support buttons for now.',
+            });
+        }
+        return handleFlowChoiceInteraction(interaction);
     });
 
     // Gateway trigger: member joins (requires the GuildMembers intent, present).

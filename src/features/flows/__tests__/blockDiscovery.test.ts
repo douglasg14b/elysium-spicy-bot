@@ -14,7 +14,7 @@ const FIXTURE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fi
 const fixtureRoot = (name: string): string => path.join(FIXTURE_ROOT, name);
 
 /**
- * The thirteen blocks that ship today, in the order a directory scan yields them.
+ * The fourteen blocks that ship today, in the order a directory scan yields them.
  *
  * Pinned rather than counted: the palette shows them in this order, and the
  * point of discovery is that this list is derived from the tree instead of
@@ -30,6 +30,7 @@ const SHIPPED_BLOCK_TYPES = [
     'action.assignRole',
     'action.delay',
     'action.postEmbed',
+    'action.prompt',
     'action.removeRole',
     'action.sendDM',
     'action.sendMessage',

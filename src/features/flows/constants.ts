@@ -12,15 +12,17 @@ export const FLOW_CUSTOM_ID_PREFIX = 'flow';
  * returns null on anything but exactly three segments, so extending that scheme in
  * place would break every trigger button already deployed in a guild.
  *
- * These two are safe alongside each other **because of the trailing colon**, and it
- * is worth being exact about that, because the two obvious reasons are both wrong.
- * It is not that the strings differ — `resolveDynamicHandler` matches by
- * `startsWith`, so distinctness alone proves nothing. Nor is it longest-prefix-wins:
- * `'flowc:x'.startsWith('flow:')` is **false**, so there is no contest to win.
- * Registration adds the colon to both (`initFlows.ts`), and that is the whole of it.
- * Register either without one and these ids route into the trigger handler, which
- * parses them to null and answers "Malformed flow button id" — a confusing
- * user-facing error rather than a crash, which is the worst kind to debug.
+ * These two are safe alongside each other **because `resolveDynamicHandler` keeps
+ * the longest matching prefix**, and it is worth being exact about that, because
+ * the tempting explanation is wrong. It is not the trailing colon:
+ * `'flowc:…'.startsWith('flow:')` is false, so with both colons there is no
+ * contest — but drop the trigger prefix's colon and `'flowc:…'` *does* match
+ * `'flow'`, and answers still route here, because `'flowc:'` is longer. Length is
+ * what decides, not punctuation and not registration order.
+ *
+ * What the colon does buy is a guarantee that survives the next prefix somebody
+ * adds: `flow` bare would also match a hypothetical `flowsomething:`, where
+ * `flow:` cannot. Keep both colons for that reason rather than for this one.
  * `registerDynamic` throws only on an exact duplicate prefix and will not warn.
  */
 export const FLOW_CHOICE_CUSTOM_ID_PREFIX = 'flowc';
@@ -34,6 +36,15 @@ export const FLOW_CHOICE_CUSTOM_ID_PREFIX = 'flowc';
  * names none of them.
  */
 export const DISCORD_CUSTOM_ID_MAX_LENGTH = 100;
+
+/**
+ * Discord's hard cap on a button's visible label, in characters.
+ *
+ * Held by the block's schema rather than trusted: Discord rejects the whole
+ * message when a label is over, so an author who pastes a sentence would
+ * otherwise get a failed run at ask time instead of a save they can fix.
+ */
+export const DISCORD_BUTTON_LABEL_MAX_LENGTH = 80;
 
 /**
  * Most choices one question may offer.

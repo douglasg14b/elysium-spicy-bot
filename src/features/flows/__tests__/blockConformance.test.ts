@@ -15,7 +15,17 @@ const FIXTURE_ROOT = path.join(
     'conforming'
 );
 
-/** Enough context to call a block. No block under test here touches Discord. */
+/**
+ * A channel that accepts anything and reports nothing.
+ *
+ * Conformance asks what a block *returns*, never what it posted, so a shipped
+ * block that talks to Discord needs somewhere for that to land and nothing more.
+ */
+function sink(): FlowRunContext['channel'] {
+    return { send: () => Promise.resolve(undefined) } as unknown as FlowRunContext['channel'];
+}
+
+/** Enough context to call a block. */
 const context = {
     client: {} as FlowRunContext['client'],
     guild: { id: 'guild-1' } as FlowRunContext['guild'],
@@ -730,9 +740,11 @@ describe('driving a block through its entry point', () => {
     /**
      * A block can route by *which* option was picked, not merely that one was.
      *
-     * No shipped block offers choices yet — that is the prompt block, and it is a
-     * later slice — so this stands in for it with the smallest block that reads an
-     * index and answers with a matching handle. It is what makes `choice` a
+     * `action.prompt` now ships and does exactly this, but the fixture stays: it
+     * proves the capability against the smallest block that reads an index and
+     * answers with a matching handle, rather than against one block's config, so
+     * a change to the prompt's own schema cannot quietly stop testing the
+     * engine's delivery of the index. It is what makes `choice` a
      * capability rather than a third word in a type: without it, the variant could
      * carry an index that nothing has ever read, and the first code to try would
      * be the first to find out whether the engine delivered it.
@@ -789,10 +801,10 @@ describe('every block that ships', () => {
 
     it('declares a suspending block honestly', () => {
         // `canSuspend` is documentation the executor never reads, so nothing else
-        // would notice a block that lies about it. The two that park say so.
+        // would notice a block that lies about it. Every block that parks says so.
         const suspending = shipped.filter((block) => block.canSuspend).map((block) => block.type);
 
-        expect(suspending.toSorted()).toEqual(['action.delay', 'action.waitForEvent']);
+        expect(suspending.toSorted()).toEqual(['action.delay', 'action.prompt', 'action.waitForEvent']);
     });
 
     it('comes back when a suspending block is woken, rather than parking forever', async () => {
@@ -802,6 +814,7 @@ describe('every block that ships', () => {
         const configs: Readonly<Record<string, unknown>> = {
             'action.delay': { durationMs: 1000 },
             'action.waitForEvent': { eventKind: 'memberJoin' },
+            'action.prompt': { question: 'Well?', choices: ['Yes', 'No'] },
         };
 
         const suspending = shipped.filter((block) => block.canSuspend);
@@ -810,7 +823,11 @@ describe('every block that ships', () => {
         for (const block of suspending) {
             const config = configs[block.type];
             expect(config, `no probe config for the suspending block ${block.type}`).toBeDefined();
-            expect(await checkBlockOutcome(block, config, context)).toEqual([]);
+            // A channel that swallows what it is sent, because `action.prompt`
+            // posts its question on the parking leg. Given to every block rather
+            // than to that one by name: a probe that knows which block needs a
+            // channel is a probe that stops being a census.
+            expect(await checkBlockOutcome(block, config, { ...context, channel: sink() })).toEqual([]);
         }
     });
 

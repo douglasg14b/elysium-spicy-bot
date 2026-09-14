@@ -2,6 +2,7 @@ export * from './stepOutcome';
 export * from './executor';
 export * from './graphValidation';
 export * from './nodeDataValidation';
+export * from './flowChoiceDispatch';
 export * from './flowTriggerDispatch';
 export * from './memberJoinDispatch';
 export * from './reactionAddDispatch';
