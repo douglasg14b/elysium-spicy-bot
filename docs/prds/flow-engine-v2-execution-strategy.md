@@ -2,7 +2,7 @@
 
 > **Status**: Approved
 > **Owner**: Douglas
-> **Last updated**: 2026-09-12
+> **Last updated**: 2026-09-13
 > **Companion to**: [flow-engine-v2-journeys-and-provisioning.md](flow-engine-v2-journeys-and-provisioning.md) (product intent)
 > **Scope**: How the six milestones get built — wave structure, what parallelizes, how the block contract is amended mid-flight, how context is managed across sessions, and what gates each wave.
 > **Does not cover**: Per-milestone implementation plans. Those are RPI artifacts (§8).
@@ -108,17 +108,23 @@ Fan-out is viable only when all three hold. If any is missing, parallelism is a 
 | Wave | Fannable units | Notes |
 | --- | --- | --- |
 | M1 | ~10 | Migrating the existing 12 blocks, after 2 exemplars |
-| M2 | ~3 | Embed composer, pick-random, singleton guard |
+| M2 | ~2 | Embed composer, pick-random. *Revised down from ~3: the singleton guard is serial, and both new control types land serially before the fan-out — see §8.* |
 | M3 | ~4 | New Discord triggers, once channel selectors exist |
 | M4 | ~10 | Ticket blocks, conditions, triggers — after the service lands |
 | M5 | ~4 | Permission intents |
 | M6 | 0 | Single authored journey |
 
-So roughly **30 of ~50 units are fannable**, but each batch is gated behind serial design work. Expect the calendar to be dominated by the serial spikes, not the fan-outs.
+So roughly **29 of ~50 units are fannable**, but each batch is gated behind serial design work. Expect the calendar to be dominated by the serial spikes, not the fan-outs.
+
+**A calibration note from M2's planning.** M2's fannable count was estimated at ~3 and turned out to be ~2, because the estimate counted *deliverables* while the preconditions apply to *shared files*. Two units that each look self-contained are not fannable if both must extend the same vocabulary. When estimating a future wave's fan-out, count the units that write to one directory and touch no shared contract — not the units on the feature list. The other waves' numbers have not been re-derived under that reading and are likely optimistic for the same reason.
 
 ### Model tier — assigned per phase, policy owned here
 
 Tier is an **execution** concern, so the rule lives in this document and the per-`Pxx` assignment lives in the RPI phase details. It does **not** belong in the PRD: product intent does not change when the model lineup does.
+
+> **Narrowed by the owner, 2026-09-13.** Fable is reserved for work that is *particularly extreme and highly sensitive* — a complex state machine with many intertwining variables that has to be right the first time — **or** work that mutates live data or a live guild irreversibly. **Everything else is Opus**, including most contract-defining work. The table below is the original, broader reading and is retained for its reasoning; where the two disagree, the narrower rule wins. Applied to M2, it left exactly one Fable phase (the run-snapshot migration) out of seven.
+>
+> A second clause, same decision: **work that should not be fanned out is done serially by a single agent**, not placed in a fan-out slot at a raised tier. Tier and parallelism are separate axes, and raising the tier is not a substitute for serializing.
 
 Tier by **(design-bearing OR irreversible)**, not by size:
 
@@ -227,8 +233,18 @@ One RPI lifecycle per milestone. `/rpi-plan` produces the `Pxx` phases; this tab
 | Wave | Mode | Content |
 | --- | --- | --- |
 | 2.1 | serial | Subject/actor split, channel context, variables, run-snapshot migration, token renderer |
-| 2.2 | serial | Declared outputs + reference-binding control |
-| 2.3 | **parallel ×3** | Embed composer, pick-random block, per-trigger singleton guard |
+| 2.2 | serial | Declared outputs + reference-binding control (control #9) |
+| 2.2b | serial | The list-valued control (control #10) — the first non-scalar control |
+| 2.3 | **parallel ×2** | Embed composer, pick-random block |
+| 2.4 | serial | Per-trigger singleton guard |
+
+*Corrected during M2 planning (2026-09-13), against §4's own preconditions.* The original table read `2.3 | parallel ×3 | Embed composer, pick-random block, per-trigger singleton guard`. Three things were wrong with it:
+
+- **Two of the three units both introduce a control type**, and so contend on the same six shared files — `blocks/manifest.ts`, `web/src/api/types.ts`, the drift test's `CONFIG_FIELD_FIXTURES`, `renderControl.tsx`, `cardSummary.ts`, and `conformance.ts`. That is precondition (1) failing in exactly the way §4 names: "N agents editing one registry array produce N conflicting edits to one line range."
+- **No exemplar of a list-valued control exists.** All eight shipped controls are scalar and `ControlChange` is `string | number | undefined`, so the first list control is novel design, not conforming work — precondition (2), and §3's "serialize the novel, parallelize the formulaic."
+- **The singleton guard is not formulaic either.** It adds a durable table with a unique constraint, a manifest member, and edits to all three dispatchers. It shares no file with the other two units, so it *could* run concurrently — but it is design-bearing work that wants a single author, and the corrected shape runs it serially rather than in a fan-out slot.
+
+With both controls landed serially in 2.2 and 2.2b, the remaining two units write to **one block directory each** and the ×2 fan-out meets all three preconditions genuinely.
 
 **M3 — Interaction & events**
 
@@ -271,11 +287,18 @@ One RPI lifecycle per milestone. `/rpi-plan` produces the `Pxx` phases; this tab
 
 ## 9) Amendment ledger
 
-Every contract amendment, in order. Empty until M1 starts.
+Every contract amendment, in order.
+
+**M1 filed none.** The contract was authored in M1's first wave rather than amended during it, so the protocol had nothing to record — which is the expected shape for the milestone that *creates* the contract, not evidence the protocol went unused. M1's equivalent record is its changes log, which carries two deliberate additions made while the contract was still being written (`note` and `cardSummary` on the manifest, both added when the builder needed copy the original list did not name).
+
+**M2 is planned to file four**, listed here as planned rather than done so the count is visible before it is spent. §5's calibration expects 3–6 across M1–M6; M2 alone consuming four is worth watching, and the likeliest reading is that M1 froze the contract at the narrowest shape that satisfied M1 rather than the shape the programme needs. That is the correct order — a contract earns its members — but it means M2 is where the bill arrives.
 
 | # | Date | Milestone | Friction | Decision | Blocks migrated |
 | --- | --- | --- | --- | --- | --- |
-| — | — | — | — | — | — |
+| 1 | *planned* | M2 | A block has no way to return a value; `FLOW_STEP_OUTCOME_KINDS` is frozen | Add `context.setOutput`. The frozen member set is unchanged — three kinds in, three kinds out. Payload growth is not member growth; `FlowRetryMarker` is the M1 precedent | 13 (all declare `outputs: []`, so migration is trivially satisfied) |
+| 2 | *planned* | M2 | A picker cannot offer only *compatible* upstream outputs without a type on the declaration | Add `valueType` to `BlockOutputDeclaration`, over a new three-member vocabulary (`text`, `channelId`, `memberId`) — each with a concrete M2 call site | 13 |
+| 3 | *planned* | M2 | Reference binding and list-valued config cannot be expressed by the eight shipped controls | `BLOCK_CONTROL_TYPES` gains two members. Each lands serially with its browser renderer, because `renderControl`'s `never` guard makes serving one before the browser can draw it a compile error | n/a (vocabulary) |
+| 4 | *planned* | M2 | A dispatcher cannot read a trigger's singleton opt-in without naming a block type, which the M1 gate forbids | Add `triggerRunLimit: { configKey?: string }` to the manifest. This is the first member of the shape that could eventually retire the two gateway-file residuals among the three `DECLARED_BLOCK_DEPENDENTS` entries (the third, a template naming its own blocks, is settled rather than debt) | n/a (optional member) |
 
 Scoped exceptions (each needs a removal condition):
 
