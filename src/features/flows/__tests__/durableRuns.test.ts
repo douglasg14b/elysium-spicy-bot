@@ -14,7 +14,8 @@ import { ACTION_DELAY } from '../blocks/actionDelay';
 import { ACTION_SEND_DM } from '../blocks/actionSendDM';
 import { ACTION_WAIT_FOR_EVENT } from '../blocks/actionWaitForEvent';
 import { TRIGGER_BUTTON_CLICK } from '../blocks/triggerButtonClick';
-import type { FlowRunContext } from '../blocks/types';
+import type { FlowRunSeed } from '../blocks/types';
+import { sentCopy } from './support/sentCopy';
 
 const GUILD_ID = 'guild-1';
 const USER_ID = 'user-1';
@@ -75,7 +76,7 @@ function buildWaitGraph(options: { withTimeoutBranch?: boolean; timeoutMs?: numb
 }
 
 interface MockContext {
-    context: FlowRunContext;
+    context: FlowRunSeed;
     rolesAdd: ReturnType<typeof vi.fn>;
     userSend: ReturnType<typeof vi.fn>;
 }
@@ -84,19 +85,19 @@ function makeContext(): MockContext {
     const rolesAdd = vi.fn().mockResolvedValue(undefined);
     const userSend = vi.fn().mockResolvedValue(undefined);
 
-    const user = { id: USER_ID, send: userSend } as unknown as FlowRunContext['user'];
-    const member = {
+    const user = { id: USER_ID, send: userSend };
+    const subject = {
         id: USER_ID,
         user,
         roles: { add: rolesAdd, cache: { has: () => false } },
-    } as unknown as FlowRunContext['member'];
+    } as unknown as FlowRunSeed['subject'];
 
     return {
         context: {
-            client: {} as FlowRunContext['client'],
-            guild: { id: GUILD_ID } as FlowRunContext['guild'],
-            member,
-            user,
+            client: {} as FlowRunSeed['client'],
+            guild: { id: GUILD_ID } as FlowRunSeed['guild'],
+            subject,
+            variables: {},
         },
         rolesAdd,
         userSend,
@@ -269,7 +270,7 @@ describe('action.delay', () => {
             await runsRepo.create({
                 flowId: 'flow-1',
                 guildId: context.guild.id,
-                contextSnapshot: { guildId: context.guild.id, userId: context.user.id },
+                contextSnapshot: { guildId: context.guild.id, userId: context.subject.id },
                 resumeNodeId: suspension.resumeNodeId,
                 wakeAt: suspension.wakeAt ?? null,
                 visitsUsed: suspension.visitsUsed,
@@ -312,7 +313,7 @@ describe('action.delay', () => {
         const outcome = await resumeFlowRun(client, run, 'timeout', { flowsRepo, flowRunsRepo: runsRepo });
 
         expect(outcome.status).toBe('completed');
-        expect(userSend).toHaveBeenCalledWith(DM_TEXT);
+        expect(sentCopy(userSend)).toContain(DM_TEXT);
     });
 
 });
@@ -332,7 +333,7 @@ describe('resuming a suspended run', () => {
         const outcome = await resumeFlowRun(client, run, 'timeout', { flowsRepo, flowRunsRepo: runsRepo });
 
         expect(outcome.status).toBe('completed');
-        expect(userSend).toHaveBeenCalledWith(DM_TEXT);
+        expect(sentCopy(userSend)).toContain(DM_TEXT);
         expect(runsRepo.complete).toHaveBeenCalledWith('run-1', expect.anything());
     });
 
@@ -503,7 +504,7 @@ describe('action.waitForEvent', () => {
         const outcome = await resumeFlowRun(client, run, 'event', { flowsRepo, flowRunsRepo: runsRepo });
 
         expect(outcome.status).toBe('completed');
-        expect(userSend).toHaveBeenCalledWith(DM_TEXT);
+        expect(sentCopy(userSend)).toContain(DM_TEXT);
     });
 
     it('follows the timeout branch when the wait expires', async () => {
@@ -517,7 +518,7 @@ describe('action.waitForEvent', () => {
         const outcome = await resumeFlowRun(client, run, 'timeout', { flowsRepo, flowRunsRepo: runsRepo });
 
         expect(outcome.status).toBe('completed');
-        expect(userSend).toHaveBeenCalledWith('timed out');
+        expect(sentCopy(userSend)).toContain('timed out');
     });
 
     it('fails with a clear timeout error when there is no timeout branch', async () => {

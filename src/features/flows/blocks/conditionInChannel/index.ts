@@ -33,15 +33,18 @@ export const block: BlockManifest<InChannelConfig> = {
         { id: 'false', label: 'No', tone: 'negative' },
     ],
     outputs: [],
-    // Declared rather than merely documented: a run with no interaction cannot
-    // answer this question, and save-time validation says so before it runs.
-    requires: ['interaction'],
+    // Declared rather than merely documented: a run with no channel cannot answer
+    // this question, and save-time validation says so before it runs.
+    requires: ['channel'],
     capabilities: [],
     canSuspend: false,
     run(config, context) {
-        // Only interaction-originated runs know "where" they happened; a gateway
-        // trigger (member join) has no channel, so it takes the false branch.
-        const channelId = context.interaction?.channelId;
-        return { kind: 'continue', handle: channelId === config.channelId ? 'true' : 'false' };
+        // The run's own channel, not the originating interaction's. Reading the
+        // interaction meant this silently answered "no" on every resumed run —
+        // the interaction is gone once a run parks, so a flow that asked where it
+        // was after a wait always took the false branch regardless of the truth.
+        // A run that genuinely has no channel still takes false, which is the one
+        // honest answer to "are you in #x" when you are nowhere.
+        return { kind: 'continue', handle: context.channel?.id === config.channelId ? 'true' : 'false' };
     },
 };

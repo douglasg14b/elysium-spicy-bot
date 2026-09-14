@@ -216,6 +216,12 @@ The "no type-branching" grep is worth automating as a test rather than a habit �
 
 ## 8) Milestone execution map
 
+> **Superseded 2026-09-13.** Wave maps for M3–M6 are **sketch**, not plans. Planning a milestone at a time spent design effort on work too far away to be knowable: M2's wave map had to be amended mid-planning because its own fan-out preconditions failed, and the PRD it planned against was stale in three places before its first dependent read it.
+>
+> The build order is now PRD §1.3's six steps, planned one at a time against the code as it then exists — see [flow-engine-v2-build-order.md](flow-engine-v2-build-order.md). **§3 (the wave pattern), §4 (fan-out preconditions and tier), §5 (the amendment protocol) and §7 (the gates) all still apply** — they are about *how* to build a slice, not *which* slice is next, and they are what caught the M2 wave map's error.
+>
+> The M1 and M2 rows below record what was actually built. The rest are retained for their reasoning.
+
 One RPI lifecycle per milestone. `/rpi-plan` produces the `Pxx` phases; this table sets the wave boundaries it should respect.
 
 **M1 — Block contract v2**

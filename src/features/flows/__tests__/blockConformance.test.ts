@@ -19,8 +19,12 @@ const FIXTURE_ROOT = path.join(
 const context = {
     client: {} as FlowRunContext['client'],
     guild: { id: 'guild-1' } as FlowRunContext['guild'],
-    member: {} as FlowRunContext['member'],
-    user: {} as FlowRunContext['user'],
+    subject: {} as FlowRunContext['subject'],
+    variables: {},
+    // Conformance drives `run` for real, so it supplies a real write channel. It
+    // discards what it is given because no case here asserts on a recorded value —
+    // what matters is that a block *may* write without the harness exploding.
+    setOutput: () => {},
 } satisfies FlowRunContext;
 
 /**

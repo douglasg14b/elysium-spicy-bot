@@ -6,47 +6,56 @@ import type { FlowRunContext } from '../blocks/types';
 
 const CHANNEL_ID = 'channel-abc';
 
-/** A context whose interaction (if any) reports `channelId`. */
-function contextWithInteractionChannel(channelId?: string): FlowRunContext {
-    const interaction = channelId
-        ? ({ channelId } as unknown as FlowRunContext['interaction'])
-        : undefined;
-
+/** A context operating in `channelId`, or nowhere at all when none is given. */
+function contextInChannel(channelId?: string): FlowRunContext {
     return {
         client: {} as FlowRunContext['client'],
         guild: { id: 'guild-1' } as FlowRunContext['guild'],
-        member: {} as FlowRunContext['member'],
-        user: {} as FlowRunContext['user'],
-        interaction,
+        subject: {} as FlowRunContext['subject'],
+        channel: channelId ? ({ id: channelId } as FlowRunContext['channel']) : undefined,
+        variables: {},
+        setOutput: () => {},
     };
 }
 
 describe('condition.inChannel', () => {
-    it('leaves by the true handle when the triggering interaction is in the configured channel', async () => {
+    it('leaves by the true handle when the run is operating in the configured channel', async () => {
         const outcome = await conditionInChannelNode.run(
             { channelId: CHANNEL_ID },
-            contextWithInteractionChannel(CHANNEL_ID)
+            contextInChannel(CHANNEL_ID)
         );
 
         expect(outcome).toEqual({ kind: 'continue', handle: 'true' });
     });
 
-    it('leaves by the false handle when the interaction is in a different channel', async () => {
+    it('leaves by the false handle when the run is in a different channel', async () => {
         const outcome = await conditionInChannelNode.run(
             { channelId: CHANNEL_ID },
-            contextWithInteractionChannel('some-other-channel')
+            contextInChannel('some-other-channel')
         );
 
         expect(outcome).toEqual({ kind: 'continue', handle: 'false' });
     });
 
-    it('leaves by the false handle when there is no interaction (gateway-triggered run)', async () => {
-        const outcome = await conditionInChannelNode.run(
-            { channelId: CHANNEL_ID },
-            contextWithInteractionChannel()
-        );
+    it('leaves by the false handle when the run has no channel at all', async () => {
+        const outcome = await conditionInChannelNode.run({ channelId: CHANNEL_ID }, contextInChannel());
 
         expect(outcome).toEqual({ kind: 'continue', handle: 'false' });
+    });
+
+    it('answers from the run rather than from the interaction', async () => {
+        // The point of the retarget. A run can be operating in a channel while
+        // carrying no interaction at all — a reaction-started run is exactly that
+        // shape — and the old block, which read `context.interaction?.channelId`,
+        // answered "no" for every one of them regardless of the truth.
+        const noInteraction: FlowRunContext = {
+            ...contextInChannel(CHANNEL_ID),
+            interaction: undefined,
+        };
+
+        const outcome = await conditionInChannelNode.run({ channelId: CHANNEL_ID }, noInteraction);
+
+        expect(outcome).toEqual({ kind: 'continue', handle: 'true' });
     });
 });
 
@@ -58,8 +67,9 @@ describe('action.postEmbed', () => {
                 channels: { fetch: vi.fn().mockResolvedValue(channel) },
             } as unknown as FlowRunContext['client'],
             guild: { id: 'guild-1' } as FlowRunContext['guild'],
-            member: {} as FlowRunContext['member'],
-            user: {} as FlowRunContext['user'],
+            subject: {} as FlowRunContext['subject'],
+            variables: {},
+            setOutput: () => {},
         };
     }
 
@@ -108,8 +118,9 @@ describe('action.postEmbed', () => {
                 channels: { fetch: vi.fn().mockResolvedValue(null) },
             } as unknown as FlowRunContext['client'],
             guild: { id: 'guild-1' } as FlowRunContext['guild'],
-            member: {} as FlowRunContext['member'],
-            user: {} as FlowRunContext['user'],
+            subject: {} as FlowRunContext['subject'],
+            variables: {},
+            setOutput: () => {},
         };
 
         await expect(

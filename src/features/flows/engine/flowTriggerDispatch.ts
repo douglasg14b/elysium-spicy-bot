@@ -4,8 +4,9 @@ import { flowsRepo } from '../data/flowsRepo';
 import { isTriggerStartedBy } from '../blocks/registry';
 import { parseFlowCustomId } from '../utils/customId';
 import { executeFlow } from './executor';
+import { asGuildTextChannel } from './runChannel';
 import { resumeWaitingRunsForEvent } from './waitingRunDispatch';
-import type { FlowRunContext } from '../blocks/types';
+import type { FlowRunSeed } from '../blocks/types';
 
 /**
  * The single `flow:` catch-all message-component handler. Parses
@@ -50,11 +51,18 @@ export async function handleFlowButtonInteraction(
     }
 
     const member = interaction.member;
-    const context: FlowRunContext = {
+    // A button click happens in a channel, and that channel is the run's.
+    const interactionChannel = asGuildTextChannel(interaction.channel);
+    const context: FlowRunSeed = {
         client: interaction.client,
         guild: interaction.guild,
-        member,
-        user: member.user,
+        // The clicker is both who the run is about and who caused this step. They
+        // diverge only once a run can be advanced by someone other than its
+        // subject; setting both from one member here is true, not a placeholder.
+        subject: member,
+        actor: member,
+        channel: interactionChannel,
+        variables: {},
         interaction,
     };
 

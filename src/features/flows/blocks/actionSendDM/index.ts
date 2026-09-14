@@ -25,6 +25,7 @@ export const block: BlockManifest<SendDMConfig> = {
             control: 'longText',
             placeholder: 'Welcome to Afterdark 😈',
             maxLength: 2000,
+            rendersTokens: true,
         },
     ],
     cardSummary: [
@@ -32,11 +33,17 @@ export const block: BlockManifest<SendDMConfig> = {
     ],
     handles: [{ label: 'Then', tone: 'neutral' }],
     outputs: [],
-    requires: ['member'],
+    requires: ['subject'],
     capabilities: [],
     canSuspend: false,
     async run(config, context) {
-        await context.user.send(config.message);
+        // Pinned to users for the same reason as `action.sendMessage`. A DM is 1:1
+        // so `@everyone` is inert here, but stating it keeps every send path in
+        // this feature answering the question the same way.
+        await context.subject.user.send({
+            content: config.message,
+            allowedMentions: { parse: ['users'] },
+        });
         return { kind: 'continue' };
     },
 };

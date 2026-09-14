@@ -13,13 +13,14 @@ import { ACTION_ASSIGN_ROLE } from '../blocks/actionAssignRole';
 import { ACTION_WAIT_FOR_EVENT } from '../blocks/actionWaitForEvent';
 import { CONDITION_IN_CHANNEL } from '../blocks/conditionInChannel';
 import { TRIGGER_MEMBER_JOIN } from '../blocks/triggerMemberJoin';
-import type { FlowRunContext } from '../blocks/types';
+import type { FlowRunSeed } from '../blocks/types';
+import { sentCopy } from './support/sentCopy';
 
 const MEMBER_ROLE_ID = 'role-member-123';
 const WELCOME_TEXT = 'Welcome to the dungeon, darling. 😈';
 
 interface MockContext {
-    context: FlowRunContext;
+    context: FlowRunSeed;
     rolesAdd: ReturnType<typeof vi.fn>;
     userSend: ReturnType<typeof vi.fn>;
 }
@@ -29,20 +30,20 @@ function makeContext(options: { hasRoles?: string[] } = {}): MockContext {
     const userSend = vi.fn().mockResolvedValue(undefined);
     const roleCache = new Set(options.hasRoles ?? []);
 
-    const user = { send: userSend } as unknown as FlowRunContext['user'];
-    const member = {
+    const user = { send: userSend };
+    const subject = {
         user,
         roles: {
             add: rolesAdd,
             cache: { has: (id: string) => roleCache.has(id) },
         },
-    } as unknown as FlowRunContext['member'];
+    } as unknown as FlowRunSeed['subject'];
 
-    const context: FlowRunContext = {
-        client: {} as FlowRunContext['client'],
-        guild: { id: 'guild-1' } as FlowRunContext['guild'],
-        member,
-        user,
+    const context: FlowRunSeed = {
+        client: {} as FlowRunSeed['client'],
+        guild: { id: 'guild-1' } as FlowRunSeed['guild'],
+        subject,
+        variables: {},
     };
 
     return { context, rolesAdd, userSend };
@@ -66,7 +67,7 @@ describe('flow executor', () => {
         expect(rolesAdd).toHaveBeenCalledTimes(1);
         expect(rolesAdd).toHaveBeenCalledWith(MEMBER_ROLE_ID);
         expect(userSend).toHaveBeenCalledTimes(1);
-        expect(userSend).toHaveBeenCalledWith(WELCOME_TEXT);
+        expect(sentCopy(userSend)).toContain(WELCOME_TEXT);
         // trigger -> assignRole -> sendDM
         expect(result.visitedNodeIds).toEqual([nodeIds.trigger, nodeIds.assignRole, nodeIds.sendDM]);
     });
@@ -79,7 +80,7 @@ describe('flow executor', () => {
 
         expect(result.status).toBe('success');
         // true branch -> sendDM only, no role assignment
-        expect(userSend).toHaveBeenCalledWith('you already have it');
+        expect(sentCopy(userSend)).toContain('you already have it');
         expect(rolesAdd).not.toHaveBeenCalled();
         expect(result.log.find((l) => l.kind === 'condition')?.branch).toBe('true');
     });
@@ -227,8 +228,17 @@ describe('an edge leaving a handle its block never declared', () => {
     });
 });
 
-describe('a block that needs the interaction that started the run', () => {
-    /** trigger.memberJoin -> condition.inChannel. No interaction ever exists. */
+describe('a block that needs something the run cannot supply', () => {
+    /**
+     * trigger.memberJoin -> condition.inChannel. A join happens nowhere in
+     * particular, so the channel the condition asks about never exists.
+     *
+     * `condition.inChannel` is the exemplar because it is the one shipped block
+     * whose requirement a graph can actually violate. It used to require an
+     * `interaction`, which made it the exemplar for that rule instead; it now
+     * reads the run's own channel, which is the whole point of the retarget —
+     * asking the interaction meant answering "no" on every resumed run.
+     */
     function gatewayStartedGraph(): FlowGraph {
         return {
             version: FLOW_GRAPH_VERSION,
@@ -245,15 +255,35 @@ describe('a block that needs the interaction that started the run', () => {
         };
     }
 
-    it('is rejected when every path to it starts from a gateway event', () => {
+    it('is rejected when every path to it starts from a trigger that cannot supply it', () => {
         const result = validateAuthoredGraph(gatewayStartedGraph());
 
         expect(result.valid).toBe(false);
         if (result.valid) return;
-        expect(result.errors.join('\n')).toMatch(/needs the interaction that started the run/);
+        expect(result.errors.join('\n')).toMatch(/needs "channel" from the run/);
+    });
+
+    it('is accepted when a trigger that does supply it reaches the block', () => {
+        const graph = gatewayStartedGraph();
+        graph.nodes[0] = {
+            id: 'trigger',
+            type: TRIGGER_BUTTON_CLICK,
+            position: { x: 0, y: 0 },
+            data: { label: 'Go' },
+        };
+
+        expect(validateAuthoredGraph(graph).valid).toBe(true);
     });
 
     it('is rejected when the only path to it passes through a block that parks', () => {
+        // However the run originally started, a resumed one cannot answer this.
+        // The snapshot persists `{guildId, userId}` and nothing else, so a woken
+        // run does not remember where it was — and a block that silently took the
+        // false branch every time would be the M1 bug all over again, moved.
+        //
+        // This case is the one that catches a premature relaxation: the moment a
+        // channel is persisted with the run, this graph becomes legal and this
+        // assertion is the thing that must be deliberately changed.
         const graph = gatewayStartedGraph();
         graph.nodes[0] = {
             id: 'trigger',
@@ -272,37 +302,23 @@ describe('a block that needs the interaction that started the run', () => {
             { id: 'e2', source: 'wait', target: 'where' },
         ];
 
-        // A resumed run has no interaction, however it originally started.
-        expect(validateAuthoredGraph(graph).valid).toBe(false);
-    });
+        const result = validateAuthoredGraph(graph);
 
-    it('is accepted when a button trigger reaches it without parking', () => {
-        const graph = gatewayStartedGraph();
-        graph.nodes[0] = {
-            id: 'trigger',
-            type: TRIGGER_BUTTON_CLICK,
-            position: { x: 0, y: 0 },
-            data: { label: 'Go' },
-        };
-
-        expect(validateAuthoredGraph(graph).valid).toBe(true);
+        expect(result.valid).toBe(false);
+        if (result.valid) return;
+        expect(result.errors.join('\n')).toMatch(/does not yet remember where it was/);
     });
 
     it('is rejected even when a good path also exists, because the bad one still runs', () => {
-        // The case existence-based reachability gets wrong. Reached directly from
-        // the button on the first lap, and again through the wait on the second —
-        // where the interaction is gone. Accepting it means a graph that validates
-        // clean and then fails on its own second iteration.
+        // The case existence-based reachability gets wrong: reachable from the
+        // gateway trigger as well as the button, and the gateway lap has no
+        // channel. Accepting it means a graph that validates clean and then
+        // behaves differently depending on which trigger fired.
         const graph: FlowGraph = {
             version: FLOW_GRAPH_VERSION,
             nodes: [
                 { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { label: 'Go' } },
-                {
-                    id: 'wait',
-                    type: ACTION_WAIT_FOR_EVENT,
-                    position: { x: 200, y: 100 },
-                    data: { eventKind: 'memberJoin' },
-                },
+                { id: 'joined', type: TRIGGER_MEMBER_JOIN, position: { x: 0, y: 100 }, data: {} },
                 {
                     id: 'where',
                     type: CONDITION_IN_CHANNEL,
@@ -312,8 +328,7 @@ describe('a block that needs the interaction that started the run', () => {
             ],
             edges: [
                 { id: 'e1', source: 'trigger', target: 'where' },
-                { id: 'e2', source: 'where', sourceHandle: 'false', target: 'wait' },
-                { id: 'e3', source: 'wait', target: 'where' },
+                { id: 'e2', source: 'joined', target: 'where' },
             ],
         };
 
@@ -321,12 +336,12 @@ describe('a block that needs the interaction that started the run', () => {
 
         expect(result.valid).toBe(false);
         if (result.valid) return;
-        expect(result.errors.join('\n')).toMatch(/reached after a block that parks the run/);
+        expect(result.errors.join('\n')).toMatch(/happens in no particular channel/);
     });
 
-    it('tolerates a back-edge that never passes through a block that parks', () => {
-        // A loop is only a problem when a wait is in it. This one keeps its
-        // interaction on every lap.
+    it('tolerates a back-edge whose every lap still supplies the requirement', () => {
+        // A loop is not itself a problem. This one is entered only from a button,
+        // so the channel is there on every lap.
         const graph = gatewayStartedGraph();
         graph.nodes[0] = {
             id: 'trigger',

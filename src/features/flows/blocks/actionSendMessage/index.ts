@@ -31,6 +31,7 @@ export const block: BlockManifest<SendMessageConfig> = {
             control: 'longText',
             placeholder: 'Say something spicy…',
             maxLength: 2000,
+            rendersTokens: true,
         },
     ],
     cardSummary: [
@@ -51,7 +52,12 @@ export const block: BlockManifest<SendMessageConfig> = {
         if (!channel || !channel.isTextBased() || !('send' in channel)) {
             throw new Error(`Channel ${config.channelId} is not a sendable text channel`);
         }
-        await channel.send(config.message);
+        // Mentions are pinned to users only. Copy is a template now, so a member's
+        // own display name reaches this string — and a member called "@everyone"
+        // would otherwise make any flow saying `{{subject.username}}` ping the
+        // whole guild with the bot's permissions. `users` keeps `{{subject.mention}}`
+        // working, which is the point of it.
+        await channel.send({ content: config.message, allowedMentions: { parse: ['users'] } });
         return { kind: 'continue' };
     },
 };

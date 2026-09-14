@@ -39,6 +39,8 @@ Introduced here so the rest of the document and the code can agree.
 
 ### 1.2 Milestones
 
+> **Superseded as a plan, retained as intent (2026-09-13).** These six milestones describe *what the engine should eventually do* and remain useful for that. They are no longer the unit of work — planning a milestone at a time produced scope that outran the product bar it was meant to clear. The build order is **§1.3's six steps**, planned one at a time: see [flow-engine-v2-build-order.md](flow-engine-v2-build-order.md).
+
 **M1 — Block contract v2** — the Lego standard. No new user-visible capability; the enabling refactor.
 
 - One block lives in one directory and needs no edits anywhere else to appear correctly in the palette, on the canvas, and in the inspector.
@@ -147,6 +149,25 @@ Product order — what must be true before the next outcome is possible. **Stric
 - **Deciding our verification policy.** This PRD mechanizes the process we already run; it does not evaluate whether censored-ID + posed-selfie is the right bar.
 - **Per-member data erasure.** Erasing one member's ticket record, run rows, run logs, and journey state as a set is out of scope; it remains a manual operator task. Stated deliberately rather than by omission, given the material an identity journey handles (§5.10).
 - **Slash-command parity for every block.** Buttons are the interaction surface; we are removing slash commands from the journey, not adding more.
+- **Planning a step before it is reached.** Added 2026-09-13, from experience rather than principle — see §3.1.
+
+### 3.1 What went wrong the first time
+
+This PRD's first version specified 119 requirements across six milestones in one sitting, before step 1 shipped and before any flow had run in a live guild. That was a waterfall bet, and it lost in a measurable way:
+
+- **The document decayed faster than it was consumed.** M2's planning found three sections stale before its first dependent read them — §5.1's context-requirement set, §5.13's `pending`/`running` description, and §5.3's claim that random selection "needs no new control type" (it needed two).
+- **A milestone plan grew past the product bar it was meant to clear.** §1.3 step 2 asks only that "a block can consume a value another block produced, and copy can address the subject". M2 was planned as seven phases including a reference picker with its own type vocabulary, two new control types, full embed authoring, random selection, and a singleton guard — six of which are consumers of the data spine, not part of it.
+- **The planning artifacts needed review to stay self-consistent.** The M2 plan reached 345 lines plus 453 of phase details, with two critique passes and 29 dispositioned findings, several of which were the plan catching errors in its own earlier drafts.
+- **The wave map contradicted its own preconditions.** Execution strategy §8's "M2: parallel ×3" had to be amended mid-planning because two of the three units contended on six shared files — a rule stated in §4 of the same document.
+
+**The rules that follow from it**, which apply to this PRD and to anything that replaces it:
+
+1. **Plan one step at a time**, and re-derive it against the code as it then exists. Distance from the current state is the best predictor of whether a requirement will survive contact.
+2. **The bar is §1.3's step text**, not the milestone's feature list. Anything that consumes a capability rather than establishing it is a follow-on, pulled in when something concrete wants it.
+3. **Run it before planning what comes after it.** M1 was complete for a month and had never been executed. Unrun code makes every downstream requirement a guess.
+4. **Detail spent on distant work is not free** — it is re-read, reconciled, and corrected by everything downstream of it.
+
+Sections §5.4 onward are retained as sketch under exactly this reading. Build order is [flow-engine-v2-build-order.md](flow-engine-v2-build-order.md).
 
 ## 4) Users & primary scenarios
 
@@ -160,6 +181,12 @@ Product order — what must be true before the next outcome is possible. **Stric
 ## 5) Requirements (with current status)
 
 Legend: **Done** / **Not done**. Every item traces to a goal in §2.
+
+> **How to read this section (2026-09-13).** All 119 open requirements here were written in one sitting, before step 1 shipped and before any flow ran in a live guild. Sections **§5.4 onward are sketch** — starting material for the step that reaches them, not commitments to build. They will be re-derived against the code as it then exists, and several are already stale (see [flow-engine-v2-build-order.md](flow-engine-v2-build-order.md)).
+>
+> **§5.1–§5.3, §5.10, §5.11 and §5.13 are load-bearing** — they produced the frozen interpreter enums, the leakage gate, and the conformance suite, all of which have caught real defects.
+>
+> Build order is **[flow-engine-v2-build-order.md](flow-engine-v2-build-order.md)**, sequenced by §1.3's six steps rather than by the milestones in §1.2.
 
 ### 5.1 Block contract — the Lego standard (G1, G7)
 

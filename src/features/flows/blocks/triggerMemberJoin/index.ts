@@ -21,7 +21,7 @@ export const block: BlockManifest<MemberJoinConfig> = {
     note: 'No knobs on this one. It fires for every new arrival — wire it straight into whatever welcome you have planned.',
     handles: [{ label: 'Then', tone: 'neutral' }],
     outputs: [],
-    requires: ['member'],
+    requires: ['subject', 'actor'],
     capabilities: [],
     startedBy: 'memberJoin',
     canSuspend: false,

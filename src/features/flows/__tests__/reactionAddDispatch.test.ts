@@ -93,6 +93,15 @@ function makeReaction(options: ReactionOptions = {}): MessageReaction | PartialM
         message: {
             id: options.messageId ?? MESSAGE_ID,
             channelId: options.channelId ?? CHANNEL_ID,
+            // A real message always carries the channel object, not just its id.
+            // The dispatcher reads it to establish the run's channel, so a mock
+            // without one would be testing against a message discord.js cannot
+            // produce.
+            channel: {
+                id: options.channelId ?? CHANNEL_ID,
+                isDMBased: () => false,
+                isTextBased: () => true,
+            },
             guild,
         },
     } as unknown as MessageReaction;

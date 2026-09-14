@@ -17,6 +17,8 @@ import { resumeFlowRun } from '../engine/flowRunResume';
 import { reclaimStrandedFlowRuns, resetFlowRunSchedulerForTests } from '../engine/flowRunScheduler';
 import { up as createFlowRuns } from '../../../features-system/data-persistence/migrations/2026-09-12-Create_Flow_Runs';
 import { up as settleFlowRunLifecycle } from '../../../features-system/data-persistence/migrations/2026-09-13-Settle_Flow_Run_Lifecycle';
+import { up as addFlowRunVariables } from '../../../features-system/data-persistence/migrations/2026-09-14-Add_Flow_Run_Variables';
+import { sentCopy } from './support/sentCopy';
 import preM1GraphJson from './fixtures/preM1Graph.json';
 import preM1ParkedRunsJson from './fixtures/preM1ParkedRuns.json';
 
@@ -78,6 +80,9 @@ describe('runs parked before M1', () => {
             await insertPreM1FlowRunRow(testDb.db, row);
         }
         await settleFlowRunLifecycle(testDb.db);
+        // Every migration since, in order: a pre-M1 row has to survive the whole
+        // chain, not merely the one that renamed its status.
+        await addFlowRunVariables(testDb.db);
 
         repo = new FlowRunsRepo(testDb.db);
         // The committed graph must still satisfy the current schema untouched.
@@ -113,6 +118,9 @@ describe('runs parked before M1', () => {
         expect(delayRun.log).toHaveLength(2);
         expect(delayRun.entityVersion).toBe(1);
         expect(delayRun.claimedAt).toBeNull();
+        // A row parked before variables existed recorded none, and reads back
+        // saying exactly that rather than as a null every caller has to guard.
+        expect(delayRun.variables).toEqual({});
 
         expect(waitRun.status).toBe('suspended');
         expect(waitRun.resumeNodeId).toBe(WAIT_NODE);
@@ -127,7 +135,7 @@ describe('runs parked before M1', () => {
         const outcome = await resumeFlowRun(client, await loadRun(DELAY_PARKED_RUN), 'timeout', dependencies());
 
         expect(outcome.status).toBe('suspended');
-        expect(userSend).toHaveBeenCalledWith('Still with us? Good.');
+        expect(sentCopy(userSend)).toContain('Still with us? Good.');
 
         // It ran the DM and then parked on the wait that follows it.
         const after = await loadRun(DELAY_PARKED_RUN);
@@ -153,7 +161,7 @@ describe('runs parked before M1', () => {
         const outcome = await resumeFlowRun(client, await loadRun(WAIT_PARKED_RUN), 'timeout', dependencies());
 
         expect(outcome.status).toBe('completed');
-        expect(userSend).toHaveBeenCalledWith('You took too long. Try again when you mean it.');
+        expect(sentCopy(userSend)).toContain('You took too long. Try again when you mean it.');
         // Named so a reader can see which branch the graph says that is.
         expect(flow.graph.edges.find((edge) => edge.sourceHandle === 'timeout')?.target).toBe(TIMEOUT_DM);
     });

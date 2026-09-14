@@ -112,12 +112,20 @@ export type BlockConfigField =
           placeholder?: string;
           maxLength?: number;
           defaultValue?: string;
+          /**
+           * This field is authored copy: `{{subject.mention}}` and friends are
+           * expanded when the flow runs, so the stored text is a template and the
+           * value a member sees can be longer than what was typed.
+           */
+          rendersTokens?: boolean;
       })
     | (BlockConfigFieldBase & {
           control: 'longText';
           placeholder?: string;
           maxLength?: number;
           defaultValue?: string;
+          /** See the `text` arm — this field's value is a copy template. */
+          rendersTokens?: boolean;
       })
     | (BlockConfigFieldBase & {
           /** Clearing the number removes the key entirely rather than writing a zero. */
@@ -201,7 +209,7 @@ export interface BlockOutputDeclaration {
 }
 
 /** What a block needs to be present in the run context. */
-export const FLOW_CONTEXT_REQUIREMENTS = ['member', 'interaction'] as const;
+export const FLOW_CONTEXT_REQUIREMENTS = ['subject', 'actor', 'channel', 'interaction'] as const;
 
 export type FlowContextRequirement = (typeof FLOW_CONTEXT_REQUIREMENTS)[number];
 
@@ -303,8 +311,8 @@ export const NODE_DESCRIPTOR_KEYS = [
 export const BLOCK_CONFIG_FIELD_KEYS = {
     rolePicker: ['key', 'label', 'description', 'control', 'defaultValue'],
     channelPicker: ['key', 'label', 'description', 'control', 'defaultValue'],
-    text: ['key', 'label', 'description', 'control', 'placeholder', 'maxLength', 'defaultValue'],
-    longText: ['key', 'label', 'description', 'control', 'placeholder', 'maxLength', 'defaultValue'],
+    text: ['key', 'label', 'description', 'control', 'placeholder', 'maxLength', 'defaultValue', 'rendersTokens'],
+    longText: ['key', 'label', 'description', 'control', 'placeholder', 'maxLength', 'defaultValue', 'rendersTokens'],
     duration: ['key', 'label', 'description', 'control', 'optional', 'placeholder', 'defaultValue'],
     segmented: ['key', 'label', 'description', 'control', 'options', 'defaultValue'],
     select: ['key', 'label', 'description', 'control', 'options', 'defaultValue'],

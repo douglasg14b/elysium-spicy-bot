@@ -96,7 +96,7 @@ describe('GET /api/nodes', () => {
         expect(descriptor.configFields).toEqual(manifest.configFields);
         expect(descriptor.configFields[0]?.control).toBe('rolePicker');
         expect(descriptor.handles.map((handle) => handle.id)).toEqual(['true', 'false']);
-        expect(descriptor.requires).toEqual(['member']);
+        expect(descriptor.requires).toEqual(['subject']);
         expect(descriptor.canSuspend).toBe(false);
     });
 

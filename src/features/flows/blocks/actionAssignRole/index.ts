@@ -28,11 +28,11 @@ export const block: BlockManifest<AssignRoleConfig> = {
     cardSummary: [{ key: 'roleId', prefix: 'Assign ', emptyText: 'no role picked' }],
     handles: [{ label: 'Then', tone: 'neutral' }],
     outputs: [],
-    requires: ['member'],
+    requires: ['subject'],
     capabilities: ['manageRoles'],
     canSuspend: false,
     async run(config, context) {
-        await context.member.roles.add(config.roleId);
+        await context.subject.roles.add(config.roleId);
         return { kind: 'continue' };
     },
 };

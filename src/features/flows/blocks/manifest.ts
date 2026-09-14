@@ -111,6 +111,15 @@ interface BlockConfigFieldBase {
  * Discriminated on `control` so each widget carries only its own options — a
  * `select` cannot forget its choices, and a `text` field cannot smuggle in
  * swatches.
+ *
+ * **`rendersTokens`** appears on the two copy-carrying arms and says that this
+ * field's value is *authored copy*, in which `{{subject.mention}}` and friends are
+ * expanded before `run` receives it. It is declared per field rather than assumed
+ * of every string because most string fields are not copy at all — a message id,
+ * an emoji, a button label — and expanding tokens in those would turn a stray
+ * brace into a failed run. Declaring it is also what lets save-time validation
+ * find the copy fields without knowing which block it is looking at, which is the
+ * difference between one rule and a branch per block type.
  */
 export type BlockConfigField =
     | (BlockConfigFieldBase & { readonly control: 'rolePicker'; readonly defaultValue?: string })
@@ -120,12 +129,14 @@ export type BlockConfigField =
           readonly placeholder?: string;
           readonly maxLength?: number;
           readonly defaultValue?: string;
+          readonly rendersTokens?: boolean;
       })
     | (BlockConfigFieldBase & {
           readonly control: 'longText';
           readonly placeholder?: string;
           readonly maxLength?: number;
           readonly defaultValue?: string;
+          readonly rendersTokens?: boolean;
       })
     | (BlockConfigFieldBase & {
           /** Clearing the number removes the key entirely rather than writing a zero. */
@@ -255,16 +266,23 @@ export interface BlockOutputDeclaration {
 /**
  * What a block needs to be present in the run context.
  *
- * `interaction` is the one that can genuinely be absent: a run started by a
- * gateway event has no originating interaction, and neither does any resumed
- * run. That makes it checkable at save time, and `validateAuthoredGraph` does
- * check it — a block needing one on a path that can never carry one is rejected
- * naming the node.
+ * Three of the four can genuinely be absent, which is what makes them checkable
+ * at save time — `validateAuthoredGraph` rejects a block needing one on a path
+ * that can never carry it, naming the node and the requirement:
  *
- * `member` is always present, so declaring it is documentation rather than a
- * constraint anything can violate.
+ * * `interaction` — a run started by a gateway event has none, and neither does
+ *   any resumed run, because the token is expired.
+ * * `actor` — a resumed run has nobody who caused the step. A gateway trigger
+ *   does, so this is unsatisfiable after a park but fine before one.
+ * * `channel` — a member join establishes none, so a path reachable only from
+ *   one cannot answer a question about where it is.
+ *
+ * `subject` is always present, so declaring it is documentation rather than a
+ * constraint anything can violate. `guild` is deliberately absent: nothing in a
+ * graph can violate it either, and unlike `subject` no block has ever wanted to
+ * say it — a requirement that cannot fail and nobody declares is noise.
  */
-export const FLOW_CONTEXT_REQUIREMENTS = ['member', 'interaction'] as const;
+export const FLOW_CONTEXT_REQUIREMENTS = ['subject', 'actor', 'channel', 'interaction'] as const;
 
 export type FlowContextRequirement = (typeof FLOW_CONTEXT_REQUIREMENTS)[number];
 
@@ -346,7 +364,22 @@ export interface BlockManifest<TConfig = unknown> {
     readonly handles: readonly BlockOutputHandle[];
     /** Values this block writes for later blocks. Empty until run variables exist. */
     readonly outputs: readonly BlockOutputDeclaration[];
-    /** Run-context this block cannot work without. */
+    /**
+     * Run-context this block cannot work without.
+     *
+     * **On a trigger this reads the other way round**: a trigger is never reached
+     * by an edge, so nothing upstream could fail to satisfy it — what it declares
+     * is what its own event *establishes*, and save-time validation reads it as
+     * the supply side when deciding whether a downstream block's requirement can
+     * be met on that path. A button click establishes an actor, a channel and an
+     * interaction; a member join establishes only an actor, which is why a block
+     * asking where it is cannot sit on a join-rooted path.
+     *
+     * One member serving both readings is deliberate rather than overloaded: a
+     * second `supplies` array would have to be kept consistent with this one by
+     * hand, and the first time they disagreed the validator would be confidently
+     * wrong about a real graph.
+     */
     readonly requires: readonly FlowContextRequirement[];
     /**
      * What fires this trigger. Set by triggers and by nothing else — a condition

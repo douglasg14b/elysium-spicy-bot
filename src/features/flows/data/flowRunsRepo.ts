@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { Database } from '../../../features-system/data-persistence/database';
 import { database, type DatabaseClient } from '../../../features-system/data-persistence/database';
 import { BLOCK_KINDS } from '../blocks/manifest';
+import type { FlowVariableValue } from '../blocks/types';
 import { FLOW_RUN_ENTITY_VERSION, FLOW_RUN_POLL_BATCH_SIZE } from '../constants';
 import type { FlowSuspension, NodeRunLog } from '../engine/executor';
 import {
@@ -30,6 +31,8 @@ export interface CreateFlowRunInput {
     waitConfig?: FlowRunWaitConfig | null;
     visitsUsed?: number;
     log?: NodeRunLog[];
+    /** Values blocks recorded before this run parked. Empty when none did. */
+    variables?: Record<string, FlowVariableValue>;
     /** Optional explicit runId; a UUID is generated when omitted. */
     runId?: string;
 }
@@ -46,6 +49,7 @@ export interface FlowRunFieldsPatch {
     waitConfig?: FlowRunWaitConfig | null;
     visitsUsed?: number;
     log?: NodeRunLog[];
+    variables?: Record<string, FlowVariableValue>;
     error?: string | null;
 }
 
@@ -91,6 +95,14 @@ const contextSnapshotSchema = z.object({
     userId: z.string().min(1),
 });
 
+/**
+ * The stored variable bag: flat, scalar-only, exactly as {@link FlowVariableValue}
+ * says. Re-validated on read like every other JSON column, so a hand-edited or
+ * half-written row is a named error rather than a block being handed an object
+ * where it expected a string.
+ */
+const variablesSchema = z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]));
+
 const waitConfigSchema = z.object({
     eventKind: z.enum(['memberJoin', 'reactionAdd', 'buttonClick']),
     timeoutMs: z.number().int().positive().optional(),
@@ -135,6 +147,7 @@ export class FlowRunsRepo {
                 contextSnapshot: JSON.stringify(input.contextSnapshot),
                 visitsUsed: input.visitsUsed ?? 0,
                 log: JSON.stringify(input.log ?? []),
+                variables: JSON.stringify(input.variables ?? {}),
                 error: null,
                 entityVersion: FLOW_RUN_ENTITY_VERSION,
                 createdAt: now,
@@ -265,6 +278,11 @@ export class FlowRunsRepo {
             waitConfig: input.waitConfig ?? null,
             visitsUsed: input.visitsUsed,
             log: input.log,
+            // Rewritten on every park, not merged: the executor carries the whole
+            // bag through the segment, so what it hands back is the complete
+            // current state. Merging here would resurrect a key a later build
+            // deliberately stopped writing.
+            variables: input.variables,
             error: null,
             claimedAt: null,
         });
@@ -406,6 +424,9 @@ export class FlowRunsRepo {
         if (patch.log !== undefined) {
             columns.log = JSON.stringify(patch.log);
         }
+        if (patch.variables !== undefined) {
+            columns.variables = JSON.stringify(patch.variables);
+        }
         if (patch.error !== undefined) {
             columns.error = patch.error;
         }
@@ -436,6 +457,19 @@ export class FlowRunsRepo {
             );
         }
 
+        // No `?? {}` fallback: the column is NOT NULL with a `{}` default, and the
+        // migration backfills every pre-existing row in both dialects, so a null
+        // here is a corrupt row rather than an old one. Defaulting it would hide
+        // that behind a run that quietly behaves as though it recorded nothing.
+        const variables = variablesSchema.safeParse(row.variables);
+        if (!variables.success) {
+            throw new Error(
+                `Flow run ${row.runId} has invalid stored variables: ${variables.error.issues
+                    .map((issue) => issue.message)
+                    .join('; ')}`
+            );
+        }
+
         let waitConfig: FlowRunWaitConfig | null = null;
         if (row.waitConfig !== null && row.waitConfig !== undefined) {
             const parsed = waitConfigSchema.safeParse(row.waitConfig);
@@ -449,7 +483,7 @@ export class FlowRunsRepo {
             waitConfig = parsed.data;
         }
 
-        return { ...row, contextSnapshot: snapshot.data, log: log.data, waitConfig };
+        return { ...row, contextSnapshot: snapshot.data, log: log.data, waitConfig, variables: variables.data };
     }
 }
 

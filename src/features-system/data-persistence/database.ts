@@ -100,7 +100,7 @@ function getDatabaseClient() {
                     flows: ['graph'],
                     // `flow_runs` has no boolean columns, so it is absent from
                     // SqliteBindingPlugin above — only its JSON blobs need parsing.
-                    flow_runs: ['waitConfig', 'contextSnapshot', 'log'],
+                    flow_runs: ['waitConfig', 'contextSnapshot', 'log', 'variables'],
                 }),
                 ...plugins,
             ],

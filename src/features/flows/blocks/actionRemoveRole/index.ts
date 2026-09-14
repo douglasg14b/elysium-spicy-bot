@@ -28,11 +28,11 @@ export const block: BlockManifest<RemoveRoleConfig> = {
     cardSummary: [{ key: 'roleId', prefix: 'Remove ', emptyText: 'no role picked' }],
     handles: [{ label: 'Then', tone: 'neutral' }],
     outputs: [],
-    requires: ['member'],
+    requires: ['subject'],
     capabilities: ['manageRoles'],
     canSuspend: false,
     async run(config, context) {
-        await context.member.roles.remove(config.roleId);
+        await context.subject.roles.remove(config.roleId);
         return { kind: 'continue' };
     },
 };

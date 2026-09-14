@@ -1,4 +1,5 @@
 import type { ColumnType, Generated, Insertable, JSONColumnType, Selectable, Updateable } from 'kysely';
+import type { FlowVariableValue } from '../blocks/types';
 import type { NodeRunLog } from '../engine/executor';
 import type { FlowRunStatus } from './flowRunLifecycle';
 
@@ -58,6 +59,22 @@ export interface FlowRunTable {
 
     /** Only `{ guildId, userId }` — see {@link FlowRunContextSnapshot}. */
     contextSnapshot: JSONColumnType<FlowRunContextSnapshot>;
+
+    /**
+     * Values blocks recorded before this run parked, keyed by the flat output
+     * names their authors declared.
+     *
+     * Its own column rather than a member of {@link FlowRunContextSnapshot}: the
+     * snapshot records *who and where* a run is, which is re-fetched from Discord
+     * on resume, whereas these are the run's own accumulated work and exist
+     * nowhere else. Widening the snapshot is a separate change with a migration
+     * that rewrites every stored row; this one only ever adds.
+     *
+     * Defaulted to `{}` in the migration, so a row parked before variables
+     * existed reads back as a run that recorded nothing — which is exactly what
+     * it is, and needs no tolerant union to say so.
+     */
+    variables: JSONColumnType<Record<string, FlowVariableValue>>;
 
     /**
      * Node visits consumed so far, carried across resumes so a loop containing

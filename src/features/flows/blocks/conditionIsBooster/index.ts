@@ -23,7 +23,7 @@ export const block: BlockManifest<IsBoosterConfig> = {
         { id: 'false', label: 'No', tone: 'negative' },
     ],
     outputs: [],
-    requires: ['member'],
+    requires: ['subject'],
     capabilities: [],
     canSuspend: false,
     run(_config, context) {
@@ -36,7 +36,7 @@ export const block: BlockManifest<IsBoosterConfig> = {
         // the member update. The `note` promises no more than that.
         return {
             kind: 'continue',
-            handle: context.member.premiumSince ? 'true' : 'false',
+            handle: context.subject.premiumSince ? 'true' : 'false',
         };
     },
 };

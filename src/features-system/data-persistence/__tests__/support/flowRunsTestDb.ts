@@ -7,6 +7,7 @@ import { SqliteBindingPlugin } from '../../plugins/sqliteBindingPlugin';
 import { SqliteJsonPlugin } from '../../plugins/sqliteJsonPlugin';
 import { up as createFlowRuns } from '../../migrations/2026-09-12-Create_Flow_Runs';
 import { up as settleFlowRunLifecycle } from '../../migrations/2026-09-13-Settle_Flow_Run_Lifecycle';
+import { up as addFlowRunVariables } from '../../migrations/2026-09-14-Add_Flow_Run_Variables';
 
 export interface FlowRunsTestDb {
     db: DatabaseClient;
@@ -44,7 +45,7 @@ export function createFlowRunsTestClient(): FlowRunsTestDb {
         plugins: [
             new SqliteBindingPlugin<Database>({}),
             new SqliteJsonPlugin<Database>({
-                flow_runs: ['waitConfig', 'contextSnapshot', 'log'],
+                flow_runs: ['waitConfig', 'contextSnapshot', 'log', 'variables'],
             }),
             new CamelCasePlugin(),
             new SqlDatePlugin<Database>({ flow_runs: ['wakeAt', 'claimedAt', 'createdAt', 'updatedAt'] }),
@@ -67,6 +68,7 @@ export async function createFlowRunsTestDb(): Promise<FlowRunsTestDb> {
 
     await createFlowRuns(testDb.db);
     await settleFlowRunLifecycle(testDb.db);
+    await addFlowRunVariables(testDb.db);
 
     return testDb;
 }

@@ -72,7 +72,7 @@ marks it optional; arrays are declared empty rather than omitted, so a reader ca
 | `cardSummary` | **Optional.** The one-line config summary on the canvas card, e.g. `Assign @Moderator`. See [Card summary](#card-summary). Omit it and the card falls back to "Click to configure" — fine for a block with nothing worth summarising, but check the real thing looks right before deciding that's you. |
 | `note` | **Optional.** A block-level aside rendered under the form — presentation only, never read by the engine. For what is true of the block *as a whole*: a caveat spanning every field, or the reassurance that a block with no fields is meant to have none. Prefer a field's own `description` when the copy is about one field; a note that would read identically under a single control is a description wearing a disguise. Omit it rather than declaring it empty — conformance rejects a present-but-empty one. |
 | `handles` | Every way a run can leave your block. See [Output handles](#output-handles). |
-| `outputs` | Values your block writes for later blocks to read. Empty for now — blocks have nowhere to write until run variables exist. |
+| `outputs` | Values your block writes for later blocks to read, via `context.setOutput`. See [Run variables](#run-variables). Still declared-but-unread — nothing yet checks that what you declare is what you write. |
 | `requires` | Run context you cannot work without. See [Context requirements](#context-requirements). |
 | `capabilities` | Discord permissions the bot needs for your block to work. Declared, not yet enforced. |
 | `startedBy` | **Optional. Triggers only.** What fires you: `buttonClick`, `memberJoin`, or `reactionAdd`. The gateway dispatchers select on this, so a new trigger for an existing source needs no dispatcher edit. Leave it off any condition or action. |
@@ -178,8 +178,8 @@ only renders** — never the other way round.
 | --- | --- | --- |
 | `rolePicker` | role id | any role. Never make someone type a snowflake. |
 | `channelPicker` | channel id | any channel. Same. |
-| `text` | string | one line. `maxLength`, `placeholder`. |
-| `longText` | string | a message body. `maxLength`, `placeholder`. |
+| `text` | string | one line. `maxLength`, `placeholder`, `rendersTokens`. |
+| `longText` | string | a message body. `maxLength`, `placeholder`, `rendersTokens`. |
 | `duration` | milliseconds | any span. Shows a number plus a unit, so nobody hand-computes `604800000`. Set `optional: true` when absence is meaningful — clearing it removes the key rather than writing a zero. `placeholder` hints the empty number box — worth having chiefly on an `optional` field (e.g. `'No limit'`), where an empty box is a real setting rather than a blank. A field with a `defaultValue` is never empty, so a hint for it could never render. |
 | `segmented` | string | a few short choices, all visible at once. Needs `options`. Roughly two to four, but **label width decides**: segments split the inspector's width evenly, so one-word labels fit and full clauses do not. |
 | `select` | string | a dropdown. Needs `options`. Use it once the labels are long enough to be unreadable side by side, or there are more of them than segments can hold — `action.waitForEvent` has only three choices but picks this, because "They click a flow button" cannot be squeezed into a third of the panel. |
@@ -274,13 +274,124 @@ ends the path by connecting nothing to it, not by you declaring no way out.
 
 `requires` says what your block needs to be present on the run:
 
-- `member` — the member the run is about.
-- `interaction` — the interaction that started it. **This one can genuinely be absent.** A run
-  started by a gateway event never has one, and neither does any resumed run. Declaring it lets
-  a graph that places your block where it could never be satisfied be rejected at save time,
-  naming the node and the requirement, instead of quietly taking the wrong branch.
+- `subject` — the member the run is **about**. Always present, so declaring it is documentation
+  rather than a constraint anything can violate.
+- `actor` — the member who caused the **current step**, which is not always the subject and is
+  not always anybody. **Absent on a resumed run**: the clock woke it, so nobody acted.
+- `channel` — where the run is operating. **Absent on a run started by a member join**, which
+  happens nowhere in particular, and absent on a resumed run, because a parked run does not yet
+  remember where it was.
+- `interaction` — the interaction that started it. **Absent on any gateway-started run and on
+  every resumed run**, because the token expires when the run parks.
+
+Declaring one of the three that can be absent lets a graph placing your block where it could
+never be satisfied be rejected at save time, naming the node and the requirement, instead of
+quietly taking the wrong branch.
+
+**On a trigger, `requires` reads the other way round.** A trigger is never reached by an edge,
+so nothing upstream could fail to satisfy it — what it declares is what its own event
+**establishes**, and save-time validation reads it as the supply side when deciding whether a
+downstream block's requirement can be met on that path. A button click establishes an actor, a
+channel and an interaction; a member join establishes only an actor. If you add a trigger,
+declare everything its event genuinely provides: under-declaring rejects graphs that should be
+legal, and over-declaring accepts ones that will misbehave at runtime.
 
 If you find yourself reading something off `context` that you did not declare, declare it.
+
+## Run variables
+
+`context.variables` is a read-only bag of named values earlier blocks produced. It is scalar
+only — `string | number | boolean | null` — and that is a deliberate limit rather than an
+oversight: a variable holds an id or a reference, never evidence. If you are reaching for a
+place to stash a message body or an attachment url, the bag is the wrong home for it.
+
+You **write** to it through the one channel on the context:
+
+```ts
+run(config, context) {
+    const channel = await openTicketChannel(context.subject);
+    context.setOutput('ticketChannelId', channel.id);
+    return { kind: 'continue' };
+}
+```
+
+Four things follow from how that is wired, and each of them has bitten somebody:
+
+- **Keys are flat and yours.** The executor does not qualify them by node id, so
+  `setOutput('ticketChannelId', …)` is read back as `{{var.ticketChannelId}}` and nothing else.
+  A namespaced store and a flat token cannot both be true. Two nodes writing one key is
+  last-writer-wins today; nothing rejects it yet, so pick names that say what they hold.
+- **Your writes land after you return.** You cannot read back what you just wrote — you already
+  have the value, and a bag that changed mid-`run` would make "what this node was handed" depend
+  on where in the function you looked. A block that throws records nothing.
+- **It survives a park.** The bag rides the suspension and is reseeded from the run's row on
+  resume, so a value written before a wait is readable after it. That is the whole reason
+  `setOutput` is a method on the context rather than a slot on the step outcome: a suspending
+  block writes on its *resume* leg, when it is returning `continue`.
+- **It is size-capped** (`FLOW_MAX_VARIABLES_SIZE`). Over the cap fails the run naming the keys.
+  Never a silent drop: a variable that vanished would send a later block down a branch its
+  author never drew.
+
+`outputs` on your manifest is still declared-but-unread — nothing validates that a key you
+write was declared, or that one you declare gets written. Declare them anyway; that check
+arrives with typed outputs.
+
+## Copy and `{{tokens}}`
+
+A config field whose value is **copy a member reads** declares `rendersTokens: true`, and the
+executor expands its tokens between validating your config and calling `run`. Your block
+receives finished text and never learns that tokens exist:
+
+```ts
+{ key: 'message', label: 'Message', control: 'longText', maxLength: 2000, rendersTokens: true }
+```
+
+Available in this slice, and nothing else:
+
+| Token | Fills in |
+| --- | --- |
+| `{{subject.mention}}` | A ping for the member the run is about |
+| `{{subject.username}}` | Their username, unpinged |
+| `{{actor.mention}}` | Whoever caused this step. **Fails on a resumed run**, where nobody did |
+| `{{guild.name}}` | The server's name |
+| `{{var.<name>}}` | A value an earlier block recorded |
+
+Only the `text` and `longText` arms carry the flag, and it is **off by default** — which is the
+right default, because most string fields are not copy: a message id, an emoji, a button label.
+Turning it on for one of those would turn a stray brace into a failed run. Forgetting it on a
+field that *is* copy is the more visible mistake: the braces are posted verbatim.
+
+Three things fail rather than degrade, all of them naming the node:
+
+- a token outside the table above, **rejected when the flow is saved** — except `{{var.<name>}}`,
+  which is accepted on sight because no block declares typed outputs yet
+- a `{{var.…}}` nothing recorded by the time your block runs
+- copy that exceeds the field's `maxLength` **once rendered** — which is not the length the
+  author typed, since `{{subject.mention}}` is 19 characters that expand to about 22
+
+There is deliberately no expression language, no conditionals, and no formatting. A flow builder
+is not a template engine.
+
+### Sending rendered copy — pin the mention allowlist
+
+Rendered copy carries **member-controlled text**: `{{subject.username}}` is whatever the member
+called themselves. A member named `@everyone` turns any flow that greets them by name into a
+guild-wide ping sent with the bot's permissions.
+
+So a block that sends copy passes an explicit allowlist, never a bare string:
+
+```ts
+await channel.send({ content: rendered, allowedMentions: { parse: ['users'] } });
+```
+
+Use `{ parse: ['users'] }` where `{{subject.mention}}` must still ping the one member it names,
+and `{ parse: [] }` for embed bodies, which have no reason to mention anyone. All three shipped
+send paths do this — `action.sendMessage`, `action.sendDM`, `action.postEmbed` — and the test
+helper `__tests__/support/sentCopy.ts` throws on a bare-string payload so a fourth path cannot
+quietly skip it and stay green.
+
+Nothing checks this at compile time. It is the one rule in the copy contract that depends on the
+author reading it.
 
 ## Where a new graph rule goes
 

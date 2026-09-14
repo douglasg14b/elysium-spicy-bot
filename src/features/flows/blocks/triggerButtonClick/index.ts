@@ -71,7 +71,7 @@ export const block: BlockManifest<ButtonClickConfig> = {
     ],
     handles: [{ label: 'Then', tone: 'neutral' }],
     outputs: [],
-    requires: ['member', 'interaction'],
+    requires: ['subject', 'actor', 'channel', 'interaction'],
     capabilities: [],
     startedBy: 'buttonClick',
     canSuspend: false,

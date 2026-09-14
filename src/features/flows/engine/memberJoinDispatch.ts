@@ -3,7 +3,7 @@ import { flowsRepo } from '../data/flowsRepo';
 import { isTriggerStartedBy } from '../blocks/registry';
 import { executeFlow } from './executor';
 import { resumeWaitingRunsForEvent } from './waitingRunDispatch';
-import type { FlowRunContext } from '../blocks/types';
+import type { FlowRunSeed } from '../blocks/types';
 
 /**
  * On a member join, run every enabled flow in that guild whose first node is a
@@ -30,11 +30,17 @@ export async function handleMemberJoin(member: GuildMember): Promise<void> {
             continue;
         }
 
-        const context: FlowRunContext = {
+        const context: FlowRunSeed = {
             client: member.client,
             guild: member.guild,
-            member,
-            user: member.user,
+            // A join *is* caused by the member joining, so they are the actor as
+            // well as the subject. Reporting no actor here would be a lie about
+            // what happened.
+            subject: member,
+            actor: member,
+            // No `channel`: a join happens nowhere in particular, so there is
+            // none to establish.
+            variables: {},
         };
 
         try {

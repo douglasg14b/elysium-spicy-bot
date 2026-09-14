@@ -31,13 +31,13 @@ export const block: BlockManifest<HasRoleConfig> = {
         { id: 'false', label: 'No', tone: 'negative' },
     ],
     outputs: [],
-    requires: ['member'],
+    requires: ['subject'],
     capabilities: [],
     canSuspend: false,
     run(config, context) {
         return {
             kind: 'continue',
-            handle: context.member.roles.cache.has(config.roleId) ? 'true' : 'false',
+            handle: context.subject.roles.cache.has(config.roleId) ? 'true' : 'false',
         };
     },
 };

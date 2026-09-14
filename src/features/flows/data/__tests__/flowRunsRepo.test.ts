@@ -224,6 +224,7 @@ describe('FlowRunsRepo (sqlite)', () => {
             visitsUsed: 7,
             resumeNodeId: 'dm',
             log: [{ nodeId: 'delay', type: 'action.delay', kind: 'action', status: 'ok' }],
+            variables: {},
         });
 
         expect(patched.visitsUsed).toBe(7);
@@ -296,6 +297,7 @@ describe('FlowRunsRepo (sqlite)', () => {
                 waitConfig: { eventKind: 'memberJoin' },
                 visitsUsed: 9,
                 log: [{ nodeId: 'delay', type: 'action.delay', kind: 'action', status: 'ok' }],
+                variables: {},
             });
 
             expect(parked.status).toBe('suspended');

@@ -3,8 +3,9 @@ import { flowsRepo } from '../data/flowsRepo';
 import { isTriggerStartedBy } from '../blocks/registry';
 import { reactionAddConfigSchema } from '../blocks/triggerReactionAdd';
 import { executeFlow } from './executor';
+import { asGuildTextChannel } from './runChannel';
 import { resumeWaitingRunsForEvent } from './waitingRunDispatch';
-import type { FlowRunContext } from '../blocks/types';
+import type { FlowRunSeed } from '../blocks/types';
 
 /**
  * True when a reaction's emoji matches the configured value. Accepts a unicode
@@ -51,6 +52,13 @@ export async function handleReactionAdd(
         return;
     }
 
+    // A reaction happens somewhere, and that somewhere is the run's channel. The
+    // guard narrows rather than rejects: `message.channel` is typed for DMs too,
+    // and an uncached partial can arrive without one at all. A run with no
+    // channel is a real state the context already models, so the absent case
+    // carries on rather than bailing out.
+    const reactionChannel = asGuildTextChannel(reaction.message.channel);
+
     await resumeWaitingRunsForEvent(reaction.client, {
         guildId: guild.id,
         userId: user.id,
@@ -91,11 +99,14 @@ export async function handleReactionAdd(
             return;
         }
 
-        const context: FlowRunContext = {
+        const context: FlowRunSeed = {
             client: reaction.client,
             guild,
-            member,
-            user: member.user,
+            // The reacting member both is who the run is about and caused it.
+            subject: member,
+            actor: member,
+            channel: reactionChannel,
+            variables: {},
         };
 
         try {

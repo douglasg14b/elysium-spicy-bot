@@ -55,7 +55,7 @@ export const block: BlockManifest<ReactionAddConfig> = {
     ],
     handles: [{ label: 'Then', tone: 'neutral' }],
     outputs: [],
-    requires: ['member'],
+    requires: ['subject', 'actor', 'channel'],
     capabilities: [],
     startedBy: 'reactionAdd',
     canSuspend: false,

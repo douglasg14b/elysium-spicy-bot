@@ -44,7 +44,7 @@ export const block: BlockManifest<FixtureConfig> = {
     ],
     handles: [{ label: 'Next', tone: 'neutral' }],
     outputs: [],
-    requires: ['member'],
+    requires: ['subject'],
     capabilities: [],
     canSuspend: false,
     run() {

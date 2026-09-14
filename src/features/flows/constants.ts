@@ -23,6 +23,19 @@ export const FLOW_MAX_NODE_VISITS = 100;
  */
 export const FLOW_MAX_RETRY_ATTEMPTS = 5;
 
+/**
+ * Hard cap on the serialised size, in **bytes**, of a run's variable bag.
+ *
+ * {@link FLOW_MAX_NODE_VISITS} bounds how many nodes a run visits, not how much
+ * each one writes, so a loop containing a block that records a value is otherwise
+ * unbounded — and the bag is persisted, so an unbounded one is an unbounded row.
+ *
+ * Exceeding it fails the run naming the key and the cap. Never a silent drop: a
+ * variable that vanished would send a later block down a branch its author never
+ * drew, which is far worse than a run that stops and says why.
+ */
+export const FLOW_MAX_VARIABLES_SIZE = 16 * 1024;
+
 /** How often the durable-run poller looks for runs whose `wakeAt` has passed. */
 export const FLOW_RUN_POLL_INTERVAL_MS = 15 * 1000;
 

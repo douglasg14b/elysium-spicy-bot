@@ -3,8 +3,8 @@ import { FLOW_MAX_NODE_VISITS } from '../constants';
 import { FlowRunsRepo, flowRunsRepo } from '../data/flowRunsRepo';
 import type { FlowRunEntity } from '../data/flowRunsSchema';
 import { FlowsRepo, flowsRepo } from '../data/flowsRepo';
-import type { FlowRunContext } from '../blocks/types';
-import { executeFlowSegment } from './executor';
+import type { FlowRunSeed } from '../blocks/types';
+import { emptyBagWith, executeFlowSegment } from './executor';
 
 export interface ResumeFlowRunDependencies {
     flowsRepo: Pick<FlowsRepo, 'getByFlowId'>;
@@ -23,11 +23,19 @@ export type ResumeOutcome =
     | { status: 'skipped'; reason: string };
 
 /**
- * Rebuild a {@link FlowRunContext} for a parked run.
+ * Rebuild a {@link FlowRunSeed} for a parked run.
  *
- * Only `{ guildId, userId }` is persisted, so the guild and member are re-fetched
+ * Only `{ guildId, userId }` is persisted, so the guild and subject are re-fetched
  * from the live client. `interaction` is always undefined on a resumed run — the
- * original interaction token is long expired.
+ * original interaction token is long expired — and so is `actor`, because a run
+ * woken by the clock was not caused by anybody.
+ *
+ * **The variable bag is seeded from the row, not started empty.** This is the half
+ * of the write channel that is easiest to leave unbuilt and hardest to notice
+ * missing: everything still passes when a producer and its consumer happen to sit
+ * in one segment, and every value silently disappears the moment a wait comes
+ * between them. A block reading `{{var.x}}` after a park would then fail for a
+ * reason no author could see from their canvas.
  *
  * Returns a reason string instead of throwing when the guild or member is gone,
  * so the caller can fail the run cleanly.
@@ -35,7 +43,7 @@ export type ResumeOutcome =
 export async function rebuildResumeContext(
     client: Client,
     run: FlowRunEntity
-): Promise<{ ok: true; context: FlowRunContext } | { ok: false; reason: string }> {
+): Promise<{ ok: true; context: FlowRunSeed } | { ok: false; reason: string }> {
     const { guildId, userId } = run.contextSnapshot;
 
     let guild: Guild | null = client.guilds.cache.get(guildId) ?? null;
@@ -61,8 +69,17 @@ export async function rebuildResumeContext(
         context: {
             client,
             guild,
-            member,
-            user: member.user,
+            subject: member,
+            // A resumed run has no actor: nobody caused this step, the clock did.
+            // Reporting the subject here would make every resumed run look like
+            // the subject acted on themselves.
+            actor: undefined,
+            // Everything blocks recorded before the park, read back off the row.
+            // Re-bagged rather than used as parsed: a row that has been through
+            // JSON and Zod comes back as an ordinary object, so without this a
+            // resumed run's bag inherits a prototype the same bag never had on
+            // the leg that wrote it.
+            variables: emptyBagWith(run.variables),
             // Resumed runs have no interaction — the token is expired.
             interaction: undefined,
         },
@@ -154,6 +171,9 @@ async function advanceClaimedRun(
         triggerNodeId: run.resumeNodeId,
         visitsUsed: run.visitsUsed,
         log: run.log,
+        // Carried forward so a block downstream of the wait reads what blocks
+        // upstream of it recorded, exactly as it would without the park.
+        variables: rebuilt.context.variables,
         // Addressed to the parked node. A pre-M1 delay row names the node *after*
         // the delay, which never parked, so this matches nothing and that run
         // simply carries on from there — exactly as it did before M1.

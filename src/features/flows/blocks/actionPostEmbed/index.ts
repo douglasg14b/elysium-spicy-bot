@@ -54,6 +54,7 @@ export const block: BlockManifest<PostEmbedConfig> = {
             control: 'text',
             placeholder: 'House Rules',
             maxLength: 256,
+            rendersTokens: true,
         },
         {
             key: 'description',
@@ -61,6 +62,7 @@ export const block: BlockManifest<PostEmbedConfig> = {
             control: 'longText',
             placeholder: 'The fine print nobody reads…',
             maxLength: 4096,
+            rendersTokens: true,
         },
         {
             key: 'color',
@@ -92,7 +94,9 @@ export const block: BlockManifest<PostEmbedConfig> = {
             embed.setColor(hexColorToInt(config.color));
         }
 
-        await channel.send({ embeds: [embed] });
+        // Embed text does not ping on its own, but the allowlist is stated here too
+        // so no send path in this feature is the one that forgot.
+        await channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
         return { kind: 'continue' };
     },
 };

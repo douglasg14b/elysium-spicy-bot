@@ -31,6 +31,7 @@ function makeRun(runId: string): FlowRunEntity {
         waitKind: null,
         waitConfig: null,
         contextSnapshot: { guildId: GUILD_ID, userId: 'user-1' },
+        variables: {},
         visitsUsed: 1,
         log: [],
         error: null,

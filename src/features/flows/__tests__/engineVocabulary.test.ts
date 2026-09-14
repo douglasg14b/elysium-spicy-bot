@@ -86,6 +86,12 @@ const DOMAIN_VOCABULARY = [
     // Run lifecycle
     'run', 'status', 'suspend', 'resume', 'claim', 'park', 'wake', 'wait', 'delay',
     'retry', 'cancel', 'schedule', 'poll', 'tick', 'sweep', 'context', 'snapshot',
+    // What a run is about, who moved it, and what it carries. All three are named
+    // on the PRD's own leakage allowlist, so adding them states an engine concept
+    // rather than widening what the engine may say: `subject` and `actor` are the
+    // two halves of the member split, and `variable` is the bag one block leaves
+    // for another. None of them names a use case.
+    'subject', 'actor', 'variable',
     // Block taxonomy
     'trigger', 'condition', 'action', 'kind', 'group', 'output', 'capability',
     'capabilities', 'requirement', 'control', 'tone',
@@ -110,6 +116,33 @@ const DOMAIN_VOCABULARY = [
  * adding to the domain list is the deliberate act.
  */
 const GENERIC_VOCABULARY = [
+    // Arrived with the generalised context-requirement check: a table whose every
+    // entry says when the thing is absent and what to advise. Neither carries
+    // domain meaning in any codebase.
+    //
+    // **`rule` is deliberately NOT here**, and that is the gate doing its job. The
+    // check was first written around a `REQUIREMENT_RULES` table, which would have
+    // needed `rule` — but {@link fold} stems plurals, so recognising `rule` also
+    // recognises `rules`, and `rules` is a proven rejection: it is an onboarding
+    // noun ("agree to the rules"). Admitting it would have blinded this gate to
+    // exactly the leak it exists to catch. The table was renamed to
+    // `CHECKED_REQUIREMENTS` instead of widening the list.
+    'absent', 'advice',
+    // Arrived with copy rendering: a block declares that a field carries authored
+    // copy, and the executor expands `{{…}}` in it before the block runs. Both are
+    // generic in any codebase — a token is a lexical unit and rendering is turning
+    // one representation into another — and neither names anything this product
+    // does. `fold` stems them, so `tokens`, `renders` and `rendered` come too;
+    // checked against PROVEN_REJECTIONS, which they do not touch.
+    'token', 'tokens', 'render', 'renderable',
+    // The rest of the copy-rendering and write-channel machinery. Every one is a
+    // word about *mechanism* rather than about anything this product does: copy is
+    // text, a seed is starting state, a resolver resolves, a drain empties, and
+    // merged/size/expanded/describe are as domain-free as words get. Checked
+    // against PROVEN_REJECTIONS — none of them folds onto a use-case noun, so the
+    // gate keeps the no-slack property its own third test asserts.
+    'copy', 'seed', 'resolver', 'drain', 'drained', 'merged', 'size', 'expanded',
+    'describe',
     'result', 'parsed', 'default', 'update', 'current', 'definition', 'definitions',
     'next', 'declared', 'declaration', 'dependencies', 'error', 'errors', 'field',
     'fields', 'schema', 'type', 'reason', 'options', 'option', 'source', 'list',

@@ -24,7 +24,7 @@ import { validateFlowGraph, validateAuthoredGraph } from '../engine/graphValidat
 import { validateNodeData } from '../engine/nodeDataValidation';
 import { ensureBlocksDiscovered } from '../blocks/registry';
 import type { FlowGraph } from '../data/flowGraph';
-import type { FlowRunContext } from '../blocks/types';
+import type { FlowRunSeed } from '../blocks/types';
 
 const MEMBER_ROLE_ID = '900000000000000001';
 const BOOSTER_ROLE_ID = '900000000000000002';
@@ -112,23 +112,23 @@ function validateAsSaveWould(graph: FlowGraph): readonly string[] {
 }
 
 function makeContext(options: { boosting: boolean }): {
-    context: FlowRunContext;
+    context: FlowRunSeed;
     rolesAdd: ReturnType<typeof vi.fn>;
 } {
     const rolesAdd = vi.fn().mockResolvedValue(undefined);
-    const user = { send: vi.fn().mockResolvedValue(undefined) } as unknown as FlowRunContext['user'];
-    const member = {
+    const user = { send: vi.fn().mockResolvedValue(undefined) };
+    const subject = {
         user,
         premiumSince: options.boosting ? new Date('2026-01-01T00:00:00Z') : null,
         roles: { add: rolesAdd, cache: { has: () => false } },
-    } as unknown as FlowRunContext['member'];
+    } as unknown as FlowRunSeed['subject'];
 
     return {
         context: {
-            client: {} as FlowRunContext['client'],
-            guild: { id: 'guild-1' } as FlowRunContext['guild'],
-            member,
-            user,
+            client: {} as FlowRunSeed['client'],
+            guild: { id: 'guild-1' } as FlowRunSeed['guild'],
+            subject,
+            variables: {},
         },
         rolesAdd,
     };

@@ -1,5 +1,7 @@
+import type { FlowContextRequirement } from '../blocks/manifest';
 import { getBlockDefinition } from '../blocks/registry';
 import { flowGraphSchema, type FlowGraph } from '../data/flowGraph';
+import { describeVocabulary, isCopyField, isRenderableToken, tokensIn } from './copyRendering';
 
 export type GraphValidationResult =
     | { valid: true; graph: FlowGraph }
@@ -70,7 +72,8 @@ export function validateFlowGraph(candidate: unknown): GraphValidationResult {
  * Checked here:
  *  - no output handle carries more than one outgoing edge
  *  - every `sourceHandle` names a handle the source block actually declares
- *  - no block requiring an `interaction` sits only on paths that cannot have one
+ *  - no block requiring something from the run context sits only on paths that
+ *    cannot supply it
  *
  * The first two exist because the executor follows exactly one edge per handle.
  * A second edge on a handle is a branch that silently never runs; an edge on a
@@ -130,8 +133,62 @@ export function validateAuthoredGraph(graph: FlowGraph): GraphValidationResult {
     }
 
     errors.push(...checkContextRequirements(graph));
+    errors.push(...checkCopyTokens(graph));
 
     return errors.length > 0 ? { valid: false, errors } : { valid: true, graph };
+}
+
+/**
+ * Reject copy containing a token this engine could never fill in.
+ *
+ * A typo like `{{subject.nmae}}` has exactly two possible fates: caught here,
+ * where the author is looking at the field and can fix it, or discovered in
+ * production when the run fails — or worse, when the braces are posted verbatim
+ * into a channel. Save time is the only one of those an author can act on.
+ *
+ * Fields are found by their own declaration (`rendersTokens`) rather than by
+ * block type, which is what keeps this one rule instead of a branch per block.
+ *
+ * **`{{var.<name>}}` is accepted on sight**, deliberately. Blocks do not declare
+ * typed outputs yet, so there is no vocabulary of produced names to check against
+ * and any check here would be a guess. When outputs become real this is where it
+ * tightens: a variable no upstream block on the path produces becomes an error
+ * naming the node, exactly as an unknown token is now.
+ */
+function checkCopyTokens(graph: FlowGraph): readonly string[] {
+    const errors: string[] = [];
+
+    for (const node of graph.nodes) {
+        const block = getBlockDefinition(node.type);
+        if (!block) {
+            continue;
+        }
+
+        for (const field of block.configFields) {
+            // The same predicate the executor renders by, so a field the engine
+            // would expand cannot be one this check quietly skips.
+            if (!isCopyField(field)) {
+                continue;
+            }
+
+            const value = node.data[field.key];
+            if (typeof value !== 'string') {
+                continue;
+            }
+
+            for (const token of tokensIn(value)) {
+                if (isRenderableToken(token)) {
+                    continue;
+                }
+                errors.push(
+                    `Node ${node.id} (${node.type}) has "${field.label}" containing {{${token}}}, which is not ` +
+                        `something a flow can fill in. ${describeVocabulary()}`
+                );
+            }
+        }
+    }
+
+    return errors;
 }
 
 /**
@@ -157,14 +214,87 @@ export function validateGraphForWrite(candidate: unknown): GraphValidationResult
 }
 
 /**
- * Reject a block that needs an `interaction` but can only ever be reached
- * without one.
+ * Why a requirement can be unsatisfiable on a path, and what to tell the author
+ * when it is.
  *
- * Only `interaction` is checkable this way. Every run has a member, so `member`
- * is a requirement nothing in a graph can violate; an interaction exists only
- * when the run was started by one, and is gone for good once a run parks and
- * resumes. So the question is exactly: does every trigger that reaches this node
- * carry an interaction, and does the path get there without parking?
+ * Two questions decide it for every requirement alike — can this node be reached
+ * after a park, and can it be reached from a trigger whose event never supplies
+ * the thing — so this is data rather than three copies of one walk.
+ *
+ * **A message is present exactly when that route can lose the requirement.** An
+ * absent message is how the table says "this route does not lose it", so there is
+ * no separate flag that could disagree with the message next to it, and no way to
+ * spell a route that fires with nothing to say.
+ */
+interface RequirementCheck {
+    /** Why a resumed run no longer has it. Absent when a parked run keeps it. */
+    readonly afterParking?: string;
+    /** Why a trigger not declaring it never had it. Absent when none can lack it. */
+    readonly fromGateway?: string;
+    readonly advice: string;
+}
+
+/** Which requirement a check is about, read from the key so it cannot disagree. */
+type CheckedRequirement = Exclude<FlowContextRequirement, 'subject'>;
+
+/**
+ * The requirements a graph can actually violate.
+ *
+ * Keyed rather than listed, for two reasons. A new member of the vocabulary
+ * becomes a compile error here until someone decides what it means, where a plain
+ * array would have left it silently unchecked with every test still passing. And
+ * the key is the *only* place a requirement names itself — repeating it inside
+ * the value would let the two disagree, and the loop would then check one
+ * requirement while telling the author about another.
+ *
+ * `subject` is excluded in the key type rather than merely omitted: every run has
+ * one, so it is documentation, and stating the exclusion in the type is the
+ * difference between a deliberate choice and an oversight nobody can tell apart.
+ */
+const CHECKED_REQUIREMENTS: Readonly<Record<CheckedRequirement, RequirementCheck>> = {
+    interaction: {
+        // Gone the moment a run parks: the token expires, and no resume path
+        // rebuilds one.
+        afterParking: 'it can be reached after a block that parks the run, and a resumed run has no interaction',
+        // A gateway trigger never had one to begin with.
+        fromGateway: 'it can be reached from a trigger that fires on a gateway event, which has no interaction',
+        advice: 'Move it before the wait, or start this path from a button.',
+    },
+    actor: {
+        // Nobody causes a resumed step — the clock does.
+        afterParking:
+            'it can be reached after a block that parks the run, and a run woken by the clock has nobody acting on it',
+        // A gateway event still has someone who caused it: the member who joined
+        // or reacted. So unlike an interaction, this survives a gateway start, and
+        // the absent message is what says so.
+        advice: 'Move it before the wait.',
+    },
+    channel: {
+        // A parked run loses its channel today, because the snapshot has nowhere
+        // to put one — it persists `{guildId, userId}` and nothing else. That is
+        // why this message is present: the run genuinely cannot answer "where am
+        // I" after waking, so a block asking is rejected before it can quietly
+        // take the wrong branch. Widening the snapshot is what makes a parked run
+        // able to keep it, and this message should be removed in the same change
+        // that persists one — not before.
+        afterParking:
+            'it can be reached after a block that parks the run, and a resumed run does not yet remember where it was',
+        // A member join happens nowhere in particular.
+        fromGateway:
+            'it can be reached from a trigger that fires on a gateway event, which happens in no particular channel',
+        advice: 'Start this path from a button or a reaction, which both happen somewhere.',
+    },
+};
+
+/**
+ * Reject a block that needs something from the run context but can only ever be
+ * reached without it.
+ *
+ * The question is the same for every checkable requirement: does some path reach
+ * this node that cannot supply the thing? Two such paths exist — a resumed one,
+ * which has lost whatever the original event carried, and one rooted in a trigger
+ * that never had it. Which of those two loses which requirement is
+ * {@link CHECKED_REQUIREMENTS}' job to say.
  *
  * A node reachable from no trigger at all is not flagged — it is unreachable, so
  * it never runs, and blaming its requirements would bury the real problem.
@@ -207,40 +337,56 @@ function checkContextRequirements(graph: FlowGraph): readonly string[] {
         .map((node) => node.id);
     const reachableAtAll = walkFrom(triggerIds);
 
-    // A gateway trigger never has an interaction, so everything it reaches is
-    // suspect for the same reason a resumed path is.
-    const gatewayStarts = graph.nodes
-        .filter((node) => {
-            const block = getBlockDefinition(node.type);
-            return block?.kind === 'trigger' && !block.requires.includes('interaction');
-        })
-        .map((node) => node.id);
-    const fromGateway = walkFrom(gatewayStarts);
+    // A trigger that does not itself declare the requirement cannot supply it, so
+    // everything it reaches is suspect for the same reason a resumed path is.
+    // Computed per requirement, because "gateway" is not one set of triggers: a
+    // member join supplies an actor but no channel, and a reaction supplies both.
+    const reachableFromTriggersWithout = (requirement: FlowContextRequirement): Set<string> =>
+        walkFrom(
+            graph.nodes
+                .filter((node) => {
+                    const block = getBlockDefinition(node.type);
+                    return block?.kind === 'trigger' && !block.requires.includes(requirement);
+                })
+                .map((node) => node.id)
+        );
 
     const errors: string[] = [];
-    for (const node of graph.nodes) {
-        const block = getBlockDefinition(node.type);
-        if (!block?.requires.includes('interaction')) {
-            continue;
-        }
-        // A trigger requiring an interaction supplies its own.
-        if (block.kind === 'trigger' || !reachableAtAll.has(node.id)) {
-            continue;
-        }
+    const entries = Object.entries(CHECKED_REQUIREMENTS) as [CheckedRequirement, RequirementCheck][];
+    for (const [requirement, checked] of entries) {
+        // A message present is what says this route can lose the requirement, so
+        // the walk is skipped entirely when there is nothing it could report.
+        const fromGatewayReachable = checked.fromGateway
+            ? reachableFromTriggersWithout(requirement)
+            : new Set<string>();
 
-        const viaGateway = fromGateway.has(node.id);
-        const viaResume = afterParking.has(node.id);
-        if (!viaGateway && !viaResume) {
-            continue;
-        }
+        for (const node of graph.nodes) {
+            const block = getBlockDefinition(node.type);
+            if (!block?.requires.includes(requirement)) {
+                continue;
+            }
+            // A trigger declaring a requirement supplies its own.
+            if (block.kind === 'trigger' || !reachableAtAll.has(node.id)) {
+                continue;
+            }
 
-        const because = viaResume
-            ? 'it can be reached after a block that parks the run, and a resumed run has no interaction'
-            : 'it can be reached from a trigger that fires on a gateway event, which has no interaction';
-        errors.push(
-            `Node ${node.id} (${node.type}) needs the interaction that started the run, but ${because}. ` +
-                'Move it before the wait, or start this path from a button.'
-        );
+            // Parking is reported in preference to a gateway start when both
+            // apply: it is the more specific fact, and the one an author can act
+            // on without changing how the flow starts.
+            const absentAfterParking = Boolean(checked.afterParking) && afterParking.has(node.id);
+            const because = absentAfterParking
+                ? checked.afterParking
+                : fromGatewayReachable.has(node.id)
+                  ? checked.fromGateway
+                  : undefined;
+            if (!because) {
+                continue;
+            }
+            errors.push(
+                `Node ${node.id} (${node.type}) needs "${requirement}" from the run, but ${because}. ` +
+                    checked.advice
+            );
+        }
     }
 
     return errors;
