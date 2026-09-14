@@ -21,8 +21,8 @@ From PRD §1.3, unchanged. This is the durable product intent and the only seque
 | Step | Outcome | Done when | Status |
 |---|---|---|---|
 | **1** | Adding a block is cheap and safe | A new block ships by adding one directory; conformance tests catch an incomplete manifest; the builder needs no edit | **Done** (M1) |
-| **2** | **Blocks compose** | A block can consume a value another block produced, and copy can address the subject | **In progress** |
-| **3** | A run can ask a human a question | A moderator presses a button in a channel and *that* parked run advances; non-moderators are refused | Not started |
+| **2** | Blocks compose | A block can consume a value another block produced, and copy can address the subject | **Done** — slice D absorbed into step 3 as slice E |
+| **3** | **A run can ask a human a question** | A moderator presses a button in a channel and *that* parked run advances; non-moderators are refused | **Planned — next** |
 | **4** | A flow can open and drive a ticket | A verification ticket is opened by a flow, is distinguishable from a support ticket, and its channel is addressable by later blocks | Not started |
 | **5** | A journey can build its own home | Installing a journey on an empty guild creates its categories, channels, and roles with correct visibility | Not started |
 | **6** | The real journey runs on it | Our onboarding and verification runs end-to-end on the engine with no bespoke code | Not started |
@@ -40,9 +40,11 @@ The bar is PRD §1.3 exactly: *a block can consume a value another block produce
 | **A** | Context split — `subject` / `actor` / `channel` / `variables` on `FlowRunContext`, requirements declared and validated | **Done** (`18ba61a`) |
 | **B** | Variables flow — `context.setOutput` writes, the bag rides `FlowSuspension`, one shared token renderer expands `{{subject.mention}}`, `{{actor.mention}}`, `{{guild.name}}`, `{{var.<name>}}` | **Done** (`18ba61a`) |
 | **C** | Persist it — `flow_runs.contextSnapshot` carries the channel across a park; variables get their own column | **Done** (`21ce4e7`) |
-| **D** | **Run it against the real guild** | **Next — and the only thing left in step 2** |
+| **D** | Run it against the real guild | **Moved** — now step 3 slice E |
 
-Slice D is not optional and not a formality. **Nothing in this engine has ever been exercised against a live Discord guild or in a real browser** — M1 was verified structurally only. Every deferred decision below is a guess until D happens.
+Slice D is not optional and not a formality. **Nothing in this engine has ever been exercised against a live Discord guild or in a real browser** — M1 was verified structurally only. Every deferred decision below is a guess until it happens.
+
+It moved rather than being dropped. Running two steps of pure spine proved little that could be seen, and the observation that nothing visible had changed was correct; running the same infrastructure with a prompt block on top is the same exercise with a result worth looking at. It is still the gate on step 3 finishing.
 
 ### Ordering constraints
 
@@ -69,6 +71,172 @@ Each of these was in the original M2 scope. Each is a feature that *consumes* th
 
 Deferring the picker and the list control drops **two of the four planned contract amendments** (execution strategy §9). The strategy's own calibration expects 3–6 across all six steps; the original M2 was going to spend four alone.
 
+## Step 3 — A run can ask a human a question
+
+The bar is PRD §1.3 exactly: *a moderator presses a button in a channel and **that** parked run advances; non-moderators are refused.*
+
+Read that sentence as three claims, because the slicing follows from them and nothing else: a run **parks on a question**, a press advances **that specific run** (not any run, not a new one), and a press by the wrong person is **refused**. Everything in §5.4 and §5.5 that is not one of those three is a follow-on.
+
+### The scope lesson this step has to answer for
+
+Steps 1 and 2 shipped no user-visible capability between them — thirteen blocks before, thirteen after — and that was noticed from outside, correctly. It happened because both steps were spine, and because every visible thing in step 2's original scope (reference picker, list control, embed authoring, random selection) got deferred while the spine was kept. Each deferral was individually defensible; the pattern was not.
+
+**So step 3 is sliced so that the visible capability lands in the middle, not at the end.** The prompt block is the deliverable, and it lands at B3 — three commits in, with three more after it. Everything after B3 is hardening that prompt block against its own failure modes. If the step is cut short at any point from B3 onward, what exists is a working button that advances a parked run.
+
+Be honest about the shape of that, though: A, B1, and B2 are all invisible, so this step still opens with three commits that show nothing. That is not evasion of the lesson — it is the smallest such prefix available, since a prompt cannot name its exit before the resume reason can carry one, and cannot offer choices before a control can edit a list. The difference from steps 1 and 2 is that the invisible prefix is three commits rather than two whole steps, and that it terminates in something to look at.
+
+Consequently the fan-outs §5.4 itself defers — the four new gateway triggers — stay deferred, and §5.5's custom events are **not in this step at all**. Reasoning below.
+
+### What ships
+
+| Slice | Content | Visible after it |
+|---|---|---|
+| **A** | Resume carries a **choice**, not a boolean — widen `FlowResumeReason`, thread it through `engine/flowRunResume.ts`, `engine/executor.ts`, and `blocks/conformance.ts` | Nothing. Interpreter-level, and wider than it looks — see below |
+| **B1** | **List control** — the first non-scalar control, and whatever `ControlChange` widening it forces across the eight existing controls | Authors can edit a list of things. No block uses it yet |
+| **B2** | **Handles from config** — whichever resolution the manifest contract gets for a block whose handle count is authored, not declared | Nothing directly; unblocks B3 |
+| **B3** | **The prompt block** — posts a message with one button per choice, parks, resumes by the pressed choice's handle. Run-scoped custom id, new `flowp:` prefix handler | **A run asks a question in Discord and a press advances it.** This is the step's product |
+| **C** | **Audience gate** — a principal list evaluated against the clicker; ephemeral refusal; applied to the prompt block *and* to the existing trigger buttons, which today check nothing | Non-moderators are refused. This completes §1.3's step text |
+| **D** | **Lifecycle** — a second press refuses rather than advancing; buttons disabled on choice, timeout, and cancel; the prompt's timeout branch | A stale prompt cannot be pressed twice |
+| **E** | **Run it against the real guild** — carried over from step 2, now with something worth running | Everything above, proven |
+
+Each row is a commit. E is not a commit; it is the thing that makes the previous ones true.
+
+**B is three commits, not one.** It was one row in the first draft of this plan, and that was wrong: it bundled a control-signature widening across eight controls, a manifest-contract change, and the block itself — two of which are individually larger than slice A, which got its own commit precisely because it touches a documented contract. A commit containing all three cannot be reviewed or reverted as a unit, and the thing that stalls if it goes wrong is the one visible deliverable in the step.
+
+The visible capability therefore lands at the end of **B3**, not the end of B. That is still before C, D, and E — the sequencing property this step exists to have.
+
+### Why custom events (§5.5) are not in this step
+
+§1.3's step text does not mention them, and they fail rule 2 of §3.1 ("the bar is §1.3's step text"). Concretely they are a separate capability with their own hard problem — §5.5's last bullet, bounding run *creation* against cascades, which `FLOW_MAX_NODE_VISITS` does not touch because it bounds one run. Building an event bus in the same step as the prompt block would repeat exactly the M2 mistake: two capabilities, one plan, the harder one dragging the visible one.
+
+They are owned, not dropped. The trigger to pull them in is **step 4**: §5.6's ticket blocks are the first concrete emitter, and "features outside flows can emit" has no call site until tickets exist. Correlation (§5.5's second bullet) is also better designed against a real correlation key — a ticket id — than against a hypothetical one.
+
+What step 3 must **not** do is foreclose them. The one place that matters is slice A: widening the resume reason must not assume the only two resume sources are a gateway event and a clock.
+
+### Why the four new gateway triggers are not in this step
+
+§5.4's own text already says they "ship as a fan-out **after** the prompt block and event bus are stable", and §8 Q10 records that none is on the target journey's critical path. Message-posted additionally needs the channel *selector* vocabulary, which needs journey resource keys, which are step 5. Building it now means building it against a channel picker and rebuilding it in step 5.
+
+**Channel selectors are therefore also out of step 3**, for the same reason: three of the five selector kinds §5.4 lists (journey resource key, any channel in a category, any ticket channel of a type) name things that do not exist until steps 4 and 5. The prompt block posts to *the run's current channel* or an explicitly picked one, which the existing `channelPicker` plus slice C of step 2 already cover.
+
+### What each slice actually has to change
+
+Grounded in the code as it stands at `b9e5381`, not from the PRD.
+
+#### A — resume carries a choice
+
+`FLOW_RESUME_REASONS` is `['event', 'timeout'] as const` with `FlowResumeReason` derived from it (`blocks/types.ts:15-17`, under a twelve-line doc comment at `:3-14` that explains why those two values are what they are). A prompt resumes by *which choice was pressed*, which is not one of them. This is the only interpreter-level widening step 3 requires, and it goes first and alone.
+
+The shape to reach for is a discriminated object rather than a widened string union — roughly `{ kind: 'event' } | { kind: 'timeout' } | { kind: 'choice'; … }` — because a bare widened string leaves every existing `context.resume === 'timeout'` comparison compiling while meaning less than it did.
+
+**One thing must be decided before this slice starts, not during B2:** is a choice identified by an **author-defined key** or a **positional index**? It determines the payload above, so getting it wrong means rewriting slice A — the exact cost that justifies A going first. It is decidable now, from the custom-id arithmetic alone: a `runId` UUID is 36 characters of the 100 available, and after a prefix and a node id an author's arbitrary label may not fit where a small integer always will. That argument points at the index and does not require resolving B2's manifest question.
+
+This is wider than one file, and each of the following is why it is its own commit:
+
+- **`FLOW_RESUME_REASONS` is built exactly like the frozen interpreter enums** this document protects below — a frozen `as const` array with the type derived from it, same as `FLOW_RUN_STATUSES` and `FLOW_STEP_OUTCOME_KINDS`. It is **not** one of them: those two are frozen because the *interpreter's own* state must not grow, whereas the resume reason names what happened outside the run, and a third external cause is a real new thing rather than interpreter creep. Recorded here so the growth is sanctioned rather than looking like the thing that rule exists to catch. The `:3-14` comment is decision-bearing and rewriting it belongs to this slice.
+- **`conformance.ts:612-637` is the second consumer, and it is the one that bites.** `checkResumeTerminates` drives *every* block declaring `canSuspend` with *every* member of `FLOW_RESUME_REASONS` (`:623`) and asserts it does not re-park. Turning a flat array into a variant union means that loop has to synthesise a reason per variant — and for a `choice`, synthesise a key or index the block under test will actually recognise, or the prompt block fails its own conformance for a reason unrelated to correctness. There are currently two suspending blocks (`actionWaitForEvent`, `actionDelay/index.ts:59`), and both must come through unchanged.
+- **`resumeFlowRun`'s `exit` is an inline literal union, not the alias** (`engine/flowRunResume.ts:286`, and again on `advanceClaimedRun` at `:316`); neither file even imports `FlowResumeReason`, and the prose at `:278-281` restates the two values a third time. So widening the alias produces **no error at either site** — the resume path keeps the old two-value vocabulary while the typecheck stays green, and the prompt block could never be handed a choice. Repoint both signatures at the type as part of A, or the widening is invisible exactly where it matters. `exit` also **defaults** to `'timeout'`, so a caller that forgets to say why a run woke gets an answer anyway; the default goes when the type widens.
+- **Most of A's diff is in tests, and that is fine.** Both production sites already pass an explicit reason — `flowRunScheduler.ts:135` passes `'timeout'` directly, and `waitingRunDispatch.ts` passes `'event'` through a dependency seam typed `typeof resumeFlowRun`, so it tracks the signature automatically. Dropping the default therefore breaks no production caller. But there are **26 test call sites** across `durableRuns` (11), `parkedRunResume` (7), `parkedRunChannel` (5), `runVariables` (2), and `flowRunScheduler.test.ts` (1, an exact-argument assertion). If A changes the *shape* rather than just the union, every one of those literals changes. Budget for it rather than discovering it.
+- **The reason is not persisted and must not become persisted.** It is supplied by whoever wakes the run. A pressed choice is known at press time, so it threads through the call, not the row. Adding it to `FlowRunContextSnapshot` would be the same mistake `actorId`'s absence already documents (`flowRunsSchema.ts:14-19`).
+- **`engine/executor.ts:324-331`'s "woke onto nothing" failure** is written against a handle name and must keep firing for a choice handle with no wired branch. That is the difference between a prompt whose third button does nothing and a prompt that says why.
+
+#### B1 — the list control
+
+The deferral table in step 2 already named this and named its trigger: "List control (`fields`, string lists) — first non-scalar control in the repo; may force a `ControlChange` signature widening across all eight existing controls. **Pull in when: the embed block or pick-random actually needs it.**" The prompt block is that trigger, arriving earlier than predicted.
+
+It is unavoidable either way — a prompt's choices are a list whichever handle design B2 picks, and slice C's `roles: [...]` gate is a list too. Doing it alone and first means the eight-control widening, if it happens, lands in a commit that contains nothing else.
+
+**Note this is the one part of step 3 that is not "one new directory".** A block is: `blocks/registry.ts` scans the filesystem, so there is no array to append to. A ninth control is not, and the count is worth having before estimating: the arm in `blocks/manifest.ts`, `BLOCK_CONTROL_TYPES`, an entry in `CONFIG_FIELD_FIXTURES` (omit it and `FixturesAreExhaustive` in `nodeDescriptorDrift.test.ts:97-107` fails to compile), the `web/src/api/types.ts` mirror plus its `BLOCK_CONFIG_FIELD_KEYS` arm (the drift gate asserts this one `toBeDefined()`), a renderer under `web/src/flows/controls/` wired into `renderControl.tsx`, and `cardSummary.ts`. Six files, and the gates catch five of them loudly — which is the system working, but it is not one directory.
+
+#### B2 — handles from config
+
+**This is step 3's real design problem, and it is a manifest-contract question, not a block question.**
+
+Every existing block has a *static* `handles` array — `conditionHasRole` declares exactly `true`/`false`. A prompt's handles are one per authored choice. `BlockManifest.handles` is `readonly BlockOutputHandle[]`, a fixed array on the definition that is served to the browser and used by the executor's reachability check (`engine/executor.ts:293-299`) and by `resolveNextNode` (`:591-635`).
+
+Two options, and this slice exists to pick one deliberately rather than by whichever hack compiles: either the manifest grows a way to derive handles from a node's config, or the prompt ships a fixed number of numbered choice handles that the author labels. The second is uglier and cheaper; the first is what G7 asks for.
+
+**Decide it with the browser in front of you, not the drift gate.** `nodeDescriptorDrift` compares key *names* taken off the live registry plus seven closed vocabularies; only `BLOCK_HANDLE_TONES` touches handles at all, and a block whose `handles` were computed rather than literal changes no key name, so every assertion there passes either way. The gate will not inform this decision. The binding constraints are elsewhere, and they are what make the derived option genuinely hard:
+
+- `web/src/flows/FlowNodeCard.tsx` and `FlowBuilderPage.tsx` read `descriptor.handles` straight off the **statically fetched** descriptor, with no access to a node's config. There is no per-node handle path in the browser at all.
+- `conformance.ts` walks `handles` as a static array in two places, including the check that a `continue` outcome names a handle the block declared.
+- `graphValidation.ts` does the same at save time.
+- `engine/executor.ts:293-299` (reachability) and `:591-635` (`resolveNextNode`).
+
+Choice identity — key versus index — is *not* settled here. It is decided before slice A, because it determines slice A's payload.
+
+Note this is *not* where choice identity is settled — key versus index is decided before slice A, because it determines slice A's payload.
+
+#### B3 — the prompt block
+
+One new directory under `blocks/`, per step 1's whole point. What remains once B1 and B2 have landed:
+
+- **Run-scoped custom id.** `parseFlowCustomId` returns `null` on anything but exactly three segments (`utils/customId.ts:25`), so the existing scheme cannot be extended in place — a fourth segment breaks every deployed trigger button. So a **second, separate prefix** (`flowp:`) with its own parser and handler: nothing about the trigger path changes. Be precise about why that is safe, because the obvious reason is wrong twice over. It is *not* "the strings differ" — `resolveDynamicHandler` matches by `startsWith` (`interactionsRegistry.ts:199`), so whether two prefixes collide depends on the exact registered strings, not on their being distinct. And it is *not* longest-prefix-wins either: `'flowp:x'.startsWith('flow:')` is **false**, so there is no contest to win. What actually saves it is the **trailing colon at the registration boundary** — `initFlows.ts:43` registers `` `${FLOW_CUSTOM_ID_PREFIX}:` `` while the constant itself is bare `'flow'` (`constants.ts:5`). Register either prefix without its colon and `flowp:` ids route straight into `handleFlowButtonInteraction`, which parses them to `null` and answers "Malformed flow button id" (`engine/flowTriggerDispatch.ts:23-24`) — a confusing user-facing error, not a crash, which is the worst kind to debug. `registerDynamic` throws only on an exact duplicate string (`:67-68`) and will not warn. So: register `'flowp:'` **with** the colon, and make it a registry test rather than an assumption.
+- **Budget the 100 characters honestly.** A UUID `runId` is 36, which with a prefix and a node id leaves room for a choice identifier only if it is small — see the identity decision under slice A.
+- **Decide what a prompt press does to `resumeWaitingRunsForEvent`.** `engine/flowTriggerDispatch.ts:31-35` wakes parked runs on *every* flow button click, matching only `guildId` + `userId` + `eventKind: 'buttonClick'`, before the flow is even loaded. Two consequences, both currently undecided: a press on a `flowp:` button will not reach that path at all, so a run parked on a generic `buttonClick` wait no longer wakes when the user presses a prompt — an asymmetry someone should choose rather than inherit. And in the other direction, a user pressing an ordinary trigger button while parked on a prompt can have the prompt-parked run woken through that userId-only match with reason `'event'` instead of a choice, landing in `executor.ts:324-331`'s "woke onto nothing". That is a correctness question for D's one-winner guarantee, not a detail.
+- **It must defer within 3 seconds** (§7). `engine/flowTriggerDispatch.ts:71-73` is the existing pattern.
+
+#### C — audience gate
+
+Two halves, and the second is the one that earns the step text.
+
+The **gate itself** is a principal list: `anyone`, `subject`, `actor`, a member reference to a run variable, `roles: [...]`, `discordPermission: [...]` (§5.4). Deliberately no "moderator" principal — §5.12 wants moderator roles promoted to a shared guild setting, that promotion is **not in this step**, and a `roles: [...]` gate already expresses "these roles" without the engine naming a subsystem. Evaluating it is a pure function over a `GuildMember` plus the run's variables, which is the testable shape; keep it out of the interaction handler.
+
+**The gate must be authorable, or the step cannot demonstrate its own bar.** Dropping the "moderator" principal is only free if an author can actually set `roles: [...]`, and a role list is a non-scalar control — so slice C has a second, non-obvious dependency on B1 beyond the one B3 has. Without an authoring surface the step can finish with a correct evaluator nobody can configure, and slice E has no moderator press to demonstrate. Either C ships the authoring control, or it states plainly what E will be unable to show.
+
+The **application** is the half that matters: §5.4 says "eligibility is a property of every trigger, not just buttons", and `flowTriggerDispatch.ts` has **no check at all** today — any member who can see a deployed flow button can run it. Gating only the new prompt block would leave the older, more exposed surface open while the step reports done. So slice C gates both, and the existing trigger buttons default to `anyone` so saved graphs keep working (the compatibility rule under "What stays load-bearing").
+
+`memberJoin` eligibility and the "already completed" rule (§5.4's fifth bullet) are the part of that bullet that is **not** in slice C: an already-completed rule needs a durable per-member journey record that does not exist, and there is no journey until step 6. The audience *vocabulary* is built here; the join-time completion check is owned by step 6 and named here so it is not mistaken for done.
+
+Refusal is ephemeral and changes nothing (§5.4's fourth bullet) — the failure mode it exists to prevent is a dead interaction, which Discord shows as an error to the user.
+
+#### D — lifecycle
+
+Once a choice is taken, the buttons must stop working. Note this is **two** mechanisms, not one: disabling the components on the message is cosmetic and racy, so the authoritative guard is that the run is no longer parked at that node. `claimForResume` already makes this a single conditional write with one winner (`data/flowRunsRepo.ts:288`, and the comment at `engine/flowRunResume.ts:270-276` describes exactly this race for the timeout case). A second press after a first must land as a refusal, not a second advance, **even if the message edit failed** — so the check belongs on the claim, and the edit is presentation.
+
+The timeout branch is the prompt declaring a `wakeAt` and its own timeout handle, which `actionWaitForEvent` already demonstrates end to end (`blocks/actionWaitForEvent/index.ts:77-99`).
+
+**This slice owns the concurrency tests, and slice E does not substitute for them.** The guarantees here are the racy ones — two moderators pressing at once, a timeout firing as a press lands, a press arriving after a restart, a message edit failing after a successful claim — and a live-guild session is the *least* reliable way to reproduce any of them. Extend `parkedRunResume.test.ts`, which already owns the claim-race shape, rather than adding a fifth gate.
+
+#### E — run it
+
+Unchanged from step 2's slice D, and still not a formality. **Nothing in this engine has ever run against a live Discord guild or in a real browser.**
+
+Two migrations are committed but have never been applied to a database (`2026-09-14-Add_Flow_Run_Variables`, `2026-09-15-Widen_Flow_Run_Context_Snapshot`), and the pre-flight for that is **not** "watch whether the bot boots". Nothing migrates at boot — `src/bot.ts` never invokes the migrator; migrations run from a separate CLI (`pnpm migrate:latest`), chained into the `dev` script only. The migrator reports per-migration results and sets a non-zero exit code on the first failure, so a **half-applied pair is reachable**: 09-14 lands, 09-15 fails, and the bot afterwards starts perfectly well and fails later at query time. Watch the CLI's exit code, not the boot.
+
+Two questions to settle before running, both asked during step 2 and unanswered:
+
+- **Which database is dev pointed at?** SQLite leaves the postgres migration arm unexercised; record that honestly rather than claiming coverage.
+- **Who drives the Discord interactions?** A live guild is outward-facing. Get explicit authorization before posting anything into it.
+
+### Ordering constraints
+
+Two of these are real dependencies. The others are preferences, and saying which is which matters more than the order itself.
+
+1. **A before B3** — *a dependency.* The prompt block cannot name its exit until the resume reason can carry one. Building it first means building against `'event'` and rewriting.
+2. **B1 before B3, and B1 before C** — *a dependency.* Both the choice list and the gate's role list are non-scalar controls.
+3. **C before D** — *a dependency.* Refusal and "already answered" are the same ephemeral surface; the lifecycle guard first means building the refusal path twice.
+4. **B3 before C** — **a preference, not a dependency**, and the one to revisit if anything slips. The reason is design quality: the gate becomes a shared vocabulary rather than a prompt-block private if it has two call sites when it is written. The cost is real, though — `flowTriggerDispatch.ts` has **no eligibility check at all today**, so this sequences an existing authorization hole behind the step's riskiest work. It stands because B1 comes first regardless, because the hole is gated behind a deployed button in a guild whose admin is the operator, and because a gate shaped by one caller is the failure this step is most likely to repeat from step 2. If B2 turns out worse than expected, invert this and ship the gate on the trigger path first.
+5. **E last, and E is not optional.**
+
+### Deliberately not in step 3
+
+| Deferred | Why | Pull in when |
+|---|---|---|
+| **Custom events (all of §5.5)** | Not in §1.3's step text; needs cascade bounding on run *creation*, which is its own hard problem; has no emitter until tickets exist | **Step 4** — ticket lifecycle is the first real emitter and the first real correlation key |
+| **The four new gateway triggers** (message posted, role gained, role lost, member left) | §5.4 and §8 Q10 both already schedule these as a post-prompt fan-out, off the critical path | After prompts and the event bus are stable |
+| **Channel selectors** | Three of the five selector kinds name resources that do not exist until steps 4–5; building now means rebuilding in 5 | **Step 5**, with journey resource keys |
+| **Watch scope bounding** | Exists only to bound message triggers, which are deferred | With message triggers |
+| **Shared guild settings / moderator promotion (§5.12)** | `roles: [...]` expresses the gate without it. Promotion is a six-call-site convergence in the tickets feature (§5.12), not a flows change | **Step 4**, which is already in the tickets feature |
+| **`memberJoin` already-completed rule** | Needs a durable per-member journey record; no journey exists yet | **Step 6** |
+| **Operator run controls** (cancel / retry / advance) | §8 Q11 resolved this to read-only first, controls at M6 | Step 6 |
+
+### Carried from step 2
+
+- **Slice D of step 2 is absorbed as slice E here**, deliberately. Running the infrastructure alone was low-value; running it with a prompt block on top is the same work with something to see.
+- The **`unavailable` retry backoff** (Carried forward, below) becomes more pressing in this step: a prompt parks runs for as long as a moderator takes to answer, which is the longest park the engine will have seen.
+- The **fan-out drop in three places** and **only-the-first-matching-trigger-fires** are both still open and both now have a second reason to care — a prompt with several choices makes handle-following the hot path.
+
 ## What stays load-bearing
 
 These survive the trim because they are cheap, mechanical, and have already caught real defects.
@@ -79,6 +247,7 @@ These survive the trim because they are cheap, mechanical, and have already caug
 - **Graph compatibility** — graphs saved before a slice still load, validate, and execute. Every new config key optional.
 - **The reviewer orchestrator** after `src/` TypeScript changes, iterating to no Critical or High.
 - **Dual-dialect persistence** with a dated migration, registered on the `Database` interface *and* the per-dialect plugin lists. Nothing but `.ts` files under `migrations/` — the loader has no filter.
+- **Where new tests go**, which is a local convention that is easy to violate in good faith: engine and block tests are **centralised** in `src/features/flows/__tests__/` (`blockConformance.test.ts`, `newNodes.test.ts`, `durableRuns.test.ts`) — *not* per-block, since every one of the 13 block directories contains only `index.ts`. Browser-side pure functions go in `web/src/flows/__tests__/`, which the root runner already collects.
 
 ## Model tier
 
@@ -91,7 +260,7 @@ Slice C mutates durable data, which reads like the strategy's "irreversible" cla
 - **17 pre-existing `tsc` errors** outside the flows path, plus `github-plan-cli/__tests__/ciBranchProductDiff.test.ts`. Claim "no new errors", never "clean".
 - **`birthdayAnnouncementService.test.ts`** depends on the wall clock and fails at night.
 - **Block discovery is re-run per test file.** Ten test files each call `ensureBlocksDiscovered`, and each does a filesystem scan plus a dynamic import per block directory (~2–3.5s on Windows). Slice B raised `testTimeout` to 20s because the work is genuinely slow rather than hung — but the real fix is caching discovery once per process. Worth doing when something else touches `blocks/registry.ts`.
-- **`web/` has no test runner**, so browser-side claims are proven by compile-time guards, the drift gate, or node-side unit tests over pure functions.
+- **`web/` has no *own* test runner, but its tests do run.** This was recorded wrongly here for several steps: the root `vitest.config.ts` include glob is repo-wide and excludes only `node_modules`, `dist`, and `*.live.test.ts`, so `pnpm test` collects **23 tests** under `web/src/flows/__tests__/` and `web/src/flows/controls/__tests__/` (`cardSummary`, `defaultDataFor`, `duration`). Browser-side **pure functions are testable and have an established home**; React components are not. Corrected 2026-09-14 by running `npx vitest list`.
 - **There is no CI, and this is broader than the test suite.** `pnpm build` is `tsc --noEmit`, but nothing invokes it: the three `.github/workflows/` files are Jarvis issue/PR automation, the `Dockerfile` runs only `build:web`, and there is no ESLint, Biome, or git hook. So the vitest gates, the typecheck, *and* the compile-time guards (`_SnapshotShapesAgree` in `flowRunsRepo.ts`, `FixturesAreExhaustive` in `nodeDescriptorDrift.test.ts`) all fire only for whoever runs them locally. The 17 standing `tsc` errors are the evidence: nothing has been enforcing a typecheck for long enough that they accumulated.
 
 ## Open, to be answered by running it
