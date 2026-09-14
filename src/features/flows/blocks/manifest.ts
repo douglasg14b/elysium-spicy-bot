@@ -55,6 +55,13 @@ export type BlockTriggerSource = (typeof BLOCK_TRIGGER_SOURCES)[number];
  *
  * This list is exactly what the current blocks need. The PRD names further
  * controls; they arrive when a block needs them.
+ *
+ * **`textList` is the first control whose value is not a scalar**, which is why
+ * {@link BlockConfigField}'s `defaultValue` is widened on that arm alone rather
+ * than on the shared base. A control that edits a list of *pickable* things — a
+ * list of roles, say — is deliberately **not** this control: its items come from
+ * a fetched set rather than a keyboard, so it shares nothing with this but the
+ * word "list". It arrives as its own arm when a block needs it.
  */
 export const BLOCK_CONTROL_TYPES = [
     /** Searchable role picker showing each role's own colour. */
@@ -73,6 +80,8 @@ export const BLOCK_CONTROL_TYPES = [
     'select',
     /** Hex colour, with swatches. */
     'colour',
+    /** An ordered, author-editable list of short strings. */
+    'textList',
 ] as const;
 
 export type BlockControlType = (typeof BLOCK_CONTROL_TYPES)[number];
@@ -97,12 +106,20 @@ interface BlockConfigFieldBase {
     readonly label: string;
     /** Helper text under the control. */
     readonly description?: string;
-    /**
-     * Starting value when a node is dropped onto the canvas. This is *schema
-     * input*, not validated output: where the schema also carries a `.default()`,
-     * conformance asserts the two agree rather than letting them drift.
+    /*
+     * `defaultValue` is deliberately **not** here, though every arm declares one.
+     *
+     * A base member is intersected with the arm's, so a base typed
+     * `string | number` and a `textList` arm typed `readonly string[]` produce
+     * `(string | number) & readonly string[]` — a type nothing inhabits, making
+     * the arm's default unsettable rather than merely wrong. Each arm owning its
+     * own is what lets a control's default be whatever that control's value is.
+     *
+     * In every arm it means the same thing: the starting value when a node is
+     * dropped onto the canvas, as *schema input* rather than validated output.
+     * Where the schema also carries a `.default()`, `checkFieldDefault` in
+     * `conformance.ts` asserts the two agree rather than letting them drift.
      */
-    readonly defaultValue?: string | number;
 }
 
 /**
@@ -112,7 +129,7 @@ interface BlockConfigFieldBase {
  * `select` cannot forget its choices, and a `text` field cannot smuggle in
  * swatches.
  *
- * **`rendersTokens`** appears on the two copy-carrying arms and says that this
+ * **`rendersTokens`** appears on the copy-carrying arms and says that this
  * field's value is *authored copy*, in which `{{subject.mention}}` and friends are
  * expanded before `run` receives it. It is declared per field rather than assumed
  * of every string because most string fields are not copy at all — a message id,
@@ -166,6 +183,47 @@ export type BlockConfigField =
           readonly control: 'colour';
           readonly swatches?: readonly string[];
           readonly defaultValue?: string;
+      })
+    | (BlockConfigFieldBase & {
+          readonly control: 'textList';
+          /** Hint shown in an empty row, e.g. `'Yes, I agree'`. */
+          readonly placeholder?: string;
+          /**
+           * Maximum characters of **one entry**, not of the list.
+           *
+           * Held to the schema's element type by `checkFieldMaxLength`, which
+           * probes a one-entry list rather than a bare string for exactly this
+           * arm — so `maxLength: 80` over `z.array(z.string().max(20))` is a
+           * conformance failure rather than a save an author cannot predict.
+           */
+          readonly maxLength?: number;
+          /**
+           * Fewest entries the block can work with. Below it the control still
+           * saves — the schema is the authority — but the author is told.
+           */
+          readonly minEntries?: number;
+          /**
+           * Most entries the block can work with, e.g. Discord's five buttons to a
+           * row. The control stops offering "add" here rather than letting an
+           * author build a list the block cannot use.
+           *
+           * Both bounds are held to the schema, and to each other:
+           * `checkFieldEntryBounds` rejects a `minEntries` above its `maxEntries`,
+           * which would render a control asking for more entries than it will
+           * ever offer a way to add.
+           */
+          readonly maxEntries?: number;
+          /** Label for the button that appends a row, e.g. `'Add a choice'`. */
+          readonly addLabel?: string;
+          readonly defaultValue?: readonly string[];
+          /*
+           * Deliberately no `rendersTokens`. `isCopyField` in
+           * `engine/copyRendering.ts` narrows to the two single-string arms, and
+           * both the executor and save-time validation read one string off the
+           * narrowed field. Admitting a list would mean expanding and validating
+           * per entry in both places; declaring the flag before that exists would
+           * be a field claiming an expansion nothing performs.
+           */
       });
 
 /**

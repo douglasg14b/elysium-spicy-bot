@@ -78,6 +78,7 @@ export const BLOCK_CONTROL_TYPES = [
     'segmented',
     'select',
     'colour',
+    'textList',
 ] as const;
 
 export type BlockControlType = (typeof BLOCK_CONTROL_TYPES)[number];
@@ -95,6 +96,11 @@ interface BlockConfigFieldBase {
     label: string;
     /** Helper text under the control. */
     description?: string;
+    /*
+     * No `defaultValue` here, matching the server: a base member intersects with
+     * the arm's, so one typed `string | number` would make `textList`'s
+     * `string[]` default uninhabitable. Each arm owns its own.
+     */
 }
 
 /**
@@ -149,6 +155,25 @@ export type BlockConfigField =
           control: 'colour';
           swatches?: string[];
           defaultValue?: string;
+      })
+    | (BlockConfigFieldBase & {
+          /**
+           * An ordered list of short strings the author types. The first control
+           * here whose value is not a scalar, which is why `defaultValue` widens
+           * on this arm alone.
+           */
+          control: 'textList';
+          /** Hint shown in an empty row. */
+          placeholder?: string;
+          /** Maximum characters of one entry. */
+          maxLength?: number;
+          /** Fewest entries the block can work with; below it the author is told. */
+          minEntries?: number;
+          /** Most entries the block can work with. "Add" stops being offered here. */
+          maxEntries?: number;
+          /** Label for the button that appends a row. */
+          addLabel?: string;
+          defaultValue?: string[];
       });
 
 /**
@@ -317,6 +342,7 @@ export const BLOCK_CONFIG_FIELD_KEYS = {
     segmented: ['key', 'label', 'description', 'control', 'options', 'defaultValue'],
     select: ['key', 'label', 'description', 'control', 'options', 'defaultValue'],
     colour: ['key', 'label', 'description', 'control', 'swatches', 'defaultValue'],
+    textList: ['key', 'label', 'description', 'control', 'placeholder', 'maxLength', 'minEntries', 'maxEntries', 'addLabel', 'defaultValue'],
 } as const satisfies { [TControl in BlockControlType]: readonly (keyof Extract<BlockConfigField, { control: TControl }>)[] };
 
 /**

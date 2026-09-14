@@ -15,6 +15,7 @@ import { ColourControl } from './ColourControl';
 import { DurationControl } from './DurationControl';
 import { SegmentedChoiceControl, SelectChoiceControl } from './ChoiceControls';
 import { LongTextControl, TextControl } from './TextControls';
+import { TextListControl } from './TextListControl';
 import type { ControlChange, ControlContext } from './types';
 
 /**
@@ -50,6 +51,8 @@ export function renderControl(
             return <SelectChoiceControl field={field} {...props} />;
         case 'colour':
             return <ColourControl field={field} {...props} />;
+        case 'textList':
+            return <TextListControl field={field} {...props} />;
         default: {
             // Adding a member to `BLOCK_CONTROL_TYPES` without implementing it here
             // is a compile error, by design.

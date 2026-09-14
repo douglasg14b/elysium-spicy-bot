@@ -71,6 +71,23 @@ function resolveValue(
         case 'longText':
         case 'colour':
             return typeof raw === 'string' ? raw : '';
+        /*
+         * Joined with ` · `, not counted. "Yes · No · Maybe" tells an author what
+         * their buttons say at a glance, which is the whole job of this line;
+         * "3 choices" would make them open the inspector to learn anything. A part
+         * that wants the list clipped declares its own `truncate`, exactly as a
+         * long message body does.
+         *
+         * Blank entries are dropped so a half-typed row does not show as a stray
+         * separator, and a list of nothing but blanks reads as unset — which is
+         * what drives `emptyText` in the caller.
+         */
+        case 'textList': {
+            if (!Array.isArray(raw)) return '';
+            return raw
+                .filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '')
+                .join(' · ');
+        }
         default: {
             const unhandled: never = field;
             void unhandled;

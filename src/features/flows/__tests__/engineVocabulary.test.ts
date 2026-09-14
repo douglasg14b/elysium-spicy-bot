@@ -211,6 +211,13 @@ const GENERIC_VOCABULARY = [
     // Checked against PROVEN_REJECTIONS: `fold` only strips a suffix to reach a
     // recognised stem, and neither of these can reach one. No slack added.
     'index', 'driven',
+    // Step 3 slice B1, the first config control whose value is a list. All three
+    // describe *how a declaration is checked*, not what a flow is for:
+    // `probe` is the technique `checkFieldMaxLength` already documents — parse a
+    // constructed value at a boundary rather than read Zod's internals — and the
+    // other two are what a list has. `entry` in particular is the singular the
+    // engine has always needed alongside the `entries` it already recognised.
+    'probe', 'entry', 'bounds',
 ];
 
 /**

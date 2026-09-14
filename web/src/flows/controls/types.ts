@@ -27,8 +27,13 @@ export interface ControlContext {
  * rather than writing a zero the server would reject. The consumer deletes it
  * outright rather than leaving it present-but-`undefined`; see `updateNodeConfig`
  * in `FlowBuilderPage` for why the difference is load-bearing.
+ *
+ * `string[]` is `textList`'s value. It is a **new array every time** rather than a
+ * mutated one: the patch lands in React state, so a control that edited its
+ * current value in place would write a value the renderer cannot tell apart from
+ * the old one.
  */
-export type ControlChange = (value: string | number | undefined) => void;
+export type ControlChange = (value: string | number | string[] | undefined) => void;
 
 /** Props every control in this directory takes. */
 export interface ControlProps<TField extends BlockConfigField = BlockConfigField> {
@@ -47,4 +52,15 @@ export function asText(value: unknown): string {
 /** Narrow an unknown `node.data` value to a finite number, or `null` when unset. */
 export function asNumber(value: unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Narrow an unknown `node.data` value to a list of strings.
+ *
+ * Non-string entries are dropped rather than coerced. A saved graph whose list
+ * holds a number got there through an API the schema rejects, so showing it as
+ * `"3"` would invite an author to keep a value the save will not take.
+ */
+export function asTextList(value: unknown): string[] {
+    return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
 }

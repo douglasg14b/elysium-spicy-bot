@@ -91,6 +91,7 @@ const CONFIG_FIELD_FIXTURES = {
     segmented: { key: 'k', label: 'l', description: 'd', control: 'segmented', options: [], defaultValue: '' },
     select: { key: 'k', label: 'l', description: 'd', control: 'select', options: [], defaultValue: '' },
     colour: { key: 'k', label: 'l', description: 'd', control: 'colour', swatches: [], defaultValue: '' },
+    textList: { key: 'k', label: 'l', description: 'd', control: 'textList', placeholder: 'p', maxLength: 1, minEntries: 1, maxEntries: 1, addLabel: 'a', defaultValue: [] },
 } as const satisfies { [TControl in BlockControlType]: Extract<BlockConfigField, { control: TControl }> };
 
 /** Fails to compile if an arm gains a member {@link CONFIG_FIELD_FIXTURES} omits. */

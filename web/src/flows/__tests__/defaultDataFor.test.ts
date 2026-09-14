@@ -46,6 +46,21 @@ describe('defaultDataFor', () => {
         expect(defaultDataFor(descriptorWith([]))).toEqual({});
     });
 
+    it('gives each node its own copy of a list default', () => {
+        // The descriptor is fetched once and held for the session, so a shared
+        // array would let one node's edit rewrite the default and every sibling.
+        const descriptor = descriptorWith([
+            { key: 'choices', label: 'Choices', control: 'textList', defaultValue: ['Yes', 'No'] },
+        ]);
+
+        const first = defaultDataFor(descriptor)['choices'] as string[];
+        const second = defaultDataFor(descriptor)['choices'] as string[];
+
+        expect(first).toEqual(['Yes', 'No']);
+        expect(first).not.toBe(second);
+        expect(first).not.toBe(descriptor.configFields[0].defaultValue);
+    });
+
     it('lets a stored value win over a declared default, as the load backfill relies on', () => {
         const descriptor = descriptorWith([
             { key: 'eventKind', label: 'Wait for', control: 'select', defaultValue: 'buttonClick', options: [] },

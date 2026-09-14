@@ -241,6 +241,7 @@ function checkConfigFields(label: string, configFields: unknown, configSchema: u
         issues.push(...checkFieldDefault(label, key, field.defaultValue, fieldSchema));
         issues.push(...checkFieldChoices(label, key, field, fieldSchema));
         issues.push(...checkFieldMaxLength(label, key, field, fieldSchema));
+        issues.push(...checkFieldEntryBounds(label, key, field, fieldSchema));
     }
 
     for (const key of Object.keys(shape)) {
@@ -444,6 +445,10 @@ function checkFieldChoices(
  * *format* rejects the probe on its pattern rather than its length, and an enum
  * accepts only its own members, so in both cases the boundary says nothing about
  * a length limit and would report a correct `maxLength` as wrong.
+ *
+ * On `textList` the declared limit is a limit on **one entry**, so the probe is
+ * wrapped in a list — see the comment at the probe itself for why that is not
+ * optional.
  */
 function checkFieldMaxLength(
     label: string,
@@ -468,28 +473,147 @@ function checkFieldMaxLength(
         ];
     }
 
+    /*
+     * On a list control the limit is a limit on **one entry**, so the probe has
+     * to be a list or it is measuring the wrong shape entirely.
+     *
+     * This matters more than it looks. The escape immediately below cannot tell
+     * "the schema constrains format, so the boundary is meaningless" from "the
+     * schema is an array, so a bare string was never going to parse" — both
+     * arrive as one failed parse. Probing a list against an array schema is the
+     * difference between this function checking the declaration and silently
+     * returning nothing while the manifest claims the limit is enforced.
+     */
+    const probe = (text: string): unknown => (field.control === 'textList' ? [text] : text);
+
     // A format or enum constraint makes the boundary meaningless — see above.
     // `acceptsAnyString` is the wrong probe here: it unwraps to the base type, so
     // a `.regex()`-constrained string still reports as string-bearing. What
     // matters is whether *this* probe shape is acceptable at all, which a single
     // short run of the probe character answers.
-    if (!fieldSchema.safeParse('a').success) {
+    if (!fieldSchema.safeParse(probe('a')).success) {
         return [];
     }
 
     const issues: string[] = [];
 
-    if (!fieldSchema.safeParse('a'.repeat(maxLength)).success) {
+    if (!fieldSchema.safeParse(probe('a'.repeat(maxLength))).success) {
         issues.push(
             `${label}: the field "${key}" declares maxLength ${maxLength}, but its configSchema rejects ` +
                 'a value of exactly that length. The control would allow a length the save then refuses.'
         );
     }
 
-    if (fieldSchema.safeParse('a'.repeat(maxLength + 1)).success) {
+    if (fieldSchema.safeParse(probe('a'.repeat(maxLength + 1))).success) {
         issues.push(
             `${label}: the field "${key}" declares maxLength ${maxLength}, but its configSchema accepts ` +
                 'a longer value. The control would stop an author short of what the schema allows.'
+        );
+    }
+
+    return issues;
+}
+
+/**
+ * A list control's declared bounds must describe a list an author can reach.
+ *
+ * `minEntries` is shown as advice under the control and `maxEntries` is where the
+ * "add" button stops being offered, so bounds that cross leave a form that asks
+ * for more entries than it will ever let anyone add — a dead control, with no
+ * disabled affordance to hover and no message saying why.
+ *
+ * The bounds are checked against **each other and the schema**, in that order:
+ * crossed bounds are wrong however the schema is written, whereas a bound
+ * disagreeing with the schema is the same drift `checkFieldMaxLength` exists to
+ * catch, one level up — a control that stops short of what the save would take,
+ * or invites a list the save then refuses.
+ */
+function checkFieldEntryBounds(
+    label: string,
+    key: string,
+    field: Partial<BlockConfigField>,
+    fieldSchema: ZodType
+): readonly string[] {
+    const minEntries = 'minEntries' in field ? field.minEntries : undefined;
+    const maxEntries = 'maxEntries' in field ? field.maxEntries : undefined;
+    if (minEntries === undefined && maxEntries === undefined) {
+        return [];
+    }
+
+    const issues: string[] = [];
+
+    // Reported rather than thrown, for the reason `checkFieldMaxLength` gives:
+    // this suite takes `unknown` so a manifest that does not satisfy the type
+    // still reaches it, and `Array.from` on a bad length would abort the sweep.
+    for (const [name, bound] of [
+        ['minEntries', minEntries],
+        ['maxEntries', maxEntries],
+    ] as const) {
+        if (bound !== undefined && (typeof bound !== 'number' || !Number.isInteger(bound) || bound < 0)) {
+            issues.push(
+                `${label}: the field "${key}" declares ${name} ${JSON.stringify(bound)}, which is not a ` +
+                    'whole number of entries.'
+            );
+        }
+    }
+    if (issues.length > 0) {
+        return issues;
+    }
+
+    if (typeof minEntries === 'number' && typeof maxEntries === 'number' && minEntries > maxEntries) {
+        return [
+            `${label}: the field "${key}" asks for at least ${minEntries} entries but stops offering new ` +
+                `ones at ${maxEntries}, so an author could never satisfy it.`,
+        ];
+    }
+
+    const listOf = (count: number): readonly string[] => Array.from({ length: count }, () => 'a');
+
+    /*
+     * Everything below is about **how many** entries are allowed, so it is only
+     * meaningful against a schema that accepts the probe's entries at all.
+     *
+     * `z.array(z.string().min(2))` and `z.array(z.enum([...]))` both reject every
+     * list of `'a'` whatever its length, and calling that "the schema rejects a
+     * list that long" would be a false finding against a correct manifest — the
+     * worse outcome of the two, because it blocks a block that is right.
+     * `checkFieldMaxLength` escapes for the same reason at line-level.
+     *
+     * The discriminator is a **sweep**, not a single probe, and neither of the
+     * two obvious single probes works: a one-entry list is rejected legitimately
+     * by any schema with a list `.min()`, and an empty list is *accepted* by an
+     * entry-constrained schema precisely because it holds no entry to object to.
+     * What separates the two is that a count constraint accepts a contiguous run
+     * of lengths while an entry constraint accepts none — so if no length in
+     * range parses, the schema is refusing the entries and this function has
+     * nothing to say about it.
+     */
+    const probedLengths = (maxEntries ?? minEntries ?? 0) + 1;
+    const lengthAccepts = Array.from({ length: probedLengths }, (_entry, count) =>
+        fieldSchema.safeParse(listOf(count + 1)).success
+    ).includes(true);
+    if (!lengthAccepts) {
+        return issues;
+    }
+
+    if (typeof maxEntries === 'number') {
+        if (!fieldSchema.safeParse(listOf(maxEntries)).success) {
+            issues.push(
+                `${label}: the field "${key}" declares maxEntries ${maxEntries}, but its configSchema ` +
+                    'rejects a list that long. The control would let an author add entries the save refuses.'
+            );
+        } else if (fieldSchema.safeParse(listOf(maxEntries + 1)).success) {
+            issues.push(
+                `${label}: the field "${key}" declares maxEntries ${maxEntries}, but its configSchema ` +
+                    'accepts a longer list. The control would stop an author short of what the schema allows.'
+            );
+        }
+    }
+
+    if (typeof minEntries === 'number' && !fieldSchema.safeParse(listOf(minEntries)).success) {
+        issues.push(
+            `${label}: the field "${key}" declares minEntries ${minEntries}, but its configSchema rejects ` +
+                'a list that short, so the control would call a list valid that the save then refuses.'
         );
     }
 

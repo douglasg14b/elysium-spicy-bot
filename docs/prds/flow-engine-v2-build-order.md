@@ -91,8 +91,8 @@ Consequently the fan-outs §5.4 itself defers — the four new gateway triggers 
 
 | Slice | Content | Visible after it |
 |---|---|---|
-| **A** | Resume carries a **choice**, not a boolean — widen `FlowResumeReason`, thread it through `engine/flowRunResume.ts`, `engine/executor.ts`, and `blocks/conformance.ts` | Nothing. Interpreter-level, and wider than it looks — see below |
-| **B1** | **List control** — the first non-scalar control, and whatever `ControlChange` widening it forces across the eight existing controls | Authors can edit a list of things. No block uses it yet |
+| **A** | Resume carries a **choice**, not a boolean — widen `FlowResumeReason`, thread it through `engine/flowRunResume.ts`, `engine/executor.ts`, and `blocks/conformance.ts` | Nothing. Interpreter-level, and wider than it looks — see below. **Done** (`1b58846`) |
+| **B1** | **List control** — the first non-scalar control, and whatever `ControlChange` widening it forces across the eight existing controls | Authors can edit a list of things. No block uses it yet. **Done** — shipped as `textList` |
 | **B2** | **Handles from config** — whichever resolution the manifest contract gets for a block whose handle count is authored, not declared | Nothing directly; unblocks B3 |
 | **B3** | **The prompt block** — posts a message with one button per choice, parks, resumes by the pressed choice's handle. Run-scoped custom id, new `flowp:` prefix handler | **A run asks a question in Discord and a press advances it.** This is the step's product |
 | **C** | **Audience gate** — a principal list evaluated against the clicker; ephemeral refusal; applied to the prompt block *and* to the existing trigger buttons, which today check nothing | Non-moderators are refused. This completes §1.3's step text |
@@ -163,6 +163,17 @@ The deferral table in step 2 already named this and named its trigger: "List con
 It is unavoidable either way — a prompt's choices are a list whichever handle design B2 picks, and slice C's `roles: [...]` gate is a list too. Doing it alone and first means the eight-control widening, if it happens, lands in a commit that contains nothing else.
 
 **Note this is the one part of step 3 that is not "one new directory".** A block is: `blocks/registry.ts` scans the filesystem, so there is no array to append to. A ninth control is not, and the count is worth having before estimating: the arm in `blocks/manifest.ts`, `BLOCK_CONTROL_TYPES`, an entry in `CONFIG_FIELD_FIXTURES` (omit it and `FixturesAreExhaustive` in `nodeDescriptorDrift.test.ts:97-107` fails to compile), the `web/src/api/types.ts` mirror plus its `BLOCK_CONFIG_FIELD_KEYS` arm (the drift gate asserts this one `toBeDefined()`), a renderer under `web/src/flows/controls/` wired into `renderControl.tsx`, and `cardSummary.ts`. Six files, and the gates catch five of them loudly — which is the system working, but it is not one directory.
+
+**Shipped as `textList`, and deliberately not as a generic list.** The two consumers this slice was justified by want different things: a prompt's choices are strings an author *types*, while slice C's role gate is ids an author *picks from a fetched set*. One control parameterised over an item control would be a framework whose only two instances differ in every respect that matters, so C's role list arrives as its own arm when C is built. The shared part — `ControlChange` accepting `string[]`, `defaultValue` moving off `BlockConfigFieldBase` onto each arm — is done and is what the next non-scalar control inherits.
+
+Four things the slice turned up that the plan did not predict, all now fixed and all in the same class — *a declaration nothing was checking*:
+
+- **`defaultValue` on `BlockConfigFieldBase` made a list default uninhabitable.** A base typed `string | number` intersects with an arm's `readonly string[]` to give `(string | number) & readonly string[]`, which nothing satisfies. Every arm already declared its own, so the base member was removed rather than widened.
+- **`defaultDataFor` shared one array across every node.** The descriptor is fetched once per session; assigning its array by reference meant one node's edit would rewrite the declared default and every sibling. It copies now — shallowly, which is right while every list default is a list of strings, and is commented as the boundary it is.
+- **`checkFieldMaxLength` silently checked nothing on a list.** Its probe is a bare string, which fails against any array schema, so it hit its own format-constrained escape hatch and returned no issues while the manifest claimed the limit was enforced. The probe is list-aware now.
+- **A list's `minEntries`/`maxEntries` were declared and unchecked**, so a manifest could ask for more entries than its control would ever offer a way to add — a dead form that conformed. `checkFieldEntryBounds` holds them to each other and to the schema.
+
+The last of those is worth reading before writing any further conformance probe, because the first attempt at it **introduced a false positive** and the fix is not obvious. A count check has to escape on a schema that constrains the entries themselves (`z.array(z.string().min(2))`, `z.array(z.enum([...]))`), which reject a probe of `'a'` at *every* length — and neither obvious single probe detects that. A one-entry list is rejected legitimately by any schema with a list `.min()`; an empty list is *accepted* by an entry-constrained schema precisely because it holds no entry to object to. What separates them is that a count constraint accepts a contiguous run of lengths and an entry constraint accepts none, so the escape is a sweep. Both the false positive and the fix were verified against real Zod rather than reasoned about.
 
 #### B2 — handles from config
 

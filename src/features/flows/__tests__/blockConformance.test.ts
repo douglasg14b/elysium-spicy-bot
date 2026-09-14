@@ -457,6 +457,79 @@ describe('a declared maxLength that is not the limit the schema enforces', () =>
             )
         ).toEqual([]);
     });
+
+    it('measures a textList maxLength against one entry, not the list', () => {
+        // A bare-string probe fails against any array schema, which would return
+        // no issues while the manifest claims the limit is enforced.
+        function listManifest(maxLength: number): Record<string, unknown> {
+            return manifestWith({
+                configSchema: z.object({ choices: z.array(z.string().max(20)) }),
+                configFields: [{ key: 'choices', label: 'Choices', control: 'textList', maxLength }],
+            });
+        }
+
+        expect(checkBlockConformance(listManifest(20))).toEqual([]);
+        expect(checkBlockConformance(listManifest(50)).join('\n')).toMatch(
+            /declares maxLength 50, but its configSchema rejects a value of exactly that length/
+        );
+    });
+});
+
+describe('list bounds that describe a list no author could build', () => {
+    /** A single `textList` over a 2-to-5 entry schema, patched per case. */
+    function boundsManifest(field: Record<string, unknown>): Record<string, unknown> {
+        return manifestWith({
+            configSchema: z.object({ choices: z.array(z.string()).min(2).max(5) }),
+            configFields: [{ key: 'choices', label: 'Choices', control: 'textList', ...field }],
+        });
+    }
+
+    it('accepts bounds that match the schema exactly', () => {
+        expect(checkBlockConformance(boundsManifest({ minEntries: 2, maxEntries: 5 }))).toEqual([]);
+    });
+
+    it('catches bounds that cross, which would render a control nobody can satisfy', () => {
+        expect(
+            checkBlockConformance(boundsManifest({ minEntries: 5, maxEntries: 3 })).join('\n')
+        ).toMatch(/asks for at least 5 entries but stops offering new ones at 3/);
+    });
+
+    it('catches a maxEntries the schema would not accept', () => {
+        expect(checkBlockConformance(boundsManifest({ maxEntries: 9 })).join('\n')).toMatch(
+            /declares maxEntries 9, but its configSchema rejects a list that long/
+        );
+    });
+
+    it('catches a maxEntries that stops an author short of what the schema allows', () => {
+        expect(checkBlockConformance(boundsManifest({ maxEntries: 3 })).join('\n')).toMatch(
+            /declares maxEntries 3, but its configSchema accepts a longer list/
+        );
+    });
+
+    it('says nothing about a field that declares no bounds', () => {
+        expect(checkBlockConformance(boundsManifest({}))).toEqual([]);
+    });
+
+    it('stays quiet when the schema constrains the entries rather than the count', () => {
+        /*
+         * The probe builds entries of 'a', which a schema constraining entry
+         * *content* rejects at every length — so every count probe fails and a
+         * correct manifest would be reported as wrong. A false finding here is
+         * worse than the gap it closed: it blocks a block that is right.
+         */
+        for (const element of [z.string().min(2), z.enum(['yes', 'no'])]) {
+            expect(
+                checkBlockConformance(
+                    manifestWith({
+                        configSchema: z.object({ choices: z.array(element).max(5) }),
+                        configFields: [
+                            { key: 'choices', label: 'Choices', control: 'textList', minEntries: 1, maxEntries: 5 },
+                        ],
+                    })
+                )
+            ).toEqual([]);
+        }
+    });
 });
 
 describe('a card summary that does not describe the fields it claims to', () => {

@@ -172,4 +172,15 @@ describe('summarizeFromDescriptor', () => {
         expect(summarize(descriptor, { timeoutMs: 0 })).toBe('Click to configure');
         expect(summarize(descriptor, {})).toBe('Click to configure');
     });
+
+    it('joins a list on · and reads a list of blanks as unset', () => {
+        const descriptor = descriptorWith(
+            [{ key: 'choices', label: 'Choices', control: 'textList' }],
+            [{ key: 'choices', emptyText: 'no choices yet' }]
+        );
+        expect(summarize(descriptor, { choices: ['Yes', 'No', 'Maybe'] })).toBe('Yes · No · Maybe');
+        // A half-typed row would otherwise show as a stray separator.
+        expect(summarize(descriptor, { choices: ['Yes', '  '] })).toBe('Yes');
+        expect(summarize(descriptor, { choices: [] })).toBe('no choices yet');
+    });
 });
