@@ -651,6 +651,48 @@ describe('driving a block through its entry point', () => {
 
         expect(issues.join()).toMatch(/parked a run while declaring canSuspend: false/);
     });
+
+    /**
+     * A block can route by *which* option was picked, not merely that one was.
+     *
+     * No shipped block offers choices yet — that is the prompt block, and it is a
+     * later slice — so this stands in for it with the smallest block that reads an
+     * index and answers with a matching handle. It is what makes `choice` a
+     * capability rather than a third word in a type: without it, the variant could
+     * carry an index that nothing has ever read, and the first code to try would
+     * be the first to find out whether the engine delivered it.
+     */
+    it('lets a block answer by which choice was taken', async () => {
+        const choosy = asManifest(
+            manifestWith({
+                canSuspend: true,
+                handles: [
+                    { id: 'first', label: 'First', tone: 'neutral' },
+                    { id: 'second', label: 'Second', tone: 'neutral' },
+                ],
+                run: (_config: unknown, given: FlowRunContext) => {
+                    if (!given.resume) {
+                        return { kind: 'suspend', suspension: {} };
+                    }
+                    // The whole point: the index decides the branch.
+                    return {
+                        kind: 'continue',
+                        handle: given.resume.kind === 'choice' && given.resume.index === 1 ? 'second' : 'first',
+                    };
+                },
+            })
+        );
+
+        // Conformance drives it with one reason of each shape and must find nothing
+        // wrong — including that it stops re-parking when handed a choice.
+        expect(await checkBlockOutcome(choosy, {}, context)).toEqual([]);
+
+        const tookSecond = await choosy.run({}, { ...context, resume: { kind: 'choice', index: 1 } });
+        expect(tookSecond).toEqual({ kind: 'continue', handle: 'second' });
+
+        const tookFirst = await choosy.run({}, { ...context, resume: { kind: 'choice', index: 0 } });
+        expect(tookFirst).toEqual({ kind: 'continue', handle: 'first' });
+    });
 });
 
 describe('every block that ships', () => {

@@ -180,6 +180,37 @@ const GENERIC_VOCABULARY = [
     'narrow', 'used', 'enabled', 'exit', 'configured', 'attempts',
     'allowed', 'detail', 'code', 'file', 'with', 'limit', 'content', 'ephemeral',
     'valid',
+    // Step 3 slice A, where the resume reason stopped being one of two strings and
+    // became a variant that can carry which option a person picked. `index` is the
+    // position of that option; `driven` is the conformance guard that drives a
+    // suspending block with one reason of each shape.
+    //
+    // Two words the slice first added here and then did not need, both worth
+    // recording because each was a way of making this gate quieter rather than
+    // more correct:
+    //
+    //  - `case` is not an identifier anywhere in this codebase. {@link codeOnly}
+    //    blanks strings, so `case 'timeout':` reached {@link MEMBER} as `case  :`
+    //    and read as a member declaration. Admitting it would have blinded the
+    //    gate to every future real word containing "case"; the scanner was fixed
+    //    instead.
+    //  - `all` is three characters, so {@link MIN_WORD_LENGTH} discards it before
+    //    the allowlist is ever consulted. It was added on the theory that renaming
+    //    `everyResumeKindIsDriven` to `resumeKindsAllDriven` traded `every` for
+    //    `all` — but nothing was traded, because `all` is never scanned. The
+    //    rename still stands on its own; the reasoning written for it did not.
+    //
+    // Note what is NOT needed: `choice` and `choices` were already recognised,
+    // which is the good sign — the engine had the word for "one of several offered
+    // things" before this slice, and the new variant reuses it rather than teaching
+    // the engine a new concept. The block that *offers* choices is another matter:
+    // `prompt` is a proven rejection, so it cannot be named in the engine core, and
+    // the prompt block correctly lives under `blocks/` where this gate does not
+    // reach.
+    //
+    // Checked against PROVEN_REJECTIONS: `fold` only strips a suffix to reach a
+    // recognised stem, and neither of these can reach one. No slack added.
+    'index', 'driven',
 ];
 
 /**
@@ -231,8 +262,17 @@ const DECLARATION = /\b(?:const|let|var|function|class|interface|type|enum)\s+([
  * It deliberately does not try to parse object *literals*, whose keys are data
  * rather than declarations — in practice that means a handful of extra words on
  * {@link GENERIC_VOCABULARY}, which is the cheaper error.
+ *
+ * `case` and `default` are excluded because a switch arm is the one other thing in
+ * TypeScript that puts a bare word before a colon. {@link codeOnly} blanks the
+ * string first, so `case 'timeout':` arrives here as `case  :` and reads exactly
+ * like a member declaration — which is how `case` came to be reported as an
+ * identifier that appears nowhere in the codebase. Excluding the keywords fixes
+ * the scanner; allowlisting `case` would instead have blinded this gate to every
+ * future real identifier containing the word.
  */
-const MEMBER = /(?:^|[{;,])\s*(?:readonly\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*[?!]?\s*:/gm;
+const MEMBER =
+    /(?:^|[{;,])\s*(?:readonly\s+)?(?!(?:case|default)\s*[:\s])([A-Za-z_][A-Za-z0-9_]*)\s*[?!]?\s*:/gm;
 
 /**
  * Fold a plural or participle onto its allowlisted stem.

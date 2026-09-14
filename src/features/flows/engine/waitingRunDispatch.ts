@@ -1,6 +1,7 @@
 import type { Client } from 'discord.js';
 import { FlowRunsRepo, flowRunsRepo } from '../data/flowRunsRepo';
 import type { FlowWaitKind } from '../data/flowRunsSchema';
+import { RESUME_EVENT } from '../blocks/types';
 import { resumeFlowRun } from './flowRunResume';
 
 export type WaitingRunDependencies = {
@@ -53,7 +54,7 @@ export async function resumeWaitingRunsForEvent(
         }
 
         try {
-            const outcome = await (dependencies.resume ?? resumeFlowRun)(client, run, 'event');
+            const outcome = await (dependencies.resume ?? resumeFlowRun)(client, run, RESUME_EVENT);
             if (outcome.status === 'failed') {
                 console.warn(`[flow-runs] Waiting run ${run.runId} failed on resume: ${outcome.error}`);
             }

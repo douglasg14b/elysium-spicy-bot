@@ -1,6 +1,7 @@
 import type { Client } from 'discord.js';
 import { FLOW_RUN_POLL_INTERVAL_MS } from '../constants';
 import { FlowRunsRepo, flowRunsRepo } from '../data/flowRunsRepo';
+import { RESUME_TIMEOUT } from '../blocks/types';
 import { resumeFlowRun } from './flowRunResume';
 
 export type FlowRunSchedulerDependencies = {
@@ -132,7 +133,7 @@ export async function runFlowRunTick(
 
         for (const run of dueRuns) {
             try {
-                const outcome = await resumeFlowRun(client, run, 'timeout');
+                const outcome = await resumeFlowRun(client, run, RESUME_TIMEOUT);
                 if (outcome.status === 'failed') {
                     console.warn(`[flow-runs] Run ${run.runId} failed on resume: ${outcome.error}`);
                 }

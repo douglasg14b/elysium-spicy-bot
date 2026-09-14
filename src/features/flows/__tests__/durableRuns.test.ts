@@ -14,7 +14,7 @@ import { ACTION_DELAY } from '../blocks/actionDelay';
 import { ACTION_SEND_DM } from '../blocks/actionSendDM';
 import { ACTION_WAIT_FOR_EVENT } from '../blocks/actionWaitForEvent';
 import { TRIGGER_BUTTON_CLICK } from '../blocks/triggerButtonClick';
-import type { FlowRunSeed } from '../blocks/types';
+import { RESUME_EVENT, RESUME_TIMEOUT, type FlowRunSeed } from '../blocks/types';
 import { sentCopy } from './support/sentCopy';
 
 const GUILD_ID = 'guild-1';
@@ -310,7 +310,7 @@ describe('action.delay', () => {
         const runsRepo = makeRunsRepoDouble(run);
         const flowsRepo = { getByFlowId: vi.fn().mockResolvedValue(makeFlowEntity(buildDelayGraph())) };
 
-        const outcome = await resumeFlowRun(client, run, 'timeout', { flowsRepo, flowRunsRepo: runsRepo });
+        const outcome = await resumeFlowRun(client, run, RESUME_TIMEOUT, { flowsRepo, flowRunsRepo: runsRepo });
 
         expect(outcome.status).toBe('completed');
         expect(sentCopy(userSend)).toContain(DM_TEXT);
@@ -330,7 +330,7 @@ describe('resuming a suspended run', () => {
         const run = makeRunEntity({ resumeNodeId: 'dm' });
         const runsRepo = makeRunsRepoDouble(run);
 
-        const outcome = await resumeFlowRun(client, run, 'timeout', { flowsRepo, flowRunsRepo: runsRepo });
+        const outcome = await resumeFlowRun(client, run, RESUME_TIMEOUT, { flowsRepo, flowRunsRepo: runsRepo });
 
         expect(outcome.status).toBe('completed');
         expect(sentCopy(userSend)).toContain(DM_TEXT);
@@ -342,7 +342,7 @@ describe('resuming a suspended run', () => {
         const run = makeRunEntity();
         const runsRepo = makeRunsRepoDouble(run);
 
-        const outcome = await resumeFlowRun(client, run, 'timeout', { flowsRepo, flowRunsRepo: runsRepo });
+        const outcome = await resumeFlowRun(client, run, RESUME_TIMEOUT, { flowsRepo, flowRunsRepo: runsRepo });
 
         expect(outcome.status).toBe('failed');
         if (outcome.status !== 'failed') return;
@@ -356,7 +356,7 @@ describe('resuming a suspended run', () => {
         const run = makeRunEntity();
         const runsRepo = makeRunsRepoDouble(run);
 
-        const outcome = await resumeFlowRun(client, run, 'timeout', { flowsRepo, flowRunsRepo: runsRepo });
+        const outcome = await resumeFlowRun(client, run, RESUME_TIMEOUT, { flowsRepo, flowRunsRepo: runsRepo });
 
         expect(outcome.status).toBe('failed');
         if (outcome.status !== 'failed') return;
@@ -369,7 +369,7 @@ describe('resuming a suspended run', () => {
         const runsRepo = makeRunsRepoDouble(run);
         flowsRepo.getByFlowId.mockResolvedValue(null);
 
-        const outcome = await resumeFlowRun(client, run, 'timeout', { flowsRepo, flowRunsRepo: runsRepo });
+        const outcome = await resumeFlowRun(client, run, RESUME_TIMEOUT, { flowsRepo, flowRunsRepo: runsRepo });
 
         expect(outcome.status).toBe('failed');
         if (outcome.status !== 'failed') return;
@@ -381,7 +381,7 @@ describe('resuming a suspended run', () => {
         const run = makeRunEntity({ status: 'completed' });
         const runsRepo = makeRunsRepoDouble(run);
 
-        const outcome = await resumeFlowRun(client, run, 'timeout', { flowsRepo, flowRunsRepo: runsRepo });
+        const outcome = await resumeFlowRun(client, run, RESUME_TIMEOUT, { flowsRepo, flowRunsRepo: runsRepo });
 
         expect(outcome.status).toBe('skipped');
         expect(runsRepo.fail).not.toHaveBeenCalled();
@@ -406,7 +406,7 @@ describe('visit budget across resumes', () => {
         });
         const runsRepo = makeRunsRepoDouble(run);
 
-        const outcome = await resumeFlowRun(client, run, 'timeout', { flowsRepo, flowRunsRepo: runsRepo });
+        const outcome = await resumeFlowRun(client, run, RESUME_TIMEOUT, { flowsRepo, flowRunsRepo: runsRepo });
 
         // Were waking charged, the last visit would go to re-entering the delay
         // and the DM would never run.
@@ -419,7 +419,7 @@ describe('visit budget across resumes', () => {
         const run = makeRunEntity({ visitsUsed: FLOW_MAX_NODE_VISITS });
         const runsRepo = makeRunsRepoDouble(run);
 
-        const outcome = await resumeFlowRun(client, run, 'timeout', { flowsRepo, flowRunsRepo: runsRepo });
+        const outcome = await resumeFlowRun(client, run, RESUME_TIMEOUT, { flowsRepo, flowRunsRepo: runsRepo });
 
         expect(outcome.status).toBe('failed');
         if (outcome.status !== 'failed') return;
@@ -501,7 +501,7 @@ describe('action.waitForEvent', () => {
         const runsRepo = makeRunsRepoDouble(run);
         const flowsRepo = { getByFlowId: vi.fn().mockResolvedValue(makeFlowEntity(buildWaitGraph())) };
 
-        const outcome = await resumeFlowRun(client, run, 'event', { flowsRepo, flowRunsRepo: runsRepo });
+        const outcome = await resumeFlowRun(client, run, RESUME_EVENT, { flowsRepo, flowRunsRepo: runsRepo });
 
         expect(outcome.status).toBe('completed');
         expect(sentCopy(userSend)).toContain(DM_TEXT);
@@ -515,7 +515,7 @@ describe('action.waitForEvent', () => {
             getByFlowId: vi.fn().mockResolvedValue(makeFlowEntity(buildWaitGraph({ withTimeoutBranch: true }))),
         };
 
-        const outcome = await resumeFlowRun(client, run, 'timeout', { flowsRepo, flowRunsRepo: runsRepo });
+        const outcome = await resumeFlowRun(client, run, RESUME_TIMEOUT, { flowsRepo, flowRunsRepo: runsRepo });
 
         expect(outcome.status).toBe('completed');
         expect(sentCopy(userSend)).toContain('timed out');
@@ -527,7 +527,7 @@ describe('action.waitForEvent', () => {
         const runsRepo = makeRunsRepoDouble(run);
         const flowsRepo = { getByFlowId: vi.fn().mockResolvedValue(makeFlowEntity(buildWaitGraph())) };
 
-        const outcome = await resumeFlowRun(client, run, 'timeout', { flowsRepo, flowRunsRepo: runsRepo });
+        const outcome = await resumeFlowRun(client, run, RESUME_TIMEOUT, { flowsRepo, flowRunsRepo: runsRepo });
 
         expect(outcome.status).toBe('failed');
         if (outcome.status !== 'failed') return;
@@ -559,7 +559,7 @@ describe('resumeWaitingRunsForEvent', () => {
             guildId: GUILD_ID,
             waitKind: 'memberJoin',
         });
-        expect(resume).toHaveBeenCalledWith(client, run, 'event');
+        expect(resume).toHaveBeenCalledWith(client, run, RESUME_EVENT);
         expect(resumed).toBe(1);
     });
 

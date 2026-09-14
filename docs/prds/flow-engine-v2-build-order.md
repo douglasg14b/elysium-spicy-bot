@@ -119,6 +119,22 @@ What step 3 must **not** do is foreclose them. The one place that matters is sli
 
 **Channel selectors are therefore also out of step 3**, for the same reason: three of the five selector kinds §5.4 lists (journey resource key, any channel in a category, any ticket channel of a type) name things that do not exist until steps 4 and 5. The prompt block posts to *the run's current channel* or an explicitly picked one, which the existing `channelPicker` plus slice C of step 2 already cover.
 
+### How much testing this step gets
+
+**Around 90% is the target, and it is a ceiling as much as a floor.** Effort goes to the feature; tests cover it well enough to catch real breakage and no further. Stated here because slice A violated it and the violation was invisible from inside: 14 files changed, 9 of them tests, plus a review cycle and a sabotage run — to prove one type variant survives a function call, in a slice with no user-visible output.
+
+That is the same failure as shipping two invisible steps, at a smaller scale. A 45-line test with a spy and a `finally` block, proving the engine passes an argument it was just typed to pass, is effort taken from the prompt block.
+
+What this means concretely for the slices below:
+
+- **Cover the branch, not the payload's journey.** One test per real behaviour. If a second test's assertions would be a superset of the first's, it is not a second test.
+- **Do not spy on internals to observe a value in transit.** If the only way to see something is to mock the thing that receives it, `tsc` was already the proof.
+- **Do not write a test for a capability nothing consumes yet.** The prompt block will exercise `choice` far better than any stand-in, and it is three commits away.
+- **The four gates stay.** They are cheap, they run in seconds, and each has caught a real defect. This rule trims new bespoke tests, not the gates.
+- **Sabotage-verification is for the racy guarantees only** — slice D's concurrency cases, where a passing test genuinely might prove nothing. Not for ordinary branches.
+
+The deliberate consequence: some things will be uncovered, and a bug will occasionally reach slice E's live run instead of being caught by a unit test. That is the trade, taken on purpose.
+
 ### What each slice actually has to change
 
 Grounded in the code as it stands at `b9e5381`, not from the PRD.
@@ -196,7 +212,7 @@ Once a choice is taken, the buttons must stop working. Note this is **two** mech
 
 The timeout branch is the prompt declaring a `wakeAt` and its own timeout handle, which `actionWaitForEvent` already demonstrates end to end (`blocks/actionWaitForEvent/index.ts:77-99`).
 
-**This slice owns the concurrency tests, and slice E does not substitute for them.** The guarantees here are the racy ones — two moderators pressing at once, a timeout firing as a press lands, a press arriving after a restart, a message edit failing after a successful claim — and a live-guild session is the *least* reliable way to reproduce any of them. Extend `parkedRunResume.test.ts`, which already owns the claim-race shape, rather than adding a fifth gate.
+**This slice owns the concurrency tests, and slice E does not substitute for them** — it is the one place the 90% rule above buys nothing by economising. Two moderators pressing at once and a timeout firing as a press lands are guarantees a live-guild session is the *least* reliable way to exercise, and a passing test can genuinely prove nothing here, so these are worth checking actually fail when the guard is removed. Extend `parkedRunResume.test.ts`, which already owns the claim-race shape. Two or three cases, not a matrix.
 
 #### E — run it
 

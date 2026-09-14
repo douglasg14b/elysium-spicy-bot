@@ -13,7 +13,7 @@ import {
     type BlockManifest,
     type BlockOutputHandle,
 } from './manifest';
-import { FLOW_RESUME_REASONS, type FlowRunContext } from './types';
+import type { FlowResumeKind, FlowResumeReason, FlowRunContext } from './types';
 
 /**
  * Does a block actually satisfy the contract it claims to?
@@ -599,6 +599,41 @@ export async function checkBlockOutcome(
 }
 
 /**
+ * Every resume reason a block could be handed, as concrete values to drive it with.
+ *
+ * `FLOW_RESUME_KINDS` names the kinds but cannot be walked directly any more:
+ * `choice` carries an index, so there is no finite list of reasons to enumerate —
+ * only a finite list of *shapes*. One representative per shape is what this check
+ * needs, because what it is proving is that the block stops re-parking, and a
+ * block that answers choice 0 answers choice 7 by the same code path.
+ *
+ * Two separate guards, because they catch different mistakes and only one of
+ * them is the interesting one. `satisfies` below checks each entry really is a
+ * resume reason — it would reject `{ kind: 'choice' }` with no index. What stops
+ * a *new* kind arriving with no representative, silently shrinking what every
+ * suspending block is tested against, is {@link ResumeKindsAllDriven} and the
+ * value anchoring it. Do not read `satisfies` as covering that; it does not.
+ */
+const RESUME_REPRESENTATIVES = [
+    { kind: 'event' },
+    { kind: 'timeout' },
+    { kind: 'choice', index: 0 },
+] as const satisfies readonly FlowResumeReason[];
+
+/** Fails to compile if a resume kind has no representative above. */
+type ResumeKindsAllDriven = Exclude<
+    FlowResumeKind,
+    (typeof RESUME_REPRESENTATIVES)[number]['kind']
+>;
+
+/** Do not delete as unused: removing it erases the guard above. */
+const resumeKindsAllDriven: [ResumeKindsAllDriven] extends [never]
+    ? true
+    : ['RESUME_REPRESENTATIVES is missing a resume kind', ResumeKindsAllDriven] = true;
+
+void resumeKindsAllDriven;
+
+/**
  * A block that parks must come back when it is woken.
  *
  * The one way to write a suspending block that is catastrophically wrong and
@@ -606,7 +641,7 @@ export async function checkBlockOutcome(
  * the block parks, wakes, parks again, forever. Nothing downstream notices,
  * because parking is exactly what the block is supposed to do.
  *
- * So drive it: park it, then hand it back each resume reason and require it
+ * So drive it: park it, then hand it back one reason of each shape and require it
  * stop asking. Only asked of blocks that declare `canSuspend`.
  */
 async function checkResumeTerminates(
@@ -620,13 +655,13 @@ async function checkResumeTerminates(
 
     const issues: string[] = [];
 
-    for (const reason of FLOW_RESUME_REASONS) {
+    for (const reason of RESUME_REPRESENTATIVES) {
         const resumed: unknown = await block.run(config, { ...context, resume: reason });
         const kind = (resumed as { kind?: unknown } | null)?.kind;
 
         if (kind === 'suspend') {
             issues.push(
-                `${block.type}: parked again when resumed with reason "${reason}" instead of carrying on. ` +
+                `${block.type}: parked again when resumed because of "${reason.kind}" instead of carrying on. ` +
                     'A suspending block must check `context.resume` before returning a suspension, or every ' +
                     'run that reaches it parks forever.'
             );

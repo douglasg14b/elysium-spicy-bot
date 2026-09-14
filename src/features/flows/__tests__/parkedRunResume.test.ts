@@ -2,6 +2,7 @@ import type { Client } from 'discord.js';
 import { sql } from 'kysely';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ensureBlocksDiscovered } from '../blocks/registry';
+import { RESUME_EVENT, RESUME_TIMEOUT } from '../blocks/types';
 import { flowGraphSchema, type FlowGraph } from '../data/flowGraph';
 import { FlowRunsRepo } from '../data/flowRunsRepo';
 import type { FlowRunEntity } from '../data/flowRunsSchema';
@@ -167,7 +168,7 @@ describe('runs parked before M1', () => {
     it('resumes a delay-parked run at the node the delay pointed at', async () => {
         const { client, userSend } = makeClient();
 
-        const outcome = await resumeFlowRun(client, await loadRun(DELAY_PARKED_RUN), 'timeout', dependencies());
+        const outcome = await resumeFlowRun(client, await loadRun(DELAY_PARKED_RUN), RESUME_TIMEOUT, dependencies());
 
         expect(outcome.status).toBe('suspended');
         expect(sentCopy(userSend)).toContain('Still with us? Good.');
@@ -183,7 +184,7 @@ describe('runs parked before M1', () => {
     it('resumes a wait-parked run down its event branch', async () => {
         const { client, rolesAdd } = makeClient();
 
-        const outcome = await resumeFlowRun(client, await loadRun(WAIT_PARKED_RUN), 'event', dependencies());
+        const outcome = await resumeFlowRun(client, await loadRun(WAIT_PARKED_RUN), RESUME_EVENT, dependencies());
 
         expect(outcome.status).toBe('completed');
         expect(rolesAdd).toHaveBeenCalledWith('role-verified');
@@ -193,12 +194,30 @@ describe('runs parked before M1', () => {
     it('resumes a wait-parked run down its timeout branch', async () => {
         const { client, userSend } = makeClient();
 
-        const outcome = await resumeFlowRun(client, await loadRun(WAIT_PARKED_RUN), 'timeout', dependencies());
+        const outcome = await resumeFlowRun(client, await loadRun(WAIT_PARKED_RUN), RESUME_TIMEOUT, dependencies());
 
         expect(outcome.status).toBe('completed');
         expect(sentCopy(userSend)).toContain('You took too long. Try again when you mean it.');
         // Named so a reader can see which branch the graph says that is.
         expect(flow.graph.edges.find((edge) => edge.sourceHandle === 'timeout')?.target).toBe(TIMEOUT_DM);
+    });
+
+    it('resumes a wait-parked run handed a choice', async () => {
+        // No shipped block reads `index` yet — the prompt block is a later slice —
+        // so this covers the engine accepting a choice end to end. That a block can
+        // read the index is proven where a block can be written for it, in
+        // `blockConformance.test.ts`.
+        const { client, rolesAdd } = makeClient();
+
+        const outcome = await resumeFlowRun(
+            client,
+            await loadRun(WAIT_PARKED_RUN),
+            { kind: 'choice', index: 2 },
+            dependencies()
+        );
+
+        expect(outcome.status).toBe('completed');
+        expect(rolesAdd).toHaveBeenCalledWith('role-verified');
     });
 });
 
@@ -246,8 +265,8 @@ describe('the resume claim under contention', () => {
 
         // A timeout and a moderator's click, landing on the same row at once.
         const outcomes = await Promise.all([
-            resumeFlowRun(client, run, 'timeout', dependencies),
-            resumeFlowRun(client, run, 'timeout', dependencies),
+            resumeFlowRun(client, run, RESUME_TIMEOUT, dependencies),
+            resumeFlowRun(client, run, RESUME_TIMEOUT, dependencies),
         ]);
 
         const statuses = outcomes.map((outcome) => outcome.status).sort();
@@ -277,7 +296,7 @@ describe('the resume claim under contention', () => {
         }
 
         const dependencies = { flowsRepo: { getByFlowId: vi.fn().mockResolvedValue(flow) }, flowRunsRepo: repo };
-        const outcome = await resumeFlowRun(client, reclaimed, 'timeout', dependencies);
+        const outcome = await resumeFlowRun(client, reclaimed, RESUME_TIMEOUT, dependencies);
 
         expect(outcome.status).toBe('suspended');
         expect(userSend).toHaveBeenCalledTimes(1);
@@ -302,7 +321,7 @@ describe('the resume claim under contention', () => {
             flowRunsRepo: repo,
         };
 
-        await expect(resumeFlowRun(client, run, 'timeout', dependencies)).rejects.toThrow('db down');
+        await expect(resumeFlowRun(client, run, RESUME_TIMEOUT, dependencies)).rejects.toThrow('db down');
 
         // Back in the pool, so the very next poll retries — no restart needed.
         const after = await repo.getByRunId(run.runId);

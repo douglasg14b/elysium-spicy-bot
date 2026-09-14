@@ -12,7 +12,7 @@ import {
 } from '../../../features-system/data-persistence/__tests__/support/flowRunsTestDb';
 import { discoverBlocks, ensureBlocksDiscovered, getBlockDefinition } from '../blocks/registry';
 import type { BlockManifest } from '../blocks/manifest';
-import type { FlowRunSeed } from '../blocks/types';
+import { RESUME_TIMEOUT, type FlowRunSeed } from '../blocks/types';
 import { executeFlow, executeFlowSegment } from '../engine/executor';
 import { rebuildResumeContext, resumeFlowRun } from '../engine/flowRunResume';
 import { validateAuthoredGraph } from '../engine/graphValidation';
@@ -452,7 +452,7 @@ describe('a recorded value survives a park and resume', () => {
         const { client, resumeSend } = makeResumeClient();
 
         if (!parked) throw new Error('the parked run disappeared');
-        const outcome = await resumeFlowRun(client, parked, 'timeout', {
+        const outcome = await resumeFlowRun(client, parked, RESUME_TIMEOUT, {
             flowsRepo: { getByFlowId: vi.fn().mockResolvedValue(flow) },
             flowRunsRepo: repo,
         });
@@ -538,7 +538,7 @@ describe('a recorded value survives a park and resume', () => {
             variables: { ticketChannelId: '7777' },
         });
 
-        const outcome = await resumeFlowRun(client, run, 'timeout', {
+        const outcome = await resumeFlowRun(client, run, RESUME_TIMEOUT, {
             flowsRepo: { getByFlowId: vi.fn().mockResolvedValue(flow) },
             flowRunsRepo: repo,
         });

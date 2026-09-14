@@ -3,7 +3,13 @@ import type { FlowEdge, FlowGraph, FlowNode } from '../data/flowGraph';
 import { flowRunsRepo } from '../data/flowRunsRepo';
 import type { BlockKind, BlockManifest } from '../blocks/manifest';
 import { getBlockDefinition } from '../blocks/registry';
-import type { FlowResume, FlowRunContext, FlowRunSeed, FlowVariableValue } from '../blocks/types';
+import type {
+    FlowResume,
+    FlowResumeReason,
+    FlowRunContext,
+    FlowRunSeed,
+    FlowVariableValue,
+} from '../blocks/types';
 import { isCopyField, renderCopy } from './copyRendering';
 import type { FlowStepOutcome, FlowStepSuspension } from './stepOutcome';
 
@@ -326,7 +332,7 @@ export async function executeFlowSegment(
         const failure = !next.ok
             ? next.error
             : wokeOntoNothing
-              ? `Node ${node.id} (${node.type}) waited and then ${resumedHere === 'timeout' ? 'timed out' : 'woke'}, ` +
+              ? `Node ${node.id} (${node.type}) waited and then ${describeWaking(resumedHere)}, ` +
                 `leaving by its "${outcome.handle}" output — but the flow has no "${outcome.handle}" branch to follow.`
               : undefined;
 
@@ -569,6 +575,28 @@ function renderNodeCopy(block: BlockManifest, config: unknown, context: FlowRunS
     }
 
     return { ok: true, config: expanded ?? config };
+}
+
+/**
+ * How a run came to be awake, for the one failure message that has to say so.
+ *
+ * Phrased to complete "waited and then …", and exhaustive over the resume kinds
+ * so a new one cannot quietly land in a message written for the old two.
+ */
+function describeWaking(reason: FlowResumeReason | undefined): string {
+    switch (reason?.kind) {
+        case 'timeout':
+            return 'timed out';
+        case 'choice':
+            return 'was answered';
+        case 'event':
+            return 'woke';
+        // Only reachable if the caller asks about a node that never parked, which
+        // `wokeOntoNothing` already excludes — so this says the plain thing rather
+        // than inventing a cause.
+        case undefined:
+            return 'woke';
+    }
 }
 
 /** Where the run goes next, or why it cannot be decided. */

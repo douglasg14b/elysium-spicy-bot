@@ -10,11 +10,52 @@ import type { ButtonInteraction, Client, Guild, GuildMember, GuildTextBasedChann
  * resume a suspending block without knowing which block it is.
  *
  * `event` means the gateway event the block asked for arrived; `timeout` means
- * its `wakeAt` came due first. A plain time delay only ever sees `timeout`.
+ * its `wakeAt` came due first; `choice` means a person picked one of the options
+ * the block offered. A plain time delay only ever sees `timeout`.
+ *
+ * A variant rather than a string union because `choice` carries which option was
+ * picked and the other two carry nothing. A block reads `kind` first; only a
+ * block that offered choices ever looks at `index`.
+ *
+ * These name what happened *outside* the run, which is why this can grow where
+ * the interpreter's own frozen enums (`FLOW_RUN_STATUSES`,
+ * `FLOW_STEP_OUTCOME_KINDS`) must not: a new external cause is a real new thing
+ * in the world, not interpreter creep.
  */
-export const FLOW_RESUME_REASONS = ['event', 'timeout'] as const;
+export type FlowResumeReason =
+    | { readonly kind: 'event' }
+    | { readonly kind: 'timeout' }
+    | {
+          readonly kind: 'choice';
+          /**
+           * Which of the block's declared choices was taken, by position.
+           *
+           * A position rather than an author-chosen key because this has to
+           * survive a round trip through a Discord `custom_id`, which is capped
+           * at 100 characters. A run id and a node id are each up to 36, so by
+           * the time a prefix and separators are counted there are about 20
+           * left — enough for a short label and not enough for a guarantee. A
+           * position always fits, and the label the author wrote stays where it
+           * is useful, on the button.
+           */
+          readonly index: number;
+      };
 
-export type FlowResumeReason = (typeof FLOW_RESUME_REASONS)[number];
+/**
+ * The kinds of thing that can wake a parked run.
+ *
+ * Derived from {@link FlowResumeReason} rather than declared beside it. The two
+ * were hand-written separately at first, which left the more likely drift
+ * uncaught: adding a variant to the union without adding its name here. Deriving
+ * makes that impossible instead of guarded.
+ */
+export type FlowResumeKind = FlowResumeReason['kind'];
+
+/** A run woken by the gateway event its block asked for. */
+export const RESUME_EVENT = { kind: 'event' } as const satisfies FlowResumeReason;
+
+/** A run woken by its own `wakeAt` coming due. */
+export const RESUME_TIMEOUT = { kind: 'timeout' } as const satisfies FlowResumeReason;
 
 /**
  * The run is waking, and this is the node that parked it.

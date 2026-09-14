@@ -4,7 +4,7 @@ import { FLOW_MAX_NODE_VISITS } from '../constants';
 import { FlowRunsRepo, flowRunsRepo } from '../data/flowRunsRepo';
 import type { FlowRunEntity } from '../data/flowRunsSchema';
 import { FlowsRepo, flowsRepo } from '../data/flowsRepo';
-import type { FlowRunSeed } from '../blocks/types';
+import type { FlowResumeReason, FlowRunSeed } from '../blocks/types';
 import { emptyBagWith, executeFlowSegment } from './executor';
 import { asGuildTextChannel } from './runChannel';
 
@@ -275,15 +275,21 @@ function narrowOrReport(
  * the claim works from the row the claim returned, not from whatever the caller
  * selected a moment earlier.
  *
- * `exit` says why the run is waking: 'event' when the gateway event it was
- * parked on arrived, 'timeout' when its `wakeAt` elapsed. It is handed to the
- * node that parked, which maps it to one of its own declared handles — this
- * module names no block and knows nothing about what any of them wait for.
+ * `exit` says why the run is waking: `event` when the gateway event it was parked
+ * on arrived, `timeout` when its `wakeAt` elapsed, `choice` when a person picked
+ * one of the options the parked block offered. It is handed to the node that
+ * parked, which maps it to one of its own declared handles — this module names no
+ * block and knows nothing about what any of them wait for.
+ *
+ * Required rather than defaulted. It used to default to `timeout`, which meant a
+ * caller that forgot to say why a run woke got a plausible answer instead of a
+ * compile error — survivable while there were two reasons and the wrong one only
+ * cost a branch, but not once a reason carries which button somebody pressed.
  */
 export async function resumeFlowRun(
     client: Client,
     run: FlowRunEntity,
-    exit: 'event' | 'timeout' = 'timeout',
+    exit: FlowResumeReason,
     dependencies: ResumeFlowRunDependencies = defaultDependencies
 ): Promise<ResumeOutcome> {
     const claimed = await dependencies.flowRunsRepo.claimForResume(run.runId);
@@ -313,7 +319,7 @@ export async function resumeFlowRun(
 async function advanceClaimedRun(
     client: Client,
     run: FlowRunEntity,
-    exit: 'event' | 'timeout',
+    exit: FlowResumeReason,
     dependencies: ResumeFlowRunDependencies
 ): Promise<ResumeOutcome> {
     if (!run.resumeNodeId) {

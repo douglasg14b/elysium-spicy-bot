@@ -84,7 +84,9 @@ export const block: BlockManifest<WaitForEventConfig> = {
     canSuspend: true,
     run(config, context) {
         if (context.resume) {
-            return context.resume === 'timeout'
+            // This block offers no choices, so `choice` cannot be addressed to it
+            // and anything that is not the clock is the event it asked for.
+            return context.resume.kind === 'timeout'
                 ? { kind: 'continue', handle: WAIT_TIMEOUT_HANDLE }
                 : { kind: 'continue' };
         }

@@ -1,6 +1,7 @@
 import type { Client } from 'discord.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FlowRunEntity } from '../data/flowRunsSchema';
+import { RESUME_TIMEOUT } from '../blocks/types';
 
 const resumeFlowRun = vi.fn();
 
@@ -65,7 +66,7 @@ describe('flow run scheduler', () => {
         await runFlowRunTick(READY_CLIENT, makeDeps(findDue));
 
         expect(resumeFlowRun).toHaveBeenCalledTimes(2);
-        expect(resumeFlowRun).toHaveBeenCalledWith(READY_CLIENT, expect.anything(), 'timeout');
+        expect(resumeFlowRun).toHaveBeenCalledWith(READY_CLIENT, expect.anything(), RESUME_TIMEOUT);
     });
 
     it('skips the tick until the client is ready', async () => {

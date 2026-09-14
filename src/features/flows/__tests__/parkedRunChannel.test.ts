@@ -10,7 +10,7 @@ import {
     type FlowRunsTestDb,
 } from '../../../features-system/data-persistence/__tests__/support/flowRunsTestDb';
 import { ensureBlocksDiscovered } from '../blocks/registry';
-import type { FlowRunSeed } from '../blocks/types';
+import { RESUME_EVENT, type FlowRunSeed } from '../blocks/types';
 import { executeFlow } from '../engine/executor';
 import { rebuildResumeContext, resumeFlowRun } from '../engine/flowRunResume';
 import { validateAuthoredGraph } from '../engine/graphValidation';
@@ -243,7 +243,7 @@ describe('the channel a run parked in', () => {
         if (!parked) throw new Error('the parked run disappeared');
 
         const { guild, userSend } = makeGuild({ channelIds: [PARKED_CHANNEL_ID] });
-        const outcome = await resumeFlowRun(makeClient(guild), parked, 'event', {
+        const outcome = await resumeFlowRun(makeClient(guild), parked, RESUME_EVENT, {
             flowsRepo: { getByFlowId: vi.fn().mockResolvedValue(flowEntity()) },
             flowRunsRepo: repo,
         });
@@ -260,7 +260,7 @@ describe('the channel a run parked in', () => {
         if (!parked) throw new Error('the parked run disappeared');
 
         const { guild, userSend } = makeGuild({ channelIds: [OTHER_CHANNEL_ID] });
-        const outcome = await resumeFlowRun(makeClient(guild), parked, 'event', {
+        const outcome = await resumeFlowRun(makeClient(guild), parked, RESUME_EVENT, {
             flowsRepo: { getByFlowId: vi.fn().mockResolvedValue(flowEntity()) },
             flowRunsRepo: repo,
         });
@@ -286,7 +286,7 @@ describe('the channel a run parked in', () => {
 
         // And the run finishes rather than failing: a deleted channel is an
         // ordinary state, and the remaining steps never needed one.
-        const outcome = await resumeFlowRun(client, parked, 'event', {
+        const outcome = await resumeFlowRun(client, parked, RESUME_EVENT, {
             flowsRepo: { getByFlowId: vi.fn().mockResolvedValue(flowEntity()) },
             flowRunsRepo: repo,
         });
@@ -307,7 +307,7 @@ describe('the channel a run parked in', () => {
 
         // Both channels exist at wake time; only one is the run's.
         const { guild, userSend } = makeGuild({ channelIds: [PARKED_CHANNEL_ID, OTHER_CHANNEL_ID] });
-        const outcome = await resumeFlowRun(makeClient(guild), parked, 'event', {
+        const outcome = await resumeFlowRun(makeClient(guild), parked, RESUME_EVENT, {
             flowsRepo: { getByFlowId: vi.fn().mockResolvedValue(flowEntity()) },
             flowRunsRepo: repo,
         });
@@ -347,7 +347,7 @@ describe('the channel a run parked in', () => {
             flowRunsRepo: repo,
         };
 
-        await expect(resumeFlowRun(makeClient(guild), parked, 'event', dependencies)).rejects.toThrow(
+        await expect(resumeFlowRun(makeClient(guild), parked, RESUME_EVENT, dependencies)).rejects.toThrow(
             /Could not resolve channel/
         );
 
