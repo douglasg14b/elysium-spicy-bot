@@ -388,6 +388,36 @@ The bar is PRD §1.3 exactly: *a verification ticket is opened by a flow, is dis
 
 **Not planned in detail yet.** What follows is the ground truth this step has to be planned against, recorded now because it arrived from the operator and it materially shrinks §5.6.
 
+### Decisions taken (2026-09-15) — these override §5.6 where they conflict
+
+Four operator decisions, in the order they were taken. Together they turn step 4 from a hazardous brownfield cutover into a greenfield build, and **each one retires requirements that §5.6 spends most of its length on**. Recorded before any code exists, because the research below was written under the old assumptions and parts of it are now moot.
+
+**1. The table carries what a decision needs, not a pointer to it.** Detailed in the section below. The `tickets` table exists so a flow can decide without touching Discord.
+
+**2. Existing tickets are abandoned in place, not migrated.** Moderators will close out the few open tickets by hand; the new system is never asked to manage them. This retires, entirely:
+
+- the backfill out of Discord — no channel reads, no embed decoding, no idempotent-and-resumable migration against a rate-limited API;
+- §5.6's *"the cutover is reversible until confirmed"*, *"cutover is planned, announced, and bounded"*, and *"no silent degradation at the seam"* — all three were priced for a migration that no longer happens;
+- the entire "which store wins" question, and with it the dual-read period;
+- the ticket-number collision risk, since **the table starts empty and every row in it is created by the new system**. Numbering can be correct from the first row rather than compatible with whatever is already in the wild.
+
+The earlier research below — on `findTicketStateMessage`, the live-button hazard, the identification trap — is kept because it documents *why the old design could not be extended*, which is the justification for replacing it. It is no longer a migration plan.
+
+**3. The old ticket system is replaced outright, not run alongside.** No coexistence period in code.
+
+**The cost this carries, stated plainly:** open tickets lose their working claim/close/reopen/delete buttons the moment the old handlers go. "Finished manually" therefore means moderators renaming and moving those channels **without** working controls. The operator chose this knowing the alternative was to leave the old entry points running until the channels drained. It is recorded here rather than buried, because it is the one user-visible regression in step 4 and it should not come as a surprise on the day.
+
+**4. Ticketing is a base capability of the bot. Flows are a consumer of it, not its owner.** This is the strongest constraint on the architecture and it inverts how §5.6 reads.
+
+Tickets are **not** a flows feature. The ticket service is the deliverable; ticket *blocks* are a thin adapter over it. Concretely:
+
+- The service is **Discord-interaction-free and flows-free** — it must not import anything under `src/features/flows/`. A dependency in that direction is the defect this decision exists to prevent.
+- §5.6's *"tickets remain usable without flows"* stops being a compatibility promise to keep and becomes **the architecture**. A guild with zero flows configured has a fully working ticket system.
+- The mod-facing surface (create, claim, close, reopen, delete, the panel) belongs to the ticket feature and is built there, not reached through a flow.
+- Flow blocks, conditions and triggers are adapters **over** the service surface, in the direction flows → tickets only.
+
+This also resolves an ambiguity §5.6 never states: the new system serves **support tickets too**. Support is simply the first ticket *type* and verification the second, rather than support staying on a legacy path. There is no second ticket implementation to maintain.
+
 ### The table is the decision surface, not an index into Discord
 
 **Directed by the operator, and it sets the shape of the whole step.** The `tickets` table is not there to help find a channel faster. It is there so that **a flow can decide without touching Discord at all**, and it should carry whatever a decision needs — not merely a pointer to where the answer is rendered.
@@ -422,23 +452,33 @@ Two things fall out of that, which a field list written from §5.6 alone would m
 Four facts. Each removes work the PRD assumes, and the first two are the reason this step is smaller than §5.6 reads.
 
 - **Flow data needs no migration care. Nobody is using flows.** Every `flow_runs` row is test data from development. A flows migration that fails, or one that drops a column, costs a re-run and nothing else. **So flows-side schema changes are free** — design the table that is right, not the table that is reachable from the current one by a safe migration. This is the last step at which that will be true, so anything wanting an awkward schema change should take it now.
-- **Tickets are live and must not break.** A few open tickets exist. **Every control on them must keep working exactly as it does today** — claim, unclaim, close, reopen, delete. This is a hard constraint on step 4, not a preference, and it outranks the refactor's tidiness everywhere the two disagree.
+- ~~**Tickets are live and must not break.**~~ **Withdrawn by decision 3.** This was the hardest constraint on step 4 as originally stated — every control on an open ticket keeping working exactly as today. The operator withdrew it on 2026-09-15 in favour of replacing the old system outright and finishing the open tickets by hand. Struck rather than deleted because it shaped every piece of research above it, and because the *reason* it was dropped matters: it was not decided that breaking them is acceptable in general, but that a handful of support tickets a moderator can close manually is a smaller cost than a coexistence period.
 - **Every existing ticket is a support ticket**, using the support feature in its entirety. There is no second kind in the wild, so there is no per-type variation in production data to preserve — a migration has exactly one shape to handle, and "distinguishable from a support ticket" can be satisfied by *adding* a type rather than by reclassifying anything.
 - **There are no onboarding tickets and no onboarding data to carry.** Onboarding runs on a different bot entirely. So step 4 builds the verification ticket type **greenfield** — nothing to import, nothing to reconcile, no dual-read period against an existing onboarding corpus.
 
 ### What this changes about §5.6
 
-§5.6 was written expecting a hazardous cutover, and three of its requirements are priced for one. Against the facts above:
+The decisions above retire most of what §5.6 spends its length on. What survives, and what does not:
 
-- **"The cutover is reversible until confirmed"** and **"cutover is planned, announced, and bounded"** were sized for migrating a corpus of mixed-type tickets. The corpus is a handful of support tickets of one type. The requirement stands, but the disruption window is minutes and the rollback is "keep the embeds", which is free if nothing overwrites them.
-- **Q3's "accept losing claim/status history"** was a real trade when the history was large. It is close to costless now, but it is also close to *unnecessary* — with this few tickets, the old embed state can simply be left in place rather than destroyed, which keeps the rollback path §5.6 worries about losing.
-- **"Tickets remain usable without flows"** is unaffected and remains a permanent invariant (G5). It is now also the easiest of the three to verify, because the live tickets are all one type and all exercise the same five controls.
+**Retired outright** — every one was priced for a migration that no longer happens: *"the cutover is reversible until confirmed"*, *"cutover is planned, announced, and bounded"*, *"no silent degradation at the seam"*, and Q3's *"accept losing claim/status history"*. There is no cutover, no seam, and no history to lose, because the table starts empty.
 
-### The one thing that is genuinely risky — and it is smaller than expected
+**Promoted from requirement to architecture**: *"tickets remain usable without flows"*. Decision 4 makes this structural rather than a promise to keep — the service cannot import flows, so the property holds by construction rather than by testing for it.
 
-The concern is **the five in-ticket controls on already-open tickets**: those buttons were posted by the old code and sit in channels right now, so any refactor that changes what a ticket's buttons mean has to keep answering the ones already in the wild. Same shape as step 3's pre-column `waitMessageId` exemption, where rows predating a guard kept the guarantees they shipped with rather than being refused by the guard meant to tighten them.
+**Still fully in scope, and now the actual work**: ticket types with their own category, name template, permission model and controls; durable ticket records; the Discord-free service surface; ticket blocks, conditions and triggers; atomic numbering; categories referenced by id rather than name; and the layout rule for flow-owned buttons inside a ticket. These were always the substance. Removing the migration removes the risk, not the requirements.
 
-**Checked rather than assumed, and the answer is favourable — but state the mechanism precisely, because a loose description of it misleads the backfill.**
+**Newly cheap, because the table starts empty**: atomic numbering and id-not-name category references were both framed as fixes to existing damage. They are now simply *how it is built the first time*, with nothing to correct.
+
+### What is no longer risky, and the one cost that remains
+
+**The migration risk is gone.** The earlier research below identified the live in-ticket controls as step 4's sharpest hazard: buttons posted by old code, sitting in channels, that a refactor had to keep answering. Decision 3 removes the problem by not trying — those buttons stop working when the old handlers go, and the tickets they belong to are finished by hand.
+
+**What remains is not a risk but a stated cost** (decision 3): moderators close out the open tickets without working controls. There is no technical mitigation because none is wanted; the alternative was keeping the old entry points alive, and that was declined.
+
+**So step 4 now has no live-data hazard at all.** Every remaining hard part is ordinary greenfield design — the permission model, the type vocabulary, the service boundary — rather than anything that can damage something already in use. That is a materially different step from the one §5.6 describes.
+
+### How the old system worked, and why it was replaced rather than extended
+
+> **Post-mortem, not a plan.** Written while a migration was still expected; kept because it is the evidence for decisions 2 and 3. The sentences about what "the cutover" or "the backfill" must do describe work that is no longer happening.
 
 A ticket today **is its embed**. The message carries the state as base64 JSON in a field named `🔧 Internal Data`, the buttons hang off that same message, and a press makes the ticket read its own data back off itself before acting. The database holds almost nothing: `data/ticketingSchema.ts` has only `ticketing_config` — per-guild settings and a `ticketNumberInc` counter. **There is no `tickets` table.** The embed is not a rendering of a record, as §5.6 wants it to become; it *is* the record.
 
@@ -474,7 +514,9 @@ That matters for step 4 beyond tidiness: ticket *number* is the natural human-fa
 
 ### How a ticket channel is identified today — and the trap in it
 
-The backfill's first question is "which channels are tickets?", and the code answers it twice, inconsistently. **Use neither answer without reading this.**
+> **Superseded by decision 2: there is no backfill.** Kept because it is evidence for decision 3 — the identification scheme below is one of the reasons the old design could not be extended to a second ticket type. Read it as a post-mortem, not as instructions.
+
+The backfill's first question was "which channels are tickets?", and the code answers it twice, inconsistently. **Neither answer was usable.**
 
 `logic/ticketChannelValidation.ts` exports `isTicketChannel`, `isActiveTicketChannel` and `isClosedTicketChannel`, which look exactly like what a backfill wants. They identify a ticket by **regex on the channel name** (`/^s\d+-[^-]+-.*$/`) **plus its category name**. Both halves are unsound:
 
@@ -498,7 +540,11 @@ One live consequence worth noting while the code is open: `reopenTicketChannel` 
 
 Recorded because this document previously over-weighted it. Dev runs SQLite, so every migration's postgres arm is unexecuted code that ships as though tested, and the migrator's non-zero exit on first failure makes a **half-applied chain** reachable — one migration lands, the next fails, the rest never run, and the bot boots fine and fails later at query time.
 
-That is a real hazard with a **narrow blast radius**: for flows it breaks a feature with no users, which is an inconvenience. It is only serious for the **ticket-side** migrations, which touch live data. So the check belongs inside step 4's own verification — run the ticket migrations against postgres before the cutover — rather than as separate work gating the step. Exercising the arm generally is still unexercised, still recorded honestly, and still not a blocker.
+That is a real hazard with a **narrow blast radius**: for flows it breaks a feature with no users, which is an inconvenience.
+
+**Decision 2 narrows it further.** The ticket-side migration is now a `CREATE TABLE` against an empty table, not a data migration — so the worst case on production postgres is that the create fails, the ticket feature does not work, and the fix is to correct the migration and re-run. No data can be damaged, because there is none to damage. Postgres is therefore **not a gate on step 4 either**; it is something to check when the new ticket system first runs against production, like any other new table.
+
+The arm remains unexercised and is still recorded honestly rather than claimed as covered.
 
 ## What stays load-bearing
 
