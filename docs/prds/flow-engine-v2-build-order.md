@@ -361,6 +361,41 @@ Two of these are real dependencies. The others are preferences, and saying which
 - The **`unavailable` retry backoff** (Carried forward, below) becomes more pressing in this step: a prompt parks runs for as long as a moderator takes to answer, which is the longest park the engine will have seen.
 - The **fan-out drop in three places** and **only-the-first-matching-trigger-fires** are both still open and both now have a second reason to care — a prompt with several choices makes handle-following the hot path.
 
+## Step 4 — A flow can open and drive a ticket
+
+The bar is PRD §1.3 exactly: *a verification ticket is opened by a flow, is distinguishable from a support ticket, and its channel is addressable by later blocks.*
+
+**Not planned in detail yet.** What follows is the ground truth this step has to be planned against, recorded now because it arrived from the operator and it materially shrinks §5.6.
+
+### Ground truth, from the operator (2026-09-15)
+
+Four facts. Each removes work the PRD assumes, and the first two are the reason this step is smaller than §5.6 reads.
+
+- **Flow data needs no migration care. Nobody is using flows.** Every `flow_runs` row is test data from development. A flows migration that fails, or one that drops a column, costs a re-run and nothing else. **So flows-side schema changes are free** — design the table that is right, not the table that is reachable from the current one by a safe migration. This is the last step at which that will be true, so anything wanting an awkward schema change should take it now.
+- **Tickets are live and must not break.** A few open tickets exist. **Every control on them must keep working exactly as it does today** — claim, unclaim, close, reopen, delete. This is a hard constraint on step 4, not a preference, and it outranks the refactor's tidiness everywhere the two disagree.
+- **Every existing ticket is a support ticket**, using the support feature in its entirety. There is no second kind in the wild, so there is no per-type variation in production data to preserve — a migration has exactly one shape to handle, and "distinguishable from a support ticket" can be satisfied by *adding* a type rather than by reclassifying anything.
+- **There are no onboarding tickets and no onboarding data to carry.** Onboarding runs on a different bot entirely. So step 4 builds the verification ticket type **greenfield** — nothing to import, nothing to reconcile, no dual-read period against an existing onboarding corpus.
+
+### What this changes about §5.6
+
+§5.6 was written expecting a hazardous cutover, and three of its requirements are priced for one. Against the facts above:
+
+- **"The cutover is reversible until confirmed"** and **"cutover is planned, announced, and bounded"** were sized for migrating a corpus of mixed-type tickets. The corpus is a handful of support tickets of one type. The requirement stands, but the disruption window is minutes and the rollback is "keep the embeds", which is free if nothing overwrites them.
+- **Q3's "accept losing claim/status history"** was a real trade when the history was large. It is close to costless now, but it is also close to *unnecessary* — with this few tickets, the old embed state can simply be left in place rather than destroyed, which keeps the rollback path §5.6 worries about losing.
+- **"Tickets remain usable without flows"** is unaffected and remains a permanent invariant (G5). It is now also the easiest of the three to verify, because the live tickets are all one type and all exercise the same five controls.
+
+### The one thing that is genuinely risky
+
+Not the schema and not the blocks: **the five in-ticket controls on already-open tickets.** Those buttons were posted by the old code, carry the old custom ids, and sit in channels right now. Any refactor that changes what a ticket's buttons mean has to keep answering the ones already in the wild — the same shape as step 3's pre-column `waitMessageId` exemption, where rows that predated a guard had to keep the guarantees they shipped with rather than being refused by the guard meant to tighten things.
+
+That is the part to design first and the part to verify against the live guild, and it is the reason this step still ends in a live run.
+
+### Postgres, priced correctly
+
+Recorded because this document previously over-weighted it. Dev runs SQLite, so every migration's postgres arm is unexecuted code that ships as though tested, and the migrator's non-zero exit on first failure makes a **half-applied chain** reachable — one migration lands, the next fails, the rest never run, and the bot boots fine and fails later at query time.
+
+That is a real hazard with a **narrow blast radius**: for flows it breaks a feature with no users, which is an inconvenience. It is only serious for the **ticket-side** migrations, which touch live data. So the check belongs inside step 4's own verification — run the ticket migrations against postgres before the cutover — rather than as separate work gating the step. Exercising the arm generally is still unexercised, still recorded honestly, and still not a blocker.
+
 ## What stays load-bearing
 
 These survive the trim because they are cheap, mechanical, and have already caught real defects.
