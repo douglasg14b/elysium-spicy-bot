@@ -113,8 +113,15 @@ function resolveValue(
          *
          * The noun comes from the declaring field's own `label`, lowercased, so
          * this stays free of what any particular block's list holds — a block
-         * listing links gets "3 links" with no edit here. Entries with nothing in
-         * any column are dropped, so a half-added row does not inflate the count.
+         * listing links gets "3 links" with no edit here.
+         *
+         * A row counts once any of its **text** columns has something in it, so a
+         * half-added row does not inflate the count. Deliberately string-only: a
+         * toggle has a value from the moment the row exists, so counting one would
+         * make every blank row count. The consequence to know about is that a list
+         * whose columns are *all* toggles would read as empty forever — there is no
+         * such list today, and the fix when there is one is to ask whether any
+         * column differs from its default rather than to count booleans here.
          */
         case 'objectList': {
             if (!Array.isArray(raw)) return '';

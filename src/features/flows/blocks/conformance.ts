@@ -3,6 +3,7 @@ import { ELIGIBILITY_CONFIG_KEY, ELIGIBILITY_ENFORCED_SOURCES } from '../engine/
 import { FLOW_STEP_OUTCOME_KINDS } from '../engine/stepOutcome';
 import {
     BLOCK_CAPABILITIES,
+    BLOCK_COLUMN_CONTROLS,
     BLOCK_CONTROL_TYPES,
     BLOCK_HANDLE_TONES,
     BLOCK_KINDS,
@@ -814,6 +815,22 @@ function checkFieldColumns(
             issues.push(`${label}: the column "${column.key}" on "${key}" needs a label.`);
         }
 
+        // Checked against the vocabulary for the same reason the field's own
+        // control is: a manifest reaches this suite as `unknown`, so the literal
+        // union binds only the ones that already typechecked. Without this, a
+        // column asking for `colour` — the likely mistake, since the two
+        // vocabularies share three spellings — renders as a plain text input with
+        // no error anywhere.
+        const columnControls: readonly string[] = BLOCK_COLUMN_CONTROLS;
+        if (typeof column.control !== 'string' || !columnControls.includes(column.control)) {
+            issues.push(
+                `${label}: the column "${column.key}" on "${key}" asks for the control ` +
+                    `${JSON.stringify(column.control)}, which is not one a column may use ` +
+                    `(${columnControls.join(', ')}). A column is not a field: it cannot ask for a picker.`
+            );
+            continue;
+        }
+
         // A toggle has no text to hint at and no tokens to expand in, so either
         // member on one is a declaration the control will silently ignore.
         if (column.control === 'toggle') {
@@ -834,20 +851,67 @@ function checkFieldColumns(
         return issues;
     }
 
+    /*
+     * How many entries this schema needs before it will judge the entries at all.
+     *
+     * Not always one: a schema with `.min(2)` rejects a single-entry probe on its
+     * *length*, which would be reported below as "the schema rejects your columns"
+     * — a false finding against a correct manifest, and then an early return that
+     * silently skips every column's maxLength. Sweeping for the shortest list the
+     * schema accepts keeps the probe about the columns, which is what this
+     * function is for. Bounded by the declared `maxEntries` plus a little, since a
+     * schema needing more entries than the control will ever offer is
+     * `checkFieldEntryBounds`' finding rather than this one's.
+     */
+    const maxEntries = 'maxEntries' in field && typeof field.maxEntries === 'number' ? field.maxEntries : 0;
+    const listOf = (count: number): unknown[] => Array.from({ length: count }, () => ({ ...entry }));
+    let probeLength: number | undefined;
+    for (let count = 1; count <= Math.max(maxEntries, 1); count += 1) {
+        if (fieldSchema.safeParse(listOf(count)).success) {
+            probeLength = count;
+            break;
+        }
+    }
+
     // The columns as a whole must make an entry the schema takes. A miss here is
     // usually a renamed key, so the message shows what was offered rather than
     // only what was refused.
-    const parsed = fieldSchema.safeParse([entry]);
-    if (!parsed.success) {
+    if (probeLength === undefined) {
+        const parsed = fieldSchema.safeParse([entry]);
         return [
             `${label}: the field "${key}" declares the columns [${[...declared].join(', ')}], but its ` +
-                'configSchema rejects a list holding one such entry, so every row an author fills in ' +
-                `would be discarded at save: ${parsed.error.issues.map((issue) => issue.message).join(', ')}`,
+                'configSchema rejects a list holding such entries, so every row an author fills in ' +
+                'would be discarded at save: ' +
+                (parsed.success ? '' : parsed.error.issues.map((issue) => issue.message).join(', ')),
         ];
     }
 
+    /*
+     * A column the schema *strips* rather than rejects.
+     *
+     * Zod drops unknown keys by default, so a column whose key nothing validates
+     * parses happily and then vanishes — which is the exact failure this function
+     * was written to catch, and the one direction the parse above cannot see. The
+     * rename case is caught by the parse (a required key goes missing); the
+     * extra-key case is only visible by looking at what came back.
+     */
+    const parsed = fieldSchema.safeParse(listOf(probeLength));
+    const validEntry = parsed.success && Array.isArray(parsed.data) ? parsed.data[0] : undefined;
+    if (validEntry !== null && typeof validEntry === 'object') {
+        const accepts = new Set(Object.keys(validEntry as Record<string, unknown>));
+        const missing = [...declared].filter((column) => !accepts.has(column));
+        if (missing.length > 0) {
+            issues.push(
+                `${label}: the field "${key}" declares the column(s) [${missing.join(', ')}], which its ` +
+                    'configSchema does not validate — Zod strips an unrecognised key rather than ' +
+                    'refusing it, so the control would draw those inputs and the save would silently ' +
+                    'discard everything typed into them.'
+            );
+        }
+    }
+
     for (const column of columns as readonly BlockConfigColumn[]) {
-        issues.push(...checkColumnMaxLength(label, key, column, fieldSchema, entry));
+        issues.push(...checkColumnMaxLength(label, key, column, fieldSchema, entry, probeLength));
     }
 
     return issues;
@@ -865,7 +929,8 @@ function checkColumnMaxLength(
     key: string,
     column: BlockConfigColumn,
     fieldSchema: ZodType,
-    validEntry: Readonly<Record<string, unknown>>
+    validEntry: Readonly<Record<string, unknown>>,
+    probeLength: number
 ): readonly string[] {
     const { maxLength } = column;
     if (maxLength === undefined) {
@@ -879,9 +944,17 @@ function checkColumnMaxLength(
         ];
     }
 
-    const probe = (length: number): unknown => [
-        { ...validEntry, [column.key]: 'a'.repeat(length) },
-    ];
+    /*
+     * The list is as long as the schema needs, with the column under test varying
+     * on the first entry and every sibling holding a value already proven
+     * acceptable. A single-entry probe would fail on length against a schema with
+     * a list `.min()`, reporting the column as wrong for a reason that has nothing
+     * to do with it.
+     */
+    const probe = (length: number): unknown =>
+        Array.from({ length: probeLength }, (_entry, index) =>
+            index === 0 ? { ...validEntry, [column.key]: 'a'.repeat(length) } : { ...validEntry }
+        );
 
     // A format-constrained column rejects the probe on its pattern rather than its
     // length, so the boundary says nothing — the same escape, and the same reason.

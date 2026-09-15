@@ -109,13 +109,28 @@ export interface BlockConfigOption {
 }
 
 /**
- * One column of an `objectList` entry — a named text input on every row.
+ * The widgets one `objectList` column may ask for.
  *
- * Deliberately only text and a flag. This is not a second control vocabulary
- * nested inside the first: a column that wanted a role picker or a colour would
- * be a form, and a form inside a list row is a different control with a different
- * layout problem, not a wider member here. Two shapes cover what a record-shaped
- * list actually holds today — a line of copy, and a boolean the author toggles.
+ * **A closed vocabulary in its own right, not a subset of {@link BlockControlType}.**
+ * The overlap in spelling is a coincidence: widening a control does not widen a
+ * column, and a column is not a place a block can ask for a picker. Declared as a
+ * frozen array like every other vocabulary here so that conformance can check a
+ * column against it — a column arrives as `unknown` exactly as a field does, and
+ * the literal union below only binds a manifest that already typechecks.
+ *
+ * Deliberately only text and a flag. A column that wanted a role picker or a
+ * colour would be a form, and a form inside a list row is a different control with
+ * a different layout problem, not a wider member here.
+ */
+export const BLOCK_COLUMN_CONTROLS = ['text', 'longText', 'toggle'] as const;
+
+export type BlockColumnControl = (typeof BLOCK_COLUMN_CONTROLS)[number];
+
+/**
+ * One column of an `objectList` entry — a named input on every row.
+ *
+ * Two shapes cover what a record-shaped list actually holds today: a line of copy,
+ * and a boolean the author toggles.
  */
 export interface BlockConfigColumn {
     /** The key this column edits **inside one entry**, e.g. `name`. */
@@ -124,12 +139,8 @@ export interface BlockConfigColumn {
     /**
      * `text` is a single line, `longText` a small autosizing box, and `toggle` a
      * checkbox storing a boolean.
-     *
-     * A subset of {@link BlockControlType} by coincidence of naming rather than by
-     * reference: widening a control does not widen a column, and a column is not a
-     * place a block can ask for a picker.
      */
-    readonly control: 'text' | 'longText' | 'toggle';
+    readonly control: BlockColumnControl;
     /** Hint shown in this column's empty input. Never on a `toggle`. */
     readonly placeholder?: string;
     /**
@@ -204,6 +215,19 @@ export type BlockConfigField =
     | (BlockConfigFieldBase & { readonly control: 'channelPicker'; readonly defaultValue?: string })
     | (BlockConfigFieldBase & {
           readonly control: 'text';
+          /**
+           * Clearing the box removes the key entirely rather than writing `''`.
+           *
+           * Set it on any field whose schema is `.optional()` over a non-empty
+           * floor — `z.string().min(1).optional()`, or a url. Without it an author
+           * who types an author line and then changes their mind leaves `''`
+           * behind, which the schema rejects: the graph still *saves*, because
+           * save-time validation parses the graph shape rather than each block's
+           * config, and the run then fails naming no field. Same meaning and same
+           * reason as the `duration` arm's member of this name, which is where the
+           * pattern comes from.
+           */
+          readonly optional?: boolean;
           readonly placeholder?: string;
           readonly maxLength?: number;
           readonly defaultValue?: string;

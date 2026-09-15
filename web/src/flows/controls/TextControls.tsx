@@ -71,6 +71,23 @@ function withToken(current: string, token: string): string {
     return current && !current.endsWith(' ') ? `${current} ${token}` : `${current}${token}`;
 }
 
+/**
+ * The value to emit for a text box the author has just emptied.
+ *
+ * `undefined` on an `optional` field, which removes the key — the same thing
+ * `DurationControl` does with a cleared number, and for the same reason. A schema
+ * reading `z.string().min(1).optional()` rejects `''`, so writing the empty string
+ * would leave a graph that saves (save-time validation checks the graph's shape,
+ * not each block's config) and then fails at run time naming no field at all.
+ *
+ * A field that is not `optional` keeps writing `''`, because for it an empty box
+ * is an unfinished value rather than a deliberate absence, and removing the key
+ * would make the inspector forget what the author was editing.
+ */
+function emptyValueFor(field: TextField, next: string): string | undefined {
+    return field.optional && !next ? undefined : next;
+}
+
 /** Single-line text. */
 export function TextControl({ field, value, onChange, context }: ControlProps<TextField>) {
     return (
@@ -81,7 +98,7 @@ export function TextControl({ field, value, onChange, context }: ControlProps<Te
                 placeholder={field.placeholder}
                 maxLength={hardLimit(field)}
                 value={asText(value)}
-                onChange={(event) => onChange(event.currentTarget.value)}
+                onChange={(event) => onChange(emptyValueFor(field, event.currentTarget.value))}
             />
             {variableHints(field, value, context, (token) =>
                 onChange(withToken(asText(value), token))

@@ -125,22 +125,16 @@ export function hexColorToInt(hex: string): number {
 }
 
 /**
- * This embed's field rows, tolerating a config that never met the schema.
+ * This embed's field rows.
  *
- * `fields` carries a `.default([])`, so anything that came through `safeParse` —
- * which is every path the executor takes — has a real array here. What does not
- * is a config handed straight to `run`, which the block's own tests do and which
- * an older saved graph's `node.data` literally is: `{channelId, title,
- * description}` and nothing else.
- *
- * Reading it through one accessor rather than guarding at each use keeps that
- * fact in one place instead of two `?? []`s that look like nervousness. It is
- * **not** a silent fallback in the sense `root-cause-over-workarounds` warns
- * about: an embed with no fields is a completely valid embed and the empty list
- * is its real value, not a recovery from a missing one.
+ * `fields` carries a `.default([])` and the executor always `safeParse`s before
+ * calling `run`, so this is a plain read rather than a guard — an older row
+ * holding no `fields` key has one by the time it arrives here, which is the whole
+ * point of the default. Named because three call sites want the same list and
+ * `config.fields` three times reads as though they might differ.
  */
 function fieldsOf(config: PostEmbedConfig): readonly EmbedFieldConfig[] {
-    return config.fields ?? [];
+    return config.fields;
 }
 
 /**
@@ -237,6 +231,11 @@ export const block: BlockManifest<PostEmbedConfig> = {
             label: 'Author line',
             description: 'Small text above the title. Leave empty for none.',
             control: 'text',
+            // Every field below whose schema is `.optional()` over a non-empty
+            // floor declares this, so clearing the box removes the key rather
+            // than writing '' — which the schema rejects, on a graph that would
+            // still have saved. "Leave empty for none" has to actually work.
+            optional: true,
             placeholder: 'The Management',
             maxLength: EMBED_LIMITS.authorName,
             rendersTokens: true,
@@ -246,6 +245,7 @@ export const block: BlockManifest<PostEmbedConfig> = {
             label: 'Title link',
             description: 'Makes the title clickable. Leave empty for none.',
             control: 'text',
+            optional: true,
             placeholder: 'https://example.com/rules',
         },
         {
@@ -253,6 +253,7 @@ export const block: BlockManifest<PostEmbedConfig> = {
             label: 'Image',
             description: 'A big picture across the bottom.',
             control: 'text',
+            optional: true,
             placeholder: 'https://example.com/pic.png',
         },
         {
@@ -260,6 +261,7 @@ export const block: BlockManifest<PostEmbedConfig> = {
             label: 'Thumbnail',
             description: 'A small picture in the top corner.',
             control: 'text',
+            optional: true,
             placeholder: 'https://example.com/icon.png',
         },
         {
@@ -267,6 +269,7 @@ export const block: BlockManifest<PostEmbedConfig> = {
             label: 'Footer',
             description: 'Small print along the bottom. Leave empty for none.',
             control: 'text',
+            optional: true,
             placeholder: 'Behave yourselves.',
             maxLength: EMBED_LIMITS.footer,
             rendersTokens: true,
@@ -294,24 +297,39 @@ export const block: BlockManifest<PostEmbedConfig> = {
     capabilities: ['sendMessages', 'embedLinks'],
     canSuspend: false,
     async run(config, context) {
-        const channel = await context.client.channels.fetch(config.channelId);
-        // Thrown rather than returned as `fail` — see the note on `action.sendMessage`.
-        if (!channel || !channel.isTextBased() || !('send' in channel)) {
-            throw new Error(`Channel ${config.channelId} is not a sendable text channel`);
+        /*
+         * Both post-expansion checks run before the channel is fetched, because
+         * neither needs it and a config that can never post should not cost a
+         * Discord round trip on every execution.
+         *
+         * Each is a limit the schema cannot hold. The per-part caps are properties
+         * of one field and live on that field, where the control shows them and an
+         * author can see which line is too long. These two are only decidable once
+         * tokens have expanded — `{{subject.username}}` is 19 characters that
+         * become however long a member called themselves — which is after the
+         * schema has finished.
+         */
+        const blankField = fieldsOf(config).findIndex(
+            (field) => !field.name.trim() || !field.value.trim()
+        );
+        if (blankField !== -1) {
+            /*
+             * A field whose text was entirely `{{var.something}}` and resolved to
+             * nothing. Discord rejects an empty field name or value with a 400
+             * naming `embeds.0.fields.0.name` and nothing else — discord.js does
+             * not check these two the way it checks the title and the footer — so
+             * without this the author's only clue is a raw JSON path.
+             */
+            return {
+                kind: 'fail',
+                error:
+                    `Field ${blankField + 1} has an empty heading or text once its tokens are filled in. ` +
+                    'Discord will not take a field with a blank side — give it literal words, or drop the row.',
+            };
         }
 
         /*
-         * The one limit the schema cannot hold, checked here.
-         *
-         * Every individual cap above is a property of one field and lives on that
-         * field, where the control can show it and the author can see which line
-         * is too long. The 6000 is a property of the *whole* embed, so it can only
-         * be false for a combination of fields each of which is individually
-         * legal — and it is only knowable after tokens expand, since
-         * `{{subject.username}}` is 19 characters that become however long a
-         * member's name is.
-         *
-         * Failing here rather than truncating, and naming the number: a silently
+         * Failing rather than truncating, and naming the number: a silently
          * trimmed embed drops whichever field happened to be last, which an author
          * would read as the flow being broken rather than as their embed being too
          * long. This is `root-cause-over-workarounds` applied to a real limit —
@@ -326,6 +344,12 @@ export const block: BlockManifest<PostEmbedConfig> = {
                     `limit across the whole embed is ${EMBED_LIMITS.total}. Trim the body or drop a field — ` +
                     'each part is within its own limit, it is the total that is over.',
             };
+        }
+
+        const channel = await context.client.channels.fetch(config.channelId);
+        // Thrown rather than returned as `fail` — see the note on `action.sendMessage`.
+        if (!channel || !channel.isTextBased() || !('send' in channel)) {
+            throw new Error(`Channel ${config.channelId} is not a sendable text channel`);
         }
 
         const embed = new EmbedBuilder().setTitle(config.title).setDescription(config.description);
@@ -357,10 +381,9 @@ export const block: BlockManifest<PostEmbedConfig> = {
                 fields.map((field) => ({
                     name: field.name,
                     value: field.value,
-                    // `.default(false)` on the schema, so this is set on anything
-                    // parsed. An older row predating the column reads as absent,
-                    // and Discord's own default for a field is not inline.
-                    inline: field.inline ?? false,
+                    // `.default(false)` on the entry schema, so a row saved before
+                    // the column existed arrives here already `false`.
+                    inline: field.inline,
                 }))
             );
         }

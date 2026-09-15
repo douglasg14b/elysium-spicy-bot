@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
     BLOCK_CAPABILITIES,
+    BLOCK_COLUMN_CONTROLS,
     BLOCK_CONTROL_TYPES,
     BLOCK_HANDLE_TONES,
     BLOCK_KINDS,
@@ -8,7 +9,11 @@ import {
     BLOCK_TRIGGER_SOURCES,
     FLOW_CONTEXT_REQUIREMENTS,
 } from '../../../features/flows/blocks/manifest';
-import type { BlockConfigField, BlockControlType } from '../../../features/flows/blocks/manifest';
+import type {
+    BlockConfigColumn,
+    BlockConfigField,
+    BlockControlType,
+} from '../../../features/flows/blocks/manifest';
 import {
     ELIGIBILITY_PERMISSIONS,
     ELIGIBILITY_PRINCIPALS,
@@ -68,6 +73,14 @@ const VOCABULARIES = [
     { name: 'BlockPaletteGroup', server: BLOCK_PALETTE_GROUPS, browser: browserTypes.BLOCK_PALETTE_GROUPS },
     { name: 'BlockTriggerSource', server: BLOCK_TRIGGER_SOURCES, browser: browserTypes.BLOCK_TRIGGER_SOURCES },
     { name: 'BlockControlType', server: BLOCK_CONTROL_TYPES, browser: browserTypes.BLOCK_CONTROL_TYPES },
+    // A vocabulary of its own rather than a subset of the one above: a column is
+    // not a field and cannot ask for a picker. Gated here because the inspector
+    // switches on it, so a member on one side alone is a column it cannot draw.
+    {
+        name: 'BlockColumnControl',
+        server: BLOCK_COLUMN_CONTROLS,
+        browser: browserTypes.BLOCK_COLUMN_CONTROLS,
+    },
     { name: 'BlockHandleTone', server: BLOCK_HANDLE_TONES, browser: browserTypes.BLOCK_HANDLE_TONES },
     { name: 'FlowContextRequirement', server: FLOW_CONTEXT_REQUIREMENTS, browser: browserTypes.FLOW_CONTEXT_REQUIREMENTS },
     { name: 'BlockCapability', server: BLOCK_CAPABILITIES, browser: browserTypes.BLOCK_CAPABILITIES },
@@ -103,7 +116,7 @@ const VOCABULARIES = [
 const CONFIG_FIELD_FIXTURES = {
     rolePicker: { key: 'k', label: 'l', description: 'd', control: 'rolePicker', defaultValue: '' },
     channelPicker: { key: 'k', label: 'l', description: 'd', control: 'channelPicker', defaultValue: '' },
-    text: { key: 'k', label: 'l', description: 'd', control: 'text', placeholder: '', maxLength: 1, defaultValue: '', rendersTokens: true },
+    text: { key: 'k', label: 'l', description: 'd', control: 'text', optional: true, placeholder: '', maxLength: 1, defaultValue: '', rendersTokens: true },
     longText: { key: 'k', label: 'l', description: 'd', control: 'longText', placeholder: '', maxLength: 1, defaultValue: '', rendersTokens: true },
     duration: { key: 'k', label: 'l', description: 'd', control: 'duration', optional: true, placeholder: 'p', defaultValue: 1 },
     segmented: { key: 'k', label: 'l', description: 'd', control: 'segmented', options: [], defaultValue: '' },
@@ -128,6 +141,37 @@ const fixturesAreExhaustive: [FixturesAreExhaustive] extends [never]
     : ['CONFIG_FIELD_FIXTURES is missing', FixturesAreExhaustive] = true;
 
 void fixturesAreExhaustive;
+
+/**
+ * One column with every optional populated, for the same reason the field
+ * fixtures exist: an optional member is absent from any column that does not use
+ * it, so reading the shipped blocks would report `rendersTokens` as server-only
+ * the moment no column set one.
+ *
+ * `satisfies` rejects a member this invents; {@link ColumnFixtureIsExhaustive}
+ * rejects one it forgets.
+ */
+const CONFIG_COLUMN_FIXTURE = {
+    key: 'k',
+    label: 'l',
+    control: 'text',
+    placeholder: 'p',
+    maxLength: 1,
+    rendersTokens: true,
+} as const satisfies BlockConfigColumn;
+
+/** Fails to compile if {@link BlockConfigColumn} gains a member the fixture omits. */
+type ColumnFixtureIsExhaustive = Exclude<
+    keyof BlockConfigColumn,
+    keyof typeof CONFIG_COLUMN_FIXTURE
+>;
+
+/** Do not delete as unused: removing it erases the guard above. */
+const columnFixtureIsExhaustive: [ColumnFixtureIsExhaustive] extends [never]
+    ? true
+    : ['CONFIG_COLUMN_FIXTURE is missing', ColumnFixtureIsExhaustive] = true;
+
+void columnFixtureIsExhaustive;
 
 /** Each arm's control paired with the members the server declares on it. */
 const CONFIG_FIELD_ARMS = BLOCK_CONTROL_TYPES.map((control) => ({
@@ -237,6 +281,21 @@ describe('node descriptor drift between server and browser', () => {
             ).toEqual(serverMembers);
         }
     );
+
+    it('keeps the objectList column shape identical on both sides', () => {
+        const serverMembers = Object.keys(CONFIG_COLUMN_FIXTURE).sort();
+        const browserMembers = [...browserTypes.BLOCK_CONFIG_COLUMN_KEYS].sort();
+
+        expect(
+            browserMembers,
+            `BlockConfigColumn has drifted. Server: [${serverMembers.join(', ')}]; browser ` +
+                `(web/src/api/types.ts): [${browserMembers.join(', ')}]. A column is the second ` +
+                'hand-mirrored interface across this boundary, and the field-arm check above only ' +
+                'records that an objectList has `columns`, not what one column holds — so a member ' +
+                'missing here is one the inspector is served and cannot read. `rendersTokens` is the ' +
+                'one that bites: the engine would expand tokens the control renders as literal braces.'
+        ).toEqual(serverMembers);
+    });
 
     /**
      * The graph-shape version, which is declared on both sides for the same reason

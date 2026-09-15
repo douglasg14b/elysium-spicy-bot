@@ -121,17 +121,33 @@ function ColumnInput({
         'aria-label': `${column.label}, entry ${index + 1}`,
     };
 
-    return column.control === 'longText' ? (
-        <Textarea
-            {...shared}
-            autosize
-            minRows={2}
-            maxRows={6}
-            onChange={(event) => onChange(column.key, event.currentTarget.value)}
-        />
-    ) : (
-        <TextInput {...shared} onChange={(event) => onChange(column.key, event.currentTarget.value)} />
-    );
+    switch (column.control) {
+        case 'longText':
+            return (
+                <Textarea
+                    {...shared}
+                    autosize
+                    minRows={2}
+                    maxRows={6}
+                    onChange={(event) => onChange(column.key, event.currentTarget.value)}
+                />
+            );
+        case 'text':
+            return (
+                <TextInput
+                    {...shared}
+                    onChange={(event) => onChange(column.key, event.currentTarget.value)}
+                />
+            );
+        default: {
+            // Adding a member to `BLOCK_COLUMN_CONTROLS` without drawing it here is
+            // a compile error, matching `renderControl`. A fall-through to a text
+            // input would render an unknown column as one silently.
+            const unhandled: never = column.control;
+            void unhandled;
+            return null;
+        }
+    }
 }
 
 /**
