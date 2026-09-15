@@ -41,7 +41,7 @@ export const WEB_PORT = env.get('WEB_PORT').asIntPositive() || 8080;
  * {@link WEB_PORT} expecting the dashboard, which is the mistake the two-port
  * split invites. Not a second source of truth: change it here and Vite follows.
  */
-export const WEB_DEV_CLIENT_PORT = env.get('WEB_DEV_CLIENT_PORT').asIntPositive() || 5173;
+export const WEB_DEV_CLIENT_PORT = env.get('WEB_DEV_CLIENT_PORT').asIntPositive() || 5180;
 
 const IS_DEVELOPMENT = ENV === 'development';
 
