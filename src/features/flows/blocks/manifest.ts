@@ -221,11 +221,15 @@ export type BlockConfigField =
            * Set it on any field whose schema is `.optional()` over a non-empty
            * floor — `z.string().min(1).optional()`, or a url. Without it an author
            * who types an author line and then changes their mind leaves `''`
-           * behind, which the schema rejects: the graph still *saves*, because
-           * save-time validation parses the graph shape rather than each block's
-           * config, and the run then fails naming no field. Same meaning and same
-           * reason as the `duration` arm's member of this name, which is where the
-           * pattern comes from.
+           * behind, which such a schema rejects, so `validateNodeData` refuses the
+           * whole save over a field the author believed they had cleared. The
+           * field's own description usually says "leave empty for none", and this
+           * is what makes that true.
+           *
+           * Same meaning and same reason as the `duration` arm's member of this
+           * name, which is where the pattern comes from: absence is a real setting,
+           * and the way to express it is to remove the key rather than to write a
+           * value standing in for "nothing".
            */
           readonly optional?: boolean;
           readonly placeholder?: string;

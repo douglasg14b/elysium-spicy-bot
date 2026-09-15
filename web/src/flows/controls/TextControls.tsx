@@ -77,8 +77,8 @@ function withToken(current: string, token: string): string {
  * `undefined` on an `optional` field, which removes the key — the same thing
  * `DurationControl` does with a cleared number, and for the same reason. A schema
  * reading `z.string().min(1).optional()` rejects `''`, so writing the empty string
- * would leave a graph that saves (save-time validation checks the graph's shape,
- * not each block's config) and then fails at run time naming no field at all.
+ * would make `validateNodeData` refuse the entire save over a field whose own
+ * description invited the author to leave it empty.
  *
  * A field that is not `optional` keeps writing `''`, because for it an empty box
  * is an unfinished value rather than a deliberate absence, and removing the key

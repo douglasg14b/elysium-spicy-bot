@@ -859,14 +859,21 @@ function checkFieldColumns(
      * — a false finding against a correct manifest, and then an early return that
      * silently skips every column's maxLength. Sweeping for the shortest list the
      * schema accepts keeps the probe about the columns, which is what this
-     * function is for. Bounded by the declared `maxEntries` plus a little, since a
-     * schema needing more entries than the control will ever offer is
-     * `checkFieldEntryBounds`' finding rather than this one's.
+     * function is for.
+     *
+     * The ceiling reads **both** bounds, matching `checkFieldEntryBounds`'
+     * `(maxEntries ?? minEntries ?? 0) + 1` one level up. Reading only
+     * `maxEntries` looks sufficient and is not: a field declaring `minEntries: 2`
+     * and no maximum collapses the ceiling to 1 and restores the single-entry
+     * probe this sweep exists to replace. Two sweeps in one file disagreeing about
+     * which bounds matter is how the gap reappears.
      */
-    const maxEntries = 'maxEntries' in field && typeof field.maxEntries === 'number' ? field.maxEntries : 0;
+    const boundsOf = (member: 'minEntries' | 'maxEntries'): number =>
+        member in field && typeof field[member] === 'number' ? (field[member] as number) : 0;
     const listOf = (count: number): unknown[] => Array.from({ length: count }, () => ({ ...entry }));
     let probeLength: number | undefined;
-    for (let count = 1; count <= Math.max(maxEntries, 1); count += 1) {
+    const probeLimit = Math.max(boundsOf('maxEntries'), boundsOf('minEntries'), 1);
+    for (let count = 1; count <= probeLimit; count += 1) {
         if (fieldSchema.safeParse(listOf(count)).success) {
             probeLength = count;
             break;

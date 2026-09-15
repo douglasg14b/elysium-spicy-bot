@@ -695,18 +695,25 @@ describe('an objectList whose columns do not describe the entries its schema tak
      * "the schema rejects your columns" — a false finding against a correct
      * manifest — and would then skip every column's maxLength on the early return.
      */
+    /**
+     * Declares `minEntries` and **no** `maxEntries`, deliberately.
+     *
+     * A ceiling read off `maxEntries` alone collapses to 1 for this field, which
+     * restores the single-entry probe the sweep exists to replace — and the first
+     * version of this case declared both bounds, so the maximum carried it to 2
+     * and the gap stayed invisible.
+     */
     it('says nothing about correct columns under a schema with a list minimum', () => {
         expect(
             checkBlockConformance(
                 manifestWith({
-                    configSchema: z.object({ rows: z.array(entry).min(2).max(5) }),
+                    configSchema: z.object({ rows: z.array(entry).min(2) }),
                     configFields: [
                         {
                             key: 'rows',
                             label: 'Rows',
                             control: 'objectList',
                             minEntries: 2,
-                            maxEntries: 5,
                             columns: [
                                 { key: 'name', label: 'Heading', control: 'text', maxLength: 256 },
                                 { key: 'value', label: 'Text', control: 'longText', maxLength: 1024 },

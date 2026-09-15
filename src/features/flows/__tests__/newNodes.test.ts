@@ -200,6 +200,39 @@ describe('action.postEmbed', () => {
     });
 
     /**
+     * A field whose text was entirely a token that resolved to nothing.
+     *
+     * `.min(1)` passes at save — `{{var.missing}}` is 17 characters — and the
+     * value is empty by the time it reaches Discord, which rejects a blank field
+     * side with a 400 naming `embeds.0.fields.0.name` and nothing an author could
+     * act on. discord.js checks the title and footer for this and not a field's
+     * two halves, so it is the block's to catch.
+     */
+    it('fails naming the row when a field resolves to an empty heading or text', async () => {
+        const send = vi.fn().mockResolvedValue({ id: 'message-1' });
+
+        const outcome = await actionPostEmbedNode.run(
+            parseConfig({
+                channelId: CHANNEL_ID,
+                title: 'T',
+                description: 'D',
+                fields: [
+                    { name: 'Fine', value: 'Also fine.' },
+                    { name: 'Blank', value: '   ' },
+                ],
+            }),
+            contextWithChannel(send)
+        );
+
+        expect(outcome).toEqual({
+            kind: 'fail',
+            // One-based, matching the form the author is looking at.
+            error: expect.stringContaining('Field 2'),
+        });
+        expect(send).not.toHaveBeenCalled();
+    });
+
+    /**
      * The one limit no single field can carry, and the reason it is checked in
      * `run` rather than in the schema: every part here is comfortably within its
      * own cap, and only the total is over.
