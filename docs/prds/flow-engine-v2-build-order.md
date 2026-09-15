@@ -59,6 +59,10 @@ Two things the plan did not anticipate, each found by a failing gate rather than
 
 **Not done, deliberately**: no live-guild run. Every claim here is structural, which is the condition step 3's slice E existed to make false and which this change re-enters. The card counting `3 fields` rather than listing them, and the field rows' layout in the inspector, are both judgements that want an author looking at them.
 
+**Built in parallel with step 4's opening work, in a separate worktree, and merged clean.** Verified independently of the implementer's own report before merging: 473 tests across 32 files, 17 `tsc` errors matching the documented baseline exactly with none in `src/features/flows`, `src/web`, or `web/src`, and **zero files touched under `src/features/tickets/`** — the isolation the split depended on. The merged suite equals the branch's, so nothing was lost in the merge.
+
+This is worth recording as a process result and not only a feature one. Two workstreams ran at once against disjoint trees, and the file-level check that they stayed disjoint is cheap and mechanical. The thing that made it safe was not discipline but that `BLOCK_CONTROL_TYPES` and the tickets feature share no file; a split chosen without checking that would have been a guess.
+
 ## Step 2 — Blocks compose
 
 The bar is PRD §1.3 exactly: *a block can consume a value another block produced, and copy can address the subject.*
