@@ -79,6 +79,7 @@ export const BLOCK_CONTROL_TYPES = [
     'select',
     'colour',
     'textList',
+    'objectList',
     'eligibility',
 ] as const;
 
@@ -139,6 +140,31 @@ export interface BlockConfigOption {
     label: string;
 }
 
+/**
+ * One column of an `objectList` entry — a named input on every row.
+ *
+ * Text and a checkbox only. Not a nested control vocabulary: a column asking for a
+ * picker would be a form inside a list row, which is a different control with a
+ * different layout problem rather than a wider member here.
+ */
+/** The widgets one `objectList` column may ask for. A vocabulary of its own. */
+export const BLOCK_COLUMN_CONTROLS = ['text', 'longText', 'toggle'] as const;
+
+export type BlockColumnControl = (typeof BLOCK_COLUMN_CONTROLS)[number];
+
+export interface BlockConfigColumn {
+    /** The key this column edits **inside one entry**, e.g. `name`. */
+    key: string;
+    label: string;
+    control: BlockColumnControl;
+    /** Hint shown in this column's empty input. Never on a `toggle`. */
+    placeholder?: string;
+    /** Maximum characters of this column's value, on one entry. */
+    maxLength?: number;
+    /** Whether this column's `{{tokens}}` are expanded before the block runs. */
+    rendersTokens?: boolean;
+}
+
 interface BlockConfigFieldBase {
     /** The `node.data` key this control edits. */
     key: string;
@@ -164,6 +190,8 @@ export type BlockConfigField =
     | (BlockConfigFieldBase & { control: 'channelPicker'; defaultValue?: string })
     | (BlockConfigFieldBase & {
           control: 'text';
+          /** Clearing the box removes the key entirely rather than writing `''`. */
+          optional?: boolean;
           placeholder?: string;
           maxLength?: number;
           defaultValue?: string;
@@ -223,6 +251,22 @@ export type BlockConfigField =
           /** Label for the button that appends a row. */
           addLabel?: string;
           defaultValue?: string[];
+      })
+    | (BlockConfigFieldBase & {
+          /**
+           * An ordered list of records, each holding the same declared columns —
+           * `textList` one dimension up.
+           */
+          control: 'objectList';
+          /** The columns every entry carries, in the order a row renders them. */
+          columns: BlockConfigColumn[];
+          /** Fewest entries the block can work with; below it the author is told. */
+          minEntries?: number;
+          /** Most entries the block can work with. "Add" stops being offered here. */
+          maxEntries?: number;
+          /** Label for the button that appends a row. */
+          addLabel?: string;
+          defaultValue?: Record<string, unknown>[];
       })
     | (BlockConfigFieldBase & {
           /**
@@ -415,15 +459,48 @@ export const NODE_DESCRIPTOR_KEYS = [
 export const BLOCK_CONFIG_FIELD_KEYS = {
     rolePicker: ['key', 'label', 'description', 'control', 'defaultValue'],
     channelPicker: ['key', 'label', 'description', 'control', 'defaultValue'],
-    text: ['key', 'label', 'description', 'control', 'placeholder', 'maxLength', 'defaultValue', 'rendersTokens'],
+    text: ['key', 'label', 'description', 'control', 'optional', 'placeholder', 'maxLength', 'defaultValue', 'rendersTokens'],
     longText: ['key', 'label', 'description', 'control', 'placeholder', 'maxLength', 'defaultValue', 'rendersTokens'],
     duration: ['key', 'label', 'description', 'control', 'optional', 'placeholder', 'defaultValue'],
     segmented: ['key', 'label', 'description', 'control', 'options', 'defaultValue'],
     select: ['key', 'label', 'description', 'control', 'options', 'defaultValue'],
     colour: ['key', 'label', 'description', 'control', 'swatches', 'defaultValue'],
     textList: ['key', 'label', 'description', 'control', 'placeholder', 'maxLength', 'minEntries', 'maxEntries', 'addLabel', 'defaultValue'],
+    objectList: ['key', 'label', 'description', 'control', 'columns', 'minEntries', 'maxEntries', 'addLabel', 'defaultValue'],
     eligibility: ['key', 'label', 'description', 'control', 'defaultValue'],
 } as const satisfies { [TControl in BlockControlType]: readonly (keyof Extract<BlockConfigField, { control: TControl }>)[] };
+
+/**
+ * Every member of {@link BlockConfigColumn}, for the drift gate.
+ *
+ * A column is the second hand-mirrored interface across this boundary and needs
+ * its own list for the same reason the field arms do: `BLOCK_CONFIG_FIELD_KEYS`
+ * records that an `objectList` has `columns`, not what one column holds. Without
+ * this, a member added to a column on the server alone is served and silently
+ * unread — `rendersTokens` is the one that bites, since the engine would expand
+ * tokens the inspector renders as literal braces.
+ */
+export const BLOCK_CONFIG_COLUMN_KEYS = [
+    'key',
+    'label',
+    'control',
+    'placeholder',
+    'maxLength',
+    'rendersTokens',
+] as const satisfies readonly (keyof BlockConfigColumn)[];
+
+/** Fails to compile if {@link BlockConfigColumn} gains a member absent above. */
+type ConfigColumnKeysAreComplete = Exclude<
+    keyof BlockConfigColumn,
+    (typeof BLOCK_CONFIG_COLUMN_KEYS)[number]
+>;
+
+/** Do not delete as unused: removing it erases the guard above. */
+const configColumnKeysAreComplete: [ConfigColumnKeysAreComplete] extends [never]
+    ? true
+    : ['BLOCK_CONFIG_COLUMN_KEYS is missing', ConfigColumnKeysAreComplete] = true;
+
+void configColumnKeysAreComplete;
 
 /**
  * Fails to compile if any {@link BlockConfigField} arm gains a member absent from

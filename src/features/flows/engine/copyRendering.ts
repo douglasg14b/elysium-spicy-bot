@@ -1,4 +1,4 @@
-import type { BlockConfigField } from '../blocks/manifest';
+import type { BlockConfigColumn, BlockConfigField } from '../blocks/manifest';
 import type { FlowRunSeed, FlowVariableValue } from '../blocks/types';
 
 /**
@@ -244,6 +244,28 @@ export function isCopyField(
     field: BlockConfigField
 ): field is Extract<BlockConfigField, { control: 'text' | 'longText' }> {
     return (field.control === 'text' || field.control === 'longText') && field.rendersTokens === true;
+}
+
+/**
+ * The copy-bearing columns of an `objectList` field, or nothing.
+ *
+ * The second half of {@link isCopyField}, kept beside it for the same reason it
+ * exists at all: a field whose copy lives one level down — inside the entries of
+ * a list — is still copy, and the executor and the save-time validator must agree
+ * about which strings those are. Returning the columns rather than a boolean lets
+ * both callers read each column's own `maxLength` and `label` off what they get.
+ *
+ * Separate from `isCopyField` rather than folded into it because the two narrow to
+ * different things: one says "this key holds a string to expand", the other says
+ * "this key holds a list of records, some of whose keys hold strings to expand".
+ * A single predicate returning both would leave every caller re-deciding which
+ * shape it had been handed.
+ */
+export function copyColumnsOf(field: BlockConfigField): readonly BlockConfigColumn[] {
+    if (field.control !== 'objectList') {
+        return [];
+    }
+    return field.columns.filter((column) => column.rendersTokens === true);
 }
 
 /**

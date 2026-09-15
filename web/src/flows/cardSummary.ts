@@ -30,6 +30,19 @@ function truncate(text: string, max: number): string {
 }
 
 /**
+ * A plural field label as a singular, for a count of one.
+ *
+ * Deliberately the naive rule. It is right for the labels a list field actually
+ * carries ("Fields", "Answers", "Links") and wrong for irregulars nobody has
+ * written yet; the cost of being wrong is one card line reading slightly off,
+ * which is not worth a pluralisation library or a second manifest member for a
+ * block to declare its own singular.
+ */
+function singularise(noun: string): string {
+    return noun.endsWith('s') ? noun.slice(0, -1) : noun;
+}
+
+/**
  * Resolve one field's current value the way that field's own `control` implies.
  *
  * Returns an empty string when the field is unset, which is what drives
@@ -89,6 +102,40 @@ function resolveValue(
             return raw
                 .filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '')
                 .join(' · ');
+        }
+        /*
+         * Counted, not listed — the one place this file's "show the values"
+         * instinct is wrong. A record-shaped entry has no single string to show,
+         * and the obvious alternative (joining each row's first column) reads as a
+         * list of unrelated words on a card that has one line to spend. "3 fields"
+         * is what an author actually wants to check at a glance; the inspector is
+         * where the contents live.
+         *
+         * The noun comes from the declaring field's own `label`, lowercased, so
+         * this stays free of what any particular block's list holds — a block
+         * listing links gets "3 links" with no edit here.
+         *
+         * A row counts once any of its **text** columns has something in it, so a
+         * half-added row does not inflate the count. Deliberately string-only: a
+         * toggle has a value from the moment the row exists, so counting one would
+         * make every blank row count. The consequence to know about is that a list
+         * whose columns are *all* toggles would read as empty forever — there is no
+         * such list today, and the fix when there is one is to ask whether any
+         * column differs from its default rather than to count booleans here.
+         */
+        case 'objectList': {
+            if (!Array.isArray(raw)) return '';
+            const filled = raw.filter(
+                (entry) =>
+                    entry !== null &&
+                    typeof entry === 'object' &&
+                    Object.values(entry as Record<string, unknown>).some(
+                        (value) => typeof value === 'string' && value.trim() !== ''
+                    )
+            );
+            if (filled.length === 0) return '';
+            const noun = field.label.toLowerCase();
+            return `${filled.length} ${filled.length === 1 ? singularise(noun) : noun}`;
         }
         /*
          * An **open** gate reads as unset, so a card only ever mentions the

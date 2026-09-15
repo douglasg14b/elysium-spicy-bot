@@ -210,12 +210,55 @@ only renders** — never the other way round.
 | --- | --- | --- |
 | `rolePicker` | role id | any role. Never make someone type a snowflake. |
 | `channelPicker` | channel id | any channel. Same. |
-| `text` | string | one line. `maxLength`, `placeholder`, `rendersTokens`. |
+| `text` | string | one line. `maxLength`, `placeholder`, `rendersTokens`. Set `optional: true` when the schema is `.optional()` over a non-empty floor (`z.string().min(1).optional()`, a url) — clearing the box then removes the key instead of writing `''`, which such a schema rejects and `validateNodeData` refuses the whole save over. A field whose description says "leave empty for none" needs it. |
 | `longText` | string | a message body. `maxLength`, `placeholder`, `rendersTokens`. |
 | `duration` | milliseconds | any span. Shows a number plus a unit, so nobody hand-computes `604800000`. Set `optional: true` when absence is meaningful — clearing it removes the key rather than writing a zero. `placeholder` hints the empty number box — worth having chiefly on an `optional` field (e.g. `'No limit'`), where an empty box is a real setting rather than a blank. A field with a `defaultValue` is never empty, so a hint for it could never render. |
 | `segmented` | string | a few short choices, all visible at once. Needs `options`. Roughly two to four, but **label width decides**: segments split the inspector's width evenly, so one-word labels fit and full clauses do not. |
 | `select` | string | a dropdown. Needs `options`. Use it once the labels are long enough to be unreadable side by side, or there are more of them than segments can hold — `action.waitForEvent` has only three choices but picks this, because "They click a flow button" cannot be squeezed into a third of the panel. |
 | `colour` | `#RRGGBB` | a colour. `swatches` to suggest some. |
+| `textList` | `string[]` | an ordered list of short strings an author types. `placeholder`, `maxLength` (of **one entry**), `minEntries`, `maxEntries`, `addLabel`. |
+| `objectList` | `Record<string, unknown>[]` | an ordered list of **records** — `textList` one dimension up. Needs `columns`; also takes `minEntries`, `maxEntries`, `addLabel`. See below. |
+| `eligibility` | an `Eligibility` object | who is allowed. Declares no options: the principals are a closed vocabulary the control reads from `engine/eligibility.ts`. |
+
+### A list of records — `objectList`
+
+Use it when one entry is several values that belong together, the way an embed
+field is `{ name, value, inline }`. Each entry carries the same declared
+`columns`, and a column is `text`, `longText` or `toggle` — nothing else. A
+column wanting a role picker would be a form inside a list row, which is a
+different control with a different layout problem rather than a wider member
+here.
+
+```ts
+{
+    key: 'fields',
+    label: 'Fields',
+    control: 'objectList',
+    columns: [
+        { key: 'name',   label: 'Heading', control: 'text',     maxLength: 256,  rendersTokens: true },
+        { key: 'value',  label: 'Text',    control: 'longText', maxLength: 1024, rendersTokens: true },
+        { key: 'inline', label: 'Side by side', control: 'toggle' },
+    ],
+    maxEntries: 25,
+    addLabel: 'Add a field',
+    defaultValue: [],
+}
+```
+
+Three things worth knowing before you declare one:
+
+- **`rendersTokens` works per column**, and the expansion is a *separate walk*
+  from the scalar one. `isCopyField` narrows to the two single-string arms and
+  does not see a column; `copyColumnsOf` is its counterpart, and both the
+  executor and save-time validation use them together.
+- **Conformance checks the columns against the schema** (`checkFieldColumns`).
+  An entry's keys live inside an array element, so the key-for-key agreement
+  between `configFields` and the schema's top level does not reach them — a
+  column named `title` over a schema expecting `name` would otherwise render a
+  row whose every keystroke is discarded at save.
+- **The card counts rather than lists.** A record has no single string to show,
+  so `cardSummary` renders `3 fields`, taking the noun from the field's own
+  `label`.
 
 `defaultValue` is the starting value when a node is dropped on the canvas. It is **schema
 input**: if your schema also carries a `.default()` for that key, the two must be the same
@@ -259,6 +302,9 @@ way that field's own `control` already implies:
 | `duration` | `5m` (via the same formatter the inspector uses) |
 | `segmented` / `select` | the matching option's `label`, not the raw stored value — `action.waitForEvent`'s `eventKind: 'buttonClick'` renders as "They click a flow button", never `buttonClick` |
 | `text` / `longText` / `colour` | the raw string value |
+| `textList` | the entries joined on ` · `, blanks dropped |
+| `objectList` | a count plus the field's own label, e.g. `3 fields` — a record has no one string to show |
+| `eligibility` | a short phrase, or nothing at all when the gate is open |
 
 `cardSummary` never repeats that resolution logic; it only says which field, what surrounds it,
 and what to show in its place when it's unset:
@@ -408,10 +454,17 @@ Available in this slice, and nothing else:
 | `{{guild.name}}` | The server's name |
 | `{{var.<name>}}` | A value an earlier block recorded |
 
-Only the `text` and `longText` arms carry the flag, and it is **off by default** — which is the
-right default, because most string fields are not copy: a message id, an emoji, a button label.
-Turning it on for one of those would turn a stray brace into a failed run. Forgetting it on a
-field that *is* copy is the more visible mistake: the braces are posted verbatim.
+The `text` and `longText` arms carry the flag, as do an `objectList`'s `text` and `longText`
+**columns**, and it is **off by default** — which is the right default, because most string
+fields are not copy: a message id, an emoji, a button label. Turning it on for one of those would
+turn a stray brace into a failed run. Forgetting it on a field that *is* copy is the more visible
+mistake: the braces are posted verbatim.
+
+A column's copy is expanded by a **separate walk** from a field's. `isCopyField` narrows to the
+two single-string arms and cannot see a column; `copyColumnsOf` answers the other half, and the
+executor and `checkCopyTokens` each use both. A failure inside a list names the row an author
+sees — `"Fields" Text on entry 2` — because "the Fields field is wrong" is unactionable on a list
+of twenty.
 
 Three things fail rather than degrade, all of them naming the node:
 

@@ -553,6 +553,180 @@ describe('list bounds that describe a list no author could build', () => {
     });
 });
 
+describe('an objectList whose columns do not describe the entries its schema takes', () => {
+    const entry = z.object({
+        name: z.string().min(1).max(256),
+        value: z.string().min(1).max(1024),
+        inline: z.boolean().default(false),
+    });
+
+    /** A single `objectList` over a list of `{name, value, inline}`, patched per case. */
+    function columnsManifest(field: Record<string, unknown>): Record<string, unknown> {
+        return manifestWith({
+            configSchema: z.object({ rows: z.array(entry).max(25).default([]) }),
+            configFields: [
+                {
+                    key: 'rows',
+                    label: 'Rows',
+                    control: 'objectList',
+                    defaultValue: [],
+                    columns: [
+                        { key: 'name', label: 'Heading', control: 'text', maxLength: 256 },
+                        { key: 'value', label: 'Text', control: 'longText', maxLength: 1024 },
+                        { key: 'inline', label: 'Side by side', control: 'toggle' },
+                    ],
+                    ...field,
+                },
+            ],
+        });
+    }
+
+    it('accepts columns that match the entry schema exactly', () => {
+        expect(checkBlockConformance(columnsManifest({}))).toEqual([]);
+    });
+
+    it('catches an objectList declaring no columns at all', () => {
+        expect(checkBlockConformance(columnsManifest({ columns: [] })).join('\n')).toMatch(
+            /declares no columns/
+        );
+    });
+
+    it('catches a renamed column, which the schema rejects outright', () => {
+        expect(
+            checkBlockConformance(
+                columnsManifest({
+                    columns: [
+                        { key: 'title', label: 'Heading', control: 'text' },
+                        { key: 'value', label: 'Text', control: 'longText' },
+                    ],
+                })
+            ).join('\n')
+        ).toMatch(/configSchema rejects a list holding such entries/);
+    });
+
+    /**
+     * The direction a parse alone cannot see. Zod strips an unknown key rather
+     * than refusing it, so this entry validates and the column's every keystroke
+     * is discarded — the exact failure `checkFieldColumns` exists to catch.
+     */
+    it('catches an extra column the schema silently strips', () => {
+        expect(
+            checkBlockConformance(
+                columnsManifest({
+                    columns: [
+                        { key: 'name', label: 'Heading', control: 'text' },
+                        { key: 'value', label: 'Text', control: 'longText' },
+                        { key: 'nope', label: 'Typo', control: 'text' },
+                    ],
+                })
+            ).join('\n')
+        ).toMatch(/declares the column\(s\) \[nope\], which its configSchema does not validate/);
+    });
+
+    it('catches a column asking for a control a column may not use', () => {
+        expect(
+            checkBlockConformance(
+                columnsManifest({
+                    columns: [
+                        { key: 'name', label: 'Heading', control: 'colour' },
+                        { key: 'value', label: 'Text', control: 'longText' },
+                    ],
+                })
+            ).join('\n')
+        ).toMatch(/is not one a column may use/);
+    });
+
+    it('catches a duplicate column and one with no label', () => {
+        const issues = checkBlockConformance(
+            columnsManifest({
+                columns: [
+                    { key: 'name', label: 'Heading', control: 'text' },
+                    { key: 'name', control: 'text' },
+                ],
+            })
+        ).join('\n');
+
+        expect(issues).toMatch(/declares the column "name" twice/);
+        expect(issues).toMatch(/needs a label/);
+    });
+
+    it('catches a toggle declaring members a checkbox cannot honour', () => {
+        expect(
+            checkBlockConformance(
+                columnsManifest({
+                    columns: [
+                        { key: 'name', label: 'Heading', control: 'text' },
+                        { key: 'value', label: 'Text', control: 'longText' },
+                        { key: 'inline', label: 'Side by side', control: 'toggle', maxLength: 10 },
+                    ],
+                })
+            ).join('\n')
+        ).toMatch(/is a toggle but declares maxLength/);
+    });
+
+    it('holds one column’s maxLength to the schema, in both directions', () => {
+        expect(
+            checkBlockConformance(
+                columnsManifest({
+                    columns: [
+                        { key: 'name', label: 'Heading', control: 'text', maxLength: 500 },
+                        { key: 'value', label: 'Text', control: 'longText' },
+                    ],
+                })
+            ).join('\n')
+        ).toMatch(/column "name" on "rows" declares maxLength 500.*rejects a value of exactly that length/s);
+
+        expect(
+            checkBlockConformance(
+                columnsManifest({
+                    columns: [
+                        { key: 'name', label: 'Heading', control: 'text', maxLength: 10 },
+                        { key: 'value', label: 'Text', control: 'longText' },
+                    ],
+                })
+            ).join('\n')
+        ).toMatch(/column "name" on "rows" declares maxLength 10.*accepts a longer value/s);
+    });
+
+    /**
+     * A schema needing two entries before it will judge one.
+     *
+     * A single-entry probe fails on list *length* here, which would be reported as
+     * "the schema rejects your columns" — a false finding against a correct
+     * manifest — and would then skip every column's maxLength on the early return.
+     */
+    /**
+     * Declares `minEntries` and **no** `maxEntries`, deliberately.
+     *
+     * A ceiling read off `maxEntries` alone collapses to 1 for this field, which
+     * restores the single-entry probe the sweep exists to replace — and the first
+     * version of this case declared both bounds, so the maximum carried it to 2
+     * and the gap stayed invisible.
+     */
+    it('says nothing about correct columns under a schema with a list minimum', () => {
+        expect(
+            checkBlockConformance(
+                manifestWith({
+                    configSchema: z.object({ rows: z.array(entry).min(2) }),
+                    configFields: [
+                        {
+                            key: 'rows',
+                            label: 'Rows',
+                            control: 'objectList',
+                            minEntries: 2,
+                            columns: [
+                                { key: 'name', label: 'Heading', control: 'text', maxLength: 256 },
+                                { key: 'value', label: 'Text', control: 'longText', maxLength: 1024 },
+                                { key: 'inline', label: 'Side by side', control: 'toggle' },
+                            ],
+                        },
+                    ],
+                })
+            )
+        ).toEqual([]);
+    });
+});
+
 describe('a card summary that does not describe the fields it claims to', () => {
     it('accepts a manifest with no cardSummary at all', () => {
         expect(checkBlockConformance(validManifest())).toEqual([]);

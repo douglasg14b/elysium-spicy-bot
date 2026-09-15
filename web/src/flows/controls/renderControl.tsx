@@ -16,6 +16,7 @@ import { ColourControl } from './ColourControl';
 import { DurationControl } from './DurationControl';
 import { SegmentedChoiceControl, SelectChoiceControl } from './ChoiceControls';
 import { LongTextControl, TextControl } from './TextControls';
+import { ObjectListControl } from './ObjectListControl';
 import { TextListControl } from './TextListControl';
 import type { ControlChange, ControlContext } from './types';
 
@@ -54,6 +55,8 @@ export function renderControl(
             return <ColourControl field={field} {...props} />;
         case 'textList':
             return <TextListControl field={field} {...props} />;
+        case 'objectList':
+            return <ObjectListControl field={field} {...props} />;
         case 'eligibility':
             return <EligibilityControl field={field} {...props} />;
         default: {
