@@ -8,6 +8,7 @@ import {
     BLOCK_KINDS,
     BLOCK_PALETTE_GROUPS,
     FLOW_CONTEXT_REQUIREMENTS,
+    type BlockConfigColumn,
     type BlockConfigField,
     type BlockConfigOption,
     type BlockControlType,
@@ -358,6 +359,7 @@ function checkConfigFields(label: string, configFields: unknown, configSchema: u
         issues.push(...checkFieldChoices(label, key, field, fieldSchema));
         issues.push(...checkFieldMaxLength(label, key, field, fieldSchema));
         issues.push(...checkFieldEntryBounds(label, key, field, fieldSchema));
+        issues.push(...checkFieldColumns(label, key, field, fieldSchema));
     }
 
     for (const key of Object.keys(shape)) {
@@ -683,7 +685,32 @@ function checkFieldEntryBounds(
         ];
     }
 
-    const listOf = (count: number): readonly string[] => Array.from({ length: count }, () => 'a');
+    /*
+     * One probe entry, shaped for whichever list control this is.
+     *
+     * An `objectList`'s schema validates *records*, so a list of `'a'` is rejected
+     * at every length — which the sweep below would read as "the schema constrains
+     * its entries" and fall silent, leaving the bounds unchecked exactly as the
+     * bare-string probe once did for `textList`. The entry is built from the
+     * declared columns so it satisfies the schema's required keys; a column whose
+     * own constraint rejects `'a'` puts this back in the escape the sweep is for,
+     * which is the same correct outcome `textList` already has.
+     */
+    const probeEntry = (): unknown => {
+        if (field.control !== 'objectList') {
+            return 'a';
+        }
+        const columns = 'columns' in field && Array.isArray(field.columns) ? field.columns : [];
+        const entry: Record<string, unknown> = {};
+        for (const column of columns as readonly Partial<BlockConfigColumn>[]) {
+            if (typeof column?.key === 'string' && column.key) {
+                entry[column.key] = column.control === 'toggle' ? false : 'a';
+            }
+        }
+        return entry;
+    };
+
+    const listOf = (count: number): readonly unknown[] => Array.from({ length: count }, probeEntry);
 
     /*
      * Everything below is about **how many** entries are allowed, so it is only
@@ -730,6 +757,153 @@ function checkFieldEntryBounds(
         issues.push(
             `${label}: the field "${key}" declares minEntries ${minEntries}, but its configSchema rejects ` +
                 'a list that short, so the control would call a list valid that the save then refuses.'
+        );
+    }
+
+    return issues;
+}
+
+/**
+ * An `objectList`'s columns must describe an entry the schema actually validates.
+ *
+ * Without this the arm is the one place a block could declare a form that saves
+ * nothing: an entry's keys live *inside* an array element, so the key-for-key
+ * agreement `checkConfigFields` enforces between `configFields` and the schema's
+ * top level does not reach them. A column named `title` over a schema expecting
+ * `name` renders a row whose every keystroke is discarded at save, with no
+ * message naming the column — which is why this checks the direction that bites
+ * as well as the obvious one.
+ *
+ * Probed rather than read off the schema, the way every other check here works:
+ * an entry built from the declared columns must parse, and the `maxLength` on
+ * each column is held to the schema at its own boundary.
+ */
+function checkFieldColumns(
+    label: string,
+    key: string,
+    field: Partial<BlockConfigField>,
+    fieldSchema: ZodType
+): readonly string[] {
+    if (field.control !== 'objectList') {
+        return [];
+    }
+
+    const columns = 'columns' in field ? field.columns : undefined;
+    if (!Array.isArray(columns) || columns.length === 0) {
+        return [
+            `${label}: the objectList field "${key}" declares no columns, so the builder would draw ` +
+                'rows with nothing in them and an author could never set the key.',
+        ];
+    }
+
+    const issues: string[] = [];
+    const declared = new Set<string>();
+    const entry: Record<string, unknown> = {};
+
+    for (const column of columns as readonly Partial<BlockConfigColumn>[]) {
+        if (typeof column?.key !== 'string' || !column.key) {
+            issues.push(`${label}: a column on the field "${key}" has no key.`);
+            continue;
+        }
+        if (declared.has(column.key)) {
+            issues.push(`${label}: the field "${key}" declares the column "${column.key}" twice.`);
+        }
+        declared.add(column.key);
+
+        if (!column.label) {
+            issues.push(`${label}: the column "${column.key}" on "${key}" needs a label.`);
+        }
+
+        // A toggle has no text to hint at and no tokens to expand in, so either
+        // member on one is a declaration the control will silently ignore.
+        if (column.control === 'toggle') {
+            for (const member of ['placeholder', 'maxLength', 'rendersTokens'] as const) {
+                if (column[member] !== undefined) {
+                    issues.push(
+                        `${label}: the column "${column.key}" on "${key}" is a toggle but declares ` +
+                            `${member}, which a checkbox has no way to honour.`
+                    );
+                }
+            }
+        }
+
+        entry[column.key] = column.control === 'toggle' ? false : 'a';
+    }
+
+    if (issues.length > 0) {
+        return issues;
+    }
+
+    // The columns as a whole must make an entry the schema takes. A miss here is
+    // usually a renamed key, so the message shows what was offered rather than
+    // only what was refused.
+    const parsed = fieldSchema.safeParse([entry]);
+    if (!parsed.success) {
+        return [
+            `${label}: the field "${key}" declares the columns [${[...declared].join(', ')}], but its ` +
+                'configSchema rejects a list holding one such entry, so every row an author fills in ' +
+                `would be discarded at save: ${parsed.error.issues.map((issue) => issue.message).join(', ')}`,
+        ];
+    }
+
+    for (const column of columns as readonly BlockConfigColumn[]) {
+        issues.push(...checkColumnMaxLength(label, key, column, fieldSchema, entry));
+    }
+
+    return issues;
+}
+
+/**
+ * One column's `maxLength` against the schema, at the boundary.
+ *
+ * The same two probes and the same escape as {@link checkFieldMaxLength}, one
+ * level down: the value under test varies while every sibling column holds the
+ * value already proven acceptable, so a failure can only be about this column.
+ */
+function checkColumnMaxLength(
+    label: string,
+    key: string,
+    column: BlockConfigColumn,
+    fieldSchema: ZodType,
+    validEntry: Readonly<Record<string, unknown>>
+): readonly string[] {
+    const { maxLength } = column;
+    if (maxLength === undefined) {
+        return [];
+    }
+
+    if (typeof maxLength !== 'number' || !Number.isInteger(maxLength) || maxLength < 1) {
+        return [
+            `${label}: the column "${column.key}" on "${key}" declares maxLength ` +
+                `${JSON.stringify(maxLength)}, which is not a positive whole number of characters.`,
+        ];
+    }
+
+    const probe = (length: number): unknown => [
+        { ...validEntry, [column.key]: 'a'.repeat(length) },
+    ];
+
+    // A format-constrained column rejects the probe on its pattern rather than its
+    // length, so the boundary says nothing — the same escape, and the same reason.
+    if (!fieldSchema.safeParse(probe(1)).success) {
+        return [];
+    }
+
+    const issues: string[] = [];
+
+    if (!fieldSchema.safeParse(probe(maxLength)).success) {
+        issues.push(
+            `${label}: the column "${column.key}" on "${key}" declares maxLength ${maxLength}, but its ` +
+                'configSchema rejects a value of exactly that length. The control would allow a length ' +
+                'the save then refuses.'
+        );
+    }
+
+    if (fieldSchema.safeParse(probe(maxLength + 1)).success) {
+        issues.push(
+            `${label}: the column "${column.key}" on "${key}" declares maxLength ${maxLength}, but its ` +
+                'configSchema accepts a longer value. The control would stop an author short of what ' +
+                'the schema allows.'
         );
     }
 

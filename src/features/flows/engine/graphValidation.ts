@@ -1,7 +1,13 @@
 import type { FlowContextRequirement } from '../blocks/manifest';
 import { getBlockDefinition } from '../blocks/registry';
 import { flowGraphSchema, type FlowGraph } from '../data/flowGraph';
-import { describeVocabulary, isCopyField, isRenderableToken, tokensIn } from './copyRendering';
+import {
+    copyColumnsOf,
+    describeVocabulary,
+    isCopyField,
+    isRenderableToken,
+    tokensIn,
+} from './copyRendering';
 
 export type GraphValidationResult =
     | { valid: true; graph: FlowGraph }
@@ -227,6 +233,28 @@ function checkSuspendingNodesAreReachable(graph: FlowGraph): string[] {
  * that is wrong costs them a save, so this stays open until somebody decides
  * which reading a rejection should take.
  */
+/**
+ * Every unknown token in one authored string, as messages naming where it is.
+ *
+ * `where` is already the reader-facing name of the string — a field label, or a
+ * label plus a column and a row number — so this stays the one place the sentence
+ * is written whichever depth the copy was found at.
+ */
+function rejectedTokenErrors(
+    nodeId: string,
+    nodeType: string,
+    where: string,
+    value: string
+): readonly string[] {
+    return tokensIn(value)
+        .filter((token) => !isRenderableToken(token))
+        .map(
+            (token) =>
+                `Node ${nodeId} (${nodeType}) has ${where} containing {{${token}}}, which is not ` +
+                `something a flow can fill in. ${describeVocabulary()}`
+        );
+}
+
 function checkCopyTokens(graph: FlowGraph): readonly string[] {
     const errors: string[] = [];
 
@@ -237,25 +265,45 @@ function checkCopyTokens(graph: FlowGraph): readonly string[] {
         }
 
         for (const field of block.configFields) {
-            // The same predicate the executor renders by, so a field the engine
+            // The same predicates the executor renders by, so a string the engine
             // would expand cannot be one this check quietly skips.
-            if (!isCopyField(field)) {
+            if (isCopyField(field)) {
+                const value = node.data[field.key];
+                if (typeof value === 'string') {
+                    errors.push(...rejectedTokenErrors(node.id, node.type, `"${field.label}"`, value));
+                }
                 continue;
             }
 
-            const value = node.data[field.key];
-            if (typeof value !== 'string') {
+            // Copy living inside the entries of a list. Checked here rather than
+            // left to run time for the same reason the scalar case is: an author
+            // who mistypes a token should learn at save, not when a member is
+            // watching the flow fail.
+            const columns = copyColumnsOf(field);
+            const entries = node.data[field.key];
+            if (columns.length === 0 || !Array.isArray(entries)) {
                 continue;
             }
 
-            for (const token of tokensIn(value)) {
-                if (isRenderableToken(token)) {
+            for (const [index, entry] of entries.entries()) {
+                if (entry === null || typeof entry !== 'object') {
                     continue;
                 }
-                errors.push(
-                    `Node ${node.id} (${node.type}) has "${field.label}" containing {{${token}}}, which is not ` +
-                        `something a flow can fill in. ${describeVocabulary()}`
-                );
+                const row = entry as Record<string, unknown>;
+                for (const column of columns) {
+                    const value = row[column.key];
+                    if (typeof value !== 'string') {
+                        continue;
+                    }
+                    errors.push(
+                        ...rejectedTokenErrors(
+                            node.id,
+                            node.type,
+                            `"${field.label}" ${column.label} on entry ${index + 1}`,
+                            value
+                        )
+                    );
+                }
             }
         }
     }

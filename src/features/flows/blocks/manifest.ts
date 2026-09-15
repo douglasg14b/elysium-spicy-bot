@@ -64,6 +64,15 @@ export type BlockTriggerSource = (typeof BLOCK_TRIGGER_SOURCES)[number];
  * fetched set rather than a keyboard, so it shares nothing with it but the word
  * "list". `eligibility` is where that list arrived, inside a control whose whole
  * value is an object.
+ *
+ * **`objectList` is `textList` one dimension up**: a list whose entries are
+ * records rather than strings, each record holding the same declared set of text
+ * columns. It exists because a list of `{ name, value, inline }` cannot be
+ * expressed by the controls above without encoding structure into a string — a
+ * delimiter that becomes part of the data and corrupts silently the first time an
+ * author types it — or by correlating three parallel `textList`s by index, where
+ * deleting one row re-pairs every row after it. Both are the "work around the
+ * vocabulary" this list is closed to prevent.
  */
 export const BLOCK_CONTROL_TYPES = [
     /** Searchable role picker showing each role's own colour. */
@@ -84,6 +93,8 @@ export const BLOCK_CONTROL_TYPES = [
     'colour',
     /** An ordered, author-editable list of short strings. */
     'textList',
+    /** An ordered list of records, each a declared set of text columns. */
+    'objectList',
     /** Who is allowed: a principal picker, plus whatever that principal needs. */
     'eligibility',
 ] as const;
@@ -95,6 +106,52 @@ export interface BlockConfigOption {
     /** The value persisted in `node.data`. Must satisfy the block's schema. */
     readonly value: string;
     readonly label: string;
+}
+
+/**
+ * One column of an `objectList` entry — a named text input on every row.
+ *
+ * Deliberately only text and a flag. This is not a second control vocabulary
+ * nested inside the first: a column that wanted a role picker or a colour would
+ * be a form, and a form inside a list row is a different control with a different
+ * layout problem, not a wider member here. Two shapes cover what a record-shaped
+ * list actually holds today — a line of copy, and a boolean the author toggles.
+ */
+export interface BlockConfigColumn {
+    /** The key this column edits **inside one entry**, e.g. `name`. */
+    readonly key: string;
+    readonly label: string;
+    /**
+     * `text` is a single line, `longText` a small autosizing box, and `toggle` a
+     * checkbox storing a boolean.
+     *
+     * A subset of {@link BlockControlType} by coincidence of naming rather than by
+     * reference: widening a control does not widen a column, and a column is not a
+     * place a block can ask for a picker.
+     */
+    readonly control: 'text' | 'longText' | 'toggle';
+    /** Hint shown in this column's empty input. Never on a `toggle`. */
+    readonly placeholder?: string;
+    /**
+     * Maximum characters of **this column's value**, on one entry.
+     *
+     * Held to the schema by `checkFieldColumns`, which probes an entry carrying a
+     * value of exactly this length — so a column claiming 256 over a schema that
+     * stops at 100 is a conformance failure rather than a save an author cannot
+     * predict.
+     */
+    readonly maxLength?: number;
+    /**
+     * Whether this column carries authored copy whose `{{tokens}}` are expanded
+     * before `run` sees them. Never on a `toggle`.
+     *
+     * Same meaning and same default-off reasoning as a `text` field's own flag,
+     * one level down — see {@link BlockConfigField}. `isCopyField` does not narrow
+     * to this arm; `renderNodeCopy` walks the columns separately, because the value
+     * it must expand is a string inside an array of records rather than a string at
+     * a config key.
+     */
+    readonly rendersTokens?: boolean;
 }
 
 interface BlockConfigFieldBase {
@@ -228,6 +285,38 @@ export type BlockConfigField =
            * per entry in both places; declaring the flag before that exists would
            * be a field claiming an expansion nothing performs.
            */
+      })
+    | (BlockConfigFieldBase & {
+          /**
+           * An ordered list of records, each holding the same declared columns.
+           *
+           * `textList` one dimension up, and the same rules apply: every edit emits
+           * a whole new array, an empty list writes `[]` rather than removing the
+           * key, and the schema remains the authority on what saves.
+           */
+          readonly control: 'objectList';
+          /** The columns every entry carries, in the order a row renders them. */
+          readonly columns: readonly BlockConfigColumn[];
+          /** Fewest entries the block can work with. Below it the author is told. */
+          readonly minEntries?: number;
+          /**
+           * Most entries the block can work with. The control stops offering "add"
+           * here, and `checkFieldEntryBounds` holds it to the schema and to
+           * `minEntries` exactly as it does for `textList`.
+           */
+          readonly maxEntries?: number;
+          /** Label for the button that appends a row, e.g. `'Add a field'`. */
+          readonly addLabel?: string;
+          /**
+           * The starting list when a node is dropped.
+           *
+           * `readonly Record<string, unknown>[]` rather than a shape derived from
+           * `columns`: the registry erases a manifest's config type, so there is no
+           * type-level link between a column list and an entry here to derive from.
+           * `checkFieldDefault` parses it against the schema, which is the check
+           * that actually matters and the one a derived type would only duplicate.
+           */
+          readonly defaultValue?: readonly Record<string, unknown>[];
       })
     | (BlockConfigFieldBase & {
           /**

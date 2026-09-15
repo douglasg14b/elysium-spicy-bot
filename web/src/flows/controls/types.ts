@@ -38,17 +38,26 @@ export interface ControlContext {
  * outright rather than leaving it present-but-`undefined`; see `updateNodeConfig`
  * in `FlowBuilderPage` for why the difference is load-bearing.
  *
- * `string[]` is `textList`'s value and `Eligibility` is `eligibility`'s. Both
- * are a **new value every time** rather than a mutated one: the patch lands in
- * React state, so a control that edited its current value in place would write a
- * value the renderer cannot tell apart from the old one.
+ * `string[]` is `textList`'s value, `Record<string, unknown>[]` is `objectList`'s,
+ * and `Eligibility` is `eligibility`'s. All three are a **new value every time**
+ * rather than a mutated one: the patch lands in React state, so a control that
+ * edited its current value in place would write a value the renderer cannot tell
+ * apart from the old one. `objectList` is the first where that rule has to hold at
+ * two levels — a new array of the *same* entry objects is just as invisible.
  *
  * A union of the concrete value types rather than `unknown`, deliberately. It is
  * the one place that says what a `node.data` value may be, so a control emitting
  * a shape no schema accepts fails here rather than at save time in front of an
  * author.
+ *
+ * `Record<string, unknown>[]` is as narrow as this can honestly be: an entry's
+ * keys are declared per field by the block's `columns`, which is data rather than
+ * a type, so there is no shape here to be more specific about. The schema is the
+ * authority, exactly as it is for every other control.
  */
-export type ControlChange = (value: string | number | string[] | Eligibility | undefined) => void;
+export type ControlChange = (
+    value: string | number | string[] | Record<string, unknown>[] | Eligibility | undefined
+) => void;
 
 /** Props every control in this directory takes. */
 export interface ControlProps<TField extends BlockConfigField = BlockConfigField> {

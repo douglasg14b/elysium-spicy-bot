@@ -79,6 +79,7 @@ export const BLOCK_CONTROL_TYPES = [
     'select',
     'colour',
     'textList',
+    'objectList',
     'eligibility',
 ] as const;
 
@@ -137,6 +138,26 @@ export interface BlockConfigOption {
     /** The value persisted in `node.data`. */
     value: string;
     label: string;
+}
+
+/**
+ * One column of an `objectList` entry — a named input on every row.
+ *
+ * Text and a checkbox only. Not a nested control vocabulary: a column asking for a
+ * picker would be a form inside a list row, which is a different control with a
+ * different layout problem rather than a wider member here.
+ */
+export interface BlockConfigColumn {
+    /** The key this column edits **inside one entry**, e.g. `name`. */
+    key: string;
+    label: string;
+    control: 'text' | 'longText' | 'toggle';
+    /** Hint shown in this column's empty input. Never on a `toggle`. */
+    placeholder?: string;
+    /** Maximum characters of this column's value, on one entry. */
+    maxLength?: number;
+    /** Whether this column's `{{tokens}}` are expanded before the block runs. */
+    rendersTokens?: boolean;
 }
 
 interface BlockConfigFieldBase {
@@ -223,6 +244,22 @@ export type BlockConfigField =
           /** Label for the button that appends a row. */
           addLabel?: string;
           defaultValue?: string[];
+      })
+    | (BlockConfigFieldBase & {
+          /**
+           * An ordered list of records, each holding the same declared columns —
+           * `textList` one dimension up.
+           */
+          control: 'objectList';
+          /** The columns every entry carries, in the order a row renders them. */
+          columns: BlockConfigColumn[];
+          /** Fewest entries the block can work with; below it the author is told. */
+          minEntries?: number;
+          /** Most entries the block can work with. "Add" stops being offered here. */
+          maxEntries?: number;
+          /** Label for the button that appends a row. */
+          addLabel?: string;
+          defaultValue?: Record<string, unknown>[];
       })
     | (BlockConfigFieldBase & {
           /**
@@ -422,6 +459,7 @@ export const BLOCK_CONFIG_FIELD_KEYS = {
     select: ['key', 'label', 'description', 'control', 'options', 'defaultValue'],
     colour: ['key', 'label', 'description', 'control', 'swatches', 'defaultValue'],
     textList: ['key', 'label', 'description', 'control', 'placeholder', 'maxLength', 'minEntries', 'maxEntries', 'addLabel', 'defaultValue'],
+    objectList: ['key', 'label', 'description', 'control', 'columns', 'minEntries', 'maxEntries', 'addLabel', 'defaultValue'],
     eligibility: ['key', 'label', 'description', 'control', 'defaultValue'],
 } as const satisfies { [TControl in BlockControlType]: readonly (keyof Extract<BlockConfigField, { control: TControl }>)[] };
 

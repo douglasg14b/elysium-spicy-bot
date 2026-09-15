@@ -110,6 +110,7 @@ const CONFIG_FIELD_FIXTURES = {
     select: { key: 'k', label: 'l', description: 'd', control: 'select', options: [], defaultValue: '' },
     colour: { key: 'k', label: 'l', description: 'd', control: 'colour', swatches: [], defaultValue: '' },
     textList: { key: 'k', label: 'l', description: 'd', control: 'textList', placeholder: 'p', maxLength: 1, minEntries: 1, maxEntries: 1, addLabel: 'a', defaultValue: [] },
+    objectList: { key: 'k', label: 'l', description: 'd', control: 'objectList', columns: [], minEntries: 1, maxEntries: 1, addLabel: 'a', defaultValue: [] },
     eligibility: { key: 'k', label: 'l', description: 'd', control: 'eligibility', defaultValue: { principal: 'anyone' } },
 } as const satisfies { [TControl in BlockControlType]: Extract<BlockConfigField, { control: TControl }> };
 

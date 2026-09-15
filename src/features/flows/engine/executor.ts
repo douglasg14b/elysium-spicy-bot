@@ -11,7 +11,7 @@ import type {
     FlowRunSeed,
     FlowVariableValue,
 } from '../blocks/types';
-import { isCopyField, renderCopy } from './copyRendering';
+import { copyColumnsOf, isCopyField, renderCopy } from './copyRendering';
 import type { FlowStepOutcome, FlowStepSuspension } from './stepOutcome';
 import { releaseWaitMessageControls } from './waitMessageControls';
 
@@ -586,7 +586,12 @@ type RenderedConfig = { ok: true; config: unknown } | { ok: false; error: string
  */
 function renderNodeCopy(block: BlockManifest, config: unknown, context: FlowRunSeed): RenderedConfig {
     const copyFields = block.configFields.filter(isCopyField);
-    if (copyFields.length === 0 || config === null || typeof config !== 'object') {
+    const listFields = block.configFields.filter((field) => copyColumnsOf(field).length > 0);
+    if (
+        (copyFields.length === 0 && listFields.length === 0) ||
+        config === null ||
+        typeof config !== 'object'
+    ) {
         return { ok: true, config };
     }
 
@@ -615,6 +620,64 @@ function renderNodeCopy(block: BlockManifest, config: unknown, context: FlowRunS
         // nothing at all.
         expanded ??= { ...source };
         expanded[field.key] = result.text;
+    }
+
+    // The same expansion one level down, for copy living inside the entries of a
+    // list. Entries are rebuilt rather than mutated: the value handed in is the
+    // object the schema produced, and a block that kept a reference to its own
+    // config would otherwise see it change under it.
+    for (const field of listFields) {
+        const entries = source[field.key];
+        if (!Array.isArray(entries)) {
+            continue;
+        }
+
+        const columns = copyColumnsOf(field);
+        const rendered = [...entries];
+        let updated = false;
+
+        for (const [index, entry] of entries.entries()) {
+            if (entry === null || typeof entry !== 'object') {
+                continue;
+            }
+
+            const row = entry as Record<string, unknown>;
+            let nextRow: Record<string, unknown> | undefined;
+
+            for (const column of columns) {
+                const value = row[column.key];
+                if (typeof value !== 'string' || !value.includes('{{')) {
+                    continue;
+                }
+
+                const result = renderCopy(value, {
+                    context,
+                    // Names the row as an author sees it — one-based, because the
+                    // form numbers rows from one and a message naming "entry 0"
+                    // sends them to the wrong line.
+                    fieldLabel: `"${field.label}" ${column.label} on entry ${index + 1}`,
+                    ...(column.maxLength === undefined ? {} : { maxLength: column.maxLength }),
+                });
+                // The first failure stops the node, matching the scalar loop
+                // above and `renderCopy`'s own first-failure-wins rule.
+                if (!result.ok) {
+                    return { ok: false, error: result.error };
+                }
+
+                nextRow ??= { ...row };
+                nextRow[column.key] = result.text;
+            }
+
+            if (nextRow) {
+                rendered[index] = nextRow;
+                updated = true;
+            }
+        }
+
+        if (updated) {
+            expanded ??= { ...source };
+            expanded[field.key] = rendered;
+        }
     }
 
     return { ok: true, config: expanded ?? config };
