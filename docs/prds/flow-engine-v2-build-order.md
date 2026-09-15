@@ -388,6 +388,35 @@ The bar is PRD §1.3 exactly: *a verification ticket is opened by a flow, is dis
 
 **Not planned in detail yet.** What follows is the ground truth this step has to be planned against, recorded now because it arrived from the operator and it materially shrinks §5.6.
 
+### The table is the decision surface, not an index into Discord
+
+**Directed by the operator, and it sets the shape of the whole step.** The `tickets` table is not there to help find a channel faster. It is there so that **a flow can decide without touching Discord at all**, and it should carry whatever a decision needs — not merely a pointer to where the answer is rendered.
+
+The difference is not academic. "Does this member have an open verification ticket?" today means: list channels, filter candidates, fetch pinned messages, decode a base64 blob, read `status`. Every step is a rate-limited API call that can fail or return stale cache. A condition block asking that on `memberJoin` pays it per member, and `findTicketStateMessage`'s three-tier fallback (cache → pinned → last ten messages) means the cost is unpredictable rather than merely high. With the row carrying subject, type and status, the same question is one indexed query, and the channel id is dereferenced **only when a flow actually posts something**.
+
+Three consequences follow, and they are what make this a design principle rather than a schema note:
+
+- **Denormalise deliberately.** Anything a *condition* needs is a column, even where Discord is nominally the owner — subject, opener, claimer, type, status, opened/closed timestamps. A condition that has to resolve a snowflake to answer has not been moved off Discord, it has just moved the call somewhere less obvious.
+- **The channel id is an output, not an identity.** A ticket is a record that *has* a channel. That ordering is what lets a flow reason about a ticket whose channel was deleted, and it is the opposite of today's model, where the channel is the only handle and its embed is the only state.
+- **A deleted channel must not destroy the record.** Today it does, completely and silently. Once the row is the decision surface, "the channel is gone" becomes a *fact about the ticket* rather than the erasure of one — which is also what makes §5.9's per-member journey state answerable at all.
+
+This is the strongest argument yet for the full refactor over a parallel path: a second store that Discord can silently contradict is worse than either store alone, because a condition would read the fast one and be wrong.
+
+**What the columns have to be, derived from consumers rather than guessed.** §5.6 names three groups that read this table, and between them they fix the shape:
+
+| Consumer (§5.6) | What it must answer without a Discord call |
+|---|---|
+| *Conditions*: is of type, is claimed, subject has an open ticket of type X | `type`, `claimerId` (null = unclaimed), `subjectId`, `status` — all indexed, since "subject has an open ticket of type X" is the hot one and runs per member |
+| *Triggers*: opened / claimed / closed / deleted, filterable by type | the same columns, plus the transition timestamps that say *when* — a trigger fires on a change, so the row must record changes rather than only current state |
+| *Blocks*: open (outputs `ticketId`, `channelId`, `claimerId`), post, close, reopen, delete, assign | `channelId` as an output, and a stable `ticketId` that a later block can hold across a park |
+
+Two things fall out of that, which a field list written from §5.6 alone would miss:
+
+- **`status` cannot stay the current three-value set.** `TicketState.status` is `'active' | 'claimed' | 'closed'`, which conflates *claimed* — a fact about who owns it — with *open/closed*, a fact about lifecycle. §5.6 wants "is claimed" and "has an open ticket" as **separate** conditions, and they are not separable from a single enum where claiming moves you out of `active`. Claimer belongs in its own nullable column and `status` reduces to the lifecycle. This is the one place the existing shape should *not* be transcribed, and it is the reason the table is a redesign rather than a copy.
+- **`deleted` is a status, not a row deletion.** §5.6 lists a delete *trigger*, which cannot fire on a row that no longer exists. It also means the record survives to answer "did this member ever have a verification ticket?", which §5.9's per-member journey state needs.
+
+**Flows-side schema freedom applies here.** Per the ground truth below, nothing is using flows, so the flows half of this can be designed correctly rather than compatibly. The tickets half cannot — it has live data — which is exactly the seam the cutover runs along.
+
 ### Ground truth, from the operator (2026-09-15)
 
 Four facts. Each removes work the PRD assumes, and the first two are the reason this step is smaller than §5.6 reads.
