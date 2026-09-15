@@ -386,7 +386,27 @@ Two of these are real dependencies. The others are preferences, and saying which
 
 The bar is PRD §1.3 exactly: *a verification ticket is opened by a flow, is distinguishable from a support ticket, and its channel is addressable by later blocks.*
 
-**Not planned in detail yet.** What follows is the ground truth this step has to be planned against, recorded now because it arrived from the operator and it materially shrinks §5.6.
+**In progress.** The record, the service and the first adapter blocks landed in `ead2348`. What follows is the ground truth the step is being built against, recorded when it arrived from the operator because it materially shrinks §5.6.
+
+### What has landed (2026-09-15, `ead2348`)
+
+The foundation, verified against the real dev database rather than only the typechecker.
+
+| Piece | File | Note |
+|---|---|---|
+| Durable record | `tickets` table + `data/ticketsSchema.ts` | `status` is `open`/`closed`/`deleted`, claimer in its own nullable column, `channelId` nullable |
+| Migration | `migrations/2026-09-17-Create_Tickets_Table.ts` | Applied to dev SQLite; columns, nullability and all three indexes confirmed by `PRAGMA` |
+| The deliverable | `ticketService.ts` | Discord-free and flows-free; every transition states what it refuses |
+| Type vocabulary | `logic/ticketTypes.ts` | Permission model and name template **per type**, lifted to data |
+| Discord effects | `logic/ticketChannelOps.ts` | Takes a `Guild`, not an interaction — the change that makes a flow able to open a ticket |
+| Rendering | `logic/ticketPresentation.ts` | The embed is now a *rendering* of the row, with no hidden state field |
+| Adapters | 3 blocks: `action.openTicket`, `action.closeTicket`, `condition.hasOpenTicket` | Blocks 16–18; they decide nothing |
+
+**Three long-standing defects fixed as a by-product**, each because the new path had to state the intent anyway: numbering is atomic (the unused helper is now the only path), name templates are per type and actually honoured, and the permission model is declared once instead of re-derived at creation/close/reopen.
+
+**Evidence, not assertion.** A live round-trip against the dev database confirmed the two properties the redesign exists for — claiming leaves `status` untouched, and a deleted ticket keeps its row while ceasing to resolve by channel — plus that the unique number index rejects a duplicate. The double-claim guard was sabotage-verified: removing it fails exactly one named test. Typecheck holds at the pre-existing 17 with none in touched paths; 852/853 tests pass, the single failure confirmed pre-existing on a clean stash.
+
+**What is deliberately not done yet.** The old embed-based path (`logic/ticketState.ts` and the five button handlers) is still present and still wired up, so nothing is user-visibly different yet. Replacing the mod-facing surface — which is what decision 3 actually cashes out to — is the next piece of work, and it is the one that carries the stated cost.
 
 ### Decisions taken (2026-09-15) — these override §5.6 where they conflict
 
@@ -568,7 +588,7 @@ Slice C mutates durable data, which reads like the strategy's "irreversible" cla
 
 - **17 pre-existing `tsc` errors** outside the flows path, plus `github-plan-cli/__tests__/ciBranchProductDiff.test.ts`. Claim "no new errors", never "clean".
 - **`birthdayAnnouncementService.test.ts`** depends on the wall clock and fails at night.
-- **Block discovery is re-run per test file, and the fix recorded here was wrong.** Eighteen test files (not ten) call `ensureBlocksDiscovered`, against 15 blocks (not 13), and each does a filesystem scan plus a dynamic import per block directory. Slice B raised `testTimeout` to 20s because the work is genuinely slow rather than hung. **This entry used to say the real fix was "caching discovery once per process" — that is already implemented** (`registry.ts` memoizes into a module-level promise) **and does not help**, because Vitest gives each test file its own module registry. A full run spends ~114s collecting against ~60s testing. The two things that would actually work — a shared import graph (`singleThread`/shared setup) or a generated manifest — cost test isolation and step 1's no-build-step guarantee respectively, so neither is free and neither is chosen. Symptom is worst on a **cold filesystem cache**, so it reproduces on a fresh clone, on CI, and after a reboot rather than at random; it cost one red first-run on 2026-09-15 that passed on every re-run. Costs re-runs, not correctness. Full reasoning is in `vitest.config.ts`'s comment.
+- **Block discovery is re-run per test file, and the fix recorded here was wrong.** Eighteen test files (not ten) call `ensureBlocksDiscovered`, against 18 blocks as of `ead2348` (13 when this was first written, then 15), and each does a filesystem scan plus a dynamic import per block directory. The count grows with every block, so the collect cost below is a floor rather than a fixed number. Slice B raised `testTimeout` to 20s because the work is genuinely slow rather than hung. **This entry used to say the real fix was "caching discovery once per process" — that is already implemented** (`registry.ts` memoizes into a module-level promise) **and does not help**, because Vitest gives each test file its own module registry. A full run spends ~114s collecting against ~60s testing. The two things that would actually work — a shared import graph (`singleThread`/shared setup) or a generated manifest — cost test isolation and step 1's no-build-step guarantee respectively, so neither is free and neither is chosen. Symptom is worst on a **cold filesystem cache**, so it reproduces on a fresh clone, on CI, and after a reboot rather than at random; it cost one red first-run on 2026-09-15 that passed on every re-run. Costs re-runs, not correctness. Full reasoning is in `vitest.config.ts`'s comment.
 - **`web/` has no *own* test runner, but its tests do run.** This was recorded wrongly here for several steps: the root `vitest.config.ts` include glob is repo-wide and excludes only `node_modules`, `dist`, and `*.live.test.ts`, so `pnpm test` collects **23 tests** under `web/src/flows/__tests__/` and `web/src/flows/controls/__tests__/` (`cardSummary`, `defaultDataFor`, `duration`). Browser-side **pure functions are testable and have an established home**; React components are not. Corrected 2026-09-14 by running `npx vitest list`.
 - **There is no CI, and this is broader than the test suite.** `pnpm build` is `tsc --noEmit`, but nothing invokes it: the three `.github/workflows/` files are Jarvis issue/PR automation, the `Dockerfile` runs only `build:web`, and there is no ESLint, Biome, or git hook. So the vitest gates, the typecheck, *and* the compile-time guards (`_SnapshotShapesAgree` in `flowRunsRepo.ts`, `FixturesAreExhaustive` in `nodeDescriptorDrift.test.ts`) all fire only for whoever runs them locally. The 17 standing `tsc` errors are the evidence: nothing has been enforcing a typecheck for long enough that they accumulated.
 
