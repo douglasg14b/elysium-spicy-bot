@@ -72,9 +72,11 @@ export const KIND_STYLES: Record<NodeKind, KindStyle> = {
  *
  * Tone is meaning; the stylesheet lives here, which is why the engine never carries
  * one. Both forms are needed because the two renderers cannot share a value: DOM
- * nodes take a Mantine CSS variable, while React Flow paints edges into SVG
- * `stroke`/`fill`, which cannot resolve one. They are not the same colour in every
- * case either — the neutral edge is deliberately dimmer than a neutral handle ring.
+ * nodes take a Mantine CSS variable, while an edge's curve is an SVG `stroke`,
+ * which cannot resolve one. (An edge's *label* is DOM, drawn through
+ * `EdgeLabelRenderer`, so it takes the CSS form like anything else.) They are not
+ * the same colour in every case either — the neutral edge is deliberately dimmer
+ * than a neutral handle ring.
  *
  * One table keyed by tone, so adding a tone to the vocabulary cannot supply one form
  * and forget the other.
@@ -109,13 +111,23 @@ export function handlesAreLabelled(handles: readonly BlockOutputHandle[]): boole
     return handles.length > 1;
 }
 
-/** Tone → flat hex, for edges React Flow paints into SVG. */
+/** Tone → flat hex, for the SVG stroke an edge's curve is drawn with. */
 export const HANDLE_TONE_HEX: Record<BlockHandleTone, string> = {
     positive: HANDLE_TONE_PALETTE.positive.hex,
     negative: HANDLE_TONE_PALETTE.negative.hex,
     caution: HANDLE_TONE_PALETTE.caution.hex,
     neutral: HANDLE_TONE_PALETTE.neutral.hex,
 };
+
+/**
+ * How thick an unselected connection is drawn.
+ *
+ * Shared because two places need to agree on it: the page styles each edge as it is
+ * created, and the edge component has to know what to fall back to for one that
+ * arrived without a style. A disagreement there shows up as connections that change
+ * thickness depending on how they were made.
+ */
+export const EDGE_STROKE_WIDTH = 2.5;
 
 /** Compact duration for card summaries: 90000 -> "1m 30s". */
 export function formatDuration(ms: number): string {

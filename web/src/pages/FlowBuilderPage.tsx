@@ -20,6 +20,7 @@ import {
     useReactFlow,
     type Connection,
     type Edge,
+    type EdgeTypes,
     type NodeTypes,
     type OnConnect,
 } from '@xyflow/react';
@@ -60,10 +61,15 @@ import type {
 } from '../api/types';
 import { FLOW_GRAPH_VERSION } from '../api/types';
 import { FlowNodeCard, type FlowCardNode, type FlowNodeCardData } from '../flows/FlowNodeCard';
+// Aliased: `FlowEdge` is already taken here by the serialized-graph edge type from
+// `../api/types`. The component draws one of those; it is not one.
+import { FlowEdge as FlowEdgeComponent, EdgeActionsProvider } from '../flows/FlowEdge';
+import { graphIncluding } from '../flows/graphHistory';
 import { NodePalette, NODE_DRAG_MIME } from '../flows/NodePalette';
 import { NodeInspector } from '../flows/NodeInspector';
 import {
     defaultDataFor,
+    EDGE_STROKE_WIDTH,
     emptyGraph,
     handlesAreLabelled,
     HANDLE_TONE_HEX,
@@ -72,6 +78,19 @@ import {
 import { useGuilds } from '../guilds/GuildContext';
 
 const nodeTypes: NodeTypes = { flowCard: FlowNodeCard };
+const edgeTypes: EdgeTypes = { flowEdge: FlowEdgeComponent };
+
+/**
+ * The edge type every connection is drawn with.
+ *
+ * Named rather than inlined because it has to agree in three places — the
+ * registration above, `styleEdge`, and `defaultEdgeOptions` — and a connection that
+ * names a type React Flow has not been given renders as nothing at all.
+ */
+const FLOW_EDGE_TYPE = 'flowEdge';
+
+/** How many graph snapshots the undo stack keeps before dropping the oldest. */
+const HISTORY_LIMIT = 50;
 
 /**
  * Edge styling: an edge inherits the colour and label of the handle it leaves by.
@@ -88,11 +107,18 @@ function styleEdge(edge: Edge, sourceDescriptor: NodeDescriptor | undefined): Ed
 
     return {
         ...edge,
+        type: FLOW_EDGE_TYPE,
         animated: true,
-        style: { stroke, strokeWidth: 2.5 },
+        style: { stroke, strokeWidth: EDGE_STROKE_WIDTH },
         label,
-        labelStyle: { fill: stroke, fontSize: 10, fontWeight: 700 },
-        labelBgStyle: { fill: '#1a1b23' },
+        // CSS, not SVG `fill`: `FlowEdge` draws the label into an HTML div via
+        // `EdgeLabelRenderer`. These used to say `fill`, which was right for React
+        // Flow's built-in SVG `<text>`/`<rect>` label and silently does nothing on
+        // a div — the branch labels kept their text but lost their tone colour and
+        // their backing plate against the canvas. Nothing renders these into SVG
+        // any more, so there is one vocabulary here rather than a translation.
+        labelStyle: { color: stroke, fontSize: 10, fontWeight: 700 },
+        labelBgStyle: { background: '#1a1b23' },
     };
 }
 
@@ -167,15 +193,26 @@ function FlowBuilder() {
         latest.current = { nodes, edges };
     }, [nodes, edges]);
 
-    /** Push the current graph onto the undo stack before a mutating change. */
-    const pushHistory = useCallback(() => {
-        if (skipHistory.current) return;
-        past.current.push(snapshot(latest.current));
-        if (past.current.length > 50) past.current.shift();
-        future.current = [];
-        setHistoryTick((t) => t + 1);
-        setDirty(true);
-    }, []);
+    /**
+     * Push the current graph onto the undo stack before a mutating change.
+     *
+     * `removed` is for the one case that cannot follow that order: React Flow owns
+     * Delete/Backspace, so it removes the elements and only then tells us. Passing
+     * them here puts them back into the snapshot, which describes the prior graph
+     * correctly however the effect flush happened to fall. Every other caller
+     * mutates afterwards and passes nothing.
+     */
+    const pushHistory = useCallback(
+        (removed: { nodes?: readonly FlowCardNode[]; edges?: readonly Edge[] } = {}) => {
+            if (skipHistory.current) return;
+            past.current.push(snapshot(graphIncluding(latest.current, removed)));
+            if (past.current.length > HISTORY_LIMIT) past.current.shift();
+            future.current = [];
+            setHistoryTick((tick) => tick + 1);
+            setDirty(true);
+        },
+        []
+    );
 
     /* ----------------------------- load ----------------------------- */
     useEffect(() => {
@@ -369,6 +406,31 @@ function FlowBuilder() {
         },
         [selectedNodeId, pushHistory, setNodes]
     );
+
+    /**
+     * Remove one connection, leaving both blocks and their configuration alone.
+     *
+     * Called by the ✕ on the edge, which is the only route that can push history
+     * *before* mutating. React Flow's own Backspace route does not come through
+     * here — it removes the elements first and notifies afterwards, so `onDelete`
+     * has to reconstruct the prior graph instead.
+     */
+    const deleteEdge = useCallback(
+        (edgeId: string) => {
+            pushHistory();
+            setEdges((prev) => prev.filter((edge) => edge.id !== edgeId));
+        },
+        [pushHistory, setEdges]
+    );
+
+    /**
+     * Stable identity for the context the edges read their actions from.
+     *
+     * A fresh object here would re-render every edge on every keystroke elsewhere
+     * on the page, which on a large graph is visible as lag while typing in the
+     * inspector.
+     */
+    const edgeActions = useMemo(() => ({ onDelete: deleteEdge }), [deleteEdge]);
 
     const deleteSelectedNode = useCallback(() => {
         if (!selectedNodeId) return;
@@ -685,6 +747,13 @@ function FlowBuilder() {
                     <NodePalette nodeTypes={nodeCatalog} onAdd={(entry) => addNode(entry)} />
                 </div>
 
+                {/*
+                 * Wraps the canvas rather than sitting inside it: the edges React
+                 * Flow renders read their delete handler from here, and the context
+                 * travels down the React tree, so it does not matter that the ✕ is
+                 * portalled into a different part of the DOM.
+                 */}
+                <EdgeActionsProvider value={edgeActions}>
                 <div style={{ flex: 1, minWidth: 0, background: '#16171d' }} onDrop={onDrop} onDragOver={onDragOver}>
                     <ReactFlow<FlowCardNode, Edge>
                         nodes={nodes}
@@ -693,14 +762,39 @@ function FlowBuilder() {
                         onEdgesChange={onEdgesChange}
                         onConnect={onConnect}
                         nodeTypes={nodeTypes}
+                        edgeTypes={edgeTypes}
                         onNodeClick={(_, node) => setSelectedNodeId(node.id)}
                         onPaneClick={() => setSelectedNodeId(null)}
                         onNodeDragStart={() => pushHistory()}
-                        onEdgesDelete={() => setDirty(true)}
-                        onNodesDelete={() => setDirty(true)}
+                        /*
+                         * React Flow's own Backspace route comes through here.
+                         * It used to only `setDirty(true)`, which left the top of the
+                         * undo stack describing a graph that no longer existed — so
+                         * the next undo put the deleted thing back *and* re-applied a
+                         * stale version of everything else.
+                         *
+                         * `onDelete` rather than the `onNodesDelete`/`onEdgesDelete`
+                         * pair: deleting a node takes its connections with it, and
+                         * React Flow fires *both* of those in the same gesture. One
+                         * keypress would push two snapshots, so the first undo would
+                         * work and the second would silently do nothing while eating
+                         * a history step. `onDelete` fires once, with both lists.
+                         *
+                         * It is handed the elements being removed rather than reading
+                         * current state, because by the time a handler runs React
+                         * Flow has already decided they are gone; whether
+                         * `latest.current` has caught up depends on effect-flush
+                         * timing we should not be betting the undo stack on.
+                         *
+                         * The ✕ on an edge does not reach here — it calls
+                         * `deleteEdge`, which pushes before mutating.
+                         */
+                        onDelete={({ nodes: removedNodes, edges: removedEdges }) =>
+                            pushHistory({ nodes: removedNodes, edges: removedEdges })
+                        }
                         fitView
                         proOptions={{ hideAttribution: true }}
-                        defaultEdgeOptions={{ animated: true }}
+                        defaultEdgeOptions={{ animated: true, type: FLOW_EDGE_TYPE }}
                     >
                         <Background
                             variant={BackgroundVariant.Dots}
@@ -735,6 +829,7 @@ function FlowBuilder() {
                         />
                     </ReactFlow>
                 </div>
+                </EdgeActionsProvider>
 
                 <div
                     style={{
