@@ -338,24 +338,65 @@ export interface BlockOutputHandle {
 }
 
 /**
- * A value a block writes for later blocks to read.
+ * A value a block writes for later blocks to read, as `{{var.<name>}}`.
  *
- * **Nothing reads this member yet**, and one shipped block now declares one:
- * `action.pickRandom`. Its `key` is the name of the *config field* holding the
- * variable name, not the variable itself — the author types that, so the block
- * cannot know it at declaration time. Anything built on `outputs` must settle
- * that ambiguity first, or it will reject the one correct graph and accept a
- * token nothing writes. See the build order's deferral table.
+ * Discriminated on `naming`, because **a block does not always know the name it
+ * writes.** `action.pickRandom` calls `setOutput(config.outputKey, …)`, where
+ * `outputKey` is a field the author types into — so the produced name is not
+ * knowable until a node exists. Two arms rather than one ambiguous `key`:
+ *
+ * * `fixed` — the block writes this exact name, every run. Read it straight.
+ * * `authored` — the author names it; `fromField` says which config field holds
+ *   that name, and the value at that key *on a given node* is the real one.
+ *
+ * Resolving an `authored` output therefore needs node data, not just a manifest,
+ * which is why {@link resolveOutputName} takes both. Reading `fromField` as
+ * though it were a variable name is exactly the bug the discriminator exists to
+ * prevent: it would offer an author `outputKey`, a token nothing ever writes.
  */
-export interface BlockOutputDeclaration {
-    /**
-     * Reference name later blocks use — except where a block lets the author
-     * name the variable, in which case this is the config key holding it. See
-     * the caveat above; there is no discriminator between the two cases yet.
-     */
-    readonly key: string;
-    readonly label: string;
-    readonly description?: string;
+export type BlockOutputDeclaration =
+    | {
+          readonly naming: 'fixed';
+          /** The reference name this block always writes, e.g. `ticketId`. */
+          readonly key: string;
+          readonly label: string;
+          readonly description?: string;
+      }
+    | {
+          readonly naming: 'authored';
+          /**
+           * The `configFields` key whose **value** is the variable name.
+           *
+           * Held to a real field by `checkOutputs` in `conformance.ts`, so a
+           * renamed config field breaks the build rather than silently producing
+           * a node whose output nothing can resolve.
+           */
+          readonly fromField: string;
+          readonly label: string;
+          readonly description?: string;
+      };
+
+/**
+ * The variable name one declared output actually writes on one node.
+ *
+ * `undefined` when an `authored` output's field is unset or holds a non-string —
+ * a node the author has not finished filling in. Callers treat that as "produces
+ * nothing yet" rather than substituting the field name, which is the whole point
+ * of the discriminator.
+ *
+ * Lives here beside the type rather than in the builder or the validator, because
+ * both need it and a second copy is how the two would come to disagree.
+ */
+export function resolveOutputName(
+    output: BlockOutputDeclaration,
+    nodeData: Readonly<Record<string, unknown>>
+): string | undefined {
+    if (output.naming === 'fixed') {
+        return output.key;
+    }
+
+    const authored = nodeData[output.fromField];
+    return typeof authored === 'string' && authored ? authored : undefined;
 }
 
 /**
@@ -457,7 +498,13 @@ export interface BlockManifest<TConfig = unknown> {
     readonly note?: string;
     /** Every way a run can leave this block. */
     readonly handles: readonly BlockOutputHandle[];
-    /** Values this block writes for later blocks. Empty until run variables exist. */
+    /**
+     * Values this block writes for later blocks, as `{{var.<name>}}`.
+     *
+     * Read by the builder to offer an author the variables in scope at a node,
+     * so a block that writes one and does not declare it is invisible there —
+     * `setOutput` and this member are two halves of the same statement.
+     */
     readonly outputs: readonly BlockOutputDeclaration[];
     /**
      * Run-context this block cannot work without.

@@ -48,12 +48,9 @@ export const block: BlockManifest<RecordValueConfig> = {
         { key: 'value', label: 'Value', control: 'text' },
     ],
     handles: [{ label: 'Next', tone: 'neutral' }],
-    // Declared even though nothing reads `outputs` yet: a block that writes a
-    // value and declares none is the state the eventual "declared matches
-    // written" check exists to catch, and a fixture should not be the first
-    // thing that fails it. The key is authored config here, so this names the
-    // shape rather than a specific key.
-    outputs: [{ key: 'outputKey', label: 'The recorded value' }],
+    // `authored`, matching `run` below: the name written is `config.outputKey`'s
+    // value, not the string `outputKey`.
+    outputs: [{ naming: 'authored', fromField: 'outputKey', label: 'The recorded value' }],
     requires: ['subject'],
     capabilities: [],
     canSuspend: false,

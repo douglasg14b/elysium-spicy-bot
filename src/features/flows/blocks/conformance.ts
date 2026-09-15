@@ -97,6 +97,7 @@ export function checkBlockConformance(candidate: unknown): readonly string[] {
     issues.push(...checkOptionalProse(label, 'note', block.note));
     issues.push(...checkVocabulary(label, block));
     issues.push(...checkHandles(label, block.handles));
+    issues.push(...checkOutputs(label, block.outputs, block.configFields));
     issues.push(...checkConfigFields(label, block.configFields, block.configSchema));
     issues.push(...checkCardSummary(label, block.cardSummary, block.configFields));
     issues.push(...checkEligibilityEnforced(label, block));
@@ -238,6 +239,73 @@ function checkHandles(label: string, handles: unknown): readonly string[] {
         if (typeof handle.label !== 'string' || !handle.label) {
             issues.push(`${label}: output handle ${id || '<default>'} needs a label the builder can draw.`);
         }
+    }
+
+    return issues;
+}
+
+/**
+ * Every declared output must name something that can actually be resolved.
+ *
+ * The check the discriminator exists to make possible. An `authored` output whose
+ * `fromField` names no config field resolves to nothing on every node forever —
+ * the builder would offer the author no variable, silently, and the block would
+ * look like it produced none. That is precisely the failure that is invisible at
+ * run time, because `setOutput` writes whatever the block passes it regardless of
+ * what the manifest claims.
+ *
+ * It cannot check the other direction — that `run` writes what it declares —
+ * without executing the block, which {@link checkBlockOutcome} is for. A name
+ * agreeing here and disagreeing there is still possible; this rules out the case
+ * a rename causes, which is the one that happens.
+ */
+function checkOutputs(label: string, outputs: unknown, configFields: unknown): readonly string[] {
+    if (!Array.isArray(outputs)) {
+        return [];
+    }
+
+    const declaredKeys = new Set(
+        asArray(configFields)
+            .map((field) => readProperty(field, 'key'))
+            .filter((key): key is string => typeof key === 'string')
+    );
+
+    const issues: string[] = [];
+    for (const output of outputs) {
+        const naming = readProperty(output, 'naming');
+        const name = readProperty(output, 'label');
+        const outputLabel = typeof name === 'string' && name ? name : '<unlabelled>';
+
+        if (typeof name !== 'string' || !name) {
+            issues.push(`${label}: output ${outputLabel} needs a label the builder can show an author.`);
+        }
+
+        if (naming === 'fixed') {
+            const key = readProperty(output, 'key');
+            if (typeof key !== 'string' || !key) {
+                issues.push(`${label}: fixed output ${outputLabel} must declare the key it writes.`);
+            }
+            continue;
+        }
+
+        if (naming === 'authored') {
+            const fromField = readProperty(output, 'fromField');
+            if (typeof fromField !== 'string' || !fromField) {
+                issues.push(
+                    `${label}: authored output ${outputLabel} must name the config field holding its variable name.`
+                );
+            } else if (!declaredKeys.has(fromField)) {
+                issues.push(
+                    `${label}: authored output ${outputLabel} reads its name from "${fromField}", ` +
+                        'which is not one of this block\'s config fields — nothing would ever resolve it.'
+                );
+            }
+            continue;
+        }
+
+        issues.push(
+            `${label}: output ${outputLabel} must declare naming as "fixed" or "authored", found ${JSON.stringify(naming) ?? typeof naming}.`
+        );
     }
 
     return issues;

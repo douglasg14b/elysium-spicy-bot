@@ -6,12 +6,13 @@
  * This file knows no block types. Everything it draws comes off the descriptor.
  */
 
-import { Button, Divider, Group, Stack, Text } from '@mantine/core';
+import { Button, CopyButton, Divider, Group, Stack, Text, Tooltip, UnstyledButton } from '@mantine/core';
 import { IconTrash } from '@tabler/icons-react';
 import type { GuildChannel, GuildRole, NodeDescriptor } from '../api/types';
 import { renderControl } from './controls/renderControl';
 import type { ControlContext } from './controls/types';
 import { KIND_STYLES } from './nodeMeta';
+import { resolveOutputName, variableToken, type AvailableVariable } from './variables';
 
 interface NodeInspectorProps {
     /** The block this node instantiates, absent when its type is unknown to this build. */
@@ -21,6 +22,13 @@ interface NodeInspectorProps {
     config: Record<string, unknown>;
     roles: GuildRole[];
     channels: GuildChannel[];
+    /**
+     * Variables blocks upstream of this node write, for its copy fields to offer.
+     *
+     * Computed by the page, which is the only place holding the whole graph. The
+     * inspector draws one node and cannot walk anything.
+     */
+    variables: AvailableVariable[];
     onChange: (patch: Record<string, unknown>) => void;
     onDelete: () => void;
 }
@@ -32,6 +40,7 @@ export function NodeInspector({
     config,
     roles,
     channels,
+    variables,
     onChange,
     onDelete,
 }: NodeInspectorProps) {
@@ -40,7 +49,7 @@ export function NodeInspector({
     }
 
     const style = KIND_STYLES[descriptor.kind];
-    const context: ControlContext = { roles, channels };
+    const context: ControlContext = { roles, channels, variables };
 
     return (
         <Stack gap="md" p="md" h="100%" style={{ overflowY: 'auto' }}>
@@ -93,6 +102,8 @@ export function NodeInspector({
                         {descriptor.note}
                     </Text>
                 ) : null}
+
+                <ProducedVariables descriptor={descriptor} config={config} />
             </Stack>
 
             <Divider mt="auto" />
@@ -106,6 +117,91 @@ export function NodeInspector({
                 Delete node
             </Button>
         </Stack>
+    );
+}
+
+/**
+ * What this block hands to the ones after it, and how to spell it.
+ *
+ * The answer to "I picked something at random — now what?". The block writes a
+ * variable, and the only way to use it is a `{{var.name}}` token in some later
+ * block's copy; before this, nothing on screen said so. The token is shown in
+ * full and copyable, because the next thing the author does is paste it into a
+ * different node's message field.
+ *
+ * An `authored` output with its field still empty is reported as pending rather
+ * than hidden: the block *will* produce something, and "name it first" is the
+ * actionable version of an empty section.
+ */
+function ProducedVariables({
+    descriptor,
+    config,
+}: {
+    descriptor: NodeDescriptor;
+    config: Record<string, unknown>;
+}) {
+    if (descriptor.outputs.length === 0) {
+        return null;
+    }
+
+    return (
+        <>
+            <Divider label="Hands on to later blocks" labelPosition="left" />
+
+            <Stack gap={8}>
+                {descriptor.outputs.map((output) => {
+                    const name = resolveOutputName(output, config);
+                    const key = output.naming === 'fixed' ? output.key : output.fromField;
+
+                    return (
+                        <div key={key}>
+                            <Text size="11.5px" fw={700}>
+                                {output.label}
+                            </Text>
+                            {output.description ? (
+                                <Text size="11px" c="dimmed">
+                                    {output.description}
+                                </Text>
+                            ) : null}
+                            {name ? (
+                                <CopyButton value={variableToken(name)}>
+                                    {({ copied, copy }) => (
+                                        <Tooltip
+                                            label={copied ? 'Copied' : 'Copy — paste it into a later block'}
+                                            withArrow
+                                        >
+                                            <UnstyledButton
+                                                onClick={copy}
+                                                mt={3}
+                                                style={{
+                                                    display: 'inline-block',
+                                                    borderRadius: 6,
+                                                    padding: '2px 7px',
+                                                    fontSize: 11.5,
+                                                    fontWeight: 600,
+                                                    fontFamily: 'var(--mantine-font-family-monospace)',
+                                                    color: copied
+                                                        ? 'var(--mantine-color-teal-4)'
+                                                        : 'var(--mantine-color-cyan-4)',
+                                                    background: 'rgba(0,162,255,.12)',
+                                                    border: '1px solid rgba(0,162,255,.3)',
+                                                }}
+                                            >
+                                                {variableToken(name)}
+                                            </UnstyledButton>
+                                        </Tooltip>
+                                    )}
+                                </CopyButton>
+                            ) : (
+                                <Text size="11px" c="yellow.5" mt={3}>
+                                    Give it a name above and later blocks can read it.
+                                </Text>
+                            )}
+                        </div>
+                    );
+                })}
+            </Stack>
+        </>
     );
 }
 

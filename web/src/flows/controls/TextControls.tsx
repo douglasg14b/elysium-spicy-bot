@@ -3,8 +3,9 @@
  */
 
 import { Textarea, TextInput } from '@mantine/core';
-import { asText, type ControlProps } from './types';
+import { asText, type ControlContext, type ControlProps } from './types';
 import type { BlockConfigField } from '../../api/types';
+import { VariablePicker } from './VariablePicker';
 
 type TextField = Extract<BlockConfigField, { control: 'text' }>;
 type LongTextField = Extract<BlockConfigField, { control: 'longText' }>;
@@ -33,33 +34,80 @@ function limitHint(field: TextField | LongTextField): string | undefined {
     return field.description ? `${field.description} ${limit}` : limit;
 }
 
-/** Single-line text. */
-export function TextControl({ field, value, onChange }: ControlProps<TextField>) {
+/**
+ * The variable affordance under a copy field, or nothing.
+ *
+ * Gated on `rendersTokens` — the same declaration the engine expands by and that
+ * save-time validation finds copy fields with. A field that is not copy (a
+ * variable *name*, a message id, an emoji) has no tokens expanded in it, so
+ * offering to insert one there would be offering to break it.
+ *
+ * Appends rather than inserting at the caret. A caret-aware insert needs a ref
+ * and a controlled selection, and this is a token an author almost always adds at
+ * the end of what they are writing; appending is the version worth shipping until
+ * somebody wants the other.
+ */
+function variableHints(
+    field: TextField | LongTextField,
+    value: unknown,
+    context: ControlContext,
+    onAppend: (token: string) => void
+) {
+    if (!field.rendersTokens) {
+        return null;
+    }
+
     return (
-        <TextInput
-            label={field.label}
-            description={limitHint(field)}
-            placeholder={field.placeholder}
-            maxLength={hardLimit(field)}
+        <VariablePicker
+            variables={context.variables}
             value={asText(value)}
-            onChange={(event) => onChange(event.currentTarget.value)}
+            onInsert={onAppend}
         />
     );
 }
 
-/** Autosizing multi-line text. */
-export function LongTextControl({ field, value, onChange }: ControlProps<LongTextField>) {
+/** Append a token to existing copy, with a space when there is something to separate. */
+function withToken(current: string, token: string): string {
+    return current && !current.endsWith(' ') ? `${current} ${token}` : `${current}${token}`;
+}
+
+/** Single-line text. */
+export function TextControl({ field, value, onChange, context }: ControlProps<TextField>) {
     return (
-        <Textarea
-            label={field.label}
-            description={limitHint(field)}
-            placeholder={field.placeholder}
-            maxLength={hardLimit(field)}
-            autosize
-            minRows={4}
-            maxRows={10}
-            value={asText(value)}
-            onChange={(event) => onChange(event.currentTarget.value)}
-        />
+        <div>
+            <TextInput
+                label={field.label}
+                description={limitHint(field)}
+                placeholder={field.placeholder}
+                maxLength={hardLimit(field)}
+                value={asText(value)}
+                onChange={(event) => onChange(event.currentTarget.value)}
+            />
+            {variableHints(field, value, context, (token) =>
+                onChange(withToken(asText(value), token))
+            )}
+        </div>
+    );
+}
+
+/** Autosizing multi-line text. */
+export function LongTextControl({ field, value, onChange, context }: ControlProps<LongTextField>) {
+    return (
+        <div>
+            <Textarea
+                label={field.label}
+                description={limitHint(field)}
+                placeholder={field.placeholder}
+                maxLength={hardLimit(field)}
+                autosize
+                minRows={4}
+                maxRows={10}
+                value={asText(value)}
+                onChange={(event) => onChange(event.currentTarget.value)}
+            />
+            {variableHints(field, value, context, (token) =>
+                onChange(withToken(asText(value), token))
+            )}
+        </div>
     );
 }

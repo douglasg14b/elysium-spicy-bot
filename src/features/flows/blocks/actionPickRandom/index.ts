@@ -155,24 +155,17 @@ export const block: BlockManifest<PickRandomConfig> = {
     ],
     handles: [{ label: 'Then', tone: 'neutral' }],
     /*
-     * **`key` names the config field, not the variable this writes.** The name is
-     * authored — `setOutput` is called with `config.outputKey`, whose *value* is
-     * what `{{var.…}}` addresses — so there is no fixed key to declare here, and
-     * this names the shape instead. The producer fixture
-     * (`__tests__/fixtures/blocks/producer/actionRecordValue`) does the same.
-     *
-     * Recorded loudly because this is the first *shipped* block with a non-empty
-     * `outputs`, and nothing reads the member yet. The deferred check in
-     * `graphValidation.ts` — "a variable no upstream block produces" — must not be
-     * built against this shape naively: it would reject the one correct graph
-     * (this writes `pick`, downstream reads `{{var.pick}}`) and accept
-     * `{{var.outputKey}}`, which nothing ever writes. Whichever milestone builds
-     * that check needs a way to say "this key is config-named", not a second
-     * reading of `key`.
+     * `authored`, because the name is the author's: `run` calls
+     * `setOutput(config.outputKey, …)`, so what `{{var.…}}` addresses is whatever
+     * was typed into that field — `pick` by default. `fromField` points at the
+     * field rather than naming a variable, which is what lets the builder offer
+     * the real name per node instead of offering `outputKey`, a token nothing
+     * writes.
      */
     outputs: [
         {
-            key: 'outputKey',
+            naming: 'authored',
+            fromField: 'outputKey',
             label: 'The picked option',
             description: 'Whichever entry came up, under the name this block was given.',
         },

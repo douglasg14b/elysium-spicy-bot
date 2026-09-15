@@ -286,13 +286,31 @@ export interface BlockOutputHandle {
     tone: BlockHandleTone;
 }
 
-/** A value a block writes for later blocks to read. */
-export interface BlockOutputDeclaration {
-    /** Reference name later blocks use. */
-    key: string;
-    label: string;
-    description?: string;
-}
+/**
+ * A value a block writes for later blocks to read, as `{{var.<name>}}`.
+ *
+ * Discriminated on `naming` because a block does not always know the name it
+ * writes: `fixed` carries the name itself, while `authored` says which config
+ * field the author types it into. Resolving an `authored` output needs the node's
+ * data as well as its descriptor — see `resolveOutputName` in `flows/variables.ts`.
+ * Reading `fromField` as a variable name would offer an author a token nothing
+ * writes.
+ */
+export type BlockOutputDeclaration =
+    | {
+          naming: 'fixed';
+          /** The reference name this block always writes. */
+          key: string;
+          label: string;
+          description?: string;
+      }
+    | {
+          naming: 'authored';
+          /** The `configFields` key whose **value** is the variable name. */
+          fromField: string;
+          label: string;
+          description?: string;
+      };
 
 /** What a block needs to be present in the run context. */
 export const FLOW_CONTEXT_REQUIREMENTS = ['subject', 'actor', 'channel', 'interaction'] as const;

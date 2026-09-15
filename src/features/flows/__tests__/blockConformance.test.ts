@@ -692,6 +692,59 @@ describe('a malformed set of output handles', () => {
     });
 });
 
+describe('a declared output nothing could ever resolve', () => {
+    it('accepts both ways of naming a variable', () => {
+        const fixed = manifestWith({
+            outputs: [{ naming: 'fixed', key: 'assignedRole', label: 'The role' }],
+        });
+        const authored = manifestWith({
+            outputs: [{ naming: 'authored', fromField: 'roleId', label: 'The role' }],
+        });
+
+        expect(checkBlockConformance(fixed)).toEqual([]);
+        expect(checkBlockConformance(authored)).toEqual([]);
+    });
+
+    it('catches an authored output reading from a field the block does not have', () => {
+        // The rename case, and the reason the discriminator is worth having: this
+        // resolves to nothing on every node forever, and says so nowhere at run time.
+        const issues = checkBlockConformance(
+            manifestWith({
+                outputs: [{ naming: 'authored', fromField: 'outputKey', label: 'The pick' }],
+            })
+        );
+
+        expect(issues.join('\n')).toMatch(/reads its name from "outputKey"/);
+        expect(issues.join('\n')).toMatch(/not one of this block's config fields/);
+    });
+
+    it('catches a fixed output with no key and an authored one with no field', () => {
+        expect(
+            checkBlockConformance(manifestWith({ outputs: [{ naming: 'fixed', label: 'Nameless' }] })).join('\n')
+        ).toMatch(/must declare the key it writes/);
+
+        expect(
+            checkBlockConformance(manifestWith({ outputs: [{ naming: 'authored', label: 'Nameless' }] })).join('\n')
+        ).toMatch(/must name the config field holding its variable name/);
+    });
+
+    it('catches an output declaring no naming at all, which is the pre-discriminator shape', () => {
+        const issues = checkBlockConformance(
+            manifestWith({ outputs: [{ key: 'outputKey', label: 'The pick' }] })
+        );
+
+        expect(issues.join('\n')).toMatch(/must declare naming as "fixed" or "authored"/);
+    });
+
+    it('catches an output with no label for the builder to show', () => {
+        const issues = checkBlockConformance(
+            manifestWith({ outputs: [{ naming: 'fixed', key: 'thing', label: '' }] })
+        );
+
+        expect(issues.join('\n')).toMatch(/needs a label the builder can show/);
+    });
+});
+
 describe('driving a block through its entry point', () => {
     it('accepts the fixture block, whose outcome is a declared member', async () => {
         const issues = await checkBlockOutcome(

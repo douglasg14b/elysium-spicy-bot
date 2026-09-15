@@ -252,14 +252,13 @@ export function isCopyField(
  * Save-time validation's half of the vocabulary, kept here so the renderer and
  * the validator cannot come to disagree about what a valid token is.
  *
- * **`{{var.<name>}}` is accepted by name alone.** A block's declared `outputs`
- * are not yet a vocabulary of produced *names* — the one shipped block with a
- * non-empty `outputs` names a config field rather than the variable it writes —
- * so there is nothing to check against and accepting any name is the honest
- * answer. Once produced names are knowable, this is the place that tightens: a
- * variable no reachable upstream block produces becomes a save-time error naming
- * the node, exactly as an unknown token is now. See `graphValidation.ts`'s
- * `checkCopyTokens` for the trap waiting there.
+ * **`{{var.<name>}}` is accepted by name alone**, and this function is the wrong
+ * place to tighten that even now that it could be. Declared `outputs` did become
+ * a vocabulary of produced names — `resolveOutputName` in `blocks/manifest.ts`
+ * resolves either naming against a node — but a name is only produced *relative
+ * to a node's ancestry*, and this takes one token and no graph. The check belongs
+ * in `graphValidation.ts`'s `checkCopyTokens`, which walks nodes; see the note
+ * there for what still has to be decided before it can refuse a save.
  */
 export function isRenderableToken(token: string): boolean {
     return variableNameOf(token) !== undefined || isDeclaredToken(token);

@@ -65,6 +65,7 @@ import { FlowNodeCard, type FlowCardNode, type FlowNodeCardData } from '../flows
 // `../api/types`. The component draws one of those; it is not one.
 import { FlowEdge as FlowEdgeComponent, EdgeActionsProvider } from '../flows/FlowEdge';
 import { graphIncluding } from '../flows/graphHistory';
+import { availableVariablesAt } from '../flows/variables';
 import { NodePalette, NODE_DRAG_MIME } from '../flows/NodePalette';
 import { NodeInspector } from '../flows/NodeInspector';
 import {
@@ -565,6 +566,22 @@ function FlowBuilder() {
     );
 
     /**
+     * Variables some block upstream of the selection writes.
+     *
+     * Computed here because this is the only component holding both the nodes and
+     * the edges; the inspector draws one node and has no way to walk a graph.
+     *
+     * Recomputed when any node's data changes rather than only on a rewire, which
+     * is deliberate: renaming `action.pickRandom`'s output is a config edit, and a
+     * list that did not follow it would offer the old name until the author
+     * happened to move an edge.
+     */
+    const availableVariables = useMemo(
+        () => (selectedNodeId ? availableVariablesAt(selectedNodeId, nodes, edges) : []),
+        [selectedNodeId, nodes, edges]
+    );
+
+    /**
      * Deploy only makes sense when there's a button to post — that is, when some
      * node's block declares it is started by a button click. Asked of the descriptor
      * rather than of a type string, so a second button-shaped trigger would enable
@@ -849,6 +866,7 @@ function FlowBuilder() {
                             config={selectedNode.data.config}
                             roles={roles}
                             channels={channels}
+                            variables={availableVariables}
                             onChange={updateNodeConfig}
                             onDelete={deleteSelectedNode}
                         />

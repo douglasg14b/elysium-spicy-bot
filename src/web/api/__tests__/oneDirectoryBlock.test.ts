@@ -170,9 +170,15 @@ describe('a block added after the contract settled still needs only its director
     it('declares the value it produces, so the wire carries an output at last', () => {
         // Every other shipped block declares `outputs: []`, which means the drift
         // gate has never seen a populated one cross the wire. This is that case.
+        //
+        // `naming: 'authored'` has to survive serialization, because it is what
+        // tells the browser that `outputKey` is a field to read through rather
+        // than the variable name itself. A wire that dropped the discriminator
+        // would leave the builder offering `{{var.outputKey}}`.
         expect(descriptor.outputs).toEqual([
             {
-                key: 'outputKey',
+                naming: 'authored',
+                fromField: 'outputKey',
                 label: 'The picked option',
                 description: 'Whichever entry came up, under the name this block was given.',
             },

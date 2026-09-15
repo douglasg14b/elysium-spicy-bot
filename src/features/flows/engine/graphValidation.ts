@@ -209,20 +209,23 @@ function checkSuspendingNodesAreReachable(graph: FlowGraph): string[] {
  * Fields are found by their own declaration (`rendersTokens`) rather than by
  * block type, which is what keeps this one rule instead of a branch per block.
  *
- * **`{{var.<name>}}` is accepted on sight**, deliberately. When produced names
- * become checkable this is where it tightens: a variable no upstream block on the
- * path produces becomes an error naming the node, exactly as an unknown token is
- * now.
+ * **`{{var.<name>}}` is accepted on sight**, deliberately — still, but no longer
+ * for want of a way to know better. `resolveOutputName` in `blocks/manifest.ts`
+ * now answers "what does this node write", because `BlockOutputDeclaration`
+ * discriminates a `fixed` name from an `authored` one. The naive walk this note
+ * used to warn against — reading `key` as a variable name, rejecting the one
+ * correct graph and accepting `{{var.outputKey}}` — is no longer the only walk
+ * available. The builder reads it to offer an author the variables in scope at a
+ * node, which is where the typo is now most likely to be prevented.
  *
- * **Read this before building that check.** One shipped block now declares a
- * non-empty `outputs` (`blocks/actionPickRandom`), so the member is no longer
- * uniformly empty — but that entry's `key` names a **config field**, not the
- * variable written: the block calls `setOutput(config.outputKey, …)`, so the
- * produced name is whatever the author typed. Walking `outputs` and reading `key`
- * as a variable name would therefore reject the one correct graph (the block
- * writes `pick`, downstream copy reads `{{var.pick}}`) while accepting
- * `{{var.outputKey}}`, which nothing ever writes. A manifest needs a way to say
- * "this output is named by that config field" before this check can be written.
+ * What remains is the **reachability** question rather than the naming one. "No
+ * upstream block produces this" has to quantify over paths, and a graph where one
+ * branch writes the variable and another does not is a real graph an author may
+ * well intend — the message on that node would have to be conditional copy. The
+ * builder deliberately over-approximates, offering a name any reachable ancestor
+ * writes, because an offer that is wrong costs an author one keystroke. A refusal
+ * that is wrong costs them a save, so this stays open until somebody decides
+ * which reading a rejection should take.
  */
 function checkCopyTokens(graph: FlowGraph): readonly string[] {
     const errors: string[] = [];

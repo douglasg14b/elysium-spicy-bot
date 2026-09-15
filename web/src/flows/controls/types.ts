@@ -8,16 +8,26 @@
  */
 
 import type { Eligibility, BlockConfigField, GuildChannel, GuildRole } from '../../api/types';
+import type { AvailableVariable } from '../variables';
 
 /**
  * What a control needs from the page beyond its own declaration.
  *
- * Only the pickers read this, but passing one object keeps every control's
- * signature identical, so the dispatcher never special-cases who gets what.
+ * Only the pickers and the copy fields read this, but passing one object keeps
+ * every control's signature identical, so the dispatcher never special-cases who
+ * gets what.
  */
 export interface ControlContext {
     roles: GuildRole[];
     channels: GuildChannel[];
+    /**
+     * Variables some upstream block writes, for the copy fields to offer.
+     *
+     * A property of the *node*, not of the field, which is why it arrives through
+     * the context rather than the declaration: the same `longText` field offers
+     * different variables depending on what is wired above it.
+     */
+    variables: AvailableVariable[];
 }
 
 /**

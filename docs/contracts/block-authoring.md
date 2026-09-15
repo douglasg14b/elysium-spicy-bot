@@ -72,7 +72,7 @@ marks it optional; arrays are declared empty rather than omitted, so a reader ca
 | `cardSummary` | **Optional.** The one-line config summary on the canvas card, e.g. `Assign @Moderator`. See [Card summary](#card-summary). Omit it and the card falls back to "Click to configure" — fine for a block with nothing worth summarising, but check the real thing looks right before deciding that's you. |
 | `note` | **Optional.** A block-level aside rendered under the form — presentation only, never read by the engine. For what is true of the block *as a whole*: a caveat spanning every field, or the reassurance that a block with no fields is meant to have none. Prefer a field's own `description` when the copy is about one field; a note that would read identically under a single control is a description wearing a disguise. Omit it rather than declaring it empty — conformance rejects a present-but-empty one. |
 | `handles` | Every way a run can leave your block. See [Output handles](#output-handles). |
-| `outputs` | Values your block writes for later blocks to read, via `context.setOutput`. See [Run variables](#run-variables). Still declared-but-unread — nothing yet checks that what you declare is what you write. |
+| `outputs` | Values your block writes for later blocks to read, via `context.setOutput`. Read by the builder to offer an author the variables in scope. Discriminated on `naming` — `fixed` carries the name, `authored` names the config field holding it. See [Run variables](#run-variables). |
 | `requires` | Run context you cannot work without. See [Context requirements](#context-requirements). |
 | `capabilities` | Discord permissions the bot needs for your block to work. Declared, not yet enforced. |
 | `startedBy` | **Optional. Triggers only.** What fires you: `buttonClick`, `memberJoin`, or `reactionAdd`. The gateway dispatchers select on this, so a new trigger for an existing source needs no dispatcher edit. Leave it off any condition or action. |
@@ -364,15 +364,29 @@ Four things follow from how that is wired, and each of them has bitten somebody:
   Never a silent drop: a variable that vanished would send a later block down a branch its
   author never drew.
 
-`outputs` on your manifest is still declared-but-unread — nothing validates that a key you
-write was declared, or that one you declare gets written. Declare them anyway; that check
-arrives with typed outputs.
+`outputs` **is read** — by the builder, which offers an author the variables in scope at a
+node and shows, on your block's own inspector, the `{{var.…}}` token later blocks use to read
+what you write. A block that calls `setOutput` and declares nothing produces a variable that
+is invisible to whoever has to reference it, so the two are halves of one statement.
 
-If the variable's name is **authored** rather than fixed — as in `action.pickRandom`, which
-writes `setOutput(config.outputKey, …)` — declare the output against the *config field's* key
-and say so in a comment. `outputs[].key` then names a field, not a variable, and the check
-that eventually reads it has to know the difference. See the deferral row in
-`flow-engine-v2-build-order.md`.
+Declare each output under the naming that matches how your block gets the name:
+
+```ts
+// The block decides the name, and it is the same every run.
+outputs: [{ naming: 'fixed', key: 'ticketId', label: 'The ticket' }]
+
+// The author decides, through a config field — `action.pickRandom`'s shape.
+outputs: [{ naming: 'authored', fromField: 'outputKey', label: 'The picked option' }]
+```
+
+`fromField` names a **config field**, never the variable: the variable is whatever the author
+typed into that field, resolved per node by `resolveOutputName`. Conformance rejects a
+`fromField` naming no declared field, so a renamed config key fails the suite rather than
+silently producing a node whose output nothing can resolve.
+
+Still unchecked: that what you declare is what you actually write. Nothing compares `outputs`
+against your `setOutput` calls — declaring one and writing another is a manifest bug found by
+reading, and the builder will confidently offer a name nothing produces.
 
 ## Copy and `{{tokens}}`
 
@@ -402,7 +416,9 @@ field that *is* copy is the more visible mistake: the braces are posted verbatim
 Three things fail rather than degrade, all of them naming the node:
 
 - a token outside the table above, **rejected when the flow is saved** — except `{{var.<name>}}`,
-  which is accepted on sight because no block declares typed outputs yet
+  which is still accepted on sight. The builder now warns about a name nothing upstream writes,
+  but a *save-time* refusal has to decide what to do with a variable written on only one branch
+  of a split, which is a real graph; see `checkCopyTokens` in `engine/graphValidation.ts`
 - a `{{var.…}}` nothing recorded by the time your block runs
 - copy that exceeds the field's `maxLength` **once rendered** — which is not the length the
   author typed, since `{{subject.mention}}` is 19 characters that expand to about 22
