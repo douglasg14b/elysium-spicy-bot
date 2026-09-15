@@ -443,6 +443,28 @@ That matters for step 4 beyond tidiness: ticket *number* is the natural human-fa
 
 **The channel-name template is configurable in the UI and thrown away on save.** `ticketConfigModal.ts:214` writes `ticketChannelNameTemplate: SUPPORT_TICKET_NAME_TEMPLATE` with the comment `// Non-configurable`, overwriting whatever the operator typed — while `:69` pre-fills the field with their previous value, so the form presents itself as editable. `buildTicketChannelName` ignores the stored config entirely and uses the hardcoded constant. Per-type name templates are a step 4 requirement, so this is on the critical path rather than a wart: the field, the storage, and the UI all already exist and are merely disconnected.
 
+### How a ticket channel is identified today — and the trap in it
+
+The backfill's first question is "which channels are tickets?", and the code answers it twice, inconsistently. **Use neither answer without reading this.**
+
+`logic/ticketChannelValidation.ts` exports `isTicketChannel`, `isActiveTicketChannel` and `isClosedTicketChannel`, which look exactly like what a backfill wants. They identify a ticket by **regex on the channel name** (`/^s\d+-[^-]+-.*$/`) **plus its category name**. Both halves are unsound:
+
+- The name pattern hardcodes the `S####-user-creator` shape, so it recognises only tickets built from today's one template. Per-type name templates are a step 4 requirement, and the moment a verification ticket is named anything else this predicate stops seeing it.
+- It matches the **category by name**, which §5.6 already flags as fragile — renaming a category in Discord silently breaks it.
+- `isActiveTicketChannel` requires the parent to be `supportTicketCategoryName`, but **`createTicketChannel` puts every new ticket in `claimedTicketCategoryName`** (`:44`, because a mod-created ticket auto-claims). So a freshly created, genuinely active ticket fails `isActiveTicketChannel`.
+
+**All three functions have zero callers.** That is what makes this a note rather than a defect: `grep` across `src/` finds no use outside their own file, so nothing is currently broken by them. They are a stale identification scheme sitting in the obvious place a backfill author would look, describing rules the live code does not follow.
+
+The **actual** way a ticket is recognised at runtime is `findTicketStateMessage` — the presence of a decodable state embed in the channel. That is the sound one, because it keys on the thing that makes a channel a ticket rather than on a name convention. **The backfill should use that and delete the dead predicates**, rather than inherit a naming rule that a second ticket type immediately invalidates.
+
+### The permission model is per-instance, which is the thing §5.6 forbids
+
+§5.6's first requirement is that a type's permission model is not overridable per instance. Today there is no type, and the overwrites are written inline at creation (`createTicketChannel.ts:68-99`): deny `@everyone`, allow target, allow creator, allow bot, then a loop adding each mod role. `closeTicketChannel` and `reopenTicketChannel` re-derive a *different* arrangement on each transition.
+
+So the permission intent exists only as three separate code paths that happen to agree. A verification type needs a different arrangement (subject-plus-staff, per §5.10), and adding it by branching inside those three paths is how the "type's model is enforced by the type" requirement gets quietly lost. **The intent wants lifting to data before a second type exists, not after.**
+
+One live consequence worth noting while the code is open: `reopenTicketChannel` restores `@everyone` to `null` — inherit from category — while `createTicketChannel` explicitly denies it. A reopened ticket therefore has a *more permissive* `@everyone` rule than the same ticket had when new, and whether it is actually visible depends on the category it is reopened into. Not a step 4 blocker, but the kind of drift that a declared permission model would make impossible to express.
+
 ### Postgres, priced correctly
 
 Recorded because this document previously over-weighted it. Dev runs SQLite, so every migration's postgres arm is unexecuted code that ships as though tested, and the migrator's non-zero exit on first failure makes a **half-applied chain** reachable — one migration lands, the next fails, the rest never run, and the bot boots fine and fails later at query time.
