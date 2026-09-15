@@ -11,6 +11,7 @@ import { SqlDatePlugin } from './plugins/sqlDatePlugin';
 import { DB_TYPE, PG_CONNECTION_STRING, SQLITE_DB_PATH } from '../../environment';
 import { FlashChatConfigTable } from '../../features/flash-chat/data/flashChatSchema';
 import { TicketingConfigTable } from '../../features/tickets/data/ticketingSchema';
+import { TicketTable } from '../../features/tickets/data/ticketsSchema';
 import { BirthdayTable } from '../../features/birthday-tracker/data/birthdaySchema';
 import { BirthdayConfigTable } from '../../features/birthday-tracker/data/birthdayConfigSchema';
 import { LevelingConfigTable } from '../../features/leveling/data/levelingConfigSchema';
@@ -26,6 +27,7 @@ export interface Database {
     flash_chat_config: FlashChatConfigTable;
     command_audit_logs: CommandAuditLogTable;
     ticketing_config: TicketingConfigTable;
+    tickets: TicketTable;
     birthdays: BirthdayTable;
     birthday_config: BirthdayConfigTable;
     leveling_config: LevelingConfigTable;
@@ -66,6 +68,7 @@ function getDatabaseClient() {
         new SqlDatePlugin<Database>({
             flash_chat_config: ['createdAt', 'updatedAt'],
             command_audit_logs: ['timestamp'],
+                tickets: ['openedAt', 'claimedAt', 'closedAt', 'deletedAt', 'updatedAt'],
                 birthdays: ['createdAt', 'updatedAt', 'lastAnnouncedAt'],
                 birthday_config: ['createdAt', 'updatedAt'],
                 leveling_config: ['createdAt', 'updatedAt'],
