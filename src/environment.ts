@@ -33,6 +33,16 @@ export const AI_MAX_CONTEXT_MESSAGES = env.get('AI_MAX_CONTEXT_MESSAGES').asIntP
 // ---------------------------------------------------------------------------
 export const WEB_PORT = env.get('WEB_PORT').asIntPositive() || 8080;
 
+/**
+ * Port Vite serves the dashboard on in development.
+ *
+ * Read by `web/vite.config.ts`, which is the only thing that binds it — this
+ * declaration exists so the API server can *name* it when an author arrives on
+ * {@link WEB_PORT} expecting the dashboard, which is the mistake the two-port
+ * split invites. Not a second source of truth: change it here and Vite follows.
+ */
+export const WEB_DEV_CLIENT_PORT = env.get('WEB_DEV_CLIENT_PORT').asIntPositive() || 5173;
+
 const IS_DEVELOPMENT = ENV === 'development';
 
 /**

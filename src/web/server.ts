@@ -4,7 +4,7 @@ import { Hono } from 'hono';
 import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
-import { WEB_ENABLED, WEB_PORT, getMissingWebEnv } from '../environment';
+import { WEB_DEV_CLIENT_PORT, WEB_ENABLED, WEB_PORT, getMissingWebEnv } from '../environment';
 import { registerApiRoutes } from './api';
 import type { AppEnv } from './types';
 
@@ -22,12 +22,23 @@ const __dirname = dirname(__filename);
  * Resolve the built React app directory. In dev (`tsx`) this file runs from `src/web`,
  * and there is no build — Vite serves the client separately and proxies `/api` here.
  * In production (`node dist/web/server.js`) the client build is copied to `dist/web/client`.
+ *
+ * **`web/dist` is deliberately not a candidate in dev.** It used to be, and the
+ * result was a trap: `web/dist` is whatever `build:web` last produced, and nothing
+ * rebuilds it, so this server would happily serve a months-old bundle on the port
+ * an author was already using for the API. The palette is fetched from `/api/nodes`
+ * at runtime while the controls are compiled in, so that stale bundle listed
+ * today's blocks and could not draw a control added after its build date —
+ * presenting as a bug in the block rather than as an old bundle. The build is never
+ * *labelled* stale, so there is no version to compare and no honest way to serve
+ * it. Not serving it is the only answer that cannot mislead.
+ *
+ * In dev the client is Vite's job, on its own port. `pnpm dev` starts both.
  */
 function resolveClientDir(): string | null {
-    const candidates = [
-        resolve(__dirname, 'client'), // dist/web/client (production)
-        resolve(__dirname, '../../web/dist'), // repo web/dist (fallback)
-    ];
+    // `tsx` sets this in every dev script; a built server runs under plain node.
+    const isDev = process.env.TSX === 'true';
+    const candidates = isDev ? [] : [resolve(__dirname, 'client')];
     return candidates.find((dir) => existsSync(join(dir, 'index.html'))) ?? null;
 }
 
@@ -48,8 +59,15 @@ export function buildApp(): Hono<AppEnv> {
         // SPA fallback: any non-/api, non-file route returns index.html.
         app.get('/*', serveStatic({ path: join(root, 'index.html') }));
     } else {
+        // Names the port rather than saying "use Vite", because the whole failure
+        // this replaces was an author on the right machine looking at the wrong
+        // port and having no way to tell.
         app.get('/', (c) =>
-            c.text('SpicyBot web server is running. The client build was not found (dev mode uses the Vite server).')
+            c.text(
+                'SpicyBot API is running here, but the dashboard is not served from this port in development.\n' +
+                    `Open http://localhost:${WEB_DEV_CLIENT_PORT} instead — that is Vite, and it proxies /api back here.\n` +
+                    'If nothing is listening there, run `pnpm dev` (it starts the bot and the dashboard together).'
+            )
         );
     }
 

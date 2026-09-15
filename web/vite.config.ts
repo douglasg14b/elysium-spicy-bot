@@ -7,10 +7,14 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
     plugins: [react()],
     server: {
-        port: 5173,
+        // Both ports are declared in `src/environment.ts` (WEB_DEV_CLIENT_PORT and
+        // WEB_PORT) so the API server can name this one when somebody opens the
+        // API port expecting the dashboard. The defaults are repeated here rather
+        // than imported, because this config loads outside the bot's module graph.
+        port: Number(process.env.WEB_DEV_CLIENT_PORT) || 5173,
         proxy: {
             '/api': {
-                target: 'http://localhost:8080',
+                target: `http://localhost:${Number(process.env.WEB_PORT) || 8080}`,
                 changeOrigin: true,
             },
         },
