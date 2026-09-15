@@ -22,12 +22,25 @@ From PRD §1.3, unchanged. This is the durable product intent and the only seque
 |---|---|---|---|
 | **1** | Adding a block is cheap and safe | A new block ships by adding one directory; conformance tests catch an incomplete manifest; the builder needs no edit | **Done** (M1) |
 | **2** | Blocks compose | A block can consume a value another block produced, and copy can address the subject | **Done** — slice D absorbed into step 3 as slice E |
-| **3** | **A run can ask a human a question** | A moderator presses a button in a channel and *that* parked run advances; non-moderators are refused | **Planned — next** |
-| **4** | A flow can open and drive a ticket | A verification ticket is opened by a flow, is distinguishable from a support ticket, and its channel is addressable by later blocks | Not started |
+| **3** | **A run can ask a human a question** | A moderator presses a button in a channel and *that* parked run advances; non-moderators are refused | **Done** — slice E ran against a live guild 2026-09-15 |
+| **4** | A flow can open and drive a ticket | A verification ticket is opened by a flow, is distinguishable from a support ticket, and its channel is addressable by later blocks | **Planned — next** |
 | **5** | A journey can build its own home | Installing a journey on an empty guild creates its categories, channels, and roles with correct visibility | Not started |
 | **6** | The real journey runs on it | Our onboarding and verification runs end-to-end on the engine with no bespoke code | Not started |
 
-**Only the current step is planned.** Steps 3–6 have PRD sketches (§5.4–§5.9) that are starting material, not requirements.
+**Only the current step is planned.** Steps 4–6 have PRD sketches (§5.6–§5.9) that are starting material, not requirements.
+
+### Four commits landed after step 3 closed
+
+They belong to no slice, and that is the point: they are what an author hit while *using* the thing, which is the feedback the first three steps could not produce. Recorded here rather than folded into a slice, because "what the first real authoring session surfaced" is worth being able to find later.
+
+| Commit | What an author hit |
+|---|---|
+| `6a1b1b6` | An edge could not be removed without deleting one of the nodes it joined |
+| `c1f57d6` | Every press posted an ephemeral confirming what the member had just watched happen in the channel |
+| `ccfde54` | A block named the variable it wrote and a later block's copy read it, and nothing on screen connected the two — a typo surfaced at run time as a token resolving to nothing |
+| `de50893` | A question with nothing wired to any answer saved happily and posted buttons that could never work |
+
+Three of the four are authoring-surface defects invisible to every test in the suite, and none was predicted by a plan. That is the argument for step 4 ending in a live run too.
 
 ## Step 2 — Blocks compose
 
@@ -303,6 +316,10 @@ Every guard was sabotage-verified — each reverted, a named test confirmed fail
 One thing worth knowing for the next slice: `blockConformance.test.ts`'s channel stub resolved `undefined` from `send`. `TextBasedChannel.send` always resolves a `Message`, so the harness was modelling a state that cannot occur, and the first block to read what it posted crashed against the fixture rather than against a defect. It resolves a message-shaped object now.
 
 #### E — run it
+
+**Done, 2026-09-15, driven by the operator against a real guild.** What it proved, so the claim is a list rather than a mood: a flow authored in the browser deployed a trigger button; pressing it posted a question; answering it advanced *that* run down the pressed choice's handle; a second press on the same message was refused rather than advancing again; the buttons were greyed after the answer; the prompt's timeout branch fired; and a run parked across a `Ctrl+C` and a `pnpm dev` restart still answered correctly afterwards. The three pending migrations applied cleanly against **SQLite** — so the postgres arm remains unexercised, as predicted below, and is recorded as hand-reviewed rather than covered.
+
+The original text is kept below, because the sentence it opens with was true for three steps and is the thing this slice existed to make false.
 
 Unchanged from step 2's slice D, and still not a formality. **Nothing in this engine has ever run against a live Discord guild or in a real browser.**
 
