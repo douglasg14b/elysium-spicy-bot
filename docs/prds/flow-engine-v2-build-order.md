@@ -42,6 +42,23 @@ They belong to no slice, and that is the point: they are what an author hit whil
 
 Three of the four are authoring-surface defects invisible to every test in the suite, and none was predicted by a plan. That is the argument for step 4 ending in a live run too.
 
+### Full embed authoring
+
+Pulled out of step 2's deferral table, on its stated trigger. `action.postEmbed` authored a title, a body and a colour, so it could not reproduce the verification embeds it exists for. It now authors **fields** plus the flat scalars — title link, author line, footer, timestamp, image, thumbnail.
+
+**`fields` cost a tenth control, `objectList`**, and the deferral table's own prediction about which half was expensive held exactly: the flat scalars were `text` fields and cost nothing but copy, while the list of `{name, value, inline}` records needed a control arm. `textList` (slice B1) edits a list of *strings*; the two alternatives to a new arm were both rejected on the same grounds — encoding a row as `"name|value|inline"` makes the delimiter part of the data and corrupts the first time an author types a pipe, and three index-correlated `textList`s silently re-pair every later row when one entry is deleted. Named `objectList` rather than `embedFields` because `blocks/manifest.ts` is inside the vocabulary gate and a control named after its first consumer is the leak that gate catches.
+
+**The six-file estimate for a new control was right, and it is now nine.** B1 counted the manifest arm, `BLOCK_CONTROL_TYPES`, the drift fixture, the browser mirror plus its keys table, a renderer wired into `renderControl.tsx`, and `cardSummary.ts`. All six were real. Three more were not predicted and all three are *copy* rather than rendering: `copyRendering.ts` needed a second predicate because `isCopyField` narrows to the single-string arms and cannot see a column, and both the executor and `graphValidation.ts` needed a second walk to use it. A control whose value holds no copy would have cost the predicted six.
+
+Two things the plan did not anticipate, each found by a failing gate rather than by reading:
+
+- **Conformance's entry probe was a bare string**, which an `objectList` schema rejects at every length — so the count sweep would have read that as "the schema constrains its entries" and fallen silent, leaving `minEntries`/`maxEntries` unchecked. Exactly the failure B1 had already fixed once for `textList`, reappearing one shape up.
+- **A `.transform()` in a block's schema is not conformance-compatible.** `checkFieldDefault` reveals a schema's default by parsing `undefined`, which on a transforming schema yields the *output* while a config field declares its default as *input*. The two can then never agree. The timestamp toggle stores the string its `segmented` control writes instead, and `run` does the comparison.
+
+**The 6000-character total is enforced, in `run` rather than in the schema.** Every per-part limit is a property of one field and lives on it, where the control shows it and a save refuses it. The total is only false for a combination of parts each of which is individually legal, and only knowable after tokens expand — so it fails nameably at post time rather than truncating, because a silently trimmed embed drops whichever field was last and reads to an author as the flow being broken.
+
+**Not done, deliberately**: no live-guild run. Every claim here is structural, which is the condition step 3's slice E existed to make false and which this change re-enters. The card counting `3 fields` rather than listing them, and the field rows' layout in the inspector, are both judgements that want an author looking at them.
+
 ## Step 2 — Blocks compose
 
 The bar is PRD §1.3 exactly: *a block can consume a value another block produced, and copy can address the subject.*
@@ -78,7 +95,7 @@ Each of these was in the original M2 scope. Each is a feature that *consumes* th
 |---|---|---|
 | **Reference picker + `valueType` vocabulary** | `{{var.<name>}}` already lets one block consume another's value, which is step 2's whole bar. The picker is a *nicer* way to wire IDs, not a second capability. It cost a twelve-site control surface, a three-member type vocabulary, a client-side reachability walk, and a new `ControlContext` seam | Authoring a real flow proves tokens insufficient for wiring |
 | **List control (`fields`, string lists)** | First non-scalar control in the repo; may force a `ControlChange` signature widening across all eight existing controls | The embed block or pick-random actually needs it |
-| **Full embed authoring** | Consumer of the spine. Flat scalars (URL, author, footer, timestamp, image, thumbnail) need no new control; only `fields` does | Reproducing the verification embeds is on the critical path |
+| **Full embed authoring** | Consumer of the spine. Flat scalars (URL, author, footer, timestamp, image, thumbnail) need no new control; only `fields` does | **Done** — shipped after step 3; see "Full embed authoring" below |
 | **Random selection** | One block, one directory, formulaic once outputs exist | A flow wants it |
 | **Per-trigger singleton guard** | Durable table, unique constraint, insert-as-guard. Well-understood, self-contained | Double-clicks actually open two tickets in practice |
 
