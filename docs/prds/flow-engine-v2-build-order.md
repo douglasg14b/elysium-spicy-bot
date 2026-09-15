@@ -384,11 +384,22 @@ Four facts. Each removes work the PRD assumes, and the first two are the reason 
 - **Q3's "accept losing claim/status history"** was a real trade when the history was large. It is close to costless now, but it is also close to *unnecessary* — with this few tickets, the old embed state can simply be left in place rather than destroyed, which keeps the rollback path §5.6 worries about losing.
 - **"Tickets remain usable without flows"** is unaffected and remains a permanent invariant (G5). It is now also the easiest of the three to verify, because the live tickets are all one type and all exercise the same five controls.
 
-### The one thing that is genuinely risky
+### The one thing that is genuinely risky — and it is smaller than expected
 
-Not the schema and not the blocks: **the five in-ticket controls on already-open tickets.** Those buttons were posted by the old code, carry the old custom ids, and sit in channels right now. Any refactor that changes what a ticket's buttons mean has to keep answering the ones already in the wild — the same shape as step 3's pre-column `waitMessageId` exemption, where rows that predated a guard had to keep the guarantees they shipped with rather than being refused by the guard meant to tighten things.
+The concern is **the five in-ticket controls on already-open tickets**: those buttons were posted by the old code and sit in channels right now, so any refactor that changes what a ticket's buttons mean has to keep answering the ones already in the wild. Same shape as step 3's pre-column `waitMessageId` exemption, where rows predating a guard kept the guarantees they shipped with rather than being refused by the guard meant to tighten them.
 
-That is the part to design first and the part to verify against the live guild, and it is the reason this step still ends in a live run.
+**Checked rather than assumed, and the answer is favourable.** The ticket button custom ids are **static string constants with no per-ticket payload** — `ticket_claim_button`, `ticket_close_button`, and so on (`logic/ticketButtonConfigs.ts`). Which ticket a press refers to is derived from **the channel the press came from**, not from the id. So a live button is not a carrier of state that a migration could invalidate: it names an *action*, and the new service can answer it as long as it can resolve a ticket from a channel id.
+
+That inverts the expected hazard. The migration does not have to preserve an id format, and there is no fourth-segment problem like the one that forced step 3's prompt block onto a separate `flowc:` prefix. What it *does* have to preserve is **channel → ticket resolution**, for exactly the handful of channels that are open today.
+
+The real exposure is therefore narrower and nameable: `findTicketStateMessage` (`logic/ticketState.ts`) resolves a ticket by **fetching pinned messages, then scanning the last 10 messages**, for a base64 blob in an embed field called `🔧 Internal Data`. A ticket whose pinned state message was unpinned, deleted, or pushed beyond 10 messages is **already** unresolvable today. So the migration's job is to read each open channel once and write a row — and any channel it cannot read was already broken before step 4 touched it. Worth knowing before the cutover, because it means a migration that "fails" on such a channel is reporting a pre-existing fault rather than causing one.
+
+Two further things that make the corpus easy, both from reading the current code rather than the PRD:
+
+- **There is no `tickets` table at all today.** `data/ticketingSchema.ts` holds only `ticketing_config` — per-guild settings plus a `ticketNumberInc` counter. So step 4 *creates* a table rather than altering one, and the "migration" is a backfill from Discord, not a schema transform of existing rows.
+- **The `TicketState` shape is already explicit** (`ticketState.ts:21-31`): id, target, creator, title, reason, status, claimedBy, timestamps. That is very close to the durable record §5.6 asks for, so the table's columns are largely a transcription rather than a design.
+
+This is still the part to design first and verify against the live guild, and it is still the reason this step ends in a live run. It is just a smaller, better-understood risk than "a hazardous cutover".
 
 ### Postgres, priced correctly
 
