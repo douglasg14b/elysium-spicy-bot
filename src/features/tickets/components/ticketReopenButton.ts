@@ -1,140 +1,70 @@
 import {
-    ActionRowBuilder,
     APIButtonComponentWithCustomId,
     ButtonBuilder,
     ButtonInteraction,
-    ButtonStyle,
     ComponentBuilder,
-    GuildMember,
-    EmbedBuilder,
-    ChannelType,
 } from 'discord.js';
-import {
-    memberHasModeratorPerms,
-    memberHasModeratorRole,
-    findTicketStateMessage,
-    updateTicketState,
-    reopenTicketChannel,
-    getOriginalChannelName,
-} from '../logic';
+import { TICKET_BUTTON_CONFIGS } from '../logic/ticketButtonConfigs';
+import { resolveTicketAction } from '../logic/resolveTicketAction';
+import { replyTicketFailure, ticketErrorMessage } from '../logic/ticketErrorMessage';
+import { syncTicketChannelToState } from '../logic/ticketChannelOps';
+import { buildTicketButtons, buildTicketEmbed } from '../logic/ticketPresentation';
+import { reopenTicket } from '../ticketService';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
-import { isTicketingConfigConfigured } from '../data/ticketingSchema';
-import { ticketingRepo } from '../data/ticketingRepo';
-import { roleIdsToNames, timeFnCall } from '../../../utils';
 
-export const TICKET_REOPEN_BUTTON_ID = 'ticket_reopen_button';
+export const TICKET_REOPEN_BUTTON_ID = TICKET_BUTTON_CONFIGS.REOPEN.customId;
 
 export function TicketReopenButtonComponent() {
     function buildComponent(enabled: boolean) {
         const button = new ButtonBuilder()
-            .setCustomId(TICKET_REOPEN_BUTTON_ID)
-            .setLabel('Reopen')
-            .setStyle(ButtonStyle.Success)
-            .setEmoji('🔓')
+            .setCustomId(TICKET_BUTTON_CONFIGS.REOPEN.customId)
+            .setLabel(TICKET_BUTTON_CONFIGS.REOPEN.label)
+            .setStyle(TICKET_BUTTON_CONFIGS.REOPEN.style)
+            .setEmoji(TICKET_BUTTON_CONFIGS.REOPEN.emoji)
             .setDisabled(!enabled);
 
         return button as ComponentBuilder<APIButtonComponentWithCustomId>;
     }
 
+    /**
+     * Reopens a closed ticket.
+     *
+     * The claim survives a close/reopen round trip now, so a reopened ticket
+     * returns to the claimed category if it had a claimer. The old path cleared
+     * the claim on reopen, which it had to: status was a single enum where
+     * "claimed" and "open" were mutually exclusive values.
+     */
     async function handler(interaction: ButtonInteraction): Promise<InteractionHandlerResult> {
-        // Check if user has the required role
-        if (!interaction.guild || !interaction.member) {
-            return { status: 'error', message: '❌ This command can only be used in a server.' };
-        }
+        const resolved = await resolveTicketAction(interaction, 'reopen tickets');
+        if (!resolved.ok) return replyTicketFailure(interaction, ticketErrorMessage(resolved.error));
+        const { guild, member, channel, config, ticket } = resolved.value;
 
-        const guild = interaction.guild;
-        const configEntity = await timeFnCall(async () => await ticketingRepo.get(guild.id), 'ticketingRepo.get()');
-        if (!isTicketingConfigConfigured(configEntity)) {
-            return {
-                status: 'error',
-                message:
-                    '❌ The ticket system is not configured yet. Please ask an administrator to configure it first.',
-            };
-        }
-        const ticketsConfig = configEntity.config;
+        await interaction.deferUpdate();
 
-        const member = interaction.member as GuildMember;
-        const hasModRole =
-            memberHasModeratorRole(member, ticketsConfig.moderationRoles) || memberHasModeratorPerms(member);
+        const result = await reopenTicket(ticket.id);
+        if (!result.ok) return replyTicketFailure(interaction, `❌ ${ticketErrorMessage(result.error)}`);
+        const updated = result.value;
 
-        if (!hasModRole) {
-            const roleNames = await timeFnCall(
-                async () => await roleIdsToNames(guild, ticketsConfig.moderationRoles),
-                'roleIdsToNames()'
+        // The inverse of the close case: this call restores the subject's access.
+        // Failing silently leaves a ticket that says it is open but which the
+        // person it concerns cannot see or post in.
+        const syncResult = await syncTicketChannelToState(channel, guild, updated, config);
+        if (!syncResult.ok) {
+            console.error('Error syncing ticket channel after reopen:', syncResult.error);
+            await replyTicketFailure(
+                interaction,
+                '⚠️ The ticket was reopened, but its channel permissions could not be updated — the subject may still be locked out. Check the permissions.'
             );
-
-            return {
-                status: 'error',
-                message: `❌ You need the **${roleNames.join(
-                    ', '
-                )}** role or moderation permissions to reopen tickets.`,
-            };
         }
 
-        const channel = interaction.channel;
-        if (!channel || !channel.isTextBased() || channel.isDMBased()) {
-            return { status: 'error', message: '❌ This can only be used in a server text channel.' };
-        }
+        await interaction.message.edit({
+            embeds: [buildTicketEmbed(updated)],
+            components: buildTicketButtons(updated),
+        });
 
-        // Check if this is a text channel and get ticket state
-        if (channel.type !== ChannelType.GuildText) {
-            return { status: 'error', message: '❌ This command can only be used in text channels.' };
-        }
+        await channel.send(`🔓 **Ticket Reopened**\nThis ticket has been reopened by ${member}.`);
 
-        const stateInfo = await timeFnCall(
-            async () => await findTicketStateMessage(channel),
-            'findTicketStateMessage()'
-        );
-        if (!stateInfo) {
-            return { status: 'error', message: '❌ This command can only be used in ticket channels.' };
-        }
-
-        if (stateInfo.state.status !== 'closed') {
-            return { status: 'error', message: '❌ This ticket is not closed and cannot be reopened.' };
-        }
-
-        try {
-            // Acknowledge the button interaction
-            await timeFnCall(async () => await interaction.deferUpdate(), 'interaction.deferUpdate()');
-
-            // Use the target user ID from the ticket state (more reliable than parsing name)
-            const targetUserId = stateInfo.state.targetUserId;
-
-            // Reopen the ticket using business logic
-            await timeFnCall(
-                async () =>
-                    await reopenTicketChannel({
-                        ticketsConfig,
-                        channel,
-                        guild,
-                        memberReopeningTicket: member,
-                        ticketState: stateInfo.state,
-                    }),
-                'reopenTicketChannel()'
-            );
-
-            // Update ticket state
-            await timeFnCall(
-                async () =>
-                    await updateTicketState(
-                        channel,
-                        {
-                            status: 'active',
-                            claimedByUserId: undefined, // Reset claimed status when reopening
-                        },
-                        guild
-                    ),
-                'updateTicketState()'
-            );
-
-            // Send public message to the channel
-            await channel.send(`🔓 **Ticket Reopened**\nThis ticket has been reopened by ${member}.`);
-
-            return { status: 'success' };
-        } catch (error) {
-            console.error('Error reopening ticket:', error);
-            return { status: 'error', message: '❌ Failed to reopen ticket. Please try again.' };
-        }
+        return { status: 'success' };
     }
 
     return {

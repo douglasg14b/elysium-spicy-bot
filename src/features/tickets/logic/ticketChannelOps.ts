@@ -61,17 +61,25 @@ function buildOverwrites({
         overwrites.push({ id: openerId, ...toPermissionOverwrite(permissions.opener) });
     }
 
-    if (me) {
-        overwrites.push({
-            id: me.id,
-            allow: [
-                PermissionsBitField.Flags.ViewChannel,
-                PermissionsBitField.Flags.SendMessages,
-                PermissionsBitField.Flags.ReadMessageHistory,
-                PermissionsBitField.Flags.ManageMessages,
-            ],
-        });
+    // Not optional. `channel.edit` *replaces* the overwrite set, so omitting the
+    // bot's own entry produces a channel it may be unable to post in — and
+    // cannot repair, since repairing needs the same access. The sibling
+    // `createTicketChannelForTicket` already treats an absent `me` as fatal;
+    // silently degrading here instead would be the hidden-recovery-path the
+    // root-cause rule forbids.
+    if (!me) {
+        throw new Error('Bot member is not resolvable in this guild; refusing to write ticket permissions');
     }
+
+    overwrites.push({
+        id: me.id,
+        allow: [
+            PermissionsBitField.Flags.ViewChannel,
+            PermissionsBitField.Flags.SendMessages,
+            PermissionsBitField.Flags.ReadMessageHistory,
+            PermissionsBitField.Flags.ManageMessages,
+        ],
+    });
 
     for (const roleId of moderationRoleIds) {
         if (guild.roles.cache.has(roleId)) {
@@ -173,12 +181,24 @@ export async function syncTicketChannelToState(
     ticket: TicketEntity,
     config: ConfiguredTicketingConfig
 ): Promise<Result<void>> {
-    const categoryName =
-        ticket.status === 'closed'
-            ? config.closedTicketCategoryName
-            : ticket.claimerId
-              ? config.claimedTicketCategoryName
-              : config.supportTicketCategoryName;
+    // A switch rather than nested ternaries: a fourth status would otherwise
+    // fall silently into the open arm and route a channel to the wrong category.
+    // `status` is a deliberate design axis here, so it is the union most likely
+    // to gain a member.
+    let categoryName: string;
+    switch (ticket.status) {
+        case 'closed':
+        case 'deleted':
+            categoryName = config.closedTicketCategoryName;
+            break;
+        case 'open':
+            categoryName = ticket.claimerId ? config.claimedTicketCategoryName : config.supportTicketCategoryName;
+            break;
+        default: {
+            const unhandled: never = ticket.status;
+            throw new Error(`Unhandled ticket status: ${String(unhandled)}`);
+        }
+    }
 
     const categoryResult = await findOrCreateModeratorCategory({
         guild,

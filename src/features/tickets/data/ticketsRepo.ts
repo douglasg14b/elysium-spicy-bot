@@ -1,5 +1,11 @@
 import { database } from '../../../features-system/data-persistence/database';
-import type { NewTicketEntity, TicketEntity, TicketStatus, TicketType, TicketUpdateEntity } from './ticketsSchema';
+import type {
+    NewTicketEntity,
+    TicketEntity,
+    TicketStatus,
+    TicketType,
+    TicketUpdateEntity,
+} from './ticketsSchema';
 
 /**
  * Persistence for durable ticket records.
@@ -48,6 +54,11 @@ export class TicketsRepo {
             .selectAll()
             .where('channelId', '=', channelId)
             .where('status', '!=', 'deleted')
+            // Newest wins. `closeTicket` leaves `channelId` populated, so a
+            // closed and a reopened ticket can name the same channel; without an
+            // order the planner picks, and picks differently on sqlite and
+            // postgres.
+            .orderBy('id', 'desc')
             .executeTakeFirst();
 
         return ticket ?? null;
@@ -81,6 +92,51 @@ export class TicketsRepo {
         }
 
         return query.orderBy('ticketNumber', 'desc').execute();
+    }
+
+    /**
+     * Claims a ticket only if it is still open and unclaimed.
+     *
+     * The guard is in the `where` clause rather than in a preceding read,
+     * because check-then-act across two statements lets two moderators both pass
+     * the check and the second silently win — telling the first they claimed a
+     * ticket they did not. Zero rows back *is* the refusal.
+     */
+    async claimIfUnclaimed(id: number, claimerId: string, claimedAt: string): Promise<TicketEntity | null> {
+        const claimed = await database
+            .updateTable('tickets')
+            .set({ claimerId, claimedAt, updatedAt: claimedAt })
+            .where('id', '=', id)
+            .where('status', '=', 'open')
+            .where('claimerId', 'is', null)
+            .returningAll()
+            .executeTakeFirst();
+
+        return claimed ?? null;
+    }
+
+    /**
+     * Moves a ticket's lifecycle only from the status it is expected to be in.
+     *
+     * Same reasoning as {@link claimIfUnclaimed}. The dangerous interleaving this
+     * closes is close racing delete: without the guard the later write lands on
+     * top and produces a row that is `closed` but carries `deletedAt` — a state
+     * the status union says cannot exist.
+     */
+    async transitionStatus(
+        id: number,
+        from: TicketStatus,
+        changes: TicketUpdateEntity
+    ): Promise<TicketEntity | null> {
+        const moved = await database
+            .updateTable('tickets')
+            .set({ ...changes, updatedAt: new Date().toISOString() })
+            .where('id', '=', id)
+            .where('status', '=', from)
+            .returningAll()
+            .executeTakeFirst();
+
+        return moved ?? null;
     }
 
     async update(id: number, changes: TicketUpdateEntity): Promise<TicketEntity> {

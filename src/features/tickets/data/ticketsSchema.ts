@@ -94,7 +94,14 @@ export interface TicketTable {
     claimedAt: ColumnType<Date | null, string | null, string | null>;
     closedAt: ColumnType<Date | null, string | null, string | null>;
     deletedAt: ColumnType<Date | null, string | null, string | null>;
-    updatedAt: ColumnType<Date, string, string>;
+    /**
+     * Optional on insert, because the column carries a database default.
+     *
+     * Typed to match the schema rather than to match current callers: the repo
+     * always supplies it today, but a type that demanded it would be describing
+     * the callers instead of the table.
+     */
+    updatedAt: ColumnType<Date, string | undefined, string>;
 }
 
 export type TicketEntity = Selectable<TicketTable>;

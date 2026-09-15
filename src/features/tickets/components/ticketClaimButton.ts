@@ -1,27 +1,16 @@
 import {
-    ActionRowBuilder,
     APIButtonComponentWithCustomId,
     ButtonBuilder,
     ButtonInteraction,
-    ButtonStyle,
     ComponentBuilder,
-    GuildMember,
-    EmbedBuilder,
-    ChannelType,
 } from 'discord.js';
-import {
-    memberHasModeratorPerms,
-    memberHasModeratorRole,
-    findTicketStateMessage,
-    updateTicketState,
-    findCategory,
-    findOrCreateModeratorCategory,
-} from '../logic';
 import { TICKET_BUTTON_CONFIGS } from '../logic/ticketButtonConfigs';
+import { resolveTicketAction } from '../logic/resolveTicketAction';
+import { replyTicketFailure, ticketErrorMessage } from '../logic/ticketErrorMessage';
+import { syncTicketChannelToState } from '../logic/ticketChannelOps';
+import { buildTicketButtons, buildTicketEmbed } from '../logic/ticketPresentation';
+import { claimTicket } from '../ticketService';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
-import { ticketingRepo } from '../data/ticketingRepo';
-import { isTicketingConfigConfigured } from '../data/ticketingSchema';
-import { roleIdsToNames, timeFnCall } from '../../../utils';
 
 export const TICKET_CLAIM_BUTTON_ID = TICKET_BUTTON_CONFIGS.CLAIM.customId;
 
@@ -37,126 +26,42 @@ export function TicketClaimButtonComponent() {
         return button as ComponentBuilder<APIButtonComponentWithCustomId>;
     }
 
+    /**
+     * Claims the ticket this channel belongs to.
+     *
+     * The eligibility rules — already claimed, claimed by you, not open — belong
+     * to `claimTicket` and are not repeated here. This handler's job is the
+     * Discord half: acknowledge, apply the channel arrangement the new state
+     * calls for, and re-render the message so its buttons match the record.
+     */
     async function handler(interaction: ButtonInteraction): Promise<InteractionHandlerResult> {
-        const startTime = performance.now();
+        const resolved = await resolveTicketAction(interaction, 'claim tickets');
+        if (!resolved.ok) return replyTicketFailure(interaction, ticketErrorMessage(resolved.error));
+        const { guild, member, channel, config, ticket } = resolved.value;
 
-        // Check if user has the required role
-        if (!interaction.guild || !interaction.member) {
-            return { status: 'error', message: '❌ This command can only be used in a server.' };
-        }
+        await interaction.deferUpdate();
 
-        const guild = interaction.guild;
-        const guildId = interaction.guild.id;
+        const result = await claimTicket(ticket.id, member.id);
+        if (!result.ok) return replyTicketFailure(interaction, `❌ ${ticketErrorMessage(result.error)}`);
+        const updated = result.value;
 
-        const configEntity = await timeFnCall(async () => await ticketingRepo.get(guildId), 'ticketingRepo.get()');
-        if (!isTicketingConfigConfigured(configEntity)) {
-            return {
-                status: 'error',
-                message:
-                    '❌ The ticket system is not configured yet. Please ask an administrator to configure it first.',
-            };
-        }
-        const ticketsConfig = configEntity.config;
-
-        const member = interaction.member as GuildMember;
-        const hasModRole =
-            memberHasModeratorRole(member, ticketsConfig.moderationRoles) || memberHasModeratorPerms(member);
-
-        if (!hasModRole) {
-            const roleNames = await timeFnCall(
-                async () => await roleIdsToNames(guild, ticketsConfig.moderationRoles),
-                'roleIdsToNames()'
+        const syncResult = await syncTicketChannelToState(channel, guild, updated, config);
+        if (!syncResult.ok) {
+            console.error('Error syncing ticket channel after claim:', syncResult.error);
+            await replyTicketFailure(
+                interaction,
+                '⚠️ The ticket was claimed, but its channel could not be moved or re-permissioned. Check the category and permissions.'
             );
-
-            return {
-                status: 'error',
-                message: `❌ You need the **${roleNames.join(', ')}** role or moderation permissions to claim tickets.`,
-            };
         }
 
-        const channel = interaction.channel;
-        if (!channel || !channel.isTextBased() || channel.isDMBased()) {
-            return { status: 'error', message: '❌ This can only be used in a server text channel.' };
-        }
+        await interaction.message.edit({
+            embeds: [buildTicketEmbed(updated)],
+            components: buildTicketButtons(updated),
+        });
 
-        // Check if this is a text channel and get ticket state
-        if (channel.type !== ChannelType.GuildText) {
-            return { status: 'error', message: '❌ This command can only be used in text channels.' };
-        }
+        await channel.send(`✋ **Ticket Claimed**\nThis ticket has been claimed by ${member}.`);
 
-        const stateInfo = await timeFnCall(
-            async () => await findTicketStateMessage(channel),
-            'findTicketStateMessage()'
-        );
-        if (!stateInfo) {
-            return { status: 'error', message: '❌ This command can only be used in ticket channels.' };
-        }
-
-        if (stateInfo.state.status === 'claimed') {
-            // If claimed by current user, inform them
-            if (stateInfo.state.claimedByUserId === member.id) {
-                return { status: 'error', message: '❌ You have already claimed this ticket.' };
-            }
-        }
-
-        if (stateInfo.state.status !== 'active') {
-            return { status: 'error', message: '❌ This ticket cannot be claimed in its current state.' };
-        }
-
-        try {
-            const claimedTicketsCategoryResult = await findOrCreateModeratorCategory({
-                guild,
-                categoryName: ticketsConfig.claimedTicketCategoryName,
-                moderationRoleIds: ticketsConfig.moderationRoles,
-            });
-            if (!claimedTicketsCategoryResult.ok) {
-                return {
-                    status: 'error',
-                    message: '❌ Claimed tickets category not found. Please contact an administrator.',
-                };
-            }
-            const claimedTicketsCategory = claimedTicketsCategoryResult.value;
-
-            // Acknowledge the button interaction
-            await timeFnCall(async () => await interaction.deferUpdate(), 'interaction.deferUpdate()');
-
-            // Update channel permissions to give the claimer manage permissions
-            await timeFnCall(
-                async () =>
-                    await channel.permissionOverwrites.edit(member.id, {
-                        ViewChannel: true,
-                        SendMessages: true,
-                        ReadMessageHistory: true,
-                        ManageMessages: true,
-                    }),
-                'channel.permissionOverwrites.edit()'
-            );
-
-            // Move ticket to claimed channel category
-            await channel.setParent(claimedTicketsCategory.id);
-
-            // Update ticket state
-            await timeFnCall(
-                async () =>
-                    await updateTicketState(
-                        channel,
-                        {
-                            status: 'claimed',
-                            claimedByUserId: member.id,
-                        },
-                        interaction.guild!
-                    ),
-                'updateTicketState()'
-            );
-
-            // Send public message to the channel
-            await channel.send(`👋 **Ticket Claimed**\nThis ticket has been claimed by ${member}.`);
-
-            return { status: 'success' };
-        } catch (error) {
-            console.error('Error claiming ticket:', error);
-            return { status: 'error', message: '❌ Failed to claim ticket. Please try again.' };
-        }
+        return { status: 'success' };
     }
 
     return {

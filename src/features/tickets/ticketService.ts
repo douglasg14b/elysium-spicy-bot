@@ -138,7 +138,16 @@ export async function claimTicket(ticketId: number, claimerId: string): Promise<
     }
 
     try {
-        return ok(await ticketsRepo.update(ticketId, { claimerId, claimedAt: new Date().toISOString() }));
+        // The read above produces the specific message; this write is what
+        // actually decides. Two moderators pressing Claim together both pass the
+        // read, and the second gets nothing back from the conditional update
+        // rather than silently overwriting the first.
+        const claimed = await ticketsRepo.claimIfUnclaimed(ticketId, claimerId, new Date().toISOString());
+        if (!claimed) {
+            return fail(`Ticket #${ticket.ticketNumber} was just claimed by someone else.`);
+        }
+
+        return ok(claimed);
     } catch (error) {
         return fail(error instanceof Error ? error : new Error(String(error)));
     }
@@ -185,7 +194,17 @@ export async function closeTicket(ticketId: number): Promise<Result<TicketEntity
     }
 
     try {
-        return ok(await ticketsRepo.update(ticketId, { status: 'closed', closedAt: new Date().toISOString() }));
+        // Guarded on `open` so a close racing a delete cannot land on top of it
+        // and leave a row that is `closed` but carries `deletedAt`.
+        const closed = await ticketsRepo.transitionStatus(ticketId, 'open', {
+            status: 'closed',
+            closedAt: new Date().toISOString(),
+        });
+        if (!closed) {
+            return fail(`Ticket #${ticket.ticketNumber} changed state before it could be closed.`);
+        }
+
+        return ok(closed);
     } catch (error) {
         return fail(error instanceof Error ? error : new Error(String(error)));
     }
@@ -200,7 +219,12 @@ export async function reopenTicket(ticketId: number): Promise<Result<TicketEntit
     }
 
     try {
-        return ok(await ticketsRepo.update(ticketId, { status: 'open', closedAt: null }));
+        const reopened = await ticketsRepo.transitionStatus(ticketId, 'closed', { status: 'open', closedAt: null });
+        if (!reopened) {
+            return fail(`Ticket #${ticket.ticketNumber} changed state before it could be reopened.`);
+        }
+
+        return ok(reopened);
     } catch (error) {
         return fail(error instanceof Error ? error : new Error(String(error)));
     }
@@ -223,13 +247,18 @@ export async function deleteTicket(ticketId: number): Promise<Result<TicketEntit
     }
 
     try {
-        return ok(
-            await ticketsRepo.update(ticketId, {
-                status: 'deleted',
-                deletedAt: new Date().toISOString(),
-                channelId: null,
-            })
-        );
+        // Guarded on the status just read rather than on a single expected one,
+        // because deleting is legal from both `open` and `closed`.
+        const deleted = await ticketsRepo.transitionStatus(ticketId, ticket.status, {
+            status: 'deleted',
+            deletedAt: new Date().toISOString(),
+            channelId: null,
+        });
+        if (!deleted) {
+            return fail(`Ticket #${ticket.ticketNumber} changed state before it could be deleted.`);
+        }
+
+        return ok(deleted);
     } catch (error) {
         return fail(error instanceof Error ? error : new Error(String(error)));
     }

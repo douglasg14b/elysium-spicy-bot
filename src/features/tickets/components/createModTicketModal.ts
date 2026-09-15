@@ -10,9 +10,12 @@ import {
 } from 'discord.js';
 import { DISCORD_CLIENT } from '../../../discordClient';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
-import { createTicketChannel } from '../logic';
 import { ticketingRepo } from '../data/ticketingRepo';
 import { isTicketingConfigConfigured } from '../data/ticketingSchema';
+import { attachTicketChannel, openTicket } from '../ticketService';
+import { createTicketChannelForTicket } from '../logic/ticketChannelOps';
+import { buildTicketButtons, buildTicketEmbed } from '../logic/ticketPresentation';
+import { ticketErrorMessage } from '../logic/ticketErrorMessage';
 
 const MOD_TICKET_MODAL_ID = 'mod_ticket_create_modal';
 
@@ -90,33 +93,67 @@ export function CreateModTicketModalComponent() {
             };
         }
         const ticketsConfig = configEntity.config;
-        configEntity.ticketNumberInc += 1;
-        const nextTicketNumber = configEntity.ticketNumberInc;
 
         try {
-            // Create the ticket channel
-            const ticketChannelResult = await createTicketChannel({
-                interaction,
-                ticketingConfig: ticketsConfig,
-                targetUser,
+            // The same path a flow takes, differing only in having a human
+            // opener. Previously this handler had its own creation path: it
+            // incremented the counter in memory, created the channel, and then
+            // wrote the counter back *absolutely* — so it not only raced itself
+            // across a Discord round trip, it would overwrite an atomic
+            // increment made by any other opener in the meantime.
+            const ticketResult = await openTicket({
+                guildId: interaction.guild.id,
+                type: 'support',
+                subjectId: targetUser.id,
+                openerId: interaction.user.id,
                 title,
                 reason,
-                nextTicketNumber,
+            });
+            if (!ticketResult.ok) {
+                return {
+                    status: 'error',
+                    message: `❌ Failed to create ticket: ${ticketErrorMessage(ticketResult.error)}`,
+                };
+            }
+            const ticket = ticketResult.value;
+
+            const ticketChannelResult = await createTicketChannelForTicket({
+                guild: interaction.guild,
+                ticket,
+                config: ticketsConfig,
+                subjectName: targetUser.username,
+                openerName: interaction.user.username,
             });
             if (!ticketChannelResult.ok) {
-                return { status: 'error', message: `❌ Failed to create ticket: ${ticketChannelResult.error}` };
+                return {
+                    status: 'error',
+                    message: `❌ Failed to create ticket: ${ticketErrorMessage(ticketChannelResult.error)}`,
+                };
             }
             const ticketChannel = ticketChannelResult.value;
+
+            const attached = await attachTicketChannel(ticket.id, ticketChannel.id);
+            if (!attached.ok) {
+                return {
+                    status: 'error',
+                    message: `❌ Failed to create ticket: ${ticketErrorMessage(attached.error)}`,
+                };
+            }
+
+            const initialMessage = await ticketChannel.send({
+                content: `${targetUser} - A moderation ticket has been created for you.`,
+                embeds: [buildTicketEmbed(attached.value)],
+                components: buildTicketButtons(attached.value),
+                allowedMentions: { parse: ['users'] },
+            });
+
+            // Pinning is a convenience now rather than load-bearing: the row is
+            // the ticket, so an unpinned message costs nothing but scrollback.
+            await initialMessage.pin().catch(() => undefined);
 
             await interaction.reply({
                 content: `✅ Ticket created successfully! ${ticketChannel}`,
                 ephemeral: true,
-            });
-
-            // Ensure we persist the ticket# change
-            await ticketingRepo.update({
-                ...configEntity,
-                config: JSON.stringify(configEntity.config),
             });
 
             return { status: 'success' };

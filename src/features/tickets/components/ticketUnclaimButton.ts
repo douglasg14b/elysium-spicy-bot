@@ -1,27 +1,17 @@
 import {
-    ActionRowBuilder,
     APIButtonComponentWithCustomId,
     ButtonBuilder,
     ButtonInteraction,
-    ButtonStyle,
     ComponentBuilder,
-    GuildMember,
-    EmbedBuilder,
-    ChannelType,
 } from 'discord.js';
-import {
-    memberHasModeratorPerms,
-    memberHasModeratorRole,
-    findTicketStateMessage,
-    updateTicketState,
-    findCategory,
-    findOrCreateModeratorCategory,
-} from '../logic';
+import { memberHasModeratorPerms, memberHasModeratorRole } from '../logic/hasModeratorRole';
 import { TICKET_BUTTON_CONFIGS } from '../logic/ticketButtonConfigs';
+import { resolveTicketAction } from '../logic/resolveTicketAction';
+import { replyTicketFailure, ticketErrorMessage } from '../logic/ticketErrorMessage';
+import { syncTicketChannelToState } from '../logic/ticketChannelOps';
+import { buildTicketButtons, buildTicketEmbed } from '../logic/ticketPresentation';
+import { unclaimTicket } from '../ticketService';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
-import { ticketingRepo } from '../data/ticketingRepo';
-import { isTicketingConfigConfigured } from '../data/ticketingSchema';
-import { roleIdsToNames, timeFnCall } from '../../../utils';
 
 export const TICKET_UNCLAIM_BUTTON_ID = TICKET_BUTTON_CONFIGS.UNCLAIM.customId;
 
@@ -37,131 +27,52 @@ export function TicketUnclaimButtonComponent() {
         return button as ComponentBuilder<APIButtonComponentWithCustomId>;
     }
 
+    /**
+     * Releases the claim on this channel's ticket.
+     *
+     * Carries one rule the service cannot: *who* may release a claim. The
+     * service knows only that a claim exists, so the "yours, or you outrank the
+     * person holding it" check stays here, where the acting member is known.
+     * Whether the ticket is claimed at all is left to `unclaimTicket`.
+     */
     async function handler(interaction: ButtonInteraction): Promise<InteractionHandlerResult> {
-        const startTime = performance.now();
+        const resolved = await resolveTicketAction(interaction, 'unclaim tickets');
+        if (!resolved.ok) return replyTicketFailure(interaction, ticketErrorMessage(resolved.error));
+        const { guild, member, channel, config, ticket } = resolved.value;
 
-        // Check if user has the required role
-        if (!interaction.guild || !interaction.member) {
-            return { status: 'error', message: '❌ This command can only be used in a server.' };
+        // Same disjunction the gate uses, deliberately. Testing only
+        // `memberHasModeratorPerms` here would be near-vacuous — the gate has
+        // already required role *or* perms — while still denying a holder of a
+        // configured moderation role without native `ModerateMembers`, who may
+        // claim and close but would be refused the release.
+        const isModerator = memberHasModeratorRole(member, config.moderationRoles) || memberHasModeratorPerms(member);
+        if (ticket.claimerId !== member.id && !isModerator) {
+            return replyTicketFailure(interaction, '❌ You can only unclaim tickets you have claimed.');
         }
 
-        const guild = interaction.guild;
-        const guildId = interaction.guild.id;
+        await interaction.deferUpdate();
 
-        const configEntity = await timeFnCall(async () => await ticketingRepo.get(guildId), 'ticketingRepo.get()');
-        if (!isTicketingConfigConfigured(configEntity)) {
-            return {
-                status: 'error',
-                message:
-                    '❌ The ticket system is not configured yet. Please ask an administrator to configure it first.',
-            };
-        }
-        const ticketsConfig = configEntity.config;
+        const result = await unclaimTicket(ticket.id);
+        if (!result.ok) return replyTicketFailure(interaction, `❌ ${ticketErrorMessage(result.error)}`);
+        const updated = result.value;
 
-        const member = interaction.member as GuildMember;
-        const hasModRole =
-            memberHasModeratorRole(member, ticketsConfig.moderationRoles) || memberHasModeratorPerms(member);
-
-        if (!hasModRole) {
-            const roleNames = await timeFnCall(
-                async () => await roleIdsToNames(guild, ticketsConfig.moderationRoles),
-                'roleIdsToNames()'
+        const syncResult = await syncTicketChannelToState(channel, guild, updated, config);
+        if (!syncResult.ok) {
+            console.error('Error syncing ticket channel after unclaim:', syncResult.error);
+            await replyTicketFailure(
+                interaction,
+                '⚠️ The ticket was released, but its channel could not be moved or re-permissioned. Check the category and permissions.'
             );
-
-            return {
-                status: 'error',
-                message: `❌ You need the **${roleNames.join(
-                    ', '
-                )}** role or moderation permissions to unclaim tickets.`,
-            };
         }
 
-        const channel = interaction.channel;
-        if (!channel || !channel.isTextBased() || channel.isDMBased()) {
-            return { status: 'error', message: '❌ This can only be used in a server text channel.' };
-        }
+        await interaction.message.edit({
+            embeds: [buildTicketEmbed(updated)],
+            components: buildTicketButtons(updated),
+        });
 
-        // Check if this is a text channel and get ticket state
-        if (channel.type !== ChannelType.GuildText) {
-            return { status: 'error', message: '❌ This command can only be used in text channels.' };
-        }
+        await channel.send(`↩️ **Ticket Released**\nThis ticket has been released by ${member} and is up for grabs.`);
 
-        const stateInfo = await timeFnCall(
-            async () => await findTicketStateMessage(channel),
-            'findTicketStateMessage()'
-        );
-        if (!stateInfo) {
-            return { status: 'error', message: '❌ This command can only be used in ticket channels.' };
-        }
-
-        if (stateInfo.state.status !== 'claimed') {
-            return { status: 'error', message: '❌ This ticket is not currently claimed.' };
-        }
-
-        // Check if the user is the one who claimed the ticket or has mod permissions
-        const isTicketClaimer = stateInfo.state.claimedByUserId === member.id;
-        if (!isTicketClaimer && !hasModRole) {
-            return { status: 'error', message: '❌ You can only unclaim tickets you have claimed.' };
-        }
-
-        try {
-            const supportTicketsCategoryResult = await findOrCreateModeratorCategory({
-                guild,
-                categoryName: ticketsConfig.supportTicketCategoryName,
-                moderationRoleIds: ticketsConfig.moderationRoles,
-            });
-            if (!supportTicketsCategoryResult.ok) {
-                return {
-                    status: 'error',
-                    message: '❌ Support tickets category not found. Please contact an administrator.',
-                };
-            }
-            const supportTicketsCategory = supportTicketsCategoryResult.value;
-
-            // Acknowledge the button interaction
-            await timeFnCall(async () => await interaction.deferUpdate(), 'interaction.deferUpdate()');
-
-            // Remove the claimer's manage permissions (keep basic permissions)
-            if (stateInfo.state.claimedByUserId) {
-                await timeFnCall(
-                    async () =>
-                        await channel.permissionOverwrites.edit(stateInfo.state.claimedByUserId!, {
-                            ViewChannel: true,
-                            SendMessages: true,
-                            ReadMessageHistory: true,
-                            ManageMessages: false, // Remove manage permissions
-                        }),
-                    'channel.permissionOverwrites.edit()'
-                );
-            }
-
-            // Move ticket back to support tickets category
-            await channel.setParent(supportTicketsCategory.id);
-
-            // Update ticket state to active
-            await timeFnCall(
-                async () =>
-                    await updateTicketState(
-                        channel,
-                        {
-                            status: 'active',
-                            claimedByUserId: undefined,
-                        },
-                        interaction.guild!
-                    ),
-                'updateTicketState()'
-            );
-
-            // Send public message to the channel
-            await channel.send(
-                `🔄 **Ticket Unclaimed**\nThis ticket has been unclaimed and moved back to active status.`
-            );
-
-            return { status: 'success' };
-        } catch (error) {
-            console.error('Error unclaiming ticket:', error);
-            return { status: 'error', message: '❌ Failed to unclaim ticket. Please try again.' };
-        }
+        return { status: 'success' };
     }
 
     return {

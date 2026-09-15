@@ -87,7 +87,14 @@ const migration = {
                 .addColumn('claimed_at', 'text')
                 .addColumn('closed_at', 'text')
                 .addColumn('deleted_at', 'text')
-                .addColumn('updated_at', 'text', (col) => col.notNull().defaultTo(sql`CURRENT_TIMESTAMP`))
+                // ISO-8601 with an explicit `Z` rather than `CURRENT_TIMESTAMP`,
+                // which yields `2026-09-17 12:00:00` — space-separated and
+                // zoneless, which V8 parses as *local* time while every value
+                // the repo writes is `toISOString()` UTC. Invisible on a UTC
+                // host, wrong everywhere else.
+                .addColumn('updated_at', 'text', (col) =>
+                    col.notNull().defaultTo(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`)
+                )
                 .execute();
 
             await db.schema

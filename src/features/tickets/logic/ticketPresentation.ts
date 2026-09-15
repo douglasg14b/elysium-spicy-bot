@@ -30,14 +30,24 @@ function truncate(value: string, maxLength = EMBED_FIELD_VALUE_MAX_LENGTH): stri
 export function buildTicketEmbed(ticket: TicketEntity): EmbedBuilder {
     const definition = getTicketTypeDefinition(ticket.type);
 
-    const statusText =
-        ticket.status === 'closed'
-            ? '🔴 Closed'
-            : ticket.status === 'deleted'
-              ? '⚫ Deleted'
-              : ticket.claimerId
-                ? `🔒 Open — claimed by <@${ticket.claimerId}>`
-                : '🟢 Open — unclaimed';
+    // Exhaustive rather than a ternary chain, so a new status has to be given a
+    // rendering instead of quietly displaying as open.
+    let statusText: string;
+    switch (ticket.status) {
+        case 'closed':
+            statusText = '🔴 Closed';
+            break;
+        case 'deleted':
+            statusText = '⚫ Deleted';
+            break;
+        case 'open':
+            statusText = ticket.claimerId ? `🔒 Open — claimed by <@${ticket.claimerId}>` : '🟢 Open — unclaimed';
+            break;
+        default: {
+            const unhandled: never = ticket.status;
+            throw new Error(`Unhandled ticket status: ${String(unhandled)}`);
+        }
+    }
 
     const embed = new EmbedBuilder()
         .setTitle(`🎫 ${definition.label} Ticket #${ticket.ticketNumber}`)

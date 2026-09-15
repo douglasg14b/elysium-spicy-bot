@@ -3,7 +3,7 @@ import { ChannelType } from 'discord.js';
 import type { BlockManifest } from '../manifest';
 import { ticketingRepo } from '../../../tickets/data/ticketingRepo';
 import { isTicketingConfigConfigured } from '../../../tickets/data/ticketingSchema';
-import { closeTicket, getTicket } from '../../../tickets/ticketService';
+import { closeTicket } from '../../../tickets/ticketService';
 import { syncTicketChannelToState } from '../../../tickets/logic/ticketChannelOps';
 
 export const ACTION_CLOSE_TICKET = 'action.closeTicket';
@@ -53,7 +53,11 @@ export const block: BlockManifest<CloseTicketConfig> = {
     canSuspend: false,
     async run(config, context) {
         const ticketId = Number(config.ticketId);
-        if (!Number.isInteger(ticketId)) {
+        // Positivity is the check that matters, not integer-ness. A token that
+        // resolved to nothing renders as an empty string, and `Number('')` is
+        // `0` — which passes an `isInteger` guard and then fails deep in the
+        // service as "no ticket 0", blaming an id the author never wrote.
+        if (!Number.isSafeInteger(ticketId) || ticketId <= 0) {
             throw new Error(`Close Ticket needs a ticket id, got "${config.ticketId}"`);
         }
 
