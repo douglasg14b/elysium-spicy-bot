@@ -362,7 +362,7 @@ export const FLOW_CONTEXT_REQUIREMENTS = ['subject', 'actor', 'channel', 'intera
 export type FlowContextRequirement = (typeof FLOW_CONTEXT_REQUIREMENTS)[number];
 
 /** A Discord permission the bot must hold for a block to work. */
-export const BLOCK_CAPABILITIES = ['manageRoles', 'sendMessages', 'embedLinks'] as const;
+export const BLOCK_CAPABILITIES = ['manageRoles', 'sendMessages', 'embedLinks', 'manageChannels'] as const;
 
 export type BlockCapability = (typeof BLOCK_CAPABILITIES)[number];
 

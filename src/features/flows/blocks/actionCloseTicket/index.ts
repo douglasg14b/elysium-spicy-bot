@@ -3,7 +3,7 @@ import { ChannelType } from 'discord.js';
 import type { BlockManifest } from '../manifest';
 import { ticketingRepo } from '../../../tickets/data/ticketingRepo';
 import { isTicketingConfigConfigured } from '../../../tickets/data/ticketingSchema';
-import { closeTicket } from '../../../tickets/ticketService';
+import { closeTicket } from '../../../tickets';
 import { syncTicketChannelToState } from '../../../tickets/logic/ticketChannelOps';
 
 export const ACTION_CLOSE_TICKET = 'action.closeTicket';
@@ -49,7 +49,9 @@ export const block: BlockManifest<CloseTicketConfig> = {
     handles: [{ label: 'Then', tone: 'neutral' }],
     outputs: [],
     requires: [],
-    capabilities: [],
+    // Closing moves the channel to the closed category and rewrites its
+    // permission overwrites, both of which need `manageChannels`.
+    capabilities: ['manageChannels'],
     canSuspend: false,
     async run(config, context) {
         const ticketId = Number(config.ticketId);

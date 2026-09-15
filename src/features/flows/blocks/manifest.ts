@@ -547,7 +547,7 @@ export type FlowContextRequirement = (typeof FLOW_CONTEXT_REQUIREMENTS)[number];
  * lies about them is a manifest bug found there rather than a silent failure
  * here.
  */
-export const BLOCK_CAPABILITIES = ['manageRoles', 'sendMessages', 'embedLinks'] as const;
+export const BLOCK_CAPABILITIES = ['manageRoles', 'sendMessages', 'embedLinks', 'manageChannels'] as const;
 
 export type BlockCapability = (typeof BLOCK_CAPABILITIES)[number];
 

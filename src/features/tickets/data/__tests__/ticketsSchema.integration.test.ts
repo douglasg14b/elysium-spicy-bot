@@ -1,5 +1,5 @@
 import SqliteDatabase from 'better-sqlite3';
-import { CamelCasePlugin, Kysely, SqliteDialect } from 'kysely';
+import { CamelCasePlugin, Kysely, SqliteDialect, sql } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SqlDatePlugin } from '../../../../features-system/data-persistence/plugins/sqlDatePlugin';
 import { up } from '../../../../features-system/data-persistence/migrations/2026-09-17-Create_Tickets_Table';
@@ -176,6 +176,23 @@ describe('the tickets table, against real SQL', () => {
             .where('id', '=', inserted.id)
             .executeTakeFirstOrThrow();
         expect(settled.claimerId).toBe('mod-1');
+    });
+
+    it('answers the hot existence question from the index, not a table scan', async () => {
+        // `EXPLAIN QUERY PLAN` rather than Kysely's `.explain()`, which returns
+        // raw VDBE opcodes — readable enough to assert on without pinning the
+        // exact bytecode a future SQLite might emit differently.
+        const plan = await sql<{
+            detail: string;
+        }>`EXPLAIN QUERY PLAN SELECT id FROM tickets WHERE guild_id = 'guild-1' AND subject_id = 'subject-1' AND status = 'open' AND type = 'support' LIMIT 1`.execute(
+            db
+        );
+
+        // The claim the covering index exists to make good on: this runs per
+        // member on join, so a table scan here is the regression to catch.
+        const detail = plan.rows.map((row) => row.detail).join(' ');
+        expect(detail).toContain('tickets_guild_subject_type_status_idx');
+        expect(detail).not.toContain('SCAN tickets');
     });
 
     it('finds an open ticket by subject and type, the query conditions are asked through', async () => {

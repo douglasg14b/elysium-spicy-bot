@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
-import { TICKET_TYPES } from '../../../tickets/data/ticketsSchema';
-import { hasOpenTicket } from '../../../tickets/ticketService';
+import { TICKET_TYPES, hasOpenTicket } from '../../../tickets';
 
 export const CONDITION_HAS_OPEN_TICKET = 'condition.hasOpenTicket';
 

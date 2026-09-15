@@ -1,9 +1,8 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
-import { TICKET_TYPES } from '../../../tickets/data/ticketsSchema';
+import { TICKET_TYPES, attachTicketChannel, openTicket } from '../../../tickets';
 import { ticketingRepo } from '../../../tickets/data/ticketingRepo';
 import { isTicketingConfigConfigured } from '../../../tickets/data/ticketingSchema';
-import { attachTicketChannel, openTicket } from '../../../tickets/ticketService';
 import { createTicketChannelForTicket } from '../../../tickets/logic/ticketChannelOps';
 import { buildTicketButtons, buildTicketEmbed } from '../../../tickets/logic/ticketPresentation';
 
@@ -90,7 +89,10 @@ export const block: BlockManifest<OpenTicketConfig> = {
         },
     ],
     requires: ['subject'],
-    capabilities: ['sendMessages', 'embedLinks'],
+    // `manageChannels` because opening a ticket creates a channel, and may
+    // create its category. The most channel-hungry block in the tree, so it is
+    // the one that would silently pass when capability checking lands.
+    capabilities: ['sendMessages', 'embedLinks', 'manageChannels'],
     canSuspend: false,
     async run(config, context) {
         const configEntity = await ticketingRepo.get(context.guild.id);

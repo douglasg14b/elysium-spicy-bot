@@ -5,6 +5,7 @@ const mockCreate = vi.fn();
 const mockGetById = vi.fn();
 const mockUpdate = vi.fn();
 const mockFindOpenBySubject = vi.fn();
+const mockHasOpenBySubject = vi.fn();
 const mockIncrementTicketNumber = vi.fn();
 const mockClaimIfUnclaimed = vi.fn();
 const mockTransitionStatus = vi.fn();
@@ -15,6 +16,7 @@ vi.mock('../data/ticketsRepo', () => ({
         getById: (...args: unknown[]) => mockGetById(...args),
         update: (...args: unknown[]) => mockUpdate(...args),
         findOpenBySubject: (...args: unknown[]) => mockFindOpenBySubject(...args),
+        hasOpenBySubject: (...args: unknown[]) => mockHasOpenBySubject(...args),
         claimIfUnclaimed: (...args: unknown[]) => mockClaimIfUnclaimed(...args),
         transitionStatus: (...args: unknown[]) => mockTransitionStatus(...args),
     },
@@ -257,15 +259,25 @@ describe('close, reopen and delete', () => {
 
 describe('hasOpenTicket', () => {
     it('answers from the record without a Discord call', async () => {
-        mockFindOpenBySubject.mockResolvedValue([ticket({ type: 'verification' })]);
+        mockHasOpenBySubject.mockResolvedValue(true);
 
         expect(await hasOpenTicket('guild-1', 'subject-1', 'verification')).toBe(true);
-        expect(mockFindOpenBySubject).toHaveBeenCalledWith('guild-1', 'subject-1', 'verification');
+        expect(mockHasOpenBySubject).toHaveBeenCalledWith('guild-1', 'subject-1', 'verification');
     });
 
     it('is false when the subject has none of that type', async () => {
-        mockFindOpenBySubject.mockResolvedValue([]);
+        mockHasOpenBySubject.mockResolvedValue(false);
 
         expect(await hasOpenTicket('guild-1', 'subject-1', 'verification')).toBe(false);
+    });
+
+    it('does not fetch rows to answer a yes/no on the hot path', async () => {
+        // Runs per member on join, so selecting every column — `reason` is
+        // unbounded text — to check `length > 0` would defeat the covering index.
+        mockHasOpenBySubject.mockResolvedValue(true);
+
+        await hasOpenTicket('guild-1', 'subject-1');
+
+        expect(mockFindOpenBySubject).not.toHaveBeenCalled();
     });
 });

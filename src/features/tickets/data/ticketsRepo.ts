@@ -69,6 +69,31 @@ export class TicketsRepo {
      *
      * Runs per member on join, which is why the covering index exists.
      */
+    /**
+     * Whether the subject has any open ticket, without fetching one.
+     *
+     * Separate from {@link findOpenBySubject} because this runs per member on
+     * join and only needs a yes/no. Selecting every column — including `reason`,
+     * which is unbounded text — to check `length > 0` forces a table lookup per
+     * row and defeats the covering index the migration declares for exactly this
+     * question.
+     */
+    async hasOpenBySubject(guildId: string, subjectId: string, type?: TicketType): Promise<boolean> {
+        let query = database
+            .selectFrom('tickets')
+            .select('id')
+            .where('guildId', '=', guildId)
+            .where('subjectId', '=', subjectId)
+            .where('status', '=', 'open')
+            .limit(1);
+
+        if (type) {
+            query = query.where('type', '=', type);
+        }
+
+        return !!(await query.executeTakeFirst());
+    }
+
     async findOpenBySubject(guildId: string, subjectId: string, type?: TicketType): Promise<TicketEntity[]> {
         let query = database
             .selectFrom('tickets')

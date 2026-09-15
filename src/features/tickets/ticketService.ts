@@ -274,8 +274,7 @@ export async function deleteTicket(ticketId: number): Promise<Result<TicketEntit
  * message lookup had a three-tier fallback.
  */
 export async function hasOpenTicket(guildId: string, subjectId: string, type?: TicketType): Promise<boolean> {
-    const open = await ticketsRepo.findOpenBySubject(guildId, subjectId, type);
-    return open.length > 0;
+    return ticketsRepo.hasOpenBySubject(guildId, subjectId, type);
 }
 
 export async function getTicketByChannel(channelId: string): Promise<TicketEntity | null> {
