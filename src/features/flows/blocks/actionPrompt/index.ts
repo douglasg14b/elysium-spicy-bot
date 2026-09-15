@@ -187,7 +187,7 @@ export const block: BlockManifest<PromptConfig> = {
             };
         }
 
-        await channel.send({
+        const posted = await channel.send({
             embeds: [new EmbedBuilder().setDescription(config.question)],
             components: [new ActionRowBuilder<ButtonBuilder>().addComponents(buttons)],
             // Matches `action.sendMessage`: the question is authored copy with
@@ -202,6 +202,12 @@ export const block: BlockManifest<PromptConfig> = {
                 wakeAt: config.timeoutMs === undefined ? undefined : new Date(Date.now() + config.timeoutMs),
                 // No `waitKind`. See the block doc — this is what keeps a prompt
                 // out of `findWaiting`'s result set.
+                //
+                // The message, though, is recorded: it is what a press names to
+                // prove it belongs to *this* asking rather than to a previous one
+                // at the same node, and it is what the lifecycle edits when the
+                // question closes.
+                waitMessageId: posted.id,
             },
         };
     },

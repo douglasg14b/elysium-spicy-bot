@@ -92,6 +92,33 @@ export async function handleFlowChoiceInteraction(
         return replyWith(interaction, QUESTION_CLOSED_MESSAGE, 'skipped');
     }
 
+    // The press must belong to the park the run is *currently* on, not merely to
+    // this run at this node. Those come apart whenever a graph routes back to the
+    // question — the run advances, asks again, and is once more `suspended` at the
+    // same `resumeNodeId`, so every check above passes for a button left over from
+    // the previous asking. The message a press arrived on is the one thing that
+    // differs between the two, so it is what the claim below is told to match.
+    //
+    // Checked here as well as in the claim so the presser gets the honest copy:
+    // this branch knows the question is closed, whereas a claim that misses cannot
+    // tell that apart from losing a race.
+    //
+    // **A run that names no message is exempt, and the claim below is told the
+    // same thing.** A question parked before this column existed has
+    // `waitMessageId` null while its buttons are still live in the channel; there
+    // is no park name to check it against, and inventing one would refuse the
+    // presser forever on a question that is genuinely open. Such a run keeps
+    // exactly the guarantees it had before — the status and node checks above, and
+    // the claim's own single winner — which is what it was shipped with.
+    //
+    // Bound once rather than re-derived at the claim below. The refusal here and
+    // the claim's own condition are one rule, and stating it twice is how they
+    // come to disagree.
+    const claimedPark = run.waitMessageId ?? undefined;
+    if (claimedPark && claimedPark !== interaction.message.id) {
+        return replyWith(interaction, QUESTION_CLOSED_MESSAGE, 'skipped');
+    }
+
     const refusal = await refuseIfIneligible(interaction, run, parsed.nodeId, dependencies);
     if (refusal) {
         return refusal;
@@ -106,10 +133,26 @@ export async function handleFlowChoiceInteraction(
     // already back, so it stays parked and the next press retries.
     let outcome: Awaited<ReturnType<typeof resumeFlowRun>>;
     try {
-        outcome = await dependencies.resume(interaction.client, run, {
-            kind: 'choice',
-            index: parsed.index,
-        });
+        outcome = await dependencies.resume(
+            interaction.client,
+            run,
+            {
+                kind: 'choice',
+                index: parsed.index,
+            },
+            undefined,
+            // The park this press claims to be answering. Everything above is a
+            // read-then-check and so is only as current as the row it read; this
+            // is the same condition applied *inside* the claim's own conditional
+            // write, which is what makes two presses arriving together — or one
+            // arriving while the timeout sweep resumes the run — unable to both
+            // win. The loser is told the question closed.
+            //
+            // Undefined when the run names no message, per the exemption above: a
+            // pre-column row would otherwise be claimed against a name it does not
+            // have and could never be answered again.
+            claimedPark
+        );
     } catch (error) {
         return replyWith(
             interaction,
@@ -124,9 +167,11 @@ export async function handleFlowChoiceInteraction(
         case 'suspended':
             return replyWith(interaction, '✅ Got it.', 'success');
         case 'skipped':
-            // The claim was lost to another resumer — most likely the timeout
-            // sweep landing at the same moment. Nothing went wrong; the question
-            // simply closed first.
+            // The claim did not land. Either it was lost to another resumer — most
+            // likely the timeout sweep arriving at the same moment — or the run
+            // moved off this park between the read above and the write, so the
+            // press is answering an asking that has since closed. Both are the
+            // same event from the presser's side, and neither is a fault.
             return replyWith(interaction, QUESTION_CLOSED_MESSAGE, 'skipped');
         case 'failed':
             return replyWith(

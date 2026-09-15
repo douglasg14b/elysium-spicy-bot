@@ -29,6 +29,8 @@ export interface CreateFlowRunInput {
     wakeAt?: Date | null;
     waitKind?: FlowWaitKind | null;
     waitConfig?: FlowRunWaitConfig | null;
+    /** The message whose controls are holding this park, when it posted one. */
+    waitMessageId?: string | null;
     visitsUsed?: number;
     log?: NodeRunLog[];
     /** Values blocks recorded before this run parked. Empty when none did. */
@@ -47,6 +49,7 @@ export interface FlowRunFieldsPatch {
     wakeAt?: Date | null;
     waitKind?: FlowWaitKind | null;
     waitConfig?: FlowRunWaitConfig | null;
+    waitMessageId?: string | null;
     visitsUsed?: number;
     log?: NodeRunLog[];
     variables?: Record<string, FlowVariableValue>;
@@ -204,6 +207,7 @@ export class FlowRunsRepo {
                 wakeAt: input.wakeAt ? input.wakeAt.toISOString() : null,
                 waitKind: input.waitKind ?? null,
                 waitConfig: input.waitConfig ? JSON.stringify(input.waitConfig) : null,
+                waitMessageId: input.waitMessageId ?? null,
                 contextSnapshot: JSON.stringify(input.contextSnapshot),
                 visitsUsed: input.visitsUsed ?? 0,
                 log: JSON.stringify(input.log ?? []),
@@ -284,9 +288,27 @@ export class FlowRunsRepo {
      * The returned row is read back immediately after the claim, so the resumer
      * works from what is persisted rather than from whatever it selected a moment
      * earlier.
+     *
+     * **`claimedWaitMessageId` narrows the claim from a run to a park.** Without
+     * it the guard is `status = 'suspended'` and nothing else, which cannot tell
+     * one park from the next: a run that advances and parks again at the same node
+     * is `suspended` with the same `resumeNodeId` it had before, so a press from
+     * the *first* park satisfies every condition the second one does and advances
+     * the run a second time. A caller holding a control from a particular park
+     * passes the message that park posted; the claim then misses unless the run is
+     * still waiting on precisely that one.
+     *
+     * Optional because the callers that are not holding a control genuinely have
+     * no park to name — the poller claims whatever is due, and the event fan-out
+     * claims whatever the gateway matched. Neither can be duplicated the way a
+     * press can, because neither is something a member can repeat at will.
      */
-    async claimForResume(runId: string): Promise<FlowRunEntity | null> {
-        return this.tryTransition(runId, 'claim', { claimedAt: new Date() });
+    async claimForResume(runId: string, claimedWaitMessageId?: string): Promise<FlowRunEntity | null> {
+        return this.tryTransition(runId, 'claim', { claimedAt: new Date() }, (query) =>
+            claimedWaitMessageId === undefined
+                ? query
+                : query.where('waitMessageId', '=', claimedWaitMessageId)
+        );
     }
 
     /**
@@ -336,6 +358,10 @@ export class FlowRunsRepo {
             wakeAt: input.wakeAt ?? null,
             waitKind: input.waitKind ?? null,
             waitConfig: input.waitConfig ?? null,
+            // `?? null` for the same reason `wakeAt` takes one: a run re-parking
+            // without posting anything must not inherit the previous park's
+            // message, or a button from that park would still name a live park.
+            waitMessageId: input.waitMessageId ?? null,
             visitsUsed: input.visitsUsed,
             log: input.log,
             // Rewritten on every park, not merged: the executor carries the whole
@@ -375,14 +401,20 @@ export class FlowRunsRepo {
     /**
      * Apply a lifecycle event to one run, guarded by the statuses the machine
      * allows it from. Returns null when no row matched — either the run is in
-     * another status or it does not exist.
+     * another status, it does not satisfy `narrow`, or it does not exist.
+     *
+     * `narrow` adds conditions to the same UPDATE rather than to a prior read, so
+     * anything it checks is checked atomically with the status guard.
      */
     private async tryTransition(
         runId: string,
         event: FlowRunEvent,
-        patch: LifecyclePatch
+        patch: LifecyclePatch,
+        narrow: (query: FlowRunUpdateQuery) => FlowRunUpdateQuery = (query) => query
     ): Promise<FlowRunEntity | null> {
-        const updated = await this.applyTransition(event, patch, (query) => query.where('runId', '=', runId));
+        const updated = await this.applyTransition(event, patch, (query) =>
+            narrow(query.where('runId', '=', runId))
+        );
         if (updated === 0) {
             return null;
         }
@@ -448,6 +480,9 @@ export class FlowRunsRepo {
             wakeAt: null,
             waitKind: null,
             waitConfig: null,
+            // Cleared with the rest: a finished run is not waiting on anybody's
+            // button, so a press naming this message must find nothing to match.
+            waitMessageId: null,
             claimedAt: null,
         };
     }
@@ -477,6 +512,9 @@ export class FlowRunsRepo {
         }
         if (patch.waitConfig !== undefined) {
             columns.waitConfig = patch.waitConfig ? JSON.stringify(patch.waitConfig) : null;
+        }
+        if (patch.waitMessageId !== undefined) {
+            columns.waitMessageId = patch.waitMessageId;
         }
         if (patch.visitsUsed !== undefined) {
             columns.visitsUsed = patch.visitsUsed;

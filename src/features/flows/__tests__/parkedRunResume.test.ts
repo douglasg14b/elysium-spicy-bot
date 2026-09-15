@@ -1,6 +1,7 @@
-import type { Client } from 'discord.js';
+import { ButtonStyle, ComponentType, type Client } from 'discord.js';
 import { sql } from 'kysely';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ACTION_PROMPT, PROMPT_TIMEOUT_HANDLE } from '../blocks/actionPrompt';
 import { ensureBlocksDiscovered } from '../blocks/registry';
 import { RESUME_EVENT, RESUME_TIMEOUT } from '../blocks/types';
 import { flowGraphSchema, type FlowGraph } from '../data/flowGraph';
@@ -20,6 +21,7 @@ import { up as createFlowRuns } from '../../../features-system/data-persistence/
 import { up as settleFlowRunLifecycle } from '../../../features-system/data-persistence/migrations/2026-09-13-Settle_Flow_Run_Lifecycle';
 import { up as addFlowRunVariables } from '../../../features-system/data-persistence/migrations/2026-09-14-Add_Flow_Run_Variables';
 import { up as widenContextSnapshot } from '../../../features-system/data-persistence/migrations/2026-09-15-Widen_Flow_Run_Context_Snapshot';
+import { up as addWaitMessage } from '../../../features-system/data-persistence/migrations/2026-09-16-Add_Flow_Run_Wait_Message';
 import { sentCopy } from './support/sentCopy';
 import preM1GraphJson from './fixtures/preM1Graph.json';
 import preM1ParkedRunsJson from './fixtures/preM1ParkedRuns.json';
@@ -36,7 +38,19 @@ const TIMEOUT_DM = '5e6f7081-92a3-44b5-86d7-e8f901234567';
 
 const PRE_M1_ROWS: readonly PreM1FlowRunRow[] = preM1ParkedRunsJson;
 
-function makeClient(): { client: Client; userSend: ReturnType<typeof vi.fn>; rolesAdd: ReturnType<typeof vi.fn> } {
+/**
+ * A client the resume path can rebuild a run against.
+ *
+ * `channel` is optional because most cases here park nowhere — the pre-M1 rows
+ * genuinely recorded no channel. Supplying one puts it in the guild's cache, which
+ * is where `resolveSnapshotChannel` looks first, so a run that stored a channel id
+ * resolves without a fetch.
+ */
+function makeClient(channel?: { id: string; messages: { fetch: ReturnType<typeof vi.fn> } }): {
+    client: Client;
+    userSend: ReturnType<typeof vi.fn>;
+    rolesAdd: ReturnType<typeof vi.fn>;
+} {
     const userSend = vi.fn().mockResolvedValue(undefined);
     const rolesAdd = vi.fn().mockResolvedValue(undefined);
 
@@ -45,7 +59,16 @@ function makeClient(): { client: Client; userSend: ReturnType<typeof vi.fn>; rol
         user: { id: USER_ID, send: userSend },
         roles: { add: rolesAdd, cache: { has: () => false } },
     };
-    const guild = { id: GUILD_ID, members: { fetch: vi.fn().mockResolvedValue(member) } };
+    // `asGuildTextChannel` keeps anything that is text-based and not a DM, so the
+    // stub has to answer both of those the way a guild text channel does.
+    const cached = channel
+        ? { ...channel, isDMBased: () => false, isTextBased: () => true }
+        : undefined;
+    const guild = {
+        id: GUILD_ID,
+        members: { fetch: vi.fn().mockResolvedValue(member) },
+        channels: { cache: { get: (id: string) => (cached?.id === id ? cached : undefined) } },
+    };
 
     return {
         client: {
@@ -96,6 +119,7 @@ describe('runs parked before M1', () => {
         // chain, not merely the one that renamed its status.
         await addFlowRunVariables(testDb.db);
         await widenContextSnapshot(testDb.db);
+        await addWaitMessage(testDb.db);
 
         repo = new FlowRunsRepo(testDb.db);
         // The committed graph must still satisfy the current schema untouched.
@@ -328,5 +352,236 @@ describe('the resume claim under contention', () => {
         expect(after?.status).toBe('suspended');
         expect(after?.claimedAt).toBeNull();
         expect(await repo.findDue(new Date())).toHaveLength(1);
+    });
+});
+
+/**
+ * A stale control cannot advance a run, proven against a real row.
+ *
+ * These are the cases slice D exists for, and they are the reason the claim grew a
+ * park-scoped variant. The hazard they cover is specific and is **not** the plain
+ * two-resumers race above: that one is settled by `status = 'suspended'` alone,
+ * because both resumers are contending for the same park. Here the two presses are
+ * on *different* parks that look identical in every stored column — same run, same
+ * `resumeNodeId`, both `suspended` — which is what a graph that loops back to its
+ * own question produces, and what nothing before this slice could tell apart.
+ *
+ * Driven through `resumeFlowRun` and the real `FlowRunsRepo` rather than by
+ * calling the guard directly, because what is being proven is that the guard is
+ * *in the write path*. A check asserted in isolation would pass with the claim
+ * still node-blind.
+ */
+describe('a control from a closed park', () => {
+    const QUESTION_NODE = '7a8b9c0d-1e2f-4304-8516-27384950a1b2';
+    const AFTER_TIMEOUT = '8b9c0d1e-2f30-4415-9627-384950a1b2c3';
+    const FIRST_ASKING = 'message-first';
+    const SECOND_ASKING = 'message-second';
+    const CHANNEL_ID = 'channel-1';
+
+    let testDb: FlowRunsTestDb;
+    let repo: FlowRunsRepo;
+
+    beforeEach(async () => {
+        testDb = await createFlowRunsTestDb();
+        repo = new FlowRunsRepo(testDb.db);
+    });
+
+    afterEach(async () => {
+        resetFlowRunSchedulerForTests();
+        await testDb.db.destroy();
+    });
+
+    /**
+     * A question with somewhere to go when nobody answers.
+     *
+     * The timeout handle has to be wired, or the executor completes the run at the
+     * park instead of holding it — which is `reachable` in `executeFlowSegment`
+     * doing its job, and would make this case prove nothing about the timeout
+     * branch.
+     */
+    const questionFlow = (): FlowEntity =>
+        ({
+            flowId: 'question-flow',
+            guildId: GUILD_ID,
+            enabled: true,
+            graph: flowGraphSchema.parse({
+                version: 1,
+                nodes: [
+                    {
+                        id: QUESTION_NODE,
+                        type: ACTION_PROMPT,
+                        position: { x: 0, y: 0 },
+                        data: { question: 'Well?', choices: ['Yes', 'No'] },
+                    },
+                    {
+                        id: AFTER_TIMEOUT,
+                        type: 'action.sendDM',
+                        position: { x: 220, y: 0 },
+                        data: { message: 'You left it too long.' },
+                    },
+                ],
+                edges: [
+                    {
+                        id: 'edge-question-timeout',
+                        source: QUESTION_NODE,
+                        sourceHandle: PROMPT_TIMEOUT_HANDLE,
+                        target: AFTER_TIMEOUT,
+                    },
+                ],
+            }),
+        }) as FlowEntity;
+
+    /** A run parked on a question, waiting on the message its buttons are on. */
+    const parkOnQuestion = async (waitMessageId: string): Promise<FlowRunEntity> =>
+        repo.create({
+            flowId: 'question-flow',
+            guildId: GUILD_ID,
+            contextSnapshot: { guildId: GUILD_ID, userId: USER_ID, channelId: CHANNEL_ID },
+            resumeNodeId: QUESTION_NODE,
+            waitMessageId,
+        });
+
+    it('refuses a press from an earlier asking at the node the run is parked on again', async () => {
+        const run = await parkOnQuestion(FIRST_ASKING);
+
+        // The run answered, carried on, looped back, and asked again — so it is
+        // once more `suspended` at the very same node. Every column a press could
+        // be checked against is what it was, except the message.
+        await repo.claimForResume(run.runId);
+        await repo.park(run.runId, {
+            resumeNodeId: QUESTION_NODE,
+            waitMessageId: SECOND_ASKING,
+            visitsUsed: 2,
+            log: [],
+            variables: {},
+        });
+
+        // Somebody presses a button on the *first* message, which is still sitting
+        // in the channel. It names a run that is parked, at the node it expects.
+        const stale = await repo.claimForResume(run.runId, FIRST_ASKING);
+        expect(stale).toBeNull();
+
+        // And the live one still works, so this refuses the stale press rather
+        // than wedging the question.
+        const live = await repo.claimForResume(run.runId, SECOND_ASKING);
+        expect(live?.status).toBe('running');
+    });
+
+    it('leaves an unanswered question by its timeout handle, and disables its controls', async () => {
+        // The other half of the lifecycle: the claim refuses a stale press, and
+        // this stops most members ever making one. Driven through `resumeFlowRun`
+        // rather than against the helper, because what is in doubt is whether the
+        // resume path calls it at all — a helper tested alone would pass with
+        // nothing wired to it.
+        const edit = vi.fn().mockResolvedValue(undefined);
+        // A real button row, the shape `channel.send` leaves on a posted question.
+        // An empty `components` would drive the release without ever running the
+        // rebuild inside it, so the assertion below would prove only that an edit
+        // happened — not that it disabled anything.
+        const fetch = vi.fn().mockResolvedValue({
+            components: [
+                {
+                    type: ComponentType.ActionRow,
+                    components: [
+                        { type: ComponentType.Button, style: ButtonStyle.Secondary, custom_id: 'flowc:a:b:0', label: 'Yes' },
+                        { type: ComponentType.Button, style: ButtonStyle.Secondary, custom_id: 'flowc:a:b:1', label: 'No' },
+                    ],
+                },
+            ],
+            edit,
+        });
+        const { client, userSend } = makeClient({ id: CHANNEL_ID, messages: { fetch } });
+
+        const run = await parkOnQuestion(FIRST_ASKING);
+
+        const outcome = await resumeFlowRun(client, run, RESUME_TIMEOUT, {
+            flowsRepo: { getByFlowId: vi.fn().mockResolvedValue(questionFlow()) },
+            flowRunsRepo: repo,
+        });
+
+        // The timeout branch, which is the third of this slice's three items: an
+        // unanswered question leaves by its own handle instead of parking forever.
+        expect(outcome.status).toBe('completed');
+        expect(sentCopy(userSend)).toContain('You left it too long.');
+
+        // And the message the park named is fetched and edited — once — so the
+        // buttons of a question nobody answered do not stay live.
+        expect(fetch).toHaveBeenCalledWith(FIRST_ASKING);
+        expect(edit).toHaveBeenCalledTimes(1);
+
+        // Every button comes back disabled, and keeps its id: a disabled control
+        // that kept its id still parses if a stale client replays it, and is then
+        // refused by the claim for the true reason.
+        const rebuilt = (edit.mock.calls[0]?.[0] as { components: { toJSON(): unknown }[] }).components;
+        const row = rebuilt[0]?.toJSON() as {
+            components: { disabled?: boolean; custom_id?: string; label?: string }[];
+        };
+        expect(row.components.map((button) => button.disabled)).toEqual([true, true]);
+        expect(row.components.map((button) => button.custom_id)).toEqual(['flowc:a:b:0', 'flowc:a:b:1']);
+        expect(row.components.map((button) => button.label)).toEqual(['Yes', 'No']);
+    });
+
+    it('still disables the controls when the terminal write is rejected', async () => {
+        // The path the lifecycle names: an operator cancels a `running` run, so the
+        // resumer's own terminal write is refused and `mustTransition` throws. The
+        // run is over either way — returning the buttons to the channel still live
+        // would be the one outcome this slice exists to prevent.
+        const edit = vi.fn().mockResolvedValue(undefined);
+        const fetch = vi.fn().mockResolvedValue({ components: [], edit });
+        const { client } = makeClient({ id: CHANNEL_ID, messages: { fetch } });
+
+        const run = await parkOnQuestion(FIRST_ASKING);
+        const rejecting = {
+            ...repo,
+            claimForResume: repo.claimForResume.bind(repo),
+            releaseClaim: repo.releaseClaim.bind(repo),
+            park: repo.park.bind(repo),
+            fail: repo.fail.bind(repo),
+            complete: vi.fn().mockRejectedValue(new Error('the row changed underneath the write')),
+        };
+
+        await expect(
+            resumeFlowRun(client, run, RESUME_TIMEOUT, {
+                flowsRepo: { getByFlowId: vi.fn().mockResolvedValue(questionFlow()) },
+                flowRunsRepo: rejecting,
+            })
+        ).rejects.toThrow('the row changed underneath the write');
+
+        // The throw still propagates — it is not swallowed — and the buttons are
+        // down regardless.
+        expect(edit).toHaveBeenCalledTimes(1);
+    });
+
+    it('disables the controls of a question whose flow was deleted underneath it', async () => {
+        // The commonest way a real question ends badly, and the one a `finally`
+        // around the segment does not reach: the run fails before a segment ever
+        // runs, so an early return would skip the tidy-up entirely and leave the
+        // buttons live in the channel forever.
+        const edit = vi.fn().mockResolvedValue(undefined);
+        const fetch = vi.fn().mockResolvedValue({ components: [], edit });
+        const { client } = makeClient({ id: CHANNEL_ID, messages: { fetch } });
+
+        const run = await parkOnQuestion(FIRST_ASKING);
+
+        const outcome = await resumeFlowRun(client, run, RESUME_TIMEOUT, {
+            flowsRepo: { getByFlowId: vi.fn().mockResolvedValue(null) },
+            flowRunsRepo: repo,
+        });
+
+        expect(outcome.status).toBe('failed');
+        expect(edit).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses a press once the run has finished, and clears what it was waiting on', async () => {
+        const run = await parkOnQuestion(FIRST_ASKING);
+
+        await repo.claimForResume(run.runId);
+        await repo.complete(run.runId);
+
+        // A terminal transition drops the message with the rest of the resume
+        // fields, so a press naming it matches nothing — the run is not merely
+        // unclaimable, it is no longer waiting on anybody's button.
+        expect((await repo.getByRunId(run.runId))?.waitMessageId).toBeNull();
+        expect(await repo.claimForResume(run.runId, FIRST_ASKING)).toBeNull();
     });
 });

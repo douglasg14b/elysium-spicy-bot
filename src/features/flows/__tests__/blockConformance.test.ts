@@ -16,13 +16,22 @@ const FIXTURE_ROOT = path.join(
 );
 
 /**
- * A channel that accepts anything and reports nothing.
+ * A channel that accepts anything and reports only what `send` really returns.
  *
  * Conformance asks what a block *returns*, never what it posted, so a shipped
- * block that talks to Discord needs somewhere for that to land and nothing more.
+ * block that talks to Discord needs somewhere for that to land and little more.
+ *
+ * It does have to hand back a message, though. `TextBasedChannel.send` resolves to
+ * a `Message` in every case — there is no branch of discord.js where it yields
+ * nothing — so a stub resolving `undefined` was modelling a state that cannot
+ * occur, and a block reading the id of what it posted crashed against the harness
+ * rather than against any real defect. Only `id` is filled in, because that is all
+ * a park has a use for.
  */
 function sink(): FlowRunContext['channel'] {
-    return { send: () => Promise.resolve(undefined) } as unknown as FlowRunContext['channel'];
+    return {
+        send: () => Promise.resolve({ id: 'message-1' }),
+    } as unknown as FlowRunContext['channel'];
 }
 
 /** Enough context to call a block. */

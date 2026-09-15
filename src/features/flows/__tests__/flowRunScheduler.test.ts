@@ -31,6 +31,7 @@ function makeRun(runId: string): FlowRunEntity {
         wakeAt: new Date(Date.now() - 1000),
         waitKind: null,
         waitConfig: null,
+        waitMessageId: null,
         contextSnapshot: { guildId: GUILD_ID, userId: 'user-1' },
         variables: {},
         visitsUsed: 1,
