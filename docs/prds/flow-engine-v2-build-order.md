@@ -386,7 +386,13 @@ Two of these are real dependencies. The others are preferences, and saying which
 
 The bar is PRD §1.3 exactly: *a verification ticket is opened by a flow, is distinguishable from a support ticket, and its channel is addressable by later blocks.*
 
-**In progress.** The record, the service and the first adapter blocks landed in `ead2348`. What follows is the ground truth the step is being built against, recorded when it arrived from the operator because it materially shrinks §5.6.
+**Done, and verified against a real guild by the operator on 2026-09-15** — the whole surface including the flow-block path. §1.3's bar is met: a verification ticket is opened by a flow, is distinguishable from a support ticket, and its channel is addressable by later blocks.
+
+That verification is the part worth weighting. Every defect that mattered in this step was invisible to typecheck and to a green suite — the creation modal wrote no ticket row at all while both gates passed. A live run remains the only thing that closes a step here.
+
+**Carried into step 5**: ticket triggers (opened/claimed/closed/deleted) are not built. The columns record the transitions; nothing emits them. The design question is the interesting half — the service must stay flows-free, so it cannot call the flow dispatcher directly.
+
+What follows is the ground truth the step was built against, recorded when it arrived from the operator because it materially shrank §5.6.
 
 ### What has landed (2026-09-15, `ead2348`)
 
@@ -423,6 +429,18 @@ Five further defects fixed, all of the same character — correct-looking code w
 **The test gap the review named was real and is closed.** The service tests mock the repo, so they could not see `returningAll`, date coercion, or the unique index — all three verified by hand once and pinned by nothing. There is now an in-memory integration test running the migration's own sqlite arm. Writing it caught a trap worth knowing: `SqlDatePlugin` matches camelCase keys, so it must run *after* `CamelCasePlugin` or every timestamp silently stays a string.
 
 **Still open**: the postgres arm remains unexercised and hand-reviewed, recorded honestly rather than claimed as covered. Triggers (opened/claimed/closed/deleted) are not built — the columns that support them exist, but nothing emits them yet.
+
+### A pattern in this feature: written, never wired
+
+Found while writing the test plan, and worth stating because it has now bitten three times in the same directory:
+
+- `ticketingRepo.incrementTicketNumber` — the atomic counter, written and never called, while the racy path ran in production.
+- `ticketChannelValidation.ts` — three predicates with zero callers, sitting exactly where a backfill author would look.
+- **`commands/ticketCommands.ts`** — a `/tickets` command with `config`, `create` and `add-user` subcommands that is **never registered**. `bot.ts` registers only `deploy-ticket-system`. Config is actually reached through a ⚙️ Configure button on the deployed panel; `create` and `add-user` are stubs replying "under development". Still dead as of `e50d199`.
+
+The lesson is operational rather than architectural: **in this feature, an exported symbol is not evidence of a live path.** Grep for the call site before describing anything here as a user-facing surface — I described `/tickets config` as a test step and the operator caught it.
+
+**Operational trap worth knowing**: saving ticket config writes `ticketNumberInc: 0`. Harmless before, but the new `(guildId, ticketNumber)` unique index makes a mid-life re-save collide on the next ticket.
 
 ### Decisions taken (2026-09-15) — these override §5.6 where they conflict
 
