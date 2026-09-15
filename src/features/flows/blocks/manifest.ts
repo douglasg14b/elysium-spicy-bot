@@ -340,12 +340,19 @@ export interface BlockOutputHandle {
 /**
  * A value a block writes for later blocks to read.
  *
- * Declared now and unwritten by every current block: blocks have nowhere to
- * write to until run variables land, so the conformance check that a declared
- * output is actually produced is deferred with them.
+ * **Nothing reads this member yet**, and one shipped block now declares one:
+ * `action.pickRandom`. Its `key` is the name of the *config field* holding the
+ * variable name, not the variable itself — the author types that, so the block
+ * cannot know it at declaration time. Anything built on `outputs` must settle
+ * that ambiguity first, or it will reject the one correct graph and accept a
+ * token nothing writes. See the build order's deferral table.
  */
 export interface BlockOutputDeclaration {
-    /** Reference name later blocks use. */
+    /**
+     * Reference name later blocks use — except where a block lets the author
+     * name the variable, in which case this is the config key holding it. See
+     * the caveat above; there is no discriminator between the two cases yet.
+     */
     readonly key: string;
     readonly label: string;
     readonly description?: string;

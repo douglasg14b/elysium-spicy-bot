@@ -132,10 +132,70 @@ export function validateAuthoredGraph(graph: FlowGraph): GraphValidationResult {
         }
     }
 
+    errors.push(...checkSuspendingNodesAreReachable(graph));
     errors.push(...checkContextRequirements(graph));
     errors.push(...checkCopyTokens(graph));
 
     return errors.length > 0 ? { valid: false, errors } : { valid: true, graph };
+}
+
+/**
+ * Reject a block that parks when nothing is wired to any handle it declares.
+ *
+ * The executor treats such a node as not worth a row and completes the run
+ * instead (`executor.ts`, the `reachable` guard) — which is the right call for a
+ * delay, because a delay that leads nowhere has genuinely nothing left to do. But
+ * a block that parks by *posting controls* has already committed its side effect
+ * by the time that decision is reached: the buttons are in the channel, and
+ * discarding the park means no `flow_runs` row is ever written for them. Every
+ * press then names a run that does not exist and is told the question "may still
+ * be setting up", inviting a retry that can never succeed, and nothing can
+ * disable the controls because the release only runs on the resume path.
+ *
+ * Rejecting it at save time is the only place an author can act on it. The check
+ * is deliberately on **every** suspending block rather than only the ones that
+ * post: "this parks and then goes nowhere" is a mistake in an author's graph
+ * whichever block does it, and singling out the posting ones would mean naming a
+ * block type here — which `blockTypeBranching` rejects, and rightly.
+ *
+ * Iterates nodes rather than edges, unlike the loop above: a node with no
+ * outgoing edges at all never appears in `handleUseByNode`, and that is precisely
+ * the case this rejects.
+ */
+function checkSuspendingNodesAreReachable(graph: FlowGraph): string[] {
+    const errors: string[] = [];
+    const handlesBySource = new Map<string, Set<string | undefined>>();
+
+    for (const edge of graph.edges) {
+        const handles = handlesBySource.get(edge.source) ?? new Set<string | undefined>();
+        handles.add(edge.sourceHandle ?? undefined);
+        handlesBySource.set(edge.source, handles);
+    }
+
+    for (const node of graph.nodes) {
+        const block = getBlockDefinition(node.type);
+        if (!block?.canSuspend) {
+            continue;
+        }
+
+        // Edges on handles the block does not declare do not count, matching the
+        // executor's own test exactly: nothing could ever follow them.
+        const used = handlesBySource.get(node.id) ?? new Set<string | undefined>();
+        const reachable = block.handles.some((handle) => used.has(handle.id ?? undefined));
+        if (reachable) {
+            continue;
+        }
+
+        const names = block.handles
+            .map((handle) => (handle.id === undefined ? 'its default output' : `"${handle.id}"`))
+            .join(', ');
+        errors.push(
+            `Node ${node.id} (${block.label}) waits for something to happen, but nothing is connected ` +
+                `to any of its outputs, so the flow would stop there. Connect one of: ${names}.`
+        );
+    }
+
+    return errors;
 }
 
 /**

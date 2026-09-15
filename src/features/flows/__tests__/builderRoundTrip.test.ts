@@ -166,4 +166,36 @@ describe('a graph shaped the way the builder emits one', () => {
         expect(errors.length).toBeGreaterThan(0);
         expect(errors.join(' ')).toContain(graph.nodes[2].id);
     });
+
+    /*
+     * A question with nothing wired after it is a shape the builder makes easy to
+     * author — drop a prompt, type the question, wire the trigger into it, and stop
+     * — and it used to be accepted. The executor then discarded the park *after*
+     * the block had already posted the buttons, so no run row was ever written:
+     * every press named a run that did not exist and was told the question might
+     * still be setting up, on a question that could never open, with no way to
+     * disable the controls because only the resume path releases them.
+     *
+     * Rejecting it at save is the only point an author can act on it.
+     */
+    it('is rejected when a question is asked with nothing wired to any answer', async () => {
+        await ensureBlocksDiscovered();
+        const graph = builderShapedGraph();
+        const triggerId = graph.nodes[0].id;
+
+        const askId = 'node-unwired-question';
+        graph.nodes = [
+            graph.nodes[0],
+            {
+                id: askId,
+                type: 'action.prompt',
+                position: { x: 0, y: 200 },
+                data: { question: 'Are you over 18?', choices: ['Yes', 'No'] },
+            },
+        ];
+        graph.edges = [{ id: 'edge-to-ask', source: triggerId, target: askId }];
+
+        const errors = validateAsSaveWould(graph);
+        expect(errors.join(' ')).toContain(askId);
+    });
 });

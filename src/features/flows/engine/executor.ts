@@ -13,6 +13,7 @@ import type {
 } from '../blocks/types';
 import { isCopyField, renderCopy } from './copyRendering';
 import type { FlowStepOutcome, FlowStepSuspension } from './stepOutcome';
+import { releaseWaitMessageControls } from './waitMessageControls';
 
 export interface NodeRunLog {
     nodeId: string;
@@ -307,12 +308,23 @@ export async function executeFlowSegment(
             // wake, find the graph over, and complete — so complete now rather
             // than holding a run open to reach the same end later. Edges on
             // handles the block does not declare do not count: nothing could
-            // follow them, which is what save-time validation now rejects.
+            // follow them.
+            //
+            // `validateAuthoredGraph` rejects this shape at save time, so a graph
+            // saved since that rule exists cannot reach here. One saved *before*
+            // it still can, which is why this stays.
             const outgoing = edgesBySource.get(node.id) ?? [];
             const reachable = outgoing.some((edge) =>
                 definition.handles.some((handle) => (handle.id ?? undefined) === (edge.sourceHandle ?? undefined))
             );
             if (!reachable) {
+                // The block may already have posted controls before parking, and
+                // discarding the park means no row is ever written for them — so
+                // nothing on the resume path can ever disable them, and a press
+                // names a run that does not exist. Take them down here, on the one
+                // path that knows both that the message exists and that nothing
+                // will wake to tidy it.
+                await releaseWaitMessageControls(context.channel, outcome.suspension.waitMessageId);
                 return completed(successResult(flowId, triggerNodeId, log, visitedNodeIds));
             }
 

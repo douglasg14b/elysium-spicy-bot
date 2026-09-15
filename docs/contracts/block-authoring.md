@@ -134,6 +134,38 @@ Include `wakeAt` to be woken by time, `waitKind`/`waitConfig` to be woken by a D
 or both when an event-wait also has a timeout. A parked run survives a restart, so assume
 nothing about what is still in memory when you wake.
 
+### Parking on controls you posted — set `waitMessageId`
+
+If your block parks by **posting a message with buttons**, it must also return the id of what
+it posted:
+
+```ts
+const posted = await context.channel.send({ /* … */ });
+return { kind: 'suspend', suspension: { waitMessageId: posted.id } };
+```
+
+This is not optional bookkeeping, and **nothing will tell you if you forget it**. A run can park
+at the same node twice — an author who wires a branch back to your block asks again — and every
+other column is identical across those two parks: same `resumeNodeId`, same `suspended` status.
+The message id is the only value that differs, which makes it the only thing that can tell one
+park from the next.
+
+Two consequences follow, and a block that omits it silently loses both:
+
+- **A press from the earlier park advances the run a second time.** `claimForResume` narrows its
+  conditional `UPDATE` on this id, so a claim names *a park* rather than a run. Without an id
+  there is nothing to narrow on.
+- **The buttons are never disabled.** `engine/waitMessageControls.ts` releases the controls when
+  a park closes by any route, and it needs to be told which message to edit.
+
+The dispatcher that handles your block's presses must pass the message the press arrived on as
+`resumeFlowRun`'s `claimedWaitMessageId`. `action.prompt` and `engine/flowChoiceDispatch.ts` are
+the worked example; copy their shape.
+
+Note that the disabling is **tidiness, not the guarantee** — a client holding a stale render can
+still send the press, and the park-scoped claim is what makes that harmless. Do not treat a
+successful edit as a security boundary.
+
 ### Waking up
 
 **A parked run resumes at your node, not the one after it.** Your `run` is called a second

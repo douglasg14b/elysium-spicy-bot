@@ -52,7 +52,11 @@ describe('a block added as one directory renders end to end', () => {
             );
         }
         descriptor = served;
-    });
+        // Discovery walks the blocks directory and dynamically imports every one,
+        // which takes seconds on Windows — genuinely slow, not hung. At the 10s
+        // default this hook reds every test in the file at once, which reads like
+        // a regression in the block rather than a slow disk.
+    }, 30_000);
 
     it('arrives over the wire with everything the palette draws from', () => {
         // The palette needs a glyph, a label, a blurb and a group. None of these is
@@ -124,7 +128,11 @@ describe('a block added after the contract settled still needs only its director
             );
         }
         descriptor = served;
-    });
+        // Discovery walks the blocks directory and dynamically imports every one,
+        // which takes seconds on Windows — genuinely slow, not hung. At the 10s
+        // default this hook reds every test in the file at once, which reads like
+        // a regression in the block rather than a slow disk.
+    }, 30_000);
 
     it('reaches the palette with its glyph, blurb and group intact', () => {
         expect(descriptor.icon).toBe('🎲');
