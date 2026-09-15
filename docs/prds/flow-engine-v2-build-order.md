@@ -406,7 +406,23 @@ The foundation, verified against the real dev database rather than only the type
 
 **Evidence, not assertion.** A live round-trip against the dev database confirmed the two properties the redesign exists for — claiming leaves `status` untouched, and a deleted ticket keeps its row while ceasing to resolve by channel — plus that the unique number index rejects a duplicate. The double-claim guard was sabotage-verified: removing it fails exactly one named test. Typecheck holds at the pre-existing 17 with none in touched paths; 852/853 tests pass, the single failure confirmed pre-existing on a clean stash.
 
-**What is deliberately not done yet.** The old embed-based path (`logic/ticketState.ts` and the five button handlers) is still present and still wired up, so nothing is user-visibly different yet. Replacing the mod-facing surface — which is what decision 3 actually cashes out to — is the next piece of work, and it is the one that carries the stated cost.
+### The cutover, completed (`a69f5e0`)
+
+Decision 3 is now cashed out. The mod-facing surface runs on the service, and **the old system is deleted rather than bypassed**: `ticketState.ts`, `createTicketChannel.ts`, `buildTicketChannelName.ts`, `ticketChannelValidation.ts` and `ticketChannelUtils.ts` are gone, along with the dead close/reopen permission paths. The five button handlers share one `resolveTicketAction` gate instead of forty drifted lines each.
+
+**A review caught one thing that would have broken on the first ticket**, and it is worth recording because it was invisible to every gate: the creation modal never called `openTicket`, so a mod-created ticket had a channel and no row — and every button on it would have refused. Worse, the modal still wrote the counter *absolutely*, which would have silently reverted the service's atomic increment and handed the next flow-opened ticket a duplicate number. Typecheck and tests were both green with that in place.
+
+Five further defects fixed, all of the same character — correct-looking code with an invisible failure:
+
+- **Check-then-act on every transition.** Two moderators racing Claim both passed the read and the second silently won. Close racing delete could produce a row that is `closed` while carrying `deletedAt`, which the status union says is impossible. Each guard is now a conditional `UPDATE`; zero rows back *is* the refusal.
+- **Errors after `deferUpdate` were discarded by the registry**, so every refusal the new state machine produced was invisible — pressing Claim on a claimed ticket did nothing at all.
+- **A deleted ticket routed its channel to the *open* category**, via a ternary chain with no case for it. Both status chains are exhaustive switches now.
+- **`Number('')` is `0`** and passed the integer guard, so an unresolved token closed "ticket 0".
+- **The sqlite `updatedAt` default was `CURRENT_TIMESTAMP`** — zoneless, parsed as local time, while every written value is UTC. Invisible on a UTC host. The dev table was empty, so it was rebuilt rather than patched.
+
+**The test gap the review named was real and is closed.** The service tests mock the repo, so they could not see `returningAll`, date coercion, or the unique index — all three verified by hand once and pinned by nothing. There is now an in-memory integration test running the migration's own sqlite arm. Writing it caught a trap worth knowing: `SqlDatePlugin` matches camelCase keys, so it must run *after* `CamelCasePlugin` or every timestamp silently stays a string.
+
+**Still open**: the postgres arm remains unexercised and hand-reviewed, recorded honestly rather than claimed as covered. Triggers (opened/claimed/closed/deleted) are not built — the columns that support them exist, but nothing emits them yet.
 
 ### Decisions taken (2026-09-15) — these override §5.6 where they conflict
 
