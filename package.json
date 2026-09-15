@@ -7,7 +7,7 @@
     "scripts": {
         "build": "tsc --noEmit",
         "start": "tsx src/bot.ts",
-        "dev": "pnpm migrate:latest:dev && concurrently --names \"bot,web\" --prefix-colors \"magenta,cyan\" --kill-others-on-fail \"pnpm dev:bot\" \"pnpm dev:web\"",
+        "dev": "pnpm migrate:latest:dev && concurrently --raw --kill-others \"pnpm dev:bot\" \"pnpm dev:web\"",
         "dev:bot": "cross-env TSX=true dotenvx run --env-file=.env.local -- tsx watch src/bot.ts",
         "dev:web": "pnpm --filter spicybot-web dev",
         "build:web": "pnpm --filter spicybot-web build",
