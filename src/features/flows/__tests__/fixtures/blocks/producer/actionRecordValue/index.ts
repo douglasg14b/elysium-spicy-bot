@@ -18,8 +18,16 @@ import type { BlockManifest } from '../../../../../blocks/manifest';
 export const ACTION_RECORD_VALUE = 'fixture.recordValue';
 
 export const recordValueConfigSchema = z.object({
-    /** The flat, author-declared name later blocks read as `{{var.<name>}}`. */
-    outputKey: z.string().min(1),
+    /**
+     * The flat, author-declared name later blocks read as `{{var.<name>}}`.
+     *
+     * Constrained to what that token can actually address, matching
+     * `action.pickRandom`: `variableNameOf` splits on `.` and rejects a second
+     * segment, so a dotted name would save and then resolve to nothing from copy.
+     * A fixture other blocks are read as precedent for should not model the lax
+     * version of a rule the shipped block enforces.
+     */
+    outputKey: z.string().min(1).regex(/^[A-Za-z][A-Za-z0-9_]*$/),
     value: z.string(),
 });
 

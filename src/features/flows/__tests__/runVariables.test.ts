@@ -24,9 +24,15 @@ import { sentCopy } from './support/sentCopy';
  * and copy can address the subject.*
  *
  * Everything here drives the real executor over real blocks. The producer is a
- * fixture block (there is no shipped block that learns anything worth recording
- * yet) but it is discovered, validated and run exactly like a product block —
- * a hand-built stub would only prove that a callback gets called.
+ * fixture block, but it is discovered, validated and run exactly like a product
+ * block — a hand-built stub would only prove that a callback gets called.
+ *
+ * It stays a fixture now that `action.pickRandom` ships as a real producer,
+ * because the two prove different things: this file needs a producer whose value
+ * it *chooses*, to assert what the bag does with a specific key, a specific size
+ * and a specific resume. A block that records something random by design can pin
+ * none of those. The shipped block's own producer→consumer path is proven in
+ * `pickRandom.test.ts`.
  */
 
 const GUILD_ID = 'guild-1';

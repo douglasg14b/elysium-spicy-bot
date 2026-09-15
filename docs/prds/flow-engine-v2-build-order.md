@@ -310,6 +310,7 @@ Two of these are real dependencies. The others are preferences, and saying which
 | **Shared guild settings / moderator promotion (§5.12)** | `roles: [...]` expresses the gate without it. Promotion is a six-call-site convergence in the tickets feature (§5.12), not a flows change | **Step 4**, which is already in the tickets feature |
 | **`memberJoin` already-completed rule** | Needs a durable per-member journey record; no journey exists yet | **Step 6** |
 | **Operator run controls** (cancel / retry / advance) | §8 Q11 resolved this to read-only first, controls at M6 | Step 6 |
+| **Checking `{{var.<name>}}` against declared outputs** | `action.pickRandom` ships the first non-empty `outputs`, but its entry's `key` names a **config field** (`outputKey`), not the variable written — the author types the name. So `outputs` is still not a vocabulary of produced names, and a check that read `key` as one would reject the correct graph and accept `{{var.outputKey}}`. Needs a manifest way to say "named by that config field" | With the reference picker, which needs the same distinction. Comments at `graphValidation.ts` `checkCopyTokens`, `copyRendering.ts` `isRenderableToken`, and the block's own `outputs` all point here |
 
 ### Carried from step 2
 

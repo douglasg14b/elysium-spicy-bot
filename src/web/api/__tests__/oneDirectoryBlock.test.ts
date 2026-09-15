@@ -93,3 +93,81 @@ describe('a block added as one directory renders end to end', () => {
         expect(descriptor.handles.map((handle) => handle.tone)).toEqual(['positive', 'negative']);
     });
 });
+
+/**
+ * The claim re-proved by the next block written, rather than only by the one
+ * written to prove it.
+ *
+ * `condition.isBooster` above was written the day the contract was finished, so
+ * it says the claim held once. `action.pickRandom` is the first block added after
+ * two further steps of engine work, and it is the harder case in two ways the
+ * first never touched: it carries a `textList` field, whose value is a list rather
+ * than a scalar, and it *declares an output* — the first shipped block to do so.
+ *
+ * It reaches the browser here without one line changing in `web/src`.
+ */
+const LATER_BLOCK = 'action.pickRandom';
+
+describe('a block added after the contract settled still needs only its directory', () => {
+    let descriptor: NodeDescriptor;
+
+    beforeAll(async () => {
+        await ensureBlocksDiscovered();
+        const response = await nodeRoutes().request('/');
+        expect(response.status).toBe(200);
+        const body = (await response.json()) as { nodes: readonly NodeDescriptor[] };
+        const served = body.nodes.find((node) => node.type === LATER_BLOCK);
+        if (!served) {
+            throw new Error(
+                `GET /api/nodes did not serve "${LATER_BLOCK}". The block is discovered from its ` +
+                    'directory alone, so this means discovery or the route stopped being generic.'
+            );
+        }
+        descriptor = served;
+    });
+
+    it('reaches the palette with its glyph, blurb and group intact', () => {
+        expect(descriptor.icon).toBe('🎲');
+        expect(descriptor.label).toBe('Pick at Random');
+        expect(descriptor.group).toBe('actions');
+        expect(Object.keys(KIND_STYLES)).toContain(descriptor.kind);
+    });
+
+    it('seeds a dropped node from the defaults it declares, list and all', () => {
+        const browserDescriptor = descriptor as BrowserNodeDescriptor;
+
+        // `defaultDataFor` knows no block type; it reads `defaultValue` off each
+        // declared field. A list-valued default is the case a scalar-shaped seeder
+        // would quietly drop.
+        expect(defaultDataFor(browserDescriptor)).toEqual({
+            options: ['Heads', 'Tails'],
+            outputKey: 'pick',
+        });
+    });
+
+    it('summarises its list on the card without the browser learning what the field means', () => {
+        const browserDescriptor = descriptor as BrowserNodeDescriptor;
+
+        const summary = summarizeFromDescriptor(
+            browserDescriptor,
+            { options: ['truth', 'dare'], outputKey: 'pick' },
+            [],
+            []
+        );
+
+        expect(summary).toContain('truth');
+        expect(summary).toContain('{{var.pick}}');
+    });
+
+    it('declares the value it produces, so the wire carries an output at last', () => {
+        // Every other shipped block declares `outputs: []`, which means the drift
+        // gate has never seen a populated one cross the wire. This is that case.
+        expect(descriptor.outputs).toEqual([
+            {
+                key: 'outputKey',
+                label: 'The picked option',
+                description: 'Whichever entry came up, under the name this block was given.',
+            },
+        ]);
+    });
+});

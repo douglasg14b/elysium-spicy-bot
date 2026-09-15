@@ -149,11 +149,20 @@ export function validateAuthoredGraph(graph: FlowGraph): GraphValidationResult {
  * Fields are found by their own declaration (`rendersTokens`) rather than by
  * block type, which is what keeps this one rule instead of a branch per block.
  *
- * **`{{var.<name>}}` is accepted on sight**, deliberately. Blocks do not declare
- * typed outputs yet, so there is no vocabulary of produced names to check against
- * and any check here would be a guess. When outputs become real this is where it
- * tightens: a variable no upstream block on the path produces becomes an error
- * naming the node, exactly as an unknown token is now.
+ * **`{{var.<name>}}` is accepted on sight**, deliberately. When produced names
+ * become checkable this is where it tightens: a variable no upstream block on the
+ * path produces becomes an error naming the node, exactly as an unknown token is
+ * now.
+ *
+ * **Read this before building that check.** One shipped block now declares a
+ * non-empty `outputs` (`blocks/actionPickRandom`), so the member is no longer
+ * uniformly empty — but that entry's `key` names a **config field**, not the
+ * variable written: the block calls `setOutput(config.outputKey, …)`, so the
+ * produced name is whatever the author typed. Walking `outputs` and reading `key`
+ * as a variable name would therefore reject the one correct graph (the block
+ * writes `pick`, downstream copy reads `{{var.pick}}`) while accepting
+ * `{{var.outputKey}}`, which nothing ever writes. A manifest needs a way to say
+ * "this output is named by that config field" before this check can be written.
  */
 function checkCopyTokens(graph: FlowGraph): readonly string[] {
     const errors: string[] = [];

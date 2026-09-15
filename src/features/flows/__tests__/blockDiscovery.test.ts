@@ -29,6 +29,7 @@ const fixtureRoot = (name: string): string => path.join(FIXTURE_ROOT, name);
 const SHIPPED_BLOCK_TYPES = [
     'action.assignRole',
     'action.delay',
+    'action.pickRandom',
     'action.postEmbed',
     'action.prompt',
     'action.removeRole',
