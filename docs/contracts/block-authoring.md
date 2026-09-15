@@ -336,6 +336,12 @@ Four things follow from how that is wired, and each of them has bitten somebody:
 write was declared, or that one you declare gets written. Declare them anyway; that check
 arrives with typed outputs.
 
+If the variable's name is **authored** rather than fixed — as in `action.pickRandom`, which
+writes `setOutput(config.outputKey, …)` — declare the output against the *config field's* key
+and say so in a comment. `outputs[].key` then names a field, not a variable, and the check
+that eventually reads it has to know the difference. See the deferral row in
+`flow-engine-v2-build-order.md`.
+
 ## Copy and `{{tokens}}`
 
 A config field whose value is **copy a member reads** declares `rendersTokens: true`, and the
