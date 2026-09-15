@@ -412,6 +412,16 @@ Because there is no table to alter, the "migration" is a **backfill out of Disco
 
 This is still the part to design first and verify against the live guild, and it is still the reason this step ends in a live run. It is just a smaller, better-understood risk than "a hazardous cutover".
 
+### Two defects in the creation path, confirmed against the code
+
+§5.6 names both. Both are real, and the first is worse than it reads there.
+
+**Ticket numbering is not merely racy — it is read-modify-write across an `await` boundary, and the atomic helper that exists is dead code.** `createModTicketModal.ts` does `configEntity.ticketNumberInc += 1` in memory (`:93`), creates the channel, and only then persists the counter (`:118-121`). So the window is not a few instructions: it spans a **channel-creation round trip to Discord**. Two moderators filing tickets within that window both read the same number, both name a channel with it, and the second write silently overwrites the first. Meanwhile `ticketingRepo.incrementTicketNumber` — a single atomic `UPDATE … SET x = x + 1 RETURNING` — **has no call site anywhere in `src/`**; it was written and never wired up.
+
+That matters for step 4 beyond tidiness: ticket *number* is the natural human-facing key, and a durable `tickets` table wants it unique. Backfilling a table from channels whose numbers may already collide is a different job from backfilling one where they cannot. **Check the live channels for duplicate numbers before designing the key**, rather than discovering a unique-constraint violation during the cutover.
+
+**The channel-name template is configurable in the UI and thrown away on save.** `ticketConfigModal.ts:214` writes `ticketChannelNameTemplate: SUPPORT_TICKET_NAME_TEMPLATE` with the comment `// Non-configurable`, overwriting whatever the operator typed — while `:69` pre-fills the field with their previous value, so the form presents itself as editable. `buildTicketChannelName` ignores the stored config entirely and uses the hardcoded constant. Per-type name templates are a step 4 requirement, so this is on the critical path rather than a wart: the field, the storage, and the UI all already exist and are merely disconnected.
+
 ### Postgres, priced correctly
 
 Recorded because this document previously over-weighted it. Dev runs SQLite, so every migration's postgres arm is unexecuted code that ships as though tested, and the migrator's non-zero exit on first failure makes a **half-applied chain** reachable — one migration lands, the next fails, the rest never run, and the bot boots fine and fails later at query time.
