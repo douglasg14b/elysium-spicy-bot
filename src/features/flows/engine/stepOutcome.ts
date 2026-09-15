@@ -41,6 +41,20 @@ export interface FlowStepSuspension {
     /** Set when parked on a gateway event rather than a plain delay. */
     waitKind?: FlowWaitKind;
     waitConfig?: FlowRunWaitConfig;
+    /**
+     * The message this park posted, when it parked by putting controls in a
+     * channel.
+     *
+     * Named by the block because only the block knows it posted anything; carried
+     * on the suspension rather than held in memory for the same reason `variables`
+     * is — the press that ends this park may arrive in a different process, days
+     * later, and the message id would otherwise be gone.
+     *
+     * It is what makes one park at a node distinguishable from the next at the
+     * same node, so a claim can name which park it is resuming. See
+     * `FlowRunTable.waitMessageId`.
+     */
+    waitMessageId?: string;
     /** Present only when parking to retry a transient failure. */
     retry?: FlowRetryMarker;
 }

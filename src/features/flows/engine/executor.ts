@@ -476,6 +476,7 @@ async function persistNewSuspendedRun(
         wakeAt: suspension.wakeAt ?? null,
         waitKind: suspension.waitKind ?? null,
         waitConfig: suspension.waitConfig ?? null,
+        waitMessageId: suspension.waitMessageId ?? null,
         visitsUsed: suspension.visitsUsed,
         log: suspension.log,
         variables: suspension.variables,

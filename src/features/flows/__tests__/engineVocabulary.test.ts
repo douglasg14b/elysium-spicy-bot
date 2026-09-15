@@ -253,6 +253,25 @@ const GENERIC_VOCABULARY = [
     // other two are what a list has. `entry` in particular is the singular the
     // engine has always needed alongside the `entries` it already recognised.
     'probe', 'entry', 'bounds',
+    // Step 3 slice D, which lets a park name the message whose controls are
+    // holding it so they can be disabled once it closes.
+    //
+    // `components` is discord.js's own key for the rows attached to a message —
+    // `message.edit({ components })` — so it is API surface rather than anything
+    // this product does. It is reported only because {@link MEMBER} is anchored on
+    // `{` and cannot tell an object literal's key from a declared member, which
+    // this file already names as the deliberate cheaper error.
+    //
+    // Note what this slice did NOT need, which is the good sign: `wait`, `message`,
+    // `control`, `claim`, `park` and `release` were all already recognised, so the
+    // park-scoped claim and the control release are stated entirely in words the
+    // engine already had. Four identifiers were renamed rather than admitted here —
+    // `retire`, `expected`, `ending` and `settle` — each replaced by an existing
+    // word (`release`, `claimed`, `current`, and an inlined branch) rather than
+    // widening the list. `stale`, the word the slice is *about*, is deliberately
+    // still absent: it appears only in comments, where this gate does not reach and
+    // should not.
+    'components',
 ];
 
 /**

@@ -24,6 +24,8 @@ const RUN_ID = 'run-1';
 const NODE_ID = 'node-1';
 const GUILD_ID = 'guild-1';
 const USER_ID = 'user-1';
+/** The message the parked question was posted on, and its buttons belong to. */
+const MESSAGE_ID = 'message-1';
 
 describe('a choice button id', () => {
     it('survives the round trip Discord puts it through', () => {
@@ -80,10 +82,15 @@ describe('answering a question', () => {
         });
 
         expect(result.status).toBe('success');
-        expect(resume).toHaveBeenCalledWith(interaction.client, expect.objectContaining({ runId: RUN_ID }), {
-            kind: 'choice',
-            index: 2,
-        });
+        expect(resume).toHaveBeenCalledWith(
+            interaction.client,
+            expect.objectContaining({ runId: RUN_ID }),
+            { kind: 'choice', index: 2 },
+            undefined,
+            // The park the press names, handed to the claim so the conditional
+            // write itself refuses a button from an earlier asking.
+            MESSAGE_ID
+        );
     });
 
     it('tells a presser whose question is not written yet apart from one whose question is gone', async () => {
@@ -149,6 +156,59 @@ describe('answering a question', () => {
         expect(resume).toHaveBeenCalled();
     });
 
+    it('refuses a press on a question the run has already moved past', async () => {
+        // The stale-control case, from the presser's side. The run has answered,
+        // carried on, and asked again — so it is `suspended` at the same node once
+        // more, and a button left over from the first asking passes every other
+        // check. What it cannot do is name the message the run is waiting on now.
+        const resume = vi.fn();
+        const askedAgain: FlowRunEntity = { ...parkedRun(), waitMessageId: 'message-second' };
+
+        const result = await handleFlowChoiceInteraction(
+            buttonInteraction(buildFlowChoiceCustomId(RUN_ID, NODE_ID, 0), guildMember(), MESSAGE_ID),
+            {
+                flowRunsRepo: { getByRunId: () => Promise.resolve(askedAgain) },
+                flowsRepo: openGateFlow(),
+                resume: resume as never,
+            }
+        );
+
+        // Quietly, and as an ordinary outcome rather than a fault — this is the
+        // question having closed, not anything going wrong.
+        expect(result.status).toBe('skipped');
+        expect(result.message).toEqual(QUESTION_CLOSED_MESSAGE);
+        // The assertion that matters: it did not advance the run a second time.
+        expect(resume).not.toHaveBeenCalled();
+    });
+
+    it('still answers a question parked before a park could name its message', async () => {
+        // A row written before `waitMessageId` existed has none, while its buttons
+        // are still live in the channel. Claiming it against the message the press
+        // came from would match nothing and refuse that member forever, on a
+        // question that is genuinely open — so the park name is withheld and the
+        // run keeps exactly the guarantees it shipped with.
+        const resume = vi.fn().mockResolvedValue({ status: 'completed' });
+        const beforeTheColumn: FlowRunEntity = { ...parkedRun(), waitMessageId: null };
+
+        const result = await handleFlowChoiceInteraction(
+            buttonInteraction(buildFlowChoiceCustomId(RUN_ID, NODE_ID, 0), guildMember(), 'message-whatever'),
+            {
+                flowRunsRepo: { getByRunId: () => Promise.resolve(beforeTheColumn) },
+                flowsRepo: openGateFlow(),
+                resume: resume as never,
+            }
+        );
+
+        expect(result.status).toBe('success');
+        expect(resume).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            expect.anything(),
+            undefined,
+            undefined
+        );
+    });
+
     it('does not let one member answer a question put to another', async () => {
         const resume = vi.fn();
         const somebodyElse: FlowRunEntity = {
@@ -198,14 +258,20 @@ describe('the prompt block', () => {
         // button built from a handle rather than from the list would let somebody
         // press an answer that was never offered, and `wokeOntoNothing` would
         // fail their run for leaving by an unwired handle.
-        const send = vi.fn().mockResolvedValue(undefined);
+        const send = vi.fn().mockResolvedValue({ id: MESSAGE_ID });
 
         const outcome = await promptBlock.run(
             promptConfig({ question: 'Well?', choices: ['Yes', 'No'] }),
             { ...runContext(), channel: { send } as unknown as FlowRunContext['channel'] }
         );
 
-        expect(outcome).toEqual({ kind: 'suspend', suspension: { wakeAt: undefined } });
+        // The park names the message it just posted. That is what a later press
+        // has to match to prove it is answering *this* asking rather than a
+        // previous one at the same node.
+        expect(outcome).toEqual({
+            kind: 'suspend',
+            suspension: { wakeAt: undefined, waitMessageId: MESSAGE_ID },
+        });
         const posted = send.mock.calls[0]?.[0] as { components: [{ components: { data: { label: string } }[] }] };
         expect(posted.components[0].components.map((button) => button.data.label)).toEqual(['Yes', 'No']);
     });
@@ -256,6 +322,9 @@ function parkedRun(): FlowRunEntity {
         guildId: GUILD_ID,
         status: 'suspended',
         resumeNodeId: NODE_ID,
+        // The park names the message its buttons are on, so a press can be held
+        // to the asking it actually belongs to.
+        waitMessageId: MESSAGE_ID,
         contextSnapshot: { guildId: GUILD_ID, userId: USER_ID },
     } as unknown as FlowRunEntity;
 }
@@ -286,7 +355,8 @@ function guildMember(userId: string = USER_ID, roleIds: readonly string[] = []):
 
 function buttonInteraction(
     customId: string,
-    member: GuildMember = guildMember()
+    member: GuildMember = guildMember(),
+    messageId: string = MESSAGE_ID
 ): ButtonInteraction {
     return {
         customId,
@@ -295,6 +365,9 @@ function buttonInteraction(
         replied: false,
         guild: { id: GUILD_ID },
         member,
+        // Which message the press came from. Discord always supplies this on a
+        // component interaction, and it is how a press is tied to one asking.
+        message: { id: messageId },
         user: { id: USER_ID },
         client: {} as Client,
         deferReply: vi.fn().mockResolvedValue(undefined),

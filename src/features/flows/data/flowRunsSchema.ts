@@ -76,6 +76,24 @@ export interface FlowRunTable {
     waitKind: string | null;
     waitConfig: JSONColumnType<FlowRunWaitConfig> | null;
 
+    /**
+     * The message whose components this park is waiting on, when it posted one.
+     *
+     * **It identifies the park, not merely the message.** A run can park at the
+     * same node twice — an author who wires a branch back to the question asks it
+     * again — and every other column is identical across those two parks:
+     * `resumeNodeId` is the same node, `status` is `suspended` both times. So a
+     * button from the first park is indistinguishable from a live one by anything
+     * else stored, and pressing it would advance the run a second time. Each park
+     * posts its own message, so this is the one value that differs, which is what
+     * lets a claim name *which* park it believes it is resuming.
+     *
+     * Null for every park that posted nothing — a delay, a gateway wait, and every
+     * row written before this column existed. All three are the same honest "no
+     * message is holding this run", so none of them needs rewriting.
+     */
+    waitMessageId: string | null;
+
     /** Who the run is about and where it was — see {@link FlowRunContextSnapshot}. */
     contextSnapshot: JSONColumnType<FlowRunContextSnapshot>;
 
