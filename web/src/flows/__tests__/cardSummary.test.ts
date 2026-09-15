@@ -183,4 +183,36 @@ describe('summarizeFromDescriptor', () => {
         expect(summarize(descriptor, { choices: ['Yes', '  '] })).toBe('Yes');
         expect(summarize(descriptor, { choices: [] })).toBe('no choices yet');
     });
+
+    it('counts a list of records rather than listing them, and ignores empty rows', () => {
+        const descriptor = descriptorWith(
+            [
+                {
+                    key: 'fields',
+                    label: 'Fields',
+                    control: 'objectList',
+                    columns: [
+                        { key: 'name', label: 'Heading', control: 'text' },
+                        { key: 'value', label: 'Text', control: 'longText' },
+                    ],
+                },
+            ],
+            [{ key: 'fields', emptyText: 'no fields' }]
+        );
+
+        expect(
+            summarize(descriptor, {
+                fields: [
+                    { name: 'A', value: 'a' },
+                    { name: 'B', value: 'b' },
+                ],
+            })
+        ).toBe('2 fields');
+        // The noun comes off the field's own label, so the count reads for any
+        // block's list rather than saying "fields" everywhere.
+        expect(summarize(descriptor, { fields: [{ name: 'A', value: 'a' }] })).toBe('1 field');
+        // A row the author added and has not filled in yet is not a field.
+        expect(summarize(descriptor, { fields: [{ name: '', value: '' }] })).toBe('no fields');
+        expect(summarize(descriptor, { fields: [] })).toBe('no fields');
+    });
 });

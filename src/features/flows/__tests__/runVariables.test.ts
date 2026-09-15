@@ -244,6 +244,57 @@ describe('a block consumes a value another block produced', () => {
         expect(userSend).not.toHaveBeenCalled();
     });
 
+    /**
+     * Copy one level down: a token inside an `objectList` entry.
+     *
+     * Worth its own case rather than folded into the scalar ones above, because
+     * the executor reaches it by a different path — `isCopyField` narrows to the
+     * two single-string arms and does not see a column, so a list field's copy is
+     * expanded by a second walk that could be absent while every test above stayed
+     * green.
+     */
+    it('expands a token inside a list entry, not just in a plain copy field', async () => {
+        const { context } = makeSeed();
+        const channelSend = vi.fn().mockResolvedValue({ id: 'message-1' });
+        const seed: FlowRunSeed = {
+            ...context,
+            client: {
+                channels: {
+                    fetch: vi.fn().mockResolvedValue({ isTextBased: () => true, send: channelSend }),
+                },
+            } as unknown as FlowRunSeed['client'],
+        };
+
+        const graph: FlowGraph = {
+            version: FLOW_GRAPH_VERSION,
+            nodes: [
+                { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { label: 'Go' } },
+                {
+                    id: 'embed',
+                    type: 'action.postEmbed',
+                    position: { x: 1, y: 0 },
+                    data: {
+                        channelId: 'channel-1',
+                        title: 'Welcome',
+                        description: 'Say hello.',
+                        fields: [
+                            { name: 'Who', value: 'It is {{subject.username}}, in {{guild.name}}.' },
+                        ],
+                    },
+                },
+            ],
+            edges: [{ id: 'e1', source: 'trigger', target: 'embed' }],
+        } as FlowGraph;
+
+        const result = await executeFlow('flow-1', graph, 'trigger', seed);
+
+        expect(result.status).toBe('success');
+        const payload = channelSend.mock.calls[0]?.[0] as { embeds: { data: unknown }[] };
+        expect((payload.embeds[0] as { data: { fields?: unknown } }).data.fields).toEqual([
+            { name: 'Who', value: 'It is spicypete, in Afterdark.', inline: false },
+        ]);
+    });
+
     it('stops the run when the bag outgrows its cap, rather than dropping a value', async () => {
         const { context } = makeSeed();
         const graph = producerThenDm({
@@ -363,6 +414,39 @@ describe('save-time validation of authored copy', () => {
         });
 
         expect(validateAuthoredGraph(graph).valid).toBe(true);
+    });
+
+    it('rejects an unknown token inside a list entry, naming the column and the row', () => {
+        // Save-time's half of the case above: copy inside an entry is found by a
+        // different walk from copy at a config key, so it could be unchecked here
+        // while every assertion above passed.
+        const graph: FlowGraph = {
+            version: FLOW_GRAPH_VERSION,
+            nodes: [
+                { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { label: 'Go' } },
+                {
+                    id: 'embed',
+                    type: 'action.postEmbed',
+                    position: { x: 1, y: 0 },
+                    data: {
+                        channelId: 'channel-1',
+                        title: 'T',
+                        description: 'D',
+                        fields: [{ name: 'Who', value: 'hi {{subject.nmae}}' }],
+                    },
+                },
+            ],
+            edges: [{ id: 'e1', source: 'trigger', target: 'embed' }],
+        } as FlowGraph;
+
+        const result = validateAuthoredGraph(graph);
+
+        expect(result.valid).toBe(false);
+        if (result.valid) throw new Error('unreachable');
+        const message = result.errors.join(' ');
+        expect(message).toContain('{{subject.nmae}}');
+        // The row number is what makes it actionable on a list of twenty.
+        expect(message).toContain('entry 1');
     });
 
     it('ignores braces in a field that does not carry copy', async () => {
