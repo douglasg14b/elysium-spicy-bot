@@ -303,6 +303,10 @@ const NODE_META_ALLOWED_EXPORTS = [
     'KIND_STYLES',
     'HANDLE_TONE_COLORS',
     'HANDLE_TONE_HEX',
+    // Generic: one width for every connection, resolved from no block knowledge.
+    // Shared so the page that styles a new edge and the component that draws one
+    // without a style cannot disagree about how thick a connection is.
+    'EDGE_STROKE_WIDTH',
     'handlesAreLabelled',
     'formatDuration',
     'defaultDataFor',

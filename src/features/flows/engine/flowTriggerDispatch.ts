@@ -102,21 +102,30 @@ export async function handleFlowButtonInteraction(
 
     // Acknowledge quietly so the user is not left with a "failed" interaction
     // while actions run. Actions post their own visible side effects.
+    //
+    // `deferUpdate` rather than `deferReply`: it closes the interaction with no
+    // message, where `deferReply` promises one and so obliges a reply even when
+    // there is nothing to report. A member who pressed a button and watched the
+    // flow do its thing does not also need a "Done!" popup saying so.
+    //
+    // Refusals do not reach here — they are sent above, before any acknowledgement,
+    // which is what lets them reply outright instead of behind a spinner.
     if (!interaction.deferred && !interaction.replied) {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferUpdate();
     }
 
     const result = await executeFlow(flow.flowId, flow.graph, triggerNode.id, context);
 
-    const reply =
-        result.status === 'success'
-            ? '✅ Done!'
-            : '❌ Something went wrong running this flow. A mod has been notified in the logs.';
-
-    if (interaction.deferred) {
-        await interaction.editReply({ content: reply });
-    } else if (!interaction.replied) {
-        await interaction.reply({ content: reply, ephemeral: true });
+    // Only a failure has anything to say. `followUp`, not `editReply`: after
+    // `deferUpdate` there is no reply to edit, and editing would rewrite the
+    // message the button sits on.
+    if (result.status !== 'success') {
+        const content = '❌ Something went wrong running this flow. A mod has been notified in the logs.';
+        if (interaction.deferred || interaction.replied) {
+            await interaction.followUp({ content, ephemeral: true });
+        } else {
+            await interaction.reply({ content, ephemeral: true });
+        }
     }
 
     return {

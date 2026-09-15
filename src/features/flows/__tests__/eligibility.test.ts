@@ -175,9 +175,14 @@ describe('pressing a gated trigger button', () => {
 
         await handleFlowButtonInteraction(interaction);
 
-        // Replied outright rather than deferred-then-edited. A refusal is
-        // immediate — there is no work to wait on — and deferring first would
-        // show the member a spinner before the "no".
+        // Replied outright rather than acknowledged-then-followed-up. A refusal is
+        // immediate — there is no work to wait on — and acknowledging first would
+        // make the "no" arrive as a second, detached message.
+        //
+        // This matters more since success went silent: `deferUpdate` closes the
+        // interaction with nothing shown, so a refusal that ran after it would
+        // depend entirely on the follow-up landing to say anything at all.
+        expect(interaction.deferUpdate).not.toHaveBeenCalled();
         expect(interaction.deferReply).not.toHaveBeenCalled();
         expect(interaction.reply).toHaveBeenCalledWith(
             expect.objectContaining({ ephemeral: true })
@@ -234,10 +239,14 @@ function press(pressingMember: GuildMember) {
         channel: null,
         client: {} as FlowRunSeed['client'],
         deferReply: vi.fn().mockResolvedValue(undefined),
+        deferUpdate: vi.fn().mockResolvedValue(undefined),
         editReply: vi.fn().mockResolvedValue(undefined),
+        followUp: vi.fn().mockResolvedValue(undefined),
         reply: vi.fn().mockResolvedValue(undefined),
     } as unknown as Parameters<typeof handleFlowButtonInteraction>[0] & {
         deferReply: ReturnType<typeof vi.fn>;
+        deferUpdate: ReturnType<typeof vi.fn>;
+        followUp: ReturnType<typeof vi.fn>;
         reply: ReturnType<typeof vi.fn>;
     };
 }

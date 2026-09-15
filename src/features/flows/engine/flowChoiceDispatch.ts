@@ -57,10 +57,19 @@ export async function handleFlowChoiceInteraction(
     }
 
     // Answering can take longer than Discord's three seconds, because resuming
-    // runs the rest of the graph. Defer first so the press is acknowledged
-    // whatever follows; visible side effects are the blocks' own.
+    // runs the rest of the graph. Acknowledge first so the press lands whatever
+    // follows; visible side effects are the blocks' own.
+    //
+    // `deferUpdate`, not `deferReply`: this says "the press registered, nothing to
+    // show" and closes the interaction with no message at all. `deferReply` says "a
+    // reply is coming" and *obliges* one — which is the only reason a member who
+    // pressed the right button, watched the flow carry on in the channel, and had
+    // nothing to be told was also handed a "✅ Got it." popup for their trouble.
+    //
+    // The branches below still speak up. They use `followUp` rather than
+    // `editReply`, because after `deferUpdate` there is no reply to edit.
     if (!interaction.deferred && !interaction.replied) {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferUpdate();
     }
 
     const run = await dependencies.flowRunsRepo.getByRunId(parsed.runId);
@@ -128,9 +137,9 @@ export async function handleFlowChoiceInteraction(
     // claim and rethrows for a transient channel fetch or an illegal transition.
     // Unhandled, that throw escapes to the registry — which only sends its own
     // fallback when the interaction is neither replied nor deferred, and this one
-    // deferred above. The member would be left on "Bot is thinking…" forever, with
-    // the reason only in a console line. The run itself is fine: the claim is
-    // already back, so it stays parked and the next press retries.
+    // deferred above. The member would see their press acknowledged and then simply
+    // nothing, with the reason only in a console line. The run itself is fine: the
+    // claim is already back, so it stays parked and the next press retries.
     let outcome: Awaited<ReturnType<typeof resumeFlowRun>>;
     try {
         outcome = await dependencies.resume(
@@ -165,7 +174,12 @@ export async function handleFlowChoiceInteraction(
     switch (outcome.status) {
         case 'completed':
         case 'suspended':
-            return replyWith(interaction, '✅ Got it.', 'success');
+            // Nothing to say. The press was acknowledged by `deferUpdate` above, the
+            // buttons on the question have been disabled, and whatever the flow did
+            // next is already in the channel for everyone to see. An ephemeral "Got
+            // it." on top of that is a popup confirming what the member just
+            // watched happen.
+            return { status: 'success' };
         case 'skipped':
             // The claim did not land. Either it was lost to another resumer — most
             // likely the timeout sweep arriving at the same moment — or the run
@@ -283,6 +297,11 @@ async function refuseIfIneligible(
  * here — a question not written yet, and one that has already closed — are
  * ordinary outcomes that the code's own comments say are not failures, and a
  * default would have had them reporting themselves as errors anyway.
+ *
+ * Every caller is a branch with something the presser needs: a fault, a refusal,
+ * or a question that is no longer open. The path where the answer simply worked
+ * does not come through here at all — the press is acknowledged silently and the
+ * flow's own output in the channel is the feedback.
  */
 async function replyWith(
     interaction: ButtonInteraction,
@@ -290,9 +309,12 @@ async function replyWith(
     status: InteractionHandlerResult['status'],
     message?: string
 ): Promise<InteractionHandlerResult> {
-    if (interaction.deferred) {
-        await interaction.editReply({ content });
-    } else if (!interaction.replied) {
+    if (interaction.deferred || interaction.replied) {
+        // `followUp`, not `editReply`: the acknowledgement was `deferUpdate`, which
+        // leaves no reply to edit. `editReply` after it would edit the *message the
+        // button is on*, blanking the question and replacing it with an error.
+        await interaction.followUp({ content, ephemeral: true });
+    } else {
         await interaction.reply({ content, ephemeral: true });
     }
     // `message` is the registry's log line, not the presser's copy: the two

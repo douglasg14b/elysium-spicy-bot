@@ -93,6 +93,57 @@ describe('answering a question', () => {
         );
     });
 
+    it('says nothing to a member whose answer worked', async () => {
+        // The complaint this pins: pressing the right button posted an ephemeral
+        // "✅ Got it." on top of whatever the flow had just visibly done in the
+        // channel — a popup confirming what the member had watched happen.
+        //
+        // Silence here is only possible because the acknowledgement is
+        // `deferUpdate`. `deferReply` promises a reply and Discord obliges one, so
+        // reinstating it would quietly bring the popup back; asserting on both is
+        // what makes this test fail for the right reason.
+        const interaction = buttonInteraction(buildFlowChoiceCustomId(RUN_ID, NODE_ID, 0));
+
+        const result = await handleFlowChoiceInteraction(interaction, {
+            flowRunsRepo: { getByRunId: () => Promise.resolve(parkedRun()) },
+            flowsRepo: openGateFlow(),
+            resume: vi.fn().mockResolvedValue({ status: 'completed' }) as never,
+        });
+
+        expect(result.status).toBe('success');
+        expect(interaction.deferUpdate).toHaveBeenCalled();
+        expect(interaction.deferReply).not.toHaveBeenCalled();
+        expect(interaction.followUp).not.toHaveBeenCalled();
+        expect(interaction.editReply).not.toHaveBeenCalled();
+        expect(interaction.reply).not.toHaveBeenCalled();
+
+        // And nothing for the registry to send on the handler's behalf either —
+        // it auto-replies with `result.message` when one comes back.
+        expect(result.message).toBeUndefined();
+    });
+
+    it('still speaks up when something actually goes wrong', async () => {
+        // The other half of the same decision. Going quiet on success must not go
+        // quiet on a fault: the member pressed a button, nothing visible happened,
+        // and silence there would read as the bot being broken.
+        const interaction = buttonInteraction(buildFlowChoiceCustomId(RUN_ID, NODE_ID, 0));
+
+        const result = await handleFlowChoiceInteraction(interaction, {
+            flowRunsRepo: { getByRunId: () => Promise.resolve(parkedRun()) },
+            flowsRepo: openGateFlow(),
+            resume: vi.fn().mockResolvedValue({ status: 'failed', error: 'boom' }) as never,
+        });
+
+        expect(result.status).toBe('error');
+        // `followUp`, not `editReply`: after `deferUpdate` there is no reply to
+        // edit, and editing would rewrite the message the button sits on — which
+        // would blank the question itself.
+        expect(interaction.followUp).toHaveBeenCalledWith(
+            expect.objectContaining({ ephemeral: true })
+        );
+        expect(interaction.editReply).not.toHaveBeenCalled();
+    });
+
     it('tells a presser whose question is not written yet apart from one whose question is gone', async () => {
         // The run id is minted before the row exists, so a press landing in that
         // window finds nothing. Reporting it as "gone" would send somebody
@@ -358,11 +409,23 @@ function buttonInteraction(
     member: GuildMember = guildMember(),
     messageId: string = MESSAGE_ID
 ): ButtonInteraction {
+    /*
+     * Starts undeferred, and `deferUpdate` flips the flag — which is what Discord
+     * does, and what decides whether a later message goes out as a reply or a
+     * follow-up. This fixture used to hard-code `deferred: true`, so the
+     * acknowledgement branch was never entered by any test and the choice between
+     * `deferReply` and `deferUpdate` was invisible to the suite.
+     */
+    const state = { deferred: false, replied: false };
     return {
         customId,
         isButton: () => true,
-        deferred: true,
-        replied: false,
+        get deferred() {
+            return state.deferred;
+        },
+        get replied() {
+            return state.replied;
+        },
         guild: { id: GUILD_ID },
         member,
         // Which message the press came from. Discord always supplies this on a
@@ -370,9 +433,22 @@ function buttonInteraction(
         message: { id: messageId },
         user: { id: USER_ID },
         client: {} as Client,
-        deferReply: vi.fn().mockResolvedValue(undefined),
+        deferReply: vi.fn().mockImplementation(() => {
+            state.deferred = true;
+            return Promise.resolve(undefined);
+        }),
+        deferUpdate: vi.fn().mockImplementation(() => {
+            state.deferred = true;
+            return Promise.resolve(undefined);
+        }),
         editReply: vi.fn().mockResolvedValue(undefined),
-        reply: vi.fn().mockResolvedValue(undefined),
+        // The dispatcher acknowledges with `deferUpdate`, which leaves no reply to
+        // edit, so anything it needs to say afterwards goes out as a follow-up.
+        followUp: vi.fn().mockResolvedValue(undefined),
+        reply: vi.fn().mockImplementation(() => {
+            state.replied = true;
+            return Promise.resolve(undefined);
+        }),
     } as unknown as ButtonInteraction;
 }
 
