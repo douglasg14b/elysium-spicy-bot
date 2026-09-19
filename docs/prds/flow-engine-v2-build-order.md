@@ -789,6 +789,69 @@ Still open:
 
 Specifically: install a journey declaring at least one category, two channels with different visibility, and one role, onto a guild where **one of those already exists** — so create and adopt are both exercised in a single run.
 
+## Step 5A.1 — The provisioning surface is usable
+
+Written 2026-09-19, after the operator opened the Resources panel and found three faults. 5A proved a journey can be authored and installed; it did not make that worth doing. This is the smallest work that closes the gap between "the data model supports permissions" and "an operator can express one".
+
+### What is wrong
+
+1. **The panel is tabbed with the inspector, which breaks the inspector.** Selecting a block while the Resources tab is open shows no block details — the right-hand column is for the selected thing's configuration, and a flow-wide concern was put in a place reserved for a per-node one. This is a placement error, not a styling one.
+2. **Resource kind is not obvious.** A small badge does not read at a glance, and picking the wrong kind is silent until install.
+3. **Almost nothing is configurable.** A resource is a name, a key, and an optional parent. The declaration type already carries `permissions: PermissionIntent[]` and the panel never writes one — so the compiler, the applier, and the tests all support permissions that no operator can set. The named case: *"this channel is visible only to this role, and this role is one the journey creates"* — an `in-approval` role scoped to a journey.
+
+The third is the substantive one. 1 and 2 are corrections; 3 is the missing half of the feature.
+
+### The slice
+
+**Not** an emulation of Discord's permission surface. The grid that exists — `audience × access`, four audiences, three access levels — is already enough to express the named case, and it was built in 5A for exactly this. The work is to *surface* it, not to extend it.
+
+| # | Change | Why it is in this slice |
+|---|---|---|
+| 1 | Move resources out of the right column onto a toolbar button opening a modal | Fixes the inspector regression. Follows the existing Deploy button + modal pattern rather than inventing a third layout |
+| 2 | Kind chosen explicitly and shown unmistakably — icon + colour, distinct rows per kind | A wrong kind is only discovered at install today |
+| 3 | Per-resource permission editor over the existing `audience × access` grid | The missing half. No new model |
+| 4 | Role reference to a **declared** role, not just an existing one | What makes "visible only to the role this journey creates" expressible. Needs `PermissionIntent.roleIds` to accept a resource key |
+| 5 | Parent category selectable at creation, not only after | Currently a second step on a row that already exists |
+
+**Item 4 is the only one touching the engine**, and it carries a defect that must be fixed with it.
+
+`roleIds` holds snowflakes today; a declared role has none until install. Either it grows a parallel `roleKeys`, or the applier resolves keys from bindings before compiling intents — the second is likely right, since the binding is the canonical resolution either way.
+
+**But the ordering it would depend on does not exist.** `orderResourcesForApply` (`resourceDeclaration.ts:159`) topologically sorts on `parentKey` **only** — verified by reading it, not assumed. A channel whose permissions name a declared role has no ordering edge to that role, so it can be created first, and compiling its intents would then resolve a role that is not there yet. `compilePermissionIntents` throws `PermissionIntentError` on a missing role rather than degrading, so the failure is loud — but it lands mid-apply, with channels already created, which is the half-applied state crash-safety exists to avoid.
+
+So item 4 is two changes, not one:
+- `orderResourcesForApply` must add an edge for permission role references, not just parents.
+- `validateJourneyDeclaration` must reject a permission naming a resource key the journey does not declare, the same way it already rejects an unknown `parentKey`.
+
+Sabotage check for this one: declare a channel that references a declared role, list the channel *first*, and assert the role is still created first. Reverting the ordering edge must fail that test.
+
+### Ordering
+
+1 and 2 are independent of 3–5 and can land first as a self-contained UX fix. 3 depends on nothing new. **4 is the risky one** and should land last, with its own sabotage check on the create-order guarantee. 5 is trivial and rides along with 2.
+
+### What this is not
+
+- Not per-permission-bit editing. The three access levels stay coarse until a real case needs a fourth.
+- Not a journeys management page. Grouping remains deferred (PRD item 39).
+- Not synchronisation of existing channel permissions — that is 5B's *verify, don't overwrite*.
+
+### Can this run concurrently with 5B?
+
+**Partly, and the split is not where the build order's headings suggest.** 5B's list contains two different kinds of work:
+
+**Overlaps — must not run concurrently with 5A.1.** Drift detection, uninstall, verify-don't-overwrite, idempotence/resume, multi-journey binding, per-resource opt-in, and ranked disambiguation all read or write `resource_bindings`, `installPlan.ts`, or `resourceDeclaration.ts`. 5A.1 item 4 changes `resourceDeclaration.ts` and the applier. Two agents in those files will conflict, and the conflicts would be semantic rather than textual — the worse kind.
+
+**Genuinely independent — safe to run in parallel.** These touch the flow engine and builder canvas and never open a provisioning file:
+
+- A flow may hold many triggers (§5.8)
+- Every trigger in a flow fires (§5.8) — already a known defect in *Carried forward*
+- Trigger buttons deploy per destination (§5.8)
+- Disconnected subgraphs are legible (§5.8)
+
+The build order already marks the first three "Independent of provisioning". They are filed under 5B by position, not by subject.
+
+One in-slice caveat: 5A.1's own items are **not** parallelisable against each other. 3, 4 and 5 all edit the same panel and the same declaration type.
+
 ## What stays load-bearing
 
 These survive the trim because they are cheap, mechanical, and have already caught real defects.
