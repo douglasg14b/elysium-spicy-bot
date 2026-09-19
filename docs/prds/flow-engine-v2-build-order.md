@@ -727,10 +727,35 @@ All 29 §5.7 and §5.8 requirements are placed — 10 in 5A, 19 in 5B. Nothing i
 
 **`BLOCK_CAPABILITIES` is still dead.** The capability preflight checks `guild.members.me.permissions` directly rather than reading block declarations, because a journey is not a flow — it has no blocks to read capabilities from. The manifest field remains vocabulary with no runtime consumer.
 
+### The gap this step shipped with, found by the operator 2026-09-19
+
+**A journey cannot be created by anyone.** It is a `const` in a source file, registered into an in-memory `Map` at boot. There is no table, no API, no UI. `resource_bindings.journey_key` is a text column pointing at something that exists only in TypeScript.
+
+This contradicts the stated intent of the whole programme — *a system an operator uses to build their own structure, which takes no position on what that structure is*. It also contradicts this document, one column up: "Journey bundle — the unit that owns resources; **5A needs the noun to exist**", and the row above it noting that this "determines whether `flows` grows a column or a table appears". The question was recorded and then answered by accident, in the direction that required no schema.
+
+**Why the neutrality work did not catch it.** `6384019` moved the example out of the engine, added a gate rejecting example vocabulary in engine code, and tested that a journey unlike the example installs identically. All true, and all of it proves the *weak* property — "the engine has no opinion about which hardcoded journey ships" — while the claim made was the strong one, "an operator can create a journey". A gate that greps for the word `onboarding` cannot see that the only way to have a journey at all is to write code.
+
+**What is actually missing**, and it is a third of the feature rather than a missing page:
+
+| Layer | State |
+|---|---|
+| Resource declarations as a typed, validated shape | Built |
+| Plan / apply / bindings, with crash safety | Built |
+| **Journeys as durable records an operator authors** | **Absent** |
+| HTTP API | Absent |
+| Builder UI | Absent |
+
+`JourneyDeclaration` survives as the shape. It has to be loaded from a table a person writes to, not imported from a module.
+
+**The slash command was the wrong surface**, and for a revealing reason: "install wizard" was sorted into 5B as *builder-surface work*, which treats the UI as decoration over a Discord command. That is inverted. Flows are authored in a web builder; a journey owns flows; provisioning is how a journey becomes real. The UI is the surface, and `/install-journey` is the anomaly.
+
 ### Still open in 5A
 
-1. **Write-back has no caller.** `bindResourcesToGraph` is built and tested but nothing invokes it — deliberately, since it depends on an apply having produced ids, but it is the fifth written-never-wired symbol until connected.
-2. **The live run**, which is what actually closes the step.
+1. **Journey authoring does not exist** — the gap above. Blocks everything else, because there is nothing for an API or UI to read.
+2. **Write-back has no caller.** `bindResourcesToGraph` is built and tested; nothing invokes it.
+3. **`resolveJourneyResources` has no caller at all** — not even a test. Missed in the first audit and found only when the operator asked what else was unwired.
+4. **Nothing has ever run against Discord.** No channel, role, or overwrite has been created. Every test uses a fake guild.
+5. **The live run**, which is what actually closes the step.
 
 ### How this step ends
 
