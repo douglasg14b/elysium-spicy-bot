@@ -63,28 +63,34 @@ export interface JourneyDeclaration {
 }
 
 /**
- * Whether any resource in a journey needs a subject to resolve its permissions.
+ * Whether any resource in a journey needs a **subject** to resolve its permissions.
+ *
+ * A subject is the specific member a resource is about, which is a per-run fact. A
+ * journey declaring one cannot be installed as shared guild structure, because there
+ * is no member to resolve it against at install time.
  *
  * Asked of the declaration rather than assumed by a caller. A command that hardcoded
- * "this journey needs no subject" would work for the journey it was written against
- * and silently refuse every other one.
+ * the answer would work for the journey it was written against and be wrong for
+ * every other one.
  */
 export function journeyNeedsSubject(journey: JourneyDeclaration): boolean {
     return journey.resources.some((resource) =>
-        resource.permissions?.some((intent) => intent.audience === 'subjectAndStaff')
+        resource.permissions?.some((intent) => intent.audience === 'subject')
     );
 }
 
 /**
- * Whether any resource needs staff roles supplied.
+ * Whether any resource needs this guild's **staff roles** supplied.
  *
- * Currently the same condition as `journeyNeedsSubject` — `subjectAndStaff` is the
- * only audience naming staff — but they are separate questions and a future audience
- * could need one without the other. Kept distinct so a caller asks what it means.
+ * A genuinely different question from `journeyNeedsSubject`, and the reason the two
+ * audiences are separate: staff is an ordinary guild fact known at install time, so a
+ * staff-only channel is perfectly installable. It just needs the caller to say which
+ * roles are staff *here*, rather than the journey hardcoding ids that would not
+ * survive being installed on a second server.
  */
 export function journeyNeedsStaffRoles(journey: JourneyDeclaration): boolean {
     return journey.resources.some((resource) =>
-        resource.permissions?.some((intent) => intent.audience === 'subjectAndStaff')
+        resource.permissions?.some((intent) => intent.audience === 'staff')
     );
 }
 

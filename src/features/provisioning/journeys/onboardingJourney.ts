@@ -11,6 +11,7 @@ export const ONBOARDING_RESOURCE_KEYS = {
     arrivalsCategory: 'arrivals-category',
     rulesChannel: 'rules-channel',
     welcomeChannel: 'welcome-channel',
+    greeterNotes: 'greeter-notes-channel',
     memberRole: 'member-role',
 } as const;
 
@@ -60,6 +61,19 @@ export const ONBOARDING_JOURNEY: JourneyDeclaration = {
             description: 'Where new arrivals land once they have agreed.',
             // No declared permissions: inherits the category's, which is the useful
             // default. Declaring an empty set would clear inheritance instead.
+        },
+        {
+            key: ONBOARDING_RESOURCE_KEYS.greeterNotes,
+            kind: 'textChannel',
+            defaultName: 'greeter-notes',
+            parentKey: ONBOARDING_RESOURCE_KEYS.arrivalsCategory,
+            description: 'Staff-only channel for notes about who is arriving.',
+            // Uses the `staff` audience rather than literal role ids, so the same
+            // declaration installs on any server — each supplies its own staff roles.
+            permissions: [
+                { audience: 'everyone', access: 'hidden' },
+                { audience: 'staff', access: 'readWrite' },
+            ],
         },
         {
             key: ONBOARDING_RESOURCE_KEYS.memberRole,

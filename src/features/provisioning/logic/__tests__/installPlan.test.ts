@@ -30,7 +30,9 @@ interface FakeGuildOptions {
 
 function makeGuild({
     channels = [],
-    roles = [],
+    // A staff role exists by default: the `staff` audience verifies its roles are
+    // real, so a guild with none would fail for the wrong reason.
+    roles = [{ id: 'role-staff', name: 'Staff' }],
     permissions = [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageRoles],
     botRolePosition = 5,
     botCached = true,
@@ -280,7 +282,7 @@ describe('buildInstallPlan', () => {
                     key: 'verify-room',
                     kind: 'textChannel',
                     defaultName: 'verify-me',
-                    permissions: [{ audience: 'subjectAndStaff', access: 'readWrite' }],
+                    permissions: [{ audience: 'subject', access: 'readWrite' }],
                 },
             ],
         };
@@ -297,8 +299,59 @@ describe('buildInstallPlan', () => {
 
             const item = itemFor(plan.items, 'verify-room');
             expect(item.action).toBe('blocked');
-            expect(item.reason).toMatch(/needs a subject/i);
+            expect(item.reason).toMatch(/names the member/i);
             expect(isPlanApplicable(plan)).toBe(false);
+        });
+
+        it('plans a staff-only channel without needing a subject', () => {
+            // Staff is a guild fact known at install time, so this is installable
+            // where a subject-scoped resource is not.
+            const plan = buildInstallPlan({
+                guild: makeGuild(),
+                journey: {
+                    journeyKey: 'staff-room',
+                    name: 'Staff Room',
+                    resources: [
+                        {
+                            key: 'back-office',
+                            kind: 'textChannel',
+                            defaultName: 'back-office',
+                            permissions: [
+                                { audience: 'everyone', access: 'hidden' },
+                                { audience: 'staff', access: 'readWrite' },
+                            ],
+                        },
+                    ],
+                },
+                existingBindings: [],
+                permissionContext: { staffRoleIds: ['role-staff'] },
+            });
+
+            expect(itemFor(plan.items, 'back-office').action).toBe('create');
+            expect(isPlanApplicable(plan)).toBe(true);
+        });
+
+        it('blocks a staff-scoped resource when no staff roles were supplied', () => {
+            const plan = buildInstallPlan({
+                guild: makeGuild(),
+                journey: {
+                    journeyKey: 'staff-room',
+                    name: 'Staff Room',
+                    resources: [
+                        {
+                            key: 'back-office',
+                            kind: 'textChannel',
+                            defaultName: 'back-office',
+                            permissions: [{ audience: 'staff', access: 'readWrite' }],
+                        },
+                    ],
+                },
+                existingBindings: [],
+                permissionContext: { staffRoleIds: [] },
+            });
+
+            expect(itemFor(plan.items, 'back-office').action).toBe('blocked');
+            expect(itemFor(plan.items, 'back-office').reason).toMatch(/staff role/i);
         });
 
         it('allows it once the subject is supplied', () => {

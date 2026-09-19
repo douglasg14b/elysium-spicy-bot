@@ -9,12 +9,22 @@ import { PermissionFlagsBits, type Guild, type OverwriteResolvable } from 'disco
  * just joined" reads fine as a preset name and has no Discord representation at all,
  * whereas naming the axis forces the author to say *which role* they mean.
  *
- * `subjectAndStaff` is the ticket-shaped audience: the member a resource is about,
- * plus the moderators. It is here because a journey that provisions a verification
- * room needs it, and it cannot be expressed as a role list — the subject is known
- * only at run time.
+ * `staff` and `subject` are **separate values on purpose**, and an earlier version of
+ * this file got that wrong by fusing them into one `subjectAndStaff`. They have
+ * different lifetimes:
+ *
+ *   - **staff** is a guild fact, known at install time. Nearly every server has staff
+ *     roles, and "hidden from everyone, visible to staff" is an ordinary channel that
+ *     has nothing to do with any particular member.
+ *   - **subject** is a *run* fact — the member a resource is about — and does not
+ *     exist while provisioning shared guild structure.
+ *
+ * Fused, a plain staff-only channel could not be declared without pasting literal
+ * role ids into the journey (defeating portability), because the only audience naming
+ * staff also demanded a subject. Split, each is usable on its own and a
+ * ticket-shaped room is simply two intents.
  */
-export const PERMISSION_AUDIENCES = ['everyone', 'roles', 'subjectAndStaff'] as const;
+export const PERMISSION_AUDIENCES = ['everyone', 'roles', 'staff', 'subject'] as const;
 export type PermissionAudience = (typeof PERMISSION_AUDIENCES)[number];
 
 /**
@@ -119,18 +129,30 @@ function audienceToIds(intent: PermissionIntent, context: PermissionIntentContex
             return [...roleIds];
         }
 
-        case 'subjectAndStaff': {
-            if (!context.subjectId) {
-                throw new PermissionIntentError(
-                    'A `subjectAndStaff` permission intent needs a subject, but none was supplied. This resource cannot be provisioned without knowing who it is about.'
-                );
-            }
+        case 'staff': {
             if (context.staffRoleIds.length === 0) {
                 throw new PermissionIntentError(
-                    'A `subjectAndStaff` permission intent needs at least one staff role, but none is configured. Configure moderation roles before installing this journey.'
+                    'A `staff` permission intent needs at least one staff role, but none was supplied. Configure this guild\'s staff roles before installing a journey that grants them access.'
                 );
             }
-            return [context.subjectId, ...context.staffRoleIds];
+            const missing = context.staffRoleIds.filter(
+                (roleId) => !context.guild.roles.cache.has(roleId)
+            );
+            if (missing.length > 0) {
+                throw new PermissionIntentError(
+                    `Configured staff role(s) do not exist in ${context.guild.name}: ${missing.join(', ')}.`
+                );
+            }
+            return [...context.staffRoleIds];
+        }
+
+        case 'subject': {
+            if (!context.subjectId) {
+                throw new PermissionIntentError(
+                    'A `subject` permission intent names the member a resource is about, but none was supplied. A subject is a per-run fact and does not exist while provisioning shared guild structure.'
+                );
+            }
+            return [context.subjectId];
         }
     }
 }

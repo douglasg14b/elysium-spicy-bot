@@ -116,15 +116,56 @@ describe('compilePermissionIntents', () => {
         expect(bot.deny).toHaveLength(0);
     });
 
-    it('resolves subjectAndStaff to the subject plus every staff role', () => {
+    it('resolves staff to every configured staff role', () => {
         const result = compilePermissionIntents(
-            [{ audience: 'subjectAndStaff', access: 'readWrite' }],
-            makeContext({ subjectId: 'member-7', staffRoleIds: ['role-staff', 'role-verified'] })
+            [{ audience: 'staff', access: 'readWrite' }],
+            makeContext({ staffRoleIds: ['role-staff', 'role-verified'] })
+        );
+
+        expect(overwriteFor(result, 'role-staff').allow).toContain(PermissionFlagsBits.ViewChannel);
+        expect(overwriteFor(result, 'role-verified').allow).toContain(PermissionFlagsBits.ViewChannel);
+    });
+
+    it('resolves subject to the member the resource is about', () => {
+        const result = compilePermissionIntents(
+            [{ audience: 'subject', access: 'readWrite' }],
+            makeContext({ subjectId: 'member-7' })
         );
 
         expect(overwriteFor(result, 'member-7').allow).toContain(PermissionFlagsBits.ViewChannel);
+    });
+
+    it('installs a staff-only channel with no subject anywhere', () => {
+        // The case the old fused `subjectAndStaff` audience made impossible: an
+        // ordinary staff-only channel, which nearly every server has and which has
+        // nothing to do with any particular member.
+        const result = compilePermissionIntents(
+            [
+                { audience: 'everyone', access: 'hidden' },
+                { audience: 'staff', access: 'readWrite' },
+            ],
+            makeContext({ subjectId: undefined, staffRoleIds: ['role-staff'] })
+        );
+
+        expect(overwriteFor(result, EVERYONE_ID).deny).toContain(PermissionFlagsBits.ViewChannel);
         expect(overwriteFor(result, 'role-staff').allow).toContain(PermissionFlagsBits.ViewChannel);
-        expect(overwriteFor(result, 'role-verified').allow).toContain(PermissionFlagsBits.ViewChannel);
+    });
+
+    it('composes a ticket-shaped room from two independent intents', () => {
+        // What the fused audience used to express as one value. Composing it keeps
+        // each half usable on its own.
+        const result = compilePermissionIntents(
+            [
+                { audience: 'everyone', access: 'hidden' },
+                { audience: 'staff', access: 'readWrite' },
+                { audience: 'subject', access: 'readWrite' },
+            ],
+            makeContext({ subjectId: 'member-7', staffRoleIds: ['role-staff'] })
+        );
+
+        expect(overwriteFor(result, EVERYONE_ID).deny).toContain(PermissionFlagsBits.ViewChannel);
+        expect(overwriteFor(result, 'role-staff').allow).toContain(PermissionFlagsBits.ViewChannel);
+        expect(overwriteFor(result, 'member-7').allow).toContain(PermissionFlagsBits.ViewChannel);
     });
 
     describe('refuses rather than degrading', () => {
@@ -145,22 +186,33 @@ describe('compilePermissionIntents', () => {
             ).toThrow(/do not exist/i);
         });
 
-        it('rejects subjectAndStaff with no subject', () => {
+        it('rejects a subject intent with no subject supplied', () => {
             expect(() =>
                 compilePermissionIntents(
-                    [{ audience: 'subjectAndStaff', access: 'readWrite' }],
+                    [{ audience: 'subject', access: 'readWrite' }],
                     makeContext({ subjectId: undefined })
                 )
-            ).toThrow(/needs a subject/i);
+            ).toThrow(/names the member/i);
         });
 
-        it('rejects subjectAndStaff with no staff roles configured', () => {
+        it('rejects a staff intent with no staff roles supplied', () => {
             expect(() =>
                 compilePermissionIntents(
-                    [{ audience: 'subjectAndStaff', access: 'readWrite' }],
-                    makeContext({ subjectId: 'member-7', staffRoleIds: [] })
+                    [{ audience: 'staff', access: 'readWrite' }],
+                    makeContext({ staffRoleIds: [] })
                 )
             ).toThrow(/staff role/i);
+        });
+
+        it('rejects a staff intent naming a role that no longer exists', () => {
+            // A staff role deleted since it was configured must not silently drop
+            // out of the audience, leaving a channel more open than declared.
+            expect(() =>
+                compilePermissionIntents(
+                    [{ audience: 'staff', access: 'readWrite' }],
+                    makeContext({ staffRoleIds: ['role-deleted'] })
+                )
+            ).toThrow(/do not exist/i);
         });
 
         it('rejects a guild whose bot member is not cached', () => {

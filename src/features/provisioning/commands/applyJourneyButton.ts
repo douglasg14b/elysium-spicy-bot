@@ -4,7 +4,7 @@ import type { InteractionHandlerResult } from '../../../features-system/commands
 import { getJourney } from '../journeys/journeyRegistry';
 import { isPlanApplicable } from '../logic/installPlan';
 import { installJourney, previewInstall } from '../provisioningService';
-import { INSTALL_JOURNEY_APPLY_ID, buildPlanEmbed } from './installJourneyCommand';
+import { buildPlanEmbed, parseApplyCustomId } from './installJourneyCommand';
 
 /**
  * Applies the plan shown by `/install-journey`.
@@ -38,7 +38,7 @@ export async function handleApplyJourney(
         return commandError('Insufficient permissions');
     }
 
-    const journeyKey = interaction.customId.slice(`${INSTALL_JOURNEY_APPLY_ID}:`.length);
+    const { journeyKey, staffRoleIds } = parseApplyCustomId(interaction.customId);
     const journey = getJourney(journeyKey);
     if (!journey) {
         await interaction.reply({
@@ -56,7 +56,7 @@ export async function handleApplyJourney(
         const plan = await previewInstall({
             guild: interaction.guild,
             journey,
-            staffRoleIds: [],
+            staffRoleIds,
         });
 
         // The plan is rebuilt rather than carried through the custom id (which caps
@@ -75,7 +75,7 @@ export async function handleApplyJourney(
             guild: interaction.guild,
             journey,
             approvedPlan: plan,
-            staffRoleIds: [],
+            staffRoleIds,
         });
 
         const embed = new EmbedBuilder()
