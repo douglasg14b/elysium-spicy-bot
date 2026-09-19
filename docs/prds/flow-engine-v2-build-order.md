@@ -1,5 +1,10 @@
 # Flow Engine v2 — Build Order
 
+> **This is a plan, not a PRD.** The base PRD is
+> [flow-engine-v2-journeys-and-provisioning.md](flow-engine-v2-journeys-and-provisioning.md) — it is
+> the anchor, and product decisions (including anything deferred) are recorded **there**. This
+> document says what gets built next and in what order; when the two disagree, the PRD wins.
+>
 > **Status**: Active — replaces milestone-by-milestone planning
 > **Owner**: Douglas
 > **Last updated**: 2026-09-18
