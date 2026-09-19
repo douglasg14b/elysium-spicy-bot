@@ -705,6 +705,33 @@ All 29 §5.7 and §5.8 requirements are placed — 10 in 5A, 19 in 5B. Nothing i
 3. Capability preflight lands with apply, not after. A hierarchy failure discovered as a runtime exception is the outcome the requirement names.
 4. Snowflake write-back is last; it depends on apply having produced ids.
 
+### What has landed (2026-09-18, `fce4ea2` + `87ef4f5`)
+
+| Piece | File | Note |
+|---|---|---|
+| Declaration | `logic/resourceDeclaration.ts` | Keys, kinds, parents; validated before anything mutates |
+| Permission grid | `logic/permissionIntent.ts` | `audience × access`; refuses rather than degrading |
+| The plan | `logic/installPlan.ts` | create / adopt / reuse / blocked + capability preflight |
+| The apply | `logic/applyInstallPlan.ts` | intent → mutate → settle, in that order |
+| Bindings | `data/resourceBindings*` + `migrations/2026-09-18-Create_Resource_Bindings.ts` | Applied to dev SQLite; DDL confirmed by dump |
+| Surface | `provisioningService.ts` | `previewInstall`, `installJourney`, `resolveJourneyResources` |
+| Operator surface | `commands/installJourneyCommand.ts` + `commands/applyJourneyButton.ts` | Plan and apply are two interactions on purpose |
+| First declaration | `journeys/onboardingJourney.ts` | Category, read-only `#rules`, `#welcome`, `Member` role |
+| Write-back | `flows/logic/bindResourcesToGraph.ts` | In **flows**, consuming the provisioning barrel — never the reverse |
+
+**Evidence**: 79 tests including real-SQL integration against the migration's own sqlite arm. Three sabotage verifications, each failing exactly the named test — the name-collision guard, the intent-before-mutation ordering, and the apply-time applicability re-check. Typecheck holds at the pre-existing 17; 952/954 suite with only the two documented pre-existing failures.
+
+**The review earned its cost again.** It found a Critical that both gates missed: a binding pointing at a *deleted* channel short-circuited the recreate path, so an install reported success while the binding resolved to a dead snowflake — which is exactly what write-back would then have written into a node config. Reproduced with a failing test before fixing.
+
+**Three reviewers filed the same false positive** — that apply mutates without an applicability guard. It is at `applyInstallPlan.ts:61` and is tested. They were reading the button handler in isolation. This is the second step running where reviewers produced confident false Criticals from a partial view; verify before acting remains the rule.
+
+**`BLOCK_CAPABILITIES` is still dead.** The capability preflight checks `guild.members.me.permissions` directly rather than reading block declarations, because a journey is not a flow — it has no blocks to read capabilities from. The manifest field remains vocabulary with no runtime consumer.
+
+### Still open in 5A
+
+1. **Write-back has no caller.** `bindResourcesToGraph` is built and tested but nothing invokes it — deliberately, since it depends on an apply having produced ids, but it is the fifth written-never-wired symbol until connected.
+2. **The live run**, which is what actually closes the step.
+
 ### How this step ends
 
 **A live install on the real guild**, as every step since 3 has. The suite is not evidence here: step 4 passed typecheck and 852 tests while the creation modal wrote no ticket row. Provisioning has the same shape of failure — plausible code that mutates the wrong thing or nothing.
