@@ -12,13 +12,26 @@ export class TicketingRepo {
         return config || null;
     }
 
+    /**
+     * Creates the guild's config, or updates the settings of an existing one.
+     *
+     * **`ticketNumberInc` is deliberately excluded from the update path.** A
+     * caller naturally passes a whole `NewTicketingConfigEntity` here — which
+     * carries `ticketNumberInc: 0`, correct for a first insert — and forwarding
+     * that to `update` would zero the counter of a guild that already has
+     * tickets. With `(guildId, ticketNumber)` now unique, that is not a cosmetic
+     * reset: the next ticket reuses a number and the insert is rejected.
+     *
+     * Both current callers happen to reach this only when no row exists, so the
+     * hazard has never fired. It is excluded structurally rather than left to
+     * that continuing to be true.
+     */
     async upsert(config: NewTicketingConfigEntity): Promise<TicketingConfigEntity> {
         const existing = await this.get(config.guildId);
-        console.log('Existing config:', existing);
-        console.log('Config to upsert:', config);
 
         if (existing) {
-            await this.update(config);
+            const { ticketNumberInc: _counter, ...settings } = config;
+            await this.update(settings);
         } else {
             await database.insertInto('ticketing_config').values(config).execute();
         }

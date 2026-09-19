@@ -440,7 +440,11 @@ Found while writing the test plan, and worth stating because it has now bitten t
 
 The lesson is operational rather than architectural: **in this feature, an exported symbol is not evidence of a live path.** Grep for the call site before describing anything here as a user-facing surface — I described `/tickets config` as a test step and the operator caught it.
 
-**Operational trap worth knowing**: saving ticket config writes `ticketNumberInc: 0`. Harmless before, but the new `(guildId, ticketNumber)` unique index makes a mid-life re-save collide on the next ticket.
+**A hazard recorded here on 2026-09-15 turned out not to exist, and the mistake is the more useful record.** This document claimed that saving ticket config resets `ticketNumberInc` to 0, making a mid-life re-save collide with the new unique index. It does not. `ticketConfigModal.ts:230` writes `ticketNumberInc: 0` only in the `else` branch — the first-time insert, where 0 is correct. The existing-config branch calls `ticketingRepo.update({ guildId, config })`, which sets only the columns present in that object, so the counter is untouched.
+
+Verified against the dev database rather than re-read: three tickets, then a config re-save, counter still 3.
+
+The error was reading `ticketNumberInc: 0` off a grep line and asserting a behaviour without checking which branch it sat in — the same shape as the `/tickets` mistake directly above, a symbol mistaken for a live path. Both happened in one session, in this feature, which is what makes the rule worth stating rather than the individual facts.
 
 ### Decisions taken (2026-09-15) — these override §5.6 where they conflict
 
