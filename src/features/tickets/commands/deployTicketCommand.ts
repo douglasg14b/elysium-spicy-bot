@@ -156,9 +156,8 @@ export async function handleDeployTicketSystem(
                     existingConfig ? 're-deployed' : 'deployed'
                 } successfully in ${targetChannel}!\n\n` +
                 `📝 **Next Steps:**\n` +
-                // Was `/tickets config`, which is not a registered command —
-                // `ticketCommands.ts` defines it but nothing wires it up. The
-                // ⚙️ Configure button on the panel is the real entry point.
+                // Was `/tickets config`, a command that was never registered.
+                // The ⚙️ Configure button on the panel is the entry point.
                 `• Press **⚙️ Configure** on the posted message to set it up\n` +
                 `• Set up categories and moderation roles\n` +
                 `• The deployed message will update automatically when configured`,

@@ -1,6 +1,5 @@
 export * from './initTicketsFeature';
 export * from './commands/deployTicketCommand';
-export * from './commands/ticketCommands';
 
 // The surface other features consume. Flows reach in through this barrel rather
 // than deep-importing, which keeps the one supported entry point obvious — and
