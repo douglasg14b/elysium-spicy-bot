@@ -2,7 +2,7 @@
 
 > **Status**: Active — replaces milestone-by-milestone planning
 > **Owner**: Douglas
-> **Last updated**: 2026-09-13
+> **Last updated**: 2026-09-18
 > **Supersedes**: the per-milestone wave maps in [flow-engine-v2-execution-strategy.md](flow-engine-v2-execution-strategy.md) §8, and the M2 RPI plan
 > **Product intent**: [flow-engine-v2-journeys-and-provisioning.md](flow-engine-v2-journeys-and-provisioning.md) §1.3 and §2
 
@@ -23,11 +23,22 @@ From PRD §1.3, unchanged. This is the durable product intent and the only seque
 | **1** | Adding a block is cheap and safe | A new block ships by adding one directory; conformance tests catch an incomplete manifest; the builder needs no edit | **Done** (M1) |
 | **2** | Blocks compose | A block can consume a value another block produced, and copy can address the subject | **Done** — slice D absorbed into step 3 as slice E |
 | **3** | **A run can ask a human a question** | A moderator presses a button in a channel and *that* parked run advances; non-moderators are refused | **Done** — slice E ran against a live guild 2026-09-15 |
-| **4** | A flow can open and drive a ticket | A verification ticket is opened by a flow, is distinguishable from a support ticket, and its channel is addressable by later blocks | **Planned — next** |
-| **5** | A journey can build its own home | Installing a journey on an empty guild creates its categories, channels, and roles with correct visibility | Not started |
+| **4** | A flow can open and drive a ticket | A verification ticket is opened by a flow, is distinguishable from a support ticket, and its channel is addressable by later blocks | **Done** — live-verified 2026-09-15 |
+| **5A** | **A journey can build its own home** | Installing a journey on an empty guild creates its categories, channels, and roles with correct visibility | **Planned — next** |
+| **5B** | Installed structure stays healthy | Drift is detected and repairable, installs resume after interruption, and uninstall is safe | Not started |
 | **6** | The real journey runs on it | Our onboarding and verification runs end-to-end on the engine with no bespoke code | Not started |
 
-**Only the current step is planned.** Steps 4–6 have PRD sketches (§5.6–§5.9) that are starting material, not requirements.
+**Only the current step is planned.** Steps 5B–6 have PRD sketches (§5.7–§5.9) that are starting material, not requirements.
+
+### Why step 5 is split (2026-09-18)
+
+§5.7 and §5.8 carry **29 requirements** between them (18 + 11). §1.3's bar for step 5 is one sentence. Shipping all 28 before an install has ever run is precisely the waterfall bet this document exists to reject — and the same bet that made §5.6 stale before step 4 read it.
+
+The requirements are real, so they are scheduled rather than dropped. The split rule is **not** "core versus nice-to-have":
+
+> **5A gets anything cheap now and expensive to retrofit. 5B gets anything genuinely additive later.**
+
+That puts some unglamorous things in 5A. Crash-safety is the clearest: recording intent *before* mutating the guild is a schema and call-ordering decision, so adding it afterwards means rewriting the apply path rather than extending it. Conversely drift detection reads state that already exists and adds no column, so it costs the same whenever it lands.
 
 ### Four commits landed after step 3 closed
 
@@ -603,6 +614,102 @@ That is a real hazard with a **narrow blast radius**: for flows it breaks a feat
 **Decision 2 narrows it further.** The ticket-side migration is now a `CREATE TABLE` against an empty table, not a data migration — so the worst case on production postgres is that the create fails, the ticket feature does not work, and the fix is to correct the migration and re-run. No data can be damaged, because there is none to damage. Postgres is therefore **not a gate on step 4 either**; it is something to check when the new ticket system first runs against production, like any other new table.
 
 The arm remains unexercised and is still recorded honestly rather than claimed as covered.
+
+## Step 5A — A journey can build its own home
+
+The bar is PRD §1.3 exactly: *installing a journey on an empty guild creates its categories, channels, and roles with correct visibility.*
+
+### Ground truth, established 2026-09-18
+
+Searched before planning, because step 4's lesson was that an exported symbol is not a live path. This time the opposite risk applied — assuming prior art exists.
+
+**Provisioning is a genuine blank slate.** No journey concept, no resource key, no binding table, no plan/apply pattern, no install route, no UI surface. `journey` appears in `src/` only in comments and — pointedly — in `engineVocabulary.test.ts:286`, which asserts the engine does **not** name it.
+
+The only guild-mutating code in the repository is ticket-specific:
+
+| Site | What it does | Reusable? |
+|---|---|---|
+| `ticketChannelPermissions.ts:18` `findOrCreateModeratorCategory` | Finds a category **by name**, else creates it | No — name is the identity, permission model hardcoded |
+| `ticketChannelOps.ts:110` `createTicketChannelForTicket` | Creates a ticket channel with overwrites in one call | No — depends on `TicketEntity`, `TicketType`, ticket config |
+| `ticketChannelOps.ts:39` `buildOverwrites` | Builds overwrites | No — module-private; vocabulary is subject/opener/staff |
+| `ticketTypes.ts:115` `toPermissionOverwrite` | Maps a permission model to an overwrite | **Shape** is transferable; input type is ticket-specific |
+
+**There is no `roles.create` anywhere in the repo.** Role creation is entirely new code, and it is the part with the hierarchy hazard.
+
+Two pre-flight checks at `ticketChannelOps.ts:136-142` are the only prior art for capability checking, and they are inline rather than a mechanism.
+
+### `BLOCK_CAPABILITIES` is the fourth written-never-wired symbol
+
+`manifest.ts:550` declares `['manageRoles', 'sendMessages', 'embedLinks', 'manageChannels']`. All 18 blocks declare a capabilities array; `conformance.ts:196` spell-checks the strings against the union; the field is serialised to the browser and guarded by `nodeDescriptorDrift.test.ts`.
+
+**Nothing reads it at runtime, and the browser never renders it.** The manifest's own comment admits this (`manifest.ts:542-548`).
+
+This follows `incrementTicketNumber`, `ticketChannelValidation`, and `ticketCommands.ts`. Recorded because §5.7's capability preflight is the first plausible consumer, and it must be understood as **building from vocabulary only** — not extending a half-built mechanism.
+
+### Decision: install writes snowflakes in (operator, 2026-09-18)
+
+Seven blocks bind channels and roles through `channelPicker`/`rolePicker`, storing a raw snowflake: `actionAssignRole`, `actionRemoveRole`, `actionPostEmbed`, `actionSendMessage`, `conditionHasRole`, `conditionInChannel`, `triggerReactionAdd`.
+
+§5.7 wants node configs to bind to *resource keys* so a journey is portable. That conflicts with every saved graph.
+
+**Chosen: provisioning creates the resource, then writes the resulting snowflake into the journey's node configs.** Blocks are unchanged, the executor is unchanged, no saved graph migrates. Portability comes from re-running install on the next guild rather than from run-time resolution.
+
+The cost, stated plainly: a journey is not *self-describingly* portable — its graph still holds guild-specific ids, and moving it means an install, not a copy. Run-time key resolution (§5.7 as literally written) remains available in 5B or step 6, and nothing here forecloses it, because the binding table is the same either way.
+
+### The 28 requirements, sorted
+
+All 29 §5.7 and §5.8 requirements are placed — 10 in 5A, 19 in 5B. Nothing is dropped silently. (§5.7's teardown policy and §5.8's uninstall share one 5B row; they are the same work stated twice.)
+
+**In 5A — cheap now, expensive to retrofit**
+
+| Requirement | Why it cannot wait |
+|---|---|
+| Declarative resources, journey-owned (§5.7) | The data shape everything else hangs off |
+| Resource bindings are persisted (§5.7) | The table; `(guildId, resourceKey) → discordId` with provenance |
+| Plan → preview → apply (§5.7) | The apply path's structure. Retrofitting a plan phase means rewriting it |
+| Permission intent as `audience × access` (§5.7) | A grid, not named presets. Presets would have to be unpicked later |
+| Permission intent, not raw overwrites (§5.7) | Same decision, stated twice in the PRD |
+| Forward-only (§5.7) | A constraint, free to honour now |
+| Crash mid-apply cannot orphan a resource (§5.7) | **Intent recorded before mutation** — ordering + schema, not a feature |
+| Capability preflight (§5.7) | Role hierarchy failures must surface in the plan. Also the first real consumer of `BLOCK_CAPABILITIES` |
+| Exactly one journey per flow, implicit (§5.8) | Determines whether `flows` grows a column or a table appears. Cheap now, a migration later |
+| Journey bundle (§5.8) | The unit that owns resources; 5A needs the noun to exist |
+
+**In 5B — genuinely additive**
+
+| Requirement | Why it waits |
+|---|---|
+| Drift detection and repair (§5.7) | Reads existing state, adds no column |
+| Explicit teardown policy / uninstall (§5.7, §5.8) | Needs an install to exist before it can be undone |
+| Rate-limit-aware application, resumable (§5.7) | Pacing layer over a working apply. Real, but our guild is small |
+| A resource may be bound by more than one journey (§5.7) | Matters at two journeys; we will have one |
+| Subsystem configuration is a declarable resource (§5.7) | Blocked on issue #22 — ticket categories are name-keyed, not id-keyed |
+| Verify, don't overwrite (§5.7) | Adoption in 5A binds what the operator picks; *checking* it against required config is the drift machinery |
+| Ambiguous names disambiguate explicitly (§5.7) | 5A's plan lists candidates; ranked-suggestion UI is builder work |
+| Suggestions are ranked, never auto-applied (§5.7) | Same — UI affordance over the same binding call |
+| Provisioning opt-in per resource (§5.7) | "Bind to one I made by hand" is adoption, which 5A has; the per-resource *decline* toggle is UI |
+| Resource binding is one autocomplete field (§5.7) | Explicitly a builder-surface requirement |
+| Journey install is idempotent (§5.8) | 5A must not duplicate; full converge-after-partial-failure needs resume |
+| A flow may hold many triggers (§5.8) | Independent of provisioning |
+| Every trigger in a flow fires (§5.8) | Independent — already in *Carried forward* as a known defect |
+| Trigger buttons deploy per destination (§5.8) | Independent of provisioning |
+| Disconnected subgraphs are legible (§5.8) | Builder work |
+| Cross-path sequencing uses existing mechanisms (§5.8) | A constraint on authors, not code |
+| Install wizard (§5.8) | 5A ships plan → confirm → apply; the wizard is its UI |
+| Onboarding journey template ships (§5.8) | That is step 6 |
+
+### Ordering constraints
+
+1. The binding table and its migration land before anything mutates a guild — crash-safety is an ordering property, so it cannot be added after the apply path exists.
+2. Permission intent compiles to overwrites **before** the first channel is created, or creation hardcodes a model the way tickets did.
+3. Capability preflight lands with apply, not after. A hierarchy failure discovered as a runtime exception is the outcome the requirement names.
+4. Snowflake write-back is last; it depends on apply having produced ids.
+
+### How this step ends
+
+**A live install on the real guild**, as every step since 3 has. The suite is not evidence here: step 4 passed typecheck and 852 tests while the creation modal wrote no ticket row. Provisioning has the same shape of failure — plausible code that mutates the wrong thing or nothing.
+
+Specifically: install a journey declaring at least one category, two channels with different visibility, and one role, onto a guild where **one of those already exists** — so create and adopt are both exercised in a single run.
 
 ## What stays load-bearing
 
