@@ -1,5 +1,5 @@
 import { PermissionsBitField } from 'discord.js';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InstallPlan } from '../../logic/installPlan';
 
 /**
@@ -20,6 +20,8 @@ vi.mock('../../provisioningService', () => ({
 }));
 
 const { handleApplyJourney } = await import('../applyJourneyButton');
+const { registerJourney, clearJourneyRegistry } = await import('../../journeys/journeyRegistry');
+const { ONBOARDING_JOURNEY } = await import('../../journeys/onboardingJourney');
 
 function makePlan(overrides: Partial<InstallPlan> = {}): InstallPlan {
     return {
@@ -88,6 +90,14 @@ function firstEmbed(editReply: { mock: { calls: [DiscordReplyPayload][] } }) {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    // The registry is populated by init in production; a unit test populates it
+    // itself rather than depending on a module-level list.
+    clearJourneyRegistry();
+    registerJourney(ONBOARDING_JOURNEY);
+});
+
+afterEach(() => {
+    clearJourneyRegistry();
 });
 
 describe('handleApplyJourney', () => {

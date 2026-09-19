@@ -11,15 +11,15 @@ import { initBirthdayFeature, startBirthdayAnnouncementScheduler, stopBirthdayAn
 import { initLeveling, stopLeveling } from './features/leveling';
 import { initWarnings } from './features/warnings';
 import { initFlows, stopFlowRunScheduler } from './features/flows';
-import { handleInstallJourney, initProvisioning, installJourneyCommand } from './features/provisioning';
+import { buildInstallJourneyCommand, handleInstallJourney, initProvisioning } from './features/provisioning';
 import { startWebServer, stopWebServer } from './web/server';
 
 interactionsRegistry.register(flashChatCommand, handleFlashChatCommand);
 interactionsRegistry.register(deployTicketSystemCommand, handleDeployTicketSystem);
-interactionsRegistry.register(installJourneyCommand, handleInstallJourney);
-
-// Initialize server provisioning (the apply button behind /install-journey)
+// Initialize server provisioning (registers journeys + the apply button). Must run
+// before the command is built, because its journey choices come from the registry.
 initProvisioning();
+interactionsRegistry.register(buildInstallJourneyCommand(), handleInstallJourney);
 
 // Initialize ticket system handlers
 initTicketsFeature();

@@ -1,7 +1,7 @@
 import { ButtonInteraction, EmbedBuilder, PermissionsBitField } from 'discord.js';
 import { commandError, commandSuccess } from '../../../features-system/commands';
 import type { InteractionHandlerResult } from '../../../features-system/commands/types';
-import { JOURNEYS } from '../journeys/onboardingJourney';
+import { getJourney } from '../journeys/journeyRegistry';
 import { isPlanApplicable } from '../logic/installPlan';
 import { installJourney, previewInstall } from '../provisioningService';
 import { INSTALL_JOURNEY_APPLY_ID, buildPlanEmbed } from './installJourneyCommand';
@@ -39,7 +39,7 @@ export async function handleApplyJourney(
     }
 
     const journeyKey = interaction.customId.slice(`${INSTALL_JOURNEY_APPLY_ID}:`.length);
-    const journey = JOURNEYS.get(journeyKey);
+    const journey = getJourney(journeyKey);
     if (!journey) {
         await interaction.reply({
             content: `❌ No journey named \`${journeyKey}\` is known to this bot.`,

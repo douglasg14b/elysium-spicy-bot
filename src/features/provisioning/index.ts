@@ -5,12 +5,19 @@
 // through this barrel, and the dependency stays one-directional by design.
 export * from './provisioningService';
 export { initProvisioning } from './initProvisioning';
-export { installJourneyCommand, handleInstallJourney } from './commands/installJourneyCommand';
+export { buildInstallJourneyCommand, handleInstallJourney } from './commands/installJourneyCommand';
+
+// The registry is the supported way to add a journey. The engine ships no journeys of
+// its own; what is installable is whatever a consumer registers.
+export { registerJourney, getJourney, listJourneys } from './journeys/journeyRegistry';
+export { journeyNeedsSubject, journeyNeedsStaffRoles } from './logic/resourceDeclaration';
+
+// An example declaration, exported so it can be referenced and tested. Nothing in the
+// engine depends on it.
 export {
     ONBOARDING_JOURNEY,
     ONBOARDING_JOURNEY_KEY,
     ONBOARDING_RESOURCE_KEYS,
-    JOURNEYS,
 } from './journeys/onboardingJourney';
 
 export type {

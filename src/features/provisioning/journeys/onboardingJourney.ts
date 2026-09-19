@@ -17,11 +17,17 @@ export const ONBOARDING_RESOURCE_KEYS = {
 export const ONBOARDING_JOURNEY_KEY = 'onboarding';
 
 /**
- * The onboarding journey: agree to the rules, get the member role, get a welcome.
+ * An **example** journey — one possible arrangement, not a built-in concept.
  *
- * This is the reference declaration and the first real consumer of provisioning. It
- * provisions exactly what `buildOnboardingFlowGraph` needs: a role for
- * `action.assignRole`, and channels for the button trigger to be deployed into.
+ * Nothing in the provisioning engine knows this file exists. It is data handed to a
+ * registry, exactly as an operator-authored journey would be, and deleting it would
+ * leave the engine complete and the feature working with zero journeys. Onboarding is
+ * not a product concept here; it is the shape that happened to be useful for proving
+ * the engine can express *something*.
+ *
+ * Kept because it doubles as the reference for what a declaration looks like, and
+ * because it provisions what `buildOnboardingFlowGraph` needs — a role for
+ * `action.assignRole`, and channels for a button trigger to be deployed into.
  *
  * `#rules` is read-only for members on purpose: the agree button is posted there, and
  * a channel anyone can post in turns the rules into a conversation. `#welcome` stays
@@ -64,7 +70,3 @@ export const ONBOARDING_JOURNEY: JourneyDeclaration = {
     ],
 };
 
-/** Every journey this bot knows how to install, by key. */
-export const JOURNEYS: ReadonlyMap<string, JourneyDeclaration> = new Map([
-    [ONBOARDING_JOURNEY_KEY, ONBOARDING_JOURNEY],
-]);

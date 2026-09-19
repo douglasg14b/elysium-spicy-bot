@@ -62,6 +62,32 @@ export interface JourneyDeclaration {
     readonly resources: readonly ResourceDeclaration[];
 }
 
+/**
+ * Whether any resource in a journey needs a subject to resolve its permissions.
+ *
+ * Asked of the declaration rather than assumed by a caller. A command that hardcoded
+ * "this journey needs no subject" would work for the journey it was written against
+ * and silently refuse every other one.
+ */
+export function journeyNeedsSubject(journey: JourneyDeclaration): boolean {
+    return journey.resources.some((resource) =>
+        resource.permissions?.some((intent) => intent.audience === 'subjectAndStaff')
+    );
+}
+
+/**
+ * Whether any resource needs staff roles supplied.
+ *
+ * Currently the same condition as `journeyNeedsSubject` — `subjectAndStaff` is the
+ * only audience naming staff — but they are separate questions and a future audience
+ * could need one without the other. Kept distinct so a caller asks what it means.
+ */
+export function journeyNeedsStaffRoles(journey: JourneyDeclaration): boolean {
+    return journey.resources.some((resource) =>
+        resource.permissions?.some((intent) => intent.audience === 'subjectAndStaff')
+    );
+}
+
 /** Raised when a declaration is internally inconsistent. */
 export class ResourceDeclarationError extends Error {
     constructor(message: string) {

@@ -1,9 +1,17 @@
 import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { describe, expect, it } from 'vitest';
-import { INSTALL_JOURNEY_APPLY_ID, installJourneyCommand } from '../commands/installJourneyCommand';
-import { JOURNEYS, ONBOARDING_JOURNEY } from '../journeys/onboardingJourney';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+    INSTALL_JOURNEY_APPLY_ID,
+    buildInstallJourneyCommand,
+} from '../commands/installJourneyCommand';
+import {
+    clearJourneyRegistry,
+    listJourneys,
+    registerJourney,
+} from '../journeys/journeyRegistry';
+import { ONBOARDING_JOURNEY } from '../journeys/onboardingJourney';
 import { validateJourneyDeclaration } from '../logic/resourceDeclaration';
 
 /**
@@ -28,7 +36,19 @@ const BOT_SOURCE = readFileSync(
 
 describe('provisioning is wired into the bot', () => {
     it('registers the /install-journey slash command', () => {
-        expect(BOT_SOURCE).toMatch(/interactionsRegistry\.register\(\s*installJourneyCommand/);
+        expect(BOT_SOURCE).toMatch(/interactionsRegistry\.register\(\s*buildInstallJourneyCommand\(\)/);
+    });
+
+    it('initialises provisioning before building the command', () => {
+        // The command's journey choices come from the registry, which init fills.
+        // Built first, it would offer an empty list — a failure that looks like
+        // "the command exists but does nothing".
+        const initIndex = BOT_SOURCE.indexOf('initProvisioning()');
+        const buildIndex = BOT_SOURCE.indexOf('buildInstallJourneyCommand()');
+
+        expect(initIndex).toBeGreaterThan(-1);
+        expect(buildIndex).toBeGreaterThan(-1);
+        expect(initIndex).toBeLessThan(buildIndex);
     });
 
     it('calls initProvisioning, which registers the apply button', () => {
@@ -42,26 +62,49 @@ describe('provisioning is wired into the bot', () => {
 });
 
 describe('the install command surface', () => {
-    it('is named so an operator can find it', () => {
-        expect(installJourneyCommand.name).toBe('install-journey');
+    beforeEach(() => {
+        clearJourneyRegistry();
+        registerJourney(ONBOARDING_JOURNEY);
     });
 
-    it('offers every known journey as a choice', () => {
-        const json = installJourneyCommand.toJSON();
-        const journeyOption = json.options?.find((option) => option.name === 'journey');
-        const choices = (journeyOption as { choices?: { value: string }[] } | undefined)?.choices ?? [];
+    afterEach(() => {
+        clearJourneyRegistry();
+    });
 
-        expect(choices.map((choice) => choice.value).sort()).toEqual([...JOURNEYS.keys()].sort());
+    it('is named so an operator can find it', () => {
+        expect(buildInstallJourneyCommand().name).toBe('install-journey');
+    });
+
+    it('offers whatever is registered, rather than a hardcoded list', () => {
+        registerJourney({
+            journeyKey: 'something-else',
+            name: 'Something Else',
+            resources: [{ key: 'a-channel', kind: 'textChannel', defaultName: 'anything' }],
+        });
+
+        const json = buildInstallJourneyCommand().toJSON();
+        const journeyOption = json.options?.find((option) => option.name === 'journey');
+        const choices =
+            (journeyOption as { choices?: { value: string }[] } | undefined)?.choices ?? [];
+
+        expect(choices.map((choice) => choice.value).sort()).toEqual(
+            listJourneys()
+                .map((journey) => journey.journeyKey)
+                .sort()
+        );
+        expect(choices.map((choice) => choice.value)).toContain('something-else');
     });
 
     it('requires Manage Server', () => {
         // Provisioning mutates guild structure; it must not be open to everyone.
-        expect(installJourneyCommand.toJSON().default_member_permissions).toBeTruthy();
+        expect(buildInstallJourneyCommand().toJSON().default_member_permissions).toBeTruthy();
     });
 
     it('keeps the apply custom id within the 100-character Discord limit', () => {
-        for (const journeyKey of JOURNEYS.keys()) {
-            expect(`${INSTALL_JOURNEY_APPLY_ID}:${journeyKey}`.length).toBeLessThanOrEqual(100);
+        for (const journey of listJourneys()) {
+            expect(`${INSTALL_JOURNEY_APPLY_ID}:${journey.journeyKey}`.length).toBeLessThanOrEqual(
+                100
+            );
         }
     });
 });
