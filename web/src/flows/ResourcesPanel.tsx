@@ -8,6 +8,11 @@
  * The panel never says "journey". A flow's journey is implicit, keyed on the flow's
  * own id, so the operator declares what this flow needs and the scope follows from
  * that. Grouping several flows under one journey is deferred (PRD §5.8 item 39).
+ *
+ * It lives in a modal off the toolbar rather than in the right-hand column. That
+ * column is for the *selected node's* configuration; a flow-wide concern sharing it
+ * meant selecting a block showed nothing while resources were open. Permission
+ * editing also wants more width than 300px.
  */
 
 import { useState } from 'react';
@@ -16,8 +21,8 @@ import {
     Alert,
     Badge,
     Button,
+    Divider,
     Group,
-    Menu,
     Select,
     Stack,
     Text,
@@ -25,28 +30,21 @@ import {
     Tooltip,
 } from '@mantine/core';
 import { IconPlus, IconTrash } from '@tabler/icons-react';
-import type { ResourceDeclaration, ResourceKind } from '../api/types';
+import type { GuildRole, PermissionIntent, ResourceDeclaration, ResourceKind } from '../api/types';
+import { declaredRoleOptionValue } from './declaredRoleReference';
+import { PermissionIntentEditor } from './PermissionIntentEditor';
+import { RESOURCE_KIND_ORDER, RESOURCE_KIND_STYLES } from './resourceMeta';
 
 interface ResourcesPanelProps {
     resources: ResourceDeclaration[];
     onChange: (next: ResourceDeclaration[]) => void;
+    /** Real roles in the guild, for permission rules that name one. */
+    roles: GuildRole[];
     /** Set while a save is in flight, so the panel cannot be edited mid-write. */
     saving?: boolean;
     /** A rejected save, shown verbatim — the server's message names the real problem. */
     error?: string;
 }
-
-const KIND_LABEL: Record<ResourceKind, string> = {
-    category: 'Category',
-    textChannel: 'Channel',
-    role: 'Role',
-};
-
-const KIND_PREFIX: Record<ResourceKind, string> = {
-    category: '',
-    textChannel: '#',
-    role: '@',
-};
 
 /**
  * Derive a key from a display name.
@@ -64,13 +62,29 @@ function slugify(name: string): string {
         .slice(0, 64);
 }
 
-export function ResourcesPanel({ resources, onChange, saving, error }: ResourcesPanelProps) {
+export function ResourcesPanel({
+    resources,
+    onChange,
+    roles,
+    saving,
+    error,
+}: ResourcesPanelProps) {
     const [pendingName, setPendingName] = useState('');
+    // Kind is chosen before adding, not from a dropdown menu that hides the choice
+    // behind a click. A wrong kind is otherwise silent until install.
+    const [pendingKind, setPendingKind] = useState<ResourceKind>('textChannel');
+    const [pendingParentKey, setPendingParentKey] = useState<string | null>(null);
 
     const categories = resources.filter((resource) => resource.kind === 'category');
+    const declaredRoles = resources.filter((resource) => resource.kind === 'role');
 
-    function addResource(kind: ResourceKind) {
-        const name = pendingName.trim() || `new-${kind === 'textChannel' ? 'channel' : kind}`;
+    // Roles never live under a category, and the server rejects one that names a
+    // parent — so the control disappears rather than offering a save that cannot work.
+    const pendingCanHaveParent = pendingKind !== 'role' && categories.length > 0;
+
+    function addResource() {
+        const name =
+            pendingName.trim() || `new-${pendingKind === 'textChannel' ? 'channel' : pendingKind}`;
         let key = slugify(name);
 
         // A duplicate key is rejected by the server, and silently renaming the
@@ -81,8 +95,16 @@ export function ResourcesPanel({ resources, onChange, saving, error }: Resources
             key = `${key}-${suffix}`;
         }
 
-        onChange([...resources, { key, kind, defaultName: name }]);
+        const declaration: ResourceDeclaration = { key, kind: pendingKind, defaultName: name };
+        // Folded into creation rather than left as a second edit on a row that already
+        // exists. Only carried when the kind can actually hold one.
+        if (pendingCanHaveParent && pendingParentKey) {
+            declaration.parentKey = pendingParentKey;
+        }
+
+        onChange([...resources, declaration]);
         setPendingName('');
+        setPendingParentKey(null);
     }
 
     /**
@@ -94,39 +116,61 @@ export function ResourcesPanel({ resources, onChange, saving, error }: Resources
      */
     function updateResource(index: number, patch: Partial<ResourceDeclaration>) {
         onChange(
-            resources.map((resource, position) =>
-                position === index ? { ...resource, ...patch } : resource
-            )
+            resources.map((resource, position) => {
+                if (position !== index) return resource;
+                const next = { ...resource, ...patch };
+                // An explicit `undefined` in a patch means *remove the key*. Spreading
+                // alone leaves it present holding `undefined`, which `JSON.stringify`
+                // drops on the way out — so the in-memory list and the saved one would
+                // disagree about whether a resource inherits its permissions.
+                for (const [patchKey, value] of Object.entries(patch)) {
+                    if (value === undefined) {
+                        delete next[patchKey as keyof ResourceDeclaration];
+                    }
+                }
+                return next;
+            })
         );
     }
 
     function removeResource(index: number) {
         const removed = resources[index];
-        // Anything parented to the removed category would name a parent that no longer
-        // exists, which the server rejects as an invalid declaration. Clearing the
-        // parent here keeps the list saveable, and the change is visible in the UI.
+        if (!removed) return;
+
         onChange(
             resources
                 .filter((_resource, position) => position !== index)
-                .map((resource) =>
-                    resource.parentKey === removed?.key
-                        ? { ...resource, parentKey: undefined }
-                        : resource
-                )
+                .map((resource) => {
+                    let next = resource;
+
+                    // Anything parented to the removed category would name a parent
+                    // that no longer exists, which the server rejects as an invalid
+                    // declaration. Clearing it here keeps the list saveable, visibly.
+                    if (next.parentKey === removed.key) {
+                        const { parentKey: _dropped, ...withoutParent } = next;
+                        next = withoutParent;
+                    }
+
+                    // Same problem one level down, and it is the one item 4 made
+                    // reachable: a permission naming the removed *role* by key is now
+                    // a reference the journey does not declare, which
+                    // `validateJourneyDeclaration` refuses. Dropping the reference
+                    // keeps the save working; the rule stays, minus the dead role.
+                    if (removed.kind === 'role' && next.permissions) {
+                        next = { ...next, permissions: withoutRoleKey(next.permissions, removed.key) };
+                    }
+
+                    return next;
+                })
         );
     }
 
     return (
-        <Stack gap="md" p="md" h="100%" style={{ overflowY: 'auto' }}>
-            <div>
-                <Text fw={800} size="15px">
-                    Resources
-                </Text>
-                <Text size="12px" c="dimmed">
-                    Channels and roles this flow needs. Declare them here and they show up in the
-                    pickers straight away — you can build the whole flow before any of them exist.
-                </Text>
-            </div>
+        <Stack gap="md">
+            <Text size="12.5px" c="dimmed">
+                Channels and roles this flow needs. Declare them here and they show up in the
+                pickers straight away — you can build the whole flow before any of them exist.
+            </Text>
 
             {error && (
                 <Alert color="red" variant="light" p="xs">
@@ -134,33 +178,97 @@ export function ResourcesPanel({ resources, onChange, saving, error }: Resources
                 </Alert>
             )}
 
-            <Group gap={6} wrap="nowrap">
-                <TextInput
-                    placeholder="Name it, e.g. questions"
-                    value={pendingName}
-                    onChange={(event) => setPendingName(event.currentTarget.value)}
-                    size="xs"
-                    style={{ flex: 1 }}
-                    disabled={saving}
-                />
-                <Menu position="bottom-end" withinPortal>
-                    <Menu.Target>
-                        <Button
+            <Stack
+                gap={8}
+                p="sm"
+                style={{
+                    background: 'var(--mantine-color-dark-7)',
+                    border: '1px solid var(--mantine-color-dark-5)',
+                    borderRadius: 6,
+                }}
+            >
+                <Text size="12px" fw={700}>
+                    Declare something new
+                </Text>
+
+                <Group gap={6} wrap="nowrap" align="flex-end">
+                    <Button.Group>
+                        {RESOURCE_KIND_ORDER.map((kind) => {
+                            const style = RESOURCE_KIND_STYLES[kind];
+                            const KindIcon = style.icon;
+                            const active = pendingKind === kind;
+                            return (
+                                <Button
+                                    key={kind}
+                                    size="xs"
+                                    variant={active ? 'filled' : 'default'}
+                                    color={active ? style.color : undefined}
+                                    leftSection={<KindIcon size={14} />}
+                                    onClick={() => {
+                                        setPendingKind(kind);
+                                        // A role cannot hold a parent, so a pending one
+                                        // would be silently dropped at add time.
+                                        if (kind === 'role') setPendingParentKey(null);
+                                    }}
+                                    disabled={saving}
+                                >
+                                    {style.label}
+                                </Button>
+                            );
+                        })}
+                    </Button.Group>
+                </Group>
+
+                <Group gap={6} wrap="nowrap" align="flex-end">
+                    <TextInput
+                        label="Name"
+                        placeholder={RESOURCE_KIND_STYLES[pendingKind].namePlaceholder}
+                        value={pendingName}
+                        onChange={(event) => setPendingName(event.currentTarget.value)}
+                        onKeyDown={(event) => {
+                            if (event.key === 'Enter') addResource();
+                        }}
+                        size="xs"
+                        style={{ flex: 1 }}
+                        disabled={saving}
+                        leftSection={
+                            RESOURCE_KIND_STYLES[pendingKind].prefix ? (
+                                <Text size="12px" c="dimmed">
+                                    {RESOURCE_KIND_STYLES[pendingKind].prefix}
+                                </Text>
+                            ) : undefined
+                        }
+                    />
+
+                    {pendingCanHaveParent && (
+                        <Select
                             size="xs"
-                            variant="light"
-                            leftSection={<IconPlus size={14} />}
+                            label="Inside category"
+                            placeholder="Top level"
+                            data={categories.map((category) => ({
+                                value: category.key,
+                                label: category.defaultName,
+                            }))}
+                            value={pendingParentKey}
+                            onChange={setPendingParentKey}
+                            clearable
                             disabled={saving}
-                        >
-                            Add
-                        </Button>
-                    </Menu.Target>
-                    <Menu.Dropdown>
-                        <Menu.Item onClick={() => addResource('textChannel')}>Channel</Menu.Item>
-                        <Menu.Item onClick={() => addResource('category')}>Category</Menu.Item>
-                        <Menu.Item onClick={() => addResource('role')}>Role</Menu.Item>
-                    </Menu.Dropdown>
-                </Menu>
-            </Group>
+                            w={160}
+                            comboboxProps={{ withinPortal: true }}
+                        />
+                    )}
+
+                    <Button
+                        size="xs"
+                        variant="light"
+                        leftSection={<IconPlus size={14} />}
+                        onClick={addResource}
+                        disabled={saving}
+                    >
+                        Add
+                    </Button>
+                </Group>
+            </Stack>
 
             {resources.length === 0 ? (
                 <Text size="12px" c="dimmed" ta="center" pt="md">
@@ -179,6 +287,12 @@ export function ResourcesPanel({ resources, onChange, saving, error }: Resources
                             categories={categories.filter(
                                 (category) => category.key !== resource.key
                             )}
+                            roles={roles}
+                            declaredRoles={declaredRoles.filter(
+                                // A role granting itself permissions is meaningless,
+                                // and a role has no overwrites at all.
+                                (declared) => declared.key !== resource.key
+                            )}
                             disabled={Boolean(saving)}
                             onUpdate={(patch) => updateResource(index, patch)}
                             onRemove={() => removeResource(index)}
@@ -190,33 +304,77 @@ export function ResourcesPanel({ resources, onChange, saving, error }: Resources
     );
 }
 
+/**
+ * Drop every reference to one declared role from a set of intents.
+ *
+ * A rule left naming nothing is removed rather than kept as an empty `roles` intent:
+ * the server rejects `roles` with no ids, so keeping it would make the whole list
+ * unsaveable to clear a role the operator just deleted.
+ */
+function withoutRoleKey(
+    permissions: PermissionIntent[],
+    removedKey: string
+): PermissionIntent[] {
+    const reference = declaredRoleOptionValue(removedKey);
+
+    return permissions.flatMap((intent) => {
+        if (intent.audience !== 'roles' || !intent.roleIds) return [intent];
+
+        const roleIds = intent.roleIds.filter((roleId) => roleId !== reference);
+        if (roleIds.length === intent.roleIds.length) return [intent];
+        return roleIds.length > 0 ? [{ ...intent, roleIds }] : [];
+    });
+}
+
 interface ResourceRowProps {
     resource: ResourceDeclaration;
     categories: ResourceDeclaration[];
+    roles: GuildRole[];
+    declaredRoles: ResourceDeclaration[];
     disabled: boolean;
     onUpdate: (patch: Partial<ResourceDeclaration>) => void;
     onRemove: () => void;
 }
 
-function ResourceRow({ resource, categories, disabled, onUpdate, onRemove }: ResourceRowProps) {
+function ResourceRow({
+    resource,
+    categories,
+    roles,
+    declaredRoles,
+    disabled,
+    onUpdate,
+    onRemove,
+}: ResourceRowProps) {
     // Roles do not live under categories, and the server rejects a role that names a
     // parent. Offering the control at all would invite a save that cannot succeed.
     const canHaveParent = resource.kind !== 'role' && categories.length > 0;
+    const style = RESOURCE_KIND_STYLES[resource.kind];
+    const KindIcon = style.icon;
 
     return (
         <Stack
-            gap={6}
+            gap={8}
             p="xs"
             style={{
                 background: 'var(--mantine-color-dark-7)',
                 border: '1px solid var(--mantine-color-dark-5)',
+                // The kind's colour down the edge of the row, so a list of resources
+                // is scannable by kind without reading any of the labels.
+                borderLeft: `3px solid var(--mantine-color-${style.color}-6)`,
                 borderRadius: 6,
             }}
         >
             <Group gap={6} wrap="nowrap" justify="space-between">
-                <Badge size="xs" variant="light">
-                    {KIND_LABEL[resource.kind]}
-                </Badge>
+                <Group gap={6} wrap="nowrap">
+                    <KindIcon size={15} color={`var(--mantine-color-${style.color}-5)`} />
+                    <Badge size="xs" variant="light" color={style.color}>
+                        {style.label}
+                    </Badge>
+                    <Text size="12px" fw={600}>
+                        {style.prefix}
+                        {resource.defaultName}
+                    </Text>
+                </Group>
                 <Tooltip label="Remove" withArrow>
                     <ActionIcon
                         size="sm"
@@ -224,36 +382,39 @@ function ResourceRow({ resource, categories, disabled, onUpdate, onRemove }: Res
                         color="red"
                         onClick={onRemove}
                         disabled={disabled}
+                        aria-label={`Remove ${resource.defaultName}`}
                     >
                         <IconTrash size={14} />
                     </ActionIcon>
                 </Tooltip>
             </Group>
 
-            <TextInput
-                size="xs"
-                label="Name"
-                description="What it gets called when created. You can rename it in Discord later."
-                value={resource.defaultName}
-                onChange={(event) => onUpdate({ defaultName: event.currentTarget.value })}
-                leftSection={
-                    KIND_PREFIX[resource.kind] ? (
-                        <Text size="12px" c="dimmed">
-                            {KIND_PREFIX[resource.kind]}
-                        </Text>
-                    ) : undefined
-                }
-                disabled={disabled}
-            />
+            <Group gap={6} wrap="nowrap" align="flex-start" grow>
+                <TextInput
+                    size="xs"
+                    label="Name"
+                    description="What it gets called when created."
+                    value={resource.defaultName}
+                    onChange={(event) => onUpdate({ defaultName: event.currentTarget.value })}
+                    leftSection={
+                        style.prefix ? (
+                            <Text size="12px" c="dimmed">
+                                {style.prefix}
+                            </Text>
+                        ) : undefined
+                    }
+                    disabled={disabled}
+                />
 
-            <TextInput
-                size="xs"
-                label="Key"
-                description="How this flow refers to it. Renaming in Discord won't break it."
-                value={resource.key}
-                onChange={(event) => onUpdate({ key: event.currentTarget.value })}
-                disabled={disabled}
-            />
+                <TextInput
+                    size="xs"
+                    label="Key"
+                    description="How this flow refers to it. A rename in Discord won't break it."
+                    value={resource.key}
+                    onChange={(event) => onUpdate({ key: event.currentTarget.value })}
+                    disabled={disabled}
+                />
+            </Group>
 
             {canHaveParent && (
                 <Select
@@ -268,7 +429,34 @@ function ResourceRow({ resource, categories, disabled, onUpdate, onRemove }: Res
                     onChange={(next) => onUpdate({ parentKey: next ?? undefined })}
                     clearable
                     disabled={disabled}
+                    comboboxProps={{ withinPortal: true }}
                 />
+            )}
+
+            {/*
+             * Roles carry no permission overwrites — overwrites are a property of a
+             * channel or a category, and a role *appears in* them rather than having
+             * them. Offering the editor here would be a form with no effect.
+             */}
+            {resource.kind !== 'role' && (
+                <>
+                    <Divider
+                        label={
+                            <Text size="10.5px" c="dimmed">
+                                Who can see it
+                            </Text>
+                        }
+                        labelPosition="left"
+                    />
+                    <PermissionIntentEditor
+                        intents={resource.permissions}
+                        onChange={(next) => onUpdate({ permissions: next })}
+                        roles={roles}
+                        declaredRoles={declaredRoles}
+                        canInherit={Boolean(resource.parentKey)}
+                        disabled={disabled}
+                    />
+                </>
             )}
         </Stack>
     );

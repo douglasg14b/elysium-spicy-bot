@@ -48,6 +48,7 @@ import {
     IconChevronLeft,
     IconDeviceFloppy,
     IconRocket,
+    IconStack2,
 } from '@tabler/icons-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ApiError } from '../api/client';
@@ -763,6 +764,25 @@ function FlowBuilder() {
                     Save
                 </Button>
 
+                <Tooltip label="Channels and roles this flow needs but doesn’t have yet">
+                    <Button
+                        variant="light"
+                        color="gray"
+                        size="xs"
+                        leftSection={<IconStack2 size={15} />}
+                        onClick={() => setShowResources(true)}
+                        rightSection={
+                            declaredResources.length > 0 ? (
+                                <Badge size="xs" circle variant="filled" color="brand">
+                                    {declaredResources.length}
+                                </Badge>
+                            ) : undefined
+                        }
+                    >
+                        Resources
+                    </Button>
+                </Tooltip>
+
                 <Tooltip
                     label={
                         hasButtonTrigger
@@ -904,75 +924,61 @@ function FlowBuilder() {
                         overflow: 'hidden',
                     }}
                 >
-                    <Stack gap={0} h="100%">
-                        <Group
-                            gap={4}
-                            p={6}
-                            wrap="nowrap"
-                            style={{ borderBottom: '1px solid var(--mantine-color-dark-5)' }}
-                        >
-                            <Button
-                                size="compact-xs"
-                                variant={showResources ? 'subtle' : 'light'}
-                                onClick={() => setShowResources(false)}
-                                style={{ flex: 1 }}
-                            >
-                                Inspector
-                            </Button>
-                            <Button
-                                size="compact-xs"
-                                variant={showResources ? 'light' : 'subtle'}
-                                onClick={() => setShowResources(true)}
-                                style={{ flex: 1 }}
-                                rightSection={
-                                    declaredResources.length > 0 ? (
-                                        <Badge size="xs" circle variant="filled">
-                                            {declaredResources.length}
-                                        </Badge>
-                                    ) : undefined
-                                }
-                            >
-                                Resources
-                            </Button>
-                        </Group>
-
-                        <div style={{ flex: 1, overflow: 'hidden' }}>
-                            {showResources ? (
-                                <ResourcesPanel
-                                    resources={declaredResources}
-                                    onChange={saveResources}
-                                    saving={resourcesSaving}
-                                    error={resourcesError ?? undefined}
-                                />
-                            ) : selectedNode ? (
-                                <NodeInspector
-                                    key={selectedNode.id}
-                                    descriptor={selectedNode.data.descriptor}
-                                    nodeType={selectedNode.data.nodeType}
-                                    label={selectedNode.data.label}
-                                    config={selectedNode.data.config}
-                                    roles={roles}
-                                    channels={channels}
-                                    variables={availableVariables}
-                                    declaredResources={declaredResources}
-                                    onChange={updateNodeConfig}
-                                    onDelete={deleteSelectedNode}
-                                />
-                            ) : (
-                                <Stack align="center" justify="center" h="100%" gap={6} px="lg">
-                                    <Text fw={700} size="14px">
-                                        Nothing selected
-                                    </Text>
-                                    <Text size="12.5px" c="dimmed" ta="center">
-                                        Drag a node from the left, then click it to configure. The
-                                        canvas won&apos;t bite.
-                                    </Text>
-                                </Stack>
-                            )}
-                        </div>
-                    </Stack>
+                    {/*
+                     * The right column is the selected node's configuration and
+                     * nothing else. Resources used to share it behind a tab toggle,
+                     * which meant clicking a block while that tab was open showed no
+                     * block details at all — a flow-wide concern occupying a
+                     * per-node space. It is a toolbar modal now.
+                     */}
+                    {selectedNode ? (
+                        <NodeInspector
+                            key={selectedNode.id}
+                            descriptor={selectedNode.data.descriptor}
+                            nodeType={selectedNode.data.nodeType}
+                            label={selectedNode.data.label}
+                            config={selectedNode.data.config}
+                            roles={roles}
+                            channels={channels}
+                            variables={availableVariables}
+                            declaredResources={declaredResources}
+                            onChange={updateNodeConfig}
+                            onDelete={deleteSelectedNode}
+                        />
+                    ) : (
+                        <Stack align="center" justify="center" h="100%" gap={6} px="lg">
+                            <Text fw={700} size="14px">
+                                Nothing selected
+                            </Text>
+                            <Text size="12.5px" c="dimmed" ta="center">
+                                Drag a node from the left, then click it to configure. The
+                                canvas won&apos;t bite.
+                            </Text>
+                        </Stack>
+                    )}
                 </div>
             </Group>
+
+            {/*
+             * Generously sized: a resource row holds a name, a key, a parent and a
+             * list of permission rules, and each rule is an audience plus an access
+             * level plus possibly a role list. That does not fit a narrow column,
+             * which is half of why the panel was unusable where it was.
+             */}
+            <Modal
+                opened={showResources}
+                onClose={() => setShowResources(false)}
+                title="Resources this flow needs"
+                size="xl"
+            >
+                <ResourcesPanel
+                    resources={declaredResources}
+                    onChange={saveResources}
+                    roles={roles}
+                    saving={resourcesSaving}
+                    error={resourcesError ?? undefined}
+                />
+            </Modal>
 
             <Modal
                 opened={deployOpen}
