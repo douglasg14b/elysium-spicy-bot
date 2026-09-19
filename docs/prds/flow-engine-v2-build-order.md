@@ -764,11 +764,24 @@ This contradicts the stated intent of the whole programme — *a system an opera
 
 ### Still open in 5A
 
-1. **Journey authoring does not exist** — the gap above. Blocks everything else, because there is nothing for an API or UI to read.
-2. **Write-back has no caller.** `bindResourcesToGraph` is built and tested; nothing invokes it.
-3. **`resolveJourneyResources` has no caller at all** — not even a test. Missed in the first audit and found only when the operator asked what else was unwired.
+Closed on 2026-09-19 (`d6c564c`, `78c965c`, `a2daa4d`, `2ff6bc0`):
+
+1. ~~**Journey authoring does not exist.**~~ Journeys are rows in a `journeys` table, authored per guild through `/api/guilds/:guildId/journeys` and a Resources panel in the flow builder. The in-memory registry and the bundled onboarding example are deleted — a fresh install has zero journeys until an operator creates one.
+2. ~~**Write-back has no caller.**~~ `applyResourcesToFlows` resolves a journey's bindings and writes the ids into the node configs that picked them, run by the apply handler after a successful install.
+3. ~~**`resolveJourneyResources` has no caller.**~~ Called by the above, and its `stale` half is what separates "re-run install" from "never installed".
+
+Still open:
+
 4. **Nothing has ever run against Discord.** No channel, role, or overwrite has been created. Every test uses a fake guild.
-5. **The live run**, which is what actually closes the step.
+5. **The Resources panel has never been rendered in a browser.** Vite compiles it; nobody has looked at it. A layout or empty-state fault would not show up in any test written so far.
+6. **The live run**, which is what actually closes the step.
+7. **`/install-journey` still exists.** It survives on a free-text journey key because slash commands register globally while journeys are per guild — a static choice list can never know a guild's journeys. It goes once the dashboard can install (decision 5).
+
+#### What the three closed items changed structurally
+
+- **The flow↔journey association lives on `journeys`, not on `flows`.** `flows.journey_key` was drafted and rejected by the engine-vocabulary gate, which then rejected `resource_scope_key` for `resource` and `scope`. The gate is right: the interpreter has no concept of any of them — it executes a graph whose configs already hold ids. The column is `journeys.created_for_flow_id`.
+- **A picked resource is a sidecar key, not a structured value.** `roleId` keeps holding a snowflake because the block hands it to `roles.add()` unchanged; `roleIdKey` records the declaration. A structured value would have cost seven block schemas, every executor read, and a graph migration, to say what a sibling key already says.
+- **Provisioning reaches write-back through a registered callback.** A direct import was written first and was wrong — the apply button lives inside `features/provisioning`, so it inherits the barrel's no-flows rule. A test now enforces the boundary.
 
 ### How this step ends
 
