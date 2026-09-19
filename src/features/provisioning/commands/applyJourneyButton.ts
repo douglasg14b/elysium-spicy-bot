@@ -2,6 +2,7 @@ import { ButtonInteraction, EmbedBuilder, PermissionsBitField } from 'discord.js
 import { commandError, commandSuccess } from '../../../features-system/commands';
 import type { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { getJourney } from '../journeys/journeySource';
+import { runResourceWriteBack } from '../resourceWriteBack';
 import { isPlanApplicable } from '../logic/installPlan';
 import { installJourney, previewInstall } from '../provisioningService';
 import { buildPlanEmbed, parseApplyCustomId } from './installJourneyCommand';
@@ -102,6 +103,40 @@ export async function handleApplyJourney(
         });
 
         embed.setDescription(lines.join('\n') || '_Nothing was applied._');
+
+        // Write the new ids into whatever consumes these resources.
+        //
+        // Runs even on a partial install: what was applied is real and bound, and the
+        // nodes pointing at it should stop waiting. Anything still unresolved is
+        // reported below rather than left for the operator to discover at run time.
+        //
+        // Reached through a registered hook rather than by importing flows, because
+        // provisioning is a base capability and flows are one of its consumers. The
+        // import would work today and invert the dependency permanently.
+        const writeBack = await runResourceWriteBack(interaction.guild, journeyKey);
+
+        if (writeBack.writtenCount > 0) {
+            embed.addFields({
+                name: '🔗 Wired into flows',
+                value: `Filled ${writeBack.writtenCount} setting${
+                    writeBack.writtenCount === 1 ? '' : 's'
+                } across ${writeBack.updatedFlowIds.length} flow${
+                    writeBack.updatedFlowIds.length === 1 ? '' : 's'
+                }.`,
+            });
+        }
+
+        if (writeBack.unresolved.length > 0) {
+            // Named individually: "3 unresolved" tells an operator nothing they can
+            // act on, whereas the resource key is the thing they declared.
+            const summary = [...new Set(writeBack.unresolved.map((target) => target.resourceKey))];
+            embed.addFields({
+                name: '⚠️ Still waiting',
+                value:
+                    `${summary.map((key) => `\`${key}\``).join(', ')}\n` +
+                    'These are picked in a flow but not installed yet, so those flows will not run correctly.',
+            });
+        }
 
         if (result.failure) {
             // Partial application is a legitimate state: what is listed above is

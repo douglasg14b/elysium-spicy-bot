@@ -1,6 +1,8 @@
 import { Events } from 'discord.js';
 import { interactionsRegistry } from '../../features-system/commands';
 import { DISCORD_CLIENT } from '../../discordClient';
+import { registerResourceWriteBack } from '../provisioning';
+import { applyResourcesToFlows } from './logic/applyResourcesToFlows';
 import { ensureBlocksDiscovered } from './blocks/registry';
 import { flowDeployCommand, handleFlowDeployCommand } from './commands/flowDeployCommand';
 import { FLOW_CHOICE_CUSTOM_ID_PREFIX, FLOW_CUSTOM_ID_PREFIX } from './constants';
@@ -34,6 +36,13 @@ export function initFlows(): Promise<void> {
 
 async function initializeFlows(): Promise<void> {
     await ensureBlocksDiscovered();
+
+    // Tell provisioning where to write the ids it creates.
+    //
+    // Registered from this side because the dependency only runs one way: flows
+    // consume the provisioning barrel, and provisioning must not know flows exist.
+    // Without this line an install still succeeds and simply writes nothing back.
+    registerResourceWriteBack(applyResourcesToFlows);
 
     // Admin slash command to post a flow's trigger button(s) to a channel.
     interactionsRegistry.register(flowDeployCommand, handleFlowDeployCommand);

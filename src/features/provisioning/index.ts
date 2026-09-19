@@ -12,6 +12,15 @@ export { buildInstallJourneyCommand, handleInstallJourney } from './commands/ins
 export { getJourney, listJourneys } from './journeys/journeySource';
 export { journeyNeedsSubject, journeyNeedsStaffRoles } from './logic/resourceDeclaration';
 
+// Where an install writes the ids it creates. Registered by whichever feature
+// consumes resource keys; provisioning deliberately does not know who that is.
+export {
+    registerResourceWriteBack,
+    clearResourceWriteBack,
+    runResourceWriteBack,
+} from './resourceWriteBack';
+export type { ResourceWriteBack, ResourceWriteBackResult } from './resourceWriteBack';
+
 export { journeysRepo, JourneysRepo, DuplicateJourneyKeyError } from './data/journeysRepo';
 export type { JourneyEntity } from './data/journeysSchema';
 
