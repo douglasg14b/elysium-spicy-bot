@@ -8,7 +8,12 @@
 
 import { Button, CopyButton, Divider, Group, Stack, Text, Tooltip, UnstyledButton } from '@mantine/core';
 import { IconTrash } from '@tabler/icons-react';
-import type { GuildChannel, GuildRole, NodeDescriptor } from '../api/types';
+import type {
+    GuildChannel,
+    GuildRole,
+    NodeDescriptor,
+    ResourceDeclaration,
+} from '../api/types';
 import { renderControl } from './controls/renderControl';
 import type { ControlContext } from './controls/types';
 import { KIND_STYLES } from './nodeMeta';
@@ -29,6 +34,8 @@ interface NodeInspectorProps {
      * inspector draws one node and cannot walk anything.
      */
     variables: AvailableVariable[];
+    /** What this flow declares but has not installed yet, for the pickers to offer. */
+    declaredResources: ResourceDeclaration[];
     onChange: (patch: Record<string, unknown>) => void;
     onDelete: () => void;
 }
@@ -41,6 +48,7 @@ export function NodeInspector({
     roles,
     channels,
     variables,
+    declaredResources,
     onChange,
     onDelete,
 }: NodeInspectorProps) {
@@ -49,7 +57,15 @@ export function NodeInspector({
     }
 
     const style = KIND_STYLES[descriptor.kind];
-    const context: ControlContext = { roles, channels, variables };
+    const context: ControlContext = {
+        roles,
+        channels,
+        variables,
+        declaredResources,
+        // A picker's resource key is a sibling of its own field, so it patches the
+        // node directly rather than going through its single-key `onChange`.
+        setConfigKey: (key, value) => onChange({ [key]: value }),
+    };
 
     return (
         <Stack gap="md" p="md" h="100%" style={{ overflowY: 'auto' }}>
@@ -92,7 +108,8 @@ export function NodeInspector({
                             field,
                             config[field.key],
                             (value) => onChange({ [field.key]: value }),
-                            context
+                            context,
+                            config
                         )}
                     </div>
                 ))}

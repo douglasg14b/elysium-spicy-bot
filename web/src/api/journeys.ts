@@ -37,3 +37,34 @@ export function updateJourney(
 export function deleteJourney(guildId: string, journeyKey: string): Promise<void> {
     return api.delete<void>(`/api/guilds/${guildId}/journeys/${journeyKey}`);
 }
+
+/**
+ * What one flow declares.
+ *
+ * A flow's journey is implicit — keyed on the flow's own id — so the builder never
+ * has to name one or know whether it exists yet. An empty list is the normal state.
+ */
+export function getFlowResources(
+    guildId: string,
+    flowId: string
+): Promise<ResourceDeclaration[]> {
+    return api
+        .get<{ resources: ResourceDeclaration[] }>(
+            `/api/guilds/${guildId}/flows/${flowId}/resources`
+        )
+        .then((res) => res.resources);
+}
+
+/** Replace what a flow declares. An empty list removes its journey entirely. */
+export function saveFlowResources(
+    guildId: string,
+    flowId: string,
+    resources: ResourceDeclaration[]
+): Promise<ResourceDeclaration[]> {
+    return api
+        .put<{ resources: ResourceDeclaration[] }>(
+            `/api/guilds/${guildId}/flows/${flowId}/resources`,
+            { resources }
+        )
+        .then((res) => res.resources);
+}

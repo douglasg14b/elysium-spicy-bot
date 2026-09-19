@@ -7,7 +7,13 @@
  * the block contract defines as its extension point.
  */
 
-import type { Eligibility, BlockConfigField, GuildChannel, GuildRole } from '../../api/types';
+import type {
+    Eligibility,
+    BlockConfigField,
+    GuildChannel,
+    GuildRole,
+    ResourceDeclaration,
+} from '../../api/types';
 import type { AvailableVariable } from '../variables';
 
 /**
@@ -28,6 +34,33 @@ export interface ControlContext {
      * different variables depending on what is wired above it.
      */
     variables: AvailableVariable[];
+    /**
+     * Resources this flow declares but that may not exist in the guild yet.
+     *
+     * Offered by the pickers beside real channels and roles, which is the capability
+     * the whole provisioning step is for: an author builds the flow first and installs
+     * the structure after, rather than creating channels by hand to have something to
+     * pick.
+     */
+    declaredResources: ResourceDeclaration[];
+    /**
+     * Write a config key other than the control's own.
+     *
+     * Only the pickers use this, and only for the resource-key sidecar: picking a
+     * declared resource writes both `<field>` (the snowflake, empty until install)
+     * and `<field>Key` (the resource key, which is canonical).
+     *
+     * Two keys rather than one structured value because `roleId` is handed straight
+     * to `roles.add()` by the block — a structured value there would change seven
+     * block schemas, every executor read, and need a migration for saved graphs, to
+     * express something a sibling key already says.
+     */
+    setConfigKey: (key: string, value: string | undefined) => void;
+}
+
+/** The config key holding a picker's resource key, beside the snowflake itself. */
+export function resourceKeyFieldFor(fieldKey: string): string {
+    return `${fieldKey}Key`;
 }
 
 /**
@@ -66,6 +99,13 @@ export interface ControlProps<TField extends BlockConfigField = BlockConfigField
     value: unknown;
     onChange: ControlChange;
     context: ControlContext;
+    /**
+     * The whole node's config, for the rare control that reads a sibling key.
+     *
+     * Only the pickers use it, to find their resource-key sidecar. Passed to every
+     * control so the dispatcher stays free of special cases.
+     */
+    config?: Record<string, unknown>;
 }
 
 /** Narrow an unknown `node.data` value to a string for controlled inputs. */

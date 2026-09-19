@@ -28,6 +28,7 @@ import '@xyflow/react/dist/style.css';
 import {
     ActionIcon,
     Alert,
+    Badge,
     Button,
     Center,
     Group,
@@ -52,12 +53,14 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { getGuildChannels } from '../api/config';
 import { deployFlow, getFlow, getGuildRoles, getNodeTypes, updateFlow } from '../api/flows';
+import { getFlowResources, saveFlowResources } from '../api/journeys';
 import type {
     FlowEdge,
     FlowGraph,
     GuildChannel,
     GuildRole,
     NodeDescriptor,
+    ResourceDeclaration,
 } from '../api/types';
 import { FLOW_GRAPH_VERSION } from '../api/types';
 import { FlowNodeCard, type FlowCardNode, type FlowNodeCardData } from '../flows/FlowNodeCard';
@@ -68,6 +71,7 @@ import { graphIncluding } from '../flows/graphHistory';
 import { availableVariablesAt } from '../flows/variables';
 import { NodePalette, NODE_DRAG_MIME } from '../flows/NodePalette';
 import { NodeInspector } from '../flows/NodeInspector';
+import { ResourcesPanel } from '../flows/ResourcesPanel';
 import {
     defaultDataFor,
     EDGE_STROKE_WIDTH,
@@ -168,6 +172,17 @@ function FlowBuilder() {
     const [nodeCatalog, setNodeCatalog] = useState<NodeDescriptor[]>([]);
     const [roles, setRoles] = useState<GuildRole[]>([]);
     const [channels, setChannels] = useState<GuildChannel[]>([]);
+    /**
+     * What this flow declares but has not installed.
+     *
+     * Saved on its own endpoint rather than with the graph: a declaration is what the
+     * *guild* will get, and batching it into the graph save would mean a rejected
+     * graph silently discarded the resource edits too.
+     */
+    const [declaredResources, setDeclaredResources] = useState<ResourceDeclaration[]>([]);
+    const [resourcesSaving, setResourcesSaving] = useState(false);
+    const [resourcesError, setResourcesError] = useState<string | null>(null);
+    const [showResources, setShowResources] = useState(false);
 
     const [name, setName] = useState('');
     const [enabled, setEnabled] = useState(false);
@@ -223,17 +238,19 @@ function FlowBuilder() {
             setLoading(true);
             setError(null);
             try {
-                const [flow, catalog, guildRoles, guildChannels] = await Promise.all([
+                const [flow, catalog, guildRoles, guildChannels, flowResources] = await Promise.all([
                     getFlow(selected.id, flowId),
                     getNodeTypes(),
                     getGuildRoles(selected.id),
                     getGuildChannels(selected.id),
+                    getFlowResources(selected.id, flowId),
                 ]);
                 if (cancelled) return;
 
                 setNodeCatalog(catalog);
                 setRoles(guildRoles);
                 setChannels(guildChannels);
+                setDeclaredResources(flowResources);
                 setName(flow.name);
                 setEnabled(flow.enabled);
 
@@ -390,6 +407,36 @@ function FlowBuilder() {
      * both `optional` and a `defaultValue`, because the load-path backfill would
      * re-seed the default over a key that had genuinely been cleared.
      */
+    /**
+     * Persist the declaration list immediately, rather than on the toolbar's Save.
+     *
+     * A declaration is about the *guild*, not the graph, and the pickers read it the
+     * moment it changes — so deferring it would let an author pick a resource that
+     * the server does not yet know about. Local state updates first so the panel stays
+     * responsive; a rejection restores what the server actually holds.
+     */
+    const saveResources = useCallback(
+        (next: ResourceDeclaration[]) => {
+            if (!selected || !flowId) return;
+            setDeclaredResources(next);
+            setResourcesSaving(true);
+            setResourcesError(null);
+
+            void saveFlowResources(selected.id, flowId, next)
+                .then((saved) => setDeclaredResources(saved))
+                .catch((cause: unknown) => {
+                    setResourcesError(
+                        cause instanceof ApiError ? cause.message : 'Could not save resources.'
+                    );
+                    // Re-read rather than keeping the rejected list: the panel must
+                    // show what the server holds, or the next save compounds the error.
+                    void getFlowResources(selected.id, flowId).then(setDeclaredResources);
+                })
+                .finally(() => setResourcesSaving(false));
+        },
+        [selected, flowId]
+    );
+
     const updateNodeConfig = useCallback(
         (patch: Record<string, unknown>) => {
             if (!selectedNodeId) return;
@@ -857,30 +904,73 @@ function FlowBuilder() {
                         overflow: 'hidden',
                     }}
                 >
-                    {selectedNode ? (
-                        <NodeInspector
-                            key={selectedNode.id}
-                            descriptor={selectedNode.data.descriptor}
-                            nodeType={selectedNode.data.nodeType}
-                            label={selectedNode.data.label}
-                            config={selectedNode.data.config}
-                            roles={roles}
-                            channels={channels}
-                            variables={availableVariables}
-                            onChange={updateNodeConfig}
-                            onDelete={deleteSelectedNode}
-                        />
-                    ) : (
-                        <Stack align="center" justify="center" h="100%" gap={6} px="lg">
-                            <Text fw={700} size="14px">
-                                Nothing selected
-                            </Text>
-                            <Text size="12.5px" c="dimmed" ta="center">
-                                Drag a node from the left, then click it to configure. The canvas
-                                won&apos;t bite.
-                            </Text>
-                        </Stack>
-                    )}
+                    <Stack gap={0} h="100%">
+                        <Group
+                            gap={4}
+                            p={6}
+                            wrap="nowrap"
+                            style={{ borderBottom: '1px solid var(--mantine-color-dark-5)' }}
+                        >
+                            <Button
+                                size="compact-xs"
+                                variant={showResources ? 'subtle' : 'light'}
+                                onClick={() => setShowResources(false)}
+                                style={{ flex: 1 }}
+                            >
+                                Inspector
+                            </Button>
+                            <Button
+                                size="compact-xs"
+                                variant={showResources ? 'light' : 'subtle'}
+                                onClick={() => setShowResources(true)}
+                                style={{ flex: 1 }}
+                                rightSection={
+                                    declaredResources.length > 0 ? (
+                                        <Badge size="xs" circle variant="filled">
+                                            {declaredResources.length}
+                                        </Badge>
+                                    ) : undefined
+                                }
+                            >
+                                Resources
+                            </Button>
+                        </Group>
+
+                        <div style={{ flex: 1, overflow: 'hidden' }}>
+                            {showResources ? (
+                                <ResourcesPanel
+                                    resources={declaredResources}
+                                    onChange={saveResources}
+                                    saving={resourcesSaving}
+                                    error={resourcesError ?? undefined}
+                                />
+                            ) : selectedNode ? (
+                                <NodeInspector
+                                    key={selectedNode.id}
+                                    descriptor={selectedNode.data.descriptor}
+                                    nodeType={selectedNode.data.nodeType}
+                                    label={selectedNode.data.label}
+                                    config={selectedNode.data.config}
+                                    roles={roles}
+                                    channels={channels}
+                                    variables={availableVariables}
+                                    declaredResources={declaredResources}
+                                    onChange={updateNodeConfig}
+                                    onDelete={deleteSelectedNode}
+                                />
+                            ) : (
+                                <Stack align="center" justify="center" h="100%" gap={6} px="lg">
+                                    <Text fw={700} size="14px">
+                                        Nothing selected
+                                    </Text>
+                                    <Text size="12.5px" c="dimmed" ta="center">
+                                        Drag a node from the left, then click it to configure. The
+                                        canvas won&apos;t bite.
+                                    </Text>
+                                </Stack>
+                            )}
+                        </div>
+                    </Stack>
                 </div>
             </Group>
 

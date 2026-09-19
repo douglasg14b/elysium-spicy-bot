@@ -27,14 +27,16 @@ import type { ControlChange, ControlContext } from './types';
  * @param value - The current `node.data` value for `field.key`.
  * @param onChange - Emits the next value; `undefined` removes the key.
  * @param context - Guild roles and channels, for the pickers.
+ * @param config - The whole node's config, for controls reading a sibling key.
  */
 export function renderControl(
     field: BlockConfigField,
     value: unknown,
     onChange: ControlChange,
-    context: ControlContext
+    context: ControlContext,
+    config?: Record<string, unknown>
 ): ReactElement {
-    const props = { value, onChange, context };
+    const props = { value, onChange, context, config };
 
     switch (field.control) {
         case 'rolePicker':
