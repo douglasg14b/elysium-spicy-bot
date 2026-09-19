@@ -1,5 +1,6 @@
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
+import { flowsRepo } from '../../features/flows/data/flowsRepo';
 import { DuplicateJourneyKeyError, journeysRepo } from '../../features/provisioning/data/journeysRepo';
 import type { JourneyEntity } from '../../features/provisioning/data/journeysSchema';
 import {
@@ -115,6 +116,75 @@ export function journeyRoutes(): Hono<AppEnv> {
         }
 
         return c.json(journeyDetail(journey));
+    });
+
+    /**
+     * The resources one flow declares.
+     *
+     * A flow's journey is **implicit**: its key is the flow's own id, so an operator
+     * never invents a name for a concept they did not ask for. Returns an empty list
+     * rather than a 404 when the flow has declared nothing — "no resources yet" is
+     * the normal state of every flow, not an error.
+     */
+    app.get('/:guildId/flows/:flowId/resources', async (c) => {
+        const journey = await journeysRepo.getByKey(c.get('guild').id, c.req.param('flowId'));
+        return c.json({ resources: journey?.resources ?? [] });
+    });
+
+    /**
+     * Replace what a flow declares, creating its journey on first use.
+     *
+     * A full replace rather than a patch: the panel edits a list, and a partial
+     * update would make "I deleted a row" indistinguishable from "I didn't mention
+     * it". The journey is created on the first save with a non-empty list, which is
+     * what "journeys are created implicitly with a flow" means in practice.
+     */
+    app.put('/:guildId/flows/:flowId/resources', async (c) => {
+        const guildId = c.get('guild').id;
+        const flowId = c.req.param('flowId');
+
+        const parsed = z
+            .object({ resources: z.array(resourceSchema) })
+            .safeParse(await c.req.json().catch(() => null));
+        if (!parsed.success) {
+            return c.json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body.' }, 400);
+        }
+
+        const flow = await flowsRepo.getByFlowId(flowId);
+        if (!flow || flow.guildId !== guildId) {
+            return c.json({ error: 'Flow not found.' }, 404);
+        }
+
+        // An empty list means the flow declares nothing, which is not an empty
+        // journey but *no* journey — `validateJourneyDeclaration` rejects a journey
+        // with no resources, correctly, since installing one would do nothing.
+        //
+        // The journey row goes; `resource_bindings` deliberately stay, because they
+        // record channels that exist in the guild and removing them would orphan real
+        // Discord objects. Tearing those down is uninstall's job.
+        if (parsed.data.resources.length === 0) {
+            await journeysRepo.deleteByKey(guildId, flowId);
+            return c.json({ resources: [] });
+        }
+
+        try {
+            const existing = await journeysRepo.getByKey(guildId, flowId);
+            const journey = existing
+                ? await journeysRepo.update(guildId, flowId, { resources: parsed.data.resources })
+                : await journeysRepo.create({
+                      guildId,
+                      // The flow's id, so the scope is unambiguous and needs no name.
+                      journeyKey: flowId,
+                      // Named after the flow for diagnostics only. The key is identity.
+                      name: flow.name,
+                      resources: parsed.data.resources,
+                      createdForFlowId: flowId,
+                  });
+
+            return c.json({ resources: journey.resources });
+        } catch (error) {
+            return errorResponse(c, error);
+        }
     });
 
     app.post('/:guildId/journeys', async (c) => {

@@ -606,3 +606,55 @@ export interface DeployResult {
     ok: true;
     messageId: string;
 }
+
+/**
+ * What kind of guild object a declared resource is.
+ *
+ * Mirrors `RESOURCE_KINDS` on the server. A closed union, because each value has
+ * creation code behind it and an unrecognised kind has nothing to fall back on.
+ */
+export type ResourceKind = 'category' | 'textChannel' | 'role';
+
+export type PermissionAudience = 'everyone' | 'roles' | 'staff' | 'subject';
+export type PermissionAccess = 'hidden' | 'readOnly' | 'readWrite';
+
+export interface PermissionIntent {
+    audience: PermissionAudience;
+    roleIds?: string[];
+    access: PermissionAccess;
+}
+
+/**
+ * A resource a flow needs, named by a key that is stable across guilds.
+ *
+ * The key is the identity; `defaultName` is only what the operator sees pre-filled.
+ * That separation is what lets a picker offer a channel that does not exist yet.
+ */
+export interface ResourceDeclaration {
+    key: string;
+    kind: ResourceKind;
+    defaultName: string;
+    parentKey?: string;
+    permissions?: PermissionIntent[];
+    description?: string;
+}
+
+/** A journey with its declarations, from `GET /api/guilds/:guildId/journeys/:key`. */
+export interface Journey {
+    journeyKey: string;
+    name: string;
+    description: string | null;
+    resources: ResourceDeclaration[];
+    createdAt: string;
+    updatedAt: string;
+}
+
+/** List shape — no resource bodies. */
+export interface JourneySummary {
+    journeyKey: string;
+    name: string;
+    description: string | null;
+    resourceCount: number;
+    createdAt: string;
+    updatedAt: string;
+}

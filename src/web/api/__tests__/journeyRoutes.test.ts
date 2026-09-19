@@ -22,6 +22,14 @@ const repo = {
     deleteByKey: vi.fn(),
 };
 
+const flowsRepoMock = {
+    getByFlowId: vi.fn(),
+};
+
+vi.mock('../../../features/flows/data/flowsRepo', () => ({
+    flowsRepo: flowsRepoMock,
+}));
+
 class DuplicateJourneyKeyError extends Error {
     constructor() {
         super('duplicate');
@@ -232,5 +240,102 @@ describe('journey routes', () => {
 
         expect(body.journeys[0].resourceCount).toBe(2);
         expect(body.journeys[0].resources).toBeUndefined();
+    });
+});
+
+/**
+ * The flow-scoped surface the builder panel actually uses.
+ *
+ * A flow's journey is implicit — keyed on the flow's own id — so these routes are
+ * what makes "journeys are created implicitly with a flow" true rather than a
+ * convention the UI has to remember.
+ */
+describe('flow resource declarations', () => {
+    const FLOW_ID = '11111111-2222-3333-4444-555555555555';
+
+    async function putResources(resources: unknown) {
+        return app().request(`/${GUILD_ID}/flows/${FLOW_ID}/resources`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ resources }),
+        });
+    }
+
+    beforeEach(() => {
+        flowsRepoMock.getByFlowId.mockResolvedValue({ flowId: FLOW_ID, guildId: GUILD_ID, name: 'Q&A' });
+    });
+
+    it('returns an empty list for a flow that has declared nothing', async () => {
+        repo.getByKey.mockResolvedValue(null);
+
+        const response = await app().request(`/${GUILD_ID}/flows/${FLOW_ID}/resources`);
+
+        // Not a 404: having declared nothing is the normal state of every flow.
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({ resources: [] });
+    });
+
+    it('creates the journey on the first save, keyed on the flow id', async () => {
+        repo.getByKey.mockResolvedValue(null);
+        repo.create.mockResolvedValue(journeyRow({ resources: RESOURCES }));
+
+        const response = await putResources(RESOURCES);
+
+        expect(response.status).toBe(200);
+        expect(repo.create).toHaveBeenCalledWith(
+            expect.objectContaining({
+                guildId: GUILD_ID,
+                journeyKey: FLOW_ID,
+                createdForFlowId: FLOW_ID,
+            })
+        );
+    });
+
+    it('updates in place on later saves rather than creating a second journey', async () => {
+        repo.getByKey.mockResolvedValue(journeyRow({ journeyKey: FLOW_ID }));
+        repo.update.mockResolvedValue(journeyRow({ resources: RESOURCES }));
+
+        await putResources(RESOURCES);
+
+        expect(repo.create).not.toHaveBeenCalled();
+        expect(repo.update).toHaveBeenCalledWith(GUILD_ID, FLOW_ID, { resources: RESOURCES });
+    });
+
+    it('deletes the journey when the last resource is removed', async () => {
+        repo.getByKey.mockResolvedValue(journeyRow({ journeyKey: FLOW_ID }));
+
+        const response = await putResources([]);
+
+        // An empty declaration is *no* journey, not an empty one — the repo rejects a
+        // journey with no resources, since installing it would do nothing.
+        expect(response.status).toBe(200);
+        expect(repo.deleteByKey).toHaveBeenCalledWith(GUILD_ID, FLOW_ID);
+        expect(repo.update).not.toHaveBeenCalled();
+        expect(repo.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses to declare resources against another guild\'s flow', async () => {
+        flowsRepoMock.getByFlowId.mockResolvedValue({
+            flowId: FLOW_ID,
+            guildId: 'someone-elses-guild',
+            name: 'Not mine',
+        });
+
+        const response = await putResources(RESOURCES);
+
+        expect(response.status).toBe(404);
+        expect(repo.create).not.toHaveBeenCalled();
+        expect(repo.update).not.toHaveBeenCalled();
+    });
+
+    it('validates declarations on the flow-scoped route too', async () => {
+        repo.getByKey.mockResolvedValue(null);
+
+        const response = await putResources([
+            { key: 'Not A Key!', kind: 'category', defaultName: 'Nope' },
+        ]);
+
+        expect(response.status).toBe(400);
+        expect(repo.create).not.toHaveBeenCalled();
     });
 });
