@@ -11,10 +11,15 @@ import { initBirthdayFeature, startBirthdayAnnouncementScheduler, stopBirthdayAn
 import { initLeveling, stopLeveling } from './features/leveling';
 import { initWarnings } from './features/warnings';
 import { initFlows, stopFlowRunScheduler } from './features/flows';
+import { handleInstallJourney, initProvisioning, installJourneyCommand } from './features/provisioning';
 import { startWebServer, stopWebServer } from './web/server';
 
 interactionsRegistry.register(flashChatCommand, handleFlashChatCommand);
 interactionsRegistry.register(deployTicketSystemCommand, handleDeployTicketSystem);
+interactionsRegistry.register(installJourneyCommand, handleInstallJourney);
+
+// Initialize server provisioning (the apply button behind /install-journey)
+initProvisioning();
 
 // Initialize ticket system handlers
 initTicketsFeature();

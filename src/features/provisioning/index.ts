@@ -4,6 +4,14 @@
 // under `src/features/flows/`. Flows (and commands, and the web API) reach in
 // through this barrel, and the dependency stays one-directional by design.
 export * from './provisioningService';
+export { initProvisioning } from './initProvisioning';
+export { installJourneyCommand, handleInstallJourney } from './commands/installJourneyCommand';
+export {
+    ONBOARDING_JOURNEY,
+    ONBOARDING_JOURNEY_KEY,
+    ONBOARDING_RESOURCE_KEYS,
+    JOURNEYS,
+} from './journeys/onboardingJourney';
 
 export type {
     JourneyDeclaration,
