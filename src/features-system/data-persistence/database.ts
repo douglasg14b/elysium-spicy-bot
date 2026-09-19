@@ -22,6 +22,7 @@ import { WarningTable } from '../../features/warnings/data/warningsSchema';
 import { WarningsConfigTable } from '../../features/warnings/data/warningsConfigSchema';
 import { FlowTable } from '../../features/flows/data/flowsSchema';
 import { FlowRunTable } from '../../features/flows/data/flowRunsSchema';
+import { ResourceBindingTable } from '../../features/provisioning/data/resourceBindingsSchema';
 
 export interface Database {
     flash_chat_config: FlashChatConfigTable;
@@ -38,6 +39,7 @@ export interface Database {
     warnings_config: WarningsConfigTable;
     flows: FlowTable;
     flow_runs: FlowRunTable;
+    resource_bindings: ResourceBindingTable;
 }
 
 function getDbDialect() {
@@ -85,6 +87,7 @@ function getDatabaseClient() {
                 warnings_config: ['createdAt', 'updatedAt'],
                 flows: ['createdAt', 'updatedAt'],
                 flow_runs: ['wakeAt', 'claimedAt', 'createdAt', 'updatedAt'],
+                resource_bindings: ['createdAt', 'updatedAt'],
         }),
     ];
 
