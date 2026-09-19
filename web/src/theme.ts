@@ -1,11 +1,11 @@
 import { createTheme, type MantineColorsTuple, rem } from '@mantine/core';
 
 /**
- * SpicyBot brand theme — a *fully customized* Mantine theme, not stock Mantine.
+ * BrattyBot brand theme — a *fully customized* Mantine theme, not stock Mantine.
  * Primary accent is cyan (#00A2FF) from the mascot logo (see the design doc), not
  * Discord blurple. Dark surfaces mirror the approved mockups.
  *
- * Brand ref: memory `spicybot-brand-and-web-stack`; docs `nimbalyst-local/plans`.
+ * Brand ref: memory `brattybot-brand-and-web-stack`; docs `nimbalyst-local/plans`.
  */
 
 // Cyan brand ramp centered on #00A2FF (index 6 is the default primary shade).
@@ -23,7 +23,7 @@ const brand: MantineColorsTuple = [
 ];
 
 // Neutral dark surfaces tuned to the mockup (bg-darkest → panels), replacing
-// Mantine's default gray dark scale so the whole app reads as the SpicyBot slate.
+// Mantine's default gray dark scale so the whole app reads as the BrattyBot slate.
 const slate: MantineColorsTuple = [
     '#e8e9ed',
     '#c7c9d1',

@@ -1,5 +1,5 @@
 /**
- * Shapes returned by the SpicyBot API. Kept in sync with `src/web/api/*` by hand,
+ * Shapes returned by the BrattyBot API. Kept in sync with `src/web/api/*` by hand,
  * with one exception: {@link NodeDescriptor} and the block vocabularies around it
  * are held to the server's block manifest by
  * `src/web/api/__tests__/nodeDescriptorDrift.test.ts`, which fails naming the field
@@ -15,6 +15,21 @@ export interface AuthUser {
     id: string;
     username: string;
     avatar: string | null;
+}
+
+/** Which bot application the dashboard is connected to. */
+export type BotFlavour = 'development' | 'production';
+
+/**
+ * Identity of the connected bot account. Every field but `ready` is null while the
+ * Discord gateway is still connecting — the web server accepts requests before login
+ * completes — and the UI shows its bundled branding until then.
+ */
+export interface BotIdentity {
+    ready: boolean;
+    id: string | null;
+    username: string | null;
+    flavour: BotFlavour | null;
 }
 
 export interface Guild {

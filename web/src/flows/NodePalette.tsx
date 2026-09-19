@@ -14,7 +14,7 @@ import { BLOCK_PALETTE_GROUPS, type BlockPaletteGroup, type NodeDescriptor } fro
 import { KIND_STYLES } from './nodeMeta';
 
 /** The dataTransfer key the canvas reads on drop. */
-export const NODE_DRAG_MIME = 'application/spicybot-node';
+export const NODE_DRAG_MIME = 'application/brattybot-node';
 
 /**
  * Heading per palette group, in the order the palette shows them.

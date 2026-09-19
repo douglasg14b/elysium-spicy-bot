@@ -64,7 +64,7 @@ export function buildApp(): Hono<AppEnv> {
         // port and having no way to tell.
         app.get('/', (c) =>
             c.text(
-                'SpicyBot API is running here, but the dashboard is not served from this port in development.\n' +
+                'BrattyBot API is running here, but the dashboard is not served from this port in development.\n' +
                     `Open http://localhost:${WEB_DEV_CLIENT_PORT} instead — that is Vite, and it proxies /api back here.\n` +
                     'If nothing is listening there, run `pnpm dev` (it starts the bot and the dashboard together).'
             )

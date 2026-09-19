@@ -1,5 +1,5 @@
 /**
- * Thin fetch wrapper for the SpicyBot JSON API. Same-origin — cookies (the session)
+ * Thin fetch wrapper for the BrattyBot JSON API. Same-origin — cookies (the session)
  * are sent automatically. Throws {@link ApiError} on non-2xx so callers can surface it.
  */
 

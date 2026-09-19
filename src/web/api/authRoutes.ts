@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { WEB_PUBLIC_URL } from '../../environment';
 import type { AppEnv } from '../types';
+import { botDisplayName } from './botRoutes';
 import { hasManageableBotGuild, isSuperuser } from './guildAccess';
 import {
     buildAuthorizeUrl,
@@ -57,7 +58,7 @@ export function authRoutes(): Hono<AppEnv> {
             return c.json(
                 {
                     error:
-                        "You don't manage any servers that SpicyBot is in. You need Manage Server " +
+                        `You don't manage any servers that ${botDisplayName()} is in. You need Manage Server ` +
                         'or Administrator on a server the bot has been invited to.',
                 },
                 403

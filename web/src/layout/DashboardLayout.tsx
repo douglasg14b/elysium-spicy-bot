@@ -25,6 +25,8 @@ import {
 import { NavLink as RouterNavLink, Outlet, useLocation } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { useAuth } from '../auth/AuthContext';
+import { useBotIdentity } from '../brand/BotIdentityContext';
+import { Wordmark } from '../brand/Wordmark';
 import { useGuilds } from '../guilds/GuildContext';
 
 interface NavEntry {
@@ -52,6 +54,7 @@ function monogram(name: string): string {
 
 export function DashboardLayout() {
     const { user, logout } = useAuth();
+    const { name: botName, logoUrl } = useBotIdentity();
     const { selected, loading } = useGuilds();
     const location = useLocation();
 
@@ -60,13 +63,8 @@ export function DashboardLayout() {
             <AppShell.Header bg="dark.8">
                 <Group h="100%" px="md" justify="space-between">
                     <Group gap="sm">
-                        <Image src="/spicybot-logo.png" alt="SpicyBot" h={40} w={40} radius="md" fit="contain" />
-                        <Text fw={700} size="16px">
-                            Spicy
-                            <Text span c="brand">
-                                Bot
-                            </Text>
-                        </Text>
+                        <Image src={logoUrl} alt={botName} h={40} w={40} radius="md" fit="contain" />
+                        <Wordmark fw={700} size="16px" />
                         <Badge variant="outline" color="gray" radius="xl" size="sm">
                             18+ Admin
                         </Badge>
@@ -196,7 +194,7 @@ export function DashboardLayout() {
                     </Stack>
 
                     <Text size="11px" c="dark.2" mt="auto" pt="sm" style={{ borderTop: '1px solid var(--mantine-color-dark-5)' }}>
-                        SpicyBot · <Text span c="green">All systems naughty</Text>
+                        {botName} · <Text span c="green">All systems naughty</Text>
                     </Text>
                 </Stack>
             </AppShell.Navbar>

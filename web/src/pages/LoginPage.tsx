@@ -1,5 +1,7 @@
 import { Button, Card, Center, Image, Stack, Text, Badge, Group } from '@mantine/core';
 import { IconBrandDiscord } from '@tabler/icons-react';
+import { useBotIdentity } from '../brand/BotIdentityContext';
+import { Wordmark } from '../brand/Wordmark';
 
 /**
  * Unauthenticated landing. Login is a full-page redirect to the server's OAuth
@@ -7,18 +9,15 @@ import { IconBrandDiscord } from '@tabler/icons-react';
  * 302s and lands back on `/` with a session cookie set.
  */
 export function LoginPage() {
+    const { name: botName, logoUrl } = useBotIdentity();
+
     return (
         <Center mih="100vh" bg="dark.9" px="md">
             <Card w={420} p="xl" bg="dark.7" withBorder>
                 <Stack gap="lg" align="center">
-                    <Image src="/spicybot-logo.png" alt="SpicyBot" h={72} w={72} radius="lg" fit="contain" />
+                    <Image src={logoUrl} alt={botName} h={72} w={72} radius="lg" fit="contain" />
                     <Stack gap={4} align="center">
-                        <Text fw={800} size="24px">
-                            Spicy
-                            <Text span c="brand">
-                                Bot
-                            </Text>
-                        </Text>
+                        <Wordmark fw={800} size="24px" />
                         <Badge variant="light" color="gray" radius="xl" size="sm">
                             18+ Admin
                         </Badge>

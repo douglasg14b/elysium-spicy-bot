@@ -34,7 +34,7 @@ const EMBED_LIMITS = {
 } as const;
 
 /**
- * Hex colour like `#00A2FF` (the SpicyBot cyan).
+ * Hex colour like `#00A2FF` (the BrattyBot cyan).
  *
  * **Stays optional.** A newly dropped node is seeded with the brand cyan by the
  * field's `defaultValue`, so an author who never opens the colour picker still

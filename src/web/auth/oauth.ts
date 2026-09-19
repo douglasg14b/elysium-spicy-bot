@@ -17,7 +17,7 @@ import {
 
 const DISCORD_API_BASE = 'https://discord.com/api';
 export const OAUTH_SCOPES = 'identify guilds';
-export const OAUTH_STATE_COOKIE = 'spicy_oauth_state';
+export const OAUTH_STATE_COOKIE = 'bratty_oauth_state';
 /** State cookie TTL — the login round-trip is short-lived. */
 const STATE_TTL_SECONDS = 10 * 60;
 

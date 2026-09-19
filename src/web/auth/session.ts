@@ -8,7 +8,9 @@ import { ENV, SESSION_SECRET } from '../../environment';
  * session table (see design doc §4.4). Coarse revocation is by rotating SESSION_SECRET.
  */
 
-export const SESSION_COOKIE = 'spicy_session';
+// Renamed from `spicy_session` in the BrattyBot rebrand. Sessions held under the old
+// name are not read, so everyone signed in at deploy time logs in once more.
+export const SESSION_COOKIE = 'bratty_session';
 /** ~7 days, in seconds. */
 export const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 

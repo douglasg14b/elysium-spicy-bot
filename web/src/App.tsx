@@ -7,6 +7,7 @@ import {
 } from '@tabler/icons-react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth/AuthContext';
+import { BotIdentityProvider } from './brand/BotIdentityContext';
 import { GuildProvider } from './guilds/GuildContext';
 import { DashboardLayout } from './layout/DashboardLayout';
 import { LoginPage } from './pages/LoginPage';
@@ -19,12 +20,17 @@ import { FlowBuilderPage } from './pages/FlowBuilderPage';
  * Root. Gates on auth: unauthenticated users get the login page; authenticated ones
  * get the dashboard shell + feature routes. Warnings is the default active route
  * (the one feature with real config in Phase 1).
+ *
+ * Bot identity sits outside the gate: the login page brands itself too, and it renders
+ * with no session.
  */
 export function App() {
     return (
-        <AuthProvider>
-            <Gate />
-        </AuthProvider>
+        <BotIdentityProvider>
+            <AuthProvider>
+                <Gate />
+            </AuthProvider>
+        </BotIdentityProvider>
     );
 }
 
