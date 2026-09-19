@@ -436,7 +436,7 @@ Found while writing the test plan, and worth stating because it has now bitten t
 
 - `ticketingRepo.incrementTicketNumber` — the atomic counter, written and never called, while the racy path ran in production.
 - `ticketChannelValidation.ts` — three predicates with zero callers, sitting exactly where a backfill author would look.
-- **`commands/ticketCommands.ts`** — a `/tickets` command with `config`, `create` and `add-user` subcommands that is **never registered**. `bot.ts` registers only `deploy-ticket-system`. Config is actually reached through a ⚙️ Configure button on the deployed panel; `create` and `add-user` are stubs replying "under development". Still dead as of `e50d199`.
+- **`commands/ticketCommands.ts`** — a `/tickets` command with `config`, `create` and `add-user` subcommands that was **never registered**. `bot.ts` registers only `deploy-ticket-system`. Config is reached through a ⚙️ Configure button on the deployed panel. **Deleted in `87b542f`**, along with the deploy command's next-steps copy that told operators to run it.
 
 The lesson is operational rather than architectural: **in this feature, an exported symbol is not evidence of a live path.** Grep for the call site before describing anything here as a user-facing surface — I described `/tickets config` as a test step and the operator caught it.
 
