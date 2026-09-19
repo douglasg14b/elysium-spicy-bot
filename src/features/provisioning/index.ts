@@ -7,18 +7,13 @@ export * from './provisioningService';
 export { initProvisioning } from './initProvisioning';
 export { buildInstallJourneyCommand, handleInstallJourney } from './commands/installJourneyCommand';
 
-// The registry is the supported way to add a journey. The engine ships no journeys of
-// its own; what is installable is whatever a consumer registers.
-export { registerJourney, getJourney, listJourneys } from './journeys/journeyRegistry';
+// Journeys are rows, scoped to a guild. The engine ships none of its own: what is
+// installable is whatever an operator has authored for that server.
+export { getJourney, listJourneys } from './journeys/journeySource';
 export { journeyNeedsSubject, journeyNeedsStaffRoles } from './logic/resourceDeclaration';
 
-// An example declaration, exported so it can be referenced and tested. Nothing in the
-// engine depends on it.
-export {
-    ONBOARDING_JOURNEY,
-    ONBOARDING_JOURNEY_KEY,
-    ONBOARDING_RESOURCE_KEYS,
-} from './journeys/onboardingJourney';
+export { journeysRepo, JourneysRepo, DuplicateJourneyKeyError } from './data/journeysRepo';
+export type { JourneyEntity } from './data/journeysSchema';
 
 export type {
     JourneyDeclaration,

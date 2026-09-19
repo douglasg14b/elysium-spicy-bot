@@ -1,5 +1,5 @@
 import { PermissionsBitField } from 'discord.js';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InstallPlan } from '../../logic/installPlan';
 
 /**
@@ -13,15 +13,27 @@ import type { InstallPlan } from '../../logic/installPlan';
 
 const previewInstall = vi.fn();
 const installJourney = vi.fn();
+const getJourney = vi.fn();
 
 vi.mock('../../provisioningService', () => ({
     previewInstall: (input: unknown) => previewInstall(input),
     installJourney: (input: unknown) => installJourney(input),
 }));
 
+// Journeys are rows now, so the source is mocked rather than a registry being
+// filled. A test fixture stands in for whatever an operator authored.
+vi.mock('../../journeys/journeySource', () => ({
+    getJourney: (guildId: string, journeyKey: string) => getJourney(guildId, journeyKey),
+}));
+
 const { handleApplyJourney } = await import('../applyJourneyButton');
-const { registerJourney, clearJourneyRegistry } = await import('../../journeys/journeyRegistry');
-const { ONBOARDING_JOURNEY } = await import('../../journeys/onboardingJourney');
+
+/** A minimal journey, declared here rather than imported from a bundled example. */
+const TEST_JOURNEY = {
+    journeyKey: 'onboarding',
+    name: 'Onboarding',
+    resources: [{ key: 'member-role', kind: 'role' as const, defaultName: 'Member' }],
+};
 
 function makePlan(overrides: Partial<InstallPlan> = {}): InstallPlan {
     return {
@@ -90,14 +102,7 @@ function firstEmbed(editReply: { mock: { calls: [DiscordReplyPayload][] } }) {
 
 beforeEach(() => {
     vi.clearAllMocks();
-    // The registry is populated by init in production; a unit test populates it
-    // itself rather than depending on a module-level list.
-    clearJourneyRegistry();
-    registerJourney(ONBOARDING_JOURNEY);
-});
-
-afterEach(() => {
-    clearJourneyRegistry();
+    getJourney.mockResolvedValue(TEST_JOURNEY);
 });
 
 describe('handleApplyJourney', () => {
@@ -131,13 +136,18 @@ describe('handleApplyJourney', () => {
         expect(installJourney).not.toHaveBeenCalled();
     });
 
-    it('refuses an unknown journey key', async () => {
+    it('refuses a journey key this guild has no row for', async () => {
+        // The lookup is guild-scoped, so this also covers a key that exists on some
+        // *other* server: a guessable custom id must not reach another guild's
+        // declaration.
+        getJourney.mockResolvedValue(undefined);
         const { interaction } = makeInteraction({ customId: 'provisioning:apply:not-a-journey' });
 
         const result = await handleApplyJourney(interaction);
 
         expect(result.status).toBe('error');
         expect(installJourney).not.toHaveBeenCalled();
+        expect(getJourney).toHaveBeenCalledWith('guild-1', 'not-a-journey');
     });
 
     it('refuses to mutate when the plan stopped being applicable since preview', async () => {

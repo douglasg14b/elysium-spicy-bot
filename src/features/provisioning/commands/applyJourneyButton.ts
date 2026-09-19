@@ -1,7 +1,7 @@
 import { ButtonInteraction, EmbedBuilder, PermissionsBitField } from 'discord.js';
 import { commandError, commandSuccess } from '../../../features-system/commands';
 import type { InteractionHandlerResult } from '../../../features-system/commands/types';
-import { getJourney } from '../journeys/journeyRegistry';
+import { getJourney } from '../journeys/journeySource';
 import { isPlanApplicable } from '../logic/installPlan';
 import { installJourney, previewInstall } from '../provisioningService';
 import { buildPlanEmbed, parseApplyCustomId } from './installJourneyCommand';
@@ -39,10 +39,10 @@ export async function handleApplyJourney(
     }
 
     const { journeyKey, staffRoleIds } = parseApplyCustomId(interaction.customId);
-    const journey = getJourney(journeyKey);
+    const journey = await getJourney(interaction.guild.id, journeyKey);
     if (!journey) {
         await interaction.reply({
-            content: `❌ No journey named \`${journeyKey}\` is known to this bot.`,
+            content: `❌ No journey named \`${journeyKey}\` exists in this server.`,
             ephemeral: true,
         });
         return commandError(`Unknown journey ${journeyKey}`);

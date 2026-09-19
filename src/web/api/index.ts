@@ -5,6 +5,7 @@ import { authRoutes } from './authRoutes';
 import { botRoutes } from './botRoutes';
 import { flowRoutes } from './flowRoutes';
 import { guildRoutes } from './guildRoutes';
+import { journeyRoutes } from './journeyRoutes';
 import { nodeRoutes } from './nodeRoutes';
 
 /**
@@ -41,6 +42,9 @@ export function registerApiRoutes(app: Hono<AppEnv>): void {
     app.route('/api/guilds', guildRoutes());
     // Flow CRUD + deploy share the /api/guilds/:guildId prefix (and its auth).
     app.route('/api/guilds', flowRoutes());
+    // Journey CRUD shares the same prefix — a journey is guild-scoped structure, and
+    // authorizing it separately would be a second answer to the same question.
+    app.route('/api/guilds', journeyRoutes());
 
     // Node catalogue for the builder palette — authed, but not guild-scoped.
     app.use('/api/nodes', requireAuth);

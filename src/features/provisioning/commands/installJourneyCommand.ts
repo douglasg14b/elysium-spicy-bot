@@ -9,7 +9,7 @@ import {
 } from 'discord.js';
 import { commandError, commandSuccess } from '../../../features-system/commands';
 import type { InteractionHandlerResult } from '../../../features-system/commands/types';
-import { getJourney, listJourneys } from '../journeys/journeyRegistry';
+import { getJourney } from '../journeys/journeySource';
 import type { InstallPlan, PlanAction } from '../logic/installPlan';
 import { isPlanApplicable } from '../logic/installPlan';
 import type { ResourceKind } from '../logic/resourceDeclaration';
@@ -29,20 +29,19 @@ export function buildInstallJourneyCommand(): SlashCommandBuilder {
         .setDescription('Preview the channels, categories and roles a journey needs')
         .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild);
 
-    // Built from the registry at call time, not captured at module load. A
-    // module-level constant would snapshot an empty registry and silently offer no
-    // choices, since journeys register during feature init.
+    // Free text rather than choices, because journeys now live in the database and
+    // are **per guild**, while slash commands are registered globally once. There is
+    // no point at which a static choice list could know this guild's journeys.
+    //
+    // That mismatch is structural, not a limitation to work around, and it is the
+    // concrete reason this command is scheduled for deletion (build order, decision
+    // 5): the dashboard can offer a real picker because it knows which guild it is
+    // looking at. This stays only until the builder UI can install.
     builder.addStringOption((option) =>
         option
             .setName('journey')
-            .setDescription('Which journey to install')
+            .setDescription('The key of the journey to install')
             .setRequired(true)
-            .addChoices(
-                ...listJourneys().map((journey) => ({
-                    name: journey.name,
-                    value: journey.journeyKey,
-                }))
-            )
     );
 
     // Staff roles are a guild fact the journey cannot know: a portable declaration
@@ -182,10 +181,10 @@ export async function handleInstallJourney(
     }
 
     const journeyKey = interaction.options.getString('journey', true);
-    const journey = getJourney(journeyKey);
+    const journey = await getJourney(interaction.guild.id, journeyKey);
     if (!journey) {
         await interaction.reply({
-            content: `❌ No journey named \`${journeyKey}\` is known to this bot.`,
+            content: `❌ No journey named \`${journeyKey}\` exists in this server.`,
             ephemeral: true,
         });
         return commandError(`Unknown journey ${journeyKey}`);

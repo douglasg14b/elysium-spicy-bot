@@ -23,6 +23,7 @@ import { WarningsConfigTable } from '../../features/warnings/data/warningsConfig
 import { FlowTable } from '../../features/flows/data/flowsSchema';
 import { FlowRunTable } from '../../features/flows/data/flowRunsSchema';
 import { ResourceBindingTable } from '../../features/provisioning/data/resourceBindingsSchema';
+import { JourneyTable } from '../../features/provisioning/data/journeysSchema';
 
 export interface Database {
     flash_chat_config: FlashChatConfigTable;
@@ -40,6 +41,7 @@ export interface Database {
     flows: FlowTable;
     flow_runs: FlowRunTable;
     resource_bindings: ResourceBindingTable;
+    journeys: JourneyTable;
 }
 
 function getDbDialect() {
@@ -88,6 +90,7 @@ function getDatabaseClient() {
                 flows: ['createdAt', 'updatedAt'],
                 flow_runs: ['wakeAt', 'claimedAt', 'createdAt', 'updatedAt'],
                 resource_bindings: ['createdAt', 'updatedAt'],
+                journeys: ['createdAt', 'updatedAt'],
         }),
     ];
 
@@ -107,6 +110,7 @@ function getDatabaseClient() {
                     // `flow_runs` has no boolean columns, so it is absent from
                     // SqliteBindingPlugin above — only its JSON blobs need parsing.
                     flow_runs: ['waitConfig', 'contextSnapshot', 'log', 'variables'],
+                    journeys: ['resources'],
                 }),
                 ...plugins,
             ],
