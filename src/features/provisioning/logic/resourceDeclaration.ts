@@ -1,3 +1,4 @@
+import { declaredRoleReferencesIn } from './declaredRoleReference';
 import type { PermissionIntent } from './permissionIntent';
 
 /**
@@ -146,15 +147,63 @@ export function validateJourneyDeclaration(journey: JourneyDeclaration): void {
             );
         }
     }
+
+    // A permission may name a role this journey creates, by key rather than by
+    // snowflake. The same reasoning as the parent check above applies, and more
+    // sharply: an unknown key here is not caught until `compilePermissionIntents`
+    // throws *mid-apply*, with channels already created — the half-applied state this
+    // whole validation pass exists to prevent.
+    for (const resource of journey.resources) {
+        for (const referencedKey of declaredRoleReferencesIn(resource.permissions)) {
+            const referenced = byKey.get(referencedKey);
+            if (!referenced) {
+                throw new ResourceDeclarationError(
+                    `Resource "${resource.key}" has a permission naming the role "${referencedKey}", which this journey does not declare.`
+                );
+            }
+            // A self-reference cannot reach here: it would have to name a resource
+            // whose kind is `role`, and a role's own permissions are never compiled
+            // (roles have no overwrites). The kind check below covers every other
+            // shape of it, so there is no separate self-reference branch to write.
+            if (referenced.kind !== 'role') {
+                throw new ResourceDeclarationError(
+                    `Resource "${resource.key}" has a permission naming "${referencedKey}" as a role, but this journey declares it as a ${referenced.kind}. Only a role can appear in a permission.`
+                );
+            }
+        }
+    }
 }
 
 /**
- * Order resources so a parent is always created before its children.
+ * Every resource key one resource must be created *after*.
  *
- * A plain topological sort over `parentKey`. Categories are only one level deep in
- * Discord, so this cannot recurse far, but it is written generally because the
- * alternative — assuming categories sort first — silently breaks the day a
- * declaration lists a channel before its category.
+ * Two kinds of edge, and the second is the one that was missing:
+ *
+ *  - **`parentKey`** — a channel cannot be placed in a category that does not exist.
+ *  - **A declared role named in this resource's permissions** — the role must exist
+ *    before its id can go into an overwrite.
+ *
+ * Without the second edge a channel whose permissions reference a declared role has
+ * no ordering relationship to that role at all, so it can be created first.
+ * `compilePermissionIntents` then refuses (correctly — it will not silently create a
+ * channel less restricted than asked for), but it refuses **mid-apply**, with
+ * channels already in the guild. That is precisely the half-applied state the
+ * record-intent-before-mutating design exists to prevent, reached by a route that
+ * design could not see.
+ */
+function dependenciesOf(resource: ResourceDeclaration): readonly string[] {
+    const roleKeys = declaredRoleReferencesIn(resource.permissions);
+    return resource.parentKey ? [resource.parentKey, ...roleKeys] : roleKeys;
+}
+
+/**
+ * Order resources so everything a resource depends on is created before it.
+ *
+ * A plain topological sort over {@link dependenciesOf}. Categories are only one level
+ * deep in Discord, so the parent chain cannot recurse far, but it is written generally
+ * because the alternative — assuming categories sort first — silently breaks the day a
+ * declaration lists a channel before its category, and because role references are not
+ * depth-bounded in the same way.
  */
 export function orderResourcesForApply(
     resources: readonly ResourceDeclaration[]
@@ -164,15 +213,16 @@ export function orderResourcesForApply(
     const placed = new Set<string>();
 
     while (remaining.size > 0) {
-        const ready = [...remaining.values()].filter(
-            (resource) => !resource.parentKey || placed.has(resource.parentKey)
+        const ready = [...remaining.values()].filter((resource) =>
+            dependenciesOf(resource).every((dependency) => placed.has(dependency))
         );
 
         if (ready.length === 0) {
-            // `validateJourneyDeclaration` rejects unknown parents, so the only way
-            // to reach this is a parent cycle. Naming the participants beats a hang.
+            // `validateJourneyDeclaration` rejects unknown parents and unknown role
+            // references, so the only way to reach this is a cycle. Naming the
+            // participants beats a hang.
             throw new ResourceDeclarationError(
-                `Resource parent cycle among: ${[...remaining.keys()].join(', ')}.`
+                `Resource dependency cycle among: ${[...remaining.keys()].join(', ')}.`
             );
         }
 

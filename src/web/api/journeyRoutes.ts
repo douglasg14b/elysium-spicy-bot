@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { flowsRepo } from '../../features/flows/data/flowsRepo';
 import { DuplicateJourneyKeyError, journeysRepo } from '../../features/provisioning/data/journeysRepo';
 import type { JourneyEntity } from '../../features/provisioning/data/journeysSchema';
+import { parseDeclaredRoleReference } from '../../features/provisioning/logic/declaredRoleReference';
 import {
     PERMISSION_ACCESS_LEVELS,
     PERMISSION_AUDIENCES,
@@ -40,10 +41,33 @@ const resourceKeySchema = z
         'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).'
     );
 
+/**
+ * One entry in a permission's `roleIds`: a Discord snowflake, or a reference to a
+ * role this journey declares.
+ *
+ * A reference is `resource:<key>` — the key of a role the same journey creates, which
+ * has no snowflake until install. Both are strings in the same array, made disjoint
+ * by the prefix rather than by assuming ids stay numeric.
+ *
+ * Only the *shape* is checked here. Whether the referenced key is actually declared
+ * is `validateJourneyDeclaration`'s job, because it is the only thing holding the
+ * whole journey and can therefore answer it.
+ */
+const permissionRoleIdSchema = z.string().min(1).refine(
+    (roleId) => {
+        const key = parseDeclaredRoleReference(roleId);
+        return key === undefined || /^[a-z0-9]+(-[a-z0-9]+)*$/.test(key);
+    },
+    {
+        message:
+            'A declared role reference must name a valid resource key (lowercase letters, numbers and single hyphens).',
+    }
+);
+
 const permissionIntentSchema = z
     .object({
         audience: z.enum(PERMISSION_AUDIENCES),
-        roleIds: z.array(z.string().min(1)).optional(),
+        roleIds: z.array(permissionRoleIdSchema).optional(),
         access: z.enum(PERMISSION_ACCESS_LEVELS),
     })
     // `roles` without role ids compiles to an error deep inside the applier at install

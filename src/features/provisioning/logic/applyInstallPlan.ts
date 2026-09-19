@@ -1,8 +1,13 @@
 import { ChannelType, type CategoryChannel, type Guild } from 'discord.js';
 import { resourceBindingsRepo } from '../data/resourceBindingsRepo';
 import type { ResourceBindingEntity } from '../data/resourceBindingsSchema';
+import { parseDeclaredRoleReference } from './declaredRoleReference';
 import { isPlanApplicable, planMutations, type InstallPlan, type PlanItem } from './installPlan';
-import { compilePermissionIntents, type PermissionIntentContext } from './permissionIntent';
+import {
+    compilePermissionIntents,
+    type PermissionIntent,
+    type PermissionIntentContext,
+} from './permissionIntent';
 import type { JourneyDeclaration, ResourceDeclaration, ResourceKind } from './resourceDeclaration';
 
 export interface ApplyInstallPlanInput {
@@ -279,7 +284,10 @@ async function createResource({
     permissionContext,
 }: CreateResourceInput): Promise<string> {
     const overwrites = declaration.permissions?.length
-        ? compilePermissionIntents(declaration.permissions, permissionContext)
+        ? compilePermissionIntents(
+              resolveDeclaredRoles(declaration.permissions, idByKey),
+              permissionContext
+          )
         : undefined;
 
     switch (declaration.kind) {
@@ -316,6 +324,47 @@ async function createResource({
             return channel.id;
         }
     }
+}
+
+/**
+ * Swap every declared-role reference in a set of intents for the id it resolved to.
+ *
+ * Resolution happens **here**, against the ids this same apply has been accumulating,
+ * rather than in a pre-pass over the declaration. The reason is that `idByKey` is
+ * already the canonical key→snowflake answer for this install — it holds ids from
+ * reused bindings and from resources created moments ago alike — so resolving
+ * anywhere else would be a second source of truth that can disagree with it.
+ *
+ * Throws on an unresolved reference rather than dropping it. A dropped reference
+ * would compile to a *less* restricted channel than the author asked for, which is
+ * the one failure mode `permissionIntent.ts` explicitly refuses to degrade into.
+ * `orderResourcesForApply` guarantees the role was handled first, so reaching this is
+ * a genuine ordering bug or a role whose own creation failed — both worth naming.
+ */
+function resolveDeclaredRoles(
+    permissions: readonly PermissionIntent[],
+    idByKey: ReadonlyMap<string, string>
+): readonly PermissionIntent[] {
+    return permissions.map((intent) => {
+        if (!intent.roleIds?.length) return intent;
+
+        let changed = false;
+        const roleIds = intent.roleIds.map((roleId) => {
+            const referencedKey = parseDeclaredRoleReference(roleId);
+            if (!referencedKey) return roleId;
+
+            const resolved = idByKey.get(referencedKey);
+            if (!resolved) {
+                throw new Error(
+                    `its permissions name the declared role "${referencedKey}", which has no id yet. The role must be created before anything referencing it`
+                );
+            }
+            changed = true;
+            return resolved;
+        });
+
+        return changed ? { ...intent, roleIds } : intent;
+    });
 }
 
 function resolveParent(

@@ -1,5 +1,6 @@
 import { ChannelType, PermissionFlagsBits, type Guild } from 'discord.js';
 import type { ResourceBindingEntity } from '../data/resourceBindingsSchema';
+import { parseDeclaredRoleReference } from './declaredRoleReference';
 import { compilePermissionIntents, type PermissionIntentContext } from './permissionIntent';
 import {
     orderResourcesForApply,
@@ -147,13 +148,37 @@ function findByName(guild: Guild, kind: ResourceKind, name: string): string[] {
  *
  * Compiling is the check — there is no separate validator to drift out of step with
  * the thing that actually runs at apply time.
+ *
+ * References to roles this journey **declares** are dropped before compiling, because
+ * at plan time those roles do not exist and `audienceToIds` would report every one of
+ * them as missing — blocking a plan that is in fact perfectly applicable.
+ *
+ * Dropping is sound *here and only here* because this function answers "is this model
+ * satisfiable", not "what are the overwrites". Everything else it checks still runs:
+ * a `roles` intent whose ids are all declared keeps a non-empty list and still has to
+ * name a resolvable audience, a plain snowflake naming an absent role still fails, and
+ * `staff` and `subject` are unaffected. `validateJourneyDeclaration` has already
+ * refused any reference to a key the journey does not declare, and
+ * `orderResourcesForApply` guarantees the role is created first — so a reference
+ * reaching this point is one the apply will resolve.
+ *
+ * An intent left with *no* ids after dropping would be a false failure, so it is
+ * dropped whole rather than compiled as an empty `roles` list.
  */
 function describePermissionFailure(
     permissions: NonNullable<ResourceDeclaration['permissions']>,
     context: PermissionIntentContext
 ): string | undefined {
+    const previewable = permissions.flatMap((intent) => {
+        if (!intent.roleIds?.length) return [intent];
+
+        const existing = intent.roleIds.filter((roleId) => !parseDeclaredRoleReference(roleId));
+        if (existing.length === intent.roleIds.length) return [intent];
+        return existing.length > 0 ? [{ ...intent, roleIds: existing }] : [];
+    });
+
     try {
-        compilePermissionIntents(permissions, context);
+        compilePermissionIntents(previewable, context);
         return undefined;
     } catch (error) {
         return error instanceof Error ? error.message : String(error);

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { declaredRoleReference } from '../declaredRoleReference';
 import {
     ResourceDeclarationError,
     orderResourcesForApply,
@@ -80,6 +81,95 @@ describe('validateJourneyDeclaration', () => {
             )
         ).toThrow(/do not live under categories/i);
     });
+
+    it('accepts a permission naming a role the journey declares', () => {
+        // The case the whole feature exists for: "visible only to the role this
+        // journey creates".
+        expect(() =>
+            validateJourneyDeclaration(
+                journey([
+                    { key: 'in-approval', kind: 'role', defaultName: 'In Approval' },
+                    {
+                        key: 'approval-room',
+                        kind: 'textChannel',
+                        defaultName: 'approval-room',
+                        permissions: [
+                            { audience: 'everyone', access: 'hidden' },
+                            {
+                                audience: 'roles',
+                                roleIds: [declaredRoleReference('in-approval')],
+                                access: 'readWrite',
+                            },
+                        ],
+                    },
+                ])
+            )
+        ).not.toThrow();
+    });
+
+    it('rejects a permission naming a role the journey does not declare', () => {
+        // Without this, the unknown key survives to `compilePermissionIntents` and
+        // throws mid-apply with channels already created.
+        expect(() =>
+            validateJourneyDeclaration(
+                journey([
+                    {
+                        key: 'approval-room',
+                        kind: 'textChannel',
+                        defaultName: 'approval-room',
+                        permissions: [
+                            {
+                                audience: 'roles',
+                                roleIds: [declaredRoleReference('ghost-role')],
+                                access: 'readWrite',
+                            },
+                        ],
+                    },
+                ])
+            )
+        ).toThrow(/does not declare/i);
+    });
+
+    it('rejects a permission naming a declared resource that is not a role', () => {
+        expect(() =>
+            validateJourneyDeclaration(
+                journey([
+                    { key: 'lobby', kind: 'textChannel', defaultName: 'lobby' },
+                    {
+                        key: 'approval-room',
+                        kind: 'textChannel',
+                        defaultName: 'approval-room',
+                        permissions: [
+                            {
+                                audience: 'roles',
+                                roleIds: [declaredRoleReference('lobby')],
+                                access: 'readWrite',
+                            },
+                        ],
+                    },
+                ])
+            )
+        ).toThrow(/Only a role can appear in a permission/i);
+    });
+
+    it('leaves a plain snowflake in roleIds alone', () => {
+        // A real role id is not a reference and must not be checked against the
+        // journey's own keys — most permissions name roles that already exist.
+        expect(() =>
+            validateJourneyDeclaration(
+                journey([
+                    {
+                        key: 'approval-room',
+                        kind: 'textChannel',
+                        defaultName: 'approval-room',
+                        permissions: [
+                            { audience: 'roles', roleIds: ['847263518290110'], access: 'readWrite' },
+                        ],
+                    },
+                ])
+            )
+        ).not.toThrow();
+    });
 });
 
 describe('orderResourcesForApply', () => {
@@ -115,5 +205,85 @@ describe('orderResourcesForApply', () => {
                 { key: 'b', kind: 'textChannel', defaultName: 'b', parentKey: 'a' },
             ])
         ).toThrow(/cycle/i);
+    });
+
+    it('puts a declared role before a channel whose permissions reference it', () => {
+        /*
+         * The sabotage test for item 4's ordering edge, and the reason it lists the
+         * channel FIRST: with the edge removed, `parentKey`-only ordering leaves both
+         * resources ready on the first pass, so they come out in declaration order and
+         * the channel is created before the role exists.
+         *
+         * That failure is not cosmetic. `compilePermissionIntents` refuses a role it
+         * cannot resolve — correctly, since the alternative is a channel less
+         * restricted than the author asked for — but it refuses mid-apply, with the
+         * channel already in the guild. This test is the guard against that.
+         */
+        const ordered = orderResourcesForApply([
+            {
+                key: 'approval-room',
+                kind: 'textChannel',
+                defaultName: 'approval-room',
+                permissions: [
+                    { audience: 'everyone', access: 'hidden' },
+                    {
+                        audience: 'roles',
+                        roleIds: [declaredRoleReference('in-approval')],
+                        access: 'readWrite',
+                    },
+                ],
+            },
+            { key: 'in-approval', kind: 'role', defaultName: 'In Approval' },
+        ]);
+
+        expect(ordered.map((resource) => resource.key)).toEqual([
+            'in-approval',
+            'approval-room',
+        ]);
+    });
+
+    it('orders a role reference and a parent together', () => {
+        // Both edge kinds on one resource: the channel needs its category *and* the
+        // role it references, and neither is declared before it.
+        const ordered = orderResourcesForApply([
+            {
+                key: 'approval-room',
+                kind: 'textChannel',
+                defaultName: 'approval-room',
+                parentKey: 'arrivals',
+                permissions: [
+                    {
+                        audience: 'roles',
+                        roleIds: [declaredRoleReference('in-approval')],
+                        access: 'readWrite',
+                    },
+                ],
+            },
+            { key: 'in-approval', kind: 'role', defaultName: 'In Approval' },
+            { key: 'arrivals', kind: 'category', defaultName: 'Arrivals' },
+        ]);
+
+        const positionOf = (key: string) =>
+            ordered.findIndex((resource) => resource.key === key);
+
+        expect(positionOf('approval-room')).toBeGreaterThan(positionOf('in-approval'));
+        expect(positionOf('approval-room')).toBeGreaterThan(positionOf('arrivals'));
+    });
+
+    it('ignores a plain snowflake when ordering', () => {
+        // A real role id names nothing in this journey, so it must create no edge —
+        // otherwise every permission referencing an existing role would deadlock.
+        const ordered = orderResourcesForApply([
+            {
+                key: 'approval-room',
+                kind: 'textChannel',
+                defaultName: 'approval-room',
+                permissions: [
+                    { audience: 'roles', roleIds: ['847263518290110'], access: 'readWrite' },
+                ],
+            },
+        ]);
+
+        expect(ordered.map((resource) => resource.key)).toEqual(['approval-room']);
     });
 });

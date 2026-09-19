@@ -1,6 +1,7 @@
 import { ChannelType } from 'discord.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ResourceBindingEntity } from '../../data/resourceBindingsSchema';
+import { declaredRoleReference } from '../declaredRoleReference';
 
 /**
  * The applier, which is the only code in this feature that mutates a guild.
@@ -99,8 +100,15 @@ interface FakeCreated {
     type: ChannelType;
 }
 
-function makeGuild(options: { failChannelCreate?: boolean } = {}) {
+function makeGuild(options: { failChannelCreate?: boolean; existingRoleIds?: string[] } = {}) {
     const channels = new Map<string, FakeCreated>();
+    // Roles that resolve in this guild: the ones it started with, plus whatever the
+    // install creates as it runs.
+    const createdRoles = new Set<string>([
+        'everyone-role',
+        'role-staff',
+        ...(options.existingRoleIds ?? []),
+    ]);
     let nextId = 100;
 
     return {
@@ -126,10 +134,21 @@ function makeGuild(options: { failChannelCreate?: boolean } = {}) {
         },
         roles: {
             everyone: { id: 'everyone-role' },
-            cache: { has: () => true, filter: () => ({ map: () => [] }) },
+            cache: {
+                /*
+                 * Tracks what has actually been created rather than answering `true`
+                 * to everything. A blanket `true` would let an unresolved
+                 * `resource:<key>` reference compile straight through
+                 * `audienceToIds`, so the test asserting that resolution happens
+                 * would pass with the resolution removed.
+                 */
+                has: (id: string) => createdRoles.has(id),
+                filter: () => ({ map: () => [] }),
+            },
             create: vi.fn(async (input: { name: string }) => {
                 const id = `role-${nextId++}`;
                 calls.push(`create:${input.name}`);
+                createdRoles.add(id);
                 return { id, name: input.name };
             }),
         },
@@ -372,5 +391,85 @@ describe('applyInstallPlan', () => {
 
         expect(result.failure).toMatch(/concurrent install/i);
         expect(result.failure).toMatch(/removed by hand/i);
+    });
+});
+
+/**
+ * A permission that names a role the same journey creates.
+ *
+ * The operator's actual case: *"this channel is visible only to this role, and the
+ * role is one this journey creates"*. The declaration holds `resource:<key>` where a
+ * snowflake goes, because the role has no id until the install that makes it.
+ */
+describe('applyInstallPlan with a declared role reference', () => {
+    const REFERENCING_JOURNEY = {
+        journeyKey: 'approval',
+        name: 'Approval',
+        resources: [
+            {
+                key: 'approval-room',
+                kind: 'textChannel' as const,
+                defaultName: 'approval-room',
+                permissions: [
+                    { audience: 'everyone' as const, access: 'hidden' as const },
+                    {
+                        audience: 'roles' as const,
+                        roleIds: [declaredRoleReference('in-approval')],
+                        access: 'readWrite' as const,
+                    },
+                ],
+            },
+            { key: 'in-approval', kind: 'role' as const, defaultName: 'In Approval' },
+        ],
+    };
+
+    it('creates the role first and gives the channel the role\'s real id', async () => {
+        const guild = makeGuild();
+        const plan = buildInstallPlan({
+            guild,
+            journey: REFERENCING_JOURNEY,
+            existingBindings: [],
+            permissionContext: { staffRoleIds: [] },
+        });
+
+        // The plan must not block: at plan time the role does not exist, and a
+        // preflight that compiled the reference literally would report it missing.
+        expect(plan.items.every((item) => item.action !== 'blocked')).toBe(true);
+
+        const result = await applyInstallPlan({
+            guild,
+            journey: REFERENCING_JOURNEY,
+            plan,
+            staffRoleIds: [],
+        });
+
+        expect(result.failure).toBeUndefined();
+        expect(result.applied.map((entry) => entry.resourceKey)).toEqual([
+            'in-approval',
+            'approval-room',
+        ]);
+
+        // The substantive assertion: the overwrite carries the *created role's* id,
+        // not the `resource:` reference. A resolution that silently passed the
+        // reference through would produce an overwrite Discord rejects, or worse,
+        // one it accepts against the wrong id.
+        const createdRoleId = result.applied.find(
+            (entry) => entry.resourceKey === 'in-approval'
+        )?.discordId;
+        expect(createdRoleId).toBeDefined();
+
+        const channelCreate = (
+            guild as never as {
+                channels: { create: { mock: { calls: [{ permissionOverwrites?: unknown }][] } } };
+            }
+        ).channels.create;
+        const overwrites = channelCreate.mock.calls[0]?.[0]?.permissionOverwrites as
+            | { id: string }[]
+            | undefined;
+
+        expect(overwrites?.map((overwrite) => overwrite.id)).toContain(createdRoleId);
+        expect(
+            overwrites?.some((overwrite) => overwrite.id.startsWith('resource:'))
+        ).toBe(false);
     });
 });

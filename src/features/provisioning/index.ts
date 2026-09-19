@@ -34,6 +34,14 @@ export { RESOURCE_KINDS, validateJourneyDeclaration } from './logic/resourceDecl
 export type { PermissionIntent, PermissionAudience, PermissionAccess } from './logic/permissionIntent';
 export { PERMISSION_AUDIENCES, PERMISSION_ACCESS_LEVELS } from './logic/permissionIntent';
 
+// How a permission names a role the journey itself creates, rather than one that
+// already exists. The prefix is mirrored in the browser; a test holds them equal.
+export {
+    DECLARED_ROLE_PREFIX,
+    declaredRoleReference,
+    parseDeclaredRoleReference,
+} from './logic/declaredRoleReference';
+
 export type { InstallPlan, PlanItem, PlanAction, ResourceChoice } from './logic/installPlan';
 export { isPlanApplicable } from './logic/installPlan';
 
