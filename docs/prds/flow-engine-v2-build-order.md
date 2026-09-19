@@ -749,6 +749,14 @@ This contradicts the stated intent of the whole programme — *a system an opera
 
 **The slash command was the wrong surface**, and for a revealing reason: "install wizard" was sorted into 5B as *builder-surface work*, which treats the UI as decoration over a Discord command. That is inverted. Flows are authored in a web builder; a journey owns flows; provisioning is how a journey becomes real. The UI is the surface, and `/install-journey` is the anomaly.
 
+### Decisions taken 2026-09-19, after the gap was found
+
+1. **A journey is a scope, not a folder.** It defines which resource keys a flow can see. Flows in one journey share declarations; flows in different journeys cannot collide. This is the answer to "what does grouping enable" — and it means the single-flow and multi-flow cases are one mechanism, not two designs.
+2. **A declared resource is selectable before it exists.** Declare `qa-channel`, and pickers in that journey's flows offer it beside real channels. Building a flow no longer requires creating its channels by hand first, which is the capability the whole step is for.
+3. **Config values carry a key *and* a cached snowflake.** The key is canonical; the id is a cached resolution. Install still writes ids in — "install writes snowflakes" and "resource keys" were never actually in conflict. Keeping the key is what makes a deleted-and-recreated channel repairable by re-installing rather than by editing every flow, and what lets a graph move to a second guild.
+4. **Journeys are created implicitly with a flow.** No journeys page. Grouping several flows under one journey is **deferred** — recorded in §5.8, wanted later, not designed now.
+5. **The dashboard is the surface.** `/install-journey` goes away rather than becoming a second way to do the same thing.
+
 ### Still open in 5A
 
 1. **Journey authoring does not exist** — the gap above. Blocks everything else, because there is nothing for an API or UI to read.
