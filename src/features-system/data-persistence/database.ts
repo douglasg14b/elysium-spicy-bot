@@ -22,6 +22,7 @@ import { WarningTable } from '../../features/warnings/data/warningsSchema';
 import { WarningsConfigTable } from '../../features/warnings/data/warningsConfigSchema';
 import { FlowTable } from '../../features/flows/data/flowsSchema';
 import { FlowRunTable } from '../../features/flows/data/flowRunsSchema';
+import { FlowButtonMessageTable } from '../../features/flows/data/flowButtonMessagesSchema';
 import { ResourceBindingTable } from '../../features/provisioning/data/resourceBindingsSchema';
 import { JourneyTable } from '../../features/provisioning/data/journeysSchema';
 
@@ -40,6 +41,7 @@ export interface Database {
     warnings_config: WarningsConfigTable;
     flows: FlowTable;
     flow_runs: FlowRunTable;
+    flow_button_messages: FlowButtonMessageTable;
     resource_bindings: ResourceBindingTable;
     journeys: JourneyTable;
 }
@@ -89,6 +91,7 @@ function getDatabaseClient() {
                 warnings_config: ['createdAt', 'updatedAt'],
                 flows: ['createdAt', 'updatedAt'],
                 flow_runs: ['wakeAt', 'claimedAt', 'createdAt', 'updatedAt'],
+                flow_button_messages: ['createdAt', 'updatedAt'],
                 resource_bindings: ['createdAt', 'updatedAt'],
                 journeys: ['createdAt', 'updatedAt'],
         }),
@@ -110,6 +113,10 @@ function getDatabaseClient() {
                     // `flow_runs` has no boolean columns, so it is absent from
                     // SqliteBindingPlugin above — only its JSON blobs need parsing.
                     flow_runs: ['waitConfig', 'contextSnapshot', 'log', 'variables'],
+                    // Without this the column comes back as a JSON *string* on sqlite
+                    // and as an array on postgres — a divergence that typechecks and
+                    // only shows up at run time, on one dialect.
+                    flow_button_messages: ['nodeIds'],
                     journeys: ['resources'],
                 }),
                 ...plugins,

@@ -110,8 +110,19 @@ export class FlowsRepo {
         return this.update(flowId, { enabled });
     }
 
-    /** Hard-delete a flow. Deploying a button does not outlive its flow — the
-     * dispatcher already no-ops on a missing flowId. */
+    /**
+     * Hard-delete a flow, and nothing else.
+     *
+     * Deployed buttons **do** outlive their flow — the message stays in the channel —
+     * and the dispatcher answers a click on one with "This flow no longer exists."
+     * rather than no-opping. That is a decent dead end but it is not cleanup, so
+     * `flow_button_messages` rows are deliberately left behind: they are the only
+     * record of where those live buttons are, and dropping them here would make the
+     * buttons unretirable forever.
+     *
+     * Retiring them is `undeployFlowButtons`, offered beside this rather than folded
+     * into it — deleting a record must not silently destroy part of a live server.
+     */
     async deleteByFlowId(flowId: string): Promise<void> {
         await this.db.deleteFrom('flows').where('flowId', '=', flowId).execute();
     }

@@ -11,7 +11,13 @@ import {
 } from '../../features/flows/engine/nodeDataValidation';
 import { deployFlowButtons } from '../../features/flows/logic/deployFlowButtons';
 import { pendingResourceFields } from '../../features/flows/logic/pendingResourceFields';
+import {
+    getPublishedFlowState,
+    type PublishedFlowState,
+} from '../../features/flows/logic/publishedFlowState';
+import { undeployFlowButtons } from '../../features/flows/logic/undeployFlowButtons';
 import { journeysRepo } from '../../features/provisioning/data/journeysRepo';
+import { previewUnpublish, unpublishJourney } from '../../features/provisioning';
 import type { AppEnv } from '../types';
 
 /**
@@ -148,6 +154,23 @@ function invalidGraphBody(issues: readonly FlowValidationIssue[]): {
  */
 function describeCause(cause: unknown): string {
     return cause instanceof Error ? cause.message : String(cause);
+}
+
+/**
+ * The wire shape for what a flow has live in the guild.
+ *
+ * `mayHaveUnrecordedButtons` is on the wire rather than left to the browser to know,
+ * because it is a fact about the *data* — buttons posted before the recording table
+ * existed were never written down and cannot be found. A dialog that said "nothing is
+ * published" off an empty list would be promising more than this data can support.
+ */
+function publishedBody(state: PublishedFlowState) {
+    return {
+        buttonMessages: state.buttonMessages,
+        deletableResources: state.deletableResources,
+        refusedResources: state.refusedResources,
+        mayHaveUnrecordedButtons: state.mayHaveUnrecordedButtons,
+    };
 }
 
 export function flowRoutes(): Hono<AppEnv> {
@@ -288,6 +311,75 @@ export function flowRoutes(): Hono<AppEnv> {
         }
 
         return c.json({ ok: true, messageId: result.messageId });
+    });
+
+    /*
+     * What this flow has live in the guild.
+     *
+     * The delete dialog calls this first. Deleting a flow deliberately does **not**
+     * clean any of it up — "offer, never assume" — so the dialog's job is to say what
+     * would be left behind and offer the cleanup as its own confirmed action.
+     */
+    app.get('/:guildId/flows/:flowId/published', async (c) => {
+        const guild = c.get('guild');
+        const flowId = c.req.param('flowId');
+        const existing = await flowsRepo.getByFlowId(flowId);
+        if (!existing || existing.guildId !== guild.id) {
+            return c.json({ error: 'Flow not found.' }, 404);
+        }
+
+        return c.json(publishedBody(await getPublishedFlowState(guild, flowId)));
+    });
+
+    /*
+     * Take this flow's trigger buttons back out of the guild.
+     *
+     * Deliberately usable after the flow row is gone: `flow_button_messages` outlives
+     * the flow precisely so orphaned buttons can still be retired, and requiring the
+     * flow to exist would make the commonest cleanup impossible. So there is no
+     * `flowsRepo` lookup here — the guild-scoped row lookup inside `undeployFlowButtons`
+     * is the authorization boundary, and `requireGuildAccess` has already run.
+     */
+    app.post('/:guildId/flows/:flowId/undeploy', async (c) => {
+        const guildId = c.get('guild').id;
+        const result = await undeployFlowButtons(guildId, c.req.param('flowId'));
+        return c.json({ results: result.results });
+    });
+
+    /*
+     * Preview what unpublishing this flow's resources would do. Reads only.
+     *
+     * A flow's journey key is its flow id, the same convention the resource routes use.
+     */
+    app.get('/:guildId/flows/:flowId/unpublish-preview', async (c) => {
+        const guild = c.get('guild');
+        const plan = await previewUnpublish(guild, c.req.param('flowId'));
+        return c.json({ items: plan.items });
+    });
+
+    /*
+     * Destroy the channels and roles this flow's journey created.
+     *
+     * The plan is rebuilt here and applied, rather than accepted from the browser: a
+     * plan arriving over the wire is a list of snowflakes a client asked us to delete,
+     * and nothing would stop it naming objects the real plan refuses. Rebuilding means
+     * the refusals are re-derived server-side every time.
+     *
+     * The cost is that the operator confirms a preview fetched a moment earlier rather
+     * than the exact plan applied — acceptable because every rule is re-evaluated on
+     * the rebuild, so the drift can only ever refuse *more*, never delete something the
+     * preview did not show.
+     */
+    app.post('/:guildId/flows/:flowId/unpublish', async (c) => {
+        const guild = c.get('guild');
+        const plan = await previewUnpublish(guild, c.req.param('flowId'));
+        const result = await unpublishJourney({ guild, approvedPlan: plan });
+
+        if (result.refusal) {
+            return c.json({ error: result.refusal }, 409);
+        }
+
+        return c.json({ results: result.results });
     });
 
     return app;

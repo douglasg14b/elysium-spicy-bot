@@ -6,6 +6,10 @@ import {
     type TextChannel,
 } from 'discord.js';
 import { DISCORD_CLIENT } from '../../../discordClient';
+import {
+    flowButtonMessagesRepo,
+    type FlowButtonMessagesRepo,
+} from '../data/flowButtonMessagesRepo';
 import { flowsRepo, type FlowsRepo } from '../data/flowsRepo';
 import type { FlowEntity } from '../data/flowsSchema';
 import { isTriggerStartedBy } from '../blocks/registry';
@@ -20,6 +24,8 @@ interface DeployFlowButtonsDeps {
     /** Resolves the guild. Defaults to the live Discord client cache/fetch. */
     getGuild?: (guildId: string) => Promise<Guild | null>;
     repo?: FlowsRepo;
+    /** Where the posted message is written down. Overridable for tests. */
+    buttonMessagesRepo?: Pick<FlowButtonMessagesRepo, 'persist'>;
 }
 
 async function defaultGetGuild(guildId: string): Promise<Guild | null> {
@@ -32,10 +38,15 @@ async function defaultGetGuild(guildId: string): Promise<Guild | null> {
 /**
  * Build the trigger button(s) for a flow. Every `trigger.buttonClick` node
  * becomes one button whose custom_id is `flow:<flowId>:<nodeId>`.
+ *
+ * Returns the node ids alongside the buttons so the caller can write down which
+ * triggers a posted message carries. They were always computed here and previously
+ * discarded; re-deriving them at the call site would mean filtering the graph by the
+ * same rule twice, and the two copies would drift the day the rule changes.
  */
 export function buildFlowTriggerButtons(
     flow: FlowEntity
-): { ok: true; buttons: ButtonBuilder[] } | { ok: false; message: string } {
+): { ok: true; buttons: ButtonBuilder[]; nodeIds: string[] } | { ok: false; message: string } {
     const buttonNodes = flow.graph.nodes.filter((node) => isTriggerStartedBy(node.type, 'buttonClick'));
     if (buttonNodes.length === 0) {
         return { ok: false, message: 'This flow has no button-click triggers to deploy.' };
@@ -67,7 +78,7 @@ export function buildFlowTriggerButtons(
         );
     }
 
-    return { ok: true, buttons };
+    return { ok: true, buttons, nodeIds: buttonNodes.map((node) => node.id) };
 }
 
 /**
@@ -107,18 +118,49 @@ export async function deployFlowButtons(
     }
 
     const textChannel = channel as TextChannel;
+    let message: Awaited<ReturnType<TextChannel['send']>>;
     try {
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(built.buttons);
-        const message = await textChannel.send({ content: `**${flow.name}**`, components: [row] });
-        return {
-            ok: true,
-            flow,
-            channel: textChannel,
-            messageId: message.id,
-            buttonCount: built.buttons.length,
-        };
+        message = await textChannel.send({ content: `**${flow.name}**`, components: [row] });
     } catch (error) {
         console.error('[flows] Error posting flow trigger buttons:', error);
         return { ok: false, message: 'Could not post in that channel. Check the bot\'s permissions.' };
     }
+
+    /*
+     * Write down where the buttons went, **here** rather than at either call site.
+     *
+     * Both surfaces deploy — the `/flow-deploy` slash command and the web route — and
+     * recording in only one of them would leave the other producing buttons nothing
+     * can ever retire. That is the defect this table exists to fix, and putting the
+     * write at one call site would leave half of it in place indefinitely.
+     *
+     * A failure here does not fail the deploy: the message is already posted and those
+     * buttons are live. Reporting failure would be a lie about the guild, and the
+     * caller has no undo. It is logged loudly instead, because the consequence — a
+     * live button with no record — is exactly the orphan this feature is about, and a
+     * human needs to know one was just created.
+     */
+    try {
+        await (deps.buttonMessagesRepo ?? flowButtonMessagesRepo).persist({
+            guildId,
+            flowId,
+            channelId,
+            messageId: message.id,
+            nodeIds: built.nodeIds,
+        });
+    } catch (error) {
+        console.error(
+            `[flows] Posted trigger buttons for flow ${flowId} as message ${message.id} in channel ${channelId}, but could not record it. Those buttons cannot be retired automatically and must be deleted by hand:`,
+            error
+        );
+    }
+
+    return {
+        ok: true,
+        flow,
+        channel: textChannel,
+        messageId: message.id,
+        buttonCount: built.buttons.length,
+    };
 }
