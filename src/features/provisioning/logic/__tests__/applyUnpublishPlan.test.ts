@@ -185,7 +185,11 @@ describe('carrying on past a problem', () => {
 
         const result = await applyUnpublishPlan({ guild, plan: plan([deleteItem()]), repo });
 
-        expect(result.results[0].outcome).toBe('deleted');
+        // `forgotten`, not `deleted`: the desired state holds, so this is a success —
+        // but we did not do it. `calls` below is the proof, holding no Discord delete
+        // at all, and a report that said "deleted" beside it would be claiming credit
+        // for somebody else's cleanup on the one operation the operator cannot undo.
+        expect(result.results[0].outcome).toBe('forgotten');
         expect(calls).toEqual(['repo:forget:1']);
     });
 

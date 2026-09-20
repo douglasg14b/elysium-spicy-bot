@@ -105,6 +105,18 @@ export async function applyUnpublishPlan(
             continue;
         }
 
+        /*
+         * Whether *this run* removed something from the guild.
+         *
+         * Tracked rather than inferred from `item.action`, because the plan says what
+         * we meant to do and this says what happened. They come apart whenever the
+         * object went away between previewing and confirming: the item is still a
+         * `delete`, nothing was deleted, and reporting "deleted" there would claim
+         * credit for someone else's cleanup on the one operation where the report is
+         * the only evidence the operator gets.
+         */
+        let deletedHere = false;
+
         // Re-read the guild rather than trusting the plan. A plan is reviewed by a
         // human and confirmation takes time; the channel can be deleted by hand in
         // between, and that is a `forget`, not a failure — the desired state holds.
@@ -151,11 +163,12 @@ export async function applyUnpublishPlan(
             }
 
             deletedIds.add(item.discordId);
+            deletedHere = true;
         }
 
         // Either the object was just deleted, or there was never one to delete. The
         // row goes last in both cases.
-        await forgetRow(repo, item, results, base);
+        await forgetRow(repo, item, results, base, deletedHere);
     }
 
     return { results };
@@ -173,13 +186,14 @@ async function forgetRow(
     repo: Pick<ResourceBindingsRepo, 'forget'>,
     item: UnpublishItem,
     results: UnpublishedResource[],
-    base: { resourceKey: string; kind: ResourceKind; name: string }
+    base: { resourceKey: string; kind: ResourceKind; name: string },
+    deletedHere: boolean
 ): Promise<void> {
     try {
         await repo.forget(item.bindingId);
         results.push({
             ...base,
-            outcome: item.action === 'delete' ? 'deleted' : 'forgotten',
+            outcome: deletedHere ? 'deleted' : 'forgotten',
             explanation: item.action === 'forget' ? item.explanation : undefined,
         });
     } catch (error) {
