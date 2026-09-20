@@ -995,21 +995,29 @@ function FlowBuilder() {
             </Group>
 
             {/*
-             * Generously sized: a resource row holds a name, a key, a parent and a
-             * list of permission rules, and each rule is an audience plus an access
-             * level plus possibly a role list. That does not fit a narrow column,
-             * which is half of why the panel was unusable where it was.
+             * Generously sized: a resource row holds a name, a key, an "already
+             * exists" picker, a parent and a list of permission rules, and each rule
+             * is an audience plus an access level plus possibly a role list. That does
+             * not fit a narrow column, which is half of why the panel was unusable
+             * where it was — and `xl` was still cramped enough to read as a sidebar.
+             *
+             * An explicit width rather than a `size` token because the token ladder
+             * stops short of what a row needs. The height keeps a list of several
+             * resources out of a short scroll well, which was the other half of the
+             * complaint.
              */}
             <Modal
                 opened={showResources}
                 onClose={() => setShowResources(false)}
                 title="Resources this flow needs"
-                size="xl"
+                size="1100px"
+                styles={{ content: { height: 'min(88vh, 900px)' }, body: { paddingBottom: 24 } }}
             >
                 <ResourcesPanel
                     resources={declaredResources}
                     onChange={saveResources}
                     roles={roles}
+                    channels={channels}
                     saving={resourcesSaving}
                     error={resourcesError ?? undefined}
                 />

@@ -47,7 +47,20 @@ export interface InstallPlan {
     readonly blockers: readonly string[];
 }
 
-/** A binding the operator has chosen for a resource key, from the install form. */
+/**
+ * A binding the operator has chosen for a resource key, from the install form.
+ *
+ * **Nothing supplies this today.** Both production callers of `previewInstall`
+ * (`installJourneyCommand` and `applyJourneyButton`) omit `choices` entirely — there
+ * is no install form yet, so in practice every adoption comes from the declaration's
+ * own `adoptDiscordId` and this type is exercised only by tests.
+ *
+ * Kept, and ordered ahead of the declaration, because the two answer different
+ * questions: the declaration is the author's standing preference, and this is the
+ * decision taken *at one install*. When the dashboard grows an install form it is
+ * where a per-run override lands. Until then, do not read the ordering below as a
+ * live code path.
+ */
 export interface ResourceChoice {
     /** Adopt this existing guild object instead of creating one. */
     readonly adoptDiscordId?: string;
@@ -77,6 +90,31 @@ const KIND_LABEL: Record<ResourceKind, string> = {
     textChannel: 'channel',
     role: 'role',
 };
+
+/**
+ * Whether a snowflake resolves to something of the expected kind, in this guild.
+ *
+ * Lives here rather than in `applyInstallPlan.ts` (which imports from this module and
+ * would make a cycle) because **both** need the same answer, and they were giving
+ * different ones. The plan used to ask only `channels.cache.has(id)`, which is true
+ * for a text channel handed to a resource declared as a `category`; the apply's
+ * `requireAdoptable` checks the type and refuses. The result was a plan that showed
+ * an applicable `adopt`, got approved, and then threw mid-apply with earlier
+ * resources already created — the half-applied state the up-front validation exists
+ * to prevent, reached by a route the validation could not see.
+ */
+export function existsInGuildAs(guild: Guild, kind: ResourceKind, discordId: string): boolean {
+    if (kind === 'role') {
+        return guild.roles.cache.has(discordId);
+    }
+
+    const channel = guild.channels.cache.get(discordId);
+    if (!channel) return false;
+
+    return kind === 'category'
+        ? channel.type === ChannelType.GuildCategory
+        : channel.type === ChannelType.GuildText;
+}
 
 /**
  * Check the bot can actually do what the plan asks, before it is shown.
@@ -252,19 +290,22 @@ export function buildInstallPlan(input: BuildInstallPlanInput): InstallPlan {
             continue;
         }
 
-        if (choice?.adoptDiscordId) {
-            const exists =
-                resource.kind === 'role'
-                    ? guild.roles.cache.has(choice.adoptDiscordId)
-                    : guild.channels.cache.has(choice.adoptDiscordId);
-
+        // The install form's choice first, then what the author declared. Both mean
+        // "adopt this", and they are resolved in that order so an operator can
+        // override a standing preference for one install without editing the flow.
+        const adoptDiscordId = choice?.adoptDiscordId ?? resource.adoptDiscordId;
+        if (adoptDiscordId) {
             items.push(
-                exists
-                    ? { ...base, action: 'adopt', discordId: choice.adoptDiscordId }
+                existsInGuildAs(guild, resource.kind, adoptDiscordId)
+                    ? { ...base, action: 'adopt', discordId: adoptDiscordId }
                     : {
                           ...base,
+                          // Blocked rather than quietly created. A declaration naming
+                          // an id is an operator saying the thing already exists; if
+                          // it does not, creating one anyway installs a duplicate of
+                          // whatever they actually meant.
                           action: 'blocked',
-                          reason: `The chosen ${KIND_LABEL[resource.kind]} (${choice.adoptDiscordId}) does not exist in this server.`,
+                          reason: `The chosen ${KIND_LABEL[resource.kind]} (${adoptDiscordId}) does not exist in this server, or is not a ${KIND_LABEL[resource.kind]}.`,
                       }
             );
             continue;

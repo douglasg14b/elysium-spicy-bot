@@ -77,6 +77,21 @@ const permissionIntentSchema = z
         path: ['roleIds'],
     });
 
+/**
+ * A Discord snowflake, as the id of something being adopted.
+ *
+ * Shape-checked here and nowhere else in the request path. Whether the id names
+ * anything real is a question only the guild can answer, and it is asked at plan
+ * time (`buildInstallPlan`) and again at apply time (`requireAdoptable`) — a channel
+ * can be deleted between declaring it and installing, so a save-time existence check
+ * would be a guarantee that expires. What this *can* stop is a non-id reaching the
+ * plan, where it would surface as "this channel does not exist" and send the operator
+ * looking for a deletion that never happened.
+ */
+const discordIdSchema = z
+    .string()
+    .regex(/^\d{17,20}$/, 'A channel or role id is 17 to 20 digits.');
+
 const resourceSchema = z.object({
     key: resourceKeySchema,
     kind: z.enum(RESOURCE_KINDS),
@@ -87,6 +102,8 @@ const resourceSchema = z.object({
     parentKey: resourceKeySchema.optional(),
     permissions: z.array(permissionIntentSchema).optional(),
     description: z.string().max(500, 'Descriptions cap at 500 characters.').optional(),
+    /** Set when the operator picked something that already exists instead of declaring a new one. */
+    adoptDiscordId: discordIdSchema.optional(),
 });
 
 const createJourneyBody = z.object({

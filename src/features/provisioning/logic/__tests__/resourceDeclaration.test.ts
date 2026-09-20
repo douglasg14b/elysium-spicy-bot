@@ -170,6 +170,83 @@ describe('validateJourneyDeclaration', () => {
             )
         ).not.toThrow();
     });
+
+    it('rejects a category that names a parent', () => {
+        // Categories do not nest in Discord, and `applyInstallPlan`'s category branch
+        // creates with no `parent` argument — so this was accepted, stored, and
+        // silently ignored. A field that looks like it does something and does not is
+        // worse than a refusal.
+        expect(() =>
+            validateJourneyDeclaration(
+                journey([
+                    { key: 'outer', kind: 'category', defaultName: 'Outer' },
+                    { key: 'inner', kind: 'category', defaultName: 'Inner', parentKey: 'outer' },
+                ])
+            )
+        ).toThrow(/Categories do not nest/i);
+    });
+
+    describe('adopting something that already exists', () => {
+        it('accepts a resource that adopts an existing channel', () => {
+            expect(() =>
+                validateJourneyDeclaration(
+                    journey([
+                        {
+                            key: 'announce',
+                            kind: 'textChannel',
+                            defaultName: 'announcements',
+                            adoptDiscordId: '100000000000000001',
+                        },
+                    ])
+                )
+            ).not.toThrow();
+        });
+
+        it('rejects two resources adopting the same guild object', () => {
+            // One channel bound to two keys makes "which key owns this" ambiguous,
+            // and nothing downstream can answer it — `buildInstallPlan` judges each
+            // resource alone, so only a whole-journey check can catch this.
+            expect(() =>
+                validateJourneyDeclaration(
+                    journey([
+                        {
+                            key: 'announce',
+                            kind: 'textChannel',
+                            defaultName: 'announcements',
+                            adoptDiscordId: '100000000000000001',
+                        },
+                        {
+                            key: 'news',
+                            kind: 'textChannel',
+                            defaultName: 'news',
+                            adoptDiscordId: '100000000000000001',
+                        },
+                    ])
+                )
+            ).toThrow(/both adopt 100000000000000001/i);
+        });
+
+        it('allows two resources adopting different objects', () => {
+            expect(() =>
+                validateJourneyDeclaration(
+                    journey([
+                        {
+                            key: 'announce',
+                            kind: 'textChannel',
+                            defaultName: 'announcements',
+                            adoptDiscordId: '100000000000000001',
+                        },
+                        {
+                            key: 'news',
+                            kind: 'textChannel',
+                            defaultName: 'news',
+                            adoptDiscordId: '100000000000000002',
+                        },
+                    ])
+                )
+            ).not.toThrow();
+        });
+    });
 });
 
 describe('orderResourcesForApply', () => {

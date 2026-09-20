@@ -2,13 +2,19 @@ import { ChannelType, type CategoryChannel, type Guild } from 'discord.js';
 import { resourceBindingsRepo } from '../data/resourceBindingsRepo';
 import type { ResourceBindingEntity } from '../data/resourceBindingsSchema';
 import { parseDeclaredRoleReference } from './declaredRoleReference';
-import { isPlanApplicable, planMutations, type InstallPlan, type PlanItem } from './installPlan';
+import {
+    existsInGuildAs,
+    isPlanApplicable,
+    planMutations,
+    type InstallPlan,
+    type PlanItem,
+} from './installPlan';
 import {
     compilePermissionIntents,
     type PermissionIntent,
     type PermissionIntentContext,
 } from './permissionIntent';
-import type { JourneyDeclaration, ResourceDeclaration, ResourceKind } from './resourceDeclaration';
+import type { JourneyDeclaration, ResourceDeclaration } from './resourceDeclaration';
 
 export interface ApplyInstallPlanInput {
     readonly guild: Guild;
@@ -124,7 +130,7 @@ export async function applyInstallPlan(
         const settledElsewhere = Boolean(binding.discordId) && binding.state !== 'intended';
         const bindingIsLive =
             settledElsewhere && binding.discordId
-                ? existsInGuild(guild, item.kind, binding.discordId)
+                ? existsInGuildAs(guild, item.kind, binding.discordId)
                 : false;
 
         if (settledElsewhere && bindingIsLive && binding.discordId) {
@@ -234,20 +240,6 @@ export async function applyInstallPlan(
     return { applied };
 }
 
-/** Whether a snowflake still resolves to something of the expected kind. */
-function existsInGuild(guild: Guild, kind: ResourceKind, discordId: string): boolean {
-    if (kind === 'role') {
-        return guild.roles.cache.has(discordId);
-    }
-
-    const channel = guild.channels.cache.get(discordId);
-    if (!channel) return false;
-
-    return kind === 'category'
-        ? channel.type === ChannelType.GuildCategory
-        : channel.type === ChannelType.GuildText;
-}
-
 /**
  * Re-check an adoption at apply time.
  *
@@ -260,7 +252,7 @@ function requireAdoptable(guild: Guild, item: PlanItem): string {
     if (!item.discordId) {
         throw new Error('an adopt item carries no id');
     }
-    if (!existsInGuild(guild, item.kind, item.discordId)) {
+    if (!existsInGuildAs(guild, item.kind, item.discordId)) {
         throw new Error(
             `the chosen ${item.kind} (${item.discordId}) no longer exists in this server, or is not a ${item.kind}. Rebuild the plan`
         );

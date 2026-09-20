@@ -46,6 +46,25 @@ export interface ResourceDeclaration {
 
     /** Shown in the plan so an operator can tell why a resource is being created. */
     readonly description?: string;
+
+    /**
+     * A guild object that already exists and should be adopted rather than created.
+     *
+     * The author's *standing* answer to a question install would otherwise ask them
+     * every time. `ResourceChoice.adoptDiscordId` already expresses the same intent,
+     * but only as an install-time input nobody supplies — the flow builder declares
+     * resources long before install runs, and "this flow needs #announcements, which
+     * we already have" was unsayable until it was reached. An explicit choice at
+     * install still wins, so this is a default rather than a lock.
+     *
+     * A snowflake rather than a key, and therefore **guild-specific** in a way the
+     * rest of a declaration deliberately is not: a portable journey installed on a
+     * second server will not find this id and the plan blocks, naming it. That is the
+     * honest outcome — an id the operator typed for *this* server cannot mean
+     * anything on another one, and silently falling back to create would install a
+     * duplicate of a channel they said they already had.
+     */
+    readonly adoptDiscordId?: string;
 }
 
 /**
@@ -146,6 +165,39 @@ export function validateJourneyDeclaration(journey: JourneyDeclaration): void {
                 `Role "${resource.key}" declares a parent. Roles do not live under categories.`
             );
         }
+        // Discord categories do not nest, and `applyInstallPlan`'s category branch
+        // creates with no `parent` argument at all — so a category's parent was
+        // accepted, stored, and silently ignored. Refused here rather than left as a
+        // field that looks like it does something.
+        if (resource.kind === 'category') {
+            throw new ResourceDeclarationError(
+                `Category "${resource.key}" declares a parent. Categories do not nest inside other categories.`
+            );
+        }
+    }
+
+    // Two resources adopting the same guild object is the binding table's uniqueness
+    // read backwards: a key resolves to exactly one object, and nothing stops two keys
+    // resolving to the *same* one. The apply would happily bind both, and every later
+    // question — which key owns this channel, what does unmanaging one do to the other
+    // — has two answers. `buildInstallPlan` cannot catch it, since it judges each
+    // resource alone; only something holding the whole journey can.
+    //
+    // Scoped to one journey because that is all this function sees, and deliberately:
+    // two journeys adopting one channel is the shared-resource case 5B has to handle
+    // anyway, and adoption mutates nothing, so it is harmless until uninstall exists
+    // to be confused by it. Within a journey it is unambiguously a mistake.
+    const adoptedBy = new Map<string, string>();
+    for (const resource of journey.resources) {
+        if (!resource.adoptDiscordId) continue;
+
+        const alreadyAdoptedBy = adoptedBy.get(resource.adoptDiscordId);
+        if (alreadyAdoptedBy) {
+            throw new ResourceDeclarationError(
+                `Resources "${alreadyAdoptedBy}" and "${resource.key}" both adopt ${resource.adoptDiscordId}. One guild object cannot be two resources.`
+            );
+        }
+        adoptedBy.set(resource.adoptDiscordId, resource.key);
     }
 
     // A permission may name a role this journey creates, by key rather than by

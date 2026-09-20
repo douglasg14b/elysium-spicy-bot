@@ -1,9 +1,16 @@
 /**
- * Declare the guild objects a flow needs but does not yet have.
+ * Declare the guild objects a flow needs — whether or not it already has them.
  *
  * This is the authoring surface for what provisioning installs. A resource declared
  * here is offered by the pickers immediately — the point of the whole feature is that
  * building a flow no longer requires creating its channels by hand first.
+ *
+ * A resource is one of two things and the panel says so up front: something to
+ * **create**, or something that **already exists** and should be adopted. The second
+ * is not a different kind of resource — it is the same declaration carrying an
+ * `adoptDiscordId`, which the install plan turns into an `adopt` rather than a
+ * `create`. Declaring "this flow needs #announcements, which we already have" was
+ * unsayable before that field existed.
  *
  * The panel never says "journey". A flow's journey is implicit, keyed on the flow's
  * own id, so the operator declares what this flow needs and the scope follows from
@@ -13,6 +20,11 @@
  * column is for the *selected node's* configuration; a flow-wide concern sharing it
  * meant selecting a block showed nothing while resources were open. Permission
  * editing also wants more width than 300px.
+ *
+ * **Sizing is deliberate and is not sidebar density.** Everything here was `xs` with
+ * 12px text while the panel lived in a 300px column; moving to a modal kept the
+ * cramped sizing and made it hard to read on a normal monitor. Inputs are `sm` and
+ * labels are default body size. Do not shrink them back.
  */
 
 import { useState } from 'react';
@@ -29,10 +41,23 @@ import {
     TextInput,
     Tooltip,
 } from '@mantine/core';
-import { IconPlus, IconTrash } from '@tabler/icons-react';
-import type { GuildRole, PermissionIntent, ResourceDeclaration, ResourceKind } from '../api/types';
+import { IconLink, IconPlus, IconTrash } from '@tabler/icons-react';
+import type {
+    GuildChannel,
+    GuildRole,
+    PermissionIntent,
+    ResourceDeclaration,
+    ResourceKind,
+} from '../api/types';
 import { declaredRoleOptionValue } from './declaredRoleReference';
 import { PermissionIntentEditor } from './PermissionIntentEditor';
+import {
+    adoptableChannelOptions,
+    canAdoptFromChannelList,
+    canHaveParent,
+    declarationForAdoptedChannel,
+    declarationForNewResource,
+} from './resourceAdoption';
 import { RESOURCE_KIND_ORDER, RESOURCE_KIND_STYLES } from './resourceMeta';
 
 interface ResourcesPanelProps {
@@ -40,6 +65,8 @@ interface ResourcesPanelProps {
     onChange: (next: ResourceDeclaration[]) => void;
     /** Real roles in the guild, for permission rules that name one. */
     roles: GuildRole[];
+    /** Real channels in the guild, so a resource can adopt one instead of creating it. */
+    channels: GuildChannel[];
     /** Set while a save is in flight, so the panel cannot be edited mid-write. */
     saving?: boolean;
     /** A rejected save, shown verbatim — the server's message names the real problem. */
@@ -47,25 +74,16 @@ interface ResourcesPanelProps {
 }
 
 /**
- * Derive a key from a display name.
- *
- * Keys must be slug-shaped (the server rejects anything else), and asking an operator
- * to invent one alongside a name is asking them to understand why the distinction
- * exists. They can still edit it — a key is permanent in a way a name is not, so it
- * stays visible rather than hidden.
+ * Which of the two ways of declaring a resource the add form is currently asking
+ * about. Not a property of the resource — a declaration is the same shape either way.
  */
-function slugify(name: string): string {
-    return name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .slice(0, 64);
-}
+type DeclarationMode = 'create' | 'adopt';
 
 export function ResourcesPanel({
     resources,
     onChange,
     roles,
+    channels,
     saving,
     error,
 }: ResourcesPanelProps) {
@@ -74,37 +92,53 @@ export function ResourcesPanel({
     // behind a click. A wrong kind is otherwise silent until install.
     const [pendingKind, setPendingKind] = useState<ResourceKind>('textChannel');
     const [pendingParentKey, setPendingParentKey] = useState<string | null>(null);
+    const [pendingMode, setPendingMode] = useState<DeclarationMode>('create');
+    const [pendingAdoptId, setPendingAdoptId] = useState<string | null>(null);
 
     const categories = resources.filter((resource) => resource.kind === 'category');
     const declaredRoles = resources.filter((resource) => resource.kind === 'role');
 
-    // Roles never live under a category, and the server rejects one that names a
-    // parent — so the control disappears rather than offering a save that cannot work.
-    const pendingCanHaveParent = pendingKind !== 'role' && categories.length > 0;
+    // The control disappears rather than offering a save that cannot work, or a value
+    // the apply would silently ignore. See `canHaveParent`.
+    const pendingCanHaveParent = canHaveParent(pendingKind) && categories.length > 0;
+
+    // Only text channels can be adopted from the builder's channel list — see
+    // `canAdoptFromChannelList`, which records why the other two kinds cannot.
+    const pendingCanAdopt = canAdoptFromChannelList(pendingKind);
+    const adoptOptions = adoptableChannelOptions(channels, pendingKind, resources);
 
     function addResource() {
-        const name =
-            pendingName.trim() || `new-${pendingKind === 'textChannel' ? 'channel' : pendingKind}`;
-        let key = slugify(name);
+        const declaration =
+            pendingMode === 'adopt' && pendingAdoptId
+                ? adoptedDeclaration(pendingAdoptId)
+                : declarationForNewResource({
+                      name: pendingName,
+                      kind: pendingKind,
+                      existing: resources,
+                      parentKey: pendingCanHaveParent ? pendingParentKey : null,
+                  });
 
-        // A duplicate key is rejected by the server, and silently renaming the
-        // operator's resource would be worse than a suffix they can see and edit.
-        if (resources.some((resource) => resource.key === key)) {
-            let suffix = 2;
-            while (resources.some((resource) => resource.key === `${key}-${suffix}`)) suffix += 1;
-            key = `${key}-${suffix}`;
-        }
-
-        const declaration: ResourceDeclaration = { key, kind: pendingKind, defaultName: name };
-        // Folded into creation rather than left as a second edit on a row that already
-        // exists. Only carried when the kind can actually hold one.
-        if (pendingCanHaveParent && pendingParentKey) {
-            declaration.parentKey = pendingParentKey;
-        }
+        if (!declaration) return;
 
         onChange([...resources, declaration]);
         setPendingName('');
         setPendingParentKey(null);
+        setPendingAdoptId(null);
+    }
+
+    function adoptedDeclaration(channelId: string): ResourceDeclaration | undefined {
+        const channel = channels.find((candidate) => candidate.id === channelId);
+        // The picker only offers ids from this list, so a miss means the list changed
+        // under the selection. Adding nothing is better than adding a declaration
+        // naming an id whose name we would have to guess.
+        if (!channel) return undefined;
+
+        return declarationForAdoptedChannel({
+            channel,
+            kind: pendingKind,
+            existing: resources,
+            parentKey: pendingCanHaveParent ? pendingParentKey : null,
+        });
     }
 
     /**
@@ -165,33 +199,34 @@ export function ResourcesPanel({
         );
     }
 
+    const canAdd = pendingMode === 'adopt' ? Boolean(pendingAdoptId) : true;
+
     return (
-        <Stack gap="md">
-            <Text size="12.5px" c="dimmed">
+        <Stack gap="lg">
+            <Text c="dimmed">
                 Channels and roles this flow needs. Declare them here and they show up in the
-                pickers straight away — you can build the whole flow before any of them exist.
+                pickers straight away — you can build the whole flow before any of them exist,
+                or point one at something you already have.
             </Text>
 
             {error && (
-                <Alert color="red" variant="light" p="xs">
-                    <Text size="12px">{error}</Text>
+                <Alert color="red" variant="light">
+                    <Text>{error}</Text>
                 </Alert>
             )}
 
             <Stack
-                gap={8}
-                p="sm"
+                gap="sm"
+                p="md"
                 style={{
                     background: 'var(--mantine-color-dark-7)',
                     border: '1px solid var(--mantine-color-dark-5)',
-                    borderRadius: 6,
+                    borderRadius: 8,
                 }}
             >
-                <Text size="12px" fw={700}>
-                    Declare something new
-                </Text>
+                <Text fw={700}>Add a resource</Text>
 
-                <Group gap={6} wrap="nowrap" align="flex-end">
+                <Group gap="sm" wrap="nowrap" align="flex-end">
                     <Button.Group>
                         {RESOURCE_KIND_ORDER.map((kind) => {
                             const style = RESOURCE_KIND_STYLES[kind];
@@ -200,15 +235,21 @@ export function ResourcesPanel({
                             return (
                                 <Button
                                     key={kind}
-                                    size="xs"
+                                    size="sm"
                                     variant={active ? 'filled' : 'default'}
                                     color={active ? style.color : undefined}
-                                    leftSection={<KindIcon size={14} />}
+                                    leftSection={<KindIcon size={16} />}
                                     onClick={() => {
                                         setPendingKind(kind);
-                                        // A role cannot hold a parent, so a pending one
-                                        // would be silently dropped at add time.
-                                        if (kind === 'role') setPendingParentKey(null);
+                                        // A pending parent or adoption that the new kind
+                                        // cannot hold would be dropped at add time —
+                                        // silently, since the control that set it is
+                                        // about to disappear. Cleared here instead.
+                                        if (!canHaveParent(kind)) setPendingParentKey(null);
+                                        if (!canAdoptFromChannelList(kind)) {
+                                            setPendingMode('create');
+                                            setPendingAdoptId(null);
+                                        }
                                     }}
                                     disabled={saving}
                                 >
@@ -217,33 +258,84 @@ export function ResourcesPanel({
                             );
                         })}
                     </Button.Group>
+
+                    {pendingCanAdopt && (
+                        <Button.Group>
+                            <Button
+                                size="sm"
+                                variant={pendingMode === 'create' ? 'filled' : 'default'}
+                                color={pendingMode === 'create' ? 'brand' : undefined}
+                                leftSection={<IconPlus size={16} />}
+                                onClick={() => {
+                                    setPendingMode('create');
+                                    setPendingAdoptId(null);
+                                }}
+                                disabled={saving}
+                            >
+                                Create new
+                            </Button>
+                            <Button
+                                size="sm"
+                                variant={pendingMode === 'adopt' ? 'filled' : 'default'}
+                                color={pendingMode === 'adopt' ? 'brand' : undefined}
+                                leftSection={<IconLink size={16} />}
+                                onClick={() => setPendingMode('adopt')}
+                                disabled={saving}
+                            >
+                                Use existing
+                            </Button>
+                        </Button.Group>
+                    )}
                 </Group>
 
-                <Group gap={6} wrap="nowrap" align="flex-end">
-                    <TextInput
-                        label="Name"
-                        placeholder={RESOURCE_KIND_STYLES[pendingKind].namePlaceholder}
-                        value={pendingName}
-                        onChange={(event) => setPendingName(event.currentTarget.value)}
-                        onKeyDown={(event) => {
-                            if (event.key === 'Enter') addResource();
-                        }}
-                        size="xs"
-                        style={{ flex: 1 }}
-                        disabled={saving}
-                        leftSection={
-                            RESOURCE_KIND_STYLES[pendingKind].prefix ? (
-                                <Text size="12px" c="dimmed">
-                                    {RESOURCE_KIND_STYLES[pendingKind].prefix}
-                                </Text>
-                            ) : undefined
-                        }
-                    />
+                <Group gap="sm" wrap="nowrap" align="flex-start">
+                    {pendingMode === 'adopt' && pendingCanAdopt ? (
+                        <Select
+                            size="sm"
+                            label="Which channel"
+                            description="Start typing to find it. Its name and key are filled in for you."
+                            placeholder="Search this server…"
+                            data={adoptOptions}
+                            value={pendingAdoptId}
+                            onChange={setPendingAdoptId}
+                            searchable
+                            nothingFoundMessage={
+                                adoptOptions.length === 0
+                                    ? 'Every matching channel is already declared'
+                                    : 'No match'
+                            }
+                            disabled={saving}
+                            style={{ flex: 1 }}
+                            comboboxProps={{ withinPortal: true }}
+                        />
+                    ) : (
+                        <TextInput
+                            label="Name"
+                            description={`What it gets called when ${RESOURCE_KIND_STYLES[pendingKind].label.toLowerCase()} is created.`}
+                            placeholder={RESOURCE_KIND_STYLES[pendingKind].namePlaceholder}
+                            value={pendingName}
+                            onChange={(event) => setPendingName(event.currentTarget.value)}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter') addResource();
+                            }}
+                            size="sm"
+                            style={{ flex: 1 }}
+                            disabled={saving}
+                            leftSection={
+                                RESOURCE_KIND_STYLES[pendingKind].prefix ? (
+                                    <Text c="dimmed">
+                                        {RESOURCE_KIND_STYLES[pendingKind].prefix}
+                                    </Text>
+                                ) : undefined
+                            }
+                        />
+                    )}
 
                     {pendingCanHaveParent && (
                         <Select
-                            size="xs"
+                            size="sm"
                             label="Inside category"
+                            description="Leave empty for top level."
                             placeholder="Top level"
                             data={categories.map((category) => ({
                                 value: category.key,
@@ -253,17 +345,18 @@ export function ResourcesPanel({
                             onChange={setPendingParentKey}
                             clearable
                             disabled={saving}
-                            w={160}
+                            w={220}
                             comboboxProps={{ withinPortal: true }}
                         />
                     )}
 
                     <Button
-                        size="xs"
+                        size="sm"
                         variant="light"
-                        leftSection={<IconPlus size={14} />}
+                        leftSection={<IconPlus size={16} />}
                         onClick={addResource}
-                        disabled={saving}
+                        disabled={saving || !canAdd}
+                        mt={26}
                     >
                         Add
                     </Button>
@@ -271,12 +364,13 @@ export function ResourcesPanel({
             </Stack>
 
             {resources.length === 0 ? (
-                <Text size="12px" c="dimmed" ta="center" pt="md">
-                    Nothing declared yet. If this flow only uses channels that already exist, it
-                    doesn&apos;t need anything here.
+                <Text c="dimmed" ta="center" pt="lg">
+                    Nothing declared yet. If this flow only uses channels that already exist and
+                    you have picked them on the blocks themselves, it doesn&apos;t need anything
+                    here.
                 </Text>
             ) : (
-                <Stack gap="xs">
+                <Stack gap="md">
                     {resources.map((resource, index) => (
                         <ResourceRow
                             // Position, not the key: the key is editable, and a React
@@ -288,6 +382,8 @@ export function ResourcesPanel({
                                 (category) => category.key !== resource.key
                             )}
                             roles={roles}
+                            channels={channels}
+                            allResources={resources}
                             declaredRoles={declaredRoles.filter(
                                 // A role granting itself permissions is meaningless,
                                 // and a role has no overwrites at all.
@@ -330,6 +426,9 @@ interface ResourceRowProps {
     resource: ResourceDeclaration;
     categories: ResourceDeclaration[];
     roles: GuildRole[];
+    channels: GuildChannel[];
+    /** Every declared resource, so this row's picker can skip ones another row adopts. */
+    allResources: ResourceDeclaration[];
     declaredRoles: ResourceDeclaration[];
     disabled: boolean;
     onUpdate: (patch: Partial<ResourceDeclaration>) => void;
@@ -340,74 +439,99 @@ function ResourceRow({
     resource,
     categories,
     roles,
+    channels,
+    allResources,
     declaredRoles,
     disabled,
     onUpdate,
     onRemove,
 }: ResourceRowProps) {
-    // Roles do not live under categories, and the server rejects a role that names a
-    // parent. Offering the control at all would invite a save that cannot succeed.
-    const canHaveParent = resource.kind !== 'role' && categories.length > 0;
+    const showParentPicker = canHaveParent(resource.kind) && categories.length > 0;
+    const showAdoptPicker = canAdoptFromChannelList(resource.kind);
     const style = RESOURCE_KIND_STYLES[resource.kind];
     const KindIcon = style.icon;
+    const adopting = Boolean(resource.adoptDiscordId);
+
+    const adoptOptions = adoptableChannelOptions(
+        channels,
+        resource.kind,
+        allResources,
+        resource.key
+    );
 
     return (
         <Stack
-            gap={8}
-            p="xs"
+            gap="sm"
+            p="md"
             style={{
                 background: 'var(--mantine-color-dark-7)',
                 border: '1px solid var(--mantine-color-dark-5)',
                 // The kind's colour down the edge of the row, so a list of resources
                 // is scannable by kind without reading any of the labels.
-                borderLeft: `3px solid var(--mantine-color-${style.color}-6)`,
-                borderRadius: 6,
+                borderLeft: `4px solid var(--mantine-color-${style.color}-6)`,
+                borderRadius: 8,
             }}
         >
-            <Group gap={6} wrap="nowrap" justify="space-between">
-                <Group gap={6} wrap="nowrap">
-                    <KindIcon size={15} color={`var(--mantine-color-${style.color}-5)`} />
-                    <Badge size="xs" variant="light" color={style.color}>
+            <Group gap="sm" wrap="nowrap" justify="space-between">
+                <Group gap="sm" wrap="nowrap">
+                    <KindIcon size={20} color={`var(--mantine-color-${style.color}-5)`} />
+                    <Badge size="md" variant="light" color={style.color}>
                         {style.label}
                     </Badge>
-                    <Text size="12px" fw={600}>
+                    <Text fw={600} size="lg">
                         {style.prefix}
                         {resource.defaultName}
                     </Text>
+                    {/*
+                     * Create-versus-adopt is the one fact about a row that changes
+                     * what install does to the server, and it is invisible in the
+                     * name. Badged rather than left to the picker below, so a list
+                     * of ten rows can be read without opening any of them.
+                     */}
+                    {adopting && (
+                        <Badge
+                            size="md"
+                            variant="light"
+                            color="teal"
+                            leftSection={<IconLink size={12} />}
+                        >
+                            Already exists
+                        </Badge>
+                    )}
                 </Group>
                 <Tooltip label="Remove" withArrow>
                     <ActionIcon
-                        size="sm"
+                        size="lg"
                         variant="subtle"
                         color="red"
                         onClick={onRemove}
                         disabled={disabled}
                         aria-label={`Remove ${resource.defaultName}`}
                     >
-                        <IconTrash size={14} />
+                        <IconTrash size={18} />
                     </ActionIcon>
                 </Tooltip>
             </Group>
 
-            <Group gap={6} wrap="nowrap" align="flex-start" grow>
+            <Group gap="md" wrap="nowrap" align="flex-start" grow>
                 <TextInput
-                    size="xs"
+                    size="sm"
                     label="Name"
-                    description="What it gets called when created."
+                    description={
+                        adopting
+                            ? 'What it is called today. Install will not rename it.'
+                            : 'What it gets called when created.'
+                    }
                     value={resource.defaultName}
                     onChange={(event) => onUpdate({ defaultName: event.currentTarget.value })}
                     leftSection={
-                        style.prefix ? (
-                            <Text size="12px" c="dimmed">
-                                {style.prefix}
-                            </Text>
-                        ) : undefined
+                        style.prefix ? <Text c="dimmed">{style.prefix}</Text> : undefined
                     }
                     disabled={disabled}
                 />
 
                 <TextInput
-                    size="xs"
+                    size="sm"
                     label="Key"
                     description="How this flow refers to it. A rename in Discord won't break it."
                     value={resource.key}
@@ -416,10 +540,41 @@ function ResourceRow({
                 />
             </Group>
 
-            {canHaveParent && (
+            {showAdoptPicker && (
                 <Select
-                    size="xs"
+                    size="sm"
+                    label="Does it already exist?"
+                    description={
+                        adopting
+                            ? 'Install will adopt this rather than creating anything. Clear it to create a new one instead.'
+                            : 'Leave empty to create a new one. Pick a channel to adopt it instead.'
+                    }
+                    placeholder="No — create a new one"
+                    data={adoptOptions}
+                    value={resource.adoptDiscordId ?? null}
+                    onChange={(next) => onUpdate({ adoptDiscordId: next ?? undefined })}
+                    searchable
+                    clearable
+                    nothingFoundMessage="No match"
+                    disabled={disabled}
+                    comboboxProps={{ withinPortal: true }}
+                    leftSection={
+                        adopting ? (
+                            <IconLink size={16} color="var(--mantine-color-teal-5)" />
+                        ) : undefined
+                    }
+                />
+            )}
+
+            {showParentPicker && (
+                <Select
+                    size="sm"
                     label="Inside category"
+                    description={
+                        adopting
+                            ? 'Only used if this is created after all. Adopting leaves it where it is.'
+                            : 'Leave empty for top level.'
+                    }
                     placeholder="Top level"
                     data={categories.map((category) => ({
                         value: category.key,
@@ -441,13 +596,24 @@ function ResourceRow({
             {resource.kind !== 'role' && (
                 <>
                     <Divider
-                        label={
-                            <Text size="10.5px" c="dimmed">
-                                Who can see it
-                            </Text>
-                        }
+                        label={<Text c="dimmed">Who can see it</Text>}
                         labelPosition="left"
                     />
+                    {/*
+                     * Said once, here, rather than on every rule: `applyInstallPlan`
+                     * only compiles overwrites on the *create* path, so an adopted
+                     * channel keeps whatever permissions it already has. Rules left on
+                     * the row would otherwise look applied and never be.
+                     */}
+                    {adopting && (
+                        <Alert color="yellow" variant="light">
+                            <Text size="sm">
+                                Adopting keeps the permissions this channel already has —
+                                install won&apos;t touch them. Rules below are saved but only
+                                take effect if you switch back to creating it.
+                            </Text>
+                        </Alert>
+                    )}
                     <PermissionIntentEditor
                         intents={resource.permissions}
                         onChange={(next) => onUpdate({ permissions: next })}

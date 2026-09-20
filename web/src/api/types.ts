@@ -637,6 +637,14 @@ export interface ResourceDeclaration {
     parentKey?: string;
     permissions?: PermissionIntent[];
     description?: string;
+    /**
+     * A channel or role that already exists, to adopt instead of creating one.
+     *
+     * Set when the operator picked something real from the resource picker. Absent is
+     * the common case and means "create this". Mirrors the server's own
+     * `ResourceDeclaration.adoptDiscordId`; the server's Zod schema is the gate.
+     */
+    adoptDiscordId?: string;
 }
 
 /** A journey with its declarations, from `GET /api/guilds/:guildId/journeys/:key`. */

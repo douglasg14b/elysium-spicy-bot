@@ -273,6 +273,150 @@ describe('buildInstallPlan', () => {
         });
     });
 
+    /**
+     * Adoption declared by the author, rather than chosen at install.
+     *
+     * The install form's `choices` were the only way to say "adopt this", and nothing
+     * in the builder supplies them — the flow is authored long before install runs.
+     * A declaration carrying the id is how "this flow needs #announcements, which we
+     * already have" becomes sayable.
+     */
+    describe('adoption declared on the resource', () => {
+        const ADOPTING: JourneyDeclaration = {
+            journeyKey: 'onboarding',
+            name: 'Onboarding',
+            resources: [
+                {
+                    key: 'welcome-channel',
+                    kind: 'textChannel',
+                    defaultName: 'welcome',
+                    adoptDiscordId: 'chan-declared',
+                },
+            ],
+        };
+
+        it('adopts the channel the declaration names', () => {
+            const plan = buildInstallPlan({
+                guild: makeGuild({
+                    channels: [
+                        { id: 'chan-declared', name: 'welcome', type: ChannelType.GuildText },
+                    ],
+                }),
+                journey: ADOPTING,
+                existingBindings: [],
+            });
+
+            const welcome = itemFor(plan.items, 'welcome-channel');
+            expect(welcome.action).toBe('adopt');
+            expect(welcome.discordId).toBe('chan-declared');
+            expect(isPlanApplicable(plan)).toBe(true);
+        });
+
+        it('blocks rather than creating when the declared channel is gone', () => {
+            // Creating one instead would install a duplicate of whatever the operator
+            // actually meant — they said it already existed.
+            const plan = buildInstallPlan({
+                guild: makeGuild(),
+                journey: ADOPTING,
+                existingBindings: [],
+            });
+
+            const welcome = itemFor(plan.items, 'welcome-channel');
+            expect(welcome.action).toBe('blocked');
+            expect(welcome.reason).toMatch(/chan-declared.*does not exist/i);
+        });
+
+        it('blocks a category adopting a text channel rather than letting apply throw', () => {
+            // The plan used to ask only `channels.cache.has(id)`, which is true for a
+            // text channel handed to a resource declared as a category. `apply`'s
+            // `requireAdoptable` checks the type and refuses — so the plan showed an
+            // applicable adopt, got approved, and threw mid-apply with earlier
+            // resources already created.
+            const plan = buildInstallPlan({
+                guild: makeGuild({
+                    channels: [{ id: 'chan-text', name: 'welcome', type: ChannelType.GuildText }],
+                }),
+                journey: {
+                    journeyKey: 'onboarding',
+                    name: 'Onboarding',
+                    resources: [
+                        {
+                            key: 'arrivals-category',
+                            kind: 'category',
+                            defaultName: 'Arrivals',
+                            adoptDiscordId: 'chan-text',
+                        },
+                    ],
+                },
+                existingBindings: [],
+            });
+
+            const category = itemFor(plan.items, 'arrivals-category');
+            expect(category.action).toBe('blocked');
+            expect(category.reason).toMatch(/is not a category/i);
+            expect(isPlanApplicable(plan)).toBe(false);
+        });
+
+        it('blocks a text channel adopting a category', () => {
+            const plan = buildInstallPlan({
+                guild: makeGuild({
+                    channels: [
+                        { id: 'cat-x', name: 'Arrivals', type: ChannelType.GuildCategory },
+                    ],
+                }),
+                journey: {
+                    journeyKey: 'onboarding',
+                    name: 'Onboarding',
+                    resources: [
+                        {
+                            key: 'welcome-channel',
+                            kind: 'textChannel',
+                            defaultName: 'welcome',
+                            adoptDiscordId: 'cat-x',
+                        },
+                    ],
+                },
+                existingBindings: [],
+            });
+
+            expect(itemFor(plan.items, 'welcome-channel').action).toBe('blocked');
+        });
+
+        it('lets an install-time choice override the declaration', () => {
+            const plan = buildInstallPlan({
+                guild: makeGuild({
+                    channels: [
+                        { id: 'chan-declared', name: 'welcome', type: ChannelType.GuildText },
+                        { id: 'chan-chosen', name: 'hello', type: ChannelType.GuildText },
+                    ],
+                }),
+                journey: ADOPTING,
+                existingBindings: [],
+                choices: { 'welcome-channel': { adoptDiscordId: 'chan-chosen' } },
+            });
+
+            expect(itemFor(plan.items, 'welcome-channel').discordId).toBe('chan-chosen');
+        });
+
+        it('still lets a settled binding win over a declared adoption', () => {
+            // Re-running install must converge, not rebind to something else.
+            const plan = buildInstallPlan({
+                guild: makeGuild({
+                    channels: [
+                        { id: 'chan-existing', name: 'welcome', type: ChannelType.GuildText },
+                        { id: 'chan-declared', name: 'other', type: ChannelType.GuildText },
+                    ],
+                }),
+                journey: ADOPTING,
+                existingBindings: [binding({})],
+            });
+
+            const welcome = itemFor(plan.items, 'welcome-channel');
+            expect(welcome.action).toBe('reuse');
+            expect(welcome.discordId).toBe('chan-existing');
+        });
+    });
+
     describe('permission intents are checked at plan time', () => {
         const JOURNEY_WITH_SUBJECT: JourneyDeclaration = {
             journeyKey: 'verification',

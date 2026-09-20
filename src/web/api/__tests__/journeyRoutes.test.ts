@@ -144,6 +144,56 @@ describe('journey routes', () => {
         expect(repo.create).not.toHaveBeenCalled();
     });
 
+    it('rejects an adoption id that is not a snowflake', async () => {
+        // A non-id reaching the plan surfaces as "this channel does not exist", which
+        // sends the operator looking for a deletion that never happened.
+        const response = await post({
+            journeyKey: 'qa',
+            name: 'Q&A',
+            resources: [
+                {
+                    key: 'qa-channel',
+                    kind: 'textChannel',
+                    defaultName: 'questions',
+                    adoptDiscordId: 'not-a-snowflake',
+                },
+            ],
+        });
+
+        expect(response.status).toBe(400);
+        const body = (await response.json()) as { error: string };
+        expect(body.error).toMatch(/17 to 20 digits/i);
+        expect(repo.create).not.toHaveBeenCalled();
+    });
+
+    it('accepts a resource adopting a real snowflake', async () => {
+        repo.getByKey.mockResolvedValue(null);
+        repo.create.mockResolvedValue(journeyRow());
+
+        const response = await post({
+            journeyKey: 'qa',
+            name: 'Q&A',
+            resources: [
+                {
+                    key: 'qa-channel',
+                    kind: 'textChannel',
+                    defaultName: 'questions',
+                    adoptDiscordId: '100000000000000001',
+                },
+            ],
+        });
+
+        expect(response.status).toBe(201);
+        // The field must survive to the repo — a schema that parses it and drops it
+        // is worse than one that rejects it, because the panel would look like it
+        // worked and install would create a duplicate channel.
+        expect(repo.create).toHaveBeenCalledWith(
+            expect.objectContaining({
+                resources: [expect.objectContaining({ adoptDiscordId: '100000000000000001' })],
+            })
+        );
+    });
+
     it('rejects a `roles` permission that names no roles', async () => {
         const response = await post({
             journeyKey: 'qa',
