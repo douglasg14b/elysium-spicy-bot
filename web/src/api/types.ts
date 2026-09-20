@@ -607,6 +607,65 @@ export interface DeployResult {
     messageId: string;
 }
 
+/** A message in the guild carrying this flow's trigger buttons. */
+export interface PublishedButtonMessage {
+    channelId: string;
+    messageId: string;
+    nodeIds: string[];
+}
+
+/**
+ * A channel or role this flow's journey put in the guild.
+ *
+ * `refused` means unpublishing will leave it alone — it was adopted rather than
+ * created, or it is a category still holding something. `explanation` is why, and is
+ * the part a dialog must show rather than bury under a count.
+ */
+export interface PublishedResource {
+    resourceKey: string;
+    kind: string;
+    name: string;
+    discordId?: string;
+    refused: boolean;
+    explanation?: string;
+}
+
+/**
+ * What a flow currently has live in the guild.
+ *
+ * Mirrors `PublishedFlowState` in `src/features/flows/logic/publishedFlowState.ts`.
+ *
+ * `mayHaveUnrecordedButtons` is always true and comes from the server rather than
+ * being assumed here: buttons posted before the recording table existed had their
+ * message ids thrown away, so nothing can find them. An empty list does not mean
+ * nothing is published, and the dialog has to say so.
+ */
+export interface PublishedFlowState {
+    buttonMessages: PublishedButtonMessage[];
+    deletableResources: PublishedResource[];
+    refusedResources: PublishedResource[];
+    mayHaveUnrecordedButtons: boolean;
+}
+
+export type UndeployOutcome = 'removed' | 'alreadyGone' | 'failed';
+
+export interface UndeployedButtonMessage {
+    channelId: string;
+    messageId: string;
+    outcome: UndeployOutcome;
+    explanation?: string;
+}
+
+export type UnpublishOutcome = 'deleted' | 'forgotten' | 'refused' | 'failed';
+
+export interface UnpublishedResource {
+    resourceKey: string;
+    kind: string;
+    name: string;
+    outcome: UnpublishOutcome;
+    explanation?: string;
+}
+
 /**
  * One reason a save was refused, addressed to the thing that caused it.
  *

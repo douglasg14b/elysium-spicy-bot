@@ -8,6 +8,9 @@ import type {
     FlowSummary,
     GuildRole,
     NodeDescriptor,
+    PublishedFlowState,
+    UndeployedButtonMessage,
+    UnpublishedResource,
 } from './types';
 
 /** The node registry — what the palette can offer. Not guild-scoped. */
@@ -56,4 +59,36 @@ export function deployFlow(
     channelId: string
 ): Promise<DeployResult> {
     return api.post<DeployResult>(`/api/guilds/${guildId}/flows/${flowId}/deploy`, { channelId });
+}
+
+/**
+ * What this flow has live in the guild right now.
+ *
+ * The delete dialog asks before it offers to delete anything, because deleting a flow
+ * deliberately leaves all of it behind.
+ */
+export function getPublishedState(guildId: string, flowId: string): Promise<PublishedFlowState> {
+    return api.get<PublishedFlowState>(`/api/guilds/${guildId}/flows/${flowId}/published`);
+}
+
+/** Deletes the messages carrying this flow's buttons. Safe after the flow is gone. */
+export function undeployFlow(
+    guildId: string,
+    flowId: string
+): Promise<{ results: UndeployedButtonMessage[] }> {
+    return api.post<{ results: UndeployedButtonMessage[] }>(
+        `/api/guilds/${guildId}/flows/${flowId}/undeploy`,
+        {}
+    );
+}
+
+/** Destroys the channels and roles this flow's journey created. Irreversible. */
+export function unpublishFlow(
+    guildId: string,
+    flowId: string
+): Promise<{ results: UnpublishedResource[] }> {
+    return api.post<{ results: UnpublishedResource[] }>(
+        `/api/guilds/${guildId}/flows/${flowId}/unpublish`,
+        {}
+    );
 }
