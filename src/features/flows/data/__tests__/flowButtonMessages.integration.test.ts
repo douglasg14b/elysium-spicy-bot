@@ -1,7 +1,7 @@
 import SqliteDatabase from 'better-sqlite3';
 import { CamelCasePlugin, Kysely, SqliteDialect, sql } from 'kysely';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { up as createFlowButtonMessages } from '../../../../features-system/data-persistence/migrations/2026-09-19-Create_Flow_Button_Messages';
+import { up as createFlowButtonMessages } from '../../../../features-system/data-persistence/migrations/2026-09-20-Create_Flow_Button_Messages';
 
 /**
  * The button-message table against real SQL.
