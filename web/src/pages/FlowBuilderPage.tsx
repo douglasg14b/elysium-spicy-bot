@@ -68,6 +68,15 @@ import { FlowNodeCard, type FlowCardNode, type FlowNodeCardData } from '../flows
 // Aliased: `FlowEdge` is already taken here by the serialized-graph edge type from
 // `../api/types`. The component draws one of those; it is not one.
 import { FlowEdge as FlowEdgeComponent, EdgeActionsProvider } from '../flows/FlowEdge';
+import { ColumnResizeHandle } from '../flows/ColumnResizeHandle';
+import {
+    INSPECTOR_DEFAULT_WIDTH,
+    INSPECTOR_MAX_WIDTH,
+    INSPECTOR_MIN_WIDTH,
+    INSPECTOR_WIDTH_STORAGE_KEY,
+    clampWidth,
+    readStoredWidth,
+} from '../flows/resizableColumn';
 import { graphIncluding } from '../flows/graphHistory';
 import { availableVariablesAt } from '../flows/variables';
 import { NodePalette, NODE_DRAG_MIME } from '../flows/NodePalette';
@@ -184,6 +193,27 @@ function FlowBuilder() {
     const [resourcesSaving, setResourcesSaving] = useState(false);
     const [resourcesError, setResourcesError] = useState<string | null>(null);
     const [showResources, setShowResources] = useState(false);
+
+    /*
+     * How wide the inspector is, restored from the last session.
+     *
+     * A workspace preference rather than per-flow state: the operator's screen and
+     * their tolerance for a dense panel do not change when they open a different
+     * flow. Read lazily so the parse happens once on mount instead of every render.
+     */
+    const [inspectorWidth, setInspectorWidth] = useState(() =>
+        readStoredWidth(
+            typeof window === 'undefined' ? null : window.localStorage.getItem(INSPECTOR_WIDTH_STORAGE_KEY),
+            INSPECTOR_DEFAULT_WIDTH,
+            { min: INSPECTOR_MIN_WIDTH, max: INSPECTOR_MAX_WIDTH }
+        )
+    );
+
+    const resizeInspector = useCallback((width: number) => {
+        const clamped = clampWidth(width, { min: INSPECTOR_MIN_WIDTH, max: INSPECTOR_MAX_WIDTH });
+        setInspectorWidth(clamped);
+        window.localStorage.setItem(INSPECTOR_WIDTH_STORAGE_KEY, String(clamped));
+    }, []);
 
     const [name, setName] = useState('');
     const [enabled, setEnabled] = useState(false);
@@ -915,12 +945,17 @@ function FlowBuilder() {
                 </div>
                 </EdgeActionsProvider>
 
+                <ColumnResizeHandle
+                    width={inspectorWidth}
+                    onResize={resizeInspector}
+                    label="Inspector width"
+                />
+
                 <div
                     style={{
-                        width: 300,
+                        width: inspectorWidth,
                         flexShrink: 0,
                         background: 'var(--mantine-color-dark-8)',
-                        borderLeft: '1px solid var(--mantine-color-dark-5)',
                         overflow: 'hidden',
                     }}
                 >
