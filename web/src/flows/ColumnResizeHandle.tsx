@@ -1,11 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { INSPECTOR_MAX_WIDTH, INSPECTOR_MIN_WIDTH, widthFromDrag, type ResizeBounds } from './resizableColumn';
+import {
+    INSPECTOR_MAX_WIDTH,
+    INSPECTOR_MIN_WIDTH,
+    widthFromDrag,
+    type ColumnAnchor,
+    type ResizeBounds,
+} from './resizableColumn';
 
 interface ColumnResizeHandleProps {
     /** The column's width right now, used as the drag's origin. */
     width: number;
     onResize: (width: number) => void;
     bounds?: ResizeBounds;
+    /** Which edge the column is pinned to. Decides which way a drag widens it. */
+    anchor?: ColumnAnchor;
     /** Announced to screen readers, e.g. "inspector width". */
     label: string;
 }
@@ -26,7 +34,13 @@ const KEYBOARD_STEP = 16;
  * Exposed as a `separator` with arrow-key support because a drag-only control is
  * unusable without a pointer, and this one has no menu equivalent to fall back on.
  */
-export function ColumnResizeHandle({ width, onResize, bounds = DEFAULT_BOUNDS, label }: ColumnResizeHandleProps) {
+export function ColumnResizeHandle({
+    width,
+    onResize,
+    bounds = DEFAULT_BOUNDS,
+    anchor = 'right',
+    label,
+}: ColumnResizeHandleProps) {
     const [dragging, setDragging] = useState(false);
     const [hovered, setHovered] = useState(false);
 
@@ -51,7 +65,9 @@ export function ColumnResizeHandle({ width, onResize, bounds = DEFAULT_BOUNDS, l
         if (!dragging) return;
 
         const onPointerMove = (event: PointerEvent) => {
-            onResize(widthFromDrag(origin.current.width, event.clientX - origin.current.pointerX, bounds));
+            onResize(
+                widthFromDrag(origin.current.width, event.clientX - origin.current.pointerX, bounds, anchor)
+            );
         };
         const stop = () => setDragging(false);
 
@@ -76,18 +92,21 @@ export function ColumnResizeHandle({ width, onResize, bounds = DEFAULT_BOUNDS, l
             document.body.style.cursor = previousCursor;
             document.body.style.userSelect = previousSelect;
         };
-    }, [dragging, onResize, bounds]);
+    }, [dragging, onResize, bounds, anchor]);
 
     const onKeyDown = useCallback(
         (event: React.KeyboardEvent<HTMLDivElement>) => {
-            // Left widens, matching the drag: the column is anchored right.
-            const step = event.key === 'ArrowLeft' ? KEYBOARD_STEP : event.key === 'ArrowRight' ? -KEYBOARD_STEP : 0;
-            if (step === 0) return;
+            // Fed through `widthFromDrag` as a pointer delta rather than applied
+            // directly, so the arrow keys inherit the anchor's sign instead of
+            // carrying a second copy of it that could disagree with the drag.
+            const delta =
+                event.key === 'ArrowLeft' ? -KEYBOARD_STEP : event.key === 'ArrowRight' ? KEYBOARD_STEP : 0;
+            if (delta === 0) return;
 
             event.preventDefault();
-            onResize(widthFromDrag(width, -step, bounds));
+            onResize(widthFromDrag(width, delta, bounds, anchor));
         },
-        [width, onResize, bounds]
+        [width, onResize, bounds, anchor]
     );
 
     return (

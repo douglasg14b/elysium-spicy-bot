@@ -11,8 +11,18 @@ export const INSPECTOR_MIN_WIDTH = 280;
 export const INSPECTOR_MAX_WIDTH = 720;
 export const INSPECTOR_DEFAULT_WIDTH = 320;
 
-/** Where the persisted width lives. Per-browser, not per-flow: it is a workspace preference. */
+/**
+ * Palette bounds. A shorter ceiling than the inspector's, deliberately: the palette
+ * holds a list of node names, so past a point extra width buys whitespace and costs
+ * canvas. The floor is where the longest block name starts truncating.
+ */
+export const PALETTE_MIN_WIDTH = 180;
+export const PALETTE_MAX_WIDTH = 420;
+export const PALETTE_DEFAULT_WIDTH = 232;
+
+/** Where the persisted widths live. Per-browser, not per-flow: they are workspace preferences. */
 export const INSPECTOR_WIDTH_STORAGE_KEY = 'brattybot.flowBuilder.inspectorWidth';
+export const PALETTE_WIDTH_STORAGE_KEY = 'brattybot.flowBuilder.paletteWidth';
 
 export interface ResizeBounds {
     readonly min: number;
@@ -20,15 +30,30 @@ export interface ResizeBounds {
 }
 
 /**
+ * Which edge of the layout a column is pinned to.
+ *
+ * The only thing that differs between the palette and the inspector, and it has to
+ * be said explicitly because it is unguessable from inside the handle: the same
+ * rightward drag widens a left-anchored column and narrows a right-anchored one.
+ */
+export type ColumnAnchor = 'left' | 'right';
+
+/**
  * The width a drag has reached, clamped to its bounds.
  *
- * `delta` is the pointer's movement along the x-axis. The inspector is anchored
- * to the **right** edge, so dragging left (a negative delta) makes it *wider* —
- * hence the subtraction. A left-anchored column would add, which is why the sign
- * lives here in one named place rather than inline at the call site.
+ * `delta` is the pointer's movement along the x-axis. A **right**-anchored column
+ * (the inspector) grows as the pointer moves left, so its delta is subtracted; a
+ * **left**-anchored one (the palette) grows as the pointer moves right. Both signs
+ * live here, in one named place, rather than inline at two call sites where one of
+ * them would eventually be copied wrong.
  */
-export function widthFromDrag(startWidth: number, delta: number, bounds: ResizeBounds): number {
-    return clampWidth(startWidth - delta, bounds);
+export function widthFromDrag(
+    startWidth: number,
+    delta: number,
+    bounds: ResizeBounds,
+    anchor: ColumnAnchor = 'right'
+): number {
+    return clampWidth(anchor === 'right' ? startWidth - delta : startWidth + delta, bounds);
 }
 
 /**

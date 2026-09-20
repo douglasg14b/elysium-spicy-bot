@@ -75,8 +75,13 @@ import {
     INSPECTOR_MAX_WIDTH,
     INSPECTOR_MIN_WIDTH,
     INSPECTOR_WIDTH_STORAGE_KEY,
+    PALETTE_DEFAULT_WIDTH,
+    PALETTE_MAX_WIDTH,
+    PALETTE_MIN_WIDTH,
+    PALETTE_WIDTH_STORAGE_KEY,
     clampWidth,
     readStoredWidth,
+    type ResizeBounds,
 } from '../flows/resizableColumn';
 import { graphIncluding } from '../flows/graphHistory';
 import { issuesByNode, summarizeIssues } from '../flows/validationIssues';
@@ -172,6 +177,45 @@ function snapshot(source: Snapshot): Snapshot {
     };
 }
 
+/**
+ * A column width that survives a reload.
+ *
+ * A workspace preference rather than per-flow state: the operator's screen and
+ * their tolerance for a dense panel do not change when they open a different flow.
+ * Read lazily so the parse happens once on mount rather than every render, and
+ * clamped on the way in *and* out, because `localStorage` is a string an older
+ * build may have written under different bounds.
+ */
+function useStoredWidth(
+    storageKey: string,
+    fallback: number,
+    bounds: ResizeBounds
+): [number, (width: number) => void] {
+    const [width, setWidth] = useState(() =>
+        readStoredWidth(
+            typeof window === 'undefined' ? null : window.localStorage.getItem(storageKey),
+            fallback,
+            bounds
+        )
+    );
+
+    const resize = useCallback(
+        (next: number) => {
+            const clamped = clampWidth(next, bounds);
+            setWidth(clamped);
+            window.localStorage.setItem(storageKey, String(clamped));
+        },
+        // `bounds` is an object literal at both call sites, so a new reference every
+        // render — depending on it would rebuild this callback each time and, through
+        // the handle's effect, tear down and re-register the drag listeners mid-drag.
+        // The values behind it are module constants, so the identity is noise.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [storageKey, bounds.min, bounds.max]
+    );
+
+    return [width, resize];
+}
+
 export function FlowBuilderPage() {
     return (
         <ReactFlowProvider>
@@ -204,26 +248,15 @@ function FlowBuilder() {
     const [resourcesError, setResourcesError] = useState<string | null>(null);
     const [showResources, setShowResources] = useState(false);
 
-    /*
-     * How wide the inspector is, restored from the last session.
-     *
-     * A workspace preference rather than per-flow state: the operator's screen and
-     * their tolerance for a dense panel do not change when they open a different
-     * flow. Read lazily so the parse happens once on mount instead of every render.
-     */
-    const [inspectorWidth, setInspectorWidth] = useState(() =>
-        readStoredWidth(
-            typeof window === 'undefined' ? null : window.localStorage.getItem(INSPECTOR_WIDTH_STORAGE_KEY),
-            INSPECTOR_DEFAULT_WIDTH,
-            { min: INSPECTOR_MIN_WIDTH, max: INSPECTOR_MAX_WIDTH }
-        )
+    const [inspectorWidth, resizeInspector] = useStoredWidth(
+        INSPECTOR_WIDTH_STORAGE_KEY,
+        INSPECTOR_DEFAULT_WIDTH,
+        { min: INSPECTOR_MIN_WIDTH, max: INSPECTOR_MAX_WIDTH }
     );
-
-    const resizeInspector = useCallback((width: number) => {
-        const clamped = clampWidth(width, { min: INSPECTOR_MIN_WIDTH, max: INSPECTOR_MAX_WIDTH });
-        setInspectorWidth(clamped);
-        window.localStorage.setItem(INSPECTOR_WIDTH_STORAGE_KEY, String(clamped));
-    }, []);
+    const [paletteWidth, resizePalette] = useStoredWidth(PALETTE_WIDTH_STORAGE_KEY, PALETTE_DEFAULT_WIDTH, {
+        min: PALETTE_MIN_WIDTH,
+        max: PALETTE_MAX_WIDTH,
+    });
 
     const [name, setName] = useState('');
     const [enabled, setEnabled] = useState(false);
@@ -923,14 +956,22 @@ function FlowBuilder() {
             <Group gap={0} align="stretch" wrap="nowrap" style={{ flex: 1, minHeight: 0 }}>
                 <div
                     style={{
-                        width: 232,
+                        width: paletteWidth,
                         flexShrink: 0,
                         background: 'var(--mantine-color-dark-8)',
-                        borderRight: '1px solid var(--mantine-color-dark-5)',
+                        overflow: 'hidden',
                     }}
                 >
                     <NodePalette nodeTypes={nodeCatalog} onAdd={(entry) => addNode(entry)} />
                 </div>
+
+                <ColumnResizeHandle
+                    width={paletteWidth}
+                    onResize={resizePalette}
+                    bounds={{ min: PALETTE_MIN_WIDTH, max: PALETTE_MAX_WIDTH }}
+                    anchor="left"
+                    label="Palette width"
+                />
 
                 {/*
                  * Wraps the canvas rather than sitting inside it: the edges React

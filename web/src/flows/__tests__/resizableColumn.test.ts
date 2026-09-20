@@ -28,6 +28,19 @@ describe('widthFromDrag', () => {
     it('stops at the maximum however far the drag runs', () => {
         expect(widthFromDrag(400, -10_000, BOUNDS)).toBe(INSPECTOR_MAX_WIDTH);
     });
+
+    it('runs the other way for a left-anchored column', () => {
+        // The palette is pinned to the left, so the same rightward drag that
+        // narrows the inspector widens it. One function owns both signs precisely
+        // so the second call site cannot inherit the first one's.
+        expect(widthFromDrag(232, 60, BOUNDS, 'left')).toBe(292);
+        expect(widthFromDrag(232, -60, BOUNDS, 'right')).toBe(292);
+    });
+
+    it('still clamps a left-anchored drag', () => {
+        expect(widthFromDrag(232, 10_000, BOUNDS, 'left')).toBe(INSPECTOR_MAX_WIDTH);
+        expect(widthFromDrag(232, -10_000, BOUNDS, 'left')).toBe(INSPECTOR_MIN_WIDTH);
+    });
 });
 
 describe('readStoredWidth', () => {
