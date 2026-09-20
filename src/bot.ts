@@ -11,15 +11,13 @@ import { initBirthdayFeature, startBirthdayAnnouncementScheduler, stopBirthdayAn
 import { initLeveling, stopLeveling } from './features/leveling';
 import { initWarnings } from './features/warnings';
 import { initFlows, stopFlowRunScheduler } from './features/flows';
-import { buildInstallJourneyCommand, handleInstallJourney, initProvisioning } from './features/provisioning';
 import { startWebServer, stopWebServer } from './web/server';
 
 interactionsRegistry.register(flashChatCommand, handleFlashChatCommand);
 interactionsRegistry.register(deployTicketSystemCommand, handleDeployTicketSystem);
-// Initialize server provisioning (registers journeys + the apply button). Must run
-// before the command is built, because its journey choices come from the registry.
-initProvisioning();
-interactionsRegistry.register(buildInstallJourneyCommand(), handleInstallJourney);
+// Provisioning has no Discord surface. Journeys are per-guild rows and slash commands
+// register globally, so a command could never offer a real journey picker — installing
+// and tearing down guild resources belongs to the dashboard, which knows the guild.
 
 // Initialize ticket system handlers
 initTicketsFeature();

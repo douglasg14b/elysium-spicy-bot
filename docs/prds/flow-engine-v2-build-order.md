@@ -760,28 +760,37 @@ This contradicts the stated intent of the whole programme — *a system an opera
 2. **A declared resource is selectable before it exists.** Declare `qa-channel`, and pickers in that journey's flows offer it beside real channels. Building a flow no longer requires creating its channels by hand first, which is the capability the whole step is for.
 3. **Config values carry a key *and* a cached snowflake.** The key is canonical; the id is a cached resolution. Install still writes ids in — "install writes snowflakes" and "resource keys" were never actually in conflict. Keeping the key is what makes a deleted-and-recreated channel repairable by re-installing rather than by editing every flow, and what lets a graph move to a second guild.
 4. **Journeys are created implicitly with a flow.** No journeys page. Grouping several flows under one journey is **deferred** — recorded in §5.8, wanted later, not designed now.
-5. **The dashboard is the surface.** `/install-journey` goes away rather than becoming a second way to do the same thing.
+5. **The dashboard is the surface.** `/install-journey` goes away rather than becoming a second way to do the same thing. — **Done 2026-09-20**: the command and its Apply button are deleted; see open item 7 below.
 
 ### Still open in 5A
 
 Closed on 2026-09-19 (`d6c564c`, `78c965c`, `a2daa4d`, `2ff6bc0`):
 
 1. ~~**Journey authoring does not exist.**~~ Journeys are rows in a `journeys` table, authored per guild through `/api/guilds/:guildId/journeys` and a Resources panel in the flow builder. The in-memory registry and the bundled onboarding example are deleted — a fresh install has zero journeys until an operator creates one.
-2. ~~**Write-back has no caller.**~~ `applyResourcesToFlows` resolves a journey's bindings and writes the ids into the node configs that picked them, run by the apply handler after a successful install.
+2. ~~**Write-back has no caller.**~~ `applyResourcesToFlows` resolves a journey's bindings and writes the ids into the node configs that picked them, run after a successful install. (Called by the Apply button when this was written; by `runInstall` since, which is the one sequence every install surface goes through.)
 3. ~~**`resolveJourneyResources` has no caller.**~~ Called by the above, and its `stale` half is what separates "re-run install" from "never installed".
+
+Closed on 2026-09-20:
+
+7. ~~**`/install-journey` still exists.**~~ The dashboard can install (`GET .../install-plan` + `POST .../install`, `cee325d`), so the command and its Apply button were deleted along with `initProvisioning`, which had nothing left to wire. Provisioning now has **no Discord surface at all**: the dashboard is the only way to provision or tear down guild resources, which teardown already was.
+
+   Three things are worth recording about the deletion:
+
+   - **No capability was lost.** The command's `staff-role` options were the only thing it supplied that the plan could not derive, and guild settings now hold staff roles (§5.12) — which is where they belonged, since which roles are staff is a guild fact, not a per-install one.
+   - **The 100-character `custom_id` smuggling is gone with it.** `buildApplyCustomId` packed the journey key and staff role ids into the Apply button and returned `undefined` rather than truncate, so an operator with too many staff roles was refused an install the dashboard has no trouble with. That constraint was never about provisioning; it was Discord's, and it left with the surface that had it.
+   - **Global registration needs no de-registration step.** `registerCommandsWithDiscord` does a bulk `PUT` to `Routes.applicationCommands`, which is a full overwrite — a command absent from the next boot's payload is dropped by Discord. Nothing has to actively delete it.
 
 Still open:
 
 4. **Nothing has ever run against Discord.** No channel, role, or overwrite has been created. Every test uses a fake guild.
 5. **The Resources panel has never been rendered in a browser.** Vite compiles it; nobody has looked at it. A layout or empty-state fault would not show up in any test written so far.
 6. **The live run**, which is what actually closes the step.
-7. **`/install-journey` still exists.** It survives on a free-text journey key because slash commands register globally while journeys are per guild — a static choice list can never know a guild's journeys. It goes once the dashboard can install (decision 5).
 
 #### What the three closed items changed structurally
 
 - **The flow↔journey association lives on `journeys`, not on `flows`.** `flows.journey_key` was drafted and rejected by the engine-vocabulary gate, which then rejected `resource_scope_key` for `resource` and `scope`. The gate is right: the interpreter has no concept of any of them — it executes a graph whose configs already hold ids. The column is `journeys.created_for_flow_id`.
 - **A picked resource is a sidecar key, not a structured value.** `roleId` keeps holding a snowflake because the block hands it to `roles.add()` unchanged; `roleIdKey` records the declaration. A structured value would have cost seven block schemas, every executor read, and a graph migration, to say what a sibling key already says.
-- **Provisioning reaches write-back through a registered callback.** A direct import was written first and was wrong — the apply button lives inside `features/provisioning`, so it inherits the barrel's no-flows rule. A test now enforces the boundary.
+- **Provisioning reaches write-back through a registered callback.** A direct import was written first and was wrong — the call site lives inside `features/provisioning`, so it inherits the barrel's no-flows rule. A test now enforces the boundary. (The call site was the Apply button at the time; it is `runInstall` since that command was deleted, and the rule is unchanged.)
 
 ### How this step ends
 

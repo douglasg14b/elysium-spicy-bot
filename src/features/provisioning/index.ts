@@ -4,8 +4,6 @@
 // under `src/features/flows/`. Flows (and commands, and the web API) reach in
 // through this barrel, and the dependency stays one-directional by design.
 export * from './provisioningService';
-export { initProvisioning } from './initProvisioning';
-export { buildInstallJourneyCommand, handleInstallJourney } from './commands/installJourneyCommand';
 
 // Journeys are rows, scoped to a guild. The engine ships none of its own: what is
 // installable is whatever an operator has authored for that server.
@@ -47,8 +45,9 @@ export { isPlanApplicable } from './logic/installPlan';
 
 // The whole install sequence — rebuild, re-check, apply, write back — as one call.
 // Every surface that offers an install goes through this, so the steps cannot be
-// half-remembered by a second copy. `/install-journey`'s Apply button and the
-// dashboard's install route are both callers.
+// half-remembered by a second copy. The dashboard's install route is the only caller
+// now that the Discord command is retired; the seam stays because the steps are the
+// contract, not because a second surface is expected.
 export { runInstall } from './logic/runInstall';
 export type { InstallRunOutcome, RunInstallInput } from './logic/runInstall';
 

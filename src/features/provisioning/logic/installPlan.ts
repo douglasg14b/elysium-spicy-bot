@@ -50,10 +50,11 @@ export interface InstallPlan {
 /**
  * A binding the operator has chosen for a resource key, from the install form.
  *
- * **Nothing supplies this today.** Both production callers of `previewInstall`
- * (`installJourneyCommand` and `applyJourneyButton`) omit `choices` entirely — there
- * is no install form yet, so in practice every adoption comes from the declaration's
- * own `adoptDiscordId` and this type is exercised only by tests.
+ * **Nothing supplies this today.** The dashboard's install-plan and install routes are
+ * the only production callers of `previewInstall`, and both omit `choices` entirely —
+ * the review dialog confirms a plan rather than editing one, so in practice every
+ * adoption comes from the declaration's own `adoptDiscordId` and this type is
+ * exercised only by tests.
  *
  * Kept, and ordered ahead of the declaration, because the two answer different
  * questions: the declaration is the author's standing preference, and this is the

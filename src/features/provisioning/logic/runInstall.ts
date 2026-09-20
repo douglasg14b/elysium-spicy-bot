@@ -8,14 +8,14 @@ import type { AppliedResource } from './applyInstallPlan';
 /**
  * The one sequence that installs a journey, for every surface that offers to.
  *
- * Extracted from `applyJourneyButton`, which was the only caller until the dashboard
- * grew an install route. The steps are not incidental to Discord — each one is load
- * bearing, and a second copy would be a second place for one of them to go missing:
+ * Extracted from the retired `/install-journey` Apply button so the dashboard's install
+ * route could share one sequence; that route is now the only caller. The steps are not
+ * incidental to whichever surface calls them — each one is load bearing, and a second
+ * copy would be a second place for one of them to go missing:
  *
- *   1. **rebuild the plan** rather than accept the approved one. The button could not
- *      carry a plan through a 100-character `custom_id`; the browser could POST one,
- *      and must not be allowed to, because a plan on the wire is a list of snowflakes
- *      a client asked us to mutate. Rebuilding is the same answer to both.
+ *   1. **rebuild the plan** rather than accept the approved one. The browser could POST
+ *      one, and must not be allowed to, because a plan on the wire is a list of
+ *      snowflakes a client asked us to mutate.
  *   2. **re-check applicability**, so a guild that drifted between preview and press
  *      is caught here rather than failing partway through the apply.
  *   3. **apply**, which may stop partway and still have created real objects.

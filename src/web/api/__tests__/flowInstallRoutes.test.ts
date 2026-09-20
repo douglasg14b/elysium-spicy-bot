@@ -254,8 +254,8 @@ describe('the journey must belong to this flow', () => {
         expect(response.status).toBe(409);
         const { error } = (await response.json()) as ErrorBody;
         expect(error).toContain('not created by this flow');
-        // `/install-journey` is being retired, so no refusal may send an operator
-        // there — including this one, which is not about staff roles at all.
+        // `/install-journey` is gone, so no refusal may send an operator there —
+        // including this one, which is not about staff roles at all.
         expect(error).not.toContain('/install-journey');
         expect(installJourneyMock).not.toHaveBeenCalled();
         expect(runResourceWriteBackMock).not.toHaveBeenCalled();
@@ -540,7 +540,7 @@ describe('a journey that grants access to staff', () => {
     });
 
     it('points the operator at the settings page rather than the retired command', async () => {
-        // `/install-journey` is being deleted, so naming it here would send the
+        // `/install-journey` has been deleted, so naming it here would send the
         // operator somewhere that no longer exists.
         guildSettingsRepoMock.getStaffRoleIds.mockResolvedValue([]);
 

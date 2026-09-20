@@ -78,8 +78,9 @@ function nounsFor(kind: string): KindNouns {
  *
  * Lives here rather than in the component for the reason the whole module does: a
  * two-way `kind === 'role' ? 'role' : 'channel'` inside JSX is a decision nothing can
- * test, and that exact shape is what called a category a channel. `applyJourneyButton.ts`
- * renders the Discord side from `kind` rather than the key shape for a related reason.
+ * test, and that exact shape is what called a category a channel. Rendering from the
+ * declared `kind` rather than from the shape of the resource key is the rule; the
+ * retired Discord apply button learned it the same way.
  */
 export function kindLabel(kind: ResourceKind): string {
     return KIND_NOUNS[kind].one;

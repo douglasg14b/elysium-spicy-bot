@@ -2,10 +2,6 @@ import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { describe, expect, it } from 'vitest';
-import {
-    INSTALL_JOURNEY_APPLY_ID,
-    buildInstallJourneyCommand,
-} from '../commands/installJourneyCommand';
 
 /**
  * That provisioning is reachable at run time.
@@ -32,18 +28,49 @@ const API_SOURCE = readFileSync(
     'utf8'
 );
 
-describe('provisioning is wired into the bot', () => {
-    it('registers the /install-journey slash command', () => {
-        expect(BOT_SOURCE).toMatch(/interactionsRegistry\.register\(\s*buildInstallJourneyCommand\(\)/);
+/**
+ * Strip comments before asserting a symbol is *absent*.
+ *
+ * `bot.ts` explains in prose why provisioning has no Discord surface, and that prose
+ * has to be free to name the thing it is explaining. Matching raw source would turn
+ * "document the deletion" into a failing test, whose obvious fix is to delete the
+ * explanation — the opposite of what these assertions are protecting.
+ */
+function codeOf(source: string): string {
+    return source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '');
+}
+
+const BOT_CODE = codeOf(BOT_SOURCE);
+
+describe('provisioning has no Discord surface', () => {
+    /*
+     * The inverse of what this block used to assert.
+     *
+     * `/install-journey` and its Apply button were the only way the bot itself could
+     * mutate a guild's channels and roles, and they were deleted once the dashboard
+     * could install: journeys are per-guild rows while slash commands register
+     * globally, so a command could never offer a real picker. Asserted rather than
+     * assumed because re-adding a Discord install path would quietly restore a second
+     * way to provision — the thing the dashboard was built to replace.
+     */
+    it('registers no provisioning command or component in bot.ts', () => {
+        expect(BOT_CODE).not.toMatch(/InstallJourney/);
+        expect(BOT_CODE).not.toMatch(/initProvisioning/);
+        expect(BOT_CODE).not.toMatch(/provisioning:apply/);
     });
 
-    it('calls initProvisioning, which registers the apply button', () => {
-        expect(BOT_SOURCE).toMatch(/initProvisioning\(\)/);
-    });
+    it('offers no install handler from the feature barrel', () => {
+        // A barrel export is how a deleted surface comes back by accident: something
+        // exported and then wired, rather than written from scratch.
+        const barrel = readFileSync(
+            join(dirname(fileURLToPath(import.meta.url)), '..', 'index.ts'),
+            'utf8'
+        );
 
-    it('imports from the feature barrel rather than deep paths', () => {
-        // Deep imports work and then rot; the barrel is the supported entry point.
-        expect(BOT_SOURCE).toMatch(/from '\.\/features\/provisioning'/);
+        const barrelCode = codeOf(barrel);
+
+        expect(barrelCode).not.toMatch(/handleInstallJourney|buildInstallJourneyCommand/);
+        expect(barrelCode).not.toMatch(/initProvisioning/);
     });
 });
 
@@ -57,45 +84,13 @@ describe('journey authoring is reachable', () => {
     });
 });
 
-describe('the install command surface', () => {
-    it('is named so an operator can find it', () => {
-        expect(buildInstallJourneyCommand().name).toBe('install-journey');
-    });
-
-    it('takes a free-text journey key rather than a fixed choice list', () => {
-        // Journeys are per-guild rows; slash commands are registered globally once.
-        // A static choice list could never reflect this guild's journeys, which is
-        // why this command is scheduled for deletion in favour of the dashboard.
-        const json = buildInstallJourneyCommand().toJSON();
-        const journeyOption = json.options?.find((option) => option.name === 'journey');
-
-        expect(journeyOption).toBeDefined();
-        expect((journeyOption as { choices?: unknown[] } | undefined)?.choices).toBeUndefined();
-    });
-
-    it('requires Manage Server', () => {
-        // Provisioning mutates guild structure; it must not be open to everyone.
-        expect(buildInstallJourneyCommand().toJSON().default_member_permissions).toBeTruthy();
-    });
-
-    it('leaves room for a journey key within the 100-character custom id limit', () => {
-        // The apply button's custom id is `${APPLY_ID}:${journeyKey}` plus staff role
-        // ids. The prefix has to be short enough that a realistic key still fits.
-        expect(`${INSTALL_JOURNEY_APPLY_ID}:`.length).toBeLessThan(40);
-    });
-});
-
 describe('the engine ships no journeys of its own', () => {
-    it('registers no journey at startup', async () => {
+    it('has no startup hook a journey could be registered in', () => {
         // The point of the whole authoring change: a fresh install has zero journeys
-        // until an operator creates one. A bundled journey re-registered here would
-        // silently restore the hardcoded-journey behaviour this replaced.
-        const initSource = readFileSync(
-            join(dirname(fileURLToPath(import.meta.url)), '..', 'initProvisioning.ts'),
-            'utf8'
-        );
-
-        expect(initSource).not.toMatch(/registerJourney/);
-        expect(initSource).not.toMatch(/JOURNEY\b/);
+        // until an operator creates one. `initProvisioning` used to be checked for a
+        // bundled registration; it was deleted with the Discord surface, so the
+        // property now holds for a stronger reason — provisioning runs nothing at
+        // startup, and bot.ts is where a re-added hook would have to appear.
+        expect(BOT_CODE).not.toMatch(/registerJourney/);
     });
 });

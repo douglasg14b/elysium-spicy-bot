@@ -38,8 +38,11 @@ const EXEMPT_SEGMENTS = ['journeys', '__tests__'];
  *
  * The composition root chooses *which* journeys ship; that is its job and the reason
  * the engine does not have to know. Everything else must be example-blind.
+ *
+ * `initProvisioning.ts` was the second entry until the Discord surface was retired;
+ * the barrel is all that is left of the root.
  */
-const COMPOSITION_ROOT = ['index.ts', 'initProvisioning.ts'];
+const COMPOSITION_ROOT = ['index.ts'];
 
 function sourceFilesUnder(directory: string): string[] {
     const found: string[] = [];
