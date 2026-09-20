@@ -14,7 +14,7 @@ import type { FlowButtonMessageEntity } from '../data/flowButtonMessagesSchema';
  * can be honest about what it actually did. The desired state — no live button — holds
  * either way.
  */
-export const UNDEPLOY_OUTCOMES = ['removed', 'alreadyGone', 'failed'] as const;
+const UNDEPLOY_OUTCOMES = ['removed', 'alreadyGone', 'failed'] as const;
 export type UndeployOutcome = (typeof UNDEPLOY_OUTCOMES)[number];
 
 export interface UndeployedButtonMessage {

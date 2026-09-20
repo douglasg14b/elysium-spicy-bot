@@ -37,8 +37,9 @@ const buttonMessagesRepoMock = {
 };
 
 vi.mock('../../../features/flows/data/flowsRepo', () => ({ flowsRepo: flowsRepoMock }));
+const journeysRepoMock = { getByKey: vi.fn() };
 vi.mock('../../../features/provisioning/data/journeysRepo', () => ({
-    journeysRepo: { getByKey: vi.fn() },
+    journeysRepo: journeysRepoMock,
 }));
 vi.mock('../../../features/flows/data/flowButtonMessagesRepo', () => ({
     flowButtonMessagesRepo: buttonMessagesRepoMock,
@@ -46,7 +47,6 @@ vi.mock('../../../features/flows/data/flowButtonMessagesRepo', () => ({
 }));
 vi.mock('../../../features/flows/logic/undeployFlowButtons', () => ({
     undeployFlowButtons: undeployMock,
-    UNDEPLOY_OUTCOMES: ['removed', 'alreadyGone', 'failed'],
 }));
 vi.mock('../../../features/provisioning', () => ({
     previewUnpublish: previewUnpublishMock,
@@ -133,6 +133,12 @@ describe('cleanup is reachable on its own', () => {
     });
 
     it('unpublishes only when asked directly', async () => {
+        journeysRepoMock.getByKey.mockResolvedValue({
+            journeyKey: FLOW_ID,
+            guildId: GUILD_ID,
+            createdForFlowId: FLOW_ID,
+            resources: [],
+        });
         previewUnpublishMock.mockResolvedValue({
             guildId: GUILD_ID,
             journeyKey: FLOW_ID,
@@ -146,5 +152,35 @@ describe('cleanup is reachable on its own', () => {
 
         expect(response.status).toBe(200);
         expect(unpublishMock).toHaveBeenCalled();
+    });
+
+    it('refuses to tear down a journey that belongs to a different flow', async () => {
+        // Journey keys are operator-supplied, so one can collide with a flow id it has
+        // nothing to do with. A URL shaped like a flow must not destroy someone else's
+        // provisioning.
+        journeysRepoMock.getByKey.mockResolvedValue({
+            journeyKey: FLOW_ID,
+            guildId: GUILD_ID,
+            createdForFlowId: 'a-completely-different-flow',
+            resources: [],
+        });
+
+        const response = await app().request(`/${GUILD_ID}/flows/${FLOW_ID}/unpublish`, {
+            method: 'POST',
+        });
+
+        expect(response.status).toBe(409);
+        expect(unpublishMock).not.toHaveBeenCalled();
+    });
+
+    it('refuses when the flow installed nothing at all', async () => {
+        journeysRepoMock.getByKey.mockResolvedValue(null);
+
+        const response = await app().request(`/${GUILD_ID}/flows/${FLOW_ID}/unpublish`, {
+            method: 'POST',
+        });
+
+        expect(response.status).toBe(404);
+        expect(unpublishMock).not.toHaveBeenCalled();
     });
 });

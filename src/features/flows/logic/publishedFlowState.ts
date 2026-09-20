@@ -112,12 +112,3 @@ function toPublishedResource(item: {
         explanation: item.explanation,
     };
 }
-
-/** Whether this flow has anything live at all that a delete would leave behind. */
-export function hasAnythingPublished(state: PublishedFlowState): boolean {
-    return (
-        state.buttonMessages.length > 0 ||
-        state.deletableResources.length > 0 ||
-        state.refusedResources.length > 0
-    );
-}

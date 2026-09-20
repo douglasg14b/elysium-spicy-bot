@@ -2,7 +2,7 @@ import type { Guild } from 'discord.js';
 import { resourceBindingsRepo, type ResourceBindingsRepo } from '../data/resourceBindingsRepo';
 import { existsInGuildAs } from './installPlan';
 import type { ResourceKind } from './resourceDeclaration';
-import type { UnpublishItem, UnpublishPlan } from './unpublishPlan';
+import { survivorsOf, type UnpublishItem, type UnpublishPlan } from './unpublishPlan';
 
 /**
  * What became of one item once the plan was carried out.
@@ -11,7 +11,7 @@ import type { UnpublishItem, UnpublishPlan } from './unpublishPlan';
  * operator was already shown why. `failed` is the new outcome: the delete was
  * attempted and Discord said no.
  */
-export const UNPUBLISH_OUTCOMES = ['deleted', 'forgotten', 'refused', 'failed'] as const;
+const UNPUBLISH_OUTCOMES = ['deleted', 'forgotten', 'refused', 'failed'] as const;
 export type UnpublishOutcome = (typeof UNPUBLISH_OUTCOMES)[number];
 
 export interface UnpublishedResource {
@@ -83,6 +83,15 @@ export async function applyUnpublishPlan(
     const reason = input.reason ?? `Unpublished from journey "${plan.journeyKey}"`;
 
     const results: UnpublishedResource[] = [];
+    /**
+     * What this run has actually deleted so far.
+     *
+     * Feeds the apply-time cascade re-check below. Deliberately holds what *was*
+     * deleted rather than what the plan *intended* to delete: a channel whose deletion
+     * failed is still in its category, and counting it as gone would let the category
+     * delete cascade onto it.
+     */
+    const deletedIds = new Set<string>();
 
     for (const item of plan.items) {
         const base = {
@@ -108,6 +117,30 @@ export async function applyUnpublishPlan(
             existsInGuildAs(guild, item.kind, item.discordId);
 
         if (stillThere && item.discordId) {
+            /*
+             * Re-check the cascade **here**, not only in the plan.
+             *
+             * Existence was already re-read above because the window between planning
+             * and confirming is real. Containment moves through that same window and is
+             * far easier to change: dragging a channel into a category takes a second,
+             * and the ordering means categories are deleted last, so they sit at the
+             * widest point of it.
+             *
+             * Checking only at plan time would leave the one guard whose failure is
+             * unrecoverable open for exactly as long as the operator spends reading.
+             */
+            if (item.kind === 'category') {
+                const survivors = survivorsOf(guild, item.discordId, deletedIds);
+                if (survivors.length > 0) {
+                    results.push({
+                        ...base,
+                        outcome: 'refused',
+                        explanation: `**${item.name}** was not deleted: since this was planned, it has come to contain ${survivors.map((survivor) => `**${survivor}**`).join(', ')}, and deleting the category would take ${survivors.length === 1 ? 'it' : 'them'} too.`,
+                    });
+                    continue;
+                }
+            }
+
             const failure = await deleteFromGuild(guild, item.kind, item.discordId, reason);
             if (failure) {
                 // The guild still holds the object, so the row must stay. Removing it
@@ -116,6 +149,8 @@ export async function applyUnpublishPlan(
                 results.push({ ...base, outcome: 'failed', explanation: failure });
                 continue;
             }
+
+            deletedIds.add(item.discordId);
         }
 
         // Either the object was just deleted, or there was never one to delete. The
@@ -182,8 +217,46 @@ async function deleteFromGuild(
         await channel.delete(reason);
         return undefined;
     } catch (error) {
+        // A delete that raced a manual one is a success: the object is gone, which is
+        // the whole objective. Reporting it as a failure would keep the binding row and
+        // tell the operator something broke that did not — and the run would not
+        // converge, because the next attempt hits the same race.
+        if (isAlreadyGone(error)) {
+            return undefined;
+        }
+        if (isPermissionProblem(error)) {
+            return `Discord would not allow it — check the bot's permissions on that ${kind === 'role' ? 'role' : 'channel'}: ${describeError(error)}`;
+        }
         return `Discord refused to delete it: ${describeError(error)}`;
     }
+}
+
+/** Discord's numeric API error code, when the thrown value carries one. */
+function errorCode(error: unknown): number | undefined {
+    if (typeof error === 'object' && error !== null && 'code' in error) {
+        const code = (error as { code: unknown }).code;
+        return typeof code === 'number' ? code : undefined;
+    }
+    return undefined;
+}
+
+/**
+ * "It is not there", by code rather than by message text.
+ *
+ * 10003 `Unknown Channel`, 10004 `Unknown Guild`, 10011 `Unknown Role`. Matched
+ * numerically so a reworded message cannot turn this into a failure, and so a genuine
+ * permission error is never mistaken for a tidy-up. Mirrors `isUnknownMessage` in
+ * `undeployFlowButtons.ts`, which does the same job for 10008.
+ */
+function isAlreadyGone(error: unknown): boolean {
+    const code = errorCode(error);
+    return code === 10003 || code === 10004 || code === 10011;
+}
+
+/** 50013 `Missing Permissions`, 50001 `Missing Access`. Named so the advice is useful. */
+function isPermissionProblem(error: unknown): boolean {
+    const code = errorCode(error);
+    return code === 50013 || code === 50001;
 }
 
 function describeError(error: unknown): string {

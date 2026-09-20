@@ -44,7 +44,17 @@ export class FlowButtonMessagesRepo {
     async persist(input: PersistFlowButtonMessageInput): Promise<FlowButtonMessageEntity> {
         const now = new Date().toISOString();
 
-        await this.db
+        /*
+         * `returningAll` rather than insert-then-select.
+         *
+         * The read-back would have to match on `(guildId, messageId)`, which has no
+         * unique index — deliberately, since posting the same flow's buttons twice is
+         * legitimate. An unordered select could therefore hand back a different row's
+         * `id`, and that `id` is what `forget` later deletes by primary key: the record
+         * of a *live* message would be dropped while the orphan stayed. Both dialects
+         * support `RETURNING`, so the ambiguity never has to arise.
+         */
+        const saved = await this.db
             .insertInto('flow_button_messages')
             .values({
                 guildId: input.guildId,
@@ -55,18 +65,12 @@ export class FlowButtonMessagesRepo {
                 createdAt: now,
                 updatedAt: now,
             })
-            .execute();
-
-        const saved = await this.db
-            .selectFrom('flow_button_messages')
-            .selectAll()
-            .where('guildId', '=', input.guildId)
-            .where('messageId', '=', input.messageId)
+            .returningAll()
             .executeTakeFirst();
 
         if (!saved) {
             throw new Error(
-                `Recorded the button message ${input.messageId} for flow ${input.flowId}, but the row was not found afterwards.`
+                `Saved the button message ${input.messageId} for flow ${input.flowId}, but the row was not returned.`
             );
         }
 

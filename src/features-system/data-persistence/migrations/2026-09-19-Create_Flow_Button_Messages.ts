@@ -47,7 +47,14 @@ const migration = {
                 .addColumn('flow_id', 'text', (col) => col.notNull())
                 .addColumn('channel_id', 'text', (col) => col.notNull())
                 .addColumn('message_id', 'text', (col) => col.notNull())
-                .addColumn('node_ids', 'text', (col) => col.notNull())
+                // `jsonb`, matching every other JSON column in this schema
+                // (`journeys.resources`, `flows.graph`, `flow_runs.log`). It matters
+                // more than it looks: `SqliteJsonPlugin` parses this column back into
+                // an array on sqlite and does not run on postgres, so a `text` column
+                // here would hand the array back as a raw JSON *string* on postgres
+                // only — typechecking cleanly against `JSONColumnType<string[]>` and
+                // failing solely in production.
+                .addColumn('node_ids', 'jsonb', (col) => col.notNull())
                 .addColumn('created_at', 'timestamptz', (col) => col.notNull().defaultTo(sql`now()`))
                 .addColumn('updated_at', 'timestamptz', (col) => col.notNull().defaultTo(sql`now()`))
                 .execute();

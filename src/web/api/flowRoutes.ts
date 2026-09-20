@@ -347,17 +347,6 @@ export function flowRoutes(): Hono<AppEnv> {
     });
 
     /*
-     * Preview what unpublishing this flow's resources would do. Reads only.
-     *
-     * A flow's journey key is its flow id, the same convention the resource routes use.
-     */
-    app.get('/:guildId/flows/:flowId/unpublish-preview', async (c) => {
-        const guild = c.get('guild');
-        const plan = await previewUnpublish(guild, c.req.param('flowId'));
-        return c.json({ items: plan.items });
-    });
-
-    /*
      * Destroy the channels and roles this flow's journey created.
      *
      * The plan is rebuilt here and applied, rather than accepted from the browser: a
@@ -369,10 +358,33 @@ export function flowRoutes(): Hono<AppEnv> {
      * than the exact plan applied — acceptable because every rule is re-evaluated on
      * the rebuild, so the drift can only ever refuse *more*, never delete something the
      * preview did not show.
+     *
+     * **The journey must belong to this flow.** A flow's journey key is its flow id by
+     * convention, but journey keys are operator-supplied and a standalone journey can
+     * have any key at all — including one that happens to match a flow id. Without this
+     * check a URL shaped like a flow would tear down a journey that has nothing to do
+     * with it, which a stale bookmark or a mistyped id is enough to reach. The
+     * `/undeploy` route's argument for skipping the lookup does not transfer: button
+     * rows are keyed on the flow id we wrote ourselves, not on an operator's key.
      */
     app.post('/:guildId/flows/:flowId/unpublish', async (c) => {
         const guild = c.get('guild');
-        const plan = await previewUnpublish(guild, c.req.param('flowId'));
+        const flowId = c.req.param('flowId');
+
+        const journey = await journeysRepo.getByKey(guild.id, flowId);
+        if (!journey) {
+            return c.json({ error: 'This flow has not installed anything to unpublish.' }, 404);
+        }
+        if (journey.createdForFlowId && journey.createdForFlowId !== flowId) {
+            return c.json(
+                {
+                    error: 'That journey belongs to a different flow. Unpublish it from there, so you can see what it will destroy.',
+                },
+                409
+            );
+        }
+
+        const plan = await previewUnpublish(guild, flowId);
         const result = await unpublishJourney({ guild, approvedPlan: plan });
 
         if (result.refusal) {

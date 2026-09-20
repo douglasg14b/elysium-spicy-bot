@@ -211,6 +211,47 @@ Behaviour, not plumbing (~90% budget):
   **1152 passing, 1 pre-existing failure** (`ciBranchProductDiff`).
 - Migrations via `pnpm migrate:latest`. Deps via `pnpm add` only.
 
+# What shipped, and where it differs from the above
+
+Implemented in `979a73f`, `6f8dcea`, `d77bfa1`. Four things in this plan turned out to
+be wrong, and one design question it left open was decided against its suggestion.
+
+**The table is `flow_button_messages`, not `flow_deployments`.** The vocabulary gate is
+an *allowlist*, not a denylist of three nouns: every word a declared identifier uses in
+`flows/data` must already be engine vocabulary, and `deploy` is not. Renaming cost
+nothing — flow, button, message, channel, node and guild were all already allowlisted,
+because the stored thing really is just a message carrying buttons. Zero allowlist
+changes. One further rename followed, `record` → `persist`, which the gate caught.
+
+**`orderResourcesForApply` is not reusable, as this plan suspected.** It sorts
+`ResourceDeclaration`s, which carry a `parentKey`. Unpublish works from
+`ResourceBindingEntity` rows, which have no parent column and outlive the declaration —
+a flow whose journey row was deleted still has live channels, which is the commonest
+case for this feature. Ordering is by kind (channels, roles, categories). The sort is
+only a convenience in any event: the cascade check reads the guild.
+
+**The dead-button defect does not exist.** `flowTriggerDispatch` already returns "This
+flow no longer exists." and the registry's `finally` block replies with it ephemerally.
+Nothing was changed there, as this plan instructed for that outcome.
+
+**`writeBackIsWired.test.ts` does not exist**, and neither does any test enforcing the
+provisioning-must-not-import-flows boundary. It is held by convention and by the
+`resourceWriteBack` seam. Unpublish and undeploy did not need the seam: the one place
+they meet (`publishedFlowState.ts`) reads flows → provisioning, which is the permitted
+direction.
+
+**Recording happens inside `deployFlowButtons`, not at the call site.** This plan said
+"persist what it returns rather than changing what it does", but two surfaces deploy —
+the slash command and the web route — and recording in only the route would have left
+the slash command producing unretirable buttons indefinitely, turning a one-off
+backfill gap into a permanent one.
+
+Post-review additions: the cascade check also runs at *apply* time, not only at plan
+time, because containment is the one fact a human can change while reading the preview;
+an unrecognised binding state now refuses rather than falling through to delete; and
+`/unpublish` verifies the journey belongs to the flow named in the URL, since journey
+keys are operator-supplied and can collide with a flow id.
+
 # Definition of done
 
 - Typecheck at baseline, no new test failures, migration runs on sqlite.

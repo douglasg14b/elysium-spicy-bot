@@ -19,30 +19,56 @@ interface FakeGuildOptions {
     readonly calls: string[];
     readonly channelDeleteError?: Error;
     readonly roleDeleteError?: Error;
+    /**
+     * Which channels sit inside which category, by id.
+     *
+     * A category listed here is typed as `GuildCategory`; a child named here exists in
+     * the cache whether or not it was listed in `channelIds`, because a survivor is
+     * very often a channel this run has never heard of.
+     */
+    readonly childrenByCategory?: Readonly<Record<string, readonly string[]>>;
 }
 
 function makeGuild(options: FakeGuildOptions): Guild {
     const channelIds = new Set(options.channelIds ?? []);
+    const children = options.childrenByCategory ?? {};
+    const categoryIds = new Set(Object.keys(children));
     const roleIds = new Set(options.roleIds ?? []);
+
+    const parentOf = new Map<string, string>();
+    for (const [categoryId, childIds] of Object.entries(children)) {
+        for (const childId of childIds) {
+            parentOf.set(childId, categoryId);
+            channelIds.add(childId);
+        }
+    }
+
+    function channel(id: string) {
+        return {
+            id,
+            name: id,
+            type: categoryIds.has(id) ? ChannelType.GuildCategory : ChannelType.GuildText,
+            parentId: parentOf.get(id) ?? null,
+            delete: async () => {
+                if (options.channelDeleteError) throw options.channelDeleteError;
+                options.calls.push(`discord:delete-channel:${id}`);
+                channelIds.delete(id);
+                parentOf.delete(id);
+            },
+        };
+    }
 
     return {
         id: 'guild-1',
         name: 'Test Guild',
         channels: {
             cache: {
-                get: (id: string) =>
-                    channelIds.has(id)
-                        ? {
-                              id,
-                              type: ChannelType.GuildText,
-                              delete: async () => {
-                                  if (options.channelDeleteError) throw options.channelDeleteError;
-                                  options.calls.push(`discord:delete-channel:${id}`);
-                                  channelIds.delete(id);
-                              },
-                          }
-                        : undefined,
+                get: (id: string) => (channelIds.has(id) ? channel(id) : undefined),
                 has: (id: string) => channelIds.has(id),
+                filter: (predicate: (value: ReturnType<typeof channel>) => boolean) => ({
+                    map: <TMapped,>(mapper: (value: ReturnType<typeof channel>) => TMapped) =>
+                        [...channelIds].map(channel).filter(predicate).map(mapper),
+                }),
             },
         },
         roles: {
@@ -175,6 +201,98 @@ describe('carrying on past a problem', () => {
         // next run, which plans it as a `forget`.
         expect(result.results[0].outcome).toBe('failed');
         expect(result.results[0].explanation).toContain('record could not be deleted');
+    });
+});
+
+describe('the cascade guard at apply time', () => {
+    it('refuses a category that gained a child after the plan was built', async () => {
+        // The window this closes: an operator reads the preview, and while they are
+        // reading, somebody drags a channel into the category. Dragging takes a second;
+        // deciding takes longer. Channels are deleted before categories, so a category
+        // sits at the widest point of that window.
+        const calls: string[] = [];
+        const repo = makeRepo(calls);
+        const guild = makeGuild({
+            channelIds: ['cat-1'],
+            calls,
+            // Not in the plan, and not deleted by this run: a survivor.
+            childrenByCategory: { 'cat-1': ['someone-elses-channel'] },
+        });
+
+        const result = await applyUnpublishPlan({
+            guild,
+            plan: plan([
+                deleteItem({ kind: 'category', discordId: 'cat-1', name: 'Support', resourceKey: 'cat' }),
+            ]),
+            repo,
+        });
+
+        expect(result.results[0].outcome).toBe('refused');
+        expect(result.results[0].explanation).toContain('someone-elses-channel');
+        // Neither the category nor its record. Discord would have cascaded the delete.
+        expect(calls).toEqual([]);
+        expect(repo.forget).not.toHaveBeenCalled();
+    });
+
+    it('deletes a category whose children this run has already removed', async () => {
+        const calls: string[] = [];
+        const repo = makeRepo(calls);
+        const guild = makeGuild({
+            channelIds: ['cat-1', 'channel-a'],
+            calls,
+            childrenByCategory: { 'cat-1': ['channel-a'] },
+        });
+
+        const result = await applyUnpublishPlan({
+            guild,
+            plan: plan([
+                deleteItem({ bindingId: 1, discordId: 'channel-a', name: 'tickets', resourceKey: 'a' }),
+                deleteItem({
+                    bindingId: 2,
+                    kind: 'category',
+                    discordId: 'cat-1',
+                    name: 'Support',
+                    resourceKey: 'cat',
+                }),
+            ]),
+            repo,
+        });
+
+        // The child went first, so by the time the category is judged it is empty.
+        expect(result.results[0].outcome).toBe('deleted');
+        expect(result.results[1].outcome).toBe('deleted');
+    });
+
+    it('refuses a category whose child failed to delete', async () => {
+        // `deletedIds` holds what was *actually* deleted, not what was planned. A child
+        // that would not delete is still inside, so the category must not cascade onto
+        // it.
+        const calls: string[] = [];
+        const repo = makeRepo(calls);
+        const guild = makeGuild({
+            channelIds: ['cat-1', 'channel-a'],
+            calls,
+            childrenByCategory: { 'cat-1': ['channel-a'] },
+            channelDeleteError: new Error('Missing Permissions'),
+        });
+
+        const result = await applyUnpublishPlan({
+            guild,
+            plan: plan([
+                deleteItem({ bindingId: 1, discordId: 'channel-a', name: 'tickets', resourceKey: 'a' }),
+                deleteItem({
+                    bindingId: 2,
+                    kind: 'category',
+                    discordId: 'cat-1',
+                    name: 'Support',
+                    resourceKey: 'cat',
+                }),
+            ]),
+            repo,
+        });
+
+        expect(result.results[0].outcome).toBe('failed');
+        expect(result.results[1].outcome).toBe('refused');
     });
 });
 

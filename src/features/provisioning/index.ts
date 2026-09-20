@@ -56,18 +56,12 @@ export type {
     UnpublishAction,
     RefusalReason,
 } from './logic/unpublishPlan';
-export {
-    UNPUBLISH_ACTIONS,
-    REFUSAL_REASONS,
-    plannedDeletions,
-    plannedRefusals,
-} from './logic/unpublishPlan';
+export { plannedDeletions, plannedRefusals } from './logic/unpublishPlan';
 export type {
     ApplyUnpublishPlanResult,
     UnpublishedResource,
     UnpublishOutcome,
 } from './logic/applyUnpublishPlan';
-export { UNPUBLISH_OUTCOMES } from './logic/applyUnpublishPlan';
 
 export type {
     ResourceBindingEntity,

@@ -15,7 +15,7 @@ import type { ResourceKind } from './resourceDeclaration';
  * server needs the whole picture, including the parts that cannot proceed. A preview
  * that can only be shown when every item is destroyable is useless for deciding.
  */
-export const UNPUBLISH_ACTIONS = ['delete', 'forget', 'refuse'] as const;
+const UNPUBLISH_ACTIONS = ['delete', 'forget', 'refuse'] as const;
 export type UnpublishAction = (typeof UNPUBLISH_ACTIONS)[number];
 
 /**
@@ -25,10 +25,12 @@ export type UnpublishAction = (typeof UNPUBLISH_ACTIONS)[number];
  * that matter — `adopted` and `category-has-survivors` — are the promises this feature
  * rests on. An unrecognised reason has nothing to render.
  */
-export const REFUSAL_REASONS = [
+const REFUSAL_REASONS = [
     'adopted',
     'category-has-survivors',
     'missing-permission',
+    /** A binding state this code does not recognise. Refused rather than guessed at. */
+    'unrecognised-state',
 ] as const;
 export type RefusalReason = (typeof REFUSAL_REASONS)[number];
 
@@ -115,8 +117,14 @@ const KIND_ORDER: Record<ResourceKind, number> = {
  * category. It is refused above, so it is not in `deletingIds`, so it survives here and
  * blocks the category. That is the cascade rule and the adoption promise agreeing —
  * the promise would be worthless if the category delete could route around it.
+ *
+ * Exported because `applyUnpublishPlan` re-runs it immediately before each category
+ * delete. Containment is the one fact here that a human can change while they are
+ * reading the preview — dragging a channel into the category takes a second — so
+ * checking it only at plan time would leave the guard open for exactly as long as the
+ * operator spends deciding.
  */
-function survivorsOf(
+export function survivorsOf(
     guild: Guild,
     categoryId: string,
     deletingIds: ReadonlySet<string>
@@ -247,6 +255,29 @@ export function buildUnpublishPlan(input: BuildUnpublishPlanInput): UnpublishPla
             continue;
         }
 
+        /*
+         * Everything past here deletes, so the permission to do so is stated
+         * positively: only `created` proceeds.
+         *
+         * Written as a refusal of everything else rather than as `if (created)` with
+         * the deletes after it, because those two differ on exactly one case — a state
+         * this function has never heard of. A fourth entry in
+         * `RESOURCE_BINDING_STATES`, or a row edited by hand, would otherwise reach the
+         * delete at the bottom by falling through every branch that names a state.
+         * Every other decision in this file fails closed; this was the one that failed
+         * open, and it is the one where failing open means destroying something.
+         */
+        if (binding.state !== 'created') {
+            items.push({
+                ...base,
+                discordId,
+                action: 'refuse',
+                refusalReason: 'unrecognised-state',
+                explanation: `This binding is in the state "${binding.state}", which this teardown does not recognise. Refusing to delete anything it cannot account for.`,
+            });
+            continue;
+        }
+
         // Already gone — deleted by hand, or by an earlier run that died between the
         // two steps. The desired state holds, so this is a `forget`, not a failure.
         if (!existsInGuildAs(guild, binding.kind, discordId)) {
@@ -319,14 +350,4 @@ export function plannedDeletions(plan: UnpublishPlan): readonly UnpublishItem[] 
 /** What this plan refuses to touch, and why. The part of a preview that matters. */
 export function plannedRefusals(plan: UnpublishPlan): readonly UnpublishItem[] {
     return plan.items.filter((item) => item.action === 'refuse');
-}
-
-/**
- * Whether a channel id is a category, for callers that hold only an id.
- *
- * Exported for the apply path, which re-reads the guild and must not assume the plan's
- * view of a snowflake is still current.
- */
-export function isCategoryChannel(guild: Guild, discordId: string): boolean {
-    return guild.channels.cache.get(discordId)?.type === ChannelType.GuildCategory;
 }
