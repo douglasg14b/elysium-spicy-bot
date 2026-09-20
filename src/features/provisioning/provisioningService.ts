@@ -1,7 +1,12 @@
 import type { Guild } from 'discord.js';
 import { resourceBindingsRepo } from './data/resourceBindingsRepo';
 import { applyInstallPlan, type ApplyInstallPlanResult } from './logic/applyInstallPlan';
+import {
+    applyUnpublishPlan,
+    type ApplyUnpublishPlanResult,
+} from './logic/applyUnpublishPlan';
 import { buildInstallPlan, type InstallPlan, type ResourceChoice } from './logic/installPlan';
+import { buildUnpublishPlan, type UnpublishPlan } from './logic/unpublishPlan';
 import type { JourneyDeclaration } from './logic/resourceDeclaration';
 
 export interface PreviewInstallInput {
@@ -79,6 +84,55 @@ export async function installJourney(
         subjectId: input.subjectId,
         staffRoleIds: input.staffRoleIds,
     });
+}
+
+/**
+ * Build the teardown plan an operator reviews before anything is destroyed.
+ *
+ * Reads only. Takes the journey *key* rather than a declaration, because bindings
+ * outlive the journey row they came from — a flow whose journey was deleted still has
+ * live channels, and those are exactly what this exists to clean up. Requiring a
+ * declaration would make the commonest case unreachable.
+ */
+export async function previewUnpublish(
+    guild: Guild,
+    journeyKey: string
+): Promise<UnpublishPlan> {
+    const bindings = await resourceBindingsRepo.listByJourney(guild.id, journeyKey);
+    return buildUnpublishPlan({ guild, journeyKey, bindings });
+}
+
+export interface UnpublishJourneyInput {
+    readonly guild: Guild;
+    /**
+     * The plan the operator actually confirmed.
+     *
+     * Required rather than rebuilt, for the same reason `installJourney` requires one
+     * and more sharply: rebuilding here would destroy guild objects against a plan
+     * nobody was shown. The confirmation is of *this list*, not of the operation in
+     * the abstract.
+     */
+    readonly approvedPlan: UnpublishPlan;
+}
+
+/**
+ * Carry out a confirmed unpublish.
+ *
+ * Refuses a plan built for a different guild — the cheapest guard against a mixed-up
+ * confirmation deleting channels on the wrong server, and the consequence of getting
+ * it wrong here is not recoverable.
+ */
+export async function unpublishJourney(
+    input: UnpublishJourneyInput
+): Promise<ApplyUnpublishPlanResult> {
+    if (input.approvedPlan.guildId !== input.guild.id) {
+        return {
+            results: [],
+            refusal: `This teardown was planned for guild ${input.approvedPlan.guildId} but is being applied to ${input.guild.id}. Refusing to delete anything.`,
+        };
+    }
+
+    return applyUnpublishPlan({ guild: input.guild, plan: input.approvedPlan });
 }
 
 export interface ResolvedJourneyResources {

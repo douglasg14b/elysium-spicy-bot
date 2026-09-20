@@ -159,6 +159,29 @@ export class ResourceBindingsRepo {
 
         return Number(result.numDeletedRows) > 0;
     }
+
+    /**
+     * Drop a binding row whatever state it is in.
+     *
+     * The unguarded counterpart to {@link discardIntent}, and deliberately separate
+     * from it rather than a looser version of it: `discardIntent` is guarded precisely
+     * so an install's error path cannot destroy a live binding, and widening it would
+     * remove that protection from every existing caller to serve one new one.
+     *
+     * **This removes only the record.** Whether the guild object it named may be
+     * deleted is a question this repo has no business answering —
+     * `buildUnpublishPlan` owns it, and the apply path calls this only after the
+     * object is already gone. A row removed while its channel still stands would
+     * orphan that channel with nothing left that knows we made it.
+     */
+    async forget(id: number): Promise<boolean> {
+        const result = await database
+            .deleteFrom('resource_bindings')
+            .where('id', '=', id)
+            .executeTakeFirst();
+
+        return Number(result.numDeletedRows) > 0;
+    }
 }
 
 export const resourceBindingsRepo = new ResourceBindingsRepo();
