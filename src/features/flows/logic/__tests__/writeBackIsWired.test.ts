@@ -31,8 +31,16 @@ describe('resource write-back is reachable', () => {
         expect(source).toMatch(/registerResourceWriteBack\(\s*applyResourcesToFlows\s*\)/);
     });
 
-    it('is run by the apply handler after an install', () => {
-        const source = read('provisioning', 'commands', 'applyJourneyButton.ts');
+    /*
+     * Asserted against `runInstall.ts` rather than the button handler it was
+     * extracted from. That is where the call now lives, and it is the shared sequence
+     * *every* surface installs through — the `/install-journey` Apply button and the
+     * dashboard's `POST /install` route both call it. Checking the button handler
+     * would now pass or fail on one caller's rendering rather than on whether an
+     * install writes its ids back at all.
+     */
+    it('is run after an install', () => {
+        const source = read('provisioning', 'logic', 'runInstall.ts');
 
         expect(source).toMatch(/runResourceWriteBack\(/);
     });
@@ -40,12 +48,29 @@ describe('resource write-back is reachable', () => {
     it('runs after the install, not before it', () => {
         // Writing ids back before the guild is mutated would write the ids that
         // existed *last* time, which is worse than writing none.
-        const source = read('provisioning', 'commands', 'applyJourneyButton.ts');
+        const source = read('provisioning', 'logic', 'runInstall.ts');
         const installIndex = source.indexOf('await installJourney(');
         const writeBackIndex = source.indexOf('runResourceWriteBack(');
 
         expect(installIndex).toBeGreaterThan(-1);
         expect(writeBackIndex).toBeGreaterThan(installIndex);
+    });
+
+    /*
+     * Both install surfaces go through that one sequence.
+     *
+     * The reason the assertion above could move safely: if a surface stopped calling
+     * `runInstall` and inlined its own preview-and-apply, it would silently skip the
+     * write-back and every test above would still pass. This is what makes the single
+     * path a fact rather than a convention.
+     */
+    it('is reached by every surface that installs', () => {
+        expect(read('provisioning', 'commands', 'applyJourneyButton.ts')).toMatch(
+            /runInstall\(/
+        );
+        expect(
+            readFileSync(join(FEATURES, '..', 'web', 'api', 'flowRoutes.ts'), 'utf8')
+        ).toMatch(/runInstall\(/);
     });
 });
 
@@ -59,6 +84,7 @@ describe('the dependency direction holds', () => {
             read('provisioning', 'initProvisioning.ts'),
             read('provisioning', 'provisioningService.ts'),
             read('provisioning', 'resourceWriteBack.ts'),
+            read('provisioning', 'logic', 'runInstall.ts'),
             read('provisioning', 'commands', 'applyJourneyButton.ts'),
             read('provisioning', 'commands', 'installJourneyCommand.ts'),
         ];

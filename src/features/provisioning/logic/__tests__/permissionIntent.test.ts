@@ -215,6 +215,26 @@ describe('compilePermissionIntents', () => {
             ).toThrow(/do not exist/i);
         });
 
+        it('rejects @everyone configured as a staff role rather than publishing the channel', () => {
+            /*
+             * The nastiest shape in this file. `@everyone`'s id is the guild id, so it
+             * passes an existence check — and compiled, it keys the *same* overwrite as
+             * the `everyone` audience. Since later intents override earlier ones per
+             * id, "deny everyone, then allow staff" would erase its own deny and hand
+             * the whole server a channel that every plan and embed still calls
+             * staff-only.
+             */
+            expect(() =>
+                compilePermissionIntents(
+                    [
+                        { audience: 'everyone', access: 'hidden' },
+                        { audience: 'staff', access: 'readWrite' },
+                    ],
+                    makeContext({ staffRoleIds: [EVERYONE_ID] })
+                )
+            ).toThrow(/@everyone/i);
+        });
+
         it('rejects a guild whose bot member is not cached', () => {
             const context = makeContext();
             (context.guild as unknown as { members: { me: null } }).members.me = null;

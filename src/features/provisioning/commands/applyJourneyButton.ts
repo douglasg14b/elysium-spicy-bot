@@ -2,9 +2,7 @@ import { ButtonInteraction, EmbedBuilder, PermissionsBitField } from 'discord.js
 import { commandError, commandSuccess } from '../../../features-system/commands';
 import type { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { getJourney } from '../journeys/journeySource';
-import { runResourceWriteBack } from '../resourceWriteBack';
-import { isPlanApplicable } from '../logic/installPlan';
-import { installJourney, previewInstall } from '../provisioningService';
+import { runInstall } from '../logic/runInstall';
 import { buildPlanEmbed, parseApplyCustomId } from './installJourneyCommand';
 
 /**
@@ -54,34 +52,28 @@ export async function handleApplyJourney(
     await interaction.deferUpdate();
 
     try {
-        const plan = await previewInstall({
+        // `runInstall` rebuilds the plan rather than carrying it through the custom id
+        // (which caps at 100 characters). That means the operator approved the plan
+        // they *saw*, and this is a different object — so if it no longer says the
+        // same thing, the approval does not transfer and they are shown the new one
+        // instead.
+        const outcome = await runInstall({
             guild: interaction.guild,
             journey,
             staffRoleIds,
         });
 
-        // The plan is rebuilt rather than carried through the custom id (which caps
-        // at 100 characters). That means the operator approved the plan they *saw*,
-        // and this is a different object — so if it no longer says the same thing,
-        // the approval does not transfer and they are shown the new one instead.
-        if (!isPlanApplicable(plan)) {
+        if (outcome.status === 'notApplicable') {
             await interaction.editReply({
-                embeds: [buildPlanEmbed(plan, journey.name)],
+                embeds: [buildPlanEmbed(outcome.plan, journey.name)],
                 components: [],
             });
             return commandError(`Plan for ${journeyKey} is no longer applicable`);
         }
 
-        const result = await installJourney({
-            guild: interaction.guild,
-            journey,
-            approvedPlan: plan,
-            staffRoleIds,
-        });
-
         const embed = new EmbedBuilder()
             .setTitle(`Install — ${journey.name}`)
-            .setColor(result.failure ? 0xed4245 : 0x57f287);
+            .setColor(outcome.failure ? 0xed4245 : 0x57f287);
 
         // Render from the declaration's `kind`, not from the shape of the key. A
         // resource named `welcome-role` would otherwise be mentioned as a channel,
@@ -91,7 +83,7 @@ export async function handleApplyJourney(
         );
         const ACTION_ICON = { created: '🆕', adopted: '🔗', reused: '✅' } as const;
 
-        const lines = result.applied.map((entry) => {
+        const lines = outcome.applied.map((entry) => {
             const kind = kindByKey.get(entry.resourceKey);
             const label =
                 kind === 'role'
@@ -104,16 +96,9 @@ export async function handleApplyJourney(
 
         embed.setDescription(lines.join('\n') || '_Nothing was applied._');
 
-        // Write the new ids into whatever consumes these resources.
-        //
-        // Runs even on a partial install: what was applied is real and bound, and the
-        // nodes pointing at it should stop waiting. Anything still unresolved is
-        // reported below rather than left for the operator to discover at run time.
-        //
-        // Reached through a registered hook rather than by importing flows, because
-        // provisioning is a base capability and flows are one of its consumers. The
-        // import would work today and invert the dependency permanently.
-        const writeBack = await runResourceWriteBack(interaction.guild, journeyKey);
+        // Already run inside `runInstall`, including after a partial apply. What is
+        // left is reporting it.
+        const { writeBack } = outcome;
 
         if (writeBack.writtenCount > 0) {
             embed.addFields({
@@ -138,20 +123,34 @@ export async function handleApplyJourney(
             });
         }
 
-        if (result.failure) {
+        if (writeBack.failed) {
+            // The channels above are real; only the wiring did not happen. Said out
+            // loud because the counts cannot: a thrown write-back and a journey
+            // nothing references both report zero, and an operator told nothing would
+            // find out when the flow ran against empty ids.
+            embed.addFields({
+                name: '⚠️ Not wired up',
+                value:
+                    'The resources were created, but writing their ids into your flows failed. ' +
+                    'Those flows will not run correctly yet — re-run `/install-journey`, which ' +
+                    'reuses what exists and retries the wiring.',
+            });
+        }
+
+        if (outcome.failure) {
             // Partial application is a legitimate state: what is listed above is
             // real and bound, and re-running install converges rather than
             // duplicating.
             embed.addFields({
                 name: '⛔ Stopped',
-                value: `${result.failure}\n\nRe-run \`/install-journey\` to continue from here.`,
+                value: `${outcome.failure}\n\nRe-run \`/install-journey\` to continue from here.`,
             });
         }
 
         await interaction.editReply({ embeds: [embed], components: [] });
 
-        return result.failure
-            ? commandError(`Install of ${journeyKey} stopped: ${result.failure}`)
+        return outcome.failure
+            ? commandError(`Install of ${journeyKey} stopped: ${outcome.failure}`)
             : commandSuccess(`Installed ${journeyKey}`);
     } catch (error) {
         // The detail goes to the log, not to Discord: an exception message can carry

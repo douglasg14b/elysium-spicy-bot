@@ -49,6 +49,23 @@ export interface WarningsConfig {
     modChannelName: string | null;
 }
 
+/**
+ * Server-wide settings owned by no single feature, from
+ * `GET /api/guilds/:guildId/settings`.
+ *
+ * `staffRoles` resolves the saved ids to names for display and can be **shorter**
+ * than `staffRoleIds`: a role deleted since it was saved has no name to show but is
+ * still stored, so the saved list is reported as saved rather than rewritten by a
+ * read. Render from `staffRoleIds`, label from `staffRoles`.
+ *
+ * Staff roles are their own concept on this server, deliberately distinct from
+ * tickets' moderation roles. The two lists coexist; neither supersedes the other.
+ */
+export interface GuildSettings {
+    staffRoleIds: string[];
+    staffRoles: { id: string; name: string }[];
+}
+
 /** A role as returned by `GET /api/guilds/:guildId/roles`. */
 export interface GuildRole {
     id: string;
@@ -654,6 +671,81 @@ export interface UndeployedButtonMessage {
     messageId: string;
     outcome: UndeployOutcome;
     explanation?: string;
+}
+
+/**
+ * What installing would do to one declared resource.
+ *
+ * Mirrors `PLAN_ACTIONS` in `src/features/provisioning/logic/installPlan.ts`.
+ * `blocked` is a first-class outcome rather than an error, because a plan that could
+ * only be shown when it is entirely valid would be useless for working out why it
+ * is not.
+ */
+export type InstallPlanAction = 'create' | 'adopt' | 'reuse' | 'blocked';
+
+/** One line of an install plan, as `GET /install-plan` sends it. */
+export interface InstallPlanItem {
+    resourceKey: string;
+    kind: ResourceKind;
+    action: InstallPlanAction;
+    /** The name the resource will have, or already has. */
+    name: string;
+    /** Set for `adopt` and `reuse`, and on a `blocked` name collision. */
+    discordId?: string;
+    /** Why this is blocked, or why a create is replacing something deleted. */
+    reason?: string;
+}
+
+/**
+ * The reviewable plan for installing what a flow declares.
+ *
+ * `applicable` is the server's own `isPlanApplicable`, on the wire rather than
+ * re-derived here: the rule is "no blockers and no blocked item", and a browser
+ * re-deriving it would be a second copy to drift. The apply re-checks it server-side
+ * regardless, so this is for the UI only.
+ */
+export interface InstallPlan {
+    journeyKey: string;
+    applicable: boolean;
+    /** Guild-level problems stopping the whole apply — permissions, role hierarchy. */
+    blockers: string[];
+    items: InstallPlanItem[];
+}
+
+/** A resource the install actually put in the guild. */
+export interface InstalledResource {
+    resourceKey: string;
+    discordId: string;
+    action: 'created' | 'adopted' | 'reused';
+    name: string;
+}
+
+/**
+ * What an install did.
+ *
+ * `failure` present alongside a non-empty `applied` is a **partial install**, which is
+ * a legitimate state rather than an error: what was created is real and bound, and
+ * re-running install continues from there rather than duplicating.
+ *
+ * `unresolved` names resource keys some node picked that still have no id — deduped
+ * resource keys, not one entry per node, because the key is what the operator declared
+ * and it is the only thing they can act on.
+ */
+export interface InstallResult {
+    applied: InstalledResource[];
+    failure?: string;
+    /** Node config values filled in across every flow that picked these resources. */
+    writtenCount: number;
+    updatedFlowIds: string[];
+    unresolved: string[];
+    /**
+     * The resources were created but writing their ids into flows threw.
+     *
+     * Its own flag rather than an inference from `writtenCount === 0`, because that
+     * count is also zero when there was simply nothing to write. Only this case means
+     * the operator's flows are now pointing at nothing.
+     */
+    writeBackFailed: boolean;
 }
 
 export type UnpublishOutcome = 'deleted' | 'forgotten' | 'refused' | 'failed';

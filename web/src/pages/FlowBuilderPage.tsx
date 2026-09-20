@@ -43,17 +43,27 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
+    IconAlertTriangle,
     IconArrowBackUp,
     IconArrowForwardUp,
     IconChevronLeft,
     IconDeviceFloppy,
+    IconPackageImport,
     IconRocket,
     IconStack2,
 } from '@tabler/icons-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { getGuildChannels } from '../api/config';
-import { deployFlow, getFlow, getGuildRoles, getNodeTypes, updateFlow } from '../api/flows';
+import {
+    deployFlow,
+    getFlow,
+    getGuildRoles,
+    getInstallPlan,
+    getNodeTypes,
+    installFlow,
+    updateFlow,
+} from '../api/flows';
 import { getFlowResources, saveFlowResources } from '../api/journeys';
 import type {
     FlowEdge,
@@ -61,6 +71,7 @@ import type {
     FlowValidationIssue,
     GuildChannel,
     GuildRole,
+    InstallPlan,
     NodeDescriptor,
     ResourceDeclaration,
 } from '../api/types';
@@ -84,6 +95,12 @@ import {
     type ResizeBounds,
 } from '../flows/resizableColumn';
 import { graphIncluding } from '../flows/graphHistory';
+import {
+    kindLabel,
+    summariseInstallFailure,
+    summariseInstallOutcome,
+    summariseInstallPlan,
+} from '../flows/installSummary';
 import { issuesByNode, summarizeIssues } from '../flows/validationIssues';
 import { availableVariablesAt } from '../flows/variables';
 import { NodePalette, NODE_DRAG_MIME } from '../flows/NodePalette';
@@ -278,6 +295,28 @@ function FlowBuilder() {
     const [deployOpen, setDeployOpen] = useState(false);
     const [deployChannelId, setDeployChannelId] = useState<string | null>(null);
     const [deploying, setDeploying] = useState(false);
+
+    /**
+     * The install review step.
+     *
+     * `installPlan` is `null` while the plan is still being fetched, which is distinct
+     * from a loaded plan with nothing to do — the dialog must not say "nothing to
+     * install" before it has asked. `installPlanError` holds the server's refusal (a
+     * flow declaring nothing, a journey owned by another flow), which is the answer
+     * rather than a failure to get one.
+     */
+    const [installOpen, setInstallOpen] = useState(false);
+    const [installPlan, setInstallPlan] = useState<InstallPlan | null>(null);
+    const [installPlanError, setInstallPlanError] = useState<string | null>(null);
+    const [installing, setInstalling] = useState(false);
+    /** The second step: the plan has been read, and the operator is confirming it. */
+    const [confirmInstall, setConfirmInstall] = useState(false);
+    /**
+     * Which plan request the dialog is currently waiting on. Bumped by every fetch and
+     * by the effect cleanup that closes or unmounts the dialog, so an older one landing
+     * late is discarded rather than shown — see `loadInstallPlan`.
+     */
+    const installPlanRequest = useRef(0);
 
     // Undo/redo snapshot stacks. `skipHistory` guards the programmatic restores.
     const past = useRef<Snapshot[]>([]);
@@ -525,6 +564,67 @@ function FlowBuilder() {
         [selected, flowId]
     );
 
+    /**
+     * Fetch what installing would do, server-side.
+     *
+     * Built there rather than derived here from `declaredResources`, because half of
+     * what blocks an item is a fact about the guild — a name already taken, an adopted
+     * id that stopped resolving, a permission model that cannot be satisfied. A plan
+     * guessed in the browser would show an install that the apply then refuses.
+     *
+     * A refused plan (nothing declared, or a journey belonging to another flow) is the
+     * answer to the question, so it lands in `installPlanError` and is shown, not
+     * thrown away as a failed request.
+     */
+    const loadInstallPlan = useCallback(async () => {
+        if (!selected || !flowId) return;
+        /*
+         * Two callers race: the open effect, and the 409 path in `handleInstall`. A
+         * fetch that resolves after the dialog was closed — or after a reopen asked
+         * again — would write a plan describing a guild the operator is no longer
+         * looking at, which is the remembered plan the effect below exists to prevent.
+         * Only the newest request may touch the state; the rest resolve into nothing.
+         */
+        installPlanRequest.current += 1;
+        const request = installPlanRequest.current;
+        const isCurrent = (): boolean => installPlanRequest.current === request;
+
+        setInstallPlan(null);
+        setInstallPlanError(null);
+        try {
+            const plan = await getInstallPlan(selected.id, flowId);
+            if (isCurrent()) setInstallPlan(plan);
+        } catch (cause) {
+            if (!isCurrent()) return;
+            setInstallPlanError(
+                cause instanceof ApiError ? cause.message : 'Could not work out what to install.'
+            );
+        }
+    }, [selected, flowId]);
+
+    /*
+     * Ask the moment the dialog opens, and forget it when it closes — a plan is a
+     * statement about the guild a second ago, and showing a remembered one next time
+     * would be showing an answer to a question nobody asked again.
+     *
+     * The cleanup retires whatever is inflight, so a fetch that lands after a close,
+     * a reopen, or an unmount resolves into nothing rather than re-populating what was
+     * just cleared. Clearing the state itself is `loadInstallPlan`'s job on the way in,
+     * which keeps one writer for it.
+     */
+    useEffect(() => {
+        if (!installOpen) {
+            setInstallPlan(null);
+            setInstallPlanError(null);
+            setConfirmInstall(false);
+            return;
+        }
+        void loadInstallPlan();
+        return () => {
+            installPlanRequest.current += 1;
+        };
+    }, [installOpen, loadInstallPlan]);
+
     const updateNodeConfig = useCallback(
         (patch: Record<string, unknown>) => {
             if (!selectedNodeId) return;
@@ -689,6 +789,65 @@ function FlowBuilder() {
         }
     }
 
+    /**
+     * Apply the plan the operator just reviewed.
+     *
+     * Sends no plan. The server rebuilds and re-checks its own, so a 409 here means the
+     * guild drifted since the preview — the new plan comes back with it and replaces
+     * what is on screen, putting the operator back on the review step rather than
+     * leaving them looking at an approval that no longer holds.
+     */
+    async function handleInstall() {
+        if (!selected || !flowId) return;
+        setInstalling(true);
+        try {
+            const result = await installFlow(selected.id, flowId);
+            const outcome = summariseInstallOutcome(result);
+            notifications.show({
+                color: outcome.tone,
+                title: outcome.title,
+                message: outcome.message,
+            });
+            setConfirmInstall(false);
+            setInstallOpen(false);
+
+            // The install wrote ids into this flow's nodes, so what is on screen is now
+            // behind the server. Reloading would discard unsaved canvas edits, so the
+            // author is told instead and reopens when they are ready.
+            if (result.writtenCount > 0) {
+                notifications.show({
+                    color: 'brand',
+                    title: 'Reopen to see the new ids',
+                    message:
+                        'Your blocks now point at the channels that were just created. Reload this flow to see them filled in.',
+                });
+            }
+        } catch (err) {
+            /*
+             * Whether this touched the guild depends on the status, not on the error's
+             * class: `ApiError` is thrown for every non-2xx, so a 500 or a proxy 504
+             * arrives as one while channels may already exist. `summariseInstallFailure`
+             * owns that rule and is tested against it.
+             */
+            const failure = summariseInstallFailure(
+                err instanceof ApiError ? err.status : null,
+                err instanceof ApiError ? err.message : "Couldn't install that."
+            );
+            notifications.show({
+                color: failure.tone,
+                title: failure.title,
+                message: failure.message,
+            });
+            // A 409 is drift, and the server sends the rebuilt plan with it. Fetching
+            // it again is the simplest way to show the operator what changed, and it
+            // also covers the refusals that carry no plan at all.
+            setConfirmInstall(false);
+            void loadInstallPlan();
+        } finally {
+            setInstalling(false);
+        }
+    }
+
     async function handleDeploy() {
         if (!selected || !flowId || !deployChannelId) return;
         setDeploying(true);
@@ -772,6 +931,14 @@ function FlowBuilder() {
     const hasButtonTrigger = useMemo(
         () => nodes.some((node) => node.data.descriptor?.startedBy === 'buttonClick'),
         [nodes]
+    );
+
+    // Every decision about what the install dialog says lives in `installSummary`,
+    // which is a plain module and therefore testable — `web/` has no jsdom, so a
+    // decision left inside JSX is a decision nothing can check.
+    const planSummary = useMemo(
+        () => (installPlan ? summariseInstallPlan(installPlan) : null),
+        [installPlan]
     );
 
     const channelOptions = useMemo(
@@ -916,6 +1083,25 @@ function FlowBuilder() {
                         Resources
                     </Button>
                 </Tooltip>
+
+                {/*
+                 * Offered only when the flow declares something. An install button on a
+                 * flow with no declarations has nothing to do and would send the
+                 * operator to a dialog whose only content is the 404 explaining that.
+                 */}
+                {declaredResources.length > 0 && (
+                    <Tooltip label="Create the channels and roles this flow needs">
+                        <Button
+                            variant="light"
+                            color="gray"
+                            size="xs"
+                            leftSection={<IconPackageImport size={15} />}
+                            onClick={() => setInstallOpen(true)}
+                        >
+                            Install
+                        </Button>
+                    </Tooltip>
+                )}
 
                 <Tooltip
                     label={
@@ -1134,6 +1320,120 @@ function FlowBuilder() {
                     saving={resourcesSaving}
                     error={resourcesError ?? undefined}
                 />
+            </Modal>
+
+            {/*
+             * Review, then apply. Two steps rather than one button, because this
+             * creates real channels and roles in a live server — the same shape the
+             * teardown confirm uses, for the same reason.
+             */}
+            <Modal
+                opened={installOpen}
+                onClose={() => setInstallOpen(false)}
+                title="Install what this flow needs"
+                size="lg"
+            >
+                <Stack gap="md">
+                    {installPlanError ? (
+                        <Alert color="orange" icon={<IconAlertTriangle size={16} />}>
+                            <Text size="13px">{installPlanError}</Text>
+                        </Alert>
+                    ) : !planSummary ? (
+                        <Center py="xl">
+                            <Loader color="brand" size="sm" />
+                        </Center>
+                    ) : (
+                        <>
+                            {planSummary.headline && (
+                                <Text size="13.5px">{planSummary.headline}</Text>
+                            )}
+
+                            {planSummary.changes.length > 0 && (
+                                <Stack gap={4}>
+                                    {planSummary.changes.map((item) => (
+                                        <Text key={item.resourceKey} size="12.5px">
+                                            <Text span c={item.action === 'adopt' ? 'yellow.5' : 'brand.4'} fw={600}>
+                                                {item.action === 'adopt' ? 'Adopt' : 'Create'}
+                                            </Text>{' '}
+                                            {kindLabel(item.kind)}{' '}
+                                            <Text span fw={600}>
+                                                {item.name}
+                                            </Text>
+                                            {item.reason && (
+                                                <Text size="12px" c="dimmed">
+                                                    {item.reason}
+                                                </Text>
+                                            )}
+                                        </Text>
+                                    ))}
+                                </Stack>
+                            )}
+
+                            {/*
+                             * The already-bound ones are listed too. "What will this do
+                             * to my server" is only answerable if the things it will
+                             * leave alone are visible as well.
+                             */}
+                            {planSummary.unchanged.length > 0 && (
+                                <Text size="12px" c="dimmed">
+                                    Already in place, and staying that way:{' '}
+                                    {planSummary.unchanged.map((item) => item.name).join(', ')}.
+                                </Text>
+                            )}
+
+                            {planSummary.problems.length > 0 && (
+                                <Alert
+                                    color="orange"
+                                    icon={<IconAlertTriangle size={16} />}
+                                    title="Sort these out first"
+                                >
+                                    <Stack gap={4}>
+                                        {planSummary.problems.map((problem, index) => (
+                                            <Text key={index} size="12.5px">
+                                                • {problem}
+                                            </Text>
+                                        ))}
+                                    </Stack>
+                                </Alert>
+                            )}
+
+                            {!planSummary.headline && planSummary.problems.length === 0 && (
+                                <Text size="13px" c="dimmed">
+                                    Everything this flow declares is already in your server. Nothing
+                                    to do.
+                                </Text>
+                            )}
+
+                            <Group justify="flex-end" gap="sm">
+                                <Button
+                                    variant="subtle"
+                                    color="gray"
+                                    onClick={() => setInstallOpen(false)}
+                                    disabled={installing}
+                                >
+                                    {planSummary.canApply ? 'Not now' : 'Close'}
+                                </Button>
+                                {planSummary.canApply &&
+                                    (confirmInstall ? (
+                                        <Button
+                                            color="brand"
+                                            loading={installing}
+                                            onClick={() => void handleInstall()}
+                                        >
+                                            Yes, build it
+                                        </Button>
+                                    ) : (
+                                        <Button
+                                            color="brand"
+                                            onClick={() => setConfirmInstall(true)}
+                                        >
+                                            Install
+                                        </Button>
+                                    ))}
+                            </Group>
+                        </>
+                    )}
+                </Stack>
             </Modal>
 
             <Modal

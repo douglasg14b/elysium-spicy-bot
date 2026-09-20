@@ -21,6 +21,7 @@ import {
     IconBolt,
     IconChevronDown,
     IconLogout,
+    IconSettings,
 } from '@tabler/icons-react';
 import { NavLink as RouterNavLink, Outlet, useLocation } from 'react-router-dom';
 import type { ReactNode } from 'react';
@@ -43,6 +44,9 @@ const NAV: NavEntry[] = [
     { label: 'Tickets', to: '/tickets', icon: <IconTicket size={18} /> },
     { label: 'Birthdays', to: '/birthdays', icon: <IconCake size={18} /> },
     { label: 'Flows', to: '/flows', icon: <IconBolt size={18} />, isNew: true },
+    // Last in "Configure" on purpose: everything above configures one feature, this
+    // configures the server itself and is what those features read from.
+    { label: 'Server Settings', to: '/settings', icon: <IconSettings size={18} /> },
 ];
 
 /** Two-letter monogram for a guild/user with no icon. */

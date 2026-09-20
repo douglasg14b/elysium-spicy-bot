@@ -25,6 +25,7 @@ import { FlowRunTable } from '../../features/flows/data/flowRunsSchema';
 import { FlowButtonMessageTable } from '../../features/flows/data/flowButtonMessagesSchema';
 import { ResourceBindingTable } from '../../features/provisioning/data/resourceBindingsSchema';
 import { JourneyTable } from '../../features/provisioning/data/journeysSchema';
+import { GuildSettingsTable } from '../guild-settings/data/guildSettingsSchema';
 
 export interface Database {
     flash_chat_config: FlashChatConfigTable;
@@ -44,6 +45,7 @@ export interface Database {
     flow_button_messages: FlowButtonMessageTable;
     resource_bindings: ResourceBindingTable;
     journeys: JourneyTable;
+    guild_settings: GuildSettingsTable;
 }
 
 function getDbDialect() {
@@ -94,6 +96,7 @@ function getDatabaseClient() {
                 flow_button_messages: ['createdAt', 'updatedAt'],
                 resource_bindings: ['createdAt', 'updatedAt'],
                 journeys: ['createdAt', 'updatedAt'],
+                guild_settings: ['createdAt', 'updatedAt'],
         }),
     ];
 
@@ -118,6 +121,11 @@ function getDatabaseClient() {
                     // only shows up at run time, on one dialect.
                     flow_button_messages: ['nodeIds'],
                     journeys: ['resources'],
+                    // Same divergence as `flow_button_messages.nodeIds` above: without
+                    // this, `staffRoleIds` comes back as a JSON string on sqlite and an
+                    // array on postgres, and every consumer treating it as a list breaks
+                    // on one dialect only.
+                    guild_settings: ['staffRoleIds'],
                 }),
                 ...plugins,
             ],

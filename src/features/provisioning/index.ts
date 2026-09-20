@@ -45,6 +45,13 @@ export {
 export type { InstallPlan, PlanItem, PlanAction, ResourceChoice } from './logic/installPlan';
 export { isPlanApplicable } from './logic/installPlan';
 
+// The whole install sequence — rebuild, re-check, apply, write back — as one call.
+// Every surface that offers an install goes through this, so the steps cannot be
+// half-remembered by a second copy. `/install-journey`'s Apply button and the
+// dashboard's install route are both callers.
+export { runInstall } from './logic/runInstall';
+export type { InstallRunOutcome, RunInstallInput } from './logic/runInstall';
+
 export type { AppliedResource, ApplyInstallPlanResult } from './logic/applyInstallPlan';
 
 // Teardown. The rule the whole surface rests on lives in `buildUnpublishPlan`: only a

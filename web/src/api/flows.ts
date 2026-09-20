@@ -7,6 +7,8 @@ import type {
     FlowGraph,
     FlowSummary,
     GuildRole,
+    InstallPlan,
+    InstallResult,
     NodeDescriptor,
     PublishedFlowState,
     UndeployedButtonMessage,
@@ -59,6 +61,29 @@ export function deployFlow(
     channelId: string
 ): Promise<DeployResult> {
     return api.post<DeployResult>(`/api/guilds/${guildId}/flows/${flowId}/deploy`, { channelId });
+}
+
+/**
+ * What installing this flow's declared resources would do. Changes nothing.
+ *
+ * A 404 means the flow declares nothing to install; a 409 means the journey keyed on
+ * this flow id belongs to a different flow, or declares something that cannot be
+ * installed as shared server structure.
+ */
+export function getInstallPlan(guildId: string, flowId: string): Promise<InstallPlan> {
+    return api.get<InstallPlan>(`/api/guilds/${guildId}/flows/${flowId}/install-plan`);
+}
+
+/**
+ * Create the channels and roles this flow declares, and wire the new ids into the
+ * nodes that picked them.
+ *
+ * Sends no plan: the server rebuilds and re-checks its own, so a plan that stopped
+ * being applicable comes back as a 409 carrying the new one rather than being applied
+ * on the strength of a stale approval.
+ */
+export function installFlow(guildId: string, flowId: string): Promise<InstallResult> {
+    return api.post<InstallResult>(`/api/guilds/${guildId}/flows/${flowId}/install`, {});
 }
 
 /**

@@ -16,8 +16,19 @@ import {
     type PublishedFlowState,
 } from '../../features/flows/logic/publishedFlowState';
 import { undeployFlowButtons } from '../../features/flows/logic/undeployFlowButtons';
-import { journeysRepo } from '../../features/provisioning/data/journeysRepo';
-import { previewUnpublish, unpublishJourney } from '../../features/provisioning';
+import { guildSettingsRepo } from '../../features-system/guild-settings';
+import { journeysRepo, toDeclarationFromRow } from '../../features/provisioning/data/journeysRepo';
+import {
+    isPlanApplicable,
+    journeyNeedsStaffRoles,
+    journeyNeedsSubject,
+    previewInstall,
+    previewUnpublish,
+    runInstall,
+    unpublishJourney,
+    type InstallPlan,
+    type JourneyDeclaration,
+} from '../../features/provisioning';
 import type { AppEnv } from '../types';
 
 /**
@@ -173,6 +184,121 @@ function publishedBody(state: PublishedFlowState) {
     };
 }
 
+/**
+ * The journey a flow installs, or the reason this flow may not install it.
+ *
+ * **The journey must say it belongs to this flow.** A journey key matching a flow id
+ * is a convention, not a guarantee: keys are operator-supplied, and `POST /journeys`
+ * stores no `createdForFlowId` at all, so a standalone journey can carry any key —
+ * including one that happens to match a real flow's id. A flow id is a UUID, which
+ * satisfies the resource-key pattern, so this is reachable by typing rather than only
+ * by collision.
+ *
+ * Hence ownership is checked **positively**, not by ruling out a conflicting owner.
+ * The weaker `createdForFlowId && createdForFlowId !== flowId` test — which is what
+ * `/unpublish` uses — lets a null-owner journey through, which is precisely the case
+ * the paragraph above describes. That is survivable for teardown, where the operator
+ * is shown the exact list before anything is destroyed and the objects were ones we
+ * created anyway; it is not survivable for install, which *creates* channels and roles
+ * and would attribute them to a flow that never declared them. The flow's resource
+ * panel writes `createdForFlowId` on first save, so every flow-owned journey has it.
+ *
+ * Shared by the preview and the apply so the two cannot disagree about which journeys
+ * this flow owns. A preview an operator is allowed to see but not apply would be a
+ * dead end, and the reverse would be worse.
+ */
+type FlowJourneyLookup =
+    | { readonly ok: true; readonly journey: JourneyDeclaration }
+    | { readonly ok: false; readonly error: string; readonly status: 404 | 409 };
+
+async function flowJourney(guildId: string, flowId: string): Promise<FlowJourneyLookup> {
+    const row = await journeysRepo.getByKey(guildId, flowId);
+    if (!row) {
+        return {
+            ok: false,
+            status: 404,
+            error: 'This flow does not declare any channels or roles to install.',
+        };
+    }
+    if (row.createdForFlowId !== flowId) {
+        return {
+            ok: false,
+            status: 409,
+            error: row.createdForFlowId
+                ? 'That journey belongs to a different flow. Install it from there, so you can see what it will create.'
+                : 'A journey with this key exists but was not created by this flow, so installing it here would credit this flow with channels it never declared.',
+        };
+    }
+
+    return { ok: true, journey: toDeclarationFromRow(row) };
+}
+
+/**
+ * Why a journey cannot be installed as shared guild structure, if it cannot.
+ *
+ * Two questions, and they are genuinely different in kind:
+ *
+ *  - A **subject** is a per-run fact — the specific member a resource is about. It
+ *    does not exist at install time and no amount of configuration creates one, so
+ *    this refusal is permanent and has no action attached to it.
+ *  - **Staff roles** are an ordinary guild fact, now read from guild settings. The
+ *    refusal is therefore conditional and fixable: it fires only when the journey
+ *    grants staff access and the operator has configured no staff roles, and it
+ *    points at the settings page that fixes it.
+ *
+ * Both asked before the plan is built, because these compile to blockers whose
+ * wording is about an unresolvable audience rather than about the declaration being
+ * the wrong shape for installing at all.
+ *
+ * Installing a staff-gated journey with an empty staff list is what this prevents:
+ * it would create a staff-only channel that no staff role can see.
+ */
+function journeyInstallRefusal(
+    journey: JourneyDeclaration,
+    staffRoleIds: readonly string[]
+): string | undefined {
+    if (journeyNeedsSubject(journey)) {
+        return (
+            'This flow declares a resource whose permissions name a subject — the specific ' +
+            'member it is about. A subject only exists while a flow runs, so these resources ' +
+            'cannot be installed as shared server structure.'
+        );
+    }
+    if (journeyNeedsStaffRoles(journey) && staffRoleIds.length === 0) {
+        return (
+            'This flow grants access to staff, but no staff roles are configured for this ' +
+            'server — so the install would create a staff-only channel that nobody can see. ' +
+            'Set them under Configure › Server Settings, then try again.'
+        );
+    }
+
+    return undefined;
+}
+
+/**
+ * The wire shape for an install plan.
+ *
+ * Every item, including the ones needing no work: "what will this do to my server" is
+ * only answerable if the unchanged things are visible too. `reason` carries both the
+ * blocker's explanation and the note on a create that replaces something deleted, so a
+ * client shows it without asking which kind it is.
+ */
+function installPlanBody(plan: InstallPlan) {
+    return {
+        journeyKey: plan.journeyKey,
+        applicable: isPlanApplicable(plan),
+        blockers: plan.blockers,
+        items: plan.items.map((item) => ({
+            resourceKey: item.resourceKey,
+            kind: item.kind,
+            action: item.action,
+            name: item.name,
+            discordId: item.discordId,
+            reason: item.reason,
+        })),
+    };
+}
+
 export function flowRoutes(): Hono<AppEnv> {
     const app = new Hono<AppEnv>();
 
@@ -311,6 +437,127 @@ export function flowRoutes(): Hono<AppEnv> {
         }
 
         return c.json({ ok: true, messageId: result.messageId });
+    });
+
+    /*
+     * What installing this flow's declared resources would do to the guild.
+     *
+     * Reads only — `previewInstall` mutates nothing — so the operator can review the
+     * whole picture, refusals included, before anything is created. Built here rather
+     * than derived in the browser from the declarations, because half of what makes an
+     * item blocked is a fact about the guild: a name already taken, an adopted id that
+     * no longer resolves, a permission model that cannot be satisfied.
+     *
+     * The plan is **not** handed to `/install` afterwards. See that route.
+     */
+    app.get('/:guildId/flows/:flowId/install-plan', async (c) => {
+        const guild = c.get('guild');
+        const flowId = c.req.param('flowId');
+        const existing = await flowsRepo.getByFlowId(flowId);
+        if (!existing || existing.guildId !== guild.id) {
+            return c.json({ error: 'Flow not found.' }, 404);
+        }
+
+        const lookup = await flowJourney(guild.id, flowId);
+        if (!lookup.ok) {
+            return c.json({ error: lookup.error }, lookup.status);
+        }
+
+        // Read once and used for both the refusal and the plan, so the preview is
+        // built against exactly the roles the install would use.
+        const staffRoleIds = await guildSettingsRepo.getStaffRoleIds(guild.id);
+
+        const refusal = journeyInstallRefusal(lookup.journey, staffRoleIds);
+        if (refusal) {
+            return c.json({ error: refusal }, 409);
+        }
+
+        const plan = await previewInstall({
+            guild,
+            journey: lookup.journey,
+            staffRoleIds,
+        });
+
+        return c.json(installPlanBody(plan));
+    });
+
+    /*
+     * Create the channels and roles this flow declares.
+     *
+     * The plan is rebuilt server-side and re-checked before anything is applied,
+     * rather than accepted from the browser — the same rule as `/unpublish` and for
+     * the same reason: a plan arriving over the wire is a list of snowflakes a client
+     * asked us to mutate, and nothing would stop it naming resources the real plan
+     * refuses. Rebuilding also catches a guild that drifted between the preview and
+     * the press, which is the case the operator cannot see and would otherwise meet as
+     * a half-applied install.
+     *
+     * The cost is that the operator confirms a preview fetched a moment earlier rather
+     * than the exact plan applied. Acceptable because every rule is re-evaluated on the
+     * rebuild, so drift can only ever refuse *more*: a newly blocked item makes the
+     * whole plan inapplicable and comes back as the 409 below, carrying the rebuilt
+     * plan so the operator is shown what changed rather than the plan they already
+     * agreed to.
+     *
+     * A partial apply is **200, not an error**. What was created is real and bound, the
+     * write-back has already wired it into the flows that picked it, and re-running
+     * install converges rather than duplicating. `failure` says where it stopped.
+     */
+    app.post('/:guildId/flows/:flowId/install', async (c) => {
+        const guild = c.get('guild');
+        const flowId = c.req.param('flowId');
+        const existing = await flowsRepo.getByFlowId(flowId);
+        if (!existing || existing.guildId !== guild.id) {
+            return c.json({ error: 'Flow not found.' }, 404);
+        }
+
+        const lookup = await flowJourney(guild.id, flowId);
+        if (!lookup.ok) {
+            return c.json({ error: lookup.error }, lookup.status);
+        }
+
+        // Re-read rather than carried from the preview, for the same reason the plan
+        // itself is rebuilt: staff roles can change between the operator reading a
+        // preview and pressing install, and the apply must use what is true now.
+        const staffRoleIds = await guildSettingsRepo.getStaffRoleIds(guild.id);
+
+        const refusal = journeyInstallRefusal(lookup.journey, staffRoleIds);
+        if (refusal) {
+            return c.json({ error: refusal }, 409);
+        }
+
+        const outcome = await runInstall({
+            guild,
+            journey: lookup.journey,
+            staffRoleIds,
+        });
+
+        if (outcome.status === 'notApplicable') {
+            return c.json(
+                {
+                    error: 'This can no longer be installed as planned — your server changed since you last looked.',
+                    plan: installPlanBody(outcome.plan),
+                },
+                409
+            );
+        }
+
+        return c.json({
+            applied: outcome.applied,
+            failure: outcome.failure,
+            writtenCount: outcome.writeBack.writtenCount,
+            updatedFlowIds: outcome.writeBack.updatedFlowIds,
+            // On the wire rather than inferred from a zero count: a write-back that
+            // threw and a journey nothing references both write zero settings, and
+            // only one of them means the operator's flows are now broken.
+            writeBackFailed: outcome.writeBack.failed === true,
+            // Named individually rather than counted: "3 unresolved" tells an operator
+            // nothing they can act on, whereas the resource key is the thing they
+            // declared. Deduplicated because one key can be picked by several nodes.
+            unresolved: [
+                ...new Set(outcome.writeBack.unresolved.map((target) => target.resourceKey)),
+            ],
+        });
     });
 
     /*

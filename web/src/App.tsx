@@ -15,6 +15,7 @@ import { WarningsPage } from './pages/WarningsPage';
 import { ComingSoonPage } from './pages/ComingSoonPage';
 import { FlowsListPage } from './pages/FlowsListPage';
 import { FlowBuilderPage } from './pages/FlowBuilderPage';
+import { ServerSettingsPage } from './pages/ServerSettingsPage';
 
 /**
  * Root. Gates on auth: unauthenticated users get the login page; authenticated ones
@@ -97,6 +98,7 @@ function Gate() {
                     />
                     <Route path="/flows" element={<FlowsListPage />} />
                     <Route path="/flows/:flowId" element={<FlowBuilderPage />} />
+                    <Route path="/settings" element={<ServerSettingsPage />} />
                     <Route path="*" element={<Navigate to="/warnings" replace />} />
                 </Route>
             </Routes>

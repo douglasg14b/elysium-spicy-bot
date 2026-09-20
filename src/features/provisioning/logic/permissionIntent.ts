@@ -135,6 +135,23 @@ function audienceToIds(intent: PermissionIntent, context: PermissionIntentContex
                     'A `staff` permission intent needs at least one staff role, but none was supplied. Configure this guild\'s staff roles before installing a journey that grants them access.'
                 );
             }
+            /*
+             * `@everyone` is refused as a staff role, and this is the last line of
+             * defence rather than the only one — the settings API rejects it on the
+             * way in too.
+             *
+             * Its id is the guild id, so it survives an existence check. Compiled, it
+             * would key the same overwrite as the `everyone` audience, and because
+             * later intents override earlier ones per id, the canonical "deny
+             * everyone, then allow staff" would erase its own deny and publish the
+             * channel while still reporting it as staff-only. Loud here beats a
+             * silently public room.
+             */
+            if (context.staffRoleIds.includes(context.guild.roles.everyone.id)) {
+                throw new PermissionIntentError(
+                    '`@everyone` is configured as a staff role, which would make every staff-only resource public. Remove it from this guild\'s staff roles.'
+                );
+            }
             const missing = context.staffRoleIds.filter(
                 (roleId) => !context.guild.roles.cache.has(roleId)
             );

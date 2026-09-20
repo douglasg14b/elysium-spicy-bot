@@ -1,7 +1,7 @@
 /** Feature-config API helpers, keeping page components free of URL wrangling. */
 
 import { api } from './client';
-import type { GuildChannel, WarningsConfig } from './types';
+import type { GuildChannel, GuildSettings, WarningsConfig } from './types';
 
 export function getGuildChannels(guildId: string): Promise<GuildChannel[]> {
     return api
@@ -18,4 +18,16 @@ export function updateWarningsConfig(
     modChannelId: string
 ): Promise<WarningsConfig> {
     return api.put<WarningsConfig>(`/api/guilds/${guildId}/config/warnings`, { modChannelId });
+}
+
+export function getGuildSettings(guildId: string): Promise<GuildSettings> {
+    return api.get<GuildSettings>(`/api/guilds/${guildId}/settings`);
+}
+
+/** Replaces the staff role list wholesale — an empty array is a legal "nobody yet". */
+export function updateGuildSettings(
+    guildId: string,
+    staffRoleIds: string[]
+): Promise<GuildSettings> {
+    return api.put<GuildSettings>(`/api/guilds/${guildId}/settings`, { staffRoleIds });
 }

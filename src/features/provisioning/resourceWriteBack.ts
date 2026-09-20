@@ -17,6 +17,18 @@ export interface ResourceWriteBackResult {
     readonly updatedFlowIds: readonly string[];
     readonly writtenCount: number;
     readonly unresolved: readonly { readonly resourceKey: string }[];
+    /**
+     * Set when the write-back threw and nothing could be written.
+     *
+     * Distinguishes "there was nothing to write" from "writing failed", which the
+     * counts alone cannot: both are zero. Without it a thrown write-back renders as a
+     * clean install while every node that picked a resource still holds an empty id —
+     * the flow then fails at run time, far from the cause.
+     *
+     * Optional rather than a discriminant, so the common success path stays the plain
+     * shape every caller already reads.
+     */
+    readonly failed?: true;
 }
 
 export type ResourceWriteBack = (
@@ -51,8 +63,13 @@ export function clearResourceWriteBack(): void {
  * Run whatever is registered.
  *
  * A failure here must not fail the install: the guild has already been mutated and
- * those channels are real. Reporting an empty result loses the write-back detail, so
- * the error is logged and the caller's "still waiting" line covers what did not land.
+ * those channels are real, so throwing would report a successful install as a failed
+ * one and invite a re-run of work that already happened.
+ *
+ * But it must not vanish either. It is returned as `failed` rather than only logged,
+ * because the counts cannot express it — a thrown write-back and a journey nothing
+ * references both produce zeroes, and the caller would otherwise tell the operator the
+ * install was clean while their nodes still hold empty ids.
  */
 export async function runResourceWriteBack(
     guild: Guild,
@@ -64,6 +81,6 @@ export async function runResourceWriteBack(
         return await registered(guild, journeyKey);
     } catch (error) {
         console.error('[provisioning] Resource write-back failed:', error);
-        return EMPTY;
+        return { ...EMPTY, failed: true };
     }
 }
