@@ -53,7 +53,7 @@ function describe(field: TextListField, count: number, dropped: number): string 
  * always wants an array — its schema says so — and removing the key would make
  * the save fail on a field the author had merely emptied.
  */
-export function TextListControl({ field, value, onChange }: ControlProps<TextListField>) {
+export function TextListControl({ field, value, onChange, error }: ControlProps<TextListField>) {
     const entries = asTextList(value);
     const atCapacity = field.maxEntries !== undefined && entries.length >= field.maxEntries;
     const dropped = (Array.isArray(value) ? value.length : entries.length) - entries.length;
@@ -114,6 +114,18 @@ export function TextListControl({ field, value, onChange }: ControlProps<TextLis
                 >
                     {field.addLabel ?? 'Add'}
                 </Button>
+            )}
+
+            {/*
+             * Under the list rather than on a row: an issue reaching this control
+             * is about the list as a whole (too few entries, too many), because an
+             * issue about one entry arrives on a path naming its index and the
+             * inspector renders those at node level instead.
+             */}
+            {error && (
+                <Text size="11.5px" c="red.6">
+                    {error}
+                </Text>
             )}
 
             {advice && (

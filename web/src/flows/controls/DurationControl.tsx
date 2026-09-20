@@ -19,7 +19,7 @@ type DurationField = Extract<BlockConfigField, { control: 'duration' }>;
  * clearing emits `0` — an invalid value the save path reports, which is the
  * intended loud failure rather than a key silently vanishing from a required field.
  */
-export function DurationControl({ field, value, onChange }: ControlProps<DurationField>) {
+export function DurationControl({ field, value, onChange, error }: ControlProps<DurationField>) {
     const { value: amount, unit } = splitDuration(asNumber(value));
 
     const emit = (nextValue: number | null, nextUnit: number): void => {
@@ -40,6 +40,11 @@ export function DurationControl({ field, value, onChange }: ControlProps<Duratio
                     onChange={(next) =>
                         emit(typeof next === 'number' ? next : Number(next) || null, unit)
                     }
+                    // On the number, not the unit: a duration's schema complains
+                    // about the milliseconds, and the amount is the half an author
+                    // has to change. Mantine reserves the space for the message, so
+                    // the two inputs stay top-aligned either way.
+                    error={error}
                     style={{ flex: 1 }}
                 />
                 <Select

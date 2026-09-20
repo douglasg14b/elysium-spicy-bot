@@ -82,6 +82,7 @@ export function RolePickerControl({
     onChange,
     context,
     config,
+    error,
 }: ControlProps<RolePickerField>) {
     const resourceKeyField = resourceKeyFieldFor(field.key);
     const current = currentValue(value, config?.[resourceKeyField]);
@@ -112,6 +113,7 @@ export function RolePickerControl({
                 label={field.label}
                 description={field.description}
                 placeholder="Pick a role"
+                error={error}
                 data={options}
                 value={current}
                 onChange={(next) => {
@@ -156,6 +158,7 @@ export function ChannelPickerControl({
     onChange,
     context,
     config,
+    error,
 }: ControlProps<ChannelPickerField>) {
     const resourceKeyField = resourceKeyFieldFor(field.key);
     const current = currentValue(value, config?.[resourceKeyField]);
@@ -187,6 +190,7 @@ export function ChannelPickerControl({
                 label={field.label}
                 description={field.description}
                 placeholder="Pick a channel"
+                error={error}
                 data={options}
                 value={current}
                 onChange={(next) => {

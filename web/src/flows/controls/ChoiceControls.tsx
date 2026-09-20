@@ -29,7 +29,12 @@ function displayedFallback(field: SegmentedField | SelectField): string {
  * `SegmentedControl` has no `label` prop of its own, so the label is drawn above it
  * — the same shape the hand-built button-style field used before this was generic.
  */
-export function SegmentedChoiceControl({ field, value, onChange }: ControlProps<SegmentedField>) {
+export function SegmentedChoiceControl({
+    field,
+    value,
+    onChange,
+    error,
+}: ControlProps<SegmentedField>) {
     const fallback = displayedFallback(field);
 
     return (
@@ -48,6 +53,17 @@ export function SegmentedChoiceControl({ field, value, onChange }: ControlProps<
                 value={asText(value) || fallback}
                 onChange={(next) => onChange(next)}
             />
+            {/*
+             * Drawn by hand: `SegmentedControl` is the one control here with no
+             * `error` prop of its own, having no input to attach one to. Same
+             * placement and colour as Mantine's, so it does not read as a different
+             * kind of message.
+             */}
+            {error ? (
+                <Text size="11.5px" c="red.6" mt={4}>
+                    {error}
+                </Text>
+            ) : null}
             {field.description ? (
                 <Text size="11.5px" c="dimmed" mt={4}>
                     {field.description}
@@ -58,13 +74,14 @@ export function SegmentedChoiceControl({ field, value, onChange }: ControlProps<
 }
 
 /** A longer set of choices, in a dropdown. */
-export function SelectChoiceControl({ field, value, onChange }: ControlProps<SelectField>) {
+export function SelectChoiceControl({ field, value, onChange, error }: ControlProps<SelectField>) {
     const fallback = displayedFallback(field);
 
     return (
         <Select
             label={field.label}
             description={field.description}
+            error={error}
             data={field.options.map((option) => ({ value: option.value, label: option.label }))}
             value={asText(value) || fallback}
             onChange={(next) => onChange(next ?? fallback)}

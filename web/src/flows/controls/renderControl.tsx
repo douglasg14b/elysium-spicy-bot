@@ -28,15 +28,19 @@ import type { ControlChange, ControlContext } from './types';
  * @param onChange - Emits the next value; `undefined` removes the key.
  * @param context - Guild roles and channels, for the pickers.
  * @param config - The whole node's config, for controls reading a sibling key.
+ * @param error - Why the last save refused this field, if it did. Passed to every
+ * control rather than to the ones that happen to want it, so a new control gets
+ * field-level errors by taking the prop it already has.
  */
 export function renderControl(
     field: BlockConfigField,
     value: unknown,
     onChange: ControlChange,
     context: ControlContext,
-    config?: Record<string, unknown>
+    config?: Record<string, unknown>,
+    error?: string
 ): ReactElement {
-    const props = { value, onChange, context, config };
+    const props = { value, onChange, context, config, error };
 
     switch (field.control) {
         case 'rolePicker':

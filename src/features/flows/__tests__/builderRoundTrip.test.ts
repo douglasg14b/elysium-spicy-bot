@@ -21,7 +21,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { executeFlow } from '../engine/executor';
 import { validateFlowGraph, validateAuthoredGraph } from '../engine/graphValidation';
-import { validateNodeData } from '../engine/nodeDataValidation';
+import { describeIssue, validateNodeData } from '../engine/nodeDataValidation';
 import { ensureBlocksDiscovered } from '../blocks/registry';
 import type { FlowGraph } from '../data/flowGraph';
 import type { FlowRunSeed } from '../blocks/types';
@@ -103,7 +103,7 @@ function validateAsSaveWould(graph: FlowGraph): readonly string[] {
     if (!structural.valid) return structural.errors;
 
     const nodeData = validateNodeData(structural.graph);
-    if (!nodeData.valid) return nodeData.errors;
+    if (!nodeData.valid) return nodeData.issues.map(describeIssue);
 
     const authored = validateAuthoredGraph(structural.graph);
     if (!authored.valid) return authored.errors;

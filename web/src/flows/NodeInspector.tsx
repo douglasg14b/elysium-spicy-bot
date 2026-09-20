@@ -6,9 +6,10 @@
  * This file knows no block types. Everything it draws comes off the descriptor.
  */
 
-import { Button, CopyButton, Divider, Group, Stack, Text, Tooltip, UnstyledButton } from '@mantine/core';
-import { IconTrash } from '@tabler/icons-react';
+import { Alert, Button, CopyButton, Divider, Group, Stack, Text, Tooltip, UnstyledButton } from '@mantine/core';
+import { IconAlertTriangle, IconTrash } from '@tabler/icons-react';
 import type {
+    FlowValidationIssue,
     GuildChannel,
     GuildRole,
     NodeDescriptor,
@@ -17,6 +18,7 @@ import type {
 import { renderControl } from './controls/renderControl';
 import type { ControlContext } from './controls/types';
 import { KIND_STYLES } from './nodeMeta';
+import { describeUnplacedIssue, placeIssues } from './validationIssues';
 import { resolveOutputName, variableToken, type AvailableVariable } from './variables';
 
 interface NodeInspectorProps {
@@ -36,6 +38,13 @@ interface NodeInspectorProps {
     variables: AvailableVariable[];
     /** What this flow declares but has not installed yet, for the pickers to offer. */
     declaredResources: ResourceDeclaration[];
+    /**
+     * Why the last save refused this node, if it did.
+     *
+     * Only this node's — the page holds the whole list and hands each inspector its
+     * slice, so the inspector never has to know which node it is drawing twice.
+     */
+    issues: readonly FlowValidationIssue[];
     onChange: (patch: Record<string, unknown>) => void;
     onDelete: () => void;
 }
@@ -49,14 +58,19 @@ export function NodeInspector({
     channels,
     variables,
     declaredResources,
+    issues,
     onChange,
     onDelete,
 }: NodeInspectorProps) {
     if (!descriptor) {
-        return <UnknownNodeInspector nodeType={nodeType} onDelete={onDelete} />;
+        return <UnknownNodeInspector nodeType={nodeType} issues={issues} onDelete={onDelete} />;
     }
 
     const style = KIND_STYLES[descriptor.kind];
+    const placed = placeIssues(
+        issues,
+        descriptor.configFields.map((field) => field.key)
+    );
     const context: ControlContext = {
         roles,
         channels,
@@ -101,6 +115,29 @@ export function NodeInspector({
 
             <Divider />
 
+            {/*
+             * Above the fields, not below: an issue with no control to sit under is
+             * the one the author is least likely to find, so it goes where they are
+             * already looking after a failed save.
+             */}
+            {placed.nodeLevel.length > 0 ? (
+                <Alert
+                    color="red"
+                    variant="light"
+                    p="xs"
+                    icon={<IconAlertTriangle size={16} />}
+                    title="This block can't save"
+                >
+                    <Stack gap={2}>
+                        {placed.nodeLevel.map((issue) => (
+                            <Text size="11.5px" key={`${issue.field ?? ''}:${issue.message}`}>
+                                {describeUnplacedIssue(issue)}
+                            </Text>
+                        ))}
+                    </Stack>
+                </Alert>
+            ) : null}
+
             <Stack gap="md">
                 {descriptor.configFields.map((field) => (
                     <div key={field.key}>
@@ -109,7 +146,8 @@ export function NodeInspector({
                             config[field.key],
                             (value) => onChange({ [field.key]: value }),
                             context,
-                            config
+                            config,
+                            placed.byField.get(field.key)
                         )}
                     </div>
                 ))}
@@ -230,9 +268,11 @@ function ProducedVariables({
  */
 function UnknownNodeInspector({
     nodeType,
+    issues,
     onDelete,
 }: {
     nodeType: string;
+    issues: readonly FlowValidationIssue[];
     onDelete: () => void;
 }) {
     return (
@@ -271,6 +311,18 @@ function UnknownNodeInspector({
             <Text size="12px" c="red.4" style={{ wordBreak: 'break-all' }}>
                 {nodeType}
             </Text>
+
+            {/*
+             * There are no controls here to place an issue under — that is what makes
+             * this node unknown — so every one it has is listed. Shown rather than
+             * dropped: the save named this node, and a panel that said nothing about
+             * why would look like the save failed elsewhere.
+             */}
+            {issues.map((issue) => (
+                <Text size="11.5px" c="red.4" key={`${issue.field ?? ''}:${issue.message}`}>
+                    {describeUnplacedIssue(issue)}
+                </Text>
+            ))}
 
             <Divider mt="auto" />
 

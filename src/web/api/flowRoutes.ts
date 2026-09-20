@@ -4,8 +4,14 @@ import { flowGraphSchema, FLOW_GRAPH_VERSION, type FlowGraph } from '../../featu
 import { flowsRepo } from '../../features/flows/data/flowsRepo';
 import type { FlowEntity } from '../../features/flows/data/flowsSchema';
 import { validateAuthoredGraph, validateFlowGraph } from '../../features/flows/engine/graphValidation';
-import { validateNodeData } from '../../features/flows/engine/nodeDataValidation';
+import {
+    describeIssue,
+    validateNodeData,
+    type FlowValidationIssue,
+} from '../../features/flows/engine/nodeDataValidation';
 import { deployFlowButtons } from '../../features/flows/logic/deployFlowButtons';
+import { pendingResourceFields } from '../../features/flows/logic/pendingResourceFields';
+import { journeysRepo } from '../../features/provisioning/data/journeysRepo';
 import type { AppEnv } from '../types';
 
 /**
@@ -54,6 +60,22 @@ function flowSummary(flow: FlowEntity) {
     };
 }
 
+type GraphSaveValidation =
+    | { ok: true; graph: FlowGraph }
+    | { ok: false; issues: readonly FlowValidationIssue[] };
+
+/**
+ * The resource keys a flow declares, for the pair check below.
+ *
+ * A flow's journey is implicit and keyed on the flow's own id, so this is a lookup
+ * rather than a join. A flow that declares nothing has no journey row at all, which
+ * is the normal state and not an error — hence the empty set rather than a 404.
+ */
+async function declaredResourceKeys(guildId: string, flowId: string): Promise<ReadonlySet<string>> {
+    const journey = await journeysRepo.getByKey(guildId, flowId);
+    return new Set((journey?.resources ?? []).map((resource) => resource.key));
+}
+
 /**
  * Full server-side graph validation, in the order that blames the right thing:
  * shape and structural integrity, then each node's `data` against its registry
@@ -63,28 +85,69 @@ function flowSummary(flow: FlowEntity) {
  * unknown type, rather than as a pile of complaints about handles on a block
  * nobody recognises.
  *
- * The repo enforces the same rules — it owns the write boundary, so a seed
- * script cannot bypass them. Running them here too is not redundant: it turns
- * what would surface as a 500 from a thrown repo error into a 400 naming the
- * node, which is what the builder shows its author.
+ * `declaredKeys` is what lets a picker field be empty: a node that picked a
+ * resource this flow declares but has not installed holds an empty snowflake and a
+ * sidecar naming the declaration, and refusing that would make a whole feature
+ * unsaveable. {@link pendingResourceFields} translates the declaration into the
+ * engine's own vocabulary — "these fields are filled in later" — so the validator
+ * stays a general check that has never heard of provisioning.
+ *
+ * Issues, not a joined string. Every one carries the node and field it came from,
+ * which the builder puts next to the control that caused it; a dozen-node canvas
+ * and a sentence naming only a field is not enough to find anything.
+ *
+ * The repo also enforces the structural and authoring rules on write — it owns the
+ * write boundary, so a seed script cannot bypass them. It does **not** run the node
+ * data check, which lives only here: it needs the flow's declarations, and a repo
+ * reaching for them would invert the dependency between flows and provisioning.
  */
-function validateGraphForSave(graph: FlowGraph): { ok: true; graph: FlowGraph } | { ok: false; message: string } {
+function validateGraphForSave(graph: FlowGraph, declaredKeys: ReadonlySet<string>): GraphSaveValidation {
     const structural = validateFlowGraph(graph);
     if (!structural.valid) {
-        return { ok: false, message: structural.errors.join('; ') };
+        return { ok: false, issues: structural.errors.map((message) => ({ message })) };
     }
 
-    const nodeData = validateNodeData(structural.graph);
-    if (!nodeData.valid) {
-        return { ok: false, message: nodeData.errors.join('; ') };
+    const pending = pendingResourceFields(structural.graph, declaredKeys);
+    const nodeData = validateNodeData(structural.graph, { pendingFields: pending.pendingFields });
+    const nodeDataIssues = nodeData.valid ? [] : nodeData.issues;
+    // Reported together: a sidecar naming nothing and a field the schema refuses are
+    // the same author's same mistake seen from two sides, and showing one at a time
+    // would make fixing it a round trip per node.
+    const dataIssues = [...pending.issues, ...nodeDataIssues];
+    if (dataIssues.length > 0) {
+        return { ok: false, issues: dataIssues };
     }
 
     const authored = validateAuthoredGraph(structural.graph);
     if (!authored.valid) {
-        return { ok: false, message: authored.errors.join('; ') };
+        return { ok: false, issues: authored.errors.map((message) => ({ message })) };
     }
 
     return { ok: true, graph: structural.graph };
+}
+
+/**
+ * The 400 body for a rejected graph.
+ *
+ * `error` stays, and stays first: every existing client reads it, `ApiError` falls
+ * back to it, and a notification with no room for a list still needs a sentence.
+ * `issues` is the same information addressed to the nodes it came from.
+ */
+function invalidGraphBody(issues: readonly FlowValidationIssue[]): {
+    error: string;
+    issues: readonly FlowValidationIssue[];
+} {
+    return { error: issues.map(describeIssue).join('; '), issues };
+}
+
+/**
+ * A thrown value as one line for an operator.
+ *
+ * The message only — no stack, which would be the one thing in a repo error worth
+ * keeping out of a response body.
+ */
+function describeCause(cause: unknown): string {
+    return cause instanceof Error ? cause.message : String(cause);
 }
 
 export function flowRoutes(): Hono<AppEnv> {
@@ -117,9 +180,11 @@ export function flowRoutes(): Hono<AppEnv> {
         }
 
         const graph: FlowGraph = parsed.data.graph ?? { version: FLOW_GRAPH_VERSION, nodes: [], edges: [] };
-        const validated = validateGraphForSave(graph);
+        // No flow yet, so no journey and nothing declared. Correct rather than a
+        // shortcut: a flow cannot reference a declaration it has not saved.
+        const validated = validateGraphForSave(graph, new Set<string>());
         if (!validated.ok) {
-            return c.json({ error: validated.message }, 400);
+            return c.json(invalidGraphBody(validated.issues), 400);
         }
 
         const flow = await flowsRepo.create({
@@ -148,9 +213,35 @@ export function flowRoutes(): Hono<AppEnv> {
 
         let graph: FlowGraph | undefined;
         if (parsed.data.graph !== undefined) {
-            const validated = validateGraphForSave(parsed.data.graph);
+            /*
+             * `journeysRepo` validates the stored declaration on read and throws when
+             * a row is malformed. Caught and named rather than left to become a bare
+             * 500: the author would otherwise be told to "try again in a second" on a
+             * graph that is fine, forever, with nothing on screen pointing at the
+             * journey row that is actually broken.
+             *
+             * Deliberately **not** recovered from by treating the flow as declaring
+             * nothing. That would turn a corrupt row into "every picked resource is
+             * undeclared", blaming the author's graph for a data problem they cannot
+             * see or fix.
+             */
+            let declaredKeys: ReadonlySet<string>;
+            try {
+                declaredKeys = await declaredResourceKeys(guildId, flowId);
+            } catch (cause) {
+                return c.json(
+                    {
+                        error:
+                            "This flow's declared resources are stored in a state the server can't " +
+                            `read, so its graph can't be checked: ${describeCause(cause)}`,
+                    },
+                    500
+                );
+            }
+
+            const validated = validateGraphForSave(parsed.data.graph, declaredKeys);
             if (!validated.ok) {
-                return c.json({ error: validated.message }, 400);
+                return c.json(invalidGraphBody(validated.issues), 400);
             }
             graph = validated.graph;
         }

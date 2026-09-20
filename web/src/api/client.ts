@@ -3,10 +3,21 @@
  * are sent automatically. Throws {@link ApiError} on non-2xx so callers can surface it.
  */
 
+import type { FlowValidationIssue } from './types';
+
 export class ApiError extends Error {
     constructor(
         public readonly status: number,
-        message: string
+        message: string,
+        /**
+         * Per-node, per-field detail, when the endpoint sends any.
+         *
+         * Empty for every endpoint that does not — the graph save is the only one
+         * today — so a caller can read it without asking which endpoint it came
+         * from. `message` always says the same thing in one sentence, so a caller
+         * with nowhere to put a list loses placement rather than the error.
+         */
+        public readonly issues: readonly FlowValidationIssue[] = []
     ) {
         super(message);
         this.name = 'ApiError';
@@ -22,13 +33,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
     if (!res.ok) {
         let message = `Request failed (${res.status})`;
+        let issues: readonly FlowValidationIssue[] = [];
         try {
-            const body = (await res.json()) as { error?: string };
+            const body = (await res.json()) as { error?: string; issues?: FlowValidationIssue[] };
             if (body?.error) message = body.error;
+            // Guarded rather than trusted: this is a parsed response body, and a
+            // proxy or an older server can put anything here. A non-array would
+            // otherwise reach `.map` in the builder as a render-time crash.
+            if (Array.isArray(body?.issues)) issues = body.issues;
         } catch {
             // Non-JSON error body — keep the generic message.
         }
-        throw new ApiError(res.status, message);
+        throw new ApiError(res.status, message, issues);
     }
 
     // 204 / empty bodies.

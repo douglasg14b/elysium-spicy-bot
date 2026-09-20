@@ -16,11 +16,12 @@ type ColourField = Extract<BlockConfigField, { control: 'colour' }>;
  * not from inside a render. Harmless here regardless — every block using this
  * treats colour as optional.
  */
-export function ColourControl({ field, value, onChange }: ControlProps<ColourField>) {
+export function ColourControl({ field, value, onChange, error }: ControlProps<ColourField>) {
     return (
         <ColorInput
             label={field.label}
             description={field.description}
+            error={error}
             format="hex"
             value={asText(value) || field.defaultValue || ''}
             onChange={(next) => onChange(next)}

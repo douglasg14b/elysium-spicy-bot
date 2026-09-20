@@ -89,7 +89,7 @@ function emptyValueFor(field: TextField, next: string): string | undefined {
 }
 
 /** Single-line text. */
-export function TextControl({ field, value, onChange, context }: ControlProps<TextField>) {
+export function TextControl({ field, value, onChange, context, error }: ControlProps<TextField>) {
     return (
         <div>
             <TextInput
@@ -97,6 +97,7 @@ export function TextControl({ field, value, onChange, context }: ControlProps<Te
                 description={limitHint(field)}
                 placeholder={field.placeholder}
                 maxLength={hardLimit(field)}
+                error={error}
                 value={asText(value)}
                 onChange={(event) => onChange(emptyValueFor(field, event.currentTarget.value))}
             />
@@ -108,7 +109,13 @@ export function TextControl({ field, value, onChange, context }: ControlProps<Te
 }
 
 /** Autosizing multi-line text. */
-export function LongTextControl({ field, value, onChange, context }: ControlProps<LongTextField>) {
+export function LongTextControl({
+    field,
+    value,
+    onChange,
+    context,
+    error,
+}: ControlProps<LongTextField>) {
     return (
         <div>
             <Textarea
@@ -116,6 +123,7 @@ export function LongTextControl({ field, value, onChange, context }: ControlProp
                 description={limitHint(field)}
                 placeholder={field.placeholder}
                 maxLength={hardLimit(field)}
+                error={error}
                 autosize
                 minRows={4}
                 maxRows={10}

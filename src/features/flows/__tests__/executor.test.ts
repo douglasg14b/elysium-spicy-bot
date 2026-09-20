@@ -135,6 +135,70 @@ describe('flow executor', () => {
 });
 
 /**
+ * The guard that makes relaxing *save* safe.
+ *
+ * A flow may now be saved with a picker field still empty, because the resource it
+ * names has not been installed yet. That is only acceptable while **execution** is
+ * unchanged: the executor re-parses each node's `configSchema` before running it, so
+ * a flow saved in that state refuses to run rather than running against nothing.
+ *
+ * This is the assertion that would fail if somebody later "fixed" the executor to
+ * tolerate what the save path now tolerates, which is the one change that would turn
+ * a deliberate relaxation into a block acting on an empty channel id.
+ */
+describe('a node whose config is still waiting on a provisioned id', () => {
+    it('fails the run rather than acting on an empty id', async () => {
+        const graph: FlowGraph = {
+            version: FLOW_GRAPH_VERSION,
+            nodes: [
+                { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { label: 'Go' } },
+                {
+                    id: 'assign',
+                    type: ACTION_ASSIGN_ROLE,
+                    position: { x: 200, y: 0 },
+                    // Exactly what the builder writes when an author picks a declared
+                    // resource: the key is canonical, the snowflake arrives at install.
+                    data: { roleId: '', roleIdKey: 'member-role' },
+                },
+            ],
+            edges: [{ id: 'e1', source: 'trigger', target: 'assign' }],
+        };
+        const { context, rolesAdd } = makeContext();
+
+        const result = await executeFlow('flow-pending', graph, 'trigger', context);
+
+        expect(result.status).toBe('error');
+        // Naming the block is what makes the failure diagnosable from a log alone.
+        expect(result.error).toContain(ACTION_ASSIGN_ROLE);
+        // The point of the guard: nothing was attempted against an empty id.
+        expect(rolesAdd).not.toHaveBeenCalled();
+    });
+
+    it('logs the failing node rather than only returning it', async () => {
+        const graph: FlowGraph = {
+            version: FLOW_GRAPH_VERSION,
+            nodes: [
+                { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { label: 'Go' } },
+                {
+                    id: 'assign',
+                    type: ACTION_ASSIGN_ROLE,
+                    position: { x: 200, y: 0 },
+                    data: { roleId: '', roleIdKey: 'member-role' },
+                },
+            ],
+            edges: [{ id: 'e1', source: 'trigger', target: 'assign' }],
+        };
+        const { context } = makeContext();
+
+        const result = await executeFlow('flow-pending', graph, 'trigger', context);
+
+        const failed = result.log.find((entry) => entry.nodeId === 'assign');
+        expect(failed?.status).toBe('error');
+        expect(failed?.error).toBeTruthy();
+    });
+});
+
+/**
  * Two edges leaving one handle is rejected at save time, naming the node.
  *
  * Each case is a different handle *kind*, because a fix scoped to one of them

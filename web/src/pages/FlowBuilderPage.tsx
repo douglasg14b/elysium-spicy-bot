@@ -58,6 +58,7 @@ import { getFlowResources, saveFlowResources } from '../api/journeys';
 import type {
     FlowEdge,
     FlowGraph,
+    FlowValidationIssue,
     GuildChannel,
     GuildRole,
     NodeDescriptor,
@@ -78,6 +79,7 @@ import {
     readStoredWidth,
 } from '../flows/resizableColumn';
 import { graphIncluding } from '../flows/graphHistory';
+import { issuesByNode, summarizeIssues } from '../flows/validationIssues';
 import { availableVariablesAt } from '../flows/variables';
 import { NodePalette, NODE_DRAG_MIME } from '../flows/NodePalette';
 import { NodeInspector } from '../flows/NodeInspector';
@@ -156,7 +158,15 @@ function snapshot(source: Snapshot): Snapshot {
         nodes: source.nodes.map((node) => ({
             ...node,
             position: { ...node.position },
-            data: { ...node.data, config: structuredClone(node.data.config) },
+            data: {
+                ...node.data,
+                config: structuredClone(node.data.config),
+                // Zeroed rather than captured: this is derived from the last save's
+                // response, not part of the graph, so restoring it would have undo
+                // repaint cards red for a rejection that no longer describes them.
+                // The effect that owns it puts the right number back.
+                issueCount: 0,
+            },
         })),
         edges: structuredClone(source.edges),
     };
@@ -222,6 +232,15 @@ function FlowBuilder() {
     const [saving, setSaving] = useState(false);
     const [dirty, setDirty] = useState(false);
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+    /**
+     * Why the last save was refused, kept until the next save answers.
+     *
+     * Not cleared on edit. An author fixing one of three problems would otherwise
+     * watch the other two vanish with it, and have to save again to find out what
+     * they were. They go stale instead — which is honest, because they describe the
+     * graph as the server last saw it — and a save replaces the whole set.
+     */
+    const [saveIssues, setSaveIssues] = useState<readonly FlowValidationIssue[]>([]);
 
     const [deployOpen, setDeployOpen] = useState(false);
     const [deployChannelId, setDeployChannelId] = useState<string | null>(null);
@@ -322,6 +341,9 @@ function FlowBuilder() {
                                 descriptor,
                                 roles: guildRoles,
                                 channels: guildChannels,
+                                // A freshly loaded flow has not been saved in this
+                                // session, so nothing has been refused yet.
+                                issueCount: 0,
                             } satisfies FlowNodeCardData,
                         };
                     })
@@ -378,6 +400,8 @@ function FlowBuilder() {
                     descriptor: entry,
                     roles,
                     channels,
+                    // Nothing has judged it yet; the next save will.
+                    issueCount: 0,
                 },
             };
             setNodes((prev) => [...prev, node]);
@@ -588,6 +612,7 @@ function FlowBuilder() {
             setName(updated.name);
             setEnabled(updated.enabled);
             setDirty(false);
+            setSaveIssues([]);
             notifications.show({
                 color: 'brand',
                 title: 'Saved',
@@ -598,7 +623,21 @@ function FlowBuilder() {
             // edges). Cycles are allowed now — loops are guarded by the visit cap.
             const message =
                 err instanceof ApiError ? err.message : "Couldn't save. Try again in a second.";
-            notifications.show({ color: 'red', title: "That graph won't fly", message });
+            // Replaced wholesale, including with an empty list: a failure carrying no
+            // issues (a 500, a dropped connection) says nothing about which nodes are
+            // wrong, and leaving the previous set up would attribute the last
+            // rejection's blame to this one.
+            const issues = err instanceof ApiError ? err.issues : [];
+            setSaveIssues(issues);
+            // Selecting the first errored node is the whole difference between a
+            // sentence about a field and knowing which of a dozen blocks it is on.
+            const firstBlamed = issues.find((issue) => issue.nodeId)?.nodeId;
+            if (firstBlamed) setSelectedNodeId(firstBlamed);
+            notifications.show({
+                color: 'red',
+                title: "That graph won't fly",
+                message: issues.length > 0 ? summarizeIssues(issues) : message,
+            });
         } finally {
             setSaving(false);
         }
@@ -642,6 +681,38 @@ function FlowBuilder() {
         () => nodes.find((n) => n.id === selectedNodeId) ?? null,
         [nodes, selectedNodeId]
     );
+
+    const issuesForNode = useMemo(() => issuesByNode(saveIssues), [saveIssues]);
+
+    /**
+     * Push each node's issue count onto its card data.
+     *
+     * React Flow renders from `node.data`, so a card cannot read page state — it has
+     * to be carried. An effect rather than part of the save handler, so the count
+     * also follows the nodes: `snapshot` deliberately zeroes `issueCount`, and undo
+     * would otherwise leave every restored card clean until the next save.
+     *
+     * Deliberately **not** through `pushHistory`: a failed save is not a graph edit,
+     * and recording one would let undo "restore" a graph that differs only in which
+     * cards are red.
+     *
+     * `nodes` is a dependency *and* the thing being set, which is only safe because
+     * the updater returns `prev` unchanged when every count already matches — the
+     * second pass is referentially identical, so React stops there rather than
+     * looping.
+     */
+    useEffect(() => {
+        setNodes((prev) => {
+            let changed = false;
+            const next = prev.map((node) => {
+                const count = issuesForNode.get(node.id)?.length ?? 0;
+                if (node.data.issueCount === count) return node;
+                changed = true;
+                return { ...node, data: { ...node.data, issueCount: count } };
+            });
+            return changed ? next : prev;
+        });
+    }, [issuesForNode, nodes, setNodes]);
 
     /**
      * Variables some block upstream of the selection writes.
@@ -977,6 +1048,7 @@ function FlowBuilder() {
                             channels={channels}
                             variables={availableVariables}
                             declaredResources={declaredResources}
+                            issues={issuesForNode.get(selectedNode.id) ?? []}
                             onChange={updateNodeConfig}
                             onDelete={deleteSelectedNode}
                         />

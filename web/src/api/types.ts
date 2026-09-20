@@ -608,6 +608,24 @@ export interface DeployResult {
 }
 
 /**
+ * One reason a save was refused, addressed to the thing that caused it.
+ *
+ * Mirrors `FlowValidationIssue` in `src/features/flows/engine/nodeDataValidation.ts`.
+ * Both halves are optional and for the same reason they are there: a graph-wide
+ * problem blames no node, and an unknown block type blames no field.
+ *
+ * `field` is a **dotted path** into the node's config — `fields.0.name`, not
+ * `fields` — so an issue inside a list entry can be told from one about the list.
+ * A control keyed on the whole path therefore matches nothing for those; see
+ * `placeIssues` in `web/src/flows/validationIssues.ts` for where they end up.
+ */
+export interface FlowValidationIssue {
+    nodeId?: string;
+    field?: string;
+    message: string;
+}
+
+/**
  * What kind of guild object a declared resource is.
  *
  * Mirrors `RESOURCE_KINDS` on the server. A closed union, because each value has

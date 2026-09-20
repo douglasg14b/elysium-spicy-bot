@@ -106,6 +106,19 @@ export interface ControlProps<TField extends BlockConfigField = BlockConfigField
      * control so the dispatcher stays free of special cases.
      */
     config?: Record<string, unknown>;
+    /**
+     * Why the last save refused this field, if it did.
+     *
+     * On {@link ControlProps} rather than on each control that wants it, so every
+     * control — present and future — gets field-level errors without its own
+     * plumbing. Mantine inputs all take an `error` prop, so most controls spend one
+     * line on it.
+     *
+     * A control that cannot place an error (the list controls, whose issues arrive
+     * on a dotted path naming an entry rather than the field) may ignore this; the
+     * inspector renders anything unplaced at node level rather than dropping it.
+     */
+    error?: string;
 }
 
 /** Narrow an unknown `node.data` value to a string for controlled inputs. */

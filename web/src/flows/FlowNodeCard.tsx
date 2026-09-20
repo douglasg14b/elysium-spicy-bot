@@ -8,6 +8,7 @@
 import { Fragment } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { Text } from '@mantine/core';
+import { IconAlertTriangle } from '@tabler/icons-react';
 import type { GuildChannel, GuildRole, NodeDescriptor } from '../api/types';
 import { summarizeFromDescriptor } from './cardSummary';
 import { handlesAreLabelled, HANDLE_TONE_COLORS, KIND_STYLES } from './nodeMeta';
@@ -25,6 +26,14 @@ export interface FlowNodeCardData extends Record<string, unknown> {
     descriptor: NodeDescriptor | undefined;
     roles: GuildRole[];
     channels: GuildChannel[];
+    /**
+     * How many things the last save found wrong with this node.
+     *
+     * A count rather than the issues themselves: the card has room for a number and
+     * the inspector is where they are read. Carrying the list here would put the
+     * same objects on every card in every undo snapshot for nothing.
+     */
+    issueCount: number;
 }
 
 export type FlowCardNode = Node<FlowNodeCardData, 'flowCard'>;
@@ -39,7 +48,7 @@ const HANDLE_BASE: React.CSSProperties = {
 };
 
 export function FlowNodeCard({ data, selected }: NodeProps<FlowCardNode>) {
-    const { nodeType, label, config, descriptor, roles, channels } = data;
+    const { nodeType, label, config, descriptor, roles, channels, issueCount } = data;
 
     if (!descriptor) {
         return <BrokenNodeCard nodeType={nodeType} selected={selected} />;
@@ -48,19 +57,29 @@ export function FlowNodeCard({ data, selected }: NodeProps<FlowCardNode>) {
     const style = KIND_STYLES[descriptor.kind];
     const handles = descriptor.handles;
     const labelled = handlesAreLabelled(handles);
+    const failed = issueCount > 0;
 
     return (
         <div
+            /*
+             * Announced when it failed, for the same reason the broken card is:
+             * this is the state that stops a save, and noticing it must not depend
+             * on seeing red. Left off an ordinary card so the canvas is not a wall
+             * of alerts.
+             */
+            role={failed ? 'alert' : undefined}
             style={{
                 width: 210,
                 background: 'var(--mantine-color-dark-7)',
-                border: `1px solid ${
-                    selected ? 'var(--mantine-color-brand-6)' : 'var(--mantine-color-dark-5)'
-                }`,
+                // Failure outranks selection: an author clicking an errored node to
+                // read its issues must not have the card stop looking errored.
+                border: `1px solid ${borderColor(failed, selected)}`,
                 borderRadius: 12,
-                boxShadow: selected
-                    ? '0 0 0 2px rgba(0,162,255,.5), 0 8px 24px rgba(0,0,0,.4)'
-                    : '0 8px 24px rgba(0,0,0,.35)',
+                boxShadow: failed
+                    ? '0 0 0 2px rgba(237,66,69,.5), 0 8px 24px rgba(0,0,0,.4)'
+                    : selected
+                      ? '0 0 0 2px rgba(0,162,255,.5), 0 8px 24px rgba(0,0,0,.4)'
+                      : '0 8px 24px rgba(0,0,0,.35)',
             }}
         >
             {descriptor.kind !== 'trigger' && (
@@ -100,7 +119,7 @@ export function FlowNodeCard({ data, selected }: NodeProps<FlowCardNode>) {
                         marginLeft: 'auto',
                     }}
                 >
-                    {style.label}
+                    {failed ? <IssueBadge count={issueCount} /> : style.label}
                 </span>
             </div>
 
@@ -108,6 +127,14 @@ export function FlowNodeCard({ data, selected }: NodeProps<FlowCardNode>) {
                 <Text size="12px" c="dark.1" lineClamp={2}>
                     {summarizeFromDescriptor(descriptor, config, roles, channels)}
                 </Text>
+                {failed ? (
+                    // Counted in problems rather than fields: two rules can fail on
+                    // one control, and promising "3 fields" over two would be a lie
+                    // the author notices the moment they open it.
+                    <Text size="11px" c="red.4" mt={4}>
+                        Open it — {issueCount === 1 ? 'one problem' : `${issueCount} problems`} to fix.
+                    </Text>
+                ) : null}
             </div>
 
             {labelled ? (
@@ -154,6 +181,39 @@ export function FlowNodeCard({ data, selected }: NodeProps<FlowCardNode>) {
                 />
             )}
         </div>
+    );
+}
+
+/** Card border, with failure outranking selection. */
+function borderColor(failed: boolean, selected: boolean): string {
+    if (failed) return 'var(--mantine-color-red-5)';
+    return selected ? 'var(--mantine-color-brand-6)' : 'var(--mantine-color-dark-5)';
+}
+
+/**
+ * The issue count, in the corner the block kind's label usually occupies.
+ *
+ * It replaces that label rather than sitting beside it: the strip is 210px wide and
+ * already holds an icon and a name, and "ACTION" is the one thing there an author
+ * looking at a failed save does not need. The kind is still legible from the header
+ * colour and the icon.
+ */
+function IssueBadge({ count }: { count: number }) {
+    return (
+        <span
+            style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 3,
+                padding: '1px 6px',
+                borderRadius: 999,
+                background: 'rgba(237,66,69,.9)',
+                color: '#ffffff',
+            }}
+        >
+            <IconAlertTriangle size={10} />
+            {count}
+        </span>
     );
 }
 
