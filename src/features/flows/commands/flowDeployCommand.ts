@@ -1,26 +1,23 @@
 import {
-    ChannelType,
     ChatInputCommandInteraction,
     PermissionsBitField,
     SlashCommandBuilder,
-    TextChannel,
 } from 'discord.js';
 import { commandError, commandSuccess } from '../../../features-system/commands';
 import type { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { deployFlowButtons } from '../logic/deployFlowButtons';
 
+/*
+ * No `channel` option any more: each button trigger names the channel it belongs in,
+ * so one here could only override every button with a single destination — which is
+ * precisely the flow-scoped behaviour this was changed away from. The destination is
+ * authoring data now, and it lives on the canvas.
+ */
 export const flowDeployCommand = new SlashCommandBuilder()
     .setName('flow-deploy')
-    .setDescription('Post a flow\'s trigger button(s) to a channel')
+    .setDescription('Post a flow\'s trigger buttons to the channels they name')
     .addStringOption((option) =>
         option.setName('flow-id').setDescription('The flow id to deploy').setRequired(true)
-    )
-    .addChannelOption((option) =>
-        option
-            .setName('channel')
-            .setDescription('Channel to post the button in (defaults to the current channel)')
-            .addChannelTypes(ChannelType.GuildText)
-            .setRequired(false)
     )
     .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild);
 
@@ -41,28 +38,28 @@ export async function handleFlowDeployCommand(
     }
 
     const flowId = interaction.options.getString('flow-id', true);
-    const targetChannel =
-        (interaction.options.getChannel('channel') as TextChannel | null) ??
-        (interaction.channel as TextChannel | null);
 
-    if (!targetChannel || targetChannel.type !== ChannelType.GuildText) {
-        await interaction.reply({
-            content: '❌ Please specify a valid text channel or run this in one.',
-            ephemeral: true,
-        });
-        return commandError('Invalid channel');
-    }
+    /*
+     * Deferred before the work, not after.
+     *
+     * A deploy is now several Discord round trips — a guild fetch, a full retire of
+     * whatever is already live (fetch and delete per recorded message), then a send
+     * per destination channel. Past the three-second window `reply` fails with 10062
+     * `Unknown interaction` *after* the guild has already been changed, leaving the
+     * operator staring at "The application did not respond" with no idea what landed.
+     */
+    await interaction.deferReply({ ephemeral: true });
 
     // Same validate-and-post path the web deploy route uses.
-    const result = await deployFlowButtons(interaction.guild.id, flowId, targetChannel.id);
+    const result = await deployFlowButtons(interaction.guild.id, flowId);
     if (!result.ok) {
-        await interaction.reply({ content: `❌ ${result.message}`, ephemeral: true });
+        await interaction.editReply({ content: `❌ ${result.message}` });
         return commandError(result.message);
     }
 
-    await interaction.reply({
-        content: `✅ Deployed ${result.buttonCount} button(s) for **${result.flow.name}** in ${result.channel}.`,
-        ephemeral: true,
+    const where = result.posted.map((entry) => `<#${entry.channelId}>`).join(', ');
+    await interaction.editReply({
+        content: `✅ Deployed ${result.buttonCount} button(s) for **${result.flow.name}** across ${where}.`,
     });
 
     return commandSuccess('Flow deployed');

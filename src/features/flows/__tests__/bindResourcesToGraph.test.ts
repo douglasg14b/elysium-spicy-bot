@@ -16,7 +16,7 @@ function graph(): FlowGraph {
     return {
         version: FLOW_GRAPH_VERSION,
         nodes: [
-            { id: 'n-trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { label: 'Agree' } },
+            { id: 'n-trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Agree' } },
             { id: 'n-role', type: 'action.assignRole', position: { x: 1, y: 0 }, data: { roleId: '' } },
             { id: 'n-dm', type: 'action.sendDM', position: { x: 2, y: 0 }, data: { message: 'hi' } },
         ],
@@ -47,6 +47,7 @@ describe('bindResourcesToGraph', () => {
 
         expect(result.graph.nodes.find((node) => node.id === 'n-dm')?.data).toEqual({ message: 'hi' });
         expect(result.graph.nodes.find((node) => node.id === 'n-trigger')?.data).toEqual({
+            channelId: 'channel-1',
             label: 'Agree',
         });
         // The input graph is not mutated in place.

@@ -8,6 +8,14 @@ import { TRIGGER_BUTTON_CLICK } from '../blocks/triggerButtonClick';
 export interface OnboardingFlowInput {
     /** Role granted when the member agrees to the rules. */
     memberRoleId: string;
+    /**
+     * Channel the agree button is posted in.
+     *
+     * Part of the graph rather than of the deploy, because each button trigger now
+     * carries its own destination — a seeded flow with no channel would save and then
+     * refuse to deploy.
+     */
+    channelId: string;
     /** Welcome DM sent after the role is assigned. */
     welcomeMessage: string;
     /** Label for the agree button (defaults to "Agree to Rules"). */
@@ -42,7 +50,11 @@ export function buildOnboardingFlowGraph(input: OnboardingFlowInput): {
                 id: triggerId,
                 type: TRIGGER_BUTTON_CLICK,
                 position: { x: 0, y: 0 },
-                data: { label: input.buttonLabel ?? 'Agree to Rules', style: 'Success' },
+                data: {
+                    channelId: input.channelId,
+                    label: input.buttonLabel ?? 'Agree to Rules',
+                    style: 'Success',
+                },
             },
             {
                 id: assignRoleId,

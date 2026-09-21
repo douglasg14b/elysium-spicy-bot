@@ -219,7 +219,12 @@ function gatedFlow(rule: Eligibility) {
                 {
                     id: NODE_ID,
                     type: TRIGGER_BUTTON_CLICK,
-                    data: { label: 'Press me', style: 'Primary', [ELIGIBILITY_CONFIG_KEY]: rule },
+                    data: {
+                        channelId: 'channel-1',
+                        label: 'Press me',
+                        style: 'Primary',
+                        [ELIGIBILITY_CONFIG_KEY]: rule,
+                    },
                 },
             ],
             edges: [],

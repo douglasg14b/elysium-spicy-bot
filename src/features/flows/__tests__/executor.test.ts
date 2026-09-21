@@ -57,6 +57,7 @@ describe('flow executor', () => {
     it('runs the onboarding flow: assigns the Member role then DMs the welcome text', async () => {
         const { graph, nodeIds } = buildOnboardingFlowGraph({
             memberRoleId: MEMBER_ROLE_ID,
+            channelId: 'channel-1',
             welcomeMessage: WELCOME_TEXT,
         });
         const { context, rolesAdd, userSend } = makeContext();
@@ -122,6 +123,7 @@ describe('flow executor', () => {
     it('captures a per-node error without throwing', async () => {
         const { graph, nodeIds } = buildOnboardingFlowGraph({
             memberRoleId: MEMBER_ROLE_ID,
+            channelId: 'channel-1',
             welcomeMessage: WELCOME_TEXT,
         });
         const { context, rolesAdd } = makeContext();
@@ -151,7 +153,7 @@ describe('a node whose config is still waiting on a provisioned id', () => {
         const graph: FlowGraph = {
             version: FLOW_GRAPH_VERSION,
             nodes: [
-                { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { label: 'Go' } },
+                { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
                 {
                     id: 'assign',
                     type: ACTION_ASSIGN_ROLE,
@@ -178,7 +180,7 @@ describe('a node whose config is still waiting on a provisioned id', () => {
         const graph: FlowGraph = {
             version: FLOW_GRAPH_VERSION,
             nodes: [
-                { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { label: 'Go' } },
+                { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
                 {
                     id: 'assign',
                     type: ACTION_ASSIGN_ROLE,
@@ -232,7 +234,7 @@ describe('a handle with more than one outgoing edge', () => {
         const graph: FlowGraph = {
             version: FLOW_GRAPH_VERSION,
             nodes: [
-                { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { label: 'Go' } },
+                { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
                 {
                     id: 'wait',
                     type: ACTION_WAIT_FOR_EVENT,
@@ -333,7 +335,7 @@ describe('a block that needs something the run cannot supply', () => {
             id: 'trigger',
             type: TRIGGER_BUTTON_CLICK,
             position: { x: 0, y: 0 },
-            data: { label: 'Go' },
+            data: { channelId: 'channel-1', label: 'Go' },
         };
 
         expect(validateAuthoredGraph(graph).valid).toBe(true);
@@ -356,7 +358,7 @@ describe('a block that needs something the run cannot supply', () => {
             id: 'trigger',
             type: TRIGGER_BUTTON_CLICK,
             position: { x: 0, y: 0 },
-            data: { label: 'Go' },
+            data: { channelId: 'channel-1', label: 'Go' },
         };
         graph.nodes.push({
             id: 'wait',
@@ -380,7 +382,7 @@ describe('a block that needs something the run cannot supply', () => {
         const graph: FlowGraph = {
             version: FLOW_GRAPH_VERSION,
             nodes: [
-                { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { label: 'Go' } },
+                { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
                 { id: 'joined', type: TRIGGER_MEMBER_JOIN, position: { x: 0, y: 100 }, data: {} },
                 {
                     id: 'where',
@@ -410,7 +412,7 @@ describe('a block that needs something the run cannot supply', () => {
             id: 'trigger',
             type: TRIGGER_BUTTON_CLICK,
             position: { x: 0, y: 0 },
-            data: { label: 'Go' },
+            data: { channelId: 'channel-1', label: 'Go' },
         };
         graph.edges.push({ id: 'e2', source: 'where', sourceHandle: 'true', target: 'where' });
 
@@ -425,7 +427,7 @@ function buildCyclicGraph(): FlowGraph {
     return {
         version: FLOW_GRAPH_VERSION,
         nodes: [
-            { id: a, type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { label: 'Go' } },
+            { id: a, type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
             { id: b, type: ACTION_ASSIGN_ROLE, position: { x: 100, y: 0 }, data: { roleId: MEMBER_ROLE_ID } },
         ],
         edges: [
@@ -444,7 +446,7 @@ function buildConditionGraph(): FlowGraph {
     return {
         version: FLOW_GRAPH_VERSION,
         nodes: [
-            { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { label: 'Check' } },
+            { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Check' } },
             { id: 'cond', type: CONDITION_HAS_ROLE, position: { x: 200, y: 0 }, data: { roleId: MEMBER_ROLE_ID } },
             { id: 'dm', type: ACTION_SEND_DM, position: { x: 400, y: -60 }, data: { message: 'you already have it' } },
             {

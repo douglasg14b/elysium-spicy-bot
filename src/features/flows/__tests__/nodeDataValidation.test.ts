@@ -30,7 +30,7 @@ beforeAll(ensureBlocksDiscovered);
 describe('validateNodeData', () => {
     it('accepts a graph whose node data matches each configSchema', () => {
         const graph = graphWith([
-            { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { label: 'Go' } },
+            { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
             { id: 'assign', type: ACTION_ASSIGN_ROLE, position: { x: 200, y: 0 }, data: { roleId: 'role-1' } },
         ]);
 

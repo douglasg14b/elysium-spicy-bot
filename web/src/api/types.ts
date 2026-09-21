@@ -619,9 +619,16 @@ export interface Flow {
     updatedAt: string;
 }
 
+/** One message a deploy posted. A flow gets one per destination channel. */
+export interface DeployedButtonMessage {
+    channelId: string;
+    messageId: string;
+    buttonCount: number;
+}
+
 export interface DeployResult {
     ok: true;
-    messageId: string;
+    posted: DeployedButtonMessage[];
 }
 
 /** A message in the guild carrying this flow's trigger buttons. */

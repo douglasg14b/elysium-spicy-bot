@@ -46,7 +46,7 @@ function builderShapedGraph(): FlowGraph {
                 id: '11111111-1111-4111-8111-111111111111',
                 type: 'trigger.buttonClick',
                 position: { x: 120, y: 80 },
-                data: { label: 'Get your roles', style: 'Primary' },
+                data: { channelId: '999999999999999999', label: 'Get your roles', style: 'Primary' },
             },
             {
                 id: '22222222-2222-4222-8222-222222222222',

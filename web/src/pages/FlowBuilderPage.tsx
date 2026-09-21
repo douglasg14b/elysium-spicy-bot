@@ -34,7 +34,6 @@ import {
     Group,
     Loader,
     Modal,
-    Select,
     Stack,
     Switch,
     Text,
@@ -293,7 +292,6 @@ function FlowBuilder() {
     const [saveIssues, setSaveIssues] = useState<readonly FlowValidationIssue[]>([]);
 
     const [deployOpen, setDeployOpen] = useState(false);
-    const [deployChannelId, setDeployChannelId] = useState<string | null>(null);
     const [deploying, setDeploying] = useState(false);
 
     /**
@@ -849,15 +847,19 @@ function FlowBuilder() {
     }
 
     async function handleDeploy() {
-        if (!selected || !flowId || !deployChannelId) return;
+        if (!selected || !flowId) return;
         setDeploying(true);
         try {
-            await deployFlow(selected.id, flowId, deployChannelId);
+            const { posted } = await deployFlow(selected.id, flowId);
             setDeployOpen(false);
+            const buttons = posted.reduce((total, entry) => total + entry.buttonCount, 0);
             notifications.show({
                 color: 'brand',
                 title: 'Deployed',
-                message: 'Your button is live. Go press it.',
+                message:
+                    posted.length === 1
+                        ? `${buttons} button(s) live in that channel. Go press one.`
+                        : `${buttons} buttons live across ${posted.length} channels. Go press one.`,
             });
         } catch (err) {
             const message = err instanceof ApiError ? err.message : "Couldn't deploy that flow.";
@@ -939,11 +941,6 @@ function FlowBuilder() {
     const planSummary = useMemo(
         () => (installPlan ? summariseInstallPlan(installPlan) : null),
         [installPlan]
-    );
-
-    const channelOptions = useMemo(
-        () => channels.map((ch) => ({ value: ch.id, label: `# ${ch.name}` })),
-        [channels]
     );
 
     // Stack depth lives in refs, so `historyTick` is what triggers the re-render that
@@ -1444,19 +1441,10 @@ function FlowBuilder() {
             >
                 <Stack gap="md">
                     <Text size="13px" c="dimmed">
-                        Posts this flow&apos;s button message into a channel. Members click it, the
-                        flow runs.
+                        Posts each button trigger into the channel it names, one message per
+                        channel. Members click, the flow runs. Deploying again replaces whatever
+                        this flow already has out there.
                     </Text>
-                    <Select
-                        label="Channel"
-                        placeholder="Pick a channel"
-                        data={channelOptions}
-                        value={deployChannelId}
-                        onChange={setDeployChannelId}
-                        searchable
-                        nothingFoundMessage="No channels found"
-                        allowDeselect={false}
-                    />
                     {dirty && (
                         <Alert color="yellow" variant="light" p="xs">
                             <Text size="12px">
@@ -1476,7 +1464,6 @@ function FlowBuilder() {
                         <Button
                             color="brand"
                             loading={deploying}
-                            disabled={!deployChannelId}
                             onClick={() => void handleDeploy()}
                         >
                             Deploy

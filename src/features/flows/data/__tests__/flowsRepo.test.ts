@@ -49,7 +49,7 @@ describe('FlowsRepo (sqlite)', () => {
     });
 
     it('round-trips a flow graph through the JSON column', async () => {
-        const { graph } = buildOnboardingFlowGraph({ memberRoleId: 'role-1', welcomeMessage: 'hi' });
+        const { graph } = buildOnboardingFlowGraph({ memberRoleId: 'role-1', channelId: 'channel-1', welcomeMessage: 'hi' });
 
         const created = await repo.create({ guildId: 'guild-1', name: 'Onboarding', graph, enabled: true });
         expect(created.guildId).toBe('guild-1');
@@ -67,7 +67,7 @@ describe('FlowsRepo (sqlite)', () => {
     });
 
     it('accepts a cyclic graph — loops are legal since Phase 5', async () => {
-        const { graph } = buildOnboardingFlowGraph({ memberRoleId: 'role-1', welcomeMessage: 'hi' });
+        const { graph } = buildOnboardingFlowGraph({ memberRoleId: 'role-1', channelId: 'channel-1', welcomeMessage: 'hi' });
         // Introduce a back-edge to make it cyclic.
         graph.edges.push({ id: 'back', source: graph.nodes[2].id, target: graph.nodes[0].id });
 

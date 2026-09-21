@@ -114,7 +114,7 @@ function producerThenDm(options: { outputKey: string; value: string; message: st
     return {
         version: FLOW_GRAPH_VERSION,
         nodes: [
-            { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { label: 'Go' } },
+            { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
             {
                 id: 'producer',
                 type: ACTION_RECORD_VALUE,
@@ -172,7 +172,7 @@ describe('a block consumes a value another block produced', () => {
         const graph: FlowGraph = {
             version: FLOW_GRAPH_VERSION,
             nodes: [
-                { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { label: 'Go' } },
+                { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
                 { id: 'p1', type: ACTION_RECORD_VALUE, position: { x: 1, y: 0 }, data: { outputKey: 'first', value: 'alpha' } },
                 { id: 'p2', type: ACTION_RECORD_VALUE, position: { x: 2, y: 0 }, data: { outputKey: 'second', value: 'beta' } },
                 { id: 'dm', type: 'action.sendDM', position: { x: 3, y: 0 }, data: { message: '{{var.first}}/{{var.second}}' } },
@@ -268,7 +268,7 @@ describe('a block consumes a value another block produced', () => {
         const graph: FlowGraph = {
             version: FLOW_GRAPH_VERSION,
             nodes: [
-                { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { label: 'Go' } },
+                { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
                 {
                     id: 'embed',
                     type: 'action.postEmbed',
@@ -329,7 +329,7 @@ describe('a member’s own name cannot ping the guild', () => {
         return {
             version: FLOW_GRAPH_VERSION,
             nodes: [
-                { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { label: 'Go' } },
+                { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
                 {
                     id: 'post',
                     type: 'action.sendMessage',
@@ -423,7 +423,7 @@ describe('save-time validation of authored copy', () => {
         const graph: FlowGraph = {
             version: FLOW_GRAPH_VERSION,
             nodes: [
-                { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { label: 'Go' } },
+                { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
                 {
                     id: 'embed',
                     type: 'action.postEmbed',
@@ -490,7 +490,7 @@ describe('a recorded value survives a park and resume', () => {
     const graph: FlowGraph = {
         version: FLOW_GRAPH_VERSION,
         nodes: [
-            { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { label: 'Go' } },
+            { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
             {
                 id: 'producer',
                 type: ACTION_RECORD_VALUE,

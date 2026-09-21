@@ -10,16 +10,19 @@ import { buildOnboardingFlowGraph } from './onboardingFlow';
  * Usage (sqlite dev DB):
  *   DB_TYPE=sqlite SQLITE_DB_PATH=./data/bot.sqlite \
  *   DISCORD_APP_ID=x DISCORD_BOT_TOKEN=x OPENROUTER_API_KEY=x OPENAI_API_KEY=x \
- *   pnpm tsx src/features/flows/templates/seedOnboardingFlow.ts <guildId> <memberRoleId> [welcomeMessage]
+ *   pnpm tsx src/features/flows/templates/seedOnboardingFlow.ts <guildId> <memberRoleId> <channelId> [welcomeMessage]
  *
  * Then deploy the button in Discord with:  /flow-deploy flow-id:<printed flowId>
  */
 async function main(): Promise<void> {
-    const [, , guildId, memberRoleId, welcomeMessageArg] = process.argv;
+    const [, , guildId, memberRoleId, channelId, welcomeMessageArg] = process.argv;
 
-    if (!guildId || !memberRoleId) {
+    // The channel is required here rather than defaulted, because the button trigger
+    // carries its own destination now and a flow seeded without one saves fine and
+    // then refuses to deploy — a failure a long way from this script.
+    if (!guildId || !memberRoleId || !channelId) {
         console.error(
-            'Usage: tsx src/features/flows/templates/seedOnboardingFlow.ts <guildId> <memberRoleId> [welcomeMessage]'
+            'Usage: tsx src/features/flows/templates/seedOnboardingFlow.ts <guildId> <memberRoleId> <channelId> [welcomeMessage]'
         );
         process.exitCode = 1;
         return;
@@ -29,7 +32,7 @@ async function main(): Promise<void> {
         welcomeMessageArg ??
         'Welcome, you filthy little rule-follower. You have your role now — go enjoy the server. 😈';
 
-    const { graph } = buildOnboardingFlowGraph({ memberRoleId, welcomeMessage });
+    const { graph } = buildOnboardingFlowGraph({ memberRoleId, channelId, welcomeMessage });
 
     // Saving validates the graph against what each block declares, so the
     // registry has to be populated first. The bot does this in init; a script
@@ -48,7 +51,7 @@ async function main(): Promise<void> {
     console.log(`   guildId: ${flow.guildId}`);
     console.log(`   enabled: ${flow.enabled}`);
     console.log('');
-    console.log(`Next: run /flow-deploy flow-id:${flow.flowId} in the target channel to post the button.`);
+    console.log(`Next: run /flow-deploy flow-id:${flow.flowId} to post the button in <#${channelId}>.`);
 }
 
 void main()

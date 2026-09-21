@@ -167,8 +167,8 @@ const DECLARED_BLOCK_DEPENDENTS: Readonly<Record<string, string>> = {
         'A template is a concrete flow, so it names the blocks it is made of.',
     'src/features/flows/engine/reactionAddDispatch.ts':
         'Residual: reads triggerReactionAdd\'s schema to match an incoming reaction.',
-    'src/features/flows/logic/deployFlowButtons.ts':
-        'Residual: reads triggerButtonClick\'s schema to render its button.',
+    'src/features/flows/logic/planButtonDeployment.ts':
+        'Residual: reads triggerButtonClick\'s schema to render its button and read its destination.',
 };
 
 /**

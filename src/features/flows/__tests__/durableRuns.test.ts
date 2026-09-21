@@ -28,7 +28,7 @@ function buildDelayGraph(): FlowGraph {
     return {
         version: FLOW_GRAPH_VERSION,
         nodes: [
-            { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { label: 'Go' } },
+            { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
             { id: 'assign', type: ACTION_ASSIGN_ROLE, position: { x: 100, y: 0 }, data: { roleId: ROLE_ID } },
             { id: 'delay', type: ACTION_DELAY, position: { x: 200, y: 0 }, data: { durationMs: DELAY_MS } },
             { id: 'dm', type: ACTION_SEND_DM, position: { x: 300, y: 0 }, data: { message: DM_TEXT } },
@@ -44,7 +44,7 @@ function buildDelayGraph(): FlowGraph {
 /** trigger -> waitForEvent(memberJoin, 1h timeout) -> sendDM, plus a timeout branch. */
 function buildWaitGraph(options: { withTimeoutBranch?: boolean; timeoutMs?: number } = {}): FlowGraph {
     const nodes: FlowGraph['nodes'] = [
-        { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { label: 'Go' } },
+        { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
         {
             id: 'wait',
             type: ACTION_WAIT_FOR_EVENT,
@@ -437,7 +437,7 @@ describe('visit budget across resumes', () => {
         const loop: FlowGraph = {
             version: FLOW_GRAPH_VERSION,
             nodes: [
-                { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { label: 'Go' } },
+                { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
                 { id: 'delay', type: ACTION_DELAY, position: { x: 100, y: 0 }, data: { durationMs: DELAY_MS } },
             ],
             edges: [

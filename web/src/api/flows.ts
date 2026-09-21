@@ -54,13 +54,14 @@ export function deleteFlow(guildId: string, flowId: string): Promise<void> {
     return api.delete<void>(`/api/guilds/${guildId}/flows/${flowId}`);
 }
 
-/** Posts the flow's button-trigger message into a channel. */
-export function deployFlow(
-    guildId: string,
-    flowId: string,
-    channelId: string
-): Promise<DeployResult> {
-    return api.post<DeployResult>(`/api/guilds/${guildId}/flows/${flowId}/deploy`, { channelId });
+/**
+ * Posts the flow's trigger buttons into the channels their nodes name.
+ *
+ * No channel argument: the destination is authoring data on each button trigger, so
+ * one flow can open buttons in several channels at once.
+ */
+export function deployFlow(guildId: string, flowId: string): Promise<DeployResult> {
+    return api.post<DeployResult>(`/api/guilds/${guildId}/flows/${flowId}/deploy`, {});
 }
 
 /**

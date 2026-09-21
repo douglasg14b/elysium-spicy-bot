@@ -97,7 +97,7 @@ function makeClient(guild: Guild): Client {
 const graph: FlowGraph = {
     version: FLOW_GRAPH_VERSION,
     nodes: [
-        { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { label: 'Go' } },
+        { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
         {
             id: 'wait',
             type: 'action.waitForEvent',

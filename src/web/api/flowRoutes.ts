@@ -49,10 +49,6 @@ const updateFlowBody = z.object({
     graph: flowGraphSchema.optional(),
 });
 
-const deployFlowBody = z.object({
-    channelId: z.string().min(1, 'Pick a channel to deploy the buttons in.'),
-});
-
 /** The wire shape for a single flow: the full graph plus metadata. */
 function flowDetail(flow: FlowEntity) {
     return {
@@ -416,8 +412,15 @@ export function flowRoutes(): Hono<AppEnv> {
         return c.body(null, 204);
     });
 
-    // Post the flow's trigger button(s) to a channel — the same shared path the
-    // /flow-deploy slash command uses.
+    /*
+     * Post the flow's trigger buttons — the same shared path the /flow-deploy slash
+     * command uses.
+     *
+     * No body: each `trigger.buttonClick` node carries its own destination, so there
+     * is nothing for the caller to choose. A flow-level channel here would be unable
+     * to express the case this route exists to serve — several buttons on one canvas
+     * going to several channels.
+     */
     app.post('/:guildId/flows/:flowId/deploy', async (c) => {
         const guildId = c.get('guild').id;
         const flowId = c.req.param('flowId');
@@ -426,17 +429,12 @@ export function flowRoutes(): Hono<AppEnv> {
             return c.json({ error: 'Flow not found.' }, 404);
         }
 
-        const parsed = deployFlowBody.safeParse(await c.req.json().catch(() => null));
-        if (!parsed.success) {
-            return c.json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body.' }, 400);
-        }
-
-        const result = await deployFlowButtons(guildId, flowId, parsed.data.channelId);
+        const result = await deployFlowButtons(guildId, flowId);
         if (!result.ok) {
             return c.json({ error: result.message }, 400);
         }
 
-        return c.json({ ok: true, messageId: result.messageId });
+        return c.json({ ok: true, posted: result.posted });
     });
 
     /*
