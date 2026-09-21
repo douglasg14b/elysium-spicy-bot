@@ -27,6 +27,7 @@ import {
     IconBolt,
     IconPencil,
     IconPlus,
+    IconServerCog,
     IconTrash,
 } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
@@ -73,7 +74,22 @@ export function FlowsListPage() {
     const [deleting, setDeleting] = useState(false);
 
     /**
-     * What the pending flow has live in the guild.
+     * The flow whose published structure is being inspected.
+     *
+     * Deliberately **not** `pendingDelete`. Taking a channel back out of the server is
+     * ordinary maintenance — you provisioned a category, you want it gone — and routing
+     * it through the delete dialog meant the only way to reach it was to first say you
+     * wanted to destroy the flow. Two different intentions were sharing one door.
+     *
+     * The delete dialog sets this too, so the "here is what deleting leaves behind"
+     * offer still works. One piece of state, two ways in.
+     */
+    const [managing, setManaging] = useState<FlowSummary | null>(null);
+    /** Whether the manage dialog was opened on its own rather than by the delete flow. */
+    const [managingAlone, setManagingAlone] = useState(false);
+
+    /**
+     * What the managed flow has live in the guild.
      *
      * `null` while it is still loading — distinct from a loaded-but-empty state,
      * because the dialog must not say "this publishes nothing" before it has asked.
@@ -83,10 +99,11 @@ export function FlowsListPage() {
     /** The second confirm, for the half that destroys channels rather than messages. */
     const [confirmUnpublish, setConfirmUnpublish] = useState(false);
 
-    // Ask what this flow has published the moment the dialog opens. Deleting a flow
-    // leaves all of it behind, so the dialog's first job is to say what "all of it" is.
+    // Ask what the flow has published the moment either dialog opens. For a delete that
+    // is the dialog's first job — saying what deleting leaves behind; for a standalone
+    // manage it is the whole point.
     useEffect(() => {
-        if (!selected || !pendingDelete) {
+        if (!selected || !managing) {
             setPublished(null);
             setConfirmUnpublish(false);
             return;
@@ -95,7 +112,7 @@ export function FlowsListPage() {
         let cancelled = false;
         void (async () => {
             try {
-                const state = await getPublishedState(selected.id, pendingDelete.flowId);
+                const state = await getPublishedState(selected.id, managing.flowId);
                 if (!cancelled) setPublished(state);
             } catch {
                 // A failed lookup must not block the delete, but it must not silently
@@ -114,7 +131,7 @@ export function FlowsListPage() {
         return () => {
             cancelled = true;
         };
-    }, [selected, pendingDelete]);
+    }, [selected, managing]);
 
     useEffect(() => {
         if (!selected) return;
@@ -198,10 +215,10 @@ export function FlowsListPage() {
      * operator can retire a live button without throwing the flow away.
      */
     async function handleUndeploy() {
-        if (!selected || !pendingDelete) return;
+        if (!selected || !managing) return;
         setCleaningUp(true);
         try {
-            const { results } = await undeployFlow(selected.id, pendingDelete.flowId);
+            const { results } = await undeployFlow(selected.id, managing.flowId);
             const failed = results.filter((result) => result.outcome === 'failed');
             const gone = results.length - failed.length;
 
@@ -214,7 +231,7 @@ export function FlowsListPage() {
                         : `${gone} button message${gone === 1 ? '' : 's'} taken down.`,
             });
 
-            setPublished(await getPublishedState(selected.id, pendingDelete.flowId));
+            setPublished(await getPublishedState(selected.id, managing.flowId));
         } catch (err) {
             const message =
                 err instanceof ApiError ? err.message : "Couldn't take those buttons down.";
@@ -224,6 +241,25 @@ export function FlowsListPage() {
         }
     }
 
+    /** Inspect what a flow has live, without proposing to delete the flow itself. */
+    function openManage(flow: FlowSummary): void {
+        setManagingAlone(true);
+        setManaging(flow);
+    }
+
+    /** Propose deleting a flow, which also inspects what that would leave behind. */
+    function openDelete(flow: FlowSummary): void {
+        setManagingAlone(false);
+        setPendingDelete(flow);
+        setManaging(flow);
+    }
+
+    function closeManage(): void {
+        setManaging(null);
+        setPendingDelete(null);
+        setManagingAlone(false);
+    }
+
     /**
      * Destroy the channels and roles the flow's journey created.
      *
@@ -231,10 +267,10 @@ export function FlowsListPage() {
      * a live server and cannot be undone.
      */
     async function handleUnpublish() {
-        if (!selected || !pendingDelete) return;
+        if (!selected || !managing) return;
         setCleaningUp(true);
         try {
-            const { results } = await unpublishFlow(selected.id, pendingDelete.flowId);
+            const { results } = await unpublishFlow(selected.id, managing.flowId);
             const deleted = results.filter((result) => result.outcome === 'deleted').length;
             const failed = results.filter((result) => result.outcome === 'failed');
 
@@ -248,7 +284,7 @@ export function FlowsListPage() {
             });
 
             setConfirmUnpublish(false);
-            setPublished(await getPublishedState(selected.id, pendingDelete.flowId));
+            setPublished(await getPublishedState(selected.id, managing.flowId));
         } catch (err) {
             const message =
                 err instanceof ApiError ? err.message : "Couldn't unpublish those resources.";
@@ -269,7 +305,9 @@ export function FlowsListPage() {
                 title: 'Gone',
                 message: `"${pendingDelete.name}" has been shown the door.`,
             });
-            setPendingDelete(null);
+            // Closes both halves. The modal is keyed on `managing` now, so clearing
+            // only `pendingDelete` would leave it open over a flow that is gone.
+            closeManage();
         } catch (err) {
             const message = err instanceof ApiError ? err.message : "Couldn't delete that flow.";
             notifications.show({ color: 'red', title: "Couldn't delete", message });
@@ -409,13 +447,25 @@ export function FlowsListPage() {
                                             >
                                                 Edit
                                             </Button>
+                                            <Tooltip label="What it put in your server">
+                                                <Button
+                                                    size="xs"
+                                                    variant="subtle"
+                                                    color="gray"
+                                                    px={8}
+                                                    onClick={() => openManage(flow)}
+                                                    aria-label={`Manage what ${flow.name} published`}
+                                                >
+                                                    <IconServerCog size={14} />
+                                                </Button>
+                                            </Tooltip>
                                             <Tooltip label="Delete flow">
                                                 <Button
                                                     size="xs"
                                                     variant="subtle"
                                                     color="red"
                                                     px={8}
-                                                    onClick={() => setPendingDelete(flow)}
+                                                    onClick={() => openDelete(flow)}
                                                     aria-label={`Delete ${flow.name}`}
                                                 >
                                                     <IconTrash size={14} />
@@ -470,20 +520,37 @@ export function FlowsListPage() {
             </Modal>
 
             <Modal
-                opened={pendingDelete !== null}
-                onClose={() => setPendingDelete(null)}
-                title="Delete this flow?"
+                opened={managing !== null}
+                onClose={closeManage}
+                title={managingAlone ? 'What this flow put in your server' : 'Delete this flow?'}
                 size="md"
             >
                 <Stack gap="md">
-                    <Text size="13.5px" c="dimmed">
-                        <Text span fw={700} c="bright">
-                            {pendingDelete?.name}
-                        </Text>{' '}
-                        and its {pendingDelete?.nodeCount ?? 0} node
-                        {pendingDelete?.nodeCount === 1 ? '' : 's'} will be deleted for good. No
-                        undo, no take-backs.
-                    </Text>
+                    {managingAlone ? (
+                        <Text size="13.5px" c="dimmed">
+                            Channels, roles and buttons{' '}
+                            <Text span fw={700} c="bright">
+                                {managing?.name}
+                            </Text>{' '}
+                            has live right now. Taking them back is permanent — anything it
+                            adopted instead of creating stays put.
+                        </Text>
+                    ) : (
+                        <Text size="13.5px" c="dimmed">
+                            <Text span fw={700} c="bright">
+                                {pendingDelete?.name}
+                            </Text>{' '}
+                            and its {pendingDelete?.nodeCount ?? 0} node
+                            {pendingDelete?.nodeCount === 1 ? '' : 's'} will be deleted for good.
+                            No undo, no take-backs.
+                        </Text>
+                    )}
+
+                    {managingAlone && published && summary && !summary.hasAnything && (
+                        <Text size="13.5px" c="dimmed">
+                            Nothing live in the server. Install it from the builder first.
+                        </Text>
+                    )}
 
                     {/*
                      * What the delete leaves behind, and the cleanup offered beside it
@@ -495,13 +562,22 @@ export function FlowsListPage() {
                         <Alert
                             color="orange"
                             icon={<IconAlertTriangle size={16} />}
-                            title="This flow left things in your server"
+                            title={
+                                managingAlone
+                                    ? 'Live in your server right now'
+                                    : 'This flow left things in your server'
+                            }
                         >
                             <Stack gap="xs">
-                                {summary.leftBehind && (
+                                {summary.leftBehind && !managingAlone && (
                                     <Text size="13px">
                                         Deleting the flow does not remove {summary.leftBehind}.
                                         They stay exactly where they are.
+                                    </Text>
+                                )}
+                                {summary.leftBehind && managingAlone && (
+                                    <Text size="13px">
+                                        This flow has {summary.leftBehind} in the server.
                                     </Text>
                                 )}
 
@@ -584,23 +660,31 @@ export function FlowsListPage() {
                         </Alert>
                     )}
 
+                    {/*
+                     * No "Delete flow" when this was opened on its own. Putting it here
+                     * would reintroduce the problem in reverse — someone tidying up a
+                     * category would find the button that destroys the flow sitting
+                     * under their cursor.
+                     */}
                     <Group justify="flex-end" gap="sm">
                         <Button
                             variant="subtle"
                             color="gray"
-                            onClick={() => setPendingDelete(null)}
+                            onClick={closeManage}
                             disabled={deleting || cleaningUp}
                         >
-                            Keep it
+                            {managingAlone ? 'Done' : 'Keep it'}
                         </Button>
-                        <Button
-                            color="red"
-                            loading={deleting}
-                            disabled={cleaningUp}
-                            onClick={() => void handleDelete()}
-                        >
-                            Delete flow
-                        </Button>
+                        {!managingAlone && (
+                            <Button
+                                color="red"
+                                loading={deleting}
+                                disabled={cleaningUp}
+                                onClick={() => void handleDelete()}
+                            >
+                                Delete flow
+                            </Button>
+                        )}
                     </Group>
                 </Stack>
             </Modal>
