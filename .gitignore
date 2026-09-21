@@ -48,6 +48,18 @@ web_modules/
 # TypeScript cache
 *.tsbuildinfo
 
+# Compiled output beside the sources.
+#
+# `src/` and `web/src/` are TypeScript-only — the bot runs through `tsx` and the
+# dashboard through Vite, so a `.js` in either tree is always a stray `tsc` emit,
+# never something anyone wrote. `tsconfig.json` now sets `noEmit`, and this is the
+# second line of defence for anything invoking the compiler its own way.
+#
+# Scoped to these two trees on purpose: `github-plan-cli/` is genuine hand-written
+# JavaScript and a blanket `*.js` would hide the whole tool.
+src/**/*.js
+web/src/**/*.js
+
 # Optional npm cache directory
 .npm
 

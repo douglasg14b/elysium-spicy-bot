@@ -16,6 +16,12 @@
         "esModuleInterop": true,
         "forceConsistentCasingInFileNames": true,
         "skipLibCheck": true,
+        // Type-checking only. The bot runs through `tsx` and the dashboard through
+        // Vite, so nothing here ever consumes compiled output — but `rootDir` is the
+        // repo root, so a bare `tsc` (an editor task, an agent, a stray invocation)
+        // wrote a `.js` beside all 508 sources. Carrying the flag on the `build`
+        // script alone only protected the one caller that remembered it.
+        "noEmit": true,
         "noEmitOnError": false,
         "experimentalDecorators": true,
         "resolveJsonModule": true
