@@ -25,7 +25,8 @@
  *    with the consequence stated on the row — see `SUBJECT_IS_OFFERED` below.
  */
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import type { RefObject } from 'react';
 import {
     ActionIcon,
     Alert,
@@ -131,6 +132,19 @@ interface PermissionIntentEditorProps {
     /** Whether this resource can inherit at all. A role or a top-level channel cannot. */
     canInherit: boolean;
     disabled: boolean;
+    /**
+     * Scroll one numbered rule into view, for a chip that named it.
+     *
+     * A `ruleNamesNoRole` or `perRunOnly` chip complains about a *specific* rule, and
+     * the shortest path to it is the whole point of the chip being clickable. The index
+     * is passed rather than a ref because only this component knows how its rows are
+     * built; the caller handing down a ref per rule would have made it own the shape of
+     * a list it does not render.
+     *
+     * Optional, and ignored when the editor is showing the "inherits" empty state —
+     * there is no rule to reach.
+     */
+    focusRuleIndex?: number;
 }
 
 export function PermissionIntentEditor({
@@ -140,7 +154,36 @@ export function PermissionIntentEditor({
     declaredRoles,
     canInherit,
     disabled,
+    focusRuleIndex,
 }: PermissionIntentEditorProps) {
+    const focusedRuleRef = useRef<HTMLDivElement>(null);
+
+    /**
+     * Scroll the rule a chip named into view.
+     *
+     * **Scrolled now when the row exists, deferred only when it does not.** The caller
+     * clears its pending-jump state as soon as it has dispatched, which flips
+     * `focusRuleIndex` back to `undefined` and re-runs this effect — so a cleanup that
+     * cancelled a queued frame would cancel the very scroll it was queued for. Acting
+     * synchronously when the element is already mounted takes that race off the table;
+     * the deferred path remains for the first open, where `Collapse` has not mounted
+     * the row yet and there is nothing to scroll to.
+     */
+    useEffect(() => {
+        if (focusRuleIndex === undefined) return;
+
+        if (focusedRuleRef.current) {
+            focusedRuleRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            return;
+        }
+
+        const handle = window.requestAnimationFrame(() => {
+            focusedRuleRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        });
+
+        return () => window.cancelAnimationFrame(handle);
+    }, [focusRuleIndex]);
+
     const roleOptions = useMemo(() => {
         const declared = declaredRoles.map((resource) => ({
             value: declaredRoleOptionValue(resource.key),
@@ -240,6 +283,7 @@ export function PermissionIntentEditor({
                     onUpdate={(patch) => updateIntent(index, patch)}
                     onRemove={() => removeIntent(index)}
                     onMove={(delta) => moveIntent(index, delta)}
+                    rowRef={index === focusRuleIndex ? focusedRuleRef : undefined}
                 />
             ))}
 
@@ -289,6 +333,8 @@ interface IntentRowProps {
     onUpdate: (patch: Partial<PermissionIntent>) => void;
     onRemove: () => void;
     onMove: (delta: number) => void;
+    /** Set on the one row a chip jumped to, so it can be scrolled into view. */
+    rowRef?: RefObject<HTMLDivElement>;
 }
 
 function IntentRow({
@@ -302,6 +348,7 @@ function IntentRow({
     onUpdate,
     onRemove,
     onMove,
+    rowRef,
 }: IntentRowProps) {
     const access = ACCESS_STYLES[intent.access];
     const AccessIcon = access.icon;
@@ -318,6 +365,7 @@ function IntentRow({
 
     return (
         <Stack
+            ref={rowRef}
             gap={6}
             p={6}
             style={{

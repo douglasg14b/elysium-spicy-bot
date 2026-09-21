@@ -92,7 +92,13 @@ const discordIdSchema = z
     .string()
     .regex(/^\d{17,20}$/, 'A channel or role id is 17 to 20 digits.');
 
-const resourceSchema = z.object({
+/**
+ * Exported for the chip-agreement test, which drives this schema and
+ * `validateJourneyDeclaration` with the same declarations the browser's
+ * `detectResourceProblems` judges, and fails if the three disagree. Nothing else
+ * should import it — the save path is the only caller.
+ */
+export const resourceSchema = z.object({
     key: resourceKeySchema,
     kind: z.enum(RESOURCE_KINDS),
     defaultName: z
