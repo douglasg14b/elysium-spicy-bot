@@ -164,6 +164,7 @@ describe('summarising what is published', () => {
                         resourceKey: 'theirs',
                         name: 'theirs',
                         refused: true,
+                        refusalReason: 'adopted',
                         explanation: 'Adopted, not created.',
                     }),
                 ],
@@ -182,6 +183,64 @@ describe('summarising what is published', () => {
         expect(summary.groups[2].lines[0].displayName).toBe('2 buttons posted');
     });
 
+    it('does not call a created-but-blocked category "adopted"', () => {
+        /*
+         * The defect this guards, seen in a real server: a category this flow created
+         * was refused because someone had since added a channel inside it, and the
+         * dialog filed it under "Adopted, not created" — telling the operator the flow
+         * had not made a thing it had made. The two refusals mean opposite things about
+         * ownership, so they cannot share a heading.
+         */
+        const summary = summarisePublished(
+            state({
+                refusedResources: [
+                    resource({
+                        resourceKey: 'cat',
+                        kind: 'category',
+                        name: 'test stuff',
+                        refused: true,
+                        refusalReason: 'category-has-survivors',
+                        survivors: ['general'],
+                        explanation: 'Deleting the category **test stuff** would also…',
+                    }),
+                    resource({
+                        resourceKey: 'theirs',
+                        name: 'announcements',
+                        refused: true,
+                        refusalReason: 'adopted',
+                        explanation: 'This channel already existed and was adopted.',
+                    }),
+                ],
+            })
+        );
+
+        const blocked = summary.groups.find((group) => group.id === 'blocked');
+        const adopted = summary.groups.find((group) => group.id === 'adopted');
+
+        expect(blocked?.lines.map((line) => line.displayName)).toEqual(['test stuff']);
+        expect(adopted?.lines.map((line) => line.displayName)).toEqual(['#announcements']);
+        // The heading over a resource this flow built must not deny that it built it.
+        expect(blocked?.title).not.toMatch(/adopted/i);
+    });
+
+    it('files a permission or hierarchy refusal with the blocked group, not the adopted one', () => {
+        // Anything that is not `adopted` was created by this flow and is being held
+        // back, so the fallback has to be "blocked" rather than "adopted".
+        const summary = summarisePublished(
+            state({
+                refusedResources: [
+                    resource({
+                        refused: true,
+                        refusalReason: 'missing-permission',
+                        explanation: 'The bot cannot manage this channel.',
+                    }),
+                ],
+            })
+        );
+
+        expect(summary.groups.map((group) => group.id)).toEqual(['blocked']);
+    });
+
     it('drops empty groups rather than showing a heading over nothing', () => {
         const summary = summarisePublished(
             state({ deletableResources: [resource({ name: 'only-this' })] })
@@ -196,7 +255,9 @@ describe('summarising what is published', () => {
         // distrust the dialog.
         const summary = summarisePublished(
             state({
-                refusedResources: [resource({ refused: true, explanation: 'Adopted.' })],
+                refusedResources: [
+                    resource({ refused: true, refusalReason: 'adopted', explanation: 'Adopted.' }),
+                ],
             })
         );
 

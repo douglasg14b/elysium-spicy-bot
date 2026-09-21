@@ -61,7 +61,7 @@ export interface PublishedResourceLine {
  * down a column and tally themselves.
  */
 export interface PublishedGroup {
-    readonly id: 'created' | 'adopted' | 'messages';
+    readonly id: 'created' | 'blocked' | 'adopted' | 'messages';
     readonly title: string;
     /** The aside beside the title — what this group means for the teardown. */
     readonly caption: string;
@@ -207,6 +207,23 @@ export function summarisePublished(state: PublishedFlowState): PublishedSummary 
     }
 
     /*
+     * Refusals are split by *why*, because the reasons say opposite things about
+     * ownership and a single heading has to lie about one of them.
+     *
+     * `adopted` was never this flow's — it found the channel and pointed at it.
+     * Everything else *was* created by this flow and is being kept back for a reason
+     * the operator can usually clear: a category someone has since added a channel to,
+     * a missing permission, a role above the bot. Filing those under "Adopted, not
+     * created" told the operator the flow did not make something it did make.
+     */
+    const adopted = state.refusedResources.filter(
+        (resource) => resource.refusalReason === 'adopted'
+    );
+    const blocked = state.refusedResources.filter(
+        (resource) => resource.refusalReason !== 'adopted'
+    );
+
+    /*
      * Built as a list and filtered, so an empty group is dropped rather than rendered
      * as a heading standing over nothing. A flow that adopted everything should not be
      * shown a "Created by this flow" title with no rows beneath it.
@@ -220,11 +237,18 @@ export function summarisePublished(state: PublishedFlowState): PublishedSummary 
             lines: deletable.map((resource) => toLine(resource, 'deleted')),
         },
         {
+            id: 'blocked',
+            title: 'Created, but kept for now',
+            caption: 'something is in the way',
+            destructive: false,
+            lines: blocked.map((resource) => toLine(resource, 'kept')),
+        },
+        {
             id: 'adopted',
             title: 'Adopted, not created',
             caption: 'left untouched',
             destructive: false,
-            lines: state.refusedResources.map((resource) => toLine(resource, 'kept')),
+            lines: adopted.map((resource) => toLine(resource, 'kept')),
         },
         {
             id: 'messages',

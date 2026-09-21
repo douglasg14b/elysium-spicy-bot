@@ -645,13 +645,30 @@ export interface PublishedButtonMessage {
  * created, or it is a category still holding something. `explanation` is why, and is
  * the part a dialog must show rather than bury under a count.
  */
+/**
+ * Why an unpublish refuses to touch a resource.
+ *
+ * Mirrors `RefusalReason` in `src/features/provisioning/logic/unpublishPlan.ts`.
+ * `adopted` and `category-has-survivors` are the two the dialog groups by, and they
+ * mean opposite things about ownership: the first was never ours, the second is ours
+ * but now has someone else's channel inside it.
+ */
+export type RefusalReason =
+    | 'adopted'
+    | 'category-has-survivors'
+    | 'missing-permission'
+    | 'unrecognised-state';
+
 export interface PublishedResource {
     resourceKey: string;
     kind: string;
     name: string;
     discordId?: string;
     refused: boolean;
+    refusalReason?: RefusalReason;
     explanation?: string;
+    /** For `category-has-survivors`: what is still inside, by name. */
+    survivors?: string[];
 }
 
 /**

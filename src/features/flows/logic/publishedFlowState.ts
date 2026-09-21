@@ -1,5 +1,10 @@
 import type { Guild } from 'discord.js';
-import { previewUnpublish, plannedDeletions, plannedRefusals } from '../../provisioning';
+import {
+    previewUnpublish,
+    plannedDeletions,
+    plannedRefusals,
+    type RefusalReason,
+} from '../../provisioning';
 import { flowButtonMessagesRepo, type FlowButtonMessagesRepo } from '../data/flowButtonMessagesRepo';
 
 /**
@@ -33,9 +38,21 @@ export interface PublishedResource {
     readonly kind: string;
     readonly name: string;
     readonly discordId?: string;
-    /** True when unpublishing would refuse this one — adopted, or a blocked category. */
+    /** True when unpublishing would refuse this one. See `refusalReason` for why. */
     readonly refused: boolean;
+    /**
+     * Why this one is refused, when it is.
+     *
+     * On the wire rather than left to the browser to infer from prose, because the
+     * reasons are not interchangeable and a UI that groups them has to tell them
+     * apart. A category refused because someone added a channel inside it *was*
+     * created by this flow — describing it as "adopted" states the opposite of the
+     * truth about who owns it.
+     */
+    readonly refusalReason?: RefusalReason;
     readonly explanation?: string;
+    /** For `category-has-survivors`: what is still inside, by name. */
+    readonly survivors?: readonly string[];
 }
 
 export interface PublishedFlowState {
@@ -101,7 +118,9 @@ function toPublishedResource(item: {
     name: string;
     discordId?: string;
     action: string;
+    refusalReason?: RefusalReason;
     explanation?: string;
+    survivors?: readonly string[];
 }): PublishedResource {
     return {
         resourceKey: item.resourceKey,
@@ -109,6 +128,8 @@ function toPublishedResource(item: {
         name: item.name,
         discordId: item.discordId,
         refused: item.action === 'refuse',
+        refusalReason: item.refusalReason,
         explanation: item.explanation,
+        survivors: item.survivors,
     };
 }

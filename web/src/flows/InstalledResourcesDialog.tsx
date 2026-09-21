@@ -93,18 +93,48 @@ function rowIcon(glyph: PublishedResourceLine['glyph']): {
     }
 }
 
+/**
+ * Render the `**bold**` in a server explanation as bold.
+ *
+ * The explanations are written once, in provisioning, in Discord's flavour of markdown
+ * — that is the right call, because the same sentence is shown to operators in Discord
+ * too. The browser is the odd one out, and it was printing the asterisks literally, so
+ * a refusal naming a category read `**test stuff**`.
+ *
+ * Split rather than a markdown dependency: the only syntax these sentences use is
+ * `**`, and the emphasis is always a resource name. Pulling in a renderer to bold a
+ * channel name would be a library for one call site.
+ */
+function withEmphasis(text: string): React.ReactNode {
+    return text.split(/(\*\*[^*]+\*\*)/g).map((part, index) =>
+        part.startsWith('**') && part.endsWith('**') && part.length > 4 ? (
+            <Text key={index} span fw={700} c="bright" inherit>
+                {part.slice(2, -2)}
+            </Text>
+        ) : (
+            part
+        )
+    );
+}
+
 /** One row of the inventory: what it is, what it is called, and what happens to it. */
 function ResourceRow({ line }: { readonly line: PublishedResourceLine }) {
     const deleted = line.fate === 'deleted';
     const { Icon, color } = rowIcon(line.glyph);
 
     return (
-        <Group
-            gap={10}
-            wrap="nowrap"
-            align="center"
-            px={11}
-            py={8}
+        /*
+         * Two rows, not one.
+         *
+         * Identity and explanation used to share a line, so a long reason squeezed the
+         * name until a category called "test stuff" rendered as "te:" — the dialog
+         * truncating the one thing an operator needs to recognise. Giving the
+         * explanation its own full-width line below means neither has to win.
+         */
+        <Stack
+            gap={5}
+            px={12}
+            py={9}
             style={{
                 background: 'var(--mantine-color-dark-8)',
                 border: '1px solid var(--mantine-color-dark-6)',
@@ -112,46 +142,64 @@ function ResourceRow({ line }: { readonly line: PublishedResourceLine }) {
                 // spending a column on it.
                 borderLeft: `3px solid var(--mantine-color-${deleted ? 'red-6' : 'dark-5'})`,
                 borderRadius: 8,
-                opacity: deleted ? 1 : 0.82,
             }}
         >
-            <Center
-                w={21}
-                h={21}
-                style={{
-                    flex: 'none',
-                    borderRadius: 5,
-                    background: `var(--mantine-color-${color}-light)`,
-                    color: `var(--mantine-color-${color}-4)`,
-                }}
-            >
-                <Icon size={13} />
-            </Center>
+            <Group gap={10} wrap="nowrap" align="center">
+                <Center
+                    w={21}
+                    h={21}
+                    style={{
+                        flex: 'none',
+                        borderRadius: 5,
+                        background: `var(--mantine-color-${color}-light)`,
+                        color: `var(--mantine-color-${color}-4)`,
+                    }}
+                >
+                    <Icon size={13} />
+                </Center>
 
-            <Text size="13.5px" fw={650} c={deleted ? 'bright' : 'dimmed'} truncate>
-                {line.displayName}
-            </Text>
+                {/*
+                 * `truncate` stays as the last resort for a genuinely long name, but it
+                 * now competes with nothing — the row is as wide as the dialog.
+                 */}
+                <Text size="13.5px" fw={650} c={deleted ? 'bright' : 'dimmed'} truncate>
+                    {line.displayName}
+                </Text>
 
-            <Text size="11px" c="dark.3" tt="uppercase" style={{ letterSpacing: '0.04em' }}>
-                {line.kindLabel}
-            </Text>
+                <Text
+                    size="11px"
+                    c="dark.3"
+                    tt="uppercase"
+                    style={{ letterSpacing: '0.04em', flex: 'none' }}
+                >
+                    {line.kindLabel}
+                </Text>
+
+                {deleted && (
+                    <Text
+                        size="11px"
+                        fw={800}
+                        c="red.5"
+                        ml="auto"
+                        tt="uppercase"
+                        style={{ flex: 'none' }}
+                    >
+                        deletes
+                    </Text>
+                )}
+            </Group>
 
             {/*
-             * The reason a survivor survives, right-aligned. This is the part a count
-             * would destroy: "1 item cannot be removed" is unactionable, "adopted, not
-             * created" tells the operator why their channel is safe.
+             * Why this one is being kept, in full. Never clamped: a reason cut off
+             * mid-sentence — "it still contains…" — withholds exactly the part that
+             * tells the operator what to go and move.
              */}
             {line.explanation && (
-                <Text size="11.5px" c="dark.3" ta="right" ml="auto" lineClamp={2}>
-                    {line.explanation}
+                <Text size="11.5px" c="dimmed" style={{ lineHeight: 1.5 }}>
+                    {withEmphasis(line.explanation)}
                 </Text>
             )}
-            {deleted && (
-                <Text size="11px" fw={800} c="red.5" ml="auto" tt="uppercase" style={{ flex: 'none' }}>
-                    deletes
-                </Text>
-            )}
-        </Group>
+        </Stack>
     );
 }
 
@@ -312,7 +360,10 @@ export function InstalledResourcesDialog({
             opened={opened}
             onClose={onClose}
             title={`What ${flowName} has in your server`}
-            size="md"
+            // Wide enough for a resource name and its reason to coexist. At `md` the
+            // server's explanations — which name the channels blocking a delete — had
+            // nowhere to go, and the name lost.
+            size="lg"
         >
             <Stack gap="md">
                 {intro}
