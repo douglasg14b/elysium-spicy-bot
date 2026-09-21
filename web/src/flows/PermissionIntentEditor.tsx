@@ -131,7 +131,15 @@ interface PermissionIntentEditorProps {
     declaredRoles: ResourceDeclaration[];
     /** Whether this resource can inherit at all. A role or a top-level channel cannot. */
     canInherit: boolean;
-    disabled: boolean;
+    /**
+     * Lock the editor. Defaults to editable.
+     *
+     * Note for anyone wiring this to an in-flight save: don't. HTML's focus fixup rule
+     * takes the cursor off a focused control the moment it stops being focusable, so a
+     * background save landing mid-edit would steal it. `ResourcesPanel`'s `saving` prop
+     * documents the bug that came from doing exactly that.
+     */
+    disabled?: boolean;
     /**
      * Scroll one numbered rule into view, for a chip that named it.
      *
@@ -153,7 +161,7 @@ export function PermissionIntentEditor({
     roles,
     declaredRoles,
     canInherit,
-    disabled,
+    disabled = false,
     focusRuleIndex,
 }: PermissionIntentEditorProps) {
     const focusedRuleRef = useRef<HTMLDivElement>(null);

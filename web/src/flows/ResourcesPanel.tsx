@@ -116,7 +116,28 @@ interface ResourcesPanelProps {
     roles: GuildRole[];
     /** Real channels in the guild, so a resource can adopt one instead of creating it. */
     channels: GuildChannel[];
-    /** Set while a save is in flight, so the panel cannot be edited mid-write. */
+    /**
+     * Set while an autosave is in flight. **Deliberately not `disabled`.**
+     *
+     * It used to be, and that was the whole of the typing bug: the panel saved on every
+     * keystroke, so every keystroke disabled the field it had just been typed into. HTML's
+     * **focus fixup rule** then applies — when the focused area stops being focusable, the
+     * document's viewport becomes the focused area — so the browser takes the cursor away
+     * and nothing on the React side can decline. Each character cost the cursor.
+     *
+     * Browsers differ only in where focus lands (Chrome drops to `body`, Safari and
+     * Firefox move to the next control), which is worth knowing because it means the bug
+     * presents slightly differently per browser but is never absent.
+     *
+     * Saving is now debounced and continues in the background, which means it can land
+     * *while* a field is focused. Disabling on it would reintroduce exactly the same
+     * blur, only intermittently — a worse bug than the one it replaced, because it would
+     * depend on typing speed and network latency and so would not reproduce on demand.
+     *
+     * There is nothing to protect against by locking the form: an edit during a save is
+     * ordinary, and `useResourceAutosave` already refuses to let a response overwrite a
+     * list that is newer than it. The flag is a quiet indicator, not a gate.
+     */
     saving?: boolean;
     /** A rejected save, shown verbatim — the server's message names the real problem. */
     error?: string;
@@ -345,11 +366,27 @@ export function ResourcesPanel({
 
     return (
         <Stack gap="lg">
-            <Text c="dimmed">
-                Channels and roles this flow needs. Declare them here and they show up in the
-                pickers straight away — you can build the whole flow before any of them exist,
-                or point one at something you already have.
-            </Text>
+            <Group justify="space-between" align="flex-start" wrap="nowrap" gap="md">
+                <Text c="dimmed">
+                    Channels and roles this flow needs. Declare them here and they show up in
+                    the pickers straight away — you can build the whole flow before any of them
+                    exist, or point one at something you already have.
+                </Text>
+
+                {/*
+                 * Shown only while a write is actually in flight — the same rule the
+                 * chips follow. A permanent "Saved" would be on screen essentially
+                 * always, which makes it decoration rather than information, and would
+                 * additionally be *wrong* during the pause before a save starts.
+                 *
+                 * The space is reserved either way, so the heading beside it does not
+                 * reflow each time the word appears; at typing speed that would be a
+                 * flicker next to text someone is reading.
+                 */}
+                <Text size="sm" c="dimmed" ta="right" style={{ flex: 'none', width: 70 }}>
+                    {saving ? 'Saving…' : ''}
+                </Text>
+            </Group>
 
             {error && (
                 <Alert color="red" variant="light">
@@ -365,7 +402,6 @@ export function ResourcesPanel({
                     onChange={(event) => setFilter(event.currentTarget.value)}
                     leftSection={<IconSearch size={16} />}
                     style={{ flex: 1 }}
-                    disabled={saving}
                 />
 
                 {/*
@@ -387,7 +423,6 @@ export function ResourcesPanel({
                             color={style.color}
                             leftSection={<KindIcon size={16} />}
                             onClick={() => addResource(kind)}
-                            disabled={saving}
                         >
                             {style.label}
                         </Button>
@@ -437,7 +472,6 @@ export function ResourcesPanel({
                                 // and a role has no overwrites at all.
                                 (declared) => declared.key !== row.resource.key
                             )}
-                            disabled={Boolean(saving)}
                             onUpdate={(patch) => updateResource(row.index, patch)}
                             onAdopt={(channelId) => setAdoption(row.index, channelId)}
                             onRemove={() => removeResource(row.index)}
@@ -489,7 +523,6 @@ interface ResourceRowProps {
     /** Every declared resource, so this row's picker can skip ones another row adopts. */
     allResources: ResourceDeclaration[];
     declaredRoles: ResourceDeclaration[];
-    disabled: boolean;
     onUpdate: (patch: Partial<ResourceDeclaration>) => void;
     /** Adoption is its own callback because it may re-seed the name and key too. */
     onAdopt: (channelId: string | undefined) => void;
@@ -513,7 +546,6 @@ function ResourceRow({
     channels,
     allResources,
     declaredRoles,
-    disabled,
     onUpdate,
     onAdopt,
     onRemove,
@@ -630,7 +662,6 @@ function ResourceRow({
                             variant="subtle"
                             color="red"
                             onClick={onRemove}
-                            disabled={disabled}
                             aria-label={`Remove ${resource.defaultName}`}
                         >
                             <IconTrash size={16} />
@@ -664,7 +695,6 @@ function ResourceRow({
                                 leftSection={
                                     style.prefix ? <Text c="dimmed">{style.prefix}</Text> : undefined
                                 }
-                                disabled={disabled}
                             />
 
                             <TextInput
@@ -674,7 +704,6 @@ function ResourceRow({
                                 description="How this flow refers to it. A rename in Discord won't break it."
                                 value={resource.key}
                                 onChange={(event) => onUpdate({ key: event.currentTarget.value })}
-                                disabled={disabled}
                             />
                         </Group>
 
@@ -695,7 +724,6 @@ function ResourceRow({
                                 searchable
                                 clearable
                                 nothingFoundMessage="No match"
-                                disabled={disabled}
                                 comboboxProps={{ withinPortal: true }}
                                 leftSection={
                                     adopting ? (
@@ -722,7 +750,6 @@ function ResourceRow({
                                 value={resource.parentKey ?? null}
                                 onChange={(next) => onUpdate({ parentKey: next ?? undefined })}
                                 clearable
-                                disabled={disabled}
                                 comboboxProps={{ withinPortal: true }}
                             />
                         )}
@@ -763,7 +790,6 @@ function ResourceRow({
                                         roles={roles}
                                         declaredRoles={declaredRoles}
                                         canInherit={Boolean(resource.parentKey)}
-                                        disabled={disabled}
                                         focusRuleIndex={
                                             pendingJump?.target === 'rule'
                                                 ? pendingJump.ruleIndex

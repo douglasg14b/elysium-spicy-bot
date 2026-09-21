@@ -55,10 +55,16 @@ web_modules/
 # never something anyone wrote. `tsconfig.json` now sets `noEmit`, and this is the
 # second line of defence for anything invoking the compiler its own way.
 #
-# Scoped to these two trees on purpose: `github-plan-cli/` is genuine hand-written
-# JavaScript and a blanket `*.js` would hide the whole tool.
+# Scoped rather than a blanket `*.js` on purpose: `github-plan-cli/` is genuine
+# hand-written JavaScript and `scripts/` holds `.mjs`, so `*.js` would hide real code.
 src/**/*.js
 web/src/**/*.js
+
+# The root configs are TypeScript too, and `tsc` emitted these before `noEmit` landed.
+# Named individually because the repo root is not a source tree and cannot be swept.
+/vitest.config.js
+/vitest.live.config.js
+/vitest.setup.js
 
 # Optional npm cache directory
 .npm

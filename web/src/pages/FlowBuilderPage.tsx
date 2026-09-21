@@ -69,7 +69,8 @@ import {
     installFlow,
     updateFlow,
 } from '../api/flows';
-import { getFlowResources, saveFlowResources } from '../api/journeys';
+// Only the initial read lives here now; the write moved into `useResourceAutosave`.
+import { getFlowResources } from '../api/journeys';
 import type {
     FlowEdge,
     FlowGraph,
@@ -112,6 +113,7 @@ import { availableVariablesAt } from '../flows/variables';
 import { NodePalette, NODE_DRAG_MIME } from '../flows/NodePalette';
 import { NodeInspector } from '../flows/NodeInspector';
 import { ResourcesPanel } from '../flows/ResourcesPanel';
+import { useResourceAutosave } from '../flows/useResourceAutosave';
 import {
     defaultDataFor,
     EDGE_STROKE_WIDTH,
@@ -577,34 +579,37 @@ function FlowBuilder() {
      * re-seed the default over a key that had genuinely been cleared.
      */
     /**
-     * Persist the declaration list immediately, rather than on the toolbar's Save.
+     * Persist the declaration list on its own, rather than on the toolbar's Save.
      *
      * A declaration is about the *guild*, not the graph, and the pickers read it the
-     * moment it changes — so deferring it would let an author pick a resource that
-     * the server does not yet know about. Local state updates first so the panel stays
-     * responsive; a rejection restores what the server actually holds.
+     * moment it changes — so deferring it to the toolbar would let an author pick a
+     * resource the server does not yet know about.
+     *
+     * **The edit and its persistence are two events, and conflating them broke typing.**
+     * This callback used to PUT on every keystroke. That disabled the field being typed
+     * into (the browser blurs a focused element the moment it is disabled, which React
+     * cannot undo), sent half-typed keys the server's schema refused, and then re-read
+     * the stored list over the top — so a character vanished along with the cursor.
+     *
+     * Now the edit is local and immediate, and the save is a consequence of editing
+     * having stopped. The ordering rules that keeps — which response may be applied, and
+     * when a failure is allowed to revert the screen — are in `resourceSaveQueue.ts`,
+     * where they can be tested; getting them wrong is how the revert half of that bug
+     * would come back.
      */
-    const saveResources = useCallback(
-        (next: ResourceDeclaration[]) => {
-            if (!selected || !flowId) return;
-            setDeclaredResources(next);
-            setResourcesSaving(true);
-            setResourcesError(null);
+    const saveResources = useCallback((next: ResourceDeclaration[]) => {
+        setDeclaredResources(next);
+    }, []);
 
-            void saveFlowResources(selected.id, flowId, next)
-                .then((saved) => setDeclaredResources(saved))
-                .catch((cause: unknown) => {
-                    setResourcesError(
-                        cause instanceof ApiError ? cause.message : 'Could not save resources.'
-                    );
-                    // Re-read rather than keeping the rejected list: the panel must
-                    // show what the server holds, or the next save compounds the error.
-                    void getFlowResources(selected.id, flowId).then(setDeclaredResources);
-                })
-                .finally(() => setResourcesSaving(false));
-        },
-        [selected, flowId]
-    );
+    useResourceAutosave({
+        guildId: selected?.id,
+        flowId,
+        resources: declaredResources,
+        loaded: !loading,
+        onSaved: setDeclaredResources,
+        onSavingChange: setResourcesSaving,
+        onError: setResourcesError,
+    });
 
     /**
      * Fetch what installing would do, server-side.
