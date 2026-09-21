@@ -29,8 +29,8 @@ From PRD §1.3, unchanged. This is the durable product intent and the only seque
 | **2** | Blocks compose | A block can consume a value another block produced, and copy can address the subject | **Done** — slice D absorbed into step 3 as slice E |
 | **3** | **A run can ask a human a question** | A moderator presses a button in a channel and *that* parked run advances; non-moderators are refused | **Done** — slice E ran against a live guild 2026-09-15 |
 | **4** | A flow can open and drive a ticket | A verification ticket is opened by a flow, is distinguishable from a support ticket, and its channel is addressable by later blocks | **Done** — live-verified 2026-09-15 |
-| **5A** | **A journey can build its own home** | Installing a journey on an empty guild creates its categories, channels, and roles with correct visibility | **Planned — next** |
-| **5B** | Installed structure stays healthy | Drift is detected and repairable, installs resume after interruption, and uninstall is safe | Not started |
+| **5A** | **A journey can build its own home** | Installing a journey on an empty guild creates its categories, channels, and roles with correct visibility | **Done** — live-verified 2026-09-20/21 |
+| **5B** | Installed structure stays healthy | Drift is detected and repairable, installs resume after interruption, and uninstall is safe | **Planned — next** |
 | **6** | The real journey runs on it | Our onboarding and verification runs end-to-end on the engine with no bespoke code | Not started |
 
 **Only the current step is planned.** Steps 5B–6 have PRD sketches (§5.7–§5.9) that are starting material, not requirements.
@@ -623,6 +623,31 @@ The arm remains unexercised and is still recorded honestly rather than claimed a
 ## Step 5A — A journey can build its own home
 
 The bar is PRD §1.3 exactly: *installing a journey on an empty guild creates its categories, channels, and roles with correct visibility.*
+
+### Closed 2026-09-21 — what a live guild actually proved
+
+Two runs against Douglas's server. The first (2026-09-20) declared a journey with
+resources, installed it, and unpublished it; the dev database afterwards held the
+journey row with **zero** `resource_bindings`, which is the signature of a clean
+install followed by a clean teardown — no orphaned `intended` rows, no bindings
+pointing at deleted objects, so the record-intent-before-mutating ordering held
+in practice and not just in tests.
+
+The second (2026-09-21) targeted the guard whose failure is unrecoverable:
+a created category with a hand-made channel added to it afterwards. Unpublish
+**refused the category** rather than cascading the delete into a channel nobody
+asked it to touch. Discord's real child-listing behaves as `survivorsOf` assumed.
+
+**Not covered by either run, and carried forward rather than claimed:**
+
+| Path | Status |
+|---|---|
+| Capability preflight | Only exercised when the bot *lacks* a permission or sits too low in the hierarchy. Refuses rather than destroys, so the downside is a blocked install, not a damaged guild |
+| Adopted-binding refusal | Sabotage-verified against a mock (two named tests). Shares its enforcement point with the cascade refusal, which is now live-proven |
+| Deploy | Rewritten in `f4b6cb5` after the first live run; `flow_button_messages` was still empty at that point. A failure here orphans a message, which is recoverable |
+
+These are the honest residue of "done". None of them blocks 5B, which builds on
+the apply path rather than on these three.
 
 ### Ground truth, established 2026-09-18
 
