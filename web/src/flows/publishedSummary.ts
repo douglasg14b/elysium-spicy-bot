@@ -14,9 +14,61 @@
  * and the sass sits around them, never in place of them. "Clarity first, sass second"
  * is the rule, and both are achievable — "Three channels and a role, gone for good" is
  * unambiguous *and* has a pulse.
+ *
+ * Density is part of clarity here. Prose that restates what the list already shows is
+ * not warmth, it is another paragraph between the operator and the answer — so the
+ * dialog leads with the inventory and keeps the sentences around it to one line each.
  */
 
-import type { PublishedFlowState, PublishedResource } from '../api/types';
+import type { PublishedFlowState, PublishedResource, ResourceKind } from '../api/types';
+import { RESOURCE_KIND_STYLES } from './resourceMeta';
+
+/**
+ * One resource, as a row in the dialog's inventory.
+ *
+ * `fate` is the whole point of listing them: an operator looking at a teardown needs to
+ * see, per resource, whether this one dies or survives. Folding the survivors into a
+ * separate section below meant reading two lists and mentally diffing them, when the
+ * question — "what happens to #tickets?" — is per row.
+ */
+export interface PublishedResourceLine {
+    readonly resourceKey: string;
+    /**
+     * Which kind the row wears, for the icon and colour.
+     *
+     * A `ResourceKind` where the wire supplied one it recognises, so the row can be
+     * drawn from `RESOURCE_KIND_STYLES` and inherit the same violet/blue/orange
+     * vocabulary the resources panel uses. `message` is not a resource kind — button
+     * messages are not provisioned — but it shares the row, so it shares the union.
+     * `unknown` is the fallback for a kind this build has not heard of, which is still
+     * a real thing about to be deleted and must not be dropped.
+     */
+    readonly glyph: ResourceKind | 'message' | 'unknown';
+    /** `channel`, `category`, `role` — the noun, not the wire kind. */
+    readonly kindLabel: string;
+    /** What it is called in the server, with `#` or `@` already applied. */
+    readonly displayName: string;
+    readonly fate: 'deleted' | 'kept';
+    /** Why it survives, or where it sits. Shown at the end of the row. */
+    readonly explanation?: string;
+}
+
+/**
+ * One titled block of rows in the dialog.
+ *
+ * Grouping by fate rather than listing everything flat is the point: it makes "what
+ * dies" a region an operator can size at a glance, instead of a word they have to read
+ * down a column and tally themselves.
+ */
+export interface PublishedGroup {
+    readonly id: 'created' | 'adopted' | 'messages';
+    readonly title: string;
+    /** The aside beside the title — what this group means for the teardown. */
+    readonly caption: string;
+    /** True when this group's rows are the ones an uninstall destroys. */
+    readonly destructive: boolean;
+    readonly lines: readonly PublishedResourceLine[];
+}
 
 /** What a delete dialog needs to say, decided here rather than in JSX. */
 export interface PublishedSummary {
@@ -24,14 +76,33 @@ export interface PublishedSummary {
     readonly hasAnything: boolean;
     /** One line naming what a delete would leave behind, or null when nothing would. */
     readonly leftBehind: string | null;
+    /**
+     * The dialog's body, as titled groups. Empty groups are dropped rather than
+     * rendered as a heading over nothing.
+     *
+     * Every resource is named individually rather than counted. "1 channel and 1
+     * category" told an operator how *many* things a destructive button would take, but
+     * not *which* — and the names were on the wire the whole time.
+     */
+    readonly groups: readonly PublishedGroup[];
     /** Whether to offer the "delete the buttons too" action. */
     readonly canUndeploy: boolean;
     /** Whether to offer the "delete the channels and roles too" action. */
     readonly canUnpublish: boolean;
-    /** What unpublish will refuse to touch, one line each. Never summarised away. */
-    readonly refusals: readonly string[];
-    /** The caveat about buttons posted before we started recording them. */
-    readonly unrecordedWarning: string | null;
+    /** How many button messages are still posted. Zero when none are. */
+    readonly buttonCount: number;
+    /** How many resources an uninstall would actually delete. */
+    readonly deletableCount: number;
+    /**
+     * The uninstall button's label, carrying its own count.
+     *
+     * On the button rather than in a confirmation card: the card restated what the list
+     * above it already showed, so it was a paragraph between the operator and the
+     * action. A button that names its count is the warning.
+     */
+    readonly unpublishLabel: string;
+    /** The same button once armed, for the in-place second click. */
+    readonly unpublishConfirmLabel: string;
 }
 
 function plural(count: number, one: string, many: string): string {
@@ -55,19 +126,9 @@ function describeResources(resources: readonly PublishedResource[]): string {
 
     const parts: string[] = [];
     for (const [kind, count] of byKind) {
-        switch (kind) {
-            case 'textChannel':
-                parts.push(plural(count, 'channel', 'channels'));
-                break;
-            case 'category':
-                parts.push(plural(count, 'category', 'categories'));
-                break;
-            case 'role':
-                parts.push(plural(count, 'role', 'roles'));
-                break;
-            default:
-                parts.push(plural(count, kind, `${kind}s`));
-        }
+        const noun = kindNoun(kind);
+        // "categories", not "categorys". The only kind whose plural is not a bare `s`.
+        parts.push(plural(count, noun, noun === 'category' ? 'categories' : `${noun}s`));
     }
 
     return joinWithAnd(parts);
@@ -80,12 +141,58 @@ function joinWithAnd(parts: readonly string[]): string {
 }
 
 /**
+ * Whether the wire's kind is one this build draws, narrowing `string` to the union.
+ *
+ * The wire types `kind` as `string` deliberately — the server's `ResourceKind` is
+ * provisioning's, and mirroring it would be a second place to update. So the narrowing
+ * happens once, here, and everything downstream keys off `RESOURCE_KIND_STYLES`.
+ */
+function isKnownKind(kind: string): kind is ResourceKind {
+    return kind in RESOURCE_KIND_STYLES;
+}
+
+/**
+ * How a resource is written in a list.
+ *
+ * The prefix comes from `RESOURCE_KIND_STYLES` rather than a local rule, so a name
+ * here reads exactly as it does in the resources panel and in the pickers — `#` on a
+ * channel, `@` on a role, nothing on a category. An unrecognised kind is shown bare;
+ * inventing punctuation for something we cannot identify would be a guess printed next
+ * to a delete button.
+ */
+function displayName(resource: PublishedResource): string {
+    if (!isKnownKind(resource.kind)) return resource.name;
+    return `${RESOURCE_KIND_STYLES[resource.kind].prefix}${resource.name}`;
+}
+
+/** The noun for one resource of this kind, for a row that names a single thing. */
+function kindNoun(kind: string): string {
+    return isKnownKind(kind) ? RESOURCE_KIND_STYLES[kind].label.toLowerCase() : kind;
+}
+
+function toLine(resource: PublishedResource, fate: 'deleted' | 'kept'): PublishedResourceLine {
+    return {
+        resourceKey: resource.resourceKey,
+        glyph: isKnownKind(resource.kind) ? resource.kind : 'unknown',
+        kindLabel: kindNoun(resource.kind),
+        displayName: displayName(resource),
+        fate,
+        explanation: fate === 'kept' ? resource.explanation : undefined,
+    };
+}
+
+/**
  * Turn the server's answer into the lines a dialog shows.
  *
- * The refusals are returned individually and are never folded into a count. They are
- * the whole reason the preview exists: "1 item cannot be removed" tells an operator
- * nothing they can act on, while "**announcements** was adopted, not created" tells
- * them precisely why their channel is safe.
+ * Every resource is listed by name, and the survivors keep their individual reason.
+ * Both follow the same rule: a count is not something an operator can act on. "1 item
+ * cannot be removed" tells them nothing, while "**announcements** — adopted, not
+ * created" tells them precisely why their channel is safe. The same argument applies to
+ * the deletions, which is why they are named too rather than summed into "1 channel".
+ *
+ * Deleted resources sort first. The destructive half of the dialog is what the operator
+ * came to check, and burying it under the survivors would make them scroll past what is
+ * safe to find what is not.
  */
 export function summarisePublished(state: PublishedFlowState): PublishedSummary {
     const buttonCount = state.buttonMessages.length;
@@ -99,34 +206,61 @@ export function summarisePublished(state: PublishedFlowState): PublishedSummary 
         parts.push(`${describeResources(deletable)} it created`);
     }
 
-    const refusals = state.refusedResources.map(
-        (resource) => resource.explanation ?? `**${resource.name}** will be left alone.`
-    );
+    /*
+     * Built as a list and filtered, so an empty group is dropped rather than rendered
+     * as a heading standing over nothing. A flow that adopted everything should not be
+     * shown a "Created by this flow" title with no rows beneath it.
+     */
+    const groups: readonly PublishedGroup[] = ([
+        {
+            id: 'created',
+            title: 'Created by this flow',
+            caption: 'uninstalling deletes these',
+            destructive: true,
+            lines: deletable.map((resource) => toLine(resource, 'deleted')),
+        },
+        {
+            id: 'adopted',
+            title: 'Adopted, not created',
+            caption: 'left untouched',
+            destructive: false,
+            lines: state.refusedResources.map((resource) => toLine(resource, 'kept')),
+        },
+        {
+            id: 'messages',
+            title: 'Posted messages',
+            caption: 'taking these down leaves the channels',
+            destructive: false,
+            lines: state.buttonMessages.map((message) => ({
+                resourceKey: `${message.channelId}:${message.messageId}`,
+                glyph: 'message' as const,
+                kindLabel: 'message',
+                displayName: `${plural(message.nodeIds.length, 'button', 'buttons')} posted`,
+                fate: 'kept' as const,
+            })),
+        },
+    ] satisfies readonly PublishedGroup[]).filter((group) => group.lines.length > 0);
+
+    const deletableCount = deletable.length;
+    const countedThings = plural(deletableCount, 'resource', 'resources');
 
     return {
-        hasAnything: buttonCount > 0 || deletable.length > 0 || state.refusedResources.length > 0,
+        hasAnything: groups.length > 0,
         leftBehind: parts.length > 0 ? joinWithAnd(parts) : null,
+        groups,
         canUndeploy: buttonCount > 0,
-        canUnpublish: deletable.length > 0,
-        refusals,
-        unrecordedWarning: state.mayHaveUnrecordedButtons
-            ? 'Buttons posted before this server started keeping track are not listed here, and cannot be cleaned up automatically. If you deployed this flow a while ago, go and delete the message yourself.'
-            : null,
+        canUnpublish: deletableCount > 0,
+        buttonCount,
+        deletableCount,
+        unpublishLabel: `Delete ${countedThings}`,
+        unpublishConfirmLabel: `Yes, delete ${countedThings}`,
     };
 }
 
-/**
- * The sentence above the confirm button for an irreversible teardown.
- *
- * Deliberately names counts rather than gesturing at "everything": an operator
- * confirming the destruction of real channels is entitled to know how many, and a
- * dialog that says "this cannot be undone" without saying what *this* is has failed
- * at the only job it has.
+/*
+ * `unpublishConfirmLine` used to live here, supplying the sentence above a confirmation
+ * card. The card is gone: it restated what the list directly above it already showed,
+ * which made it a paragraph standing between the operator and the action rather than a
+ * safeguard. The second click now happens on the button itself, which carries its own
+ * count via `unpublishConfirmLabel`.
  */
-export function unpublishConfirmLine(resources: readonly PublishedResource[]): string {
-    if (resources.length === 0) {
-        return 'There is nothing to delete in the server.';
-    }
-
-    return `${describeResources(resources)} will be deleted from the server for good. Discord does not have a recycle bin, and neither do we.`;
-}

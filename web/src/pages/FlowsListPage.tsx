@@ -32,17 +32,9 @@ import {
 } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
 import { ApiError } from '../api/client';
-import {
-    createFlow,
-    deleteFlow,
-    getPublishedState,
-    listFlows,
-    undeployFlow,
-    unpublishFlow,
-    updateFlow,
-} from '../api/flows';
-import type { FlowSummary, PublishedFlowState } from '../api/types';
-import { summarisePublished, unpublishConfirmLine } from '../flows/publishedSummary';
+import { createFlow, deleteFlow, listFlows, updateFlow } from '../api/flows';
+import type { FlowSummary } from '../api/types';
+import { InstalledResourcesDialog } from '../flows/InstalledResourcesDialog';
 import { useGuilds } from '../guilds/GuildContext';
 import { PAGE_MAX_WIDTH } from '../theme';
 
@@ -88,51 +80,6 @@ export function FlowsListPage() {
     /** Whether the manage dialog was opened on its own rather than by the delete flow. */
     const [managingAlone, setManagingAlone] = useState(false);
 
-    /**
-     * What the managed flow has live in the guild.
-     *
-     * `null` while it is still loading — distinct from a loaded-but-empty state,
-     * because the dialog must not say "this publishes nothing" before it has asked.
-     */
-    const [published, setPublished] = useState<PublishedFlowState | null>(null);
-    const [cleaningUp, setCleaningUp] = useState(false);
-    /** The second confirm, for the half that destroys channels rather than messages. */
-    const [confirmUnpublish, setConfirmUnpublish] = useState(false);
-
-    // Ask what the flow has published the moment either dialog opens. For a delete that
-    // is the dialog's first job — saying what deleting leaves behind; for a standalone
-    // manage it is the whole point.
-    useEffect(() => {
-        if (!selected || !managing) {
-            setPublished(null);
-            setConfirmUnpublish(false);
-            return;
-        }
-
-        let cancelled = false;
-        void (async () => {
-            try {
-                const state = await getPublishedState(selected.id, managing.flowId);
-                if (!cancelled) setPublished(state);
-            } catch {
-                // A failed lookup must not block the delete, but it must not silently
-                // claim there is nothing published either. An empty state plus the
-                // standing "older buttons are invisible" warning is the honest answer.
-                if (!cancelled) {
-                    setPublished({
-                        buttonMessages: [],
-                        deletableResources: [],
-                        refusedResources: [],
-                        mayHaveUnrecordedButtons: true,
-                    });
-                }
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [selected, managing]);
-
     useEffect(() => {
         if (!selected) return;
         let cancelled = false;
@@ -153,11 +100,6 @@ export function FlowsListPage() {
             cancelled = true;
         };
     }, [selected]);
-
-    // Every decision about what the dialog says lives in `publishedSummary`, which is
-    // a plain module and therefore testable — `web/` has no jsdom, so a decision left
-    // inside JSX is a decision nothing can check.
-    const summary = published ? summarisePublished(published) : null;
 
     async function handleToggle(flow: FlowSummary, enabled: boolean) {
         if (!selected) return;
@@ -208,39 +150,6 @@ export function FlowsListPage() {
         }
     }
 
-    /**
-     * Take the flow's buttons out of their channels.
-     *
-     * Its own action, not a step inside delete. The flow row survives it, so an
-     * operator can retire a live button without throwing the flow away.
-     */
-    async function handleUndeploy() {
-        if (!selected || !managing) return;
-        setCleaningUp(true);
-        try {
-            const { results } = await undeployFlow(selected.id, managing.flowId);
-            const failed = results.filter((result) => result.outcome === 'failed');
-            const gone = results.length - failed.length;
-
-            notifications.show({
-                color: failed.length > 0 ? 'orange' : 'brand',
-                title: failed.length > 0 ? 'Mostly gone' : 'Buttons retired',
-                message:
-                    failed.length > 0
-                        ? `${gone} removed, ${failed.length} wouldn't budge: ${failed[0].explanation ?? 'Discord said no.'}`
-                        : `${gone} button message${gone === 1 ? '' : 's'} taken down.`,
-            });
-
-            setPublished(await getPublishedState(selected.id, managing.flowId));
-        } catch (err) {
-            const message =
-                err instanceof ApiError ? err.message : "Couldn't take those buttons down.";
-            notifications.show({ color: 'red', title: 'Still up', message });
-        } finally {
-            setCleaningUp(false);
-        }
-    }
-
     /** Inspect what a flow has live, without proposing to delete the flow itself. */
     function openManage(flow: FlowSummary): void {
         setManagingAlone(true);
@@ -258,40 +167,6 @@ export function FlowsListPage() {
         setManaging(null);
         setPendingDelete(null);
         setManagingAlone(false);
-    }
-
-    /**
-     * Destroy the channels and roles the flow's journey created.
-     *
-     * Behind its own confirm, because this is the only action here that deletes part of
-     * a live server and cannot be undone.
-     */
-    async function handleUnpublish() {
-        if (!selected || !managing) return;
-        setCleaningUp(true);
-        try {
-            const { results } = await unpublishFlow(selected.id, managing.flowId);
-            const deleted = results.filter((result) => result.outcome === 'deleted').length;
-            const failed = results.filter((result) => result.outcome === 'failed');
-
-            notifications.show({
-                color: failed.length > 0 ? 'orange' : 'brand',
-                title: failed.length > 0 ? 'Partly done' : 'Unpublished',
-                message:
-                    failed.length > 0
-                        ? `${deleted} deleted; ${failed.length} refused: ${failed[0].explanation ?? 'Discord said no.'}`
-                        : `${deleted} thing${deleted === 1 ? '' : 's'} deleted from the server. Anything adopted was left exactly where it was.`,
-            });
-
-            setConfirmUnpublish(false);
-            setPublished(await getPublishedState(selected.id, managing.flowId));
-        } catch (err) {
-            const message =
-                err instanceof ApiError ? err.message : "Couldn't unpublish those resources.";
-            notifications.show({ color: 'red', title: 'Nothing deleted', message });
-        } finally {
-            setCleaningUp(false);
-        }
     }
 
     async function handleDelete() {
@@ -519,175 +394,61 @@ export function FlowsListPage() {
                 </Stack>
             </Modal>
 
-            <Modal
-                opened={managing !== null}
-                onClose={closeManage}
-                title={managingAlone ? 'What this flow put in your server' : 'Delete this flow?'}
-                size="md"
-            >
-                <Stack gap="md">
-                    {managingAlone ? (
-                        <Text size="13.5px" c="dimmed">
-                            Channels, roles and buttons{' '}
-                            <Text span fw={700} c="bright">
-                                {managing?.name}
-                            </Text>{' '}
-                            has live right now. Taking them back is permanent — anything it
-                            adopted instead of creating stays put.
-                        </Text>
-                    ) : (
-                        <Text size="13.5px" c="dimmed">
-                            <Text span fw={700} c="bright">
-                                {pendingDelete?.name}
-                            </Text>{' '}
-                            and its {pendingDelete?.nodeCount ?? 0} node
-                            {pendingDelete?.nodeCount === 1 ? '' : 's'} will be deleted for good.
-                            No undo, no take-backs.
-                        </Text>
-                    )}
-
-                    {managingAlone && published && summary && !summary.hasAnything && (
-                        <Text size="13.5px" c="dimmed">
-                            Nothing live in the server. Install it from the builder first.
-                        </Text>
-                    )}
-
-                    {/*
-                     * What the delete leaves behind, and the cleanup offered beside it
-                     * rather than folded into it. Deleting a flow deliberately touches
-                     * nothing in the server — an operator who wants the channels gone
-                     * has to say so, separately and on purpose.
-                     */}
-                    {published && summary && summary.hasAnything && (
-                        <Alert
-                            color="orange"
-                            icon={<IconAlertTriangle size={16} />}
-                            title={
-                                managingAlone
-                                    ? 'Live in your server right now'
-                                    : 'This flow left things in your server'
-                            }
-                        >
-                            <Stack gap="xs">
-                                {summary.leftBehind && !managingAlone && (
-                                    <Text size="13px">
-                                        Deleting the flow does not remove {summary.leftBehind}.
-                                        They stay exactly where they are.
-                                    </Text>
-                                )}
-                                {summary.leftBehind && managingAlone && (
-                                    <Text size="13px">
-                                        This flow has {summary.leftBehind} in the server.
-                                    </Text>
-                                )}
-
-                                {summary.refusals.length > 0 && (
-                                    <Stack gap={4}>
-                                        <Text size="12.5px" fw={600}>
-                                            Off limits, and staying that way:
-                                        </Text>
-                                        {summary.refusals.map((refusal, index) => (
-                                            <Text key={index} size="12.5px" c="dimmed">
-                                                • {refusal}
-                                            </Text>
-                                        ))}
-                                    </Stack>
-                                )}
-
-                                {summary.unrecordedWarning && (
-                                    <Text size="12px" c="dimmed" fs="italic">
-                                        {summary.unrecordedWarning}
-                                    </Text>
-                                )}
-
-                                <Group gap="sm" mt={4}>
-                                    {summary.canUndeploy && (
-                                        <Button
-                                            size="xs"
-                                            variant="light"
-                                            color="orange"
-                                            loading={cleaningUp}
-                                            onClick={() => void handleUndeploy()}
-                                        >
-                                            Take the buttons down
-                                        </Button>
-                                    )}
-                                    {summary.canUnpublish && !confirmUnpublish && (
-                                        <Button
-                                            size="xs"
-                                            variant="light"
-                                            color="red"
-                                            disabled={cleaningUp}
-                                            onClick={() => setConfirmUnpublish(true)}
-                                        >
-                                            Delete what it created
-                                        </Button>
-                                    )}
-                                </Group>
-
-                                {/*
-                                 * The second confirm. Everything above this point is
-                                 * reversible or merely tidy; this deletes real channels
-                                 * and roles, so it names exactly what goes.
-                                 */}
-                                {confirmUnpublish && published && (
-                                    <Stack gap="xs" mt={4}>
-                                        <Text size="12.5px" fw={600} c="red.4">
-                                            {unpublishConfirmLine(published.deletableResources)}
-                                        </Text>
-                                        <Group gap="sm">
-                                            <Button
-                                                size="xs"
-                                                variant="subtle"
-                                                color="gray"
-                                                disabled={cleaningUp}
-                                                onClick={() => setConfirmUnpublish(false)}
-                                            >
-                                                Back off
-                                            </Button>
-                                            <Button
-                                                size="xs"
-                                                color="red"
-                                                loading={cleaningUp}
-                                                onClick={() => void handleUnpublish()}
-                                            >
-                                                Yes, delete them
-                                            </Button>
-                                        </Group>
-                                    </Stack>
-                                )}
-                            </Stack>
-                        </Alert>
-                    )}
-
-                    {/*
-                     * No "Delete flow" when this was opened on its own. Putting it here
-                     * would reintroduce the problem in reverse — someone tidying up a
-                     * category would find the button that destroys the flow sitting
-                     * under their cursor.
-                     */}
-                    <Group justify="flex-end" gap="sm">
-                        <Button
-                            variant="subtle"
-                            color="gray"
-                            onClick={closeManage}
-                            disabled={deleting || cleaningUp}
-                        >
-                            {managingAlone ? 'Done' : 'Keep it'}
-                        </Button>
-                        {!managingAlone && (
+            {/*
+             * One dialog, two ways in. Opened on its own it is an inventory with
+             * cleanup; opened by the trash icon it is that same inventory under a
+             * delete confirmation, because what a delete leaves behind is the thing
+             * the operator most needs to see before agreeing to it.
+             *
+             * Deleting a flow deliberately touches nothing in the server — an operator
+             * who wants the channels gone has to say so, separately and on purpose,
+             * using the uninstall inside.
+             */}
+            {managing && selected && (
+                <InstalledResourcesDialog
+                    opened
+                    onClose={closeManage}
+                    guildId={selected.id}
+                    flowId={managing.flowId}
+                    flowName={managing.name}
+                    intro={
+                        managingAlone ? undefined : (
+                            <Text size="13.5px" c="dimmed">
+                                <Text span fw={700} c="bright">
+                                    {pendingDelete?.name}
+                                </Text>{' '}
+                                and its {pendingDelete?.nodeCount ?? 0} node
+                                {pendingDelete?.nodeCount === 1 ? '' : 's'} will be deleted for
+                                good. Anything below stays in the server unless you remove it
+                                here first.
+                            </Text>
+                        )
+                    }
+                    extraActions={
+                        /*
+                         * No "Delete flow" when this was opened on its own. Putting it
+                         * there would reintroduce the problem in reverse — someone
+                         * tidying up a category would find the button that destroys the
+                         * flow sitting under their cursor.
+                         *
+                         * Appended to the dialog's own bar rather than replacing it, so
+                         * the uninstall stays reachable here: "deleting the flow leaves
+                         * these channels" is only useful next to the thing that removes
+                         * them.
+                         */
+                        managingAlone ? undefined : (
                             <Button
+                                size="xs"
                                 color="red"
                                 loading={deleting}
-                                disabled={cleaningUp}
                                 onClick={() => void handleDelete()}
                             >
                                 Delete flow
                             </Button>
-                        )}
-                    </Group>
-                </Stack>
-            </Modal>
+                        )
+                    }
+                />
+            )}
         </Stack>
     );
 }

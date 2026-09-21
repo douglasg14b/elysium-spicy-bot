@@ -33,6 +33,7 @@ import {
     Center,
     Group,
     Loader,
+    Menu,
     Modal,
     Stack,
     Switch,
@@ -47,6 +48,10 @@ import {
     IconArrowForwardUp,
     IconChevronLeft,
     IconDeviceFloppy,
+    IconChevronDown,
+    IconCircleCheck,
+    IconEye,
+    IconPackageExport,
     IconPackageImport,
     IconRocket,
     IconStack2,
@@ -60,6 +65,7 @@ import {
     getGuildRoles,
     getInstallPlan,
     getNodeTypes,
+    getPublishedState,
     installFlow,
     updateFlow,
 } from '../api/flows';
@@ -100,6 +106,7 @@ import {
     summariseInstallOutcome,
     summariseInstallPlan,
 } from '../flows/installSummary';
+import { InstalledResourcesDialog } from '../flows/InstalledResourcesDialog';
 import { issuesByNode, summarizeIssues } from '../flows/validationIssues';
 import { availableVariablesAt } from '../flows/variables';
 import { NodePalette, NODE_DRAG_MIME } from '../flows/NodePalette';
@@ -315,6 +322,43 @@ function FlowBuilder() {
      * late is discarded rather than shown — see `loadInstallPlan`.
      */
     const installPlanRequest = useRef(0);
+
+    /**
+     * The inventory of what this flow already has in the guild, and the uninstall.
+     *
+     * Reachable from the builder because that is where the install lives: an operator
+     * who can create channels from this toolbar should be able to take them back from
+     * it, rather than having to leave for the flows list to find the only teardown.
+     */
+    const [installedOpen, setInstalledOpen] = useState(false);
+    /**
+     * How many resources this flow currently has live, or `null` before we have asked.
+     *
+     * Fetched on load rather than only when the dialog opens, because the toolbar
+     * button's own face depends on it: a flow with nothing installed offers "Install",
+     * and one with resources live offers to show and remove them. A button that cannot
+     * tell those apart is the two-buttons-for-one-concept problem this replaced.
+     *
+     * `null` means unknown, which renders as the plain install affordance — the safe
+     * default, since it proposes creating rather than destroying.
+     */
+    const [installedCount, setInstalledCount] = useState<number | null>(null);
+
+    const refreshInstalledCount = useCallback(async () => {
+        if (!selected || !flowId) return;
+        try {
+            const state = await getPublishedState(selected.id, flowId);
+            setInstalledCount(state.deletableResources.length + state.refusedResources.length);
+        } catch {
+            // A failed lookup leaves the button on its install face rather than
+            // guessing. The dialog does its own fetch and reports properly.
+            setInstalledCount(null);
+        }
+    }, [selected, flowId]);
+
+    useEffect(() => {
+        void refreshInstalledCount();
+    }, [refreshInstalledCount]);
 
     // Undo/redo snapshot stacks. `skipHistory` guards the programmatic restores.
     const past = useRef<Snapshot[]>([]);
@@ -809,6 +853,9 @@ function FlowBuilder() {
             setConfirmInstall(false);
             setInstallOpen(false);
 
+            // Flips the toolbar to its installed face without a reload.
+            void refreshInstalledCount();
+
             // The install wrote ids into this flow's nodes, so what is on screen is now
             // behind the server. Reloading would discard unsaved canvas edits, so the
             // author is told instead and reopens when they are ready.
@@ -1082,22 +1129,92 @@ function FlowBuilder() {
                 </Tooltip>
 
                 {/*
-                 * Offered only when the flow declares something. An install button on a
-                 * flow with no declarations has nothing to do and would send the
-                 * operator to a dialog whose only content is the 404 explaining that.
+                 * One control, whose face follows the state.
+                 *
+                 * "Install" and "Installed" used to sit side by side — two buttons for
+                 * one concept, where the second was an adjective and so read as a status
+                 * label that happened to be clickable. Install and uninstall are not
+                 * siblings; they are the two directions of one operation, and which one
+                 * applies is a fact about the server, not a choice for the operator to
+                 * work out.
+                 *
+                 * Nothing installed → the install affordance, and only when there is
+                 * something declared to install. Anything installed → a menu whose
+                 * destructive direction is named, coloured, and one deliberate click
+                 * deeper, which is where a "delete real channels" action belongs.
                  */}
-                {declaredResources.length > 0 && (
-                    <Tooltip label="Create the channels and roles this flow needs">
-                        <Button
-                            variant="light"
-                            color="gray"
-                            size="xs"
-                            leftSection={<IconPackageImport size={15} />}
-                            onClick={() => setInstallOpen(true)}
-                        >
-                            Install
-                        </Button>
-                    </Tooltip>
+                {installedCount !== null && installedCount > 0 ? (
+                    <Menu shadow="md" width={252} position="bottom-start">
+                        <Menu.Target>
+                            <Button
+                                variant="light"
+                                color="teal"
+                                size="xs"
+                                leftSection={<IconCircleCheck size={15} />}
+                                rightSection={<IconChevronDown size={13} />}
+                            >
+                                Installed
+                            </Button>
+                        </Menu.Target>
+                        <Menu.Dropdown>
+                            <Menu.Item
+                                leftSection={<IconEye size={14} />}
+                                onClick={() => setInstalledOpen(true)}
+                            >
+                                See what’s in your server
+                                <Text size="11px" c="dimmed">
+                                    {installedCount} resource{installedCount === 1 ? '' : 's'}
+                                </Text>
+                            </Menu.Item>
+                            {declaredResources.length > 0 && (
+                                <Menu.Item
+                                    leftSection={<IconPackageImport size={14} />}
+                                    onClick={() => setInstallOpen(true)}
+                                >
+                                    Reinstall missing pieces
+                                    <Text size="11px" c="dimmed">
+                                        Rebuilds anything deleted by hand
+                                    </Text>
+                                </Menu.Item>
+                            )}
+                            <Menu.Divider />
+                            {/*
+                             * Opens the inventory rather than deleting on the spot. The
+                             * confirmation is the list plus the counted button inside —
+                             * a menu item must never be the last step before destroying
+                             * real channels.
+                             */}
+                            <Menu.Item
+                                color="red"
+                                leftSection={<IconPackageExport size={14} />}
+                                onClick={() => setInstalledOpen(true)}
+                            >
+                                Uninstall from server
+                                <Text size="11px" c="dimmed">
+                                    Deletes what this flow created
+                                </Text>
+                            </Menu.Item>
+                        </Menu.Dropdown>
+                    </Menu>
+                ) : (
+                    /*
+                     * Offered only when the flow declares something. An install button on
+                     * a flow with no declarations has nothing to do and would send the
+                     * operator to a dialog whose only content is the 404 explaining that.
+                     */
+                    declaredResources.length > 0 && (
+                        <Tooltip label="Create the channels and roles this flow needs">
+                            <Button
+                                variant="light"
+                                color="gray"
+                                size="xs"
+                                leftSection={<IconPackageImport size={15} />}
+                                onClick={() => setInstallOpen(true)}
+                            >
+                                Install {declaredResources.length}
+                            </Button>
+                        </Tooltip>
+                    )
                 )}
 
                 <Tooltip
@@ -1432,6 +1549,40 @@ function FlowBuilder() {
                     )}
                 </Stack>
             </Modal>
+
+            {/*
+             * The counterpart to Install, and the same dialog the flows list uses.
+             *
+             * No reload on `onChanged`, for the reason `handleInstall` does not reload
+             * either: it would discard unsaved canvas edits. An uninstall leaves the
+             * blocks pointing at ids that no longer exist, so the author is told and
+             * reopens when they are ready — the same bargain, struck the same way.
+             */}
+            {selected && flowId && (
+                <InstalledResourcesDialog
+                    opened={installedOpen}
+                    onClose={() => setInstalledOpen(false)}
+                    guildId={selected.id}
+                    flowId={flowId}
+                    flowName={name || 'this flow'}
+                    onChanged={(action) => {
+                        // The toolbar button's face is derived from this count, so a
+                        // teardown has to move it or the button keeps claiming the flow
+                        // is installed after its channels are gone.
+                        void refreshInstalledCount();
+
+                        // Only an unpublish invalidates the canvas. An undeploy retires
+                        // messages and leaves every bound id exactly as it was.
+                        if (action !== 'unpublish') return;
+                        notifications.show({
+                            color: 'brand',
+                            title: 'Your blocks still name what was deleted',
+                            message:
+                                'Any block pointing at something that just went is now pointing at nothing. Reinstall to rebuild it, or repoint those blocks yourself.',
+                        });
+                    }}
+                />
+            )}
 
             <Modal
                 opened={deployOpen}

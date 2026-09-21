@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Flow — installed resources dialog</title>
+<style>
+  :root {
+    --brand: #00a2ff;
+    --dark-9: #14151a;
+    --dark-8: #16171d;
+    --dark-7: #1e2028;
+    --dark-6: #262832;
+    --dark-5: #33363f;
+    --dark-2: #8b8f9c;
+    --bright: #f3f4f7;
+    --red: #ff6b6b;
+    --orange: #ffa94d;
+    --green: #51cf66;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px;
+    background: #0d0e12;
+    color: var(--bright);
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 32px;
+    align-items: flex-start;
+  }
+  .variant { width: 560px; }
+  .variant > h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--brand);
+    margin: 0 0 4px;
+  }
+  .variant > p.note {
+    font-size: 12.5px;
+    color: var(--dark-2);
+    margin: 0 0 14px;
+    line-height: 1.5;
+  }
+
+  /* ---------- modal shell ---------- */
+  .modal {
+    background: var(--dark-7);
+    border: 1px solid var(--dark-5);
+    border-radius: 10px;
+    box-shadow: 0 18px 50px rgba(0,0,0,.55);
+    overflow: hidden;
+  }
+  .modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 18px 12px;
+  }
+  .modal-title { font-size: 16px; font-weight: 700; margin: 0; }
+  .x { color: var(--dark-2); cursor: pointer; font-size: 16px; line-height: 1; }
+  .modal-body { padding: 0 18px 18px; }
+  .modal-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 18px 16px;
+  }
+
+  /* ---------- bits ---------- */
+  .sub {
+    font-size: 13px;
+    color: var(--dark-2);
+    margin: 0 0 14px;
+    line-height: 1.5;
+  }
+  .sub b { color: var(--bright); font-weight: 700; }
+
+  .btn {
+    font-size: 12.5px;
+    font-weight: 600;
+    border-radius: 6px;
+    padding: 7px 13px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    background: transparent;
+    color: var(--bright);
+    font-family: inherit;
+  }
+  .btn-sm { font-size: 12px; padding: 5px 10px; }
+  .btn-subtle { color: var(--dark-2); }
+  .btn-subtle:hover { background: var(--dark-6); }
+  .btn-red { background: rgba(255,107,107,.12); color: var(--red); border-color: rgba(255,107,107,.3); }
+  .btn-red-solid { background: #e03131; color: #fff; }
+  .btn-orange { background: rgba(255,169,77,.12); color: var(--orange); border-color: rgba(255,169,77,.3); }
+  .btn-brand { background: var(--brand); color: #04131f; }
+  .btn-ghost { border-color: var(--dark-5); color: var(--bright); }
+
+  /* ---------- resource list ---------- */
+  .group-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--dark-2);
+    margin: 0 0 6px;
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+  }
+  .group-label .count { color: var(--dark-5); font-weight: 600; letter-spacing: 0; text-transform: none; }
+
+  .res-list {
+    list-style: none;
+    margin: 0 0 14px;
+    padding: 0;
+    border: 1px solid var(--dark-5);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .res {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 8px 11px;
+    border-bottom: 1px solid var(--dark-6);
+    font-size: 13px;
+  }
+  .res:last-child { border-bottom: none; }
+  .res .icon {
+    width: 17px;
+    text-align: center;
+    color: var(--dark-2);
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+  .res .name {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    color: var(--bright);
+  }
+  .res .kind { color: var(--dark-2); font-size: 12px; margin-left: auto; flex-shrink: 0; }
+  .res.doomed { background: rgba(255,107,107,.05); }
+  .res.doomed .icon { color: var(--red); }
+  .res.safe .name { color: var(--dark-2); text-decoration: none; }
+  .res .why {
+    font-size: 11.5px;
+    color: var(--dark-2);
+    font-style: italic;
+    margin-left: auto;
+    text-align: right;
+    flex-shrink: 1;
+  }
+
+  .tag {
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 1.5px 6px;
+    border-radius: 4px;
+    letter-spacing: .03em;
+    flex-shrink: 0;
+  }
+  .tag-del { background: rgba(255,107,107,.15); color: var(--red); }
+  .tag-keep { background: var(--dark-6); color: var(--dark-2); }
+
+  .footnote {
+    font-size: 11.5px;
+    color: var(--dark-2);
+    line-height: 1.5;
+    margin: 0 0 12px;
+    padding-left: 10px;
+    border-left: 2px solid var(--dark-5);
+  }
+
+  .confirm-bar {
+    background: rgba(255,107,107,.08);
+    border: 1px solid rgba(255,107,107,.25);
+    border-radius: 8px;
+    padding: 11px 12px;
+    margin-bottom: 4px;
+  }
+  .confirm-bar p { margin: 0 0 9px; font-size: 12.5px; color: var(--red); font-weight: 600; }
+
+  /* ---------- variant C: summary strip ---------- */
+  .strip {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 13px;
+  }
+  .stat {
+    flex: 1;
+    background: var(--dark-8);
+    border: 1px solid var(--dark-6);
+    border-radius: 7px;
+    padding: 9px 11px;
+  }
+  .stat .n { font-size: 19px; font-weight: 700; line-height: 1; }
+  .stat .l { font-size: 11px; color: var(--dark-2); margin-top: 3px; }
+  .stat.del .n { color: var(--red); }
+  .stat.keep .n { color: var(--dark-2); }
+
+  details.more { margin-bottom: 12px; }
+  details.more > summary {
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--dark-2);
+    padding: 5px 0;
+    list-style: none;
+  }
+  details.more > summary::-webkit-details-marker { display: none; }
+  details.more > summary::before { content: "▸ "; }
+  details.more[open] > summary::before { content: "▾ "; }
+
+  /* builder toolbar mock */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    background: var(--dark-8);
+    border: 1px solid var(--dark-6);
+    border-radius: 8px;
+    padding: 9px 11px;
+  }
+  .tb-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 10px;
+    border-radius: 6px;
+    background: var(--dark-6);
+    color: var(--bright);
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .tb-btn.brand { background: rgba(0,162,255,.15); color: var(--brand); }
+  .tb-btn.new { background: rgba(255,169,77,.13); color: var(--orange); outline: 1.5px dashed rgba(255,169,77,.5); }
+  .badge-dot {
+    background: var(--brand);
+    color: #04131f;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 0 5px;
+    min-width: 15px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<!-- ======================= VARIANT A ======================= -->
+<div class="variant">
+  <h2>Variant A — Itemised list, grouped by fate</h2>
+  <p class="note">Every resource named, split into what goes and what stays. The refusal reason sits on its own row instead of in a paragraph. No prose above the list.</p>
+
+  <div class="modal">
+    <div class="modal-head">
+      <h3 class="modal-title">What <span style="color:var(--brand)">Test Provisioning</span> installed</h3>
+      <span class="x">✕</span>
+    </div>
+    <div class="modal-body">
+
+      <p class="group-label">Created by this flow <span class="count">— deleting removes these</span></p>
+      <ul class="res-list">
+        <li class="res doomed">
+          <span class="icon">▤</span>
+          <span class="name">Scene Play</span>
+          <span class="tag tag-del">DELETES</span>
+          <span class="kind">category</span>
+        </li>
+        <li class="res doomed">
+          <span class="icon">#</span>
+          <span class="name">#scene-signup</span>
+          <span class="tag tag-del">DELETES</span>
+          <span class="kind">channel</span>
+        </li>
+      </ul>
+
+      <p class="group-label">Adopted, not created <span class="count">— left untouched</span></p>
+      <ul class="res-list">
+        <li class="res safe">
+          <span class="icon">#</span>
+          <span class="name">#announcements</span>
+          <span class="tag tag-keep">KEEPS</span>
+          <span class="why">already existed</span>
+        </li>
+        <li class="res safe">
+          <span class="icon">@</span>
+          <span class="name">@Scene Host</span>
+          <span class="tag tag-keep">KEEPS</span>
+          <span class="why">already existed</span>
+        </li>
+      </ul>
+
+      <p class="group-label">Button messages posted</p>
+      <ul class="res-list">
+        <li class="res">
+          <span class="icon">✉</span>
+          <span class="name">#scene-signup</span>
+          <span class="kind">2 buttons</span>
+        </li>
+      </ul>
+
+      <p class="footnote">Buttons posted before this server kept records aren’t listed and won’t be cleaned up.</p>
+
+      <div class="confirm-bar">
+        <p>2 resources will be destroyed. Discord has no recycle bin.</p>
+        <button class="btn btn-sm btn-subtle">Back off</button>
+        <button class="btn btn-sm btn-red-solid">Yes, delete them</button>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-orange">Take buttons down</button>
+      <button class="btn btn-red">Delete the 2 it created</button>
+      <button class="btn btn-ghost">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= VARIANT B ======================= -->
+<div class="variant">
+  <h2>Variant B — One flat table, status column</h2>
+  <p class="note">A single list, no group headers. Each row states its own fate. Densest option; scales past a handful of resources without the dialog growing headers.</p>
+
+  <div class="modal">
+    <div class="modal-head">
+      <h3 class="modal-title">Installed by Test Provisioning</h3>
+      <span class="x">✕</span>
+    </div>
+    <div class="modal-body">
+      <p class="sub">4 resources tracked · <b style="color:var(--red)">2 would be deleted</b></p>
+
+      <ul class="res-list">
+        <li class="res doomed">
+          <span class="icon">▤</span><span class="name">Scene Play</span>
+          <span class="kind">category · created</span>
+        </li>
+        <li class="res doomed">
+          <span class="icon">#</span><span class="name">#scene-signup</span>
+          <span class="kind">channel · created</span>
+        </li>
+        <li class="res safe">
+          <span class="icon">#</span><span class="name">#announcements</span>
+          <span class="kind">channel · adopted</span>
+        </li>
+        <li class="res safe">
+          <span class="icon">@</span><span class="name">@Scene Host</span>
+          <span class="kind">role · adopted</span>
+        </li>
+        <li class="res">
+          <span class="icon">✉</span><span class="name">1 button message</span>
+          <span class="kind">in #scene-signup</span>
+        </li>
+      </ul>
+
+      <details class="more">
+        <summary>Why two are safe</summary>
+        <p class="footnote" style="margin-top:6px">
+          <b>#announcements</b> and <b>@Scene Host</b> were adopted, not created — the flow only pointed at them.
+          Buttons posted before this server kept records aren’t listed here.
+        </p>
+      </details>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-orange">Take buttons down</button>
+      <button class="btn btn-red">Delete what it created</button>
+      <button class="btn btn-ghost">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= VARIANT C ======================= -->
+<div class="variant" style="margin-top:0">
+  <h2>Variant C — Counts up top, list on demand</h2>
+  <p class="note">Scannable stat strip answers “how much?” instantly; the itemised list is one click away for “which ones?”. Shortest dialog at rest.</p>
+
+  <div class="modal">
+    <div class="modal-head">
+      <h3 class="modal-title">What Test Provisioning installed</h3>
+      <span class="x">✕</span>
+    </div>
+    <div class="modal-body">
+      <div class="strip">
+        <div class="stat del"><div class="n">2</div><div class="l">it created</div></div>
+        <div class="stat keep"><div class="n">2</div><div class="l">it adopted</div></div>
+        <div class="stat keep"><div class="n">1</div><div class="l">button message</div></div>
+      </div>
+
+      <details class="more" open>
+        <summary>Show the 5</summary>
+        <ul class="res-list" style="margin-top:7px">
+          <li class="res doomed"><span class="icon">▤</span><span class="name">Scene Play</span><span class="tag tag-del">DELETES</span><span class="kind">category</span></li>
+          <li class="res doomed"><span class="icon">#</span><span class="name">#scene-signup</span><span class="tag tag-del">DELETES</span><span class="kind">channel</span></li>
+          <li class="res safe"><span class="icon">#</span><span class="name">#announcements</span><span class="tag tag-keep">KEEPS</span><span class="kind">adopted</span></li>
+          <li class="res safe"><span class="icon">@</span><span class="name">@Scene Host</span><span class="tag tag-keep">KEEPS</span><span class="kind">adopted</span></li>
+          <li class="res"><span class="icon">✉</span><span class="name">1 message</span><span class="kind">#scene-signup</span></li>
+        </ul>
+      </details>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-orange">Take buttons down</button>
+      <button class="btn btn-red">Delete the 2 it created</button>
+      <button class="btn btn-ghost">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= BUILDER TOOLBAR ======================= -->
+<div class="variant" style="width:100%; max-width:720px">
+  <h2>Builder toolbar — where “Uninstall” goes</h2>
+  <p class="note">The flow builder today has Save · Resources · Install · Deploy · Enabled. Option 1 adds a peer button; option 2 folds it into the existing Install dialog instead.</p>
+
+  <p class="group-label" style="margin-top:14px">Option 1 — dedicated Uninstall button (dashed = new)</p>
+  <div class="toolbar">
+    <button class="tb-btn">💾 Save</button>
+    <button class="tb-btn">▦ Resources <span class="badge-dot">4</span></button>
+    <button class="tb-btn">⬇ Install</button>
+    <button class="tb-btn new">⬆ Uninstall <span class="badge-dot" style="background:var(--orange)">2</span></button>
+    <button class="tb-btn brand">🚀 Deploy</button>
+  </div>
+
+  <p class="group-label" style="margin-top:16px">Option 2 — “Installed” button opens the same dialog as the list page</p>
+  <div class="toolbar">
+    <button class="tb-btn">💾 Save</button>
+    <button class="tb-btn">▦ Resources <span class="badge-dot">4</span></button>
+    <button class="tb-btn">⬇ Install</button>
+    <button class="tb-btn new">🗄 Installed <span class="badge-dot" style="background:var(--orange)">2</span></button>
+    <button class="tb-btn brand">🚀 Deploy</button>
+  </div>
+</div>
+
+</body>
+</html>

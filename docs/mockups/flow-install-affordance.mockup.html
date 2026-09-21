@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Flow install/uninstall — affordance + dialog</title>
+<style>
+  /* Palette lifted verbatim from web/src/theme.ts */
+  :root {
+    --brand: #00a2ff; --brand-4: #33a7ff;
+    --dark-9: #14151a; --dark-8: #16171d; --dark-7: #1e2028;
+    --dark-6: #262832; --dark-5: #33363f; --dark-3: #6c7079; --dark-2: #8b8f9c;
+    --bright: #f3f4f7;
+    --red: #ff6b6b; --orange: #ffa94d; --green: #51cf66;
+    --blue: #4dabf7; --violet: #9775fa; --teal: #20c997;
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:34px; background:#0d0e12; color:var(--bright); font-size:14px; }
+
+  .page-head { max-width:1240px; margin:0 auto 30px; }
+  .page-head h1 { font-size:21px; font-weight:800; margin:0 0 8px; }
+  .page-head p { color:var(--dark-2); margin:0 0 6px; line-height:1.6; max-width:940px; }
+  .page-head .crit { border-left:2px solid var(--orange); padding-left:12px; color:var(--dark-2);
+                     line-height:1.6; max-width:940px; font-size:13px; }
+  .page-head .crit b { color:var(--orange); }
+
+  .section { max-width:1240px; margin:0 auto 42px; }
+  .section > h2 { font-size:12px; text-transform:uppercase; letter-spacing:.09em;
+                  color:var(--brand); margin:0 0 5px; }
+  .section > p.note { font-size:13px; color:var(--dark-2); margin:0 0 16px; line-height:1.6; max-width:940px; }
+
+  .tag { font-size:10px; font-weight:800; letter-spacing:.05em; text-transform:uppercase;
+         padding:2.5px 8px; border-radius:20px; vertical-align:middle; margin-left:8px; }
+  .tag.bad { background:rgba(255,107,107,.15); color:var(--red); }
+  .tag.rec { background:rgba(0,162,255,.16); color:var(--brand-4); }
+
+  /* ---------- toolbar ---------- */
+  .tb-wrap { margin-bottom:18px; }
+  .tb-label { font-size:11.5px; color:var(--dark-3); margin:0 0 7px; }
+  .tb-label b { color:var(--dark-2); }
+  .toolbar { display:flex; align-items:center; gap:7px; background:var(--dark-8);
+             border:1px solid var(--dark-6); border-radius:8px; padding:10px 12px; }
+  .tb-btn { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600;
+            padding:6px 11px; border-radius:6px; background:var(--dark-6); color:var(--bright);
+            border:1px solid transparent; font-family:inherit; }
+  .tb-btn.brand { background:rgba(0,162,255,.15); color:var(--brand); }
+  .tb-btn.spot { outline:1.5px dashed rgba(255,169,77,.55); outline-offset:2px; }
+  .tb-btn.installed { background:rgba(32,201,151,.12); color:var(--teal);
+                      border-color:rgba(32,201,151,.28); }
+  .tb-btn.drift { background:rgba(255,169,77,.12); color:var(--orange);
+                  border-color:rgba(255,169,77,.3); }
+  .tb-sep { width:1px; height:18px; background:var(--dark-6); margin:0 3px; }
+  .tb-dot { background:var(--brand); color:#04131f; border-radius:999px; font-size:10px;
+            font-weight:800; padding:0 5px; min-width:15px; text-align:center; }
+  .tb-dot.teal { background:var(--teal); color:#04231b; }
+  .tb-dot.orange { background:var(--orange); color:#2b1a05; }
+  .caret { font-size:9px; opacity:.7; }
+  .tb-note { font-size:11.5px; color:var(--dark-3); margin:7px 0 0; line-height:1.5; }
+  .tb-note.good { color:var(--green); }
+  .tb-note.bad { color:var(--red); }
+
+  /* menu hanging off the split button */
+  .menu { position:relative; margin-top:6px; width:250px; background:var(--dark-7);
+          border:1px solid var(--dark-5); border-radius:8px; padding:5px;
+          box-shadow:0 14px 34px rgba(0,0,0,.5); }
+  .menu-item { display:flex; align-items:center; gap:9px; padding:8px 10px; border-radius:6px;
+               font-size:12.5px; }
+  .menu-item .mi-ic { width:16px; text-align:center; flex:none; }
+  .menu-item .mi-sub { display:block; font-size:11px; color:var(--dark-3); margin-top:2px; }
+  .menu-item.danger { color:var(--red); }
+  .menu-item.danger .mi-sub { color:rgba(255,107,107,.65); }
+  .menu-item:hover { background:var(--dark-6); }
+  .menu-sep { height:1px; background:var(--dark-6); margin:4px 2px; }
+
+  /* ---------- modal ---------- */
+  .cols { display:flex; gap:28px; align-items:flex-start; flex-wrap:wrap; }
+  .col { width:588px; }
+  .col > h3 { font-size:12px; text-transform:uppercase; letter-spacing:.07em; color:var(--dark-2);
+              margin:0 0 5px; }
+  .col > p.cnote { font-size:12.5px; color:var(--dark-3); margin:0 0 12px; line-height:1.55; }
+
+  .modal { background:var(--dark-7); border:1px solid var(--dark-5); border-radius:11px;
+           box-shadow:0 18px 50px rgba(0,0,0,.55); overflow:hidden; }
+  .modal-head { padding:17px 19px 0; }
+  .modal-title { font-size:16.5px; font-weight:800; margin:0; display:flex; align-items:center; gap:9px; }
+  .modal-title .x { margin-left:auto; color:var(--dark-2); font-size:16px; font-weight:400; }
+  .modal-sub { font-size:12.5px; color:var(--dark-2); margin:5px 0 0; line-height:1.5; }
+  .modal-body { padding:16px 19px 18px; }
+  .modal-foot { display:flex; align-items:center; gap:8px; padding:13px 19px;
+                border-top:1px solid var(--dark-6); background:rgba(0,0,0,.14); }
+  .foot-spacer { margin-left:auto; }
+
+  .btn { font-size:12.5px; font-weight:600; border-radius:7px; padding:7px 13px;
+         border:1px solid transparent; background:transparent; color:var(--bright);
+         font-family:inherit; display:inline-flex; align-items:center; gap:6px; }
+  .btn-sm { font-size:11.5px; padding:5px 10px; }
+  .btn-subtle { color:var(--dark-2); }
+  .btn-ghost { border-color:var(--dark-5); }
+  .btn-red { background:rgba(255,107,107,.12); color:var(--red); border-color:rgba(255,107,107,.32); }
+  .btn-red-solid { background:#e03131; color:#fff; }
+  .btn-orange { background:rgba(255,169,77,.12); color:var(--orange); border-color:rgba(255,169,77,.3); }
+
+  /* header status pill */
+  .pill { font-size:10.5px; font-weight:800; letter-spacing:.04em; text-transform:uppercase;
+          padding:3px 9px; border-radius:20px; }
+  .pill.live { background:rgba(32,201,151,.15); color:var(--teal); }
+
+  /* ---------- grouped resource list (variant 1) ---------- */
+  .grp { margin-bottom:15px; }
+  .grp:last-of-type { margin-bottom:0; }
+  .grp-head { display:flex; align-items:center; gap:8px; margin:0 0 7px; }
+  .grp-head .gt { font-size:11.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; }
+  .grp-head .gt.del { color:var(--red); }
+  .grp-head .gt.keep { color:var(--dark-2); }
+  .grp-head .gc { font-size:11.5px; color:var(--dark-3); }
+  .grp-head::after { content:""; flex:1; height:1px; background:var(--dark-6); }
+
+  .rlist { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:5px; }
+  .r { display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:8px;
+       background:var(--dark-8); border:1px solid var(--dark-6); }
+  .r.del { border-left:3px solid var(--red); }
+  .r.keep { border-left:3px solid var(--dark-5); opacity:.82; }
+  .r .ic { width:19px; height:19px; border-radius:5px; display:grid; place-items:center;
+           font-size:11px; font-weight:800; flex:none; }
+  .ic.ch { background:rgba(77,171,247,.15); color:var(--blue); }
+  .ic.cat { background:rgba(151,117,250,.15); color:var(--violet); }
+  .ic.role { background:rgba(255,169,77,.15); color:var(--orange); }
+  .ic.msg { background:rgba(139,143,156,.15); color:var(--dark-2); }
+  .r .nm { font-size:13.5px; font-weight:650; }
+  .r .nm .dim { color:var(--dark-3); font-weight:500; }
+  .r .kd { font-size:11px; color:var(--dark-3); text-transform:uppercase; letter-spacing:.04em; }
+  .r .why { margin-left:auto; font-size:11.5px; color:var(--dark-3); text-align:right;
+            max-width:250px; line-height:1.4; }
+  .r .fate { margin-left:auto; font-size:11px; font-weight:800; letter-spacing:.04em;
+             text-transform:uppercase; flex:none; }
+  .r .fate.d { color:var(--red); }
+  .nest { margin-left:20px; position:relative; }
+  .nest::before { content:""; position:absolute; left:-12px; top:-5px; bottom:50%;
+                  width:10px; border-left:1px solid var(--dark-5); border-bottom:1px solid var(--dark-5);
+                  border-bottom-left-radius:6px; }
+
+  /* confirm */
+  .confirm { margin-top:15px; background:rgba(255,107,107,.07);
+             border:1px solid rgba(255,107,107,.28); border-radius:9px; padding:13px 14px; }
+  .confirm p { margin:0 0 10px; font-size:12.5px; color:var(--red); font-weight:650; line-height:1.5; }
+  .confirm .row { display:flex; gap:8px; }
+
+  /* empty state */
+  .empty { text-align:center; padding:26px 18px; }
+  .empty .eic { font-size:26px; opacity:.4; }
+  .empty h4 { margin:9px 0 5px; font-size:14.5px; font-weight:700; }
+  .empty p { margin:0; font-size:12.5px; color:var(--dark-2); line-height:1.55; }
+
+  /* verdict */
+  .verdict { background:var(--dark-8); border:1px solid var(--dark-6);
+             border-left:3px solid var(--brand); border-radius:8px; padding:14px 17px;
+             margin-top:20px; color:var(--dark-2); line-height:1.65; font-size:13px;
+             max-width:1240px; }
+  .verdict b { color:var(--bright); }
+  .verdict ul { margin:9px 0 0; padding-left:19px; }
+  .verdict li { margin-bottom:5px; }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <h1>Install / uninstall — the affordance, then the dialog</h1>
+  <p>Two problems, addressed separately. Same data and same endpoints throughout; only the
+  presentation changes.</p>
+  <p class="crit">
+    <b>Critique 1 —</b> “Install” and “Installed” side by side is two buttons for one concept, and
+    “Installed” reads as a status, not an action. Nothing says <i>click here to remove what I
+    provisioned</i>.<br />
+    <b>Critique 2 —</b> the shipped dialog dropped too much. It reads like an admin panel a
+    programmer laid out: a flat list of badges, no hierarchy, no weight on the thing that matters.
+  </p>
+</div>
+
+<!-- ===================== PART 1 — TOOLBAR ===================== -->
+<div class="section">
+  <h2>Part 1 — one button that knows what state it’s in</h2>
+  <p class="note">The flow either has resources in the server or it doesn’t. That is one fact, so it
+  gets one control whose label, colour and icon follow the fact. Nothing about a flow with nothing
+  installed should offer to uninstall, and nothing about a fully installed flow should lead with
+  “Install”.</p>
+
+  <div class="tb-wrap">
+    <p class="tb-label"><b>Today</b> — what shipped, and what the critique is about</p>
+    <div class="toolbar">
+      <button class="tb-btn">💾 Save</button>
+      <button class="tb-btn">▦ Resources <span class="tb-dot">4</span></button>
+      <button class="tb-btn spot">⬇ Install</button>
+      <button class="tb-btn spot">🗄 Installed</button>
+      <button class="tb-btn brand">🚀 Deploy</button>
+    </div>
+    <p class="tb-note bad">Two verbs for one concept. “Installed” is an adjective — it describes a
+    state, so it reads as a label that happens to be clickable. Both are always present regardless
+    of what is actually in the server.</p>
+  </div>
+
+  <div class="tb-wrap">
+    <p class="tb-label"><b>Proposed</b> — state A: declared, nothing in the server yet</p>
+    <div class="toolbar">
+      <button class="tb-btn">💾 Save</button>
+      <button class="tb-btn">▦ Resources <span class="tb-dot">4</span></button>
+      <button class="tb-btn spot">⬇ Install <span class="tb-dot">4</span></button>
+      <button class="tb-btn brand">🚀 Deploy</button>
+    </div>
+    <p class="tb-note good">One button, one verb. The count is what you’d get. No uninstall offered,
+    because there is nothing to uninstall.</p>
+  </div>
+
+  <div class="tb-wrap">
+    <p class="tb-label"><b>Proposed</b> — state B: everything it declares is live <span
+      style="color:var(--dark-3)">(the common case, and the one that was broken)</span></p>
+    <div class="toolbar">
+      <button class="tb-btn">💾 Save</button>
+      <button class="tb-btn">▦ Resources <span class="tb-dot">4</span></button>
+      <button class="tb-btn installed spot">✓ Installed <span class="caret">▾</span></button>
+      <button class="tb-btn brand">🚀 Deploy</button>
+    </div>
+    <div class="menu">
+      <div class="menu-item"><span class="mi-ic">👁</span><span>See what’s in your server
+        <span class="mi-sub">4 resources, 1 button message</span></span></div>
+      <div class="menu-item"><span class="mi-ic">↻</span><span>Reinstall missing pieces
+        <span class="mi-sub">Rebuilds anything deleted by hand</span></span></div>
+      <div class="menu-sep"></div>
+      <div class="menu-item danger"><span class="mi-ic">⌫</span><span>Uninstall from server
+        <span class="mi-sub">Deletes the 2 it created</span></span></div>
+    </div>
+    <p class="tb-note good">The button states the fact (<i>installed</i>) and the caret promises
+    actions behind it — the standard split-button read. “Uninstall” is a verb, sits under a
+    destructive colour, and says what it will take. Clicking the button face opens the dialog; the
+    menu is the shortcut.</p>
+  </div>
+
+  <div class="tb-wrap">
+    <p class="tb-label"><b>Proposed</b> — state C: partly installed, or declarations changed since</p>
+    <div class="toolbar">
+      <button class="tb-btn">💾 Save</button>
+      <button class="tb-btn">▦ Resources <span class="tb-dot">5</span></button>
+      <button class="tb-btn drift spot">⚠ 1 missing <span class="caret">▾</span></button>
+      <button class="tb-btn brand">🚀 Deploy</button>
+    </div>
+    <p class="tb-note good">Drift gets its own face rather than hiding behind “Install”. This is the
+    state an operator most needs told about and currently cannot see at all.</p>
+  </div>
+
+  <div class="verdict">
+    <b>Why a split button rather than two peers.</b> Install and uninstall are not siblings — they
+    are the two directions of one reversible operation, and which one is available depends entirely
+    on current state. A permanent pair forces the operator to work out which applies; a state-aware
+    control answers that for them and puts the rarer, destructive direction one deliberate click
+    deeper. The badge count does the job “Installed” was failing to do: it tells you there is
+    something there before you click.
+    <ul>
+      <li><b>Cost:</b> uninstall is no longer a single click. That is the intent — it deletes real
+      channels.</li>
+      <li><b>Needs:</b> the builder must know install state on load. Today it only asks when the
+      dialog opens, so this adds one <code>/published</code> fetch on mount.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ===================== PART 2 — DIALOG ===================== -->
+<div class="section">
+  <h2>Part 2 — the dialog, with design in it</h2>
+  <p class="note">Same information as the shipped version, arranged so the eye lands on the
+  consequence first. Kind is carried by a coloured glyph instead of a text badge, nesting is shown
+  by indentation rather than stated, and the two fates are separated into groups so “what dies” is
+  a region rather than a word repeated down a column.</p>
+
+  <div class="cols">
+
+    <!-- ---------- shipped ---------- -->
+    <div class="col">
+      <h3>What shipped <span class="tag bad">Rejected</span></h3>
+      <p class="cnote">Flat rows, uppercase badges, fate as a right-aligned word. Every row weighted
+      the same, so nothing guides the eye. No grouping, no hierarchy, no relationship between the
+      category and the channel inside it.</p>
+      <div class="modal">
+        <div class="modal-head">
+          <h3 class="modal-title">What Test Provisioning has in your server <span class="x">✕</span></h3>
+        </div>
+        <div class="modal-body">
+          <ul class="rlist">
+            <li class="r" style="border-left:none">
+              <span class="pill" style="background:rgba(255,107,107,.15); color:var(--red); width:64px; text-align:center">channel</span>
+              <span class="nm" style="font-weight:600">#scene-signup</span>
+              <span class="fate d">deletes</span>
+            </li>
+            <li class="r" style="border-left:none">
+              <span class="pill" style="background:rgba(255,107,107,.15); color:var(--red); width:64px; text-align:center">category</span>
+              <span class="nm" style="font-weight:600">Scene Play</span>
+              <span class="fate d">deletes</span>
+            </li>
+            <li class="r" style="border-left:none">
+              <span class="pill" style="background:var(--dark-6); color:var(--dark-2); width:64px; text-align:center">channel</span>
+              <span class="nm" style="font-weight:600; color:var(--dark-2)">#announcements<br />
+                <span style="font-size:11.5px; font-weight:400">This channel already existed and was adopted, not created.</span></span>
+              <span class="fate" style="color:var(--dark-3)">stays</span>
+            </li>
+          </ul>
+          <p style="font-size:12.5px; color:var(--dark-2); margin:12px 0 0">1 button message still posted.</p>
+          <div style="margin-top:14px; display:flex; gap:8px">
+            <button class="btn btn-sm btn-orange">Take the buttons down</button>
+            <button class="btn btn-sm btn-red">Uninstall</button>
+          </div>
+        </div>
+        <div class="modal-foot"><span class="foot-spacer"></span><button class="btn btn-subtle">Done</button></div>
+      </div>
+    </div>
+
+    <!-- ---------- proposed ---------- -->
+    <div class="col">
+      <h3>Proposed <span class="tag rec">Recommended</span></h3>
+      <p class="cnote">A headline that states the consequence in one line, then two labelled groups.
+      Coloured kind glyphs replace text badges. The channel sits visibly inside its category. The
+      destructive action names its own count.</p>
+      <div class="modal">
+        <div class="modal-head">
+          <h3 class="modal-title">
+            Test Provisioning
+            <span class="pill live">live</span>
+            <span class="x">✕</span>
+          </h3>
+          <p class="modal-sub">4 things in your server. Uninstalling deletes the
+            <b style="color:var(--red)">2 it created</b> and leaves the 2 it adopted alone.</p>
+        </div>
+        <div class="modal-body">
+
+          <div class="grp">
+            <div class="grp-head"><span class="gt del">Created by this flow</span>
+              <span class="gc">uninstall deletes these</span></div>
+            <ul class="rlist">
+              <li class="r del">
+                <span class="ic cat">▤</span>
+                <span class="nm">Scene Play</span>
+                <span class="kd">category</span>
+                <span class="fate d">deletes</span>
+              </li>
+              <li class="r del nest">
+                <span class="ic ch">#</span>
+                <span class="nm">scene-signup</span>
+                <span class="kd">channel</span>
+                <span class="fate d">deletes</span>
+              </li>
+            </ul>
+          </div>
+
+          <div class="grp">
+            <div class="grp-head"><span class="gt keep">Adopted, not created</span>
+              <span class="gc">left untouched</span></div>
+            <ul class="rlist">
+              <li class="r keep">
+                <span class="ic ch">#</span>
+                <span class="nm">announcements</span>
+                <span class="kd">channel</span>
+                <span class="why">already existed when this flow found it</span>
+              </li>
+              <li class="r keep">
+                <span class="ic role">@</span>
+                <span class="nm">Scene Host</span>
+                <span class="kd">role</span>
+                <span class="why">already existed when this flow found it</span>
+              </li>
+            </ul>
+          </div>
+
+          <div class="grp">
+            <div class="grp-head"><span class="gt keep">Posted messages</span></div>
+            <ul class="rlist">
+              <li class="r keep">
+                <span class="ic msg">✉</span>
+                <span class="nm">1 button message <span class="dim">in</span> #scene-signup</span>
+                <span class="why">taking these down leaves the channel</span>
+              </li>
+            </ul>
+          </div>
+
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-sm btn-orange">Take buttons down</button>
+          <span class="foot-spacer"></span>
+          <button class="btn btn-sm btn-subtle">Done</button>
+          <button class="btn btn-sm btn-red">Uninstall 2</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ===================== PART 3 — OTHER STATES ===================== -->
+<div class="section">
+  <h2>Part 3 — the states the shipped dialog handled badly</h2>
+  <p class="note">The confirm step and the empty state, in the proposed layout.</p>
+
+  <div class="cols">
+
+    <div class="col">
+      <h3>Confirming the uninstall</h3>
+      <p class="cnote">The confirm names the two resources rather than counting them, and the
+      surviving group stays on screen underneath so the operator can see what is <i>not</i> at
+      risk while deciding.</p>
+      <div class="modal">
+        <div class="modal-head">
+          <h3 class="modal-title">Test Provisioning <span class="pill live">live</span><span class="x">✕</span></h3>
+        </div>
+        <div class="modal-body">
+          <div class="grp">
+            <div class="grp-head"><span class="gt del">Created by this flow</span></div>
+            <ul class="rlist">
+              <li class="r del"><span class="ic cat">▤</span><span class="nm">Scene Play</span>
+                <span class="kd">category</span><span class="fate d">deletes</span></li>
+              <li class="r del nest"><span class="ic ch">#</span><span class="nm">scene-signup</span>
+                <span class="kd">channel</span><span class="fate d">deletes</span></li>
+            </ul>
+          </div>
+          <div class="confirm">
+            <p>Deleting <b>Scene Play</b> and <b>#scene-signup</b> for good. Discord has no recycle
+              bin, and neither do we.</p>
+            <div class="row">
+              <button class="btn btn-sm btn-subtle">Back off</button>
+              <button class="btn btn-sm btn-red-solid">Yes, delete them</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <h3>Nothing installed yet</h3>
+      <p class="cnote">Shipped version says one dimmed sentence in an otherwise blank box. This
+      states the situation and offers the way out of it.</p>
+      <div class="modal">
+        <div class="modal-head">
+          <h3 class="modal-title">Test Provisioning<span class="x">✕</span></h3>
+        </div>
+        <div class="modal-body">
+          <div class="empty">
+            <div class="eic">📭</div>
+            <h4>Nothing in your server yet</h4>
+            <p>This flow declares 4 resources but hasn’t built any of them.<br />
+              Install them and they’ll show up here.</p>
+            <div style="margin-top:14px"><button class="btn btn-sm btn-ghost">⬇ Install 4 resources</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="verdict">
+    <b>What changed, and why each one.</b>
+    <ul>
+      <li><b>Consequence in the header.</b> One sentence naming what uninstalling costs, so the
+      answer is readable before the list is.</li>
+      <li><b>Two groups, not one list.</b> “What dies” becomes a region you can see the size of at a
+      glance. The fate word stops being a column to read down.</li>
+      <li><b>Coloured kind glyphs</b> (<span style="color:var(--violet)">▤</span> category,
+      <span style="color:var(--blue)">#</span> channel, <span style="color:var(--orange)">@</span>
+      role) replace uppercase text badges — same information, far less ink, and consistent with the
+      resource-declaration mockup.</li>
+      <li><b>Nesting is drawn.</b> The channel sits inside its category, which is also why deleting
+      the category is a bigger deal than the row suggested.</li>
+      <li><b>Actions move to a footer bar</b> and separate by direction: reversible on the left,
+      destructive on the right, “Done” between them. They were inline mid-body before.</li>
+      <li><b>“Uninstall 2”</b> carries its count, so the button itself is the last confirmation
+      before the confirm step.</li>
+    </ul>
+  </div>
+</div>
+
+</body>
+</html>
