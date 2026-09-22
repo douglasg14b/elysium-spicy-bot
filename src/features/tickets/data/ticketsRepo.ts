@@ -1,3 +1,4 @@
+import { sql } from 'kysely';
 import { database } from '../../../features-system/data-persistence/database';
 import type {
     NewTicketEntity,
@@ -117,7 +118,10 @@ export class TicketsRepo {
      * type-in-use refusal — {@link countByType} and {@link listByType} exist for
      * that, capped and grouped.
      */
-    async listByGuild(guildId: string, filter?: { status?: TicketStatus; type?: string }): Promise<TicketEntity[]> {
+    async listByGuild(
+        guildId: string,
+        filter?: { status?: TicketStatus; type?: string; unclaimedOnly?: boolean }
+    ): Promise<TicketEntity[]> {
         let query = database.selectFrom('tickets').selectAll().where('guildId', '=', guildId);
 
         if (filter?.status) {
@@ -128,7 +132,120 @@ export class TicketsRepo {
             query = query.where('type', '=', filter.type);
         }
 
+        // A filter rather than a badge on every row. "Unclaimed" is the queue an
+        // operator works from, and a marker present on most rows carries no
+        // information — so it is something you narrow *to*, not something you scan past.
+        if (filter?.unclaimedOnly) {
+            query = query.where('claimerId', 'is', null);
+        }
+
         return query.orderBy('ticketNumber', 'desc').execute();
+    }
+
+    /**
+     * Operator-facing search across a guild's tickets.
+     *
+     * **Deliberately narrow, and the narrowness is the design.** Two things an operator
+     * actually has in hand when they go looking: a ticket number somebody quoted at
+     * them, and a person's name. So:
+     *
+     *  - a query that parses as a positive integer matches `ticketNumber` **exactly**.
+     *    Not a prefix or a substring — `#42` means ticket 42, and `LIKE '%42%'` would
+     *    bury it under 142, 420 and 1042.
+     *  - otherwise it matches the four identity **snapshot** columns case-insensitively.
+     *    The snapshots are the reason this can be a query at all: matching on people
+     *    without them would mean resolving every snowflake through Discord to filter a
+     *    list, which is the cost the columns exist to remove.
+     *
+     * `lower(column) like lower(:q) || '%'` — **prefix**, not `%…%`. A leading wildcard
+     * cannot use an index on any dialect, and a name search that matches mid-word
+     * mostly returns noise. Parameterized throughout; the caller's text never reaches
+     * the SQL.
+     *
+     * **No index added, and that is a decision rather than an omission.** These are
+     * per-guild operator searches over a table that holds a few thousand rows for a busy
+     * guild, behind an authenticated dashboard, run when a human types — so the scan is
+     * already narrowed to one guild and costs less than the round trip that carried the
+     * request. An index on four lowercased text columns would be four index writes on
+     * every ticket write to speed up a query nobody runs in a loop. Revisit if a guild's
+     * ticket count reaches six figures.
+     *
+     * The narrowing rides the leading column of `tickets_guild_number_unique_idx`
+     * (`(guild_id, ticket_number)`) — which also serves the `ORDER BY` — rather than a
+     * dedicated `guild_id` index, of which there is none. Named precisely because "the
+     * indexed guildId predicate" would send the next reader looking for an index that
+     * does not exist.
+     */
+    async searchByGuild(
+        guildId: string,
+        query: string,
+        filter?: { status?: TicketStatus; type?: string; unclaimedOnly?: boolean }
+    ): Promise<TicketEntity[]> {
+        const trimmed = query.trim();
+
+        let statement = database.selectFrom('tickets').selectAll().where('guildId', '=', guildId);
+
+        if (filter?.status) {
+            statement = statement.where('status', '=', filter.status);
+        }
+
+        if (filter?.type) {
+            statement = statement.where('type', '=', filter.type);
+        }
+
+        // The same narrowing the unfiltered list offers, so searching does not silently
+        // widen a filter the operator left switched on.
+        if (filter?.unclaimedOnly) {
+            statement = statement.where('claimerId', 'is', null);
+        }
+
+        // Exact rather than prefix: `/^\d+$/` means the operator typed a number, and a
+        // number they typed is the number they mean.
+        const asNumber = /^\d+$/.test(trimmed) ? Number(trimmed) : null;
+
+        if (asNumber !== null && Number.isSafeInteger(asNumber)) {
+            statement = statement.where('ticketNumber', '=', asNumber);
+        } else {
+            /*
+             * `%` and `_` escaped before they become a pattern. Parameterization stops
+             * injection but not *interpretation*: a query of `%` is a valid bind value
+             * that matches every row, and `a_b` would match `axb`. An operator typing an
+             * underscore means an underscore.
+             *
+             * `\` is the escape character, declared explicitly below because sqlite has no
+             * default one — without the `ESCAPE` clause the backslashes would be matched
+             * literally, which is the opposite of the fix.
+             */
+            const escaped = trimmed.toLowerCase().replace(/[\\%_]/g, (match) => `\\${match}`);
+            const prefix = `${escaped}%`;
+
+            /*
+             * `sql` templates rather than `eb(..., 'like', ...)` only so the `escape`
+             * clause can be attached; the pattern is still a bound parameter, never
+             * interpolated. Sqlite defines no default escape character and postgres
+             * accepts the same clause, so naming it makes both dialects read the
+             * backslashes above as escapes rather than as literals.
+             *
+             * The escape character is a **bound parameter**, not a literal in the
+             * template. Writing `escape '\'` inline fails: the backslash escapes the
+             * closing quote in the JavaScript string, so sqlite receives a malformed
+             * clause and raises `ESCAPE expression must be a single character` — caught by
+             * the integration test beside this, which is the only place that shows it.
+             */
+            const matches = (column: 'subjectUsername' | 'subjectNickname' | 'openerUsername' | 'claimerUsername') =>
+                sql<boolean>`lower(${sql.ref(column)}) like ${prefix} escape ${'\\'}`;
+
+            statement = statement.where((eb) =>
+                eb.or([
+                    matches('subjectUsername'),
+                    matches('subjectNickname'),
+                    matches('openerUsername'),
+                    matches('claimerUsername'),
+                ])
+            );
+        }
+
+        return statement.orderBy('ticketNumber', 'desc').execute();
     }
 
     /**
@@ -167,6 +284,56 @@ export class TicketsRepo {
             .orderBy('ticketNumber', 'desc')
             .limit(limit)
             .execute();
+    }
+
+    /**
+     * The three numbers the dashboard's counts strip shows.
+     *
+     * One query, not three: the strip renders them together and an operator reads them
+     * as one sentence, so three round trips would let them disagree with each other by
+     * however long the slowest one took.
+     *
+     * `unclaimed` counts **open and unclaimed**, which is the queue — a closed ticket
+     * with no claimer is history, not work. It is the number this whole strip exists
+     * for, because it is the one an operator can act on.
+     *
+     * Counted rather than derived from the list: the list is filtered, and a strip that
+     * changed when you filtered it would be describing the page instead of the guild.
+     */
+    async countsByGuild(guildId: string): Promise<{ open: number; unclaimed: number; closed: number }> {
+        const row = await database
+            .selectFrom('tickets')
+            .select((eb) => [
+                eb.fn
+                    .count<string | number>(
+                        eb.case().when('status', '=', 'open').then(eb.ref('id')).end()
+                    )
+                    .as('open'),
+                eb.fn
+                    .count<string | number>(
+                        eb
+                            .case()
+                            .when(eb.and([eb('status', '=', 'open'), eb('claimerId', 'is', null)]))
+                            .then(eb.ref('id'))
+                            .end()
+                    )
+                    .as('unclaimed'),
+                eb.fn
+                    .count<string | number>(
+                        eb.case().when('status', '=', 'closed').then(eb.ref('id')).end()
+                    )
+                    .as('closed'),
+            ])
+            .where('guildId', '=', guildId)
+            .executeTakeFirst();
+
+        // `count` arrives as a string on postgres and a number on sqlite, coerced here
+        // at the boundary rather than left for the caller to discover on one dialect.
+        return {
+            open: Number(row?.open ?? 0),
+            unclaimed: Number(row?.unclaimed ?? 0),
+            closed: Number(row?.closed ?? 0),
+        };
     }
 
     /**

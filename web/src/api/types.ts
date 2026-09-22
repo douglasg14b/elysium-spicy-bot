@@ -899,3 +899,207 @@ export interface AttachResult {
     resourceCount: number;
     movedFrom: { journeyKey: string; name: string } | null;
 }
+
+/* ---- Tickets ---- */
+
+/**
+ * The ticket lifecycle, mirrored from `TICKET_STATUSES` in
+ * `src/features/tickets/data/ticketsSchema.ts`.
+ *
+ * Still a closed union on both sides, unlike the ticket *type* — which stopped being
+ * one when types became guild data. Status has code behind each value: the row's
+ * category routing and its button enablement both switch on it. Held to the server's
+ * copy by `ticketWireShapeDrift.test.ts`.
+ */
+export const TICKET_STATUSES = ['open', 'closed', 'deleted'] as const;
+export type TicketStatus = (typeof TICKET_STATUSES)[number];
+
+/**
+ * A person on a ticket, as the row recorded them.
+ *
+ * Both names are null on a row written before the snapshot columns existed, and the
+ * dashboard renders the id then — see `participantLabel`. They are **not** backfilled:
+ * doing so would mean fetching every historical member, which is the Discord call the
+ * snapshot columns exist to remove.
+ */
+export interface TicketParticipant {
+    id: string;
+    username: string | null;
+    nickname: string | null;
+}
+
+/** A row in the tickets list. */
+export interface TicketSummary {
+    id: number;
+    ticketNumber: number;
+    type: string;
+    /** Null when the guild no longer declares the type; the raw `type` is shown instead. */
+    typeLabel: string | null;
+    status: TicketStatus;
+    title: string;
+    subject: TicketParticipant;
+    opener: TicketParticipant | null;
+    claimer: TicketParticipant | null;
+    channelId: string | null;
+    openedAt: string;
+    updatedAt: string;
+}
+
+/**
+ * One ticket in full.
+ *
+ * There is no `messages` member, deliberately. A ticket stores no conversation — that
+ * lives in the Discord channel and is not in the database at all — so the detail page
+ * links to the channel instead of pretending to hold its history.
+ */
+export interface TicketDetail extends TicketSummary {
+    reason: string;
+    claimedAt: string | null;
+    closedAt: string | null;
+    deletedAt: string | null;
+}
+
+/** A lifecycle response: the updated ticket, plus whether Discord kept up. */
+export interface TicketActionResult extends TicketDetail {
+    /**
+     * Set when the row committed and the channel did not follow.
+     *
+     * Not an error: the ticket *did* change. On a close it is the sentence saying the
+     * subject may still be able to read the channel, which is why it is surfaced rather
+     * than logged.
+     */
+    syncWarning: string | null;
+}
+
+/** The three numbers the list's counts strip shows, for the whole guild. */
+export interface TicketCounts {
+    open: number;
+    unclaimed: number;
+    closed: number;
+}
+
+/** What one role may do on a ticket channel. */
+export interface TicketRolePermissions {
+    view: boolean;
+    send: boolean;
+    readHistory: boolean;
+    manageMessages: boolean;
+}
+
+/** The permission model for one ticket type: the three people a ticket involves. */
+export interface TicketPermissionModel {
+    subject: TicketRolePermissions;
+    opener: TicketRolePermissions;
+    staff: TicketRolePermissions;
+}
+
+/** One ticket type, as the config editor reads and writes it. */
+export interface TicketTypeView {
+    type: string;
+    label: string;
+    nameTemplate: string;
+    permissions: TicketPermissionModel;
+    autoClaimOnOpen: boolean;
+}
+
+/**
+ * The ticket config, for the config page.
+ *
+ * `moderationRoles` carries resolved names beside `moderationRoleIds` so a role renders
+ * without a second round trip; a role deleted since it was saved keeps its id and loses
+ * its name rather than being quietly dropped from what was saved.
+ */
+export interface TicketingConfigView {
+    configured: boolean;
+    deployed: boolean;
+    supportTicketCategoryName: string;
+    claimedTicketCategoryName: string;
+    closedTicketCategoryName: string;
+    moderationRoleIds: string[];
+    moderationRoles: { id: string; name: string }[];
+    types: TicketTypeView[];
+}
+
+/*
+ * The member lists `ticketWireShapeDrift.test.ts` compares against the server's.
+ *
+ * Same mechanism as NODE_DESCRIPTOR_KEYS: `satisfies` rejects a name that is not a
+ * member, and the checks below reject a member missing from the list, so `tsc -b` holds
+ * each list to its interface in both directions. The test then only has to compare two
+ * arrays, which means no part of the gate depends on how either file is formatted.
+ */
+export const TICKET_PARTICIPANT_KEYS = [
+    'id',
+    'username',
+    'nickname',
+] as const satisfies readonly (keyof TicketParticipant)[];
+
+export const TICKET_SUMMARY_KEYS = [
+    'id',
+    'ticketNumber',
+    'type',
+    'typeLabel',
+    'status',
+    'title',
+    'subject',
+    'opener',
+    'claimer',
+    'channelId',
+    'openedAt',
+    'updatedAt',
+] as const satisfies readonly (keyof TicketSummary)[];
+
+export const TICKET_DETAIL_KEYS = [
+    ...TICKET_SUMMARY_KEYS,
+    'reason',
+    'claimedAt',
+    'closedAt',
+    'deletedAt',
+] as const satisfies readonly (keyof TicketDetail)[];
+
+export const TICKET_ACTION_RESULT_KEYS = [
+    ...TICKET_DETAIL_KEYS,
+    'syncWarning',
+] as const satisfies readonly (keyof TicketActionResult)[];
+
+export const TICKET_COUNTS_KEYS = [
+    'open',
+    'unclaimed',
+    'closed',
+] as const satisfies readonly (keyof TicketCounts)[];
+
+export const TICKET_TYPE_VIEW_KEYS = [
+    'type',
+    'label',
+    'nameTemplate',
+    'permissions',
+    'autoClaimOnOpen',
+] as const satisfies readonly (keyof TicketTypeView)[];
+
+export const TICKETING_CONFIG_VIEW_KEYS = [
+    'configured',
+    'deployed',
+    'supportTicketCategoryName',
+    'claimedTicketCategoryName',
+    'closedTicketCategoryName',
+    'moderationRoleIds',
+    'moderationRoles',
+    'types',
+] as const satisfies readonly (keyof TicketingConfigView)[];
+
+/** Fails to compile if a ticket wire shape gains a member absent from its list above. */
+type TicketKeyListsAreComplete =
+    | Exclude<keyof TicketParticipant, (typeof TICKET_PARTICIPANT_KEYS)[number]>
+    | Exclude<keyof TicketSummary, (typeof TICKET_SUMMARY_KEYS)[number]>
+    | Exclude<keyof TicketDetail, (typeof TICKET_DETAIL_KEYS)[number]>
+    | Exclude<keyof TicketActionResult, (typeof TICKET_ACTION_RESULT_KEYS)[number]>
+    | Exclude<keyof TicketCounts, (typeof TICKET_COUNTS_KEYS)[number]>
+    | Exclude<keyof TicketTypeView, (typeof TICKET_TYPE_VIEW_KEYS)[number]>
+    | Exclude<keyof TicketingConfigView, (typeof TICKETING_CONFIG_VIEW_KEYS)[number]>;
+
+/** Do not delete as unused: removing it erases the guard above. */
+const ticketKeyListsAreComplete: [TicketKeyListsAreComplete] extends [never]
+    ? true
+    : ['A ticket wire-shape key list is missing', TicketKeyListsAreComplete] = true;
+
+void ticketKeyListsAreComplete;

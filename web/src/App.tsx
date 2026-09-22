@@ -2,7 +2,6 @@ import { Center, Loader } from '@mantine/core';
 import {
     IconCake,
     IconChartBar,
-    IconTicket,
     IconTrendingUp,
 } from '@tabler/icons-react';
 import { Navigate, Route, Routes } from 'react-router-dom';
@@ -17,6 +16,9 @@ import { FlowsListPage } from './pages/FlowsListPage';
 import { FlowBuilderPage } from './pages/FlowBuilderPage';
 import { JourneysListPage } from './pages/JourneysListPage';
 import { ServerSettingsPage } from './pages/ServerSettingsPage';
+import { TicketsListPage } from './pages/TicketsListPage';
+import { TicketDetailPage } from './pages/TicketDetailPage';
+import { TicketsConfigPage } from './pages/TicketsConfigPage';
 
 /**
  * Root. Gates on auth: unauthenticated users get the login page; authenticated ones
@@ -77,16 +79,20 @@ function Gate() {
                             />
                         }
                     />
-                    <Route
-                        path="/tickets"
-                        element={
-                            <ComingSoonPage
-                                title="Tickets"
-                                blurb="Private support threads, on demand — so DMs to the mods stay a last resort."
-                                icon={<IconTicket size={22} color="var(--mantine-color-brand-6)" />}
-                            />
-                        }
-                    />
+                    <Route path="/tickets" element={<TicketsListPage />} />
+                    {/*
+                     * `/tickets/config` is declared **before** `/tickets/:ticketId` because
+                     * the two genuinely overlap — without an order to point at, `config`
+                     * reads as a ticket id. React Router v6 ranks static segments above
+                     * dynamic ones so either order in fact resolves correctly; it is
+                     * written this way because that is what a reader checks, and relying on
+                     * the ranking silently would make a later router change a routing bug.
+                     *
+                     * Note this is a different situation from the `/flows` comment below,
+                     * which is about matching nav order between paths that do not overlap.
+                     */}
+                    <Route path="/tickets/config" element={<TicketsConfigPage />} />
+                    <Route path="/tickets/:ticketId" element={<TicketDetailPage />} />
                     <Route
                         path="/birthdays"
                         element={

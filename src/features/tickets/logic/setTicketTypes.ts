@@ -12,12 +12,65 @@ import { ticketTypeInUseRefusal, ticketTypeIsHeld, ticketTypeUsage, type TicketT
  * refusal are two things to drift.
  */
 
-export type SetTicketTypeResult = { ok: true; config: TicketingConfig } | { ok: false; message: string };
+/**
+ * Why a write was refused, as a value rather than a sentence.
+ *
+ * The route maps these onto status codes, and it needs a discriminator to do it: the
+ * first version matched `message.includes('does not declare')` to choose 404 over 409,
+ * and this feature already has **two** phrasings for that one concept — "does not
+ * declare" here and "no longer declares" in `resolveTicketAction` — so unifying the copy
+ * would have silently flipped a status code with the route tests still green, because
+ * they mock the message string.
+ *
+ * `write-failed` is deliberately distinct from the state refusals: it is the database
+ * being unavailable, not the operator being wrong, and answering 409 to it would tell a
+ * caller to change something that is already correct.
+ */
+export type SetTicketTypeRefusal = 'no-config' | 'undeclared-type' | 'type-in-use' | 'invalid-input' | 'write-failed';
+
+export type SetTicketTypeResult =
+    | { ok: true; config: TicketingConfig }
+    | { ok: false; reason: SetTicketTypeRefusal; message: string };
 
 export interface SetTicketTypesDeps {
-    readonly repo?: Pick<TicketingRepo, 'get' | 'update'>;
+    readonly repo?: Pick<TicketingRepo, 'mutateConfig'>;
     readonly usage?: TicketTypeUsageDeps;
 }
+
+/**
+ * Why both functions go through `mutateConfig` rather than `get` then `update`.
+ *
+ * `config` is one JSON blob holding every ticket setting, so editing a single type is
+ * a whole-blob rewrite. Read-modify-write across two statements means two operators
+ * saving at once — two browser tabs, or the dashboard and the Discord modal — each
+ * write the blob they read, and the second silently discards the first. The window is
+ * an HTTP round trip plus however long somebody spent filling in a form.
+ *
+ * The delete has a second race, and this closes it **partially** — stated plainly
+ * because overstating it is worse than the gap. The in-use count now runs inside the
+ * mutation callback, so it cannot be raced by another *config* writer: no concurrent
+ * editor can remove or re-add a type between the count and the write. What it does not
+ * close is a ticket being *opened* against the type in that window: `ticketTypeUsage`
+ * queries through the module-level `database` singleton rather than this transaction's
+ * connection, so it does not see the transaction's snapshot and an insert committed
+ * mid-flight is not serialized against it.
+ *
+ * Closing that fully would mean plumbing a transaction handle through
+ * `ticketTypeUsage` and `ticketsRepo`, which are shared by the Discord refusal path
+ * too — a larger change than this route needs, and it would put a Kysely transaction
+ * type in the signature of a function whose whole point is being callable from
+ * anywhere. The residual window is one statement wide and its outcome is a ticket
+ * whose type is gone, which `getTicketTypeDefinition` already refuses by name rather
+ * than guessing at. Recorded in `readme.md` as the remaining half.
+ *
+ * Both gaps were recorded as outstanding in `readme.md` while these functions had no
+ * production caller. The dashboard config route is that caller, so the clobber is
+ * closed here rather than shipped onto a known race.
+ */
+
+/** The refusal a caller sees when the guild has no config row to edit. */
+const NO_CONFIG_MESSAGE =
+    'This server has no ticket config yet. Deploy the ticket system first, then come back.';
 
 /** The only tokens `buildTicketChannelName` implements. Anything else is rejected by name. */
 const SUPPORTED_TOKENS = ['####', 'subject', 'opener'] as const;
@@ -120,7 +173,11 @@ export async function upsertTicketType(
 
     const type = input.type.trim();
     if (!type) {
-        return { ok: false, message: 'A ticket type needs a key. Blank is not a category of anything.' };
+        return {
+            ok: false,
+            reason: 'invalid-input',
+            message: 'A ticket type needs a key. Blank is not a category of anything.',
+        };
     }
 
     // The key reaches a channel name and a flow `select` value, so it is restricted
@@ -128,12 +185,17 @@ export async function upsertTicketType(
     if (!/^[a-z0-9_-]+$/.test(type)) {
         return {
             ok: false,
+            reason: 'invalid-input',
             message: `\`${type}\` will not do as a key — lowercase letters, digits, \`-\` and \`_\` only. The label is where you get to be expressive.`,
         };
     }
 
     if (!input.label.trim()) {
-        return { ok: false, message: 'Give the type a label — operators have to pick it out of a list.' };
+        return {
+            ok: false,
+            reason: 'invalid-input',
+            message: 'Give the type a label — operators have to pick it out of a list.',
+        };
     }
 
     // Normalized *once*, and the normalized value is what gets stored under the
@@ -145,28 +207,37 @@ export async function upsertTicketType(
 
     const problem = templateProblem(definition);
     if (problem) {
-        return { ok: false, message: problem };
+        return { ok: false, reason: 'invalid-input', message: problem };
     }
-
-    const existing = await repo.get(guildId);
-    if (!existing?.config) {
-        return {
-            ok: false,
-            message: 'This server has no ticket config yet. Deploy the ticket system first, then come back.',
-        };
-    }
-
-    const config: TicketingConfig = {
-        ...existing.config,
-        ticketTypes: { ...existing.config.ticketTypes, [definition.type]: definition },
-    };
 
     try {
-        await repo.update({ guildId, config: JSON.stringify(config) });
+        // Read, merge and write in one transaction, so a save that lands between
+        // another editor's read and their write is not silently discarded. The merge
+        // spreads both the config and the type record, so it touches exactly the one
+        // type it names.
+        const config = await repo.mutateConfig(guildId, (current) =>
+            current.config
+                ? {
+                      ...current.config,
+                      ticketTypes: { ...current.config.ticketTypes, [definition.type]: definition },
+                  }
+                : null
+        );
+
+        // Null means there was no row, or no `config` on it — the only two ways the
+        // mutation above declines. Nothing else in it can refuse.
+        if (!config) {
+            return { ok: false, reason: 'no-config', message: NO_CONFIG_MESSAGE };
+        }
+
         return { ok: true, config };
     } catch (error) {
         console.error('[tickets] Error saving ticket type:', error);
-        return { ok: false, message: 'Could not save that ticket type. Try again in a second.' };
+        return {
+            ok: false,
+            reason: 'write-failed',
+            message: 'Could not save that ticket type. Try again in a second.',
+        };
     }
 }
 
@@ -188,34 +259,62 @@ export async function deleteTicketType(
 ): Promise<SetTicketTypeResult> {
     const repo = deps?.repo ?? ticketingRepo;
 
-    const existing = await repo.get(guildId);
-    if (!existing?.config) {
-        return {
-            ok: false,
-            message: 'This server has no ticket config yet, so there is nothing to delete.',
-        };
-    }
-
-    const definition = existing.config.ticketTypes?.[type];
-    if (!definition) {
-        return { ok: false, message: `This server does not declare a ticket type called \`${type}\`.` };
-    }
-
-    const usage = await ticketTypeUsage(guildId, type, deps?.usage);
-    if (ticketTypeIsHeld(usage)) {
-        return { ok: false, message: ticketTypeInUseRefusal({ label: definition.label, type, usage }) };
-    }
-
-    const remaining = { ...existing.config.ticketTypes };
-    delete remaining[type];
-
-    const config: TicketingConfig = { ...existing.config, ticketTypes: remaining };
+    /*
+     * Carried out of the transaction rather than returned from it, because
+     * `mutateConfig` distinguishes only "wrote" from "declined" — and this function has
+     * three distinct refusals an operator has to act on differently: no config at all,
+     * a type this guild never declared, and a type tickets are still holding. A single
+     * null would collapse them into one message that is wrong for two of the three.
+     */
+    let refusal = 'This server has no ticket config yet, so there is nothing to delete.';
+    /*
+     * Carried beside the sentence, because the route turns it into a status code and must
+     * not do that by matching words. "Does not declare" and "no longer declares" are both
+     * already in this feature for the same concept, so a string match would flip 404 to
+     * 409 the moment somebody unified the copy — with the route tests still green, since
+     * they mock the message.
+     */
+    let refusalReason: SetTicketTypeRefusal = 'no-config';
 
     try {
-        await repo.update({ guildId, config: JSON.stringify(config) });
+        const config = await repo.mutateConfig(guildId, async (current) => {
+            if (!current.config) return null;
+
+            const definition = current.config.ticketTypes?.[type];
+            if (!definition) {
+                refusal = `This server does not declare a ticket type called \`${type}\`.`;
+                refusalReason = 'undeclared-type';
+                return null;
+            }
+
+            // Counted inside the mutation, so no other *config* writer can re-add or
+            // remove a type between the count and the removal. This does not serialize
+            // against a ticket being inserted concurrently — see the note above the
+            // function; that query runs on the singleton, not this transaction.
+            const usage = await ticketTypeUsage(guildId, type, deps?.usage);
+            if (ticketTypeIsHeld(usage)) {
+                refusal = ticketTypeInUseRefusal({ label: definition.label, type, usage });
+                refusalReason = 'type-in-use';
+                return null;
+            }
+
+            const remaining = { ...current.config.ticketTypes };
+            delete remaining[type];
+
+            return { ...current.config, ticketTypes: remaining };
+        });
+
+        if (!config) {
+            return { ok: false, reason: refusalReason, message: refusal };
+        }
+
         return { ok: true, config };
     } catch (error) {
         console.error('[tickets] Error deleting ticket type:', error);
-        return { ok: false, message: 'Could not delete that ticket type. Try again in a second.' };
+        return {
+            ok: false,
+            reason: 'write-failed',
+            message: 'Could not delete that ticket type. Try again in a second.',
+        };
     }
 }

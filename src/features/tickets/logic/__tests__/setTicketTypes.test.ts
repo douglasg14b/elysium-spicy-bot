@@ -43,6 +43,11 @@ function definition(overrides: Partial<TicketTypeDefinition> = {}): TicketTypeDe
 
 interface Harness {
     deps: SetTicketTypesDeps;
+    /**
+     * Stands in for the write. Named `update` because that is what these tests assert
+     * about — whether anything was persisted — and every `not.toHaveBeenCalled()` here
+     * means the same thing it did before the write moved into a transaction.
+     */
     update: ReturnType<typeof vi.fn>;
     /** The config as it was actually written, parsed back from the JSON string. */
     written: () => TicketingConfig;
@@ -53,12 +58,46 @@ function harness(
     usage?: SetTicketTypesDeps['usage']
 ): Harness {
     const update = vi.fn().mockResolvedValue(undefined);
-    const get = vi.fn().mockResolvedValue(
-        stored ? ({ id: 1, guildId: 'guild-1', config: stored, ticketNumberInc: 3, entityVersion: 1 } as TicketingConfigEntity) : null
+
+    /*
+     * A faithful stand-in for the real `mutateConfig`: it hands the mutator the stored
+     * row, and persists only what the mutator returns. The two properties the
+     * production method exists for — that the read and the write are one transaction,
+     * and that a null return writes nothing — are the two this fake reproduces, so a
+     * refusal asserted here is a refusal that reaches the database the same way.
+     *
+     * What it deliberately does not reproduce is concurrency. A single-threaded fake
+     * cannot interleave two writers, so the guard these tests cover is "the mutator
+     * decides and its refusal writes nothing", not "a concurrent save cannot clobber
+     * this one" — that one rests on the transaction itself.
+     */
+    const mutateConfig = vi.fn(
+        async (
+            _guildId: string,
+            mutate: (current: TicketingConfigEntity) => Promise<TicketingConfig | null> | TicketingConfig | null
+        ) => {
+            if (!stored) return null;
+
+            const entity = {
+                id: 1,
+                guildId: 'guild-1',
+                config: stored,
+                ticketNumberInc: 3,
+                entityVersion: 1,
+            } as TicketingConfigEntity;
+
+            const next = await mutate(entity);
+            if (!next) return null;
+
+            // Serialized here exactly as the repo does, because the string is what the
+            // column receives and `written()` parses it back.
+            update({ guildId: 'guild-1', config: JSON.stringify(next) });
+            return next;
+        }
     );
 
     return {
-        deps: { repo: { get, update }, usage },
+        deps: { repo: { mutateConfig }, usage },
         update,
         // Asserted against the serialized payload rather than an in-memory object,
         // because the string is what the column receives.

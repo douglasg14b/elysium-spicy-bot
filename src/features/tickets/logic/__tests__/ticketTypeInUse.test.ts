@@ -57,21 +57,34 @@ function harness(usage: TicketTypeUsageDeps): Harness {
     const update = vi.fn().mockResolvedValue(undefined);
     const stored = config();
 
+    /*
+     * Mirrors the real `mutateConfig`: the mutator sees the stored row and only what it
+     * returns is persisted. `update` therefore still means exactly what it meant before
+     * the write moved into a transaction — "something was written" — so every
+     * `not.toHaveBeenCalled()` below still asserts that the refusal wrote nothing.
+     */
+    const mutateConfig = vi.fn(
+        async (
+            _guildId: string,
+            mutate: (current: TicketingConfigEntity) => Promise<TicketingConfig | null> | TicketingConfig | null
+        ) => {
+            const next = await mutate({
+                id: 1,
+                guildId: 'guild-1',
+                config: stored,
+                ticketNumberInc: 9,
+                entityVersion: 1,
+            } as TicketingConfigEntity);
+
+            if (!next) return null;
+
+            update({ guildId: 'guild-1', config: JSON.stringify(next) });
+            return next;
+        }
+    );
+
     return {
-        deps: {
-            repo: {
-                get: async () =>
-                    ({
-                        id: 1,
-                        guildId: 'guild-1',
-                        config: stored,
-                        ticketNumberInc: 9,
-                        entityVersion: 1,
-                    }) as TicketingConfigEntity,
-                update,
-            },
-            usage,
-        },
+        deps: { repo: { mutateConfig }, usage },
         update,
     };
 }

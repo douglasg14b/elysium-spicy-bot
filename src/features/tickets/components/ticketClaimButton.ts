@@ -7,10 +7,8 @@ import {
 import { TICKET_BUTTON_CONFIGS } from '../logic/ticketButtonConfigs';
 import { resolveTicketAction } from '../logic/resolveTicketAction';
 import { replyTicketFailure, ticketErrorMessage } from '../logic/ticketErrorMessage';
-import { syncTicketChannelToState } from '../logic/ticketChannelOps';
-import { buildTicketButtons, buildTicketEmbed } from '../logic/ticketPresentation';
+import { applyTicketTransition } from '../logic/applyTicketTransition';
 import { ticketIdentityFromMember } from '../logic/resolveTicketIdentity';
-import { claimTicket } from '../ticketService';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 
 export const TICKET_CLAIM_BUTTON_ID = TICKET_BUTTON_CONFIGS.CLAIM.customId;
@@ -30,40 +28,40 @@ export function TicketClaimButtonComponent() {
     /**
      * Claims the ticket this channel belongs to.
      *
-     * The eligibility rules — already claimed, claimed by you, not open — belong
-     * to `claimTicket` and are not repeated here. This handler's job is the
-     * Discord half: acknowledge, apply the channel arrangement the new state
-     * calls for, and re-render the message so its buttons match the record.
+     * Gate, then orchestrate, then surface. The eligibility rules — already claimed,
+     * claimed by you, not open — belong to `claimTicket`, and the commit-sync-render-
+     * announce sequence belongs to `applyTicketTransition`, which the dashboard also
+     * calls. What is left here is the Discord half of *this* surface: acknowledge the
+     * press, and tell the member if the channel did not follow the record.
+     *
+     * `interaction.message` is passed because this handler already holds it — the
+     * button is on it. Absent that, the orchestration resolves the message from
+     * `stateMessageId`, which is the path a web caller takes.
      */
     async function handler(interaction: ButtonInteraction): Promise<InteractionHandlerResult> {
         const resolved = await resolveTicketAction(interaction, 'claim tickets');
         if (!resolved.ok) return replyTicketFailure(interaction, ticketErrorMessage(resolved.error));
-        const { guild, member, channel, config, ticket, definition } = resolved.value;
+        const { guild, member, config, ticket, definition } = resolved.value;
 
         await interaction.deferUpdate();
 
-        // The claimer's names travel into the same guarded UPDATE as their id, so
-        // the losing side of a race cannot stamp its name on the winner's claim.
-        // No fetch: the acting member is already in hand.
-        const result = await claimTicket(ticket.id, member.id, ticketIdentityFromMember(member));
-        if (!result.ok) return replyTicketFailure(interaction, `❌ ${ticketErrorMessage(result.error)}`);
-        const updated = result.value;
-
-        const syncResult = await syncTicketChannelToState(channel, guild, updated, config);
-        if (!syncResult.ok) {
-            console.error('Error syncing ticket channel after claim:', syncResult.error);
-            await replyTicketFailure(
-                interaction,
-                '⚠️ The ticket was claimed, but its channel could not be moved or re-permissioned. Check the category and permissions.'
-            );
-        }
-
-        await interaction.message.edit({
-            embeds: [buildTicketEmbed(updated, definition)],
-            components: buildTicketButtons(updated),
+        // The claimer's names travel into the same guarded UPDATE as their id, so the
+        // losing side of a race cannot stamp its name on the winner's claim. No fetch:
+        // the acting member is already in hand.
+        const result = await applyTicketTransition({
+            guild,
+            config,
+            ticket,
+            definition,
+            transition: 'claim',
+            actor: { id: member.id, mention: member.toString(), identity: ticketIdentityFromMember(member) },
+            message: interaction.message,
         });
 
-        await channel.send(`✋ **Ticket Claimed**\nThis ticket has been claimed by ${member}.`);
+        if (!result.ok) return replyTicketFailure(interaction, `❌ ${result.message}`);
+        if (result.outcome.syncWarning) {
+            await replyTicketFailure(interaction, result.outcome.syncWarning);
+        }
 
         return { status: 'success' };
     }

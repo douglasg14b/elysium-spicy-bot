@@ -92,7 +92,17 @@ function harness(): Harness {
     const editReply = vi.fn().mockResolvedValue(undefined);
     const messageEdit = vi.fn().mockResolvedValue(undefined);
 
-    const channel = { id: 'channel-1', send: channelSend, delete: channelDelete };
+    // `type: 0` is `ChannelType.GuildText`. The orchestration resolves the channel from
+    // `ticket.channelId` through the guild rather than trusting `interaction.channel`,
+    // so it checks the type itself — the row is the truth about which channel a ticket
+    // has, and a web caller has no interaction channel to read at all.
+    const channel = {
+        id: 'channel-1',
+        type: 0,
+        send: channelSend,
+        delete: channelDelete,
+        messages: { fetch: vi.fn().mockResolvedValue({ edit: messageEdit }) },
+    };
 
     // `deferred` flips on defer, exactly as discord.js does, so the follow-up
     // path under test is chosen for the same reason it would be in production.
@@ -114,7 +124,7 @@ function harness(): Harness {
 
     mockResolveTicketAction.mockResolvedValue(
         ok({
-            guild: { id: 'guild-1' },
+            guild: { id: 'guild-1', channels: { fetch: vi.fn().mockResolvedValue(channel) } },
             // `nickname` present so the claim path has an identity to carry without
             // reaching Discord — the acting member is already in hand.
             member: { id: 'mod-1', nickname: 'Mod', user: { username: 'moduser' }, toString: () => '<@mod-1>' },
@@ -188,13 +198,17 @@ describe('close button', () => {
         mockCloseTicket.mockResolvedValue(ok(ticket({ status: 'closed' })));
         mockSyncTicketChannelToState.mockResolvedValue(fail(new Error('Missing Permissions')));
 
-        await TicketCloseButtonComponent().handler(interaction);
+        const result = await TicketCloseButtonComponent().handler(interaction);
 
         // A silent failure here means moderators discuss someone in a channel
         // that person can still read.
         expect(followUp).toHaveBeenCalledWith(
             expect.objectContaining({ content: expect.stringContaining('may still be able to read') })
         );
+        // Still a success: the ticket *was* closed. A sync failure degrades Discord, not
+        // the record, and reporting failure here would tell the operator to retry a
+        // transition that already landed.
+        expect(result.status).toBe('success');
     });
 });
 
