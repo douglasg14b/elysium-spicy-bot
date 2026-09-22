@@ -850,12 +850,52 @@ export interface Journey {
     updatedAt: string;
 }
 
-/** List shape — no resource bodies. */
+/**
+ * A flow attached to a journey.
+ *
+ * `name` falls back to the flow id when the flow row has vanished — the server never
+ * omits a dangling link, because it is still something that blocks a delete.
+ */
+export interface AttachedFlow {
+    flowId: string;
+    name: string;
+}
+
+/** List shape — no resource bodies, but the attachments each journey holds. */
 export interface JourneySummary {
     journeyKey: string;
     name: string;
     description: string | null;
     resourceCount: number;
+    attachedFlows: AttachedFlow[];
     createdAt: string;
     updatedAt: string;
+}
+
+/**
+ * The journey one flow installs, from `GET /flows/:flowId/attachment`.
+ *
+ * `null` for a flow attached to nothing, which is the normal state of a flow that
+ * declares no resources. `sharedWith` is every **other** flow on the same journey, which
+ * is what makes "detach" read differently from "detach, and two others still install it".
+ */
+export interface FlowAttachment {
+    journeyKey: string;
+    name: string;
+    resourceCount: number;
+    sharedWith: AttachedFlow[];
+}
+
+/**
+ * What an attach did.
+ *
+ * `movedFrom` is set when the flow was already on a different journey. A flow has at
+ * most one journey — the unique index on `(guildId, flowId)` says so — making attach a
+ * **move**, and the UI has to say that rather than implying the flow now has two.
+ */
+export interface AttachResult {
+    journeyKey: string;
+    name: string;
+    resourceCount: number;
+    movedFrom: { journeyKey: string; name: string } | null;
 }

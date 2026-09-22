@@ -70,14 +70,22 @@ import {
     updateFlow,
 } from '../api/flows';
 // Only the initial read lives here now; the write moved into `useResourceAutosave`.
-import { getFlowResources } from '../api/journeys';
+import {
+    attachFlowToJourney,
+    detachFlowFromJourney,
+    getFlowAttachment,
+    getFlowResources,
+    listJourneys,
+} from '../api/journeys';
 import type {
+    FlowAttachment,
     FlowEdge,
     FlowGraph,
     FlowValidationIssue,
     GuildChannel,
     GuildRole,
     InstallPlan,
+    JourneySummary,
     NodeDescriptor,
     ResourceDeclaration,
 } from '../api/types';
@@ -112,6 +120,7 @@ import { issuesByNode, summarizeIssues } from '../flows/validationIssues';
 import { availableVariablesAt } from '../flows/variables';
 import { NodePalette, NODE_DRAG_MIME } from '../flows/NodePalette';
 import { NodeInspector } from '../flows/NodeInspector';
+import { JourneyAttachmentControl } from '../flows/JourneyAttachmentControl';
 import { ResourcesPanel } from '../flows/ResourcesPanel';
 import { useResourceAutosave } from '../flows/useResourceAutosave';
 import {
@@ -272,6 +281,17 @@ function FlowBuilder() {
     const [resourcesSaving, setResourcesSaving] = useState(false);
     const [resourcesError, setResourcesError] = useState<string | null>(null);
     const [showResources, setShowResources] = useState(false);
+    /**
+     * Which journey this flow installs, and every journey it could install instead.
+     *
+     * Read alongside the declarations rather than only when the panel opens, because the
+     * two are one question: the resources below belong to *this* journey, and a flow
+     * sharing one is editing declarations other flows install. `attachment` is `null`
+     * for a flow attached to nothing, which is the normal state of most flows.
+     */
+    const [attachment, setAttachment] = useState<FlowAttachment | null>(null);
+    const [guildJourneys, setGuildJourneys] = useState<JourneySummary[]>([]);
+    const [attachmentLoading, setAttachmentLoading] = useState(true);
 
     const [inspectorWidth, resizeInspector] = useStoredWidth(
         INSPECTOR_WIDTH_STORAGE_KEY,
@@ -604,12 +624,99 @@ function FlowBuilder() {
     useResourceAutosave({
         guildId: selected?.id,
         flowId,
+        // Part of the autosave's identity: attaching swaps the declarations on screen
+        // without the flow id changing, and without this the replacement would be read
+        // as an edit and written straight into the journey just attached to.
+        journeyKey: attachment?.journeyKey,
         resources: declaredResources,
-        loaded: !loading,
+        loaded: !loading && !attachmentLoading,
         onSaved: setDeclaredResources,
         onSavingChange: setResourcesSaving,
         onError: setResourcesError,
     });
+
+    /**
+     * Re-read which journey this flow installs, and what else it could.
+     *
+     * Both together, because attaching changes both answers: the flow's own journey
+     * obviously, and every other journey's attached-flow list, which is what the picker
+     * and the "shared with" line are built from. Re-fetching rather than patching means
+     * a journey deleted or attached from the journeys page in another tab converges
+     * here instead of leaving a picker offering something gone.
+     */
+    const refreshAttachment = useCallback(async () => {
+        if (!selected || !flowId) return;
+        setAttachmentLoading(true);
+        try {
+            const [current, all] = await Promise.all([
+                getFlowAttachment(selected.id, flowId),
+                listJourneys(selected.id),
+            ]);
+            setAttachment(current);
+            setGuildJourneys(all);
+        } catch {
+            // Left as it was rather than cleared. Blanking the attachment on a failed
+            // read would tell the operator this flow installs nothing, which is a
+            // stronger claim than "we could not ask" and the one that invites them to
+            // attach something on top of what is already there.
+        } finally {
+            setAttachmentLoading(false);
+        }
+    }, [selected, flowId]);
+
+    useEffect(() => {
+        void refreshAttachment();
+    }, [refreshAttachment]);
+
+    /**
+     * Attach this flow to a journey, then reload what it declares.
+     *
+     * The resource list is re-read rather than kept, because it belongs to the journey
+     * and the flow has just changed which journey that is. Keeping the old list would
+     * leave the panel showing the previous journey's declarations — and the autosave
+     * would then write them into the new one, which is the shape that silently
+     * overwrites another flow's declarations.
+     */
+    const handleAttach = useCallback(
+        async (journeyKey: string) => {
+            if (!selected || !flowId) return;
+            try {
+                const result = await attachFlowToJourney(selected.id, flowId, journeyKey);
+                setDeclaredResources(await getFlowResources(selected.id, flowId));
+                await refreshAttachment();
+                notifications.show({
+                    color: 'brand',
+                    title: result.movedFrom ? 'Moved' : 'Attached',
+                    message: result.movedFrom
+                        ? `This flow now installs "${result.name}" instead of "${result.movedFrom.name}".`
+                        : `This flow now installs "${result.name}".`,
+                });
+            } catch (err) {
+                const message =
+                    err instanceof ApiError ? err.message : "Couldn't attach that journey.";
+                notifications.show({ color: 'red', title: "Couldn't attach", message });
+            }
+        },
+        [selected, flowId, refreshAttachment]
+    );
+
+    const handleDetach = useCallback(async () => {
+        if (!selected || !flowId) return;
+        try {
+            await detachFlowFromJourney(selected.id, flowId);
+            setDeclaredResources(await getFlowResources(selected.id, flowId));
+            await refreshAttachment();
+            notifications.show({
+                color: 'brand',
+                title: 'Detached',
+                message:
+                    'This flow no longer installs that journey. Anything already in your server stays put.',
+            });
+        } catch (err) {
+            const message = err instanceof ApiError ? err.message : "Couldn't detach.";
+            notifications.show({ color: 'red', title: "Couldn't detach", message });
+        }
+    }, [selected, flowId, refreshAttachment]);
 
     /**
      * Fetch what installing would do, server-side.
@@ -1431,14 +1538,28 @@ function FlowBuilder() {
                 size="1100px"
                 styles={{ content: { height: 'min(88vh, 900px)' }, body: { paddingBottom: 24 } }}
             >
-                <ResourcesPanel
-                    resources={declaredResources}
-                    onChange={saveResources}
-                    roles={roles}
-                    channels={channels}
-                    saving={resourcesSaving}
-                    error={resourcesError ?? undefined}
-                />
+                {/*
+                 * Above the list, not beside it: the control answers "whose resources
+                 * are these?", and the whole list below is meaningless without it. A
+                 * flow on a shared journey is editing declarations other flows install.
+                 */}
+                <Stack gap="lg">
+                    <JourneyAttachmentControl
+                        attachment={attachment}
+                        journeys={guildJourneys}
+                        loading={attachmentLoading}
+                        onAttach={handleAttach}
+                        onDetach={handleDetach}
+                    />
+                    <ResourcesPanel
+                        resources={declaredResources}
+                        onChange={saveResources}
+                        roles={roles}
+                        channels={channels}
+                        saving={resourcesSaving}
+                        error={resourcesError ?? undefined}
+                    />
+                </Stack>
             </Modal>
 
             {/*

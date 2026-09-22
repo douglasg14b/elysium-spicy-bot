@@ -27,6 +27,16 @@ interface ResourceAutosaveInput {
     /** Undefined until a guild is selected; nothing is sent before then. */
     guildId: string | undefined;
     flowId: string | undefined;
+    /**
+     * The journey the current list belongs to, or `undefined` while it is unknown or the
+     * flow is attached to nothing.
+     *
+     * Part of the save bookkeeping's identity, not a label. Attaching a flow to another
+     * journey replaces the list on screen without the flow id changing, and the effect
+     * would otherwise read the replacement as an edit and write it into the journey just
+     * attached to. See `AutosaveDecisionInput.identity`.
+     */
+    journeyKey: string | undefined;
     resources: ResourceDeclaration[];
     /**
      * Whether the initial fetch has finished.
@@ -43,12 +53,25 @@ interface ResourceAutosaveInput {
 export function useResourceAutosave({
     guildId,
     flowId,
+    journeyKey,
     resources,
     loaded,
     onSaved,
     onSavingChange,
     onError,
 }: ResourceAutosaveInput): void {
+    /**
+     * What the list on screen describes, as one string.
+     *
+     * Built once and used by all three places that need it — the send, the effect and
+     * the unmount flush — because they must agree. Two of them deriving it separately is
+     * how the flow-navigation bug in `baselineFlowRef` became possible in the first
+     * place.
+     *
+     * A flow attached to nothing contributes an empty segment rather than being omitted,
+     * so `guild/flow/` and `guild/flow/onboarding` are distinguishable.
+     */
+    const identity = `${guildId}/${flowId}/${journeyKey ?? ''}`;
     /**
      * The list as the server last confirmed it, or `undefined` for "send the next edit
      * whatever it looks like".
@@ -97,8 +120,9 @@ export function useResourceAutosave({
             issuedRef.current += 1;
             const issued = issuedRef.current;
 
-            /**
-             * Which flow this request belongs to.
+            /*
+             * Which flow *and journey* this request belongs to — `identity`, captured
+             * when `send` was created.
              *
              * **The request number alone is not enough, because it is not reset by
              * navigation.** `/flows/:flowId` is one route with no `key`, so moving
@@ -108,8 +132,10 @@ export function useResourceAutosave({
              * `onSaved` is an unscoped `setDeclaredResources`, so **flow A's declarations
              * would be written into flow B's panel**, and into B's storage on the next
              * edit. Checked in every callback below, not just the effect.
+             *
+             * The journey segment extends the same protection across an attach, which
+             * swaps the list without the flow id moving.
              */
-            const identity = `${guildId}/${flowId}`;
             const stillOnThisFlow = () => baselineFlowRef.current === identity;
 
             const { onSaved: saved, onSavingChange: savingChange, onError: error } =
@@ -161,14 +187,13 @@ export function useResourceAutosave({
                     if (stillOnThisFlow() && issued === issuedRef.current) savingChange(false);
                 });
         },
-        [guildId, flowId]
+        [guildId, flowId, identity]
     );
 
     useEffect(() => {
         if (!loaded || !guildId || !flowId) return;
 
         const serialised = JSON.stringify(resources);
-        const identity = `${guildId}/${flowId}`;
 
         const action = decideAutosaveAction({
             identity,
@@ -180,7 +205,9 @@ export function useResourceAutosave({
         if (action === 'wait') return;
 
         if (action === 'adoptBaseline') {
-            // This flow's stored list arriving, not an edit of it.
+            // This flow-and-journey's stored list arriving, not an edit of it. Also the
+            // path an attach takes: the list belongs to a journey this bookkeeping has
+            // not seen, so it is recorded rather than sent back.
             baselineFlowRef.current = identity;
             savedRef.current = serialised;
             return;
@@ -193,7 +220,7 @@ export function useResourceAutosave({
 
         const handle = window.setTimeout(() => send(resources), RESOURCE_SAVE_DEBOUNCE_MS);
         return () => window.clearTimeout(handle);
-    }, [resources, loaded, guildId, flowId, send]);
+    }, [resources, loaded, guildId, flowId, identity, send]);
 
     /**
      * Flush on unmount, so closing the builder mid-pause does not drop the last edit.
@@ -204,16 +231,18 @@ export function useResourceAutosave({
      * the debounce undone by its own safety net.
      */
     useEffect(() => {
-        // Captured at subscribe time, so the cleanup flushes to the flow it was watching.
-        // `send` closes over the same pair and is re-created when either changes, which is
-        // what makes this cleanup run *at* the switch rather than after it.
-        const identity = `${guildId}/${flowId}`;
+        // `identity` is captured at subscribe time, so the cleanup flushes to the flow
+        // and journey it was watching. `send` closes over the same value and is
+        // re-created when it changes, which is what makes this cleanup run *at* the
+        // switch rather than after it.
+        const watching = identity;
 
         return () => {
             const pending = latestRef.current;
             if (savedRef.current === undefined) return;
-            // A baseline belonging to another flow means nothing here was edited.
-            if (baselineFlowRef.current !== identity) return;
+            // A baseline belonging to another flow — or to the journey this one was
+            // attached to before — means nothing here was edited.
+            if (baselineFlowRef.current !== watching) return;
             if (JSON.stringify(pending) === savedRef.current) return;
 
             /**
@@ -246,5 +275,5 @@ export function useResourceAutosave({
 
             send(pending);
         };
-    }, [send, guildId, flowId]);
+    }, [send, guildId, flowId, identity]);
 }

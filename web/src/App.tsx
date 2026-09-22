@@ -15,6 +15,7 @@ import { WarningsPage } from './pages/WarningsPage';
 import { ComingSoonPage } from './pages/ComingSoonPage';
 import { FlowsListPage } from './pages/FlowsListPage';
 import { FlowBuilderPage } from './pages/FlowBuilderPage';
+import { JourneysListPage } from './pages/JourneysListPage';
 import { ServerSettingsPage } from './pages/ServerSettingsPage';
 
 /**
@@ -97,6 +98,12 @@ function Gate() {
                         }
                     />
                     <Route path="/flows" element={<FlowsListPage />} />
+                    {/*
+                     * Above `/flows/:flowId` would be harmless — the paths do not
+                     * overlap — but it is listed after `/flows` to match the nav order
+                     * an operator sees: flows, then the journeys they install.
+                     */}
+                    <Route path="/journeys" element={<JourneysListPage />} />
                     <Route path="/flows/:flowId" element={<FlowBuilderPage />} />
                     <Route path="/settings" element={<ServerSettingsPage />} />
                     <Route path="*" element={<Navigate to="/warnings" replace />} />

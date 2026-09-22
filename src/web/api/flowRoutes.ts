@@ -219,6 +219,42 @@ function publishedBody(state: PublishedFlowState) {
  * demands the old positive owner match, so a typed-key collision is refused exactly as
  * it was before.
  *
+ * ---
+ *
+ * **Re-examined in slice D, when attach stopped being flow-save-only.** Until D the
+ * sole writer of a link row was this flow's own `PUT /flows/:flowId/resources`, so
+ * `attached` meant "this flow declared these resources itself" — unambiguous positive
+ * ownership. `POST /flows/:flowId/attach` now writes link rows from an operator-supplied
+ * journey key, and the question is whether that degrades `attached` into the weaker
+ * "no conflicting owner" test this comment spends two paragraphs rejecting.
+ *
+ * It does not, because **the attach route is the trust boundary** and it is a strictly
+ * narrower gate than the collision this guard was written for. Three properties make a
+ * link row still a deliberate declaration rather than a typed key:
+ *
+ *  1. **The journey must already exist as a row in this guild.** Attach resolves it with
+ *     `journeysRepo.getByKey(guildId, key)` and 404s otherwise, so a key cannot be
+ *     conjured. The hazard the paragraphs above describe is a *journey that was never
+ *     this flow's* being reached through a **URL** — `/flows/<uuid>/install`, where the
+ *     uuid satisfies the resource-key pattern. That path writes nothing and is still
+ *     refused by the unlinked arm below.
+ *  2. **Both sides are guild-scoped and checked**, so attaching can never cross a guild
+ *     in either direction.
+ *  3. **It is an act, not a coincidence.** `attached` is only ever true because someone
+ *     with guild access named this flow and this journey together in one request. That
+ *     is the operator saying "this flow installs that journey" — which is exactly the
+ *     declaration `createdForFlowId` recorded for the implicit case, said out loud for
+ *     the shared one.
+ *
+ * The rejected alternative was to let `attached` suppress the owner check **only** when
+ * the journey is genuinely shared (null `createdForFlowId` *and* more than one attached
+ * flow). It refuses the slice's own bar: an operator creates a journey via
+ * `POST /journeys` (which records no owner), attaches their first flow, and installs —
+ * one attached flow, null owner, and that rule refuses it. It would also make install
+ * succeed or fail depending on how many *other* flows are attached, so detaching a
+ * second flow would silently revoke the first's ability to install. Ownership must not
+ * be a function of someone else's attachment.
+ *
  * Shared by the preview and the apply so the two cannot disagree about which journeys
  * this flow owns. A preview an operator is allowed to see but not apply would be a
  * dead end, and the reverse would be worse.
@@ -238,8 +274,15 @@ async function flowJourney(guildId: string, flowId: string): Promise<FlowJourney
     }
 
     const row = resolved.journey;
-    // The attachment is the positive evidence. Only the temporary unlinked path has to
-    // fall back on the key convention, and there the owner column must still match.
+    // The attachment is the positive evidence, and it stays that way now that
+    // `POST /attach` can write one: that route resolves the journey row in this guild
+    // before linking, so a link means an operator named this flow and an existing
+    // journey together — not that a key was typed at a URL. See the header, which
+    // records why this was re-examined in slice D and why the stricter
+    // "shared-journeys-only" variant was rejected.
+    //
+    // Only the temporary unlinked path has to fall back on the key convention, and
+    // there the owner column must still match.
     if (!resolved.attached && row.createdForFlowId !== flowId) {
         return {
             ok: false,

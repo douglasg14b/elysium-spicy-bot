@@ -269,6 +269,39 @@ Sabotage-verified: removing it fails exactly one named test, *"installs a journe
 owned by another flow when this flow is attached to it"*, and the other four stay
 green, which is what proves they were never covering it.
 
+## What C and D found — a third correction
+
+**The plan's option (b) for the ownership guard was wrong, and the implementer was
+right to reject it.** The briefing offered two ways to keep install's positive
+ownership check honest once an attach route exists, the second being "let
+attachment suppress the owner check only when the journey is genuinely shared —
+null `createdForFlowId` *and* more than one attached flow".
+
+That rule refuses this slice's own bar. An operator creates a journey via
+`POST /journeys` (which records no owner), attaches their first flow, and installs:
+one attached flow, null owner, refused. Worse, it makes install succeed or fail as
+a function of *how many other flows are attached*, so detaching a second flow
+would silently revoke the first's ability to install. **Ownership must not be a
+function of someone else's attachment.**
+
+What shipped is option (a): the attach route is the trust boundary. It resolves the
+journey as an existing row in this guild and 404s otherwise, guild-scopes both
+sides, and writes a link only on a request naming both together — so a link row is
+an operator's deliberate act, which is the positive evidence the guard asks for.
+The URL-shaped hazard the original comment describes writes nothing and is still
+refused by the unlinked arm.
+
+**A bug the plan did not anticipate, found while building D:** attaching a flow to
+a different journey replaces the resource list on screen *without the flow id
+changing*, so the autosave effect read the replacement as an edit and would have
+written the old list into the journey just attached to — corrupting a shared
+journey on first attach. The save identity now includes the journey key.
+
+Sabotage-verified in this slice: the attach route's guild check (one named test,
+*"refuses to attach another guild's flow without confirming it exists"*) and the
+upsert's move-don't-duplicate behaviour against real SQLite (*"moves a flow rather
+than duplicating it when it is attached again"*).
+
 ## What this is not
 
 - **Not drift detection.** Separate 5B slice, additive, nothing broken without it.

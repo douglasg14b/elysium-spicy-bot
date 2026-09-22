@@ -319,6 +319,63 @@ describe('the journey must belong to this flow', () => {
             })
         );
     });
+
+    /**
+     * **The case slice D had to answer, and the reason the guard was re-examined.**
+     *
+     * Once `POST /attach` exists, `attached === true` can mean "an operator picked a
+     * journey" rather than "this flow declared these resources itself". The rejected
+     * alternative was to let attachment suppress the owner check *only* on a genuinely
+     * shared journey — null `createdForFlowId` **and** more than one attached flow.
+     *
+     * This is the case that rule refuses, and it is the slice's own bar: an operator
+     * creates a journey through `POST /journeys` — which records **no owner** — attaches
+     * their first flow, and installs. One attached flow, null `createdForFlowId`. Under
+     * the stricter rule that is a 409 on the most ordinary path the feature has, so the
+     * trust boundary was put on the attach route instead, where it can check that the
+     * journey exists in this guild before a link row is ever written.
+     *
+     * Install must therefore succeed here. If this test starts failing, the guard has
+     * been "hardened" back into a rule that refuses the product.
+     */
+    it('installs a journey with no recorded owner when this flow is the only one attached', async () => {
+        flowJourneyLinksRepoMock.getJourneyKeyForFlow.mockResolvedValue('operator-made');
+        flowJourneyLinksRepoMock.listFlowIdsForJourney.mockResolvedValue([FLOW_ID]);
+        journeysRepoMock.getByKey.mockResolvedValue(
+            journeyRow({ journeyKey: 'operator-made', createdForFlowId: null })
+        );
+
+        const response = await postInstall();
+
+        expect(response.status).toBe(200);
+        expect(installJourneyMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                journey: expect.objectContaining({ journeyKey: 'operator-made' }),
+            })
+        );
+    });
+
+    /**
+     * The other half of the same decision: attachment is what grants the install, and it
+     * is granted per flow rather than per journey.
+     *
+     * A flow **not** attached still meets the old positive owner check, so the typed-key
+     * collision the header describes — a standalone journey keyed to look like a flow id
+     * — is refused exactly as it was before attach existed. This is the arm that would
+     * silently weaken if `attached` were ever defaulted true.
+     */
+    it('still refuses an unattached flow whose key collides with a standalone journey', async () => {
+        flowJourneyLinksRepoMock.getJourneyKeyForFlow.mockResolvedValue(null);
+        // Keyed on this flow's id by an operator typing it, with no owner recorded.
+        journeysRepoMock.getByKey.mockResolvedValue(
+            journeyRow({ journeyKey: FLOW_ID, createdForFlowId: null })
+        );
+
+        const response = await postInstall();
+
+        expect(response.status).toBe(409);
+        expect(installJourneyMock).not.toHaveBeenCalled();
+    });
 });
 
 describe('a flow with nothing to install', () => {

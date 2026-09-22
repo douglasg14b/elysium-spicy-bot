@@ -49,6 +49,27 @@ export class FlowJourneyLinksRepo {
     }
 
     /**
+     * Every link in a guild, for a list that has to show attachments on every row.
+     *
+     * One query rather than one per journey. The journeys page renders a row per journey
+     * and names the flows attached to each, which through `listFlowIdsForJourney` is an
+     * N+1 — and it is the shape that looks fine on the three journeys a developer has
+     * and degrades on the forty an operator accumulates.
+     *
+     * Returned flat rather than grouped: grouping is the caller's presentation choice,
+     * and a repo returning a `Map` would be making it on their behalf.
+     */
+    async listLinksForGuild(guildId: string): Promise<{ flowId: string; journeyKey: string }[]> {
+        return this.db
+            .selectFrom('flow_journey_links')
+            .select(['flowId', 'journeyKey'])
+            .where('guildId', '=', guildId)
+            .orderBy('createdAt', 'asc')
+            .orderBy('id', 'asc')
+            .execute();
+    }
+
+    /**
      * Attach a flow to a journey, replacing whatever it was attached to before.
      *
      * An upsert rather than a check-then-insert, so two concurrent saves cannot both

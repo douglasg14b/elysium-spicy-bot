@@ -143,13 +143,27 @@ function journeyDetail(journey: JourneyEntity) {
     };
 }
 
-/** The list shape: metadata plus a count, no resource bodies. */
-function journeySummary(journey: JourneyEntity) {
+/** A flow attached to a journey, as the list reports it. */
+interface AttachedFlowSummary {
+    flowId: string;
+    name: string;
+}
+
+/**
+ * The list shape: metadata, a count, and **which flows are attached**.
+ *
+ * The attachments are what make a journey legible as a shared thing rather than a row
+ * with a key. They are also what an operator needs before pressing delete, since that is
+ * refused while anything is attached — showing the names on the row means the refusal
+ * confirms something already on screen rather than being the first they hear of it.
+ */
+function journeySummary(journey: JourneyEntity, attachedFlows: readonly AttachedFlowSummary[]) {
     return {
         journeyKey: journey.journeyKey,
         name: journey.name,
         description: journey.description,
         resourceCount: journey.resources.length,
+        attachedFlows,
         createdAt: new Date(journey.createdAt).toISOString(),
         updatedAt: new Date(journey.updatedAt).toISOString(),
     };
@@ -158,9 +172,44 @@ function journeySummary(journey: JourneyEntity) {
 export function journeyRoutes(): Hono<AppEnv> {
     const app = new Hono<AppEnv>();
 
+    /**
+     * Every journey in the guild, with the flows attached to each.
+     *
+     * **Three queries, not N+1.** The journeys, every link in the guild, and every flow
+     * in the guild — then the join happens in memory. Asking
+     * `listFlowIdsForJourney` per row and then a name per id is two nested loops of
+     * queries over lists that both grow with the server, and it is the shape that looks
+     * fine on a developer's three journeys.
+     *
+     * Flow names come from the guild's own flows, so a link pointing outside this guild
+     * contributes no name — the same rule `flowNameInGuild` applies, kept here because
+     * these names go in a response body.
+     */
     app.get('/:guildId/journeys', async (c) => {
-        const journeys = await journeysRepo.listByGuildId(c.get('guild').id);
-        return c.json({ journeys: journeys.map(journeySummary) });
+        const guildId = c.get('guild').id;
+        const [journeys, links, flows] = await Promise.all([
+            journeysRepo.listByGuildId(guildId),
+            flowJourneyLinksRepo.listLinksForGuild(guildId),
+            flowsRepo.getByGuildId(guildId),
+        ]);
+
+        const flowNames = new Map(flows.map((flow) => [flow.flowId, flow.name]));
+        const attachedByKey = new Map<string, AttachedFlowSummary[]>();
+        for (const link of links) {
+            const forKey = attachedByKey.get(link.journeyKey) ?? [];
+            // A flow whose row has vanished keeps its id as the label rather than being
+            // dropped, matching `otherFlowsOnJourney`: a dangling link is still
+            // something that blocks a delete, and hiding it here would make the refusal
+            // name a flow the list never showed.
+            forKey.push({ flowId: link.flowId, name: flowNames.get(link.flowId) ?? link.flowId });
+            attachedByKey.set(link.journeyKey, forKey);
+        }
+
+        return c.json({
+            journeys: journeys.map((journey) =>
+                journeySummary(journey, attachedByKey.get(journey.journeyKey) ?? [])
+            ),
+        });
     });
 
     app.get('/:guildId/journeys/:journeyKey', async (c) => {
@@ -310,6 +359,142 @@ export function journeyRoutes(): Hono<AppEnv> {
         } catch (error) {
             return errorResponse(c, error);
         }
+    });
+
+    /**
+     * Which journey this flow is attached to, if any.
+     *
+     * The builder reads this to decide whether to offer "attach" or "detach", and it
+     * reports the **resolved** attachment rather than only a link row — a flow still on
+     * the pre-link fallback is genuinely attached to its implicit journey, and telling
+     * the operator it is attached to nothing would offer them an attach that silently
+     * moves what they already have.
+     *
+     * `sharedWith` names the other flows on the same journey, because "detach" reads
+     * very differently depending on whether anything else is holding it.
+     */
+    app.get('/:guildId/flows/:flowId/attachment', async (c) => {
+        const guildId = c.get('guild').id;
+        const flowId = c.req.param('flowId');
+
+        const flow = await flowsRepo.getByFlowId(flowId);
+        if (!flow || flow.guildId !== guildId) {
+            return c.json({ error: 'Flow not found.' }, 404);
+        }
+
+        const resolved = await resolveFlowJourney(guildId, flowId);
+        if (!resolved) {
+            return c.json({ attachment: null });
+        }
+
+        const others = await otherFlowsOnJourney(guildId, resolved.journey.journeyKey, flowId, {
+            flowName: (otherFlowId) => flowNameInGuild(guildId, otherFlowId),
+        });
+
+        return c.json({
+            attachment: {
+                journeyKey: resolved.journey.journeyKey,
+                name: resolved.journey.name,
+                resourceCount: resolved.journey.resources.length,
+                sharedWith: others.map((other) => ({ flowId: other.flowId, name: other.label })),
+            },
+        });
+    });
+
+    /**
+     * Attach a flow to an existing journey.
+     *
+     * **This route is the trust boundary for `flowJourney()`'s ownership check.** That
+     * guard treats a link row as positive evidence that a flow may install a journey —
+     * it creates channels and roles, so attributing them to a flow that never declared
+     * them is the failure it exists to prevent. Before this route existed, the only
+     * writer of a link row was the flow's own resource-panel save, which made the
+     * evidence self-evidently the flow's own. Now that an operator supplies the key, two
+     * things keep the row just as strong, and both are checked here rather than assumed
+     * downstream:
+     *
+     *  - **the flow is in this guild**, and
+     *  - **the journey already exists in this guild**, so a key cannot be conjured and
+     *    an attachment cannot name a row the operator has never seen.
+     *
+     * A key naming nothing is a 404 rather than a created-on-demand journey. Creating
+     * one here would reintroduce exactly the hazard the guard describes: a typed key
+     * becoming an installable journey with no declaration behind it.
+     *
+     * **Attaching is a move, not an addition.** The unique index on `(guildId, flowId)`
+     * says a flow has at most one journey, so attaching an already-attached flow detaches
+     * it from the old one in the same statement. The response reports `movedFrom` so the
+     * UI can say which journey was left rather than implying a flow now has two.
+     */
+    app.post('/:guildId/flows/:flowId/attach', async (c) => {
+        const guildId = c.get('guild').id;
+        const flowId = c.req.param('flowId');
+
+        const parsed = z
+            .object({ journeyKey: resourceKeySchema })
+            .safeParse(await c.req.json().catch(() => null));
+        if (!parsed.success) {
+            return c.json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body.' }, 400);
+        }
+
+        // Guild-scoped, and a mismatch is a 404 rather than a 403: never confirm another
+        // guild's flow exists. `flowsRepo.getByFlowId` matches on the id alone, so this
+        // check is the route's job.
+        const flow = await flowsRepo.getByFlowId(flowId);
+        if (!flow || flow.guildId !== guildId) {
+            return c.json({ error: 'Flow not found.' }, 404);
+        }
+
+        const journey = await journeysRepo.getByKey(guildId, parsed.data.journeyKey);
+        if (!journey) {
+            return c.json({ error: 'Journey not found.' }, 404);
+        }
+
+        // Read before the write, so the response can name what the flow is leaving. A
+        // no-op re-attach resolves to the same journey and reports no move.
+        const current = await resolveFlowJourney(guildId, flowId);
+        const movedFrom =
+            current && current.journey.journeyKey !== journey.journeyKey
+                ? { journeyKey: current.journey.journeyKey, name: current.journey.name }
+                : null;
+
+        await flowJourneyLinksRepo.attach({ guildId, flowId, journeyKey: journey.journeyKey });
+
+        return c.json({
+            journeyKey: journey.journeyKey,
+            name: journey.name,
+            resourceCount: journey.resources.length,
+            movedFrom,
+        });
+    });
+
+    /**
+     * Detach a flow from whatever journey it is on.
+     *
+     * **Deliberately leaves `resource_bindings` alone.** Those rows name channels and
+     * roles that exist in the guild; dropping them because a flow walked away would
+     * orphan real Discord objects with nothing left that knows we created them. Tearing
+     * them down is `/unpublish`'s job and an operator has to ask for it — which is the
+     * same "offer, never assume" rule that deleting a flow follows.
+     *
+     * The journey row stays too, for the same reason and one more: other flows may still
+     * be attached to it, and this route has no business deciding that a journey is
+     * finished because one flow left.
+     */
+    app.post('/:guildId/flows/:flowId/detach', async (c) => {
+        const guildId = c.get('guild').id;
+        const flowId = c.req.param('flowId');
+
+        const flow = await flowsRepo.getByFlowId(flowId);
+        if (!flow || flow.guildId !== guildId) {
+            return c.json({ error: 'Flow not found.' }, 404);
+        }
+
+        const detached = await flowJourneyLinksRepo.detachFlow(guildId, flowId);
+
+        // 200 either way. "Already detached" is the state the caller asked for, and a
+        // 404 would make the UI report a failure for reaching the outcome it wanted.
+        return c.json({ detached });
     });
 
     app.post('/:guildId/journeys', async (c) => {

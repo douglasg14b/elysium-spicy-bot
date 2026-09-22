@@ -153,6 +153,58 @@ describe('decideAutosaveAction', () => {
             })
         ).toBe('adoptBaseline');
     });
+
+    /**
+     * The same hazard one axis over, reached by **attaching** rather than navigating.
+     *
+     * A flow's declarations belong to the journey it is attached to, and attaching moves
+     * it to a different journey *without the flow id changing*. The panel then reloads
+     * the new journey's list, which differs from the old journey's confirmed one — so
+     * without the journey in the identity this returns `send`, and the newly loaded list
+     * is written straight back into the journey just attached to.
+     *
+     * On a **shared** journey that write is refused with a 409, which the operator meets
+     * as an error banner immediately after a successful attach. On an unshared one it
+     * succeeds silently, which is worse: a write nobody asked for, against declarations
+     * another flow may have authored.
+     */
+    it('adopts rather than sends when the flow was attached to another journey', () => {
+        expect(
+            decideAutosaveAction({
+                identity: 'guild-1/flow-a/onboarding',
+                baselineIdentity: 'guild-1/flow-a/rules',
+                confirmed: '[1]',
+                current: '[2]',
+            })
+        ).toBe('adoptBaseline');
+    });
+
+    it('still sends an ordinary edit while the journey is unchanged', () => {
+        // The guard above must not swallow real edits: same flow, same journey, changed
+        // list is the everyday case and has to reach the server.
+        expect(
+            decideAutosaveAction({
+                identity: 'guild-1/flow-a/onboarding',
+                baselineIdentity: 'guild-1/flow-a/onboarding',
+                confirmed: '[1]',
+                current: '[2]',
+            })
+        ).toBe('send');
+    });
+
+    it('tells a flow attached to nothing apart from one on a journey', () => {
+        // The unattached case contributes an empty segment rather than being omitted, so
+        // `guild/flow/` and `guild/flow/onboarding` are distinguishable — otherwise a
+        // detach would look like no change at all.
+        expect(
+            decideAutosaveAction({
+                identity: 'guild-1/flow-a/',
+                baselineIdentity: 'guild-1/flow-a/onboarding',
+                confirmed: '[1]',
+                current: '[]',
+            })
+        ).toBe('adoptBaseline');
+    });
 });
 
 describe('isWorthSaving', () => {

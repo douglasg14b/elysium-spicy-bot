@@ -121,8 +121,9 @@ export function describeSaveFailure(issued: number, latest: number): SaveFailure
  * Splitting the question out makes the three cases nameable and testable:
  *
  *  - `adoptBaseline` — this is the flow's stored list arriving, not an edit of it. Record
- *    it and send nothing. Keyed on **which flow** the baseline describes, so that
- *    navigating between flows cannot mistake one's list for an edit of the other's.
+ *    it and send nothing. Keyed on **which flow, and which journey**, so that neither
+ *    navigating between flows nor attaching a flow to a different journey can mistake
+ *    one stored list for an edit of another.
  *  - `send` — it differs from what the server last confirmed, or a previous save was
  *    refused and the next edit must go regardless of whether it looks identical.
  *  - `wait` — nothing to do.
@@ -130,7 +131,17 @@ export function describeSaveFailure(issued: number, latest: number): SaveFailure
 export type AutosaveAction = 'adoptBaseline' | 'send' | 'wait';
 
 export interface AutosaveDecisionInput {
-    /** `guildId/flowId` for the list in hand. */
+    /**
+     * What the list in hand describes: `guildId/flowId/journeyKey`.
+     *
+     * **The journey is part of the identity, not decoration.** A flow's declarations
+     * belong to the journey it is attached to, and attaching moves it to a different one
+     * without the flow id changing. Without the journey here, the newly loaded list
+     * differs from the previous journey's confirmed one, so the effect reads it as an
+     * *edit* and sends it — writing one journey's declarations into another, which on a
+     * shared journey is refused with a 409 the operator meets immediately after a
+     * successful attach, and on an unshared one is a silent write they never asked for.
+     */
     readonly identity: string;
     /** Which flow `confirmed` describes, or `undefined` before anything has loaded. */
     readonly baselineIdentity: string | undefined;

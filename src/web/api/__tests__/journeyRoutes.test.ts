@@ -24,6 +24,9 @@ const repo = {
 
 const flowsRepoMock = {
     getByFlowId: vi.fn(),
+    // The journeys list resolves every attached flow's name in one query rather than one
+    // per journey, so the list route reads this instead of `getByFlowId`.
+    getByGuildId: vi.fn(),
 };
 
 vi.mock('../../../features/flows/data/flowsRepo', () => ({
@@ -54,6 +57,8 @@ vi.mock('../../../features/provisioning/data/journeysRepo', () => ({
 const linksRepo = {
     getJourneyKeyForFlow: vi.fn(),
     listFlowIdsForJourney: vi.fn(),
+    /** Every link in the guild, for the list route's one-query attachment join. */
+    listLinksForGuild: vi.fn(),
     attach: vi.fn(),
     detachFlow: vi.fn(),
 };
@@ -112,6 +117,9 @@ beforeEach(() => {
     // journey is resolved by the implicit key rule. Cases about attachment say so.
     linksRepo.getJourneyKeyForFlow.mockResolvedValue(null);
     linksRepo.listFlowIdsForJourney.mockResolvedValue([]);
+    // Nothing attached is the baseline for the list route too.
+    linksRepo.listLinksForGuild.mockResolvedValue([]);
+    flowsRepoMock.getByGuildId.mockResolvedValue([]);
 });
 
 describe('journey routes', () => {
