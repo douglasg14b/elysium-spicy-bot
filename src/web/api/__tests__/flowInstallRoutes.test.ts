@@ -53,6 +53,21 @@ vi.mock('../../../features/provisioning/data/journeysRepo', async (importOrigina
     return { ...actual, journeysRepo: journeysRepoMock };
 });
 
+/**
+ * The link repo. `resolveFlowJourney` itself runs for real over this and the journeys
+ * mock, because which journey a flow may install is exactly what these cases are
+ * about — stubbing the resolver would test a resolution rule nothing implements.
+ */
+const flowJourneyLinksRepoMock = {
+    getJourneyKeyForFlow: vi.fn(),
+    listFlowIdsForJourney: vi.fn(),
+    attach: vi.fn(),
+    detachFlow: vi.fn(),
+};
+vi.mock('../../../features/provisioning/data/flowJourneyLinksRepo', () => ({
+    flowJourneyLinksRepo: flowJourneyLinksRepoMock,
+}));
+
 /*
  * The service is mocked at the module the route's barrel re-exports, so `runInstall`
  * — which is real here — calls these. That is deliberate: `runInstall` is the shared
@@ -183,6 +198,10 @@ interface InstallBody {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    // Unattached by default: these cases predate the link table and describe a flow
+    // resolving its journey by the implicit key rule.
+    flowJourneyLinksRepoMock.getJourneyKeyForFlow.mockResolvedValue(null);
+    flowJourneyLinksRepoMock.listFlowIdsForJourney.mockResolvedValue([]);
     flowsRepoMock.getByFlowId.mockResolvedValue({
         flowId: FLOW_ID,
         guildId: GUILD_ID,
@@ -270,6 +289,35 @@ describe('the journey must belong to this flow', () => {
 
         expect(response.status).toBe(409);
         expect(previewInstallMock).not.toHaveBeenCalled();
+    });
+
+    /*
+     * The other arm, and the only test in this block that exercises it.
+     *
+     * Every case above runs with no link row, so they all prove the *fallback*. This
+     * one proves the rule that replaces it: an attachment an operator wrote is itself
+     * the positive evidence the guard asks for, so a journey owned by another flow —
+     * or by none — installs when this flow is attached to it. That is the whole point
+     * of sharing a journey, and without this test the `!resolved.attached`
+     * short-circuit could be inverted or dropped and every suite would stay green.
+     *
+     * It also pins the key: the install must run against the *journey's* key, not the
+     * flow id, or a shared journey provisions nothing.
+     */
+    it('installs a journey owned by another flow when this flow is attached to it', async () => {
+        flowJourneyLinksRepoMock.getJourneyKeyForFlow.mockResolvedValue('shared-onboarding');
+        journeysRepoMock.getByKey.mockResolvedValue(
+            journeyRow({ journeyKey: 'shared-onboarding', createdForFlowId: 'some-other-flow' })
+        );
+
+        const response = await postInstall();
+
+        expect(response.status).toBe(200);
+        expect(installJourneyMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                journey: expect.objectContaining({ journeyKey: 'shared-onboarding' }),
+            })
+        );
     });
 });
 

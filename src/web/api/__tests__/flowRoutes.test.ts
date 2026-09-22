@@ -47,9 +47,24 @@ const journeysRepoMock = {
     getByKey: vi.fn(),
 };
 
+/**
+ * Unattached by default, so these cases describe a flow whose journey is resolved by
+ * the implicit key rule — which is what they were written against. Mocked rather than
+ * left real because the real repo would reach the database these tests never set up.
+ */
+const flowJourneyLinksRepoMock = {
+    getJourneyKeyForFlow: vi.fn().mockResolvedValue(null),
+    listFlowIdsForJourney: vi.fn().mockResolvedValue([]),
+    attach: vi.fn(),
+    detachFlow: vi.fn(),
+};
+
 vi.mock('../../../features/flows/data/flowsRepo', () => ({ flowsRepo: flowsRepoMock }));
 vi.mock('../../../features/provisioning/data/journeysRepo', () => ({
     journeysRepo: journeysRepoMock,
+}));
+vi.mock('../../../features/provisioning/data/flowJourneyLinksRepo', () => ({
+    flowJourneyLinksRepo: flowJourneyLinksRepoMock,
 }));
 
 const { flowRoutes } = await import('../flowRoutes');
@@ -105,6 +120,9 @@ interface RejectionBody {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    // Re-stated after the clear, which drops implementations set at declaration.
+    flowJourneyLinksRepoMock.getJourneyKeyForFlow.mockResolvedValue(null);
+    flowJourneyLinksRepoMock.listFlowIdsForJourney.mockResolvedValue([]);
     flowsRepoMock.getByFlowId.mockResolvedValue({
         flowId: FLOW_ID,
         guildId: GUILD_ID,

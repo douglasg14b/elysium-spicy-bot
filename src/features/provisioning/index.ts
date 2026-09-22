@@ -22,6 +22,14 @@ export type { ResourceWriteBack, ResourceWriteBackResult } from './resourceWrite
 export { journeysRepo, JourneysRepo, DuplicateJourneyKeyError } from './data/journeysRepo';
 export type { JourneyEntity } from './data/journeysSchema';
 
+// Which journey a flow installs. An attachment is a row, not a naming convention, so
+// a journey can hold several flows — and every surface that asks the question gets the
+// same answer from one place rather than re-deriving it from a key.
+export { flowJourneyLinksRepo, FlowJourneyLinksRepo } from './data/flowJourneyLinksRepo';
+export type { FlowJourneyLinkEntity } from './data/flowJourneyLinksSchema';
+export { resolveFlowJourney } from './logic/resolveFlowJourney';
+export type { ResolvedFlowJourney } from './logic/resolveFlowJourney';
+
 export type {
     JourneyDeclaration,
     ResourceDeclaration,

@@ -55,6 +55,27 @@ vi.mock('../../../features/provisioning', () => ({
     plannedRefusals: () => [],
 }));
 
+// Note: the shared-journey guard is imported by the route from its own module, not
+// from the barrel mocked above, so it runs for real over the link repo stubbed below.
+// That is deliberate — it is what stands between an unpublish and channels another
+// flow still declares.
+
+/**
+ * The link repo, stubbed to "attached to nothing" — these cases are about what
+ * deleting a flow touches, and an attachment would change which journey is resolved
+ * rather than anything this file asserts. Left unmocked it would reach a database
+ * these tests never create.
+ */
+const flowJourneyLinksRepoMock = {
+    getJourneyKeyForFlow: vi.fn(),
+    listFlowIdsForJourney: vi.fn(),
+    attach: vi.fn(),
+    detachFlow: vi.fn(),
+};
+vi.mock('../../../features/provisioning/data/flowJourneyLinksRepo', () => ({
+    flowJourneyLinksRepo: flowJourneyLinksRepoMock,
+}));
+
 const { flowRoutes } = await import('../flowRoutes');
 
 const GUILD_ID = 'guild-1';
@@ -72,6 +93,8 @@ function app() {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    flowJourneyLinksRepoMock.getJourneyKeyForFlow.mockResolvedValue(null);
+    flowJourneyLinksRepoMock.listFlowIdsForJourney.mockResolvedValue([]);
     flowsRepoMock.getByFlowId.mockResolvedValue({
         flowId: FLOW_ID,
         guildId: GUILD_ID,
@@ -152,6 +175,37 @@ describe('cleanup is reachable on its own', () => {
 
         expect(response.status).toBe(200);
         expect(unpublishMock).toHaveBeenCalled();
+    });
+
+    it('refuses to tear down a journey another flow is still attached to', async () => {
+        // The failure this guards: a journey holding two flows, torn down from one,
+        // destroying channels the other still declares and never asked to lose. The
+        // route's "the objects were ones we created" argument for a weaker ownership
+        // check held only while a journey had exactly one flow.
+        journeysRepoMock.getByKey.mockResolvedValue({
+            journeyKey: FLOW_ID,
+            guildId: GUILD_ID,
+            name: 'Onboarding',
+            createdForFlowId: FLOW_ID,
+            resources: [],
+        });
+        flowJourneyLinksRepoMock.getJourneyKeyForFlow.mockResolvedValue(FLOW_ID);
+        flowJourneyLinksRepoMock.listFlowIdsForJourney.mockResolvedValue([FLOW_ID, 'flow-b']);
+        flowsRepoMock.getByFlowId.mockImplementation(async (flowId: string) =>
+            flowId === FLOW_ID
+                ? { flowId, guildId: GUILD_ID, name: 'A flow' }
+                : { flowId, guildId: GUILD_ID, name: 'Welcome wagon' }
+        );
+
+        const response = await app().request(`/${GUILD_ID}/flows/${FLOW_ID}/unpublish`, {
+            method: 'POST',
+        });
+        const body = (await response.json()) as { error: string };
+
+        expect(response.status).toBe(409);
+        // Nothing was destroyed, and the operator is told which flow blocked it.
+        expect(unpublishMock).not.toHaveBeenCalled();
+        expect(body.error).toContain('Welcome wagon');
     });
 
     it('refuses to tear down a journey that belongs to a different flow', async () => {

@@ -3,6 +3,7 @@ import {
     previewUnpublish,
     plannedDeletions,
     plannedRefusals,
+    resolveFlowJourney,
     type RefusalReason,
 } from '../../provisioning';
 import { flowButtonMessagesRepo, type FlowButtonMessagesRepo } from '../data/flowButtonMessagesRepo';
@@ -85,8 +86,15 @@ interface PublishedFlowStateDeps {
  * the refusals. Listing bindings would let the dialog promise a deletion that unpublish
  * then refuses, which is the preview lying about the operation it is previewing.
  *
- * A flow's journey key is its flow id, which is the convention the resource routes
- * already use.
+ * The journey key is **resolved from the flow's attachment**, the same way
+ * `/unpublish` resolves it, rather than assumed to be the flow id. The two have to
+ * agree: this is the preview an operator confirms, and a preview that planned against
+ * a different key than the teardown would show an empty dialog and then destroy
+ * channels — the preview lying about the operation it is previewing, which is the one
+ * thing the paragraph above says this shape exists to prevent.
+ *
+ * A flow attached to nothing plans against its own id, which is what the unlinked
+ * fallback resolves to anyway, so an unattached flow behaves exactly as before.
  */
 export async function getPublishedFlowState(
     guild: Guild,
@@ -95,9 +103,16 @@ export async function getPublishedFlowState(
 ): Promise<PublishedFlowState> {
     const repo = deps.buttonMessagesRepo ?? flowButtonMessagesRepo;
 
+    const resolved = await resolveFlowJourney(guild.id, flowId);
+
+    // No journey resolved means no resources to tear down, so there is no plan to
+    // build. Falling back to the flow id here would be a *guess*: right for a flow
+    // that declares nothing, wrong for one whose link dangles, and the two are
+    // indistinguishable from here — the resolver is the only thing that can tell them
+    // apart, and it has already answered.
     const [recorded, plan] = await Promise.all([
         repo.listByFlowId(guild.id, flowId),
-        previewUnpublish(guild, flowId),
+        resolved ? previewUnpublish(guild, resolved.journey.journeyKey) : undefined,
     ]);
 
     return {
@@ -106,8 +121,8 @@ export async function getPublishedFlowState(
             messageId: row.messageId,
             nodeIds: row.nodeIds,
         })),
-        deletableResources: plannedDeletions(plan).map(toPublishedResource),
-        refusedResources: plannedRefusals(plan).map(toPublishedResource),
+        deletableResources: plan ? plannedDeletions(plan).map(toPublishedResource) : [],
+        refusedResources: plan ? plannedRefusals(plan).map(toPublishedResource) : [],
         mayHaveUnrecordedButtons: true,
     };
 }

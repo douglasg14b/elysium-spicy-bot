@@ -25,6 +25,7 @@ import { FlowRunTable } from '../../features/flows/data/flowRunsSchema';
 import { FlowButtonMessageTable } from '../../features/flows/data/flowButtonMessagesSchema';
 import { ResourceBindingTable } from '../../features/provisioning/data/resourceBindingsSchema';
 import { JourneyTable } from '../../features/provisioning/data/journeysSchema';
+import { FlowJourneyLinkTable } from '../../features/provisioning/data/flowJourneyLinksSchema';
 import { GuildSettingsTable } from '../guild-settings/data/guildSettingsSchema';
 
 export interface Database {
@@ -45,6 +46,7 @@ export interface Database {
     flow_button_messages: FlowButtonMessageTable;
     resource_bindings: ResourceBindingTable;
     journeys: JourneyTable;
+    flow_journey_links: FlowJourneyLinkTable;
     guild_settings: GuildSettingsTable;
 }
 
@@ -96,6 +98,10 @@ function getDatabaseClient() {
                 flow_button_messages: ['createdAt', 'updatedAt'],
                 resource_bindings: ['createdAt', 'updatedAt'],
                 journeys: ['createdAt', 'updatedAt'],
+                // `flow_journey_links` is absent from the two sqlite-only plugins below
+                // on purpose: it has no boolean columns and no JSON ones, so it needs
+                // neither. Its dates still need parsing on both dialects, hence this.
+                flow_journey_links: ['createdAt', 'updatedAt'],
                 guild_settings: ['createdAt', 'updatedAt'],
         }),
     ];

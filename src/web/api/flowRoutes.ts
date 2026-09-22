@@ -17,7 +17,12 @@ import {
 } from '../../features/flows/logic/publishedFlowState';
 import { undeployFlowButtons } from '../../features/flows/logic/undeployFlowButtons';
 import { guildSettingsRepo } from '../../features-system/guild-settings';
-import { journeysRepo, toDeclarationFromRow } from '../../features/provisioning/data/journeysRepo';
+import { toDeclarationFromRow } from '../../features/provisioning/data/journeysRepo';
+import { resolveFlowJourney } from '../../features/provisioning/logic/resolveFlowJourney';
+import {
+    otherFlowsOnJourney,
+    sharedJourneyRefusal,
+} from '../../features/provisioning/logic/sharedJourneyGuard';
 import {
     isPlanApplicable,
     journeyNeedsStaffRoles,
@@ -30,6 +35,7 @@ import {
     type JourneyDeclaration,
 } from '../../features/provisioning';
 import type { AppEnv } from '../types';
+import { flowNameInGuild } from './flowNameInGuild';
 
 /**
  * Flow CRUD + deploy for the Phase 4 builder. Mounted under the `/api/guilds` route
@@ -80,13 +86,19 @@ type GraphSaveValidation =
 /**
  * The resource keys a flow declares, for the pair check below.
  *
- * A flow's journey is implicit and keyed on the flow's own id, so this is a lookup
- * rather than a join. A flow that declares nothing has no journey row at all, which
+ * Resolved through the flow's journey attachment rather than by assuming the journey
+ * is keyed on the flow's own id, so a flow sharing a journey with others sees the keys
+ * that journey declares. A flow attached to nothing has no journey row at all, which
  * is the normal state and not an error — hence the empty set rather than a 404.
+ *
+ * Ownership is deliberately *not* checked here. This set only decides which picker
+ * fields are allowed to be empty pending an install; it creates nothing, so the
+ * positive check {@link flowJourney} performs would cost a save its validity without
+ * protecting anything.
  */
 async function declaredResourceKeys(guildId: string, flowId: string): Promise<ReadonlySet<string>> {
-    const journey = await journeysRepo.getByKey(guildId, flowId);
-    return new Set((journey?.resources ?? []).map((resource) => resource.key));
+    const resolved = await resolveFlowJourney(guildId, flowId);
+    return new Set((resolved?.journey.resources ?? []).map((resource) => resource.key));
 }
 
 /**
@@ -199,6 +211,14 @@ function publishedBody(state: PublishedFlowState) {
  * and would attribute them to a flow that never declared them. The flow's resource
  * panel writes `createdForFlowId` on first save, so every flow-owned journey has it.
  *
+ * **A link row is that positive evidence, and it is stronger than the owner column
+ * was.** An attachment is data an operator deliberately wrote, not a key that happens
+ * to look like a flow id, so `attached` alone settles the question — and it has to,
+ * because a journey shared by several flows has no single `createdForFlowId` to match.
+ * This is the check getting stricter, not looser: the unlinked path below still
+ * demands the old positive owner match, so a typed-key collision is refused exactly as
+ * it was before.
+ *
  * Shared by the preview and the apply so the two cannot disagree about which journeys
  * this flow owns. A preview an operator is allowed to see but not apply would be a
  * dead end, and the reverse would be worse.
@@ -208,15 +228,19 @@ type FlowJourneyLookup =
     | { readonly ok: false; readonly error: string; readonly status: 404 | 409 };
 
 async function flowJourney(guildId: string, flowId: string): Promise<FlowJourneyLookup> {
-    const row = await journeysRepo.getByKey(guildId, flowId);
-    if (!row) {
+    const resolved = await resolveFlowJourney(guildId, flowId);
+    if (!resolved) {
         return {
             ok: false,
             status: 404,
             error: 'This flow does not declare any channels or roles to install.',
         };
     }
-    if (row.createdForFlowId !== flowId) {
+
+    const row = resolved.journey;
+    // The attachment is the positive evidence. Only the temporary unlinked path has to
+    // fall back on the key convention, and there the owner column must still match.
+    if (!resolved.attached && row.createdForFlowId !== flowId) {
         return {
             ok: false,
             status: 409,
@@ -604,23 +628,38 @@ export function flowRoutes(): Hono<AppEnv> {
      * the rebuild, so the drift can only ever refuse *more*, never delete something the
      * preview did not show.
      *
-     * **The journey must belong to this flow.** A flow's journey key is its flow id by
+     * **The journey must belong to this flow.** A flow's journey key was its flow id by
      * convention, but journey keys are operator-supplied and a standalone journey can
      * have any key at all — including one that happens to match a flow id. Without this
      * check a URL shaped like a flow would tear down a journey that has nothing to do
      * with it, which a stale bookmark or a mistyped id is enough to reach. The
      * `/undeploy` route's argument for skipping the lookup does not transfer: button
      * rows are keyed on the flow id we wrote ourselves, not on an operator's key.
+     *
+     * **This check stays deliberately weaker than install's**, for the reason already
+     * recorded above: a null-owner journey is let through because the operator is shown
+     * the exact list before anything is destroyed and the objects were ones we created.
+     * Resolving through the link table does not change that — it only fixes *which*
+     * journey is torn down when the flow's key is not its id.
+     *
+     * **What the link table does change is the "objects were ones we created" premise.**
+     * It held while a journey had one flow. A journey holding several means a teardown
+     * from one flow destroys channels the others still declare and never asked to lose
+     * — so a *separate* refusal fires when another flow is attached. That is not the
+     * ownership check getting stricter; it is a different question, about damage to a
+     * third party rather than about who owns the journey.
      */
     app.post('/:guildId/flows/:flowId/unpublish', async (c) => {
         const guild = c.get('guild');
         const flowId = c.req.param('flowId');
 
-        const journey = await journeysRepo.getByKey(guild.id, flowId);
-        if (!journey) {
+        const resolved = await resolveFlowJourney(guild.id, flowId);
+        if (!resolved) {
             return c.json({ error: 'This flow has not installed anything to unpublish.' }, 404);
         }
-        if (journey.createdForFlowId && journey.createdForFlowId !== flowId) {
+
+        const journey = resolved.journey;
+        if (!resolved.attached && journey.createdForFlowId && journey.createdForFlowId !== flowId) {
             return c.json(
                 {
                     error: 'That journey belongs to a different flow. Unpublish it from there, so you can see what it will destroy.',
@@ -629,7 +668,31 @@ export function flowRoutes(): Hono<AppEnv> {
             );
         }
 
-        const plan = await previewUnpublish(guild, flowId);
+        // Destroying shared structure is refused outright. Every other flow on this
+        // journey still declares these channels and roles, and none of them asked for
+        // this; the preview-then-confirm that justifies the weaker ownership check
+        // above protects the operator holding *this* flow, not the flows they are not
+        // looking at.
+        const others = await otherFlowsOnJourney(guild.id, journey.journeyKey, flowId, {
+            flowName: (otherFlowId) => flowNameInGuild(guild.id, otherFlowId),
+        });
+        if (others.length > 0) {
+            return c.json(
+                {
+                    error: sharedJourneyRefusal({
+                        journeyName: journey.name,
+                        action: 'Unpublishing the journey',
+                        others,
+                    }),
+                },
+                409
+            );
+        }
+
+        // The resolved key, not the flow id: bindings are recorded under the journey's
+        // key, and a flow attached to a journey keyed otherwise would otherwise plan a
+        // teardown of nothing and report success.
+        const plan = await previewUnpublish(guild, journey.journeyKey);
         const result = await unpublishJourney({ guild, approvedPlan: plan });
 
         if (result.refusal) {

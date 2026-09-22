@@ -1,8 +1,14 @@
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { flowsRepo } from '../../features/flows/data/flowsRepo';
+import { flowJourneyLinksRepo } from '../../features/provisioning/data/flowJourneyLinksRepo';
 import { DuplicateJourneyKeyError, journeysRepo } from '../../features/provisioning/data/journeysRepo';
 import type { JourneyEntity } from '../../features/provisioning/data/journeysSchema';
+import { resolveFlowJourney } from '../../features/provisioning/logic/resolveFlowJourney';
+import {
+    otherFlowsOnJourney,
+    sharedJourneyRefusal,
+} from '../../features/provisioning/logic/sharedJourneyGuard';
 import { parseDeclaredRoleReference } from '../../features/provisioning/logic/declaredRoleReference';
 import {
     PERMISSION_ACCESS_LEVELS,
@@ -13,6 +19,7 @@ import {
     ResourceDeclarationError,
 } from '../../features/provisioning/logic/resourceDeclaration';
 import type { AppEnv } from '../types';
+import { flowNameInGuild } from './flowNameInGuild';
 
 /**
  * Journey CRUD. Mounted under the `/api/guilds` route group, so `requireAuth` and
@@ -168,14 +175,18 @@ export function journeyRoutes(): Hono<AppEnv> {
     /**
      * The resources one flow declares.
      *
-     * A flow's journey is **implicit**: its key is the flow's own id, so an operator
-     * never invents a name for a concept they did not ask for. Returns an empty list
-     * rather than a 404 when the flow has declared nothing — "no resources yet" is
-     * the normal state of every flow, not an error.
+     * A flow's journey starts **implicit**: created on first save and keyed on the
+     * flow's own id, so an operator never invents a name for a concept they did not
+     * ask for. Which journey that is now comes from the flow's attachment, so a flow
+     * sharing a journey reads the resources that journey declares rather than looking
+     * for one keyed with its own id and finding nothing.
+     *
+     * Returns an empty list rather than a 404 when the flow has declared nothing —
+     * "no resources yet" is the normal state of every flow, not an error.
      */
     app.get('/:guildId/flows/:flowId/resources', async (c) => {
-        const journey = await journeysRepo.getByKey(c.get('guild').id, c.req.param('flowId'));
-        return c.json({ resources: journey?.resources ?? [] });
+        const resolved = await resolveFlowJourney(c.get('guild').id, c.req.param('flowId'));
+        return c.json({ resources: resolved?.journey.resources ?? [] });
     });
 
     /**
@@ -202,6 +213,25 @@ export function journeyRoutes(): Hono<AppEnv> {
             return c.json({ error: 'Flow not found.' }, 404);
         }
 
+        const resolved = await resolveFlowJourney(guildId, flowId);
+
+        // Only a journey this flow alone holds may be rewritten from here. Whether it
+        // is shared is asked of the **link table**, not of whether the key happens to
+        // equal the flow id: that comparison is right only while a journey holds one
+        // flow, so it would quietly stop being right exactly when sharing is used —
+        // and in both directions, refusing a flow alone on a named journey while
+        // letting a flow clear its own implicit journey out from under a second one
+        // attached to it.
+        //
+        // Checked for the save too, not only the clear: `journeysRepo.update` replaces
+        // `resources` wholesale, so dropping four of five resources is the same damage
+        // as clearing them.
+        const shared = resolved
+            ? await otherFlowsOnJourney(guildId, resolved.journey.journeyKey, flowId, {
+                  flowName: (id) => flowNameInGuild(guildId, id),
+              })
+            : [];
+
         // An empty list means the flow declares nothing, which is not an empty
         // journey but *no* journey — `validateJourneyDeclaration` rejects a journey
         // with no resources, correctly, since installing one would do nothing.
@@ -210,14 +240,51 @@ export function journeyRoutes(): Hono<AppEnv> {
         // record channels that exist in the guild and removing them would orphan real
         // Discord objects. Tearing those down is uninstall's job.
         if (parsed.data.resources.length === 0) {
-            await journeysRepo.deleteByKey(guildId, flowId);
+            if (shared.length > 0) {
+                return c.json(
+                    {
+                        error: sharedJourneyRefusal({
+                            journeyName: resolved?.journey.name ?? flowId,
+                            action: 'Clearing the resources on the journey',
+                            others: shared,
+                        }),
+                    },
+                    409
+                );
+            }
+
+            // Detached **before** the journey is deleted, and the order is load-bearing:
+            // a link naming a journey that no longer exists resolves to nothing, which
+            // would leave the flow unable to install or unpublish while its channels
+            // stand in the guild. Failing the other way round merely leaves a link to a
+            // journey that still exists, which the next save converges.
+            await flowJourneyLinksRepo.detachFlow(guildId, flowId);
+            // The **resolved** key, not the flow id. A flow alone on a journey keyed
+            // otherwise — the case slice A exists to enable — would otherwise delete
+            // nothing, detach itself, and report success, leaving the journey row
+            // behind attached to nobody.
+            await journeysRepo.deleteByKey(guildId, resolved?.journey.journeyKey ?? flowId);
             return c.json({ resources: [] });
         }
 
+        if (shared.length > 0) {
+            return c.json(
+                {
+                    error: sharedJourneyRefusal({
+                        journeyName: resolved?.journey.name ?? flowId,
+                        action: 'Replacing the resources on the journey',
+                        others: shared,
+                    }),
+                },
+                409
+            );
+        }
+
         try {
-            const existing = await journeysRepo.getByKey(guildId, flowId);
-            const journey = existing
-                ? await journeysRepo.update(guildId, flowId, { resources: parsed.data.resources })
+            const journey = resolved
+                ? await journeysRepo.update(guildId, resolved.journey.journeyKey, {
+                      resources: parsed.data.resources,
+                  })
                 : await journeysRepo.create({
                       guildId,
                       // The flow's id, so the scope is unambiguous and needs no name.
@@ -227,6 +294,17 @@ export function journeyRoutes(): Hono<AppEnv> {
                       resources: parsed.data.resources,
                       createdForFlowId: flowId,
                   });
+
+            // Written on every save, not only on create: an implicit journey is
+            // explicit from birth, and a flow whose journey predates the link table
+            // gets its row the first time it is saved. The upsert makes the repeat
+            // case a no-op, so this costs one idempotent write rather than a branch
+            // that has to know which case it is in.
+            await flowJourneyLinksRepo.attach({
+                guildId,
+                flowId,
+                journeyKey: journey.journeyKey,
+            });
 
             return c.json({ resources: journey.resources });
         } catch (error) {
@@ -279,12 +357,43 @@ export function journeyRoutes(): Hono<AppEnv> {
         }
     });
 
+    /**
+     * Delete a journey, unless flows still depend on it.
+     *
+     * Deleting a journey that flows are attached to would orphan them: their link rows
+     * would name a journey that no longer exists, and `resolveFlowJourney` returns
+     * nothing for that rather than quietly falling back — so each flow would report
+     * that it declares no resources while its installed channels stand in the guild.
+     *
+     * The refusal **names every attached flow** rather than counting them. A count
+     * tells an operator the size of a problem they then have to go find; the names are
+     * what they act on, and it is the shape the category-cascade refusal in
+     * `buildUnpublishPlan` already uses.
+     */
     app.delete('/:guildId/journeys/:journeyKey', async (c) => {
         const guildId = c.get('guild').id;
         const journeyKey = c.req.param('journeyKey');
         const existing = await journeysRepo.getByKey(guildId, journeyKey);
         if (!existing) {
             return c.json({ error: 'Journey not found.' }, 404);
+        }
+
+        // No flow is exempt here: unlike the flow-scoped routes, nothing is "the flow
+        // asking", so every attachment counts against the delete.
+        const attached = await otherFlowsOnJourney(guildId, journeyKey, null, {
+            flowName: (flowId) => flowNameInGuild(guildId, flowId),
+        });
+        if (attached.length > 0) {
+            return c.json(
+                {
+                    error: sharedJourneyRefusal({
+                        journeyName: existing.name,
+                        action: 'Deleting the journey',
+                        others: attached,
+                    }),
+                },
+                409
+            );
         }
 
         await journeysRepo.deleteByKey(guildId, journeyKey);
