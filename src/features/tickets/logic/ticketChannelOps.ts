@@ -1,9 +1,9 @@
 import { ChannelType, Guild, PermissionsBitField, TextChannel, type OverwriteResolvable } from 'discord.js';
 import { fail, ok, type Result } from '../../../shared';
-import type { ConfiguredTicketingConfig } from '../data/ticketingSchema';
-import type { TicketEntity, TicketType } from '../data/ticketsSchema';
+import type { ConfiguredTicketingConfig, TicketTypeDefinition } from '../data/ticketingSchema';
+import type { TicketEntity } from '../data/ticketsSchema';
 import { findOrCreateModeratorCategory } from './ticketChannelPermissions';
-import { buildTicketChannelNameForType, getTicketTypeDefinition, toPermissionOverwrite } from './ticketTypes';
+import { buildTicketChannelName, getTicketTypeDefinition, toPermissionOverwrite } from './ticketTypes';
 
 /**
  * The Discord half of a ticket: creating the channel and moving it between
@@ -22,7 +22,14 @@ import { buildTicketChannelNameForType, getTicketTypeDefinition, toPermissionOve
 
 interface BuildOverwritesParams {
     readonly guild: Guild;
-    readonly type: TicketType;
+    /**
+     * The guild's declaration for this ticket's type, resolved by the caller.
+     *
+     * Passed in rather than looked up here so absence is handled once, at the
+     * entry point that has somewhere to put the refusal, instead of in every
+     * function that needs a permission model.
+     */
+    readonly definition: TicketTypeDefinition;
     readonly subjectId: string;
     readonly openerId: string | null;
     readonly moderationRoleIds: string[];
@@ -38,12 +45,12 @@ interface BuildOverwritesParams {
  */
 function buildOverwrites({
     guild,
-    type,
+    definition,
     subjectId,
     openerId,
     moderationRoleIds,
 }: BuildOverwritesParams): OverwriteResolvable[] {
-    const { permissions } = getTicketTypeDefinition(type);
+    const { permissions } = definition;
     const me = guild.members.me;
 
     const overwrites: OverwriteResolvable[] = [
@@ -114,7 +121,14 @@ export async function createTicketChannelForTicket({
     subjectName,
     openerName,
 }: CreateChannelParams): Promise<Result<TextChannel>> {
-    const definition = getTicketTypeDefinition(ticket.type);
+    // Absence is a refusal, not a default. A ticket naming a type the guild does
+    // not declare can only arrive via a hand-edited config blob — deletion is
+    // refused while any ticket holds a type — and there is no correct permission
+    // model to fall back on.
+    const definition = getTicketTypeDefinition(config, ticket.type);
+    if (!definition) {
+        return fail(`Ticket type "${ticket.type}" is not declared in this server's ticket config.`);
+    }
 
     // A ticket that auto-claims on open belongs in the claimed category from the
     // start; one a flow opened is genuinely unclaimed and belongs in the open one.
@@ -143,7 +157,7 @@ export async function createTicketChannelForTicket({
 
     try {
         const channel = await guild.channels.create({
-            name: buildTicketChannelNameForType(ticket.type, {
+            name: buildTicketChannelName(definition, {
                 ticketNumber: ticket.ticketNumber,
                 subjectName,
                 openerName,
@@ -152,7 +166,7 @@ export async function createTicketChannelForTicket({
             parent: category,
             permissionOverwrites: buildOverwrites({
                 guild,
-                type: ticket.type,
+                definition,
                 subjectId: ticket.subjectId,
                 openerId: ticket.openerId,
                 moderationRoleIds: config.moderationRoles,
@@ -181,6 +195,14 @@ export async function syncTicketChannelToState(
     ticket: TicketEntity,
     config: ConfiguredTicketingConfig
 ): Promise<Result<void>> {
+    // Resolved once for both the overwrite set and the claimer's staff entry.
+    // Refusing rather than defaulting: re-permissioning a channel from a guessed
+    // model is how the `@everyone` drift this function exists to prevent got in.
+    const definition = getTicketTypeDefinition(config, ticket.type);
+    if (!definition) {
+        return fail(`Ticket type "${ticket.type}" is not declared in this server's ticket config.`);
+    }
+
     // A switch rather than nested ternaries: a fourth status would otherwise
     // fall silently into the open arm and route a channel to the wrong category.
     // `status` is a deliberate design axis here, so it is the union most likely
@@ -210,7 +232,7 @@ export async function syncTicketChannelToState(
     try {
         const overwrites = buildOverwrites({
             guild,
-            type: ticket.type,
+            definition,
             subjectId: ticket.subjectId,
             openerId: ticket.openerId,
             moderationRoleIds: config.moderationRoles,
@@ -225,8 +247,7 @@ export async function syncTicketChannelToState(
         // A claimer gets the staff arrangement explicitly, so their access does
         // not depend on which moderation role they happen to hold.
         if (ticket.claimerId && ticket.status !== 'closed') {
-            const { permissions } = getTicketTypeDefinition(ticket.type);
-            effective.push({ id: ticket.claimerId, ...toPermissionOverwrite(permissions.staff) });
+            effective.push({ id: ticket.claimerId, ...toPermissionOverwrite(definition.permissions.staff) });
         }
 
         await channel.edit({ parent: categoryResult.value.id, permissionOverwrites: effective });

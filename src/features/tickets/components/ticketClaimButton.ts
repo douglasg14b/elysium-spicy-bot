@@ -9,6 +9,7 @@ import { resolveTicketAction } from '../logic/resolveTicketAction';
 import { replyTicketFailure, ticketErrorMessage } from '../logic/ticketErrorMessage';
 import { syncTicketChannelToState } from '../logic/ticketChannelOps';
 import { buildTicketButtons, buildTicketEmbed } from '../logic/ticketPresentation';
+import { ticketIdentityFromMember } from '../logic/resolveTicketIdentity';
 import { claimTicket } from '../ticketService';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 
@@ -37,11 +38,14 @@ export function TicketClaimButtonComponent() {
     async function handler(interaction: ButtonInteraction): Promise<InteractionHandlerResult> {
         const resolved = await resolveTicketAction(interaction, 'claim tickets');
         if (!resolved.ok) return replyTicketFailure(interaction, ticketErrorMessage(resolved.error));
-        const { guild, member, channel, config, ticket } = resolved.value;
+        const { guild, member, channel, config, ticket, definition } = resolved.value;
 
         await interaction.deferUpdate();
 
-        const result = await claimTicket(ticket.id, member.id);
+        // The claimer's names travel into the same guarded UPDATE as their id, so
+        // the losing side of a race cannot stamp its name on the winner's claim.
+        // No fetch: the acting member is already in hand.
+        const result = await claimTicket(ticket.id, member.id, ticketIdentityFromMember(member));
         if (!result.ok) return replyTicketFailure(interaction, `❌ ${ticketErrorMessage(result.error)}`);
         const updated = result.value;
 
@@ -55,7 +59,7 @@ export function TicketClaimButtonComponent() {
         }
 
         await interaction.message.edit({
-            embeds: [buildTicketEmbed(updated)],
+            embeds: [buildTicketEmbed(updated, definition)],
             components: buildTicketButtons(updated),
         });
 

@@ -1,11 +1,16 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
-import { TICKET_TYPES, hasOpenTicket } from '../../../tickets';
+import { hasOpenTicket } from '../../../tickets';
 
 export const CONDITION_HAS_OPEN_TICKET = 'condition.hasOpenTicket';
 
 export const hasOpenTicketConfigSchema = z.object({
-    ticketType: z.enum(TICKET_TYPES),
+    // Free text rather than an enum: a ticket type is a row in the guild's
+    // `ticketing_config` now, so a closed union in source would reject every type an
+    // operator declares. The `options` below stay the two seeded keys until the
+    // picker learns to read the guild's own list — `checkFieldChoices` requires a
+    // `select` to offer non-empty options, so they cannot simply be emptied here.
+    ticketType: z.string().min(1),
 });
 
 export type HasOpenTicketConfig = z.infer<typeof hasOpenTicketConfigSchema>;

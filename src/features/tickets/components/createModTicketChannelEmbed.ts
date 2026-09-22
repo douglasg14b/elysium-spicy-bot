@@ -9,7 +9,6 @@ import {
 import { CreateModTicketButtonComponent } from './createModTicketButton';
 import { TicketConfigButtonComponent } from './ticketConfigButton';
 import { isTicketingConfigConfigured, TicketingConfigEntity } from '../data/ticketingSchema';
-import { SUPPORT_TICKET_NAME_TEMPLATE } from '../constants';
 
 /**
  * Creates the embed message that goes with the persistent button
@@ -29,11 +28,15 @@ export function CreateModTicketChannelEmbedComponent(configEntity?: TicketingCon
         // Add configuration field if config exists
         if (configEntity?.config) {
             const ticketConfig = configEntity.config;
+            const declaredTypes = Object.keys(ticketConfig.ticketTypes ?? {}).length;
             const configValue = [
                 `**Support Category:** ${ticketConfig.supportTicketCategoryName || 'Not configured'}`,
                 `**Claimed Category:** ${ticketConfig.claimedTicketCategoryName || 'Not configured'}`,
                 `**Closed Category:** ${ticketConfig.closedTicketCategoryName || 'Not configured'}`,
-                `**Channel Template:** ${ticketConfig.ticketChannelNameTemplate || SUPPORT_TICKET_NAME_TEMPLATE}`,
+                // Was "Channel Template", showing a constant nothing rendered from.
+                // The templates are per type now, so the honest summary is how many
+                // types this guild declares.
+                `**Ticket Types:** ${declaredTypes ? `${declaredTypes} declared` : 'None declared'}`,
                 `**Moderation Roles:** ${
                     ticketConfig.moderationRoles?.length
                         ? ticketConfig.moderationRoles.length + ' role(s)'

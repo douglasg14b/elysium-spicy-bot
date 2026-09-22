@@ -38,7 +38,7 @@ export function TicketUnclaimButtonComponent() {
     async function handler(interaction: ButtonInteraction): Promise<InteractionHandlerResult> {
         const resolved = await resolveTicketAction(interaction, 'unclaim tickets');
         if (!resolved.ok) return replyTicketFailure(interaction, ticketErrorMessage(resolved.error));
-        const { guild, member, channel, config, ticket } = resolved.value;
+        const { guild, member, channel, config, ticket, definition } = resolved.value;
 
         // Same disjunction the gate uses, deliberately. Testing only
         // `memberHasModeratorPerms` here would be near-vacuous — the gate has
@@ -66,7 +66,7 @@ export function TicketUnclaimButtonComponent() {
         }
 
         await interaction.message.edit({
-            embeds: [buildTicketEmbed(updated)],
+            embeds: [buildTicketEmbed(updated, definition)],
             components: buildTicketButtons(updated),
         });
 

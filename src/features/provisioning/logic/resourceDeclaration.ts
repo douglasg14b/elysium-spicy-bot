@@ -5,8 +5,12 @@ import type { PermissionIntent } from './permissionIntent';
  * What kind of guild object a resource is.
  *
  * A closed union because each value has creation code behind it and an unrecognised
- * kind has nothing to fall back on — the same reasoning as `TICKET_TYPES`. Adding a
- * kind is a deliberate edit here plus a branch in the applier, which is the point.
+ * kind has nothing to fall back on — the same reasoning as `TICKET_STATUSES`. Adding
+ * a kind is a deliberate edit here plus a branch in the applier, which is the point.
+ *
+ * Deliberately *not* `TICKET_TYPES`, which this comment used to cite: that union was
+ * deleted when a ticket type became a row in `ticketing_config` rather than a branch
+ * in source. Ticket *status* stayed closed for exactly the reason stated here.
  */
 export const RESOURCE_KINDS = ['category', 'textChannel', 'role'] as const;
 export type ResourceKind = (typeof RESOURCE_KINDS)[number];

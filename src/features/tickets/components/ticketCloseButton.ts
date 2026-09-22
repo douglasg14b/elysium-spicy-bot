@@ -36,7 +36,7 @@ export function TicketCloseButtonComponent() {
     async function handler(interaction: ButtonInteraction): Promise<InteractionHandlerResult> {
         const resolved = await resolveTicketAction(interaction, 'close tickets');
         if (!resolved.ok) return replyTicketFailure(interaction, ticketErrorMessage(resolved.error));
-        const { guild, member, channel, config, ticket } = resolved.value;
+        const { guild, member, channel, config, ticket, definition } = resolved.value;
 
         await interaction.deferUpdate();
 
@@ -58,7 +58,7 @@ export function TicketCloseButtonComponent() {
         }
 
         await interaction.message.edit({
-            embeds: [buildTicketEmbed(updated)],
+            embeds: [buildTicketEmbed(updated, definition)],
             components: buildTicketButtons(updated),
         });
 

@@ -4,7 +4,6 @@ import {
     TextInputBuilder,
     TextInputStyle,
     ModalSubmitInteraction,
-    ChannelType,
     RoleSelectMenuBuilder,
     LabelBuilder,
 } from 'discord.js';
@@ -12,8 +11,11 @@ import { InteractionHandlerResult } from '../../../features-system/commands/type
 import { ticketingRepo } from '../data/ticketingRepo';
 import { TicketingConfig } from '../data/ticketingSchema';
 import { updateDeployedTicketMessage } from '../utils/updateDeployedMessage';
-import { SUPPORT_TICKET_NAME_TEMPLATE } from '../constants';
-import { findCategory, findOrCreateModeratorCategory } from '../logic';
+import { defaultTicketTypes } from '../data/defaultTicketTypes';
+// Direct path rather than the `../logic` barrel: that barrel now re-exports
+// `setTicketTypes`, which pulls the repo and the database handle in behind it. This
+// handler needs one category helper, not the whole domain layer.
+import { findOrCreateModeratorCategory } from '../logic/ticketChannelPermissions';
 import { validateTicketCategoryPermissions } from '../utils';
 
 const TICKET_CONFIG_MODAL_ID = 'ticket_config_modal';
@@ -21,7 +23,6 @@ const TICKET_CONFIG_MODAL_ID = 'ticket_config_modal';
 const SUPPORT_CATEGORY_INPUT_ID = 'support_category_input';
 const CLOSED_CATEGORY_INPUT_ID = 'closed_category_input';
 const CLAIMED_CATEGORY_INPUT_ID = 'claimed_category_input';
-const CHANNEL_TEMPLATE_INPUT_ID = 'channel_template_input';
 const MODERATION_ROLES_INPUT_ID = 'moderation_roles_input';
 
 export function TicketConfigModalComponent() {
@@ -62,14 +63,6 @@ export function TicketConfigModalComponent() {
             claimedCategoryInput.setValue(existingConfig.claimedTicketCategoryName);
         }
 
-        const channelTemplateInput = new TextInputBuilder()
-            .setCustomId(CHANNEL_TEMPLATE_INPUT_ID)
-            .setLabel('Channel Name Template (Read-only)')
-            .setStyle(TextInputStyle.Short)
-            .setValue(existingConfig?.ticketChannelNameTemplate || SUPPORT_TICKET_NAME_TEMPLATE)
-            .setRequired(false)
-            .setMaxLength(100);
-
         const moderationRolesLabel = new LabelBuilder().setLabel('Moderation Roles').setRoleSelectMenuComponent(
             new RoleSelectMenuBuilder()
                 .setCustomId(MODERATION_ROLES_INPUT_ID)
@@ -85,8 +78,7 @@ export function TicketConfigModalComponent() {
             .addComponents(
                 new ActionRowBuilder<TextInputBuilder>({ components: [supportCategoryInput] }),
                 new ActionRowBuilder<TextInputBuilder>({ components: [claimedCategoryInput] }),
-                new ActionRowBuilder<TextInputBuilder>({ components: [closedCategoryInput] }),
-                new ActionRowBuilder<TextInputBuilder>({ components: [channelTemplateInput] })
+                new ActionRowBuilder<TextInputBuilder>({ components: [closedCategoryInput] })
             )
             .addLabelComponents(moderationRolesLabel);
 
@@ -110,7 +102,6 @@ export function TicketConfigModalComponent() {
         const supportCategoryName = interaction.fields.getTextInputValue(SUPPORT_CATEGORY_INPUT_ID);
         const claimedCategoryName = interaction.fields.getTextInputValue(CLAIMED_CATEGORY_INPUT_ID);
         const closedCategoryName = interaction.fields.getTextInputValue(CLOSED_CATEGORY_INPUT_ID);
-        const channelTemplate = interaction.fields.getTextInputValue(CHANNEL_TEMPLATE_INPUT_ID);
         const selectedRoles = interaction.fields.getSelectedRoles(MODERATION_ROLES_INPUT_ID);
 
         // Convert selected roles to IDs
@@ -201,18 +192,33 @@ export function TicketConfigModalComponent() {
             // Get existing config or create new one
             const existingConfig = await ticketingRepo.get(interaction.guild.id);
 
+            // Three layers, and the order is the whole point.
+            //
+            // 1. Deployment defaults, which only apply when no row exists — deployment
+            //    state belongs to `/deploy-ticket-system`, so a config written before any
+            //    deploy says "not deployed" rather than guessing.
+            // 2. ⚠️ **The spread**, which is load-bearing. This was a complete object
+            //    literal with no spread, so it silently dropped every config member it
+            //    did not list — which made it a destructor the moment `ticketTypes`
+            //    joined the shape. Anything added to `TicketingConfig` later survives a
+            //    save here only because of this line.
+            // 3. The four members this modal actually owns, plus the type seed.
             const newConfig: TicketingConfig = {
-                modTicketsDeployed: existingConfig?.config?.modTicketsDeployed || false,
-                modTicketsDeployedChannelId: existingConfig?.config?.modTicketsDeployedChannelId || null,
-                modTicketsDeployedMessageId: existingConfig?.config?.modTicketsDeployedMessageId || null,
-                userTicketsDeployed: existingConfig?.config?.userTicketsDeployed || false,
-                userTicketsDeployedChannelId: existingConfig?.config?.userTicketsDeployedChannelId || null,
-                userTicketsDeployedMessageId: existingConfig?.config?.userTicketsDeployedMessageId || null,
+                modTicketsDeployed: false,
+                modTicketsDeployedChannelId: null,
+                modTicketsDeployedMessageId: null,
+
+                ...existingConfig?.config,
+
                 supportTicketCategoryName: supportCategoryName,
                 claimedTicketCategoryName: claimedCategoryName,
                 closedTicketCategoryName: closedCategoryName,
-                ticketChannelNameTemplate: SUPPORT_TICKET_NAME_TEMPLATE, // Non-configurable
                 moderationRoles,
+                // Every path creating a `ticketing_config` row seeds the types, because
+                // the migration is an `UPDATE` and never reaches a guild that had no row.
+                // On the update path the spread has already supplied them; this only
+                // fills the gap for a guild configuring before it ever deployed.
+                ticketTypes: existingConfig?.config?.ticketTypes ?? defaultTicketTypes(),
             };
 
             if (existingConfig) {
@@ -220,9 +226,6 @@ export function TicketConfigModalComponent() {
                     guildId: interaction.guild.id,
                     config: JSON.stringify(newConfig),
                 });
-
-                // Update deployed message if it exists
-                await updateDeployedTicketMessage(interaction.guild.id);
             } else {
                 await ticketingRepo.upsert({
                     guildId: interaction.guild.id,
@@ -232,8 +235,13 @@ export function TicketConfigModalComponent() {
                 });
             }
 
-            // Update deployed message if it exists
-            await updateDeployedTicketMessage(interaction.guild.id);
+            // Refresh the deployed panel, which renders the categories and the type
+            // count. Once, not once per arm — and non-fatally: the config is already
+            // saved by this point, so letting a failed panel edit report "Failed to
+            // save" would send the operator back to re-save something that persisted.
+            await updateDeployedTicketMessage(interaction.guild.id).catch((error: unknown) => {
+                console.error('Ticket config saved, but the deployed panel could not be refreshed:', error);
+            });
 
             await interaction.reply({
                 content:
@@ -241,7 +249,7 @@ export function TicketConfigModalComponent() {
                     `**Support Category:** ${supportCategoryName}\n` +
                     `**Claimed Category:** ${claimedCategoryName}\n` +
                     `**Closed Category:** ${closedCategoryName}\n` +
-                    `**Channel Template:** ${channelTemplate}\n` +
+                    `**Ticket Types:** ${Object.keys(newConfig.ticketTypes ?? {}).length} declared\n` +
                     `**Moderation Roles:** ${moderationRoles.length} role(s) configured`,
                 ephemeral: true,
             });

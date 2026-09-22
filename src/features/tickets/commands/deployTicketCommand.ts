@@ -10,7 +10,7 @@ import { commandSuccess, commandError } from '../../../features-system/commands'
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { CreateModTicketChannelEmbedComponent } from '../components';
 import { ticketingRepo } from '../data/ticketingRepo';
-import { SUPPORT_TICKET_NAME_TEMPLATE } from '../constants';
+import { defaultTicketTypes } from '../data/defaultTicketTypes';
 import { validateTicketingPermissions } from '../utils';
 import { TicketingConfig } from '../data/ticketingSchema';
 
@@ -117,22 +117,25 @@ export async function handleDeployTicketSystem(
                 modTicketsDeployed: true,
                 modTicketsDeployedChannelId: targetChannel.id,
                 modTicketsDeployedMessageId: deployedMessage.id,
-                ticketChannelNameTemplate: SUPPORT_TICKET_NAME_TEMPLATE,
+                // Seeded here too, not only in the `else` arm: a row can exist
+                // without types (written by a process older than the migration, or
+                // created after the migration's `UPDATE` had already run), and a
+                // guild in that state has a panel whose buttons would refuse.
+                ticketTypes: existingConfig.config.ticketTypes ?? defaultTicketTypes(),
             };
         } else {
-            // Create minimal config for first-time deployment
+            // Create minimal config for first-time deployment. This is one of the two
+            // paths that create a `ticketing_config` row, so it seeds the types — the
+            // migration is an `UPDATE` and never reaches a guild that had no row.
             newConfig = {
                 modTicketsDeployed: true,
                 modTicketsDeployedChannelId: targetChannel.id,
                 modTicketsDeployedMessageId: deployedMessage.id,
-                userTicketsDeployed: false,
-                userTicketsDeployedChannelId: null,
-                userTicketsDeployedMessageId: null,
                 supportTicketCategoryName: '',
                 closedTicketCategoryName: '',
                 claimedTicketCategoryName: '',
-                ticketChannelNameTemplate: SUPPORT_TICKET_NAME_TEMPLATE,
                 moderationRoles: [],
+                ticketTypes: defaultTicketTypes(),
             };
         }
 

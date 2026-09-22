@@ -1,10 +1,15 @@
 import { ChannelType, type ButtonInteraction, type Guild, type GuildMember, type TextChannel } from 'discord.js';
 import { fail, ok, type Result } from '../../../shared';
 import { ticketingRepo } from '../data/ticketingRepo';
-import { isTicketingConfigConfigured, type ConfiguredTicketingConfig } from '../data/ticketingSchema';
+import {
+    isTicketingConfigConfigured,
+    type ConfiguredTicketingConfig,
+    type TicketTypeDefinition,
+} from '../data/ticketingSchema';
 import type { TicketEntity } from '../data/ticketsSchema';
 import { getTicketByChannel } from '../ticketService';
 import { memberHasModeratorPerms, memberHasModeratorRole } from './hasModeratorRole';
+import { getTicketTypeDefinition } from './ticketTypes';
 import { roleIdsToNames } from '../../../utils';
 
 /**
@@ -22,6 +27,16 @@ export interface TicketActionContext {
     readonly channel: TextChannel;
     readonly config: ConfiguredTicketingConfig;
     readonly ticket: TicketEntity;
+    /**
+     * The guild's declaration for this ticket's type, non-optional.
+     *
+     * Resolved here rather than in each handler for the reason this function
+     * exists: five handlers each need it, and five copies of "look it up, refuse if
+     * absent" is five places for the refusal to drift. Absence is settled once, at
+     * the gate, so the render and permission code downstream has no branch to
+     * forget.
+     */
+    readonly definition: TicketTypeDefinition;
 }
 
 /**
@@ -69,5 +84,17 @@ export async function resolveTicketAction(
         return fail('❌ This is not a ticket channel.');
     }
 
-    return ok({ guild, member, channel, config, ticket });
+    // Named rather than defaulted. A ticket holding a type the guild no longer
+    // declares has no permission model and no label to render, and substituting one
+    // would re-permission a channel from a guess. Deleting a type is refused while
+    // any ticket holds it, so reaching this takes a hand-edited config blob — which
+    // is exactly the case that deserves a message rather than a silent fallback.
+    const definition = getTicketTypeDefinition(config, ticket.type);
+    if (!definition) {
+        return fail(
+            `❌ Ticket #${ticket.ticketNumber} is typed \`${ticket.type}\`, which this server no longer declares. Re-add that ticket type in the config before touching this one.`
+        );
+    }
+
+    return ok({ guild, member, channel, config, ticket, definition });
 }

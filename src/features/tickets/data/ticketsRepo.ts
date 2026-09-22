@@ -2,6 +2,7 @@ import { database } from '../../../features-system/data-persistence/database';
 import type {
     NewTicketEntity,
     TicketEntity,
+    TicketIdentity,
     TicketStatus,
     TicketType,
     TicketUpdateEntity,
@@ -109,14 +110,63 @@ export class TicketsRepo {
         return query.execute();
     }
 
-    async listByGuild(guildId: string, status?: TicketStatus): Promise<TicketEntity[]> {
+    /**
+     * Every ticket in a guild, optionally narrowed by status and type.
+     *
+     * Unpaginated, so it is for an operator-facing list and **not** for the
+     * type-in-use refusal — {@link countByType} and {@link listByType} exist for
+     * that, capped and grouped.
+     */
+    async listByGuild(guildId: string, filter?: { status?: TicketStatus; type?: string }): Promise<TicketEntity[]> {
         let query = database.selectFrom('tickets').selectAll().where('guildId', '=', guildId);
 
-        if (status) {
-            query = query.where('status', '=', status);
+        if (filter?.status) {
+            query = query.where('status', '=', filter.status);
+        }
+
+        if (filter?.type) {
+            query = query.where('type', '=', filter.type);
         }
 
         return query.orderBy('ticketNumber', 'desc').execute();
+    }
+
+    /**
+     * How many tickets of a type exist in a guild, by status.
+     *
+     * One grouped query rather than three counts, because the refusal that reads
+     * this names all three numbers together and an operator sees them at once.
+     *
+     * `count(*)` arrives as a string on postgres and a number on sqlite, so it is
+     * coerced here at the boundary rather than left for each caller to discover.
+     */
+    async countByType(guildId: string, type: string): Promise<{ status: TicketStatus; count: number }[]> {
+        const rows = await database
+            .selectFrom('tickets')
+            .select(['status', (eb) => eb.fn.countAll<string | number>().as('count')])
+            .where('guildId', '=', guildId)
+            .where('type', '=', type)
+            .groupBy('status')
+            .execute();
+
+        return rows.map((row) => ({ status: row.status, count: Number(row.count) }));
+    }
+
+    /**
+     * A capped, newest-first sample of the tickets holding a type.
+     *
+     * For the refusal's example numbers. A guild can have thousands of tickets of
+     * one type, and a refusal naming all of them is a refusal nobody reads.
+     */
+    async listByType(guildId: string, type: string, limit: number): Promise<TicketEntity[]> {
+        return database
+            .selectFrom('tickets')
+            .selectAll()
+            .where('guildId', '=', guildId)
+            .where('type', '=', type)
+            .orderBy('ticketNumber', 'desc')
+            .limit(limit)
+            .execute();
     }
 
     /**
@@ -126,11 +176,28 @@ export class TicketsRepo {
      * because check-then-act across two statements lets two moderators both pass
      * the check and the second silently win — telling the first they claimed a
      * ticket they did not. Zero rows back *is* the refusal.
+     *
+     * The claimer's names are set **inside the same conditional UPDATE**. Writing
+     * them in a second statement would leave the row claimed by one person under
+     * another's name: the losing side of a claim race has its `claimerId` write
+     * correctly refused, but an unguarded name write would still land and
+     * overwrite the winner's.
      */
-    async claimIfUnclaimed(id: number, claimerId: string, claimedAt: string): Promise<TicketEntity | null> {
+    async claimIfUnclaimed(
+        id: number,
+        claimerId: string,
+        claimedAt: string,
+        identity: TicketIdentity | null
+    ): Promise<TicketEntity | null> {
         const claimed = await database
             .updateTable('tickets')
-            .set({ claimerId, claimedAt, updatedAt: claimedAt })
+            .set({
+                claimerId,
+                claimedAt,
+                updatedAt: claimedAt,
+                claimerUsername: identity?.username ?? null,
+                claimerNickname: identity?.nickname ?? null,
+            })
             .where('id', '=', id)
             .where('status', '=', 'open')
             .where('claimerId', 'is', null)

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ButtonInteraction } from 'discord.js';
+import { DEFAULT_TICKET_TYPES } from '../../data/defaultTicketTypes';
 import type { TicketEntity } from '../../data/ticketsSchema';
 
 /**
@@ -57,6 +58,13 @@ function ticket(overrides: Partial<TicketEntity> = {}): TicketEntity {
         openerId: 'opener-1',
         claimerId: null,
         channelId: 'channel-1',
+        subjectUsername: null,
+        subjectNickname: null,
+        openerUsername: null,
+        openerNickname: null,
+        claimerUsername: null,
+        claimerNickname: null,
+        stateMessageId: 'state-message-1',
         title: 'A title',
         reason: 'A reason',
         openedAt: new Date('2026-09-17T00:00:00Z'),
@@ -107,10 +115,15 @@ function harness(): Harness {
     mockResolveTicketAction.mockResolvedValue(
         ok({
             guild: { id: 'guild-1' },
-            member: { id: 'mod-1', toString: () => '<@mod-1>' },
+            // `nickname` present so the claim path has an identity to carry without
+            // reaching Discord — the acting member is already in hand.
+            member: { id: 'mod-1', nickname: 'Mod', user: { username: 'moduser' }, toString: () => '<@mod-1>' },
             channel,
-            config: { moderationRoles: ['role-1'] },
+            // The config carries its types now, and the gate resolves the definition
+            // from them before any handler runs.
+            config: { moderationRoles: ['role-1'], ticketTypes: { ...DEFAULT_TICKET_TYPES } },
             ticket: ticket(),
+            definition: DEFAULT_TICKET_TYPES.support,
         })
     );
 
