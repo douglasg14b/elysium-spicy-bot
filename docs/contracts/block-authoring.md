@@ -594,5 +594,29 @@ Everything a manifest declares except `configSchema` and `run` is served to the 
 `GET /api/nodes`, so a new member is published to every authenticated dashboard user by
 default. That is the reason the second option has to be a deliberate act.
 
+#### The other mirrors
+
+`NodeDescriptor` is the largest mirror across this boundary but not the only one. Anything the
+builder has to *know* rather than be *sent* is copied by hand for the same `build:web` reason,
+and each copy carries its own gate:
+
+| Browser copy | Authority in `src/` | Gate |
+| --- | --- | --- |
+| `web/src/api/types.ts` | `blocks/manifest.ts`, the block vocabularies | `src/web/api/__tests__/nodeDescriptorDrift.test.ts` |
+| `web/src/flows/builtinTokens.ts` | `RENDERABLE_TOKENS` in `engine/copyRendering.ts` | `src/web/api/__tests__/builtinTokenDrift.test.ts` |
+| `web/src/flows/ticketChannelName.ts` | `buildTicketChannelNameForType` in `tickets/logic/ticketTypes.ts` | `src/features/tickets/logic/__tests__/ticketChannelNamePreviewDrift.test.ts` |
+
+**A gate lives beside its authority, not beside the copy.** The first two answer to something
+under `src/web/api/`; the third answers to the ticketing feature, so it sits there. A gate placed
+beside the browser copy would run in the workspace that cannot import the authority.
+
+Two things a gate of this kind must do, both learned the hard way:
+
+- **Compare behaviour, not just data.** The ticket mirror duplicates a sanitizer as well as a
+  template. Comparing the template strings passed while the mirror had dropped its `.toLowerCase()`.
+- **Drive it with input that can tell the difference.** That same gate ran only on `someone` —
+  already lowercase and pure ASCII — so no assertion could fail. It now runs both implementations
+  over mixed-case and non-ASCII subjects. A gate is only as strong as its worst input.
+
 Every block that ships is written against this contract — the earlier shape, with three
 separate per-kind entry points, is gone. There is one way to declare a block.

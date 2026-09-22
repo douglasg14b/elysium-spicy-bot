@@ -652,6 +652,23 @@ export interface BlockManifest<TConfig = unknown> {
     /** Discord permissions the bot needs for this block. */
     readonly capabilities: readonly BlockCapability[];
     /**
+     * Whether running this block creates a channel whose name it does not take
+     * from its own config.
+     *
+     * Declared because the builder cannot otherwise tell an author what a node
+     * will produce. A block that asks for the channel name needs nothing here —
+     * the author is looking at the answer. This is the opposite case: the name is
+     * decided somewhere the node does not show, and the fields on screen invite a
+     * guess that is wrong.
+     *
+     * A stated property rather than something inferred, for the reason two earlier
+     * attempts proved. Recognising the block by its `type` is what the
+     * one-directory gate exists to refuse; recognising it by a config field name
+     * silently matched a read-only block that declared the same field, and told an
+     * author it would create a channel. A field name is not a side effect.
+     */
+    readonly createsChannel?: boolean;
+    /**
      * Whether `run` may return a `suspend` outcome.
      *
      * The executor does not read this — it simply consumes whatever outcome it is

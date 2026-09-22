@@ -117,7 +117,7 @@ import {
 } from '../flows/installSummary';
 import { InstalledResourcesDialog } from '../flows/InstalledResourcesDialog';
 import { issuesByNode, summarizeIssues } from '../flows/validationIssues';
-import { availableVariablesAt } from '../flows/variables';
+import { actorAvailableAt, availableVariablesAt } from '../flows/variables';
 import { NodePalette, NODE_DRAG_MIME } from '../flows/NodePalette';
 import { NodeInspector } from '../flows/NodeInspector';
 import { JourneyAttachmentControl } from '../flows/JourneyAttachmentControl';
@@ -1068,18 +1068,30 @@ function FlowBuilder() {
     }, [issuesForNode, nodes, setNodes]);
 
     /**
-     * Variables some block upstream of the selection writes.
+     * What the selection's ancestry implies for the copy fields in it.
      *
      * Computed here because this is the only component holding both the nodes and
      * the edges; the inspector draws one node and has no way to walk a graph.
+     *
+     * Both facts in one memo rather than two with identical dependencies, so they
+     * are recomputed together and cannot disagree about the graph they read. Each
+     * still walks the ancestry itself; the walk is a small breadth-first pass over
+     * one node's ancestors, and sharing it across the two would mean threading the
+     * result through both signatures for a saving nobody has measured.
      *
      * Recomputed when any node's data changes rather than only on a rewire, which
      * is deliberate: renaming `action.pickRandom`'s output is a config edit, and a
      * list that did not follow it would offer the old name until the author
      * happened to move an edge.
      */
-    const availableVariables = useMemo(
-        () => (selectedNodeId ? availableVariablesAt(selectedNodeId, nodes, edges) : []),
+    const { availableVariables, actorAvailable } = useMemo(
+        () => ({
+            availableVariables: selectedNodeId
+                ? availableVariablesAt(selectedNodeId, nodes, edges)
+                : [],
+            // True with nothing selected: no node means no copy field to advise.
+            actorAvailable: selectedNodeId ? actorAvailableAt(selectedNodeId, nodes, edges) : true,
+        }),
         [selectedNodeId, nodes, edges]
     );
 
@@ -1500,6 +1512,7 @@ function FlowBuilder() {
                             roles={roles}
                             channels={channels}
                             variables={availableVariables}
+                            actorAvailable={actorAvailable}
                             declaredResources={declaredResources}
                             issues={issuesForNode.get(selectedNode.id) ?? []}
                             onChange={updateNodeConfig}

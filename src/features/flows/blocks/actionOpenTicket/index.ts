@@ -93,6 +93,8 @@ export const block: BlockManifest<OpenTicketConfig> = {
     // create its category. The most channel-hungry block in the tree, so it is
     // the one that would silently pass when capability checking lands.
     capabilities: ['sendMessages', 'embedLinks', 'manageChannels'],
+    // The builder previews the channel name from this; `title` does not decide it.
+    createsChannel: true,
     canSuspend: false,
     async run(config, context) {
         const configEntity = await ticketingRepo.get(context.guild.id);

@@ -18,6 +18,7 @@ import type {
 import { renderControl } from './controls/renderControl';
 import type { ControlContext } from './controls/types';
 import { KIND_STYLES } from './nodeMeta';
+import { ticketChannelNameFor } from './ticketChannelName';
 import { describeUnplacedIssue, placeIssues } from './validationIssues';
 import { resolveOutputName, variableToken, type AvailableVariable } from './variables';
 
@@ -36,6 +37,13 @@ interface NodeInspectorProps {
      * inspector draws one node and cannot walk anything.
      */
     variables: AvailableVariable[];
+    /**
+     * Whether `{{actor.mention}}` resolves at this node.
+     *
+     * Computed by the page for the same reason `variables` is: it depends on what
+     * is wired above this node, which the inspector cannot see.
+     */
+    actorAvailable: boolean;
     /** What this flow declares but has not installed yet, for the pickers to offer. */
     declaredResources: ResourceDeclaration[];
     /**
@@ -57,6 +65,7 @@ export function NodeInspector({
     roles,
     channels,
     variables,
+    actorAvailable,
     declaredResources,
     issues,
     onChange,
@@ -75,6 +84,7 @@ export function NodeInspector({
         roles,
         channels,
         variables,
+        actorAvailable,
         declaredResources,
         // A picker's resource key is a sibling of its own field, so it patches the
         // node directly rather than going through its single-key `onChange`.
@@ -158,6 +168,8 @@ export function NodeInspector({
                     </Text>
                 ) : null}
 
+                <TicketChannelPreview descriptor={descriptor} config={config} />
+
                 <ProducedVariables descriptor={descriptor} config={config} />
             </Stack>
 
@@ -172,6 +184,50 @@ export function NodeInspector({
                 Delete node
             </Button>
         </Stack>
+    );
+}
+
+/**
+ * The channel this node will create, when it creates one.
+ *
+ * Answers a question the Open Ticket block otherwise leaves open: it has a
+ * **Title** field, and the Discord channel is not named after it. The channel
+ * comes from the ticket *type's* template — a separate vocabulary in another
+ * feature — so the natural guess is wrong and nothing on screen corrected it.
+ *
+ * Still no block type in this file: the block declares `createsChannel` and
+ * this reads the declaration, exactly as everything else here reads the descriptor.
+ */
+function TicketChannelPreview({
+    descriptor,
+    config,
+}: {
+    descriptor: NodeDescriptor;
+    config: Record<string, unknown>;
+}) {
+    const channelName = ticketChannelNameFor(descriptor, config);
+    if (!channelName) {
+        return null;
+    }
+
+    return (
+        <>
+            <Divider label="Channel it will create" labelPosition="left" />
+
+            <div>
+                <Text
+                    size="12.5px"
+                    fw={700}
+                    style={{ fontFamily: 'var(--mantine-font-family-monospace)' }}
+                >
+                    #{channelName}
+                </Text>
+                <Text size="11px" c="dimmed" mt={3}>
+                    Discord builds this from the ticket type and the next ticket number — your
+                    Title doesn&apos;t change it. The number and name shown here are stand-ins.
+                </Text>
+            </div>
+        </>
     );
 }
 

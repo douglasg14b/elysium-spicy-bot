@@ -10,14 +10,17 @@ import { describe, expect, it } from 'vitest';
 import type { Edge } from '@xyflow/react';
 import type { BlockOutputDeclaration, NodeDescriptor } from '../../api/types';
 import {
+    actorAvailableAt,
+    ancestorsOf,
     availableVariablesAt,
     referencedVariables,
     resolveOutputName,
+    tokensIn,
     variableToken,
     type VariableSourceNode,
 } from '../variables';
 
-function descriptorWith(outputs: BlockOutputDeclaration[]): NodeDescriptor {
+function descriptorWith(outputs: BlockOutputDeclaration[], canSuspend = false): NodeDescriptor {
     return {
         type: 'action.test',
         kind: 'action',
@@ -30,8 +33,18 @@ function descriptorWith(outputs: BlockOutputDeclaration[]): NodeDescriptor {
         outputs,
         requires: [],
         capabilities: [],
-        canSuspend: false,
+        canSuspend,
     };
+}
+
+/** A block that parks the run — a delay, a prompt, a wait. */
+function suspendingNode(id: string): VariableSourceNode {
+    return { id, data: { label: `Node ${id}`, config: {}, descriptor: descriptorWith([], true) } };
+}
+
+/** A block this build cannot draw, e.g. one the server added after this bundle. */
+function unknownNode(id: string): VariableSourceNode {
+    return { id, data: { label: `Node ${id}`, config: {}, descriptor: undefined } };
 }
 
 function node(
@@ -192,5 +205,94 @@ describe('finding the variables a piece of copy references', () => {
 describe('the token an author writes', () => {
     it('spells a name the way copy rendering reads it', () => {
         expect(variableToken('dare')).toBe('{{var.dare}}');
+    });
+});
+
+describe('every token the engine would see', () => {
+    it('reports tokens of any namespace, not just variables', () => {
+        // The permissive half of the grammar: a built-in token and a broken one
+        // both have to be *seen* before anything can report them.
+        expect(tokensIn('Hi {{subject.username}} — {{var.dare}} {{nope}}')).toEqual([
+            'subject.username',
+            'var.dare',
+            'nope',
+        ]);
+    });
+
+    it('trims the whitespace the engine trims', () => {
+        expect(tokensIn('{{ guild.name }}')).toEqual(['guild.name']);
+    });
+
+    it('finds nothing in copy with no braces', () => {
+        expect(tokensIn('Just a plain title')).toEqual([]);
+    });
+});
+
+describe('the nodes that can run before a node', () => {
+    it('lists nearer ancestors before further ones', () => {
+        // The ordering `availableVariablesAt` relies on for "nearest producer
+        // wins": stated here because that rule is invisible in its own result.
+        const nodes = [node('a', []), node('b', []), node('c', [])];
+        const edges = [edge('a', 'b'), edge('b', 'c')];
+
+        expect(ancestorsOf('c', nodes, edges).map((found) => found.id)).toEqual(['b', 'a']);
+    });
+
+    it('excludes the node itself', () => {
+        expect(ancestorsOf('a', [node('a', [])], []).map((found) => found.id)).toEqual([]);
+    });
+
+    it('terminates on a cycle rather than hanging the builder', () => {
+        // `b` is its own ancestor here, and still excluded: the start node seeds
+        // `seen`, so a loop reaching back to it stops rather than offering the
+        // author what this very block writes.
+        const nodes = [node('a', []), node('b', [])];
+        const edges = [edge('a', 'b'), edge('b', 'a')];
+
+        expect(ancestorsOf('b', nodes, edges).map((found) => found.id)).toEqual(['a']);
+    });
+});
+
+describe('whether the actor survives to a node', () => {
+    it('is available when nothing runs before it', () => {
+        expect(actorAvailableAt('a', [node('a', [])], [])).toBe(true);
+    });
+
+    it('is available when every block above it runs straight through', () => {
+        const nodes = [node('a', []), node('b', [])];
+        expect(actorAvailableAt('b', nodes, [edge('a', 'b')])).toBe(true);
+    });
+
+    it('is lost after a block that parks the run, however far upstream', () => {
+        // Reachability, not adjacency: a delay two hops back still means the run
+        // reaching this node may have been woken by the clock.
+        const nodes = [suspendingNode('wait'), node('mid', []), node('end', [])];
+        const edges = [edge('wait', 'mid'), edge('mid', 'end')];
+
+        expect(actorAvailableAt('end', nodes, edges)).toBe(false);
+    });
+
+    it('is lost when any branch above it parks, not only all of them', () => {
+        // The over-approximation this shares with variable scope, in the opposite
+        // direction: the author is warned on a branch that might not suspend,
+        // because the one that does would fail the run.
+        const nodes = [node('start', []), suspendingNode('wait'), node('plain', []), node('end', [])];
+        const edges = [
+            edge('start', 'wait'),
+            edge('start', 'plain'),
+            edge('wait', 'end'),
+            edge('plain', 'end'),
+        ];
+
+        expect(actorAvailableAt('end', nodes, edges)).toBe(false);
+    });
+
+    it('treats a block it cannot draw as running straight through', () => {
+        // The documented asymmetry: for advice rather than enforcement, a chip
+        // wrongly offered costs a keystroke and one wrongly withheld costs the
+        // author the token they needed.
+        const nodes = [unknownNode('mystery'), node('end', [])];
+
+        expect(actorAvailableAt('end', nodes, [edge('mystery', 'end')])).toBe(true);
     });
 });

@@ -5,6 +5,7 @@
 import { Textarea, TextInput } from '@mantine/core';
 import { asText, type ControlContext, type ControlProps } from './types';
 import type { BlockConfigField } from '../../api/types';
+import { CopyPreview } from './CopyPreview';
 import { VariablePicker } from './VariablePicker';
 
 type TextField = Extract<BlockConfigField, { control: 'text' }>;
@@ -35,12 +36,15 @@ function limitHint(field: TextField | LongTextField): string | undefined {
 }
 
 /**
- * The variable affordance under a copy field, or nothing.
+ * The token affordances under a copy field, or nothing.
  *
  * Gated on `rendersTokens` — the same declaration the engine expands by and that
  * save-time validation finds copy fields with. A field that is not copy (a
  * variable *name*, a message id, an emoji) has no tokens expanded in it, so
  * offering to insert one there would be offering to break it.
+ *
+ * Reading order is what the author needs in the order they need it: what this
+ * becomes, then what else they could add, then what is wrong with it.
  *
  * Appends rather than inserting at the caret. A caret-aware insert needs a ref
  * and a controlled selection, and this is a token an author almost always adds at
@@ -58,11 +62,18 @@ function variableHints(
     }
 
     return (
-        <VariablePicker
-            variables={context.variables}
-            value={asText(value)}
-            onInsert={onAppend}
-        />
+        <>
+            <CopyPreview
+                value={asText(value)}
+                knownVariables={context.variables.map((variable) => variable.name)}
+            />
+            <VariablePicker
+                variables={context.variables}
+                actorAvailable={context.actorAvailable}
+                value={asText(value)}
+                onInsert={onAppend}
+            />
+        </>
     );
 }
 

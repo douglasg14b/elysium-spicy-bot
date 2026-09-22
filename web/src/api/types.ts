@@ -438,6 +438,14 @@ export interface NodeDescriptor {
     capabilities: BlockCapability[];
     /** Whether this block may park its run. */
     canSuspend: boolean;
+    /**
+     * Whether running this block creates a ticket channel.
+     *
+     * Absent on every block but the one that opens tickets. The builder previews
+     * the channel name from it — a fact the block's own `title` field does not
+     * decide, since the name comes from the ticket type's template.
+     */
+    createsChannel?: boolean;
     /** What fires this trigger. Absent on conditions and actions. */
     startedBy?: BlockTriggerSource;
 }
@@ -471,6 +479,7 @@ export const NODE_DESCRIPTOR_KEYS = [
     'requires',
     'capabilities',
     'canSuspend',
+    'createsChannel',
     'startedBy',
 ] as const satisfies readonly (keyof NodeDescriptor)[];
 

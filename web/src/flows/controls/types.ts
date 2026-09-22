@@ -35,6 +35,14 @@ export interface ControlContext {
      */
     variables: AvailableVariable[];
     /**
+     * Whether `{{actor.mention}}` can be relied on at this node.
+     *
+     * A property of the node for the same reason `variables` is: the token resolves
+     * or not depending on what is wired above, and the copy fields grey the chip
+     * rather than removing it. See `actorAvailableAt` in `../variables.ts`.
+     */
+    actorAvailable: boolean;
+    /**
      * Resources this flow declares but that may not exist in the guild yet.
      *
      * Offered by the pickers beside real channels and roles, which is the capability

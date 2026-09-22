@@ -173,3 +173,8 @@ db.sqlite
 __probe*
 *.probe.ts
 *.scratch.ts
+
+# Editor-local working state: mockups and plans the Nimbalyst workspace writes
+# beside the repo. Local thinking, not source — and untracked files here are
+# otherwise swept up by `git add -A` into whatever commit happens to be next.
+nimbalyst-local/
