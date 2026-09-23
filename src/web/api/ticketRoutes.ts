@@ -2,7 +2,7 @@ import type { Guild } from 'discord.js';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { ticketingRepo } from '../../features/tickets/data/ticketingRepo';
-import { ticketsRepo } from '../../features/tickets/data/ticketsRepo';
+import { TICKET_LIST_CAP, ticketsRepo } from '../../features/tickets/data/ticketsRepo';
 import {
     isTicketingConfigConfigured,
     type TicketingConfig,
@@ -37,6 +37,28 @@ import type { AppEnv } from '../types';
 
 /** Only these narrow a list. `all` is the absence of a filter, not a fourth status. */
 const statusFilter = z.enum(TICKET_STATUSES);
+
+/**
+ * How long a ticket-type key may be, used to bound the `?type=` filter.
+ *
+ * Types are guild-defined, so there is no closed vocabulary to validate the filter
+ * against — but an unbounded string still reaches a query predicate on every request. 64
+ * is far more than any key the type editor produces and still a bound.
+ */
+const TICKET_TYPE_KEY_MAX_LENGTH = 64;
+
+/**
+ * A ceiling on the moderation-role list, and on how much of a rejection is echoed back.
+ *
+ * A Discord snowflake is at most 20 characters and no server has 50 moderation roles, so
+ * both are generous. They exist because the rejection path interpolates every unmatched id
+ * into its error message: without a cap, a request carrying 100k ids passes validation,
+ * runs 100k cache lookups, and builds a 100k-id error string — caller-controlled
+ * amplification out of what looks like a helpful message.
+ */
+const MODERATION_ROLES_MAX = 50;
+const ROLE_ID_MAX_LENGTH = 32;
+const REJECTED_ROLES_ECHOED = 10;
 
 const ticketRolePermissions = z.object({
     view: z.boolean(),
@@ -93,8 +115,9 @@ const ticketConfigBody = z.object({
         .trim()
         .min(1, 'Closed tickets need a category too — they do not simply evaporate, much as we all wish.'),
     moderationRoles: z
-        .array(z.string().min(1))
-        .min(1, 'Pick at least one moderation role, or nobody but admins can touch a ticket.'),
+        .array(z.string().min(1).max(ROLE_ID_MAX_LENGTH))
+        .min(1, 'Pick at least one moderation role, or nobody but admins can touch a ticket.')
+        .max(MODERATION_ROLES_MAX, 'That is more moderation roles than any server has. Trim the list.'),
 });
 
 /**
@@ -141,16 +164,34 @@ export function ticketRoutes(): Hono<AppEnv> {
             return c.json({ error: `\`${status}\` is not a ticket status. Try open, closed or deleted.` }, 400);
         }
 
+        /*
+         * `status` is checked against a closed union above. `type` cannot be — types are
+         * guild-defined, so there is no vocabulary to validate against — but it still
+         * reaches a query predicate, so it gets a length cap. It is a bound parameter, so
+         * this is not injection; it is an unbounded attacker-controlled string that would
+         * otherwise be compared against every row on every request.
+         */
+        const typeQuery = c.req.query('type');
+        if (typeQuery && typeQuery.length > TICKET_TYPE_KEY_MAX_LENGTH) {
+            return c.json({ error: 'That is not a ticket type.' }, 400);
+        }
+
         const filter = {
             status: status ? (status as TicketStatus) : undefined,
-            type: c.req.query('type') || undefined,
+            type: typeQuery || undefined,
             unclaimedOnly: c.req.query('unclaimed') === 'true',
         };
 
         const search = c.req.query('search')?.trim();
-        const tickets = search
+        const found = search
             ? await ticketsRepo.searchByGuild(guild.id, search, filter)
             : await ticketsRepo.listByGuild(guild.id, filter);
+
+        // Both reads ask for one row past the cap, so this can tell "exactly the cap" from
+        // "more than it" without a second count. Drop the sentinel and report it, rather
+        // than returning a short list that looks complete.
+        const truncated = found.length > TICKET_LIST_CAP;
+        const tickets = truncated ? found.slice(0, TICKET_LIST_CAP) : found;
 
         // One config read for the whole page. `typeLabel` is resolved from it per row
         // rather than joined in SQL, because a type is a member of a JSON blob and the
@@ -161,6 +202,9 @@ export function ticketRoutes(): Hono<AppEnv> {
         return c.json({
             tickets: tickets.map((ticket) => ticketSummary(ticket, config)),
             counts,
+            // The counts strip still reports the guild's true totals, so a capped list does
+            // not mislead — but the table needs to say it is showing a slice.
+            truncated,
         });
     });
 
@@ -279,9 +323,16 @@ export function ticketRoutes(): Hono<AppEnv> {
 
         const rejected = parsed.data.moderationRoles.filter((roleId) => !guild.roles.cache.has(roleId));
         if (rejected.length > 0) {
+            // Named, not counted — the operator has to go find these — but only the first
+            // few, so the message stays a message. The array is capped at
+            // `MODERATION_ROLES_MAX`, and echoing every rejected id of a full one would put
+            // fifty snowflakes in a sentence nobody can read.
+            const named = rejected.slice(0, REJECTED_ROLES_ECHOED).join(', ');
+            const remainder = rejected.length - REJECTED_ROLES_ECHOED;
+            const suffix = remainder > 0 ? ` (and ${remainder} more)` : '';
             return c.json(
                 {
-                    error: `These are not roles in this server: ${rejected.join(', ')}. Pick ones that exist — the bot cannot gate a ticket on a role Discord has never heard of.`,
+                    error: `These are not roles in this server: ${named}${suffix}. Pick ones that exist — the bot cannot gate a ticket on a role Discord has never heard of.`,
                 },
                 400
             );

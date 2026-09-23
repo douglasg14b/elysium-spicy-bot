@@ -34,12 +34,29 @@ const applyTicketTransition = vi.fn();
 const upsertTicketType = vi.fn();
 const deleteTicketType = vi.fn();
 
-vi.mock('../../../features/tickets/data/ticketsRepo', () => ({ ticketsRepo: ticketsRepoMock }));
+/*
+ * `TICKET_LIST_CAP` is re-exported from the real module rather than re-declared here.
+ *
+ * A mock factory replaces the *whole* module, so a constant the route imports alongside the
+ * repo silently becomes `undefined` — and an undefined cap makes the handler compare against
+ * `undefined` and slice to `undefined`, which surfaces as an opaque 500 rather than a
+ * readable assertion failure. Taking the real value also keeps the test pinned to the actual
+ * bound instead of a copy of the number that could drift from it.
+ */
+vi.mock('../../../features/tickets/data/ticketsRepo', async () => {
+    const actual = await vi.importActual<typeof import('../../../features/tickets/data/ticketsRepo')>(
+        '../../../features/tickets/data/ticketsRepo'
+    );
+    return { ticketsRepo: ticketsRepoMock, TICKET_LIST_CAP: actual.TICKET_LIST_CAP };
+});
 vi.mock('../../../features/tickets/data/ticketingRepo', () => ({ ticketingRepo: ticketingRepoMock }));
 vi.mock('../../../features/tickets/logic/applyTicketTransition', () => ({ applyTicketTransition }));
 vi.mock('../../../features/tickets/logic/setTicketTypes', () => ({ upsertTicketType, deleteTicketType }));
 
 const { ticketRoutes } = await import('../ticketRoutes');
+// The real bound, read through the mock's re-export, so the cap tests below cannot drift
+// from the value the route actually enforces.
+const { TICKET_LIST_CAP } = await import('../../../features/tickets/data/ticketsRepo');
 
 const GUILD_ID = 'guild-1';
 const OTHER_GUILD_ID = 'guild-2';
@@ -145,6 +162,7 @@ interface ErrorBody {
 interface ListBody {
     tickets: { ticketNumber: number; typeLabel: string | null; type: string }[];
     counts: { open: number; unclaimed: number; closed: number };
+    truncated: boolean;
 }
 
 const validTypeBody = {
@@ -240,6 +258,45 @@ describe('GET /:guildId/tickets', () => {
         // filter would describe the page rather than the guild.
         expect(body.counts).toEqual({ open: 3, unclaimed: 1, closed: 9 });
         expect(ticketsRepoMock.countsByGuild).toHaveBeenCalledWith(GUILD_ID);
+    });
+
+    /*
+     * The cap and its honesty flag. The repo asks for `CAP + 1` so the route can tell "the
+     * cap exactly" from "more than the cap"; these pin both halves, because a table that
+     * silently shows 200 of 4,000 rows invites an operator to conclude the other 3,800 do
+     * not exist.
+     */
+    it('drops the sentinel row and reports truncated when the repo returns more than the cap', async () => {
+        const overflowing = Array.from({ length: TICKET_LIST_CAP + 1 }, (_row, index) =>
+            ticketRow({ id: index + 1, ticketNumber: index + 1 })
+        );
+        ticketsRepoMock.listByGuild.mockResolvedValue(overflowing);
+
+        const body = (await (await get('/tickets')).json()) as ListBody;
+
+        expect(body.truncated).toBe(true);
+        expect(body.tickets).toHaveLength(TICKET_LIST_CAP);
+    });
+
+    it('reports truncated false when the repo returns exactly the cap', async () => {
+        const exact = Array.from({ length: TICKET_LIST_CAP }, (_row, index) =>
+            ticketRow({ id: index + 1, ticketNumber: index + 1 })
+        );
+        ticketsRepoMock.listByGuild.mockResolvedValue(exact);
+
+        const body = (await (await get('/tickets')).json()) as ListBody;
+
+        // The sentinel is what distinguishes these two cases, so the boundary is the whole
+        // point: one row fewer and nothing is being hidden.
+        expect(body.truncated).toBe(false);
+        expect(body.tickets).toHaveLength(TICKET_LIST_CAP);
+    });
+
+    it('rejects an absurdly long type filter rather than passing it to a query predicate', async () => {
+        const response = await get(`/tickets?type=${'x'.repeat(500)}`);
+
+        expect(response.status).toBe(400);
+        expect(ticketsRepoMock.listByGuild).not.toHaveBeenCalled();
     });
 });
 

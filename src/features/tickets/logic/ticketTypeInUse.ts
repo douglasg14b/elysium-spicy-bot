@@ -1,4 +1,4 @@
-import { ticketsRepo, type TicketsRepo } from '../data/ticketsRepo';
+import { ticketsRepo, type TicketsExecutor, type TicketsRepo } from '../data/ticketsRepo';
 import type { TicketStatus } from '../data/ticketsSchema';
 
 /**
@@ -32,6 +32,15 @@ export interface TicketTypeUsageDeps {
 }
 
 /**
+ * Passed as the last argument so a real call inside a transaction uses that transaction.
+ *
+ * Separate from `deps` rather than folded into it because the two answer different
+ * questions: `deps` swaps the repo out for a fake in a unit test, while the executor picks
+ * *which connection* the real repo talks to. Injecting a fake repo makes the executor
+ * moot; using the real repo makes it load-bearing.
+ */
+
+/**
  * How many examples a refusal carries. Five: enough to recognise the tickets, far
  * short of a second list view.
  */
@@ -49,14 +58,24 @@ const EXAMPLE_CAP = 5;
 export async function ticketTypeUsage(
     guildId: string,
     type: string,
-    deps?: TicketTypeUsageDeps
+    deps?: TicketTypeUsageDeps,
+    executor?: TicketsExecutor
 ): Promise<TicketTypeUsage> {
     const tickets = deps?.tickets ?? ticketsRepo;
 
-    const [counts, examples] = await Promise.all([
-        tickets.countByType(guildId, type),
-        tickets.listByType(guildId, type, EXAMPLE_CAP),
-    ]);
+    /*
+     * Sequential rather than `Promise.all`, and the executor threaded through both.
+     *
+     * The caller that matters is `deleteTicketType`, which runs this *inside*
+     * `mutateConfig`'s transaction so the count and the removal cannot straddle a ticket
+     * being opened. Kysely's sqlite dialect holds one mutexed connection, so these reads
+     * must use that transaction or they deadlock against it — and for the same reason they
+     * must not overlap, since two concurrent reads would contend for the single connection
+     * the transaction is holding. Awaiting in turn costs one extra round trip on a path an
+     * operator reaches only when deleting a type.
+     */
+    const counts = await tickets.countByType(guildId, type, executor);
+    const examples = await tickets.listByType(guildId, type, EXAMPLE_CAP, executor);
 
     const countFor = (status: TicketStatus): number =>
         counts.find((row) => row.status === status)?.count ?? 0;

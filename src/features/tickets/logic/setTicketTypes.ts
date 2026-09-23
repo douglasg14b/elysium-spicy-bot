@@ -277,7 +277,7 @@ export async function deleteTicketType(
     let refusalReason: SetTicketTypeRefusal = 'no-config';
 
     try {
-        const config = await repo.mutateConfig(guildId, async (current) => {
+        const config = await repo.mutateConfig(guildId, async (current, transaction) => {
             if (!current.config) return null;
 
             const definition = current.config.ticketTypes?.[type];
@@ -287,11 +287,21 @@ export async function deleteTicketType(
                 return null;
             }
 
-            // Counted inside the mutation, so no other *config* writer can re-add or
-            // remove a type between the count and the removal. This does not serialize
-            // against a ticket being inserted concurrently — see the note above the
-            // function; that query runs on the singleton, not this transaction.
-            const usage = await ticketTypeUsage(guildId, type, deps?.usage);
+            /*
+             * Counted inside the mutation, **on the mutation's own transaction** — so the
+             * count and the removal cannot straddle a ticket being opened, and so this does
+             * not deadlock.
+             *
+             * The transaction is not optional. Kysely's sqlite dialect has one mutexed
+             * connection which `mutateConfig` holds for its whole duration, so a count
+             * issued on the `database` singleton from inside this callback waits on a mutex
+             * that cannot be released until the callback returns. That was this code's
+             * behaviour until it was caught: one click of Delete hung the request and
+             * poisoned the process's only connection, taking every other feature down with
+             * it until restart. The whole suite missed it because every test injects a fake
+             * on one side or the other, so the real transaction never met the real repo.
+             */
+            const usage = await ticketTypeUsage(guildId, type, deps?.usage, transaction);
             if (ticketTypeIsHeld(usage)) {
                 refusal = ticketTypeInUseRefusal({ label: definition.label, type, usage });
                 refusalReason = 'type-in-use';

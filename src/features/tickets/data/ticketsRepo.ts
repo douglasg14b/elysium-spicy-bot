@@ -1,5 +1,6 @@
-import { sql } from 'kysely';
+import { sql, type Kysely, type Transaction } from 'kysely';
 import { database } from '../../../features-system/data-persistence/database';
+import type { Database } from '../../../features-system/data-persistence/database';
 import type {
     NewTicketEntity,
     TicketEntity,
@@ -8,6 +9,32 @@ import type {
     TicketType,
     TicketUpdateEntity,
 } from './ticketsSchema';
+
+/**
+ * Who runs a read: the shared connection, or a caller's open transaction.
+ *
+ * Exists because Kysely's `SqliteDialect` has **one** connection behind a mutex. A read
+ * issued on the `database` singleton from inside a transaction on that singleton waits
+ * for a mutex the transaction still holds — a hard deadlock that poisons the connection
+ * for the whole process, not just the request. Any read a `mutateConfig` mutator needs
+ * must therefore be given the transaction, which is what this type is for.
+ */
+export type TicketsExecutor = Kysely<Database> | Transaction<Database>;
+
+/**
+ * The most rows a list or search hands back.
+ *
+ * A ceiling, not a page size — there is no pagination here and adding it would be a
+ * bigger change than the surface needs. 200 is comfortably more than an operator reads in
+ * one sitting and small enough that the worst case is a bounded response rather than the
+ * whole ticket history of a guild.
+ *
+ * Both list reads ask for `CAP + 1` so the caller can tell "exactly 200" from "more than
+ * 200" without a second `count`, and the route turns the extra row into a `truncated` flag
+ * plus copy telling the operator to narrow. Enforced in the repo rather than the route so
+ * a second caller cannot forget it.
+ */
+export const TICKET_LIST_CAP = 200;
 
 /**
  * Persistence for durable ticket records.
@@ -112,11 +139,21 @@ export class TicketsRepo {
     }
 
     /**
-     * Every ticket in a guild, optionally narrowed by status and type.
+     * A guild's tickets, newest first, optionally narrowed by status and type.
      *
-     * Unpaginated, so it is for an operator-facing list and **not** for the
-     * type-in-use refusal — {@link countByType} and {@link listByType} exist for
-     * that, capped and grouped.
+     * **Capped at {@link TICKET_LIST_CAP} + 1**, and the extra row is deliberate: it is
+     * how a caller distinguishes "exactly the cap" from "more than the cap" without a
+     * second `count` query. The route drops it and reports `truncated`.
+     *
+     * The cap is enforced here rather than left to the caller. This was unbounded, which
+     * on a mature guild meant one dashboard load serialising the entire ticket history —
+     * every row carrying three participant identities — into a single JSON string, in the
+     * same process that runs the Discord gateway. An operator-facing list does not need
+     * every row, and the counts strip already tells them the true totals, so a capped
+     * list does not lie to anyone.
+     *
+     * Still **not** for the type-in-use refusal — {@link countByType} and
+     * {@link listByType} exist for that, grouped and separately capped.
      */
     async listByGuild(
         guildId: string,
@@ -139,7 +176,10 @@ export class TicketsRepo {
             query = query.where('claimerId', 'is', null);
         }
 
-        return query.orderBy('ticketNumber', 'desc').execute();
+        return query
+            .orderBy('ticketNumber', 'desc')
+            .limit(TICKET_LIST_CAP + 1)
+            .execute();
     }
 
     /**
@@ -245,7 +285,13 @@ export class TicketsRepo {
             );
         }
 
-        return statement.orderBy('ticketNumber', 'desc').execute();
+        // Same cap as the unfiltered list, and it matters more here: a text search is a
+        // full scan over four columns with no index behind it, so an uncapped one lets a
+        // scripted caller with a valid session issue an unbounded scan per request.
+        return statement
+            .orderBy('ticketNumber', 'desc')
+            .limit(TICKET_LIST_CAP + 1)
+            .execute();
     }
 
     /**
@@ -257,8 +303,12 @@ export class TicketsRepo {
      * `count(*)` arrives as a string on postgres and a number on sqlite, so it is
      * coerced here at the boundary rather than left for each caller to discover.
      */
-    async countByType(guildId: string, type: string): Promise<{ status: TicketStatus; count: number }[]> {
-        const rows = await database
+    async countByType(
+        guildId: string,
+        type: string,
+        executor: TicketsExecutor = database
+    ): Promise<{ status: TicketStatus; count: number }[]> {
+        const rows = await executor
             .selectFrom('tickets')
             .select(['status', (eb) => eb.fn.countAll<string | number>().as('count')])
             .where('guildId', '=', guildId)
@@ -275,8 +325,13 @@ export class TicketsRepo {
      * For the refusal's example numbers. A guild can have thousands of tickets of
      * one type, and a refusal naming all of them is a refusal nobody reads.
      */
-    async listByType(guildId: string, type: string, limit: number): Promise<TicketEntity[]> {
-        return database
+    async listByType(
+        guildId: string,
+        type: string,
+        limit: number,
+        executor: TicketsExecutor = database
+    ): Promise<TicketEntity[]> {
+        return executor
             .selectFrom('tickets')
             .selectAll()
             .where('guildId', '=', guildId)

@@ -1,4 +1,6 @@
+import type { Transaction } from 'kysely';
 import { database } from '../../../features-system/data-persistence/database';
+import type { Database } from '../../../features-system/data-persistence/database';
 import { DB_TYPE } from '../../../environment';
 import {
     TicketingConfigEntity,
@@ -74,6 +76,17 @@ export class TicketingRepo {
      * Returns the config as written, or null when `mutate` refused. `mutate` gets the
      * row as it is *inside* the transaction, never a copy read earlier.
      *
+     * **`mutate` is handed the transaction, and any query it makes MUST use it.**
+     * Kysely's `SqliteDialect` has a single connection behind a mutex — "SQLite only has
+     * one single connection", per its own driver — which this transaction holds for its
+     * whole duration. A query issued on the module-level `database` singleton from inside
+     * `mutate` therefore waits for a mutex that cannot be released until `mutate`
+     * returns: a hard deadlock, verified empirically, not a theoretical one. It does not
+     * merely hang the request — it poisons the only connection in the process, so every
+     * later query for every feature queues behind it forever and the bot is dead until
+     * restart. That is why the executor is a parameter rather than something a caller may
+     * reach for on its own.
+     *
      * **Not `entityVersion`.** That column is a schema-migration marker here — every
      * writer hardcodes `1` and nothing compares it — so overloading it as an
      * optimistic-concurrency counter would give one name two meanings and silently
@@ -81,7 +94,10 @@ export class TicketingRepo {
      */
     async mutateConfig(
         guildId: string,
-        mutate: (current: TicketingConfigEntity) => Promise<TicketingConfig | null> | TicketingConfig | null
+        mutate: (
+            current: TicketingConfigEntity,
+            transaction: Transaction<Database>
+        ) => Promise<TicketingConfig | null> | TicketingConfig | null
     ): Promise<TicketingConfig | null> {
         return database.transaction().execute(async (transaction) => {
             let select = transaction
@@ -117,7 +133,7 @@ export class TicketingRepo {
 
             if (!existing) return null;
 
-            const next = await mutate(existing);
+            const next = await mutate(existing, transaction);
             if (!next) return null;
 
             await transaction

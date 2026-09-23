@@ -80,6 +80,7 @@ export function TicketsListPage() {
 
     const [tickets, setTickets] = useState<TicketSummary[]>([]);
     const [counts, setCounts] = useState<TicketCounts | null>(null);
+    const [truncated, setTruncated] = useState(false);
     const [config, setConfig] = useState<TicketingConfigView | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -139,6 +140,7 @@ export function TicketsListPage() {
             if (generation !== listGeneration.current) return;
             setTickets(result.tickets);
             setCounts(result.counts);
+            setTruncated(result.truncated);
         } catch (err) {
             if (generation !== listGeneration.current) return;
             setError(err instanceof ApiError ? err.message : 'Failed to load tickets');
@@ -190,7 +192,15 @@ export function TicketsListPage() {
     }, [searchDraft, filter.search]);
 
     useEffect(() => {
-        if (!guildId) return;
+        // Clear the flag rather than just bailing. `loading` starts true so the first
+        // paint is a spinner and not an empty table; if there is no guild to read, the
+        // only code that ever lowers it never runs, and the table spins forever with no
+        // error surface to explain it. The `!selected` guard upstream makes that hard to
+        // reach — not impossible, and a permanent spinner is unexplainable.
+        if (!guildId) {
+            setLoading(false);
+            return;
+        }
         const generation = ++listGeneration.current;
         void (async () => {
             setLoading(true);
@@ -200,6 +210,7 @@ export function TicketsListPage() {
                 if (generation !== listGeneration.current) return;
                 setTickets(result.tickets);
                 setCounts(result.counts);
+                setTruncated(result.truncated);
             } catch (err) {
                 const message = err instanceof ApiError ? err.message : 'Failed to load tickets';
                 if (generation === listGeneration.current) setError(message);
@@ -342,16 +353,32 @@ export function TicketsListPage() {
                                 }))
                             }
                         />
+                        {/*
+                         * `&& !unclaimedOnly` mirrors the Open tile. `applyStatus` clears
+                         * `unclaimedOnly`, so the clause is unreachable today — stated anyway,
+                         * because two tiles answering the same question two different ways is
+                         * what reads as a bug to whoever edits this next.
+                         */}
                         <CountTile
                             label="Closed"
                             value={counts.closed}
-                            active={filter.status === 'closed'}
+                            active={filter.status === 'closed' && !filter.unclaimedOnly}
                             onClick={() => applyStatus('closed')}
                         />
                     </>
                 ) : null}
+                {/*
+                 * No Deleted tile, deliberately. `deleted` is a terminal archive state — the
+                 * row survives so history stays answerable, not so anyone works it — and a
+                 * tile inviting a click into an archive is not what a moderator opening this
+                 * page needs. The Deleted *segment* still exists for looking something up,
+                 * so the caption says which three the numbers cover rather than leaving an
+                 * operator to wonder whether zero deleted tickets exist or the tile is just
+                 * missing.
+                 */}
                 <Text size="11.5px" c="dark.2" style={{ alignSelf: 'center' }}>
-                    Totals for the whole server. Click one to filter by it.
+                    Open, unclaimed and closed totals for the whole server — click one to
+                    filter by it. Deleted tickets are archived; filter for them above.
                 </Text>
             </Group>
 
@@ -429,7 +456,14 @@ export function TicketsListPage() {
             </Card>
 
             <Card p={0} style={{ overflow: 'hidden' }}>
-                {loading ? (
+                {/*
+                 * Only the *first* read replaces the table with a spinner. A re-filter keeps
+                 * the rows on screen and signals itself through the search field's inline
+                 * loader, because blanking the whole table on every debounce tick reads as a
+                 * page reload rather than a filter narrowing — and typing is exactly when it
+                 * would have fired most.
+                 */}
+                {loading && tickets.length === 0 ? (
                     <Center py="xl">
                         <Loader color="brand" size="sm" />
                     </Center>
@@ -598,6 +632,26 @@ export function TicketsListPage() {
                         </Table.Tbody>
                     </Table>
                 )}
+
+                {/*
+                 * Said out loud, because a capped table that looks complete is a lie an
+                 * operator acts on — "there are no other open tickets" is exactly the wrong
+                 * conclusion to let them draw. The counts strip above still carries the
+                 * guild's real totals, so the two together are honest about the gap.
+                 */}
+                {truncated && !loading && !error ? (
+                    <Group
+                        justify="center"
+                        py="sm"
+                        px="md"
+                        style={{ borderTop: '1px solid var(--mantine-color-dark-4)' }}
+                    >
+                        <Text size="12.5px" c="dark.2" ta="center">
+                            Showing the newest {tickets.length}. Narrow it with a filter or the
+                            search box to see the rest.
+                        </Text>
+                    </Group>
+                ) : null}
             </Card>
         </Stack>
     );

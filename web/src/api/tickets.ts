@@ -29,6 +29,15 @@ export interface TicketListResult {
     tickets: TicketSummary[];
     /** Guild-wide, so the strip does not move when the list is filtered. */
     counts: TicketCounts;
+    /**
+     * Whether the server capped the rows it returned.
+     *
+     * The list is bounded server-side — an uncapped one on a mature guild meant serialising
+     * the whole ticket history into one response — so the table has to be able to say it is
+     * showing a slice. `counts` still reports the guild's true totals, so the two together
+     * are honest: "200 of 4,312 shown, narrow it".
+     */
+    truncated: boolean;
 }
 
 export function listTickets(guildId: string, filter: TicketListFilter = {}): Promise<TicketListResult> {
