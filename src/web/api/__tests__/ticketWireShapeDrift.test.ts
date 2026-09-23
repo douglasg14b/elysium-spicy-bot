@@ -6,6 +6,8 @@ import {
     TICKET_COUNTS_KEYS,
     TICKET_DETAIL_KEYS,
     TICKET_PARTICIPANT_KEYS,
+    TICKET_PERMISSION_MODEL_KEYS,
+    TICKET_ROLE_PERMISSIONS_KEYS,
     TICKET_SUMMARY_KEYS,
     TICKET_TYPE_VIEW_KEYS,
 } from '../ticketRoutes';
@@ -59,6 +61,22 @@ const SHAPES = [
     },
     { name: 'TicketCounts', server: TICKET_COUNTS_KEYS, browser: browserTypes.TICKET_COUNTS_KEYS },
     { name: 'TicketTypeView', server: TICKET_TYPE_VIEW_KEYS, browser: browserTypes.TICKET_TYPE_VIEW_KEYS },
+    /*
+     * The two shapes *inside* `TicketTypeView.permissions`. Gating the parent by name left
+     * these unchecked — adding a fifth permission server-side and mirroring nothing left
+     * every row here green — and they are the bits written onto real Discord channels, with
+     * one config-page checkbox each.
+     */
+    {
+        name: 'TicketRolePermissions',
+        server: TICKET_ROLE_PERMISSIONS_KEYS,
+        browser: browserTypes.TICKET_ROLE_PERMISSIONS_KEYS,
+    },
+    {
+        name: 'TicketPermissionModel',
+        server: TICKET_PERMISSION_MODEL_KEYS,
+        browser: browserTypes.TICKET_PERMISSION_MODEL_KEYS,
+    },
     {
         name: 'TicketingConfigView',
         server: TICKETING_CONFIG_VIEW_KEYS,

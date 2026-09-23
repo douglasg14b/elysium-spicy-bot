@@ -1076,6 +1076,29 @@ export const TICKET_TYPE_VIEW_KEYS = [
     'autoClaimOnOpen',
 ] as const satisfies readonly (keyof TicketTypeView)[];
 
+/*
+ * The shapes *inside* `permissions`, gated separately — see the matching note in
+ * `src/web/api/ticketRoutes.ts`.
+ *
+ * Gating `permissions` by name alone left these four booleans unchecked, and that was
+ * proven rather than supposed: a fifth member added server-side and mirrored nowhere left
+ * all nine drift tests green. They are the permission bits written onto real Discord
+ * channels, and the config page draws one checkbox per member — so an unmirrored member is
+ * a permission an operator can never see or set, silently dropped on the next save.
+ */
+export const TICKET_ROLE_PERMISSIONS_KEYS = [
+    'view',
+    'send',
+    'readHistory',
+    'manageMessages',
+] as const satisfies readonly (keyof TicketRolePermissions)[];
+
+export const TICKET_PERMISSION_MODEL_KEYS = [
+    'subject',
+    'opener',
+    'staff',
+] as const satisfies readonly (keyof TicketPermissionModel)[];
+
 export const TICKETING_CONFIG_VIEW_KEYS = [
     'configured',
     'deployed',
@@ -1095,6 +1118,8 @@ type TicketKeyListsAreComplete =
     | Exclude<keyof TicketActionResult, (typeof TICKET_ACTION_RESULT_KEYS)[number]>
     | Exclude<keyof TicketCounts, (typeof TICKET_COUNTS_KEYS)[number]>
     | Exclude<keyof TicketTypeView, (typeof TICKET_TYPE_VIEW_KEYS)[number]>
+    | Exclude<keyof TicketRolePermissions, (typeof TICKET_ROLE_PERMISSIONS_KEYS)[number]>
+    | Exclude<keyof TicketPermissionModel, (typeof TICKET_PERMISSION_MODEL_KEYS)[number]>
     | Exclude<keyof TicketingConfigView, (typeof TICKETING_CONFIG_VIEW_KEYS)[number]>;
 
 /** Do not delete as unused: removing it erases the guard above. */

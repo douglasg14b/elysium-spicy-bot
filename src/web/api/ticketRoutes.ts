@@ -6,6 +6,10 @@ import { TICKET_LIST_CAP, ticketsRepo } from '../../features/tickets/data/ticket
 import {
     isTicketingConfigConfigured,
     type TicketingConfig,
+    // Named rather than reached through `TicketTypeDefinition['permissions']`, so `keyof`
+    // has something to bite on in the drift gate below.
+    type TicketPermissionModel,
+    type TicketRolePermissions,
     type TicketTypeDefinition,
 } from '../../features/tickets/data/ticketingSchema';
 import { TICKET_STATUSES, type TicketEntity, type TicketStatus } from '../../features/tickets/data/ticketsSchema';
@@ -688,6 +692,36 @@ export const TICKET_TYPE_VIEW_KEYS = [
     'autoClaimOnOpen',
 ] as const satisfies readonly (keyof TicketTypeView)[];
 
+/*
+ * `permissions` is gated **by name above and by shape here**, because gating the name
+ * alone left the four booleans inside it completely unchecked.
+ *
+ * That was proven, not supposed: adding a fifth member to the server's
+ * `TicketRolePermissions` and mirroring nothing in the browser left all nine drift tests
+ * green. The root typecheck happened to fail too, but only incidentally — the seed literal
+ * in `defaultTicketTypes` no longer satisfied the widened interface. *Rename* a member
+ * instead of adding one and the seed still satisfies it, while the browser reads a field
+ * the server stopped sending.
+ *
+ * These are the permission bits written onto real Discord channels, and the config page
+ * draws one checkbox per member — so an unmirrored member is a permission an operator can
+ * never see or set, silently round-tripped away on the next save. `BLOCK_CONFIG_FIELD_KEYS`
+ * already established this pattern one level down for exactly this reason; tickets gated
+ * the top level and stopped.
+ */
+export const TICKET_ROLE_PERMISSIONS_KEYS = [
+    'view',
+    'send',
+    'readHistory',
+    'manageMessages',
+] as const satisfies readonly (keyof TicketRolePermissions)[];
+
+export const TICKET_PERMISSION_MODEL_KEYS = [
+    'subject',
+    'opener',
+    'staff',
+] as const satisfies readonly (keyof TicketPermissionModel)[];
+
 export const TICKETING_CONFIG_VIEW_KEYS = [
     'configured',
     'deployed',
@@ -712,6 +746,8 @@ type KeyListsComplete =
     | Exclude<keyof TicketActionResult, (typeof TICKET_ACTION_RESULT_KEYS)[number]>
     | Exclude<keyof TicketCounts, (typeof TICKET_COUNTS_KEYS)[number]>
     | Exclude<keyof TicketTypeView, (typeof TICKET_TYPE_VIEW_KEYS)[number]>
+    | Exclude<keyof TicketRolePermissions, (typeof TICKET_ROLE_PERMISSIONS_KEYS)[number]>
+    | Exclude<keyof TicketPermissionModel, (typeof TICKET_PERMISSION_MODEL_KEYS)[number]>
     | Exclude<keyof TicketingConfigView, (typeof TICKETING_CONFIG_VIEW_KEYS)[number]>;
 
 /**
