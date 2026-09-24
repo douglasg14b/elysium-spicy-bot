@@ -77,6 +77,18 @@ export type {
     UnpublishOutcome,
 } from './logic/applyUnpublishPlan';
 
+// Drift. The third question about a binding, after "does it exist" (install) and "may
+// I delete it" (teardown): is it still what we said it was. The comparison is pure and
+// takes a snapshot rather than a guild, which is what keeps its permission rules — the
+// subtle part — testable without one.
+export type {
+    ResourceDriftKind,
+    ResourceDriftReport,
+    PermissionDifference,
+} from './logic/resourceDrift';
+export { describeDrift, hasDrift } from './logic/resourceDrift';
+export type { JourneyDriftPlan, UncheckedResource } from './logic/journeyDriftPlan';
+
 export type {
     ResourceBindingEntity,
     ResourceBindingState,

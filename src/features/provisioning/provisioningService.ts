@@ -6,6 +6,7 @@ import {
     type ApplyUnpublishPlanResult,
 } from './logic/applyUnpublishPlan';
 import { buildInstallPlan, type InstallPlan, type ResourceChoice } from './logic/installPlan';
+import { buildJourneyDriftPlan, type JourneyDriftPlan } from './logic/journeyDriftPlan';
 import { buildUnpublishPlan, type UnpublishPlan } from './logic/unpublishPlan';
 import type { JourneyDeclaration } from './logic/resourceDeclaration';
 
@@ -100,6 +101,42 @@ export async function previewUnpublish(
 ): Promise<UnpublishPlan> {
     const bindings = await resourceBindingsRepo.listByJourney(guild.id, journeyKey);
     return buildUnpublishPlan({ guild, journeyKey, bindings });
+}
+
+export interface PreviewDriftInput {
+    readonly guild: Guild;
+    readonly journey: JourneyDeclaration;
+    /** Who the journey is about, when a resource's permissions name a subject. */
+    readonly subjectId?: string;
+    readonly staffRoleIds: readonly string[];
+}
+
+/**
+ * Report which of a journey's installed resources are no longer what it declared.
+ *
+ * Reads only. Takes a *declaration* rather than a key — the opposite of
+ * `previewUnpublish` — because drift is a comparison and there is nothing to compare
+ * against once the journey row is gone. A journey whose declaration has been deleted
+ * has orphaned bindings, which is teardown's subject rather than this one's.
+ *
+ * Takes the same permission inputs as the install preview so the comparison compiles
+ * the identical models the apply would, for the same reason stated on `previewInstall`.
+ */
+export async function previewDrift(input: PreviewDriftInput): Promise<JourneyDriftPlan> {
+    const bindings = await resourceBindingsRepo.listByJourney(
+        input.guild.id,
+        input.journey.journeyKey
+    );
+
+    return buildJourneyDriftPlan({
+        guild: input.guild,
+        journey: input.journey,
+        bindings,
+        permissionContext: {
+            subjectId: input.subjectId,
+            staffRoleIds: input.staffRoleIds,
+        },
+    });
 }
 
 export interface UnpublishJourneyInput {
