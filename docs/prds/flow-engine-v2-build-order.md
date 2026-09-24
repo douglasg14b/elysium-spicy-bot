@@ -709,7 +709,7 @@ All 29 §5.7 and §5.8 requirements are placed — 10 in 5A, 19 in 5B. Nothing i
 
 | Requirement | Why it waits |
 |---|---|
-| ~~Drift detection and repair (§5.7)~~ | **Done 2026-09-24** — 5B.2 slices A–C |
+| Drift detection and repair (§5.7) | **Engine done 2026-09-24** — 5B.2 slices A–C. No operator surface yet, so the requirement stays open |
 | ~~Explicit teardown policy / uninstall (§5.7, §5.8)~~ | **Done 2026-09-24** — 5B.2 slice D. Most of it already existed; the gap was orphans and an unwritten policy |
 | Rate-limit-aware application, resumable (§5.7) | Pacing layer over a working apply. Real, but our guild is small |
 | ~~A resource may be bound by more than one journey (§5.7)~~ | **Cut 2026-09-24 — a decided non-requirement, not a deferral.** See below |

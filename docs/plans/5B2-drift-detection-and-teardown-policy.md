@@ -319,7 +319,30 @@ recomputes it from the binding rows, and can only ever take repairability away �
 cannot loosen a plan that was already cautious. Pinned while it cost four lines rather
 than after a route made it silent.
 
-**Sabotage runs: twelve in all**, each failing exactly its named test and nothing else.
+**The review earned its cost, and the highest-value finding was one no test could
+reach.** Four sub-reviewers ran against slices A–D; three independently found the same
+two defects, which is the signal worth weighting. Seven were real and all are fixed
+(`5035992`). The one worth reading:
+
+> **Adoption recorded the declared name, so every adopted resource reported a rename
+> that never happened.** `applyInstallPlan` settles an `adopt` with `name: item.name`
+> while `requireAdoptable` deliberately never renames the object.
+
+Two things kept it invisible. My own test asserted the phantom drift *as correct
+behaviour* — "detects drift on an adopted resource" passed **because of** the bug. And
+the install harness's fake `settle` silently dropped `name`, so no test on that side
+could have seen it either. A fixture that ignores the field under test is the same
+false-pass class as a helper that discards its overrides, one layer up.
+
+The other six: `renameBinding` unscoped on a non-unique column; permission repair
+writing the whole compiled model rather than the drifted ids; a missing model throwing
+*after* a rename landed; `resource:` role references never resolved in the drift path
+(so the most security-sensitive shape went unchecked behind a misleading reason);
+permissions repairable on a resource whose permissions were never checked; and an
+`intended` row with a live object reported as "already gone".
+
+**Sabotage runs: eighteen in all**, each failing exactly its named test and nothing
+else.
 The three that were most worth doing: the extra-overwrites rule (its failure makes the
 report useless rather than wrong), the adoption refusals in both detection and repair,
 and the apply-time re-check. Two sabotages in slice C caught the *mutation* via a spy
