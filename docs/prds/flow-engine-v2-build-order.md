@@ -723,7 +723,7 @@ All 29 §5.7 and §5.8 requirements are placed — 10 in 5A, 19 in 5B. Nothing i
 | A flow may hold many triggers (§5.8) | Independent of provisioning |
 | Every trigger in a flow fires (§5.8) | Independent — already in *Carried forward* as a known defect |
 | Trigger buttons deploy per destination (§5.8) | Independent of provisioning |
-| Disconnected subgraphs are legible (§5.8) | Builder work |
+| ~~Disconnected subgraphs are legible (§5.8)~~ | **Done 2026-09-24** — computed live in the browser, because a save-time verdict goes stale on the next edge drag |
 | Cross-path sequencing uses existing mechanisms (§5.8) | A constraint on authors, not code |
 | ~~Install wizard (§5.8)~~ | **Cut 2026-09-24 by the operator** — 5A's plan → confirm → apply already installs, and the flows page hands off to it. See below |
 | Onboarding journey template ships (§5.8) | That is step 6 |
@@ -929,10 +929,18 @@ Sabotage check for this one: declare a channel that references a declared role, 
 
 - A flow may hold many triggers (§5.8)
 - Every trigger in a flow fires (§5.8) — already a known defect in *Carried forward*
-- Trigger buttons deploy per destination (§5.8)
-- Disconnected subgraphs are legible (§5.8)
+- ~~Trigger buttons deploy per destination (§5.8)~~ — **done 2026-09-20**
+- ~~Disconnected subgraphs are legible (§5.8)~~ — **done 2026-09-24**
 
 The build order already marks the first three "Independent of provisioning". They are filed under 5B by position, not by subject.
+
+**The two that remain are one change.** `memberJoinDispatch.ts:28` and
+`reactionAddDispatch.ts:91` both locate a flow's trigger with `.find()`, so a flow
+holding two triggers of the same kind fires exactly one — chosen by array order, which
+is authoring order. "Many triggers" is therefore not a feature to add so much as the
+thing that stops being broken when "every trigger fires" is fixed: the executor already
+takes `triggerNodeId` per run, and graph validation already tolerates several trigger
+roots.
 
 One in-slice caveat: 5A.1's own items are **not** parallelisable against each other. 3, 4 and 5 all edit the same panel and the same declaration type.
 

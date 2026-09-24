@@ -34,6 +34,18 @@ export interface FlowNodeCardData extends Record<string, unknown> {
      * same objects on every card in every undo snapshot for nothing.
      */
     issueCount: number;
+    /**
+     * Whether no trigger can reach this node, so it never runs.
+     *
+     * Legal, and not a save failure — which is why it is a separate field rather than
+     * another thing folded into `issueCount`. The two are different claims with
+     * different lifetimes: `issueCount` is what the *last save* found and is cleared on
+     * the next attempt, while this is recomputed from the live graph on every edit.
+     *
+     * A boolean rather than a reason: there is only one way to be unreachable, and the
+     * card has room to say it once.
+     */
+    unreachable: boolean;
 }
 
 export type FlowCardNode = Node<FlowNodeCardData, 'flowCard'>;
@@ -48,7 +60,7 @@ const HANDLE_BASE: React.CSSProperties = {
 };
 
 export function FlowNodeCard({ data, selected }: NodeProps<FlowCardNode>) {
-    const { nodeType, label, config, descriptor, roles, channels, issueCount } = data;
+    const { nodeType, label, config, descriptor, roles, channels, issueCount, unreachable } = data;
 
     if (!descriptor) {
         return <BrokenNodeCard nodeType={nodeType} selected={selected} />;
@@ -58,6 +70,15 @@ export function FlowNodeCard({ data, selected }: NodeProps<FlowCardNode>) {
     const handles = descriptor.handles;
     const labelled = handlesAreLabelled(handles);
     const failed = issueCount > 0;
+    /*
+     * Shown only when the card is not already failing.
+     *
+     * A red card is about to be refused; telling the author it also would not have run
+     * is a second problem they cannot act on until the first is fixed. Red wins, and
+     * the advisory reappears once it is green again — the same precedence `borderColor`
+     * takes between failure and selection.
+     */
+    const adrift = unreachable && !failed;
 
     return (
         <div
@@ -74,7 +95,30 @@ export function FlowNodeCard({ data, selected }: NodeProps<FlowCardNode>) {
                 // Failure outranks selection: an author clicking an errored node to
                 // read its issues must not have the card stop looking errored.
                 border: `1px solid ${borderColor(failed, selected)}`,
+                /*
+                 * The amber edge, on the one side no other state uses.
+                 *
+                 * Border colour, the ring and the header corner are all spoken for by
+                 * failure and selection, and overloading any of them would make an
+                 * advisory compete with a refusal. Dashed rather than solid because the
+                 * claim is "nothing flows through here", which is what a broken line
+                 * says without a legend.
+                 */
+                ...(adrift
+                    ? {
+                          borderLeft: '3px dashed var(--mantine-color-yellow-6)',
+                          borderTopLeftRadius: 12,
+                          borderBottomLeftRadius: 12,
+                      }
+                    : {}),
                 borderRadius: 12,
+                /*
+                 * Dimmed, so it reads as "this does not run" without depending on
+                 * colour at all. Selection still lifts it back to full strength: an
+                 * author who clicked it is working on it, and fading the thing under
+                 * the cursor is the one moment this would be in the way.
+                 */
+                opacity: adrift && !selected ? 0.55 : 1,
                 boxShadow: failed
                     ? '0 0 0 2px rgba(237,66,69,.5), 0 8px 24px rgba(0,0,0,.4)'
                     : selected
@@ -133,6 +177,19 @@ export function FlowNodeCard({ data, selected }: NodeProps<FlowCardNode>) {
                     // the author notices the moment they open it.
                     <Text size="11px" c="red.4" mt={4}>
                         Open it — {issueCount === 1 ? 'one problem' : `${issueCount} problems`} to fix.
+                    </Text>
+                ) : null}
+                {adrift ? (
+                    /*
+                     * Named, because dimming alone says "different" and not "why".
+                     *
+                     * Phrased as the consequence rather than the graph property: "no
+                     * trigger reaches this" describes the topology an author is looking
+                     * at anyway, while "never runs" is the thing they care about and
+                     * did not know.
+                     */
+                    <Text size="11px" c="yellow.5" mt={4}>
+                        Nothing reaches this — it never runs.
                     </Text>
                 ) : null}
             </div>

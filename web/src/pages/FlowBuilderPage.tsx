@@ -117,6 +117,7 @@ import {
 } from '../flows/installSummary';
 import { InstalledResourcesDialog } from '../flows/InstalledResourcesDialog';
 import { issuesByNode, summarizeIssues } from '../flows/validationIssues';
+import { unreachableNodeIds } from '../flows/unreachableNodes';
 import { actorAvailableAt, availableVariablesAt } from '../flows/variables';
 import { NodePalette, NODE_DRAG_MIME } from '../flows/NodePalette';
 import { NodeInspector } from '../flows/NodeInspector';
@@ -205,6 +206,12 @@ function snapshot(source: Snapshot): Snapshot {
                 // repaint cards red for a rejection that no longer describes them.
                 // The effect that owns it puts the right number back.
                 issueCount: 0,
+                // **Carried**, unlike `issueCount` above, and the difference is the
+                // point: a save verdict restored from a snapshot is stale, while
+                // reachability is a property of the graph being restored. The effect
+                // recomputes it either way, so zeroing here would only put one frame
+                // of every card at full strength before they fade back.
+                unreachable: node.data.unreachable,
             },
         })),
         edges: structuredClone(source.edges),
@@ -533,6 +540,8 @@ function FlowBuilder() {
                                 // A freshly loaded flow has not been saved in this
                                 // session, so nothing has been refused yet.
                                 issueCount: 0,
+                                // The effect answers this as soon as the edges land.
+                                unreachable: false,
                             } satisfies FlowNodeCardData,
                         };
                     })
@@ -591,6 +600,10 @@ function FlowBuilder() {
                     channels,
                     // Nothing has judged it yet; the next save will.
                     issueCount: 0,
+                    // A block just dropped from the palette has no edges, and an
+                    // unwired node is deliberately never marked — see
+                    // `unreachableNodeIds`. False is also what the effect will say.
+                    unreachable: false,
                 },
             };
             setNodes((prev) => [...prev, node]);
@@ -1090,7 +1103,18 @@ function FlowBuilder() {
     const issuesForNode = useMemo(() => issuesByNode(saveIssues), [saveIssues]);
 
     /**
-     * Push each node's issue count onto its card data.
+     * Which nodes no trigger reaches, recomputed on every edit.
+     *
+     * Computed here because this is the only component holding both the nodes and the
+     * edges — the same reason `availableVariables` below is. Live rather than returned
+     * by a save: a verdict from the server would describe the graph that was *saved*
+     * and would be wrong the instant an author drags an edge, which is precisely the
+     * work that fixes it.
+     */
+    const unreachableIds = useMemo(() => unreachableNodeIds(nodes, edges), [nodes, edges]);
+
+    /**
+     * Push each node's issue count and reachability onto its card data.
      *
      * React Flow renders from `node.data`, so a card cannot read page state — it has
      * to be carried. An effect rather than part of the save handler, so the count
@@ -1099,10 +1123,15 @@ function FlowBuilder() {
      *
      * Deliberately **not** through `pushHistory`: a failed save is not a graph edit,
      * and recording one would let undo "restore" a graph that differs only in which
-     * cards are red.
+     * cards are red. Reachability is not an edit either — it is a *consequence* of one
+     * that is already in history.
+     *
+     * Both facts ride one effect rather than two. They write the same nodes through the
+     * same setter, and a second effect would compute its answer from whatever
+     * intermediate state the first had just produced.
      *
      * `nodes` is a dependency *and* the thing being set, which is only safe because
-     * the updater returns `prev` unchanged when every count already matches — the
+     * the updater returns `prev` unchanged when every value already matches — the
      * second pass is referentially identical, so React stops there rather than
      * looping.
      */
@@ -1111,13 +1140,16 @@ function FlowBuilder() {
             let changed = false;
             const next = prev.map((node) => {
                 const count = issuesForNode.get(node.id)?.length ?? 0;
-                if (node.data.issueCount === count) return node;
+                const unreachable = unreachableIds.has(node.id);
+                if (node.data.issueCount === count && node.data.unreachable === unreachable) {
+                    return node;
+                }
                 changed = true;
-                return { ...node, data: { ...node.data, issueCount: count } };
+                return { ...node, data: { ...node.data, issueCount: count, unreachable } };
             });
             return changed ? next : prev;
         });
-    }, [issuesForNode, nodes, setNodes]);
+    }, [issuesForNode, unreachableIds, nodes, setNodes]);
 
     /**
      * What the selection's ancestry implies for the copy fields in it.
