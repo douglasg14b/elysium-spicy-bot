@@ -709,12 +709,12 @@ All 29 §5.7 and §5.8 requirements are placed — 10 in 5A, 19 in 5B. Nothing i
 
 | Requirement | Why it waits |
 |---|---|
-| Drift detection and repair (§5.7) | **Engine done 2026-09-24** — 5B.2 slices A–C. No operator surface yet, so the requirement stays open |
+| ~~Drift detection and repair (§5.7)~~ | **Done 2026-09-24** — engine in 5B.2 slices A–C, operator surface in slice F. Reachable from the flows page group header |
 | ~~Explicit teardown policy / uninstall (§5.7, §5.8)~~ | **Done 2026-09-24** — 5B.2 slice D. Most of it already existed; the gap was orphans and an unwritten policy |
 | Rate-limit-aware application, resumable (§5.7) | Pacing layer over a working apply. Real, but our guild is small |
 | ~~A resource may be bound by more than one journey (§5.7)~~ | **Cut 2026-09-24 — a decided non-requirement, not a deferral.** See below |
 | Subsystem configuration is a declarable resource (§5.7) | Blocked on issue #22 — ticket categories are name-keyed, not id-keyed |
-| Verify, don't overwrite (§5.7) | Adoption in 5A binds what the operator picks; *checking* it against required config is the drift machinery |
+| ~~Verify, don't overwrite (§5.7)~~ | **Done 2026-09-24** — this *is* the drift machinery, and the adoption promise is what "don't overwrite" names: an adopted resource is compared and reported, never repaired |
 | Ambiguous names disambiguate explicitly (§5.7) | 5A's plan lists candidates; ranked-suggestion UI is builder work |
 | Suggestions are ranked, never auto-applied (§5.7) | Same — UI affordance over the same binding call |
 | Provisioning opt-in per resource (§5.7) | "Bind to one I made by hand" is adoption, which 5A has; the per-resource *decline* toggle is UI |

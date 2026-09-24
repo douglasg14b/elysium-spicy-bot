@@ -117,7 +117,43 @@ that is worth paying.
 | **B** | `journeyDriftPlan.ts` — read the guild, build a drift report for a journey; wire it into the existing install-plan route so a plan *shows* drift | An operator previewing an install sees "3 resources have drifted" with each difference named |
 | **C** | `applyDriftRepair.ts` + a repair route — reconcile approved items | **Drift is repairable.** The slice's product |
 | **D** | Teardown policy — close the gaps below in `unpublishPlan` / the routes | Uninstall states its policy rather than implying it |
+| **F** | The operator surface — routes and a dialog on the flows page | **An operator can ask the question.** Added after D; see below |
 | **E** | Run it against the live guild | The bar, proven |
+
+**F was not in the original plan and should have been.** A–D shipped an engine that
+could answer three questions and no operator could ask one — the plan's own "visible
+after it" column claimed C made drift repairable, which was true of the engine and false
+of the product. The correction is recorded rather than the row quietly rewritten, because
+the mistake is the reusable part: *a slice whose deliverable is a capability needs a
+surface in the same plan, or the plan will report done against something nobody can
+reach*. F therefore runs before E, since live-testing an engine nobody can drive proves
+less than driving it.
+
+### F — the operator surface
+
+Three routes on `journeyRoutes.ts` (`GET .../drift`, `POST .../repair`,
+`POST .../orphans/:bindingId/forget`), a wire shape in `driftBody.ts`, a pure
+`driftSummary.ts` in the browser, and `JourneyDriftDialog.tsx` reached from the group
+header. Four decisions worth keeping:
+
+**Repair rebuilds its plan server-side.** `repairDrift` takes an `approvedPlan` so the
+applier acts on reviewed findings, and "reviewed" is satisfied by rebuilding and acting
+only on the operator's ticked keys. `repairBody` does not declare the field, so `zod`
+strips it before the handler runs — which is where the guarantee actually lives, and it
+is asserted against the schema directly because it is *not observable through the
+handler*: a test sending a forged plan passed even against a handler deliberately
+rewritten to prefer it.
+
+**Drift and orphans share one response and one dialog**, though they are different
+questions. They are the same operator question — *is my server still what I asked for* —
+and answering half of it on a screen that looks complete is worse than two screens.
+
+**Forget drops the row and never the object.** See the PRD's teardown section for why a
+single-orphan delete was declined.
+
+**No chip on the group header.** Detecting drift costs a Discord read per resource, so a
+chip would mean checking every journey on every page load to decorate rows that are
+almost always clean. The button says a check is available, not that one has been done.
 
 A is invisible and is one commit — the smallest available prefix, consistent with the
 lesson this programme keeps relearning. The visible deliverable is **C**, with B
@@ -355,11 +391,14 @@ rather than a return value, which is the stronger evidence.
   re-running. Named in slice D's scope and deliberately not built — it wants a table,
   and the question of how long such a record should live is not one to answer in a
   tail-end commit.
-- **No surface.** Slices A–D are engine and service only. Nothing in the dashboard
-  shows a drift report or offers a repair, so none of this is reachable by an operator
-  yet.
+- ~~**No surface.**~~ **Closed by slice F, 2026-09-24.** Drift, repair and forget are
+  reachable from the flows page group header.
+- **Orphan deletion is not offered**, only forgetting the row. A single-orphan delete
+  needs the cascade and adoption guards `buildUnpublishPlan` owns; see slice F.
 - **Slice E has not run.** Everything here is test-verified only, which is the condition
-  every step in this programme has ended by making false.
+  every step in this programme has ended by making false. The drift dialog in particular
+  has had no jsdom test and no human look at it — `web/` has no DOM environment, so its
+  rendering is verified by `tsc` and a build, and nothing else.
 
 ## Ordering
 
