@@ -25,8 +25,17 @@ import {
     RESOURCE_KINDS,
     ResourceDeclarationError,
 } from '../../features/provisioning/logic/resourceDeclaration';
-import { previewUnpublish, unpublishJourney } from '../../features/provisioning';
+import {
+    previewDrift,
+    previewOrphans,
+    previewUnpublish,
+    repairDrift,
+    unpublishJourney,
+} from '../../features/provisioning';
+import { toDeclarationFromRow } from '../../features/provisioning/data/journeysRepo';
+import { guildSettingsRepo } from '../../features-system/guild-settings';
 import type { AppEnv } from '../types';
+import { driftBody } from './driftBody';
 import { flowNameInGuild } from './flowNameInGuild';
 import { publishedBody } from './publishedBody';
 
@@ -126,6 +135,26 @@ export const resourceSchema = z.object({
     description: z.string().max(500, 'Descriptions cap at 500 characters.').optional(),
     /** Set when the operator picked something that already exists instead of declaring a new one. */
     adoptDiscordId: discordIdSchema.optional(),
+});
+
+/**
+ * Which drifted resources the operator ticked.
+ *
+ * Keys rather than the reviewed report, because the report is rebuilt server-side —
+ * see the route. `min(1)` because an empty repair is a request that cannot have been
+ * meant: the button is only reachable with something selected, so an empty array is a
+ * malformed client rather than an operator who chose nothing, and silently returning
+ * "repaired 0" would hide that.
+ */
+/**
+ * Exported for the route test that asserts a forged `approvedPlan` is stripped here
+ * rather than merely ignored downstream. That distinction is not observable through
+ * the handler — see the test — so the schema is checked directly.
+ */
+export const repairBody = z.object({
+    resourceKeys: z
+        .array(resourceKeySchema)
+        .min(1, 'Choose at least one resource to repair.'),
 });
 
 const createJourneyBody = z.object({
@@ -379,6 +408,174 @@ export function journeyRoutes(): Hono<AppEnv> {
         }
 
         return c.json({ results: result.results });
+    });
+
+    /**
+     * What this journey installed that no longer matches what it declares.
+     *
+     * The third question about a binding, after "does it exist" (the install plan) and
+     * "may I delete it" (the inventory above). Until this route existed the engine
+     * could answer it and no operator could ask — `buildInstallPlan` decides `reuse` on
+     * existence alone, so a channel renamed, dragged out of its category and stripped
+     * of its overwrites reported as a clean reuse forever.
+     *
+     * Orphans ride along in the same response rather than getting a route of their own.
+     * They are a different question — a resource we installed and no longer declare, so
+     * there is nothing to compare it against — but they are the *same screen*: an
+     * operator asking "is my server still what I asked for" is owed both answers at
+     * once, and two fetches would let the dialog show half an answer.
+     *
+     * Read-only, and it reads the guild rather than the binding table's opinion of it.
+     * That is the whole difference between this and the `installState` on the flows
+     * list, which is deliberately the weaker claim.
+     */
+    app.get('/:guildId/journeys/:journeyKey/drift', async (c) => {
+        const guild = c.get('guild');
+        const journeyKey = c.req.param('journeyKey');
+
+        const row = await journeysRepo.getByKey(guild.id, journeyKey);
+        if (!row) {
+            return c.json({ error: 'Journey not found.' }, 404);
+        }
+
+        const journey = toDeclarationFromRow(row);
+        // Read once and used for the comparison, so it compiles the same permission
+        // models an install would — the reason `previewDrift` takes these at all.
+        const staffRoleIds = await guildSettingsRepo.getStaffRoleIds(guild.id);
+
+        const [plan, orphans] = await Promise.all([
+            previewDrift({ guild, journey, staffRoleIds }),
+            previewOrphans({ guild, journey }),
+        ]);
+
+        return c.json(driftBody(plan, orphans));
+    });
+
+    /**
+     * Put approved drift back to what the journey declared.
+     *
+     * **The plan is rebuilt here and never accepted from the browser**, matching
+     * `/install` and `/unpublish`. `repairDrift` takes an `approvedPlan` because the
+     * applier must act on findings someone reviewed rather than ones it just invented,
+     * but "reviewed" is satisfied by rebuilding and acting only on the keys the
+     * operator ticked: a rebuild can only ever report *different* drift, and a key
+     * whose drift has changed or resolved since the preview is then either repaired to
+     * the declaration it was always heading for, or reported as nothing to do. What it
+     * cannot do is act on a finding the browser made up, which is what accepting a plan
+     * over the wire would permit.
+     *
+     * The adoption promise is re-derived from the binding rows inside `repairDrift`
+     * regardless, so neither the keys nor the plan can talk us into touching structure
+     * that predates the journey.
+     *
+     * A partial repair is **200, not an error**, for the same reason a partial install
+     * is: what was fixed is really fixed, and the per-item results say where it stopped.
+     */
+    app.post('/:guildId/journeys/:journeyKey/repair', async (c) => {
+        const guild = c.get('guild');
+        const journeyKey = c.req.param('journeyKey');
+
+        const row = await journeysRepo.getByKey(guild.id, journeyKey);
+        if (!row) {
+            return c.json({ error: 'Journey not found.' }, 404);
+        }
+
+        const parsed = repairBody.safeParse(await c.req.json().catch(() => null));
+        if (!parsed.success) {
+            return c.json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body.' }, 400);
+        }
+
+        const journey = toDeclarationFromRow(row);
+        // Re-read rather than carried from the preview, for the same reason the plan is
+        // rebuilt: staff roles can change between reading a report and pressing repair.
+        const staffRoleIds = await guildSettingsRepo.getStaffRoleIds(guild.id);
+        const plan = await previewDrift({ guild, journey, staffRoleIds });
+
+        const result = await repairDrift({
+            guild,
+            journey,
+            staffRoleIds,
+            approvedPlan: plan,
+            approvedKeys: new Set(parsed.data.resourceKeys),
+        });
+
+        if (result.refusal) {
+            return c.json({ error: result.refusal }, 409);
+        }
+
+        return c.json({ results: result.results });
+    });
+
+    /**
+     * Drop the record of a resource this journey no longer declares.
+     *
+     * **Forgets the row; never touches the object.** The two are genuinely separable
+     * and only one of them is safe to offer here: deleting a stray channel needs the
+     * cascade and adoption guards `buildUnpublishPlan` spent a slice getting right, and
+     * a second delete path that reimplemented them slightly differently is exactly the
+     * duplicate-approach the repo's rules forbid. An operator who wants the object gone
+     * tears the journey down, or deletes it in Discord.
+     *
+     * So this is the cleanup for the *leftover record* — the thing an operator cannot
+     * see or reach any other way, and which otherwise makes the object invisible and
+     * permanent. The object it referred to, if it is still there, is left exactly where
+     * it is and the response says so.
+     *
+     * Scoped to this journey's own bindings. A binding id belonging to another journey
+     * — or another guild — is a 404, so an id guessed at a URL cannot drop a row the
+     * operator was never shown.
+     */
+    app.post('/:guildId/journeys/:journeyKey/orphans/:bindingId/forget', async (c) => {
+        const guild = c.get('guild');
+        const journeyKey = c.req.param('journeyKey');
+
+        const row = await journeysRepo.getByKey(guild.id, journeyKey);
+        if (!row) {
+            return c.json({ error: 'Journey not found.' }, 404);
+        }
+
+        const bindingId = Number(c.req.param('bindingId'));
+        if (!Number.isInteger(bindingId)) {
+            return c.json({ error: 'Binding id must be a whole number.' }, 400);
+        }
+
+        /*
+         * Re-found through `previewOrphans` rather than forgotten by id directly.
+         *
+         * The id alone would let this drop a binding that is still declared — the one
+         * row whose disappearance genuinely breaks things, because install would then
+         * create a *second* copy of a resource that already exists. Requiring it to
+         * still be an orphan means the only rows reachable here are ones nothing
+         * references, and it closes the window where an operator re-adds the resource
+         * in another tab between reading the report and pressing forget.
+         */
+        const journey = toDeclarationFromRow(row);
+        const orphans = await previewOrphans({ guild, journey });
+        const orphan = orphans.find((entry) => entry.bindingId === bindingId);
+
+        if (!orphan) {
+            return c.json(
+                {
+                    error: 'That leftover record is not there any more — it may already have been removed, or the resource has been declared again. Reopen the report to see what is true now.',
+                },
+                404
+            );
+        }
+
+        const forgotten = await resourceBindingsRepo.forget(bindingId);
+        if (!forgotten) {
+            return c.json({ error: 'That leftover record was already removed.' }, 404);
+        }
+
+        return c.json({
+            forgotten: true,
+            resourceKey: orphan.resourceKey,
+            name: orphan.name,
+            // The operator is owed the distinction: a row dropped behind a live object
+            // means something is still sitting in their server that nothing tracks any
+            // more, and that is the case where they may want to go and look at it.
+            objectRemains: orphan.stillInGuild,
+        });
     });
 
     /**
