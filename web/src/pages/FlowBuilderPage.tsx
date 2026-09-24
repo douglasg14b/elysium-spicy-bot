@@ -117,6 +117,7 @@ import {
 } from '../flows/installSummary';
 import { InstalledResourcesDialog } from '../flows/InstalledResourcesDialog';
 import { issuesByNode, summarizeIssues } from '../flows/validationIssues';
+import { convergingTriggerCounts } from '../flows/convergingTriggers';
 import { unreachableNodeIds } from '../flows/unreachableNodes';
 import { actorAvailableAt, availableVariablesAt } from '../flows/variables';
 import { NodePalette, NODE_DRAG_MIME } from '../flows/NodePalette';
@@ -212,6 +213,9 @@ function snapshot(source: Snapshot): Snapshot {
                 // recomputes it either way, so zeroing here would only put one frame
                 // of every card at full strength before they fade back.
                 unreachable: node.data.unreachable,
+                // Carried for the same reason, and it is a property of the restored
+                // graph rather than a verdict about an older one.
+                convergingTriggers: node.data.convergingTriggers,
             },
         })),
         edges: structuredClone(source.edges),
@@ -540,8 +544,9 @@ function FlowBuilder() {
                                 // A freshly loaded flow has not been saved in this
                                 // session, so nothing has been refused yet.
                                 issueCount: 0,
-                                // The effect answers this as soon as the edges land.
+                                // The effect answers both as soon as the edges land.
                                 unreachable: false,
+                                convergingTriggers: 0,
                             } satisfies FlowNodeCardData,
                         };
                     })
@@ -604,6 +609,8 @@ function FlowBuilder() {
                     // unwired node is deliberately never marked — see
                     // `unreachableNodeIds`. False is also what the effect will say.
                     unreachable: false,
+                    // Nothing reaches a block with no edges, let alone two triggers.
+                    convergingTriggers: 0,
                 },
             };
             setNodes((prev) => [...prev, node]);
@@ -1114,6 +1121,16 @@ function FlowBuilder() {
     const unreachableIds = useMemo(() => unreachableNodeIds(nodes, edges), [nodes, edges]);
 
     /**
+     * Which nodes several triggers reach, and so run several times per event.
+     *
+     * The companion to the above, and computed here for the same reason. Every matching
+     * trigger starts its own run — which is correct — so two converging on one action
+     * is two runs through it. Worth saying because the canvas draws two edges into a
+     * node and never mentions how many times it fires.
+     */
+    const convergingCounts = useMemo(() => convergingTriggerCounts(nodes, edges), [nodes, edges]);
+
+    /**
      * Push each node's issue count and reachability onto its card data.
      *
      * React Flow renders from `node.data`, so a card cannot read page state — it has
@@ -1141,15 +1158,23 @@ function FlowBuilder() {
             const next = prev.map((node) => {
                 const count = issuesForNode.get(node.id)?.length ?? 0;
                 const unreachable = unreachableIds.has(node.id);
-                if (node.data.issueCount === count && node.data.unreachable === unreachable) {
+                const convergingTriggers = convergingCounts.get(node.id) ?? 0;
+                if (
+                    node.data.issueCount === count &&
+                    node.data.unreachable === unreachable &&
+                    node.data.convergingTriggers === convergingTriggers
+                ) {
                     return node;
                 }
                 changed = true;
-                return { ...node, data: { ...node.data, issueCount: count, unreachable } };
+                return {
+                    ...node,
+                    data: { ...node.data, issueCount: count, unreachable, convergingTriggers },
+                };
             });
             return changed ? next : prev;
         });
-    }, [issuesForNode, unreachableIds, nodes, setNodes]);
+    }, [issuesForNode, unreachableIds, convergingCounts, nodes, setNodes]);
 
     /**
      * What the selection's ancestry implies for the copy fields in it.

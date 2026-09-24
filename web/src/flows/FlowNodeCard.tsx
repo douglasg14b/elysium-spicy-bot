@@ -11,6 +11,7 @@ import { Text } from '@mantine/core';
 import { IconAlertTriangle } from '@tabler/icons-react';
 import type { GuildChannel, GuildRole, NodeDescriptor } from '../api/types';
 import { summarizeFromDescriptor } from './cardSummary';
+import { describeConvergence } from './convergingTriggers';
 import { handlesAreLabelled, HANDLE_TONE_COLORS, KIND_STYLES } from './nodeMeta';
 
 /**
@@ -46,6 +47,18 @@ export interface FlowNodeCardData extends Record<string, unknown> {
      * card has room to say it once.
      */
     unreachable: boolean;
+    /**
+     * How many triggers reach this node, when more than one does.
+     *
+     * `0` means one trigger or none — the ordinary case, and the card says nothing.
+     * Anything higher means the node runs that many times per event, because every
+     * matching trigger starts its own run and two of them converging here is two runs
+     * through this block.
+     *
+     * A count rather than a flag: "runs twice" and "runs four times" are different
+     * amounts of trouble, and only the author can say whether either is intended.
+     */
+    convergingTriggers: number;
 }
 
 export type FlowCardNode = Node<FlowNodeCardData, 'flowCard'>;
@@ -60,7 +73,8 @@ const HANDLE_BASE: React.CSSProperties = {
 };
 
 export function FlowNodeCard({ data, selected }: NodeProps<FlowCardNode>) {
-    const { nodeType, label, config, descriptor, roles, channels, issueCount, unreachable } = data;
+    const { nodeType, label, config, descriptor, roles, channels, issueCount, unreachable, convergingTriggers } =
+        data;
 
     if (!descriptor) {
         return <BrokenNodeCard nodeType={nodeType} selected={selected} />;
@@ -79,6 +93,14 @@ export function FlowNodeCard({ data, selected }: NodeProps<FlowCardNode>) {
      * takes between failure and selection.
      */
     const adrift = unreachable && !failed;
+    /*
+     * Also suppressed behind a failure, and behind `adrift` too.
+     *
+     * A node nothing reaches cannot run twice — "unreachable" and "runs 2 times" on one
+     * card is a contradiction the author would have to resolve themselves. Reachability
+     * is the more fundamental claim, so it wins, and this reappears if they wire it up.
+     */
+    const converging = convergingTriggers > 1 && !failed && !adrift;
 
     return (
         <div
@@ -177,6 +199,20 @@ export function FlowNodeCard({ data, selected }: NodeProps<FlowCardNode>) {
                     // the author notices the moment they open it.
                     <Text size="11px" c="red.4" mt={4}>
                         Open it — {issueCount === 1 ? 'one problem' : `${issueCount} problems`} to fix.
+                    </Text>
+                ) : null}
+                {converging ? (
+                    /*
+                     * Amber, and phrased as the consequence.
+                     *
+                     * Every matching trigger starts its own run, so two converging here
+                     * is two runs through this block — two messages, or two tickets.
+                     * Sometimes that is exactly what the author drew; the point is that
+                     * the canvas never said so, and an `action.openTicket` run twice is
+                     * not something re-running fixes.
+                     */
+                    <Text size="11px" c="yellow.5" mt={4}>
+                        {describeConvergence(convergingTriggers)}
                     </Text>
                 ) : null}
                 {adrift ? (
