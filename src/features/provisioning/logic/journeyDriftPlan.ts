@@ -290,6 +290,12 @@ function readOverwrites(channel: GuildBasedChannel): readonly LiveOverwrite[] {
  * the bits individually rather than as a combined field. Splitting once on the way in
  * is cheaper than testing each declared bit against the combined value with a mask,
  * and it makes a difference renderable — the report can name which bits are missing.
+ *
+ * **64 is the protocol's bound, not a guess.** Discord serialises a permission set as a
+ * 64-bit integer in a string, so no flag can exist above bit 63. The highest today is
+ * `PinMessages` at bit 51 (51 flags as of discord.js 14), leaving twelve spare — but
+ * the loop is written to the protocol limit rather than to the current high-water mark
+ * precisely so a new flag cannot silently fall off the end of it.
  */
 function splitBitfield(bitfield: bigint): string[] {
     const bits: string[] = [];

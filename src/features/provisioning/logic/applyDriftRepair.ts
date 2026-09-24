@@ -197,6 +197,41 @@ function describe(report: ResourceDriftReport): Pick<
 }
 
 /**
+ * Re-assert the adoption promise against the rows that actually record provenance.
+ *
+ * A plan's `repairable` flag is only as trustworthy as whoever handed the plan over.
+ * Today that is this process; the moment a route exists it is a client, and
+ * `repairable: true` on an adopted resource becomes a *claim* rather than a fact. The
+ * promise it guards — we never touch structure that predates us — is the strongest one
+ * in this feature and the only one whose breach destroys something the operator did
+ * not put under our control.
+ *
+ * So the flag is recomputed from the bindings rather than trusted. It can only ever
+ * take `repairable` **away**, never grant it: a resource this returns as repairable was
+ * already repairable in the plan.
+ *
+ * Pure and separate from the service call that fetches the rows, so the rule itself is
+ * testable without a database.
+ */
+export function withAdoptionReasserted(
+    plan: JourneyDriftPlan,
+    bindings: readonly { readonly resourceKey: string; readonly state: string }[]
+): JourneyDriftPlan {
+    const adoptedKeys = new Set(
+        bindings
+            .filter((binding) => binding.state === 'adopted')
+            .map((binding) => binding.resourceKey)
+    );
+
+    return {
+        ...plan,
+        drifted: plan.drifted.map((report) =>
+            adoptedKeys.has(report.resourceKey) ? { ...report, repairable: false } : report
+        ),
+    };
+}
+
+/**
  * Why this resource will not be repaired, if it will not be.
  *
  * Both reasons are promises rather than limitations, which is why they are stated to

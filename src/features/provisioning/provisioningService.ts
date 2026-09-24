@@ -15,6 +15,7 @@ import { findOrphanedBindings, type OrphanedBinding } from './logic/orphanedBind
 import { buildJourneyDriftPlan, type JourneyDriftPlan } from './logic/journeyDriftPlan';
 import {
     applyDriftRepair,
+    withAdoptionReasserted,
     type ApplyDriftRepairResult,
     type PermissionOverwriteWrite,
 } from './logic/applyDriftRepair';
@@ -201,6 +202,25 @@ export interface RepairDriftInput extends PreviewDriftInput {
 export async function repairDrift(
     input: RepairDriftInput
 ): Promise<ApplyDriftRepairResult> {
+    /*
+     * The adoption promise is re-derived from the database, never taken from the plan.
+     *
+     * `approvedPlan` arrives from whoever is calling — today only this process, but the
+     * moment a route exists it arrives over the wire, and `repairable: true` on an
+     * adopted resource would then be a client's claim rather than a fact. The promise
+     * this guards is the strongest one in the feature ("we never touch structure that
+     * predates us"), so it is re-read from the row that actually records provenance.
+     *
+     * Cheap, because the bindings are one indexed query and the plan is small. The
+     * alternative — trusting a boolean that travelled — is the shape of defect this
+     * repo has shipped before.
+     */
+    const bindings = await resourceBindingsRepo.listByJourney(
+        input.guild.id,
+        input.journey.journeyKey
+    );
+    const plan = withAdoptionReasserted(input.approvedPlan, bindings);
+
     const compiledOverwrites = new Map<string, readonly PermissionOverwriteWrite[]>();
 
     for (const declaration of input.journey.resources) {
@@ -230,7 +250,7 @@ export async function repairDrift(
 
     return applyDriftRepair({
         guild: input.guild,
-        plan: input.approvedPlan,
+        plan,
         approvedKeys: input.approvedKeys,
         compiledOverwrites,
     });

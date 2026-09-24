@@ -98,7 +98,7 @@ export type { JourneyDriftPlan, UncheckedResource } from './logic/journeyDriftPl
 export { findOrphanedBindings, describeOrphan } from './logic/orphanedBindings';
 export type { OrphanedBinding } from './logic/orphanedBindings';
 
-export { applyDriftRepair } from './logic/applyDriftRepair';
+export { applyDriftRepair, withAdoptionReasserted } from './logic/applyDriftRepair';
 export type {
     ApplyDriftRepairResult,
     RepairedResource,

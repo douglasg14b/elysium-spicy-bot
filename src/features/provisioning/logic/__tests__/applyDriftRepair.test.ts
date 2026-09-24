@@ -1,6 +1,6 @@
 import { ChannelType, PermissionFlagsBits, type Guild } from 'discord.js';
 import { describe, expect, it, vi } from 'vitest';
-import { applyDriftRepair } from '../applyDriftRepair';
+import { applyDriftRepair, withAdoptionReasserted } from '../applyDriftRepair';
 import type { JourneyDriftPlan } from '../journeyDriftPlan';
 import type { ResourceDriftKind, ResourceDriftReport } from '../resourceDrift';
 
@@ -303,6 +303,61 @@ describe('applyDriftRepair', () => {
         expect(channel.setName).not.toHaveBeenCalled();
         expect(result.results).toEqual([]);
         expect(result.refusal).toMatch(/guild-1/);
+    });
+
+    /**
+     * A plan's `repairable` flag is only as trustworthy as whoever handed the plan
+     * over. Today that is this process; the moment a route exists it is a client, and
+     * the flag becomes a claim. The promise it guards is the only one whose breach
+     * destroys something the operator never put under our control.
+     */
+    describe('withAdoptionReasserted', () => {
+        it('takes repairability away from a plan that claims an adopted resource is repairable', () => {
+            const lying = plan([report({ drift: [renamedDrift], repairable: true })]);
+
+            const corrected = withAdoptionReasserted(lying, [
+                { resourceKey: 'welcome-channel', state: 'adopted' },
+            ]);
+
+            expect(corrected.drifted[0]?.repairable).toBe(false);
+        });
+
+        it('leaves a created resource repairable', () => {
+            const honest = plan([report({ drift: [renamedDrift], repairable: true })]);
+
+            const corrected = withAdoptionReasserted(honest, [
+                { resourceKey: 'welcome-channel', state: 'created' },
+            ]);
+
+            expect(corrected.drifted[0]?.repairable).toBe(true);
+        });
+
+        /** It may only ever remove repairability, never grant it. */
+        it('does not grant repairability the plan withheld', () => {
+            const cautious = plan([report({ drift: [renamedDrift], repairable: false })]);
+
+            const corrected = withAdoptionReasserted(cautious, [
+                { resourceKey: 'welcome-channel', state: 'created' },
+            ]);
+
+            expect(corrected.drifted[0]?.repairable).toBe(false);
+        });
+
+        it('refuses the repair end-to-end when the plan lied', async () => {
+            const channel = fakeChannel('lobby');
+            const result = await applyDriftRepair({
+                guild: makeGuild({ 'channel-1': channel }),
+                plan: withAdoptionReasserted(
+                    plan([report({ drift: [renamedDrift], repairable: true })]),
+                    [{ resourceKey: 'welcome-channel', state: 'adopted' }]
+                ),
+                approvedKeys: new Set(['welcome-channel']),
+                repo,
+            });
+
+            expect(channel.setName).not.toHaveBeenCalled();
+            expect(result.results[0]?.outcome).toBe('refused');
+        });
     });
 
     it('reports a failure per item and keeps going', async () => {
