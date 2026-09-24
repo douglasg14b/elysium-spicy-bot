@@ -123,19 +123,21 @@ export class ResourceDeclarationError extends Error {
 }
 
 /**
- * Check a journey's declarations before anything touches the guild.
+ * Check a journey's declarations are internally coherent.
  *
  * Every failure here would otherwise surface mid-apply, with some resources already
  * created — which is exactly the half-applied state the crash-safety requirement
  * exists to avoid. Validating up front is far cheaper than unwinding.
+ *
+ * **An empty journey is coherent.** It used to be refused here, with the reason
+ * "installing it would do nothing" — a statement about *installing*, enforced on every
+ * write by `journeysRepo.create`. That was right while the only way to make a journey
+ * was to declare a resource, and wrong the moment grouping shipped: dragging two flows
+ * together creates the journey that will hold their resources, and refusing it told an
+ * operator their two empty flows could not be grouped. Emptiness is now
+ * {@link assertInstallable}'s business, asked at install where it is true.
  */
 export function validateJourneyDeclaration(journey: JourneyDeclaration): void {
-    if (journey.resources.length === 0) {
-        throw new ResourceDeclarationError(
-            `Journey "${journey.journeyKey}" declares no resources, so installing it would do nothing.`
-        );
-    }
-
     const byKey = new Map<string, ResourceDeclaration>();
     for (const resource of journey.resources) {
         if (byKey.has(resource.key)) {
@@ -223,6 +225,23 @@ export function validateJourneyDeclaration(journey: JourneyDeclaration): void {
                 );
             }
         }
+    }
+}
+
+/**
+ * Refuse a journey that has nothing to install.
+ *
+ * Split out of {@link validateJourneyDeclaration} so that *storing* an empty journey and
+ * *installing* one are different questions. An empty journey is a perfectly good record —
+ * it is what grouping two flows with no resources yet produces, and what a journey looks
+ * like the moment before its first resource is declared. It is only meaningless as an
+ * install, which is the one caller that should ask.
+ */
+export function assertInstallable(journey: JourneyDeclaration): void {
+    if (journey.resources.length === 0) {
+        throw new ResourceDeclarationError(
+            `Journey "${journey.journeyKey}" declares no resources, so installing it would do nothing.`
+        );
     }
 }
 

@@ -4,9 +4,14 @@ import { api } from './client';
 import type {
     AttachResult,
     FlowAttachment,
+    GroupPreview,
+    GroupResolution,
     Journey,
     JourneySummary,
+    PublishedFlowState,
     ResourceDeclaration,
+    UndeployedButtonMessage,
+    UnpublishedResource,
 } from './types';
 
 export function listJourneys(guildId: string): Promise<JourneySummary[]> {
@@ -15,23 +20,13 @@ export function listJourneys(guildId: string): Promise<JourneySummary[]> {
         .then((res) => res.journeys);
 }
 
-export function getJourney(guildId: string, journeyKey: string): Promise<Journey> {
-    return api.get<Journey>(`/api/guilds/${guildId}/journeys/${journeyKey}`);
-}
-
-export function createJourney(
-    guildId: string,
-    input: {
-        journeyKey: string;
-        name: string;
-        description?: string;
-        resources: ResourceDeclaration[];
-    }
-): Promise<Journey> {
-    return api.post<Journey>(`/api/guilds/${guildId}/journeys`, input);
-}
-
-/** Partial update — send only what changed. An invalid declaration comes back as a 400. */
+/**
+ * Partial update — send only what changed. An invalid declaration comes back as a 400.
+ *
+ * The flows page uses this for one field: a journey's name, edited in place on the group
+ * header. The key is never sent, because it is identity — `resource_bindings` and link
+ * rows point at it.
+ */
 export function updateJourney(
     guildId: string,
     journeyKey: string,
@@ -40,8 +35,55 @@ export function updateJourney(
     return api.put<Journey>(`/api/guilds/${guildId}/journeys/${journeyKey}`, patch);
 }
 
-export function deleteJourney(guildId: string, journeyKey: string): Promise<void> {
-    return api.delete<void>(`/api/guilds/${guildId}/journeys/${journeyKey}`);
+/*
+ * No `createJourney` or `deleteJourney` here.
+ *
+ * They existed for the journeys page, which was deleted — a journey is not a thing an
+ * operator goes and manages (PRD §5.8). A journey is now created implicitly: by a flow
+ * saving resources, or by `groupFlowWith` below when two flows are dragged together. It
+ * dies when its last flow leaves rather than by being deleted while flows still install
+ * it. The server routes remain and are still tested; nothing in the client needs them.
+ *
+ * `GET /journeys/:key` *is* used, as `getJourneyResources` below — the group header edits
+ * a journey's declarations directly, which is a different thing from managing a journey as
+ * an object and does not bring the page back.
+ */
+
+/**
+ * What grouping `flowId` with `targetFlowId` would do, before anything is written.
+ *
+ * Called on drop. A 409 means the moving flow's journey is shared and cannot follow it —
+ * the message names the other flows.
+ */
+export function previewFlowGrouping(
+    guildId: string,
+    flowId: string,
+    targetFlowId: string
+): Promise<GroupPreview> {
+    return api.get<GroupPreview>(
+        `/api/guilds/${guildId}/flows/${flowId}/group-preview?target=${encodeURIComponent(targetFlowId)}`
+    );
+}
+
+/**
+ * Commit the drop.
+ *
+ * `resolution` is required whenever the moving flow declares resources; the server
+ * refuses rather than assuming one, because "leave" abandons live Discord objects.
+ * `newJourneyKey` is needed only when the target has no journey yet — the client derives
+ * it, since it already holds the list needed to make it unique.
+ */
+export function groupFlowWith(
+    guildId: string,
+    flowId: string,
+    input: {
+        targetFlowId: string;
+        resolution?: GroupResolution;
+        newJourneyKey?: string;
+        newJourneyName?: string;
+    }
+): Promise<{ journeyKey: string; name: string; resourceCount: number }> {
+    return api.post(`/api/guilds/${guildId}/flows/${flowId}/group`, input);
 }
 
 /** Which journey this flow installs, or `null` when it is attached to none. */
@@ -104,6 +146,73 @@ export function getFlowResources(
             `/api/guilds/${guildId}/flows/${flowId}/resources`
         )
         .then((res) => res.resources);
+}
+
+/**
+ * What one **journey** declares.
+ *
+ * The group header's editor reads this rather than `getFlowResources` through a member
+ * flow. The flow route resolves the journey server-side and answers the same list today —
+ * but which member it would go through is arbitrary, and that member can leave the group
+ * while the dialog is open. Asking the journey asks the thing that actually owns the list.
+ *
+ * A 404 means no such journey in this guild, including one belonging to another guild,
+ * which is deliberately indistinguishable.
+ */
+export function getJourneyResources(
+    guildId: string,
+    journeyKey: string
+): Promise<ResourceDeclaration[]> {
+    return api
+        .get<Journey>(`/api/guilds/${guildId}/journeys/${encodeURIComponent(journeyKey)}`)
+        .then((journey) => journey.resources);
+}
+
+/**
+ * What this **journey** has live in the guild right now.
+ *
+ * The group header's inventory. Scoped to the journey rather than to one of its flows,
+ * which is the difference that matters in `buttonMessages`: every attached flow's posted
+ * messages are here, because the teardown below takes all of them down.
+ *
+ * A 404 means no such journey in this guild — including a key belonging to someone
+ * else's, which is deliberately indistinguishable.
+ */
+export function getJourneyPublishedState(
+    guildId: string,
+    journeyKey: string
+): Promise<PublishedFlowState> {
+    return api.get<PublishedFlowState>(
+        `/api/guilds/${guildId}/journeys/${encodeURIComponent(journeyKey)}/published`
+    );
+}
+
+/** Deletes the messages carrying the buttons of every flow on this journey. */
+export function undeployJourney(
+    guildId: string,
+    journeyKey: string
+): Promise<{ results: UndeployedButtonMessage[] }> {
+    return api.post<{ results: UndeployedButtonMessage[] }>(
+        `/api/guilds/${guildId}/journeys/${encodeURIComponent(journeyKey)}/undeploy`,
+        {}
+    );
+}
+
+/**
+ * Destroys the channels and roles this journey created. Irreversible.
+ *
+ * Unlike `unpublishFlow`, this is **not** refused when several flows share the journey.
+ * That refusal protects flows an operator cannot see from a teardown started on one of
+ * their siblings; acting on the journey itself is the case it was pointing them towards.
+ */
+export function unpublishJourney(
+    guildId: string,
+    journeyKey: string
+): Promise<{ results: UnpublishedResource[] }> {
+    return api.post<{ results: UnpublishedResource[] }>(
+        `/api/guilds/${guildId}/journeys/${encodeURIComponent(journeyKey)}/unpublish`,
+        {}
+    );
 }
 
 /** Replace what a flow declares. An empty list removes its journey entirely. */

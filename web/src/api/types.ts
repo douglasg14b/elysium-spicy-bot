@@ -608,12 +608,57 @@ export interface FlowGraph {
     edges: FlowEdge[];
 }
 
+/**
+ * The journey a flow sits in, as the flows list reports it.
+ *
+ * Present for every flow that resolves to a journey — including the implicit one a lone
+ * flow gets, whose `memberCount` is 1. **The page must key its grouping on
+ * `memberCount > 1`, not on this being non-null**: a journey of one is the state almost
+ * every flow with resources is in, and rendering it as a group would put the concept in
+ * front of operators who have no use for it.
+ */
+export interface FlowJourneyMembership {
+    journeyKey: string;
+    name: string;
+    resourceCount: number;
+    memberCount: number;
+    /**
+     * Whether what the journey declares is in the guild, as the list route reports it.
+     *
+     * Mirrors `JourneyInstallState` in
+     * `src/features/provisioning/logic/journeyInstallState.ts`. `partial` is a real state
+     * and not a rounding error: a half-finished install, or a resource added to a journey
+     * that was already installed.
+     *
+     * It is derived from the **binding table**, so it says install has run rather than that
+     * every channel still exists. The inventory dialog is what checks the latter, and it
+     * costs a live Discord plan to do so — which is exactly why this cheaper answer is on
+     * the row instead.
+     */
+    installState: JourneyInstallState;
+    /** How many declared resources have a live binding. */
+    installedCount: number;
+    /**
+     * *Which* declared keys have a live binding.
+     *
+     * Read by the declarations editor, not by the chip: a key with a binding behind it is
+     * identity rather than a label, so it must stop following its resource's name — see
+     * `web/src/flows/resourceKeyFollowsName.ts`. Carried on the row so the group header and
+     * the builder cannot give different answers about the same resource.
+     */
+    installedKeys: string[];
+}
+
+/** See {@link FlowJourneyMembership.installState}. */
+export type JourneyInstallState = 'none' | 'partial' | 'all';
+
 /** Row shape in the flows list (no graph — just the summary). */
 export interface FlowSummary {
     flowId: string;
     name: string;
     enabled: boolean;
     nodeCount: number;
+    journey: FlowJourneyMembership | null;
     createdAt: string;
     updatedAt: string;
 }
@@ -681,9 +726,15 @@ export interface PublishedResource {
 }
 
 /**
- * What a flow currently has live in the guild.
+ * What a flow — or a journey — currently has live in the guild.
  *
- * Mirrors `PublishedFlowState` in `src/features/flows/logic/publishedFlowState.ts`.
+ * Mirrors `publishedBody` in `src/web/api/publishedBody.ts`, which is the one wire shape
+ * `GET /flows/:flowId/published` and `GET /journeys/:journeyKey/published` both send.
+ * One type rather than two, because the two differ only in **scope**, not in shape: a
+ * journey's `buttonMessages` covers every attached flow's messages where a flow's covers
+ * its own. Everything reading this — `summarisePublished` and both dialogs — cares about
+ * the fields, not about which route filled them, so splitting the type would fork that
+ * code for no difference it could act on.
  *
  * `mayHaveUnrecordedButtons` is always true and comes from the server rather than
  * being assumed here: buttons posted before the recording table existed had their
@@ -880,6 +931,45 @@ export interface JourneySummary {
     createdAt: string;
     updatedAt: string;
 }
+
+/** A resource the moving flow brings with it, and what it is in Discord right now. */
+export interface MovingResource {
+    key: string;
+    kind: ResourceKind;
+    declaredName: string;
+    /** Non-null only for an installed resource — the thing "leave behind" would orphan. */
+    live: { discordId: string; name: string } | null;
+}
+
+/** A key both journeys declare, and what each of them means by it. */
+export interface KeyCollision {
+    key: string;
+    movingName: string;
+    destinationName: string;
+}
+
+/**
+ * What dropping one flow onto another would do, from `GET /flows/:flowId/group-preview`.
+ *
+ * The dialog is built entirely from this. `canMerge` false does not close the dialog —
+ * leaving the resources behind is still a legitimate choice — it removes the merge
+ * option and names the keys that made it impossible.
+ */
+export interface GroupPreview {
+    /** Null when the target has no journey yet, so one would be created. */
+    destination: { journeyKey: string; name: string } | null;
+    /** What to call the destination in copy, whether or not it exists yet. */
+    destinationName: string;
+    movingFlowName: string;
+    moving: MovingResource[];
+    canMerge: boolean;
+    collisions: KeyCollision[];
+    /** Live resources that "leave behind" would strand. The loud half of the dialog. */
+    orphaned: MovingResource[];
+}
+
+/** The operator's answer to a group preview. No default — both outcomes are consequential. */
+export type GroupResolution = 'merge' | 'leave';
 
 /**
  * The journey one flow installs, from `GET /flows/:flowId/attachment`.

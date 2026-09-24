@@ -89,9 +89,9 @@ import {
     canHaveParent,
     declarationForAdoptedChannel,
     declarationForNewResource,
-    slugifyResourceName,
 } from './resourceAdoption';
 import { RESOURCE_CHIPS } from './resourceChips';
+import { keyForRenamedResource, keyIsStillDerived } from './resourceKeyFollowsName';
 import type { ResourceChipJumpTarget } from './resourceChips';
 import { RESOURCE_KIND_ORDER, RESOURCE_KIND_STYLES } from './resourceMeta';
 import {
@@ -141,6 +141,23 @@ interface ResourcesPanelProps {
     saving?: boolean;
     /** A rejected save, shown verbatim — the server's message names the real problem. */
     error?: string;
+    /**
+     * Resource keys that already have something live in the guild.
+     *
+     * Only used to decide whether a rename may carry the key with it — see
+     * `resourceKeyFollowsName.ts`. Absent means "we could not find out", which narrows that
+     * rule to its hand-edit half rather than disabling it.
+     */
+    installedKeys?: ReadonlySet<string>;
+    /**
+     * Whose declarations these are, for the one sentence that has to say so.
+     *
+     * The same discriminator `summarisePublished` takes and for the same reason: everything
+     * else in this panel is identical for both scopes, and a forked component would be a
+     * second place to make every future copy change. Defaults to `flow`, which is what the
+     * builder has always meant.
+     */
+    scope?: 'flow' | 'journey';
 }
 
 /**
@@ -172,6 +189,8 @@ export function ResourcesPanel({
     channels,
     saving,
     error,
+    installedKeys,
+    scope = 'flow',
 }: ResourcesPanelProps) {
     const [filter, setFilter] = useState('');
     /**
@@ -242,6 +261,46 @@ export function ResourcesPanel({
     }
 
     /**
+     * Rename a resource, carrying its key along while the key is still derived.
+     *
+     * Its own handler rather than a plain `updateResource({ defaultName })` because a
+     * rename is **two** fields when the key has never been claimed. The old behaviour
+     * slugified the key once at creation, so adding a channel and then naming it — the
+     * first thing anyone does, since rows are seeded with a generated name — left the key
+     * reading `new-channel` forever, invisibly, because the key field is collapsed.
+     *
+     * Every rule about *when* the key may follow is in `resourceKeyFollowsName.ts`, where
+     * the suite can drive it: a hand-edited key is left alone permanently, an installed one
+     * is frozen because `resource_bindings` and node sidecars point at it, and a derived
+     * key is de-duplicated against the rest of the list so this cannot manufacture the
+     * duplicate the red chip complains about.
+     *
+     * Both fields go in **one** patch, which is what makes the rename atomic:
+     * `applyResourcePatch` rewrites every `parentKey` and `resource:` reference naming the
+     * old key in the same call, so a category's children follow it through a rename without
+     * ever passing through a state the server would refuse.
+     */
+    function renameResource(index: number, nextName: string) {
+        const target = resources[index];
+        if (!target) return;
+
+        const nextKey = keyForRenamedResource({
+            resource: target,
+            nextName,
+            resources,
+            installedKeys,
+        });
+
+        const patch: Partial<ResourceDeclaration> = { defaultName: nextName };
+        // Omitted rather than set to the current key: `applyResourcePatch` reads a `key` in
+        // the patch as a rename and rebuilds the list, which would remount every row on
+        // each keystroke of the name field.
+        if (nextKey !== undefined) patch.key = nextKey;
+
+        updateResource(index, patch);
+    }
+
+    /**
      * Point a row at an existing channel, or back at a new one.
      *
      * Adopting re-seeds the name and the key from the channel, which is the behaviour
@@ -292,16 +351,18 @@ export function ResourcesPanel({
         // arguing with them — and the key especially, which the row calls the flow's
         // permanent handle on the resource and which node configs may already name.
         //
-        // The key's "untouched" test compares against the key *generated from the
-        // generated name* rather than against `generated.key`: the latter is
-        // de-duplicated against the rest of the list, so a second unnamed channel gets
-        // `new-channel-2` and would never look untouched.
+        // The key's "untouched" test goes through `keyIsStillDerived` against the
+        // *generated* name, rather than comparing to `generated.key`: that value is
+        // de-duplicated against the rest of the list, so a second unnamed channel holds
+        // `new-channel-2` and a bare equality would never call it untouched. The same
+        // predicate decides whether a rename may carry the key, so adoption and renaming
+        // cannot disagree about which keys are still ours.
         const patch: Partial<ResourceDeclaration> = { adoptDiscordId: channelId };
 
         if (target.defaultName === generated.defaultName) {
             patch.defaultName = adopted.defaultName;
         }
-        if (target.key === slugifyResourceName(generated.defaultName)) {
+        if (keyIsStillDerived({ ...target, defaultName: generated.defaultName })) {
             patch.key = adopted.key;
         }
 
@@ -367,10 +428,19 @@ export function ResourcesPanel({
     return (
         <Stack gap="lg">
             <Group justify="space-between" align="flex-start" wrap="nowrap" gap="md">
+                {/*
+                 * "these flows" rather than "this flow" on a journey, and nothing else
+                 * changes. The panel is rendered by a group header now as well as by the
+                 * builder, and a shared list of declarations described as one flow's is the
+                 * same misattribution `summarisePublished`'s `scope` exists to avoid —
+                 * except here it would be telling an operator that edits reaching several
+                 * flows reach one.
+                 */}
                 <Text c="dimmed">
-                    Channels and roles this flow needs. Declare them here and they show up in
-                    the pickers straight away — you can build the whole flow before any of them
-                    exist, or point one at something you already have.
+                    Channels and roles {scope === 'journey' ? 'these flows need' : 'this flow needs'}.
+                    Declare them here and they show up in the pickers straight away — you can
+                    build the whole flow before any of them exist, or point one at something you
+                    already have.
                 </Text>
 
                 {/*
@@ -432,9 +502,10 @@ export function ResourcesPanel({
 
             {resources.length === 0 ? (
                 <Text c="dimmed" ta="center" pt="lg">
-                    Nothing declared yet. If this flow only uses channels that already exist and
-                    you have picked them on the blocks themselves, it doesn&apos;t need anything
-                    here.
+                    Nothing declared yet. If{' '}
+                    {scope === 'journey' ? 'these flows only use' : 'this flow only uses'} channels
+                    that already exist and you have picked them on the blocks themselves,{' '}
+                    {scope === 'journey' ? 'they don' : 'it doesn'}&apos;t need anything here.
                 </Text>
             ) : rows.length === 0 ? (
                 <Text c="dimmed" ta="center" pt="lg">
@@ -473,6 +544,8 @@ export function ResourcesPanel({
                                 (declared) => declared.key !== row.resource.key
                             )}
                             onUpdate={(patch) => updateResource(row.index, patch)}
+                            onRename={(nextName) => renameResource(row.index, nextName)}
+                            keyIsInstalled={installedKeys?.has(row.resource.key) ?? false}
                             onAdopt={(channelId) => setAdoption(row.index, channelId)}
                             onRemove={() => removeResource(row.index)}
                         />
@@ -524,6 +597,10 @@ interface ResourceRowProps {
     allResources: ResourceDeclaration[];
     declaredRoles: ResourceDeclaration[];
     onUpdate: (patch: Partial<ResourceDeclaration>) => void;
+    /** Renaming is its own callback because the key may have to follow the name. */
+    onRename: (nextName: string) => void;
+    /** Whether this row's key is frozen by something live in the guild. */
+    keyIsInstalled: boolean;
     /** Adoption is its own callback because it may re-seed the name and key too. */
     onAdopt: (channelId: string | undefined) => void;
     onRemove: () => void;
@@ -547,6 +624,8 @@ function ResourceRow({
     allResources,
     declaredRoles,
     onUpdate,
+    onRename,
+    keyIsInstalled,
     onAdopt,
     onRemove,
 }: ResourceRowProps) {
@@ -689,9 +768,10 @@ function ResourceRow({
                                 }
                                 placeholder={style.namePlaceholder}
                                 value={resource.defaultName}
-                                onChange={(event) =>
-                                    onUpdate({ defaultName: event.currentTarget.value })
-                                }
+                                // `onRename`, not `onUpdate`: until the key is claimed or
+                                // installed it follows the name, and both fields have to
+                                // move in one patch so references stay intact.
+                                onChange={(event) => onRename(event.currentTarget.value)}
                                 leftSection={
                                     style.prefix ? <Text c="dimmed">{style.prefix}</Text> : undefined
                                 }
@@ -701,7 +781,19 @@ function ResourceRow({
                                 ref={keyRef}
                                 size="sm"
                                 label="Key"
-                                description="How this flow refers to it. A rename in Discord won't break it."
+                                /*
+                                 * Says which of the two states this key is in, because the
+                                 * difference is what the operator is about to act on:
+                                 * before anything is installed the key is still following
+                                 * the name, and typing here is what stops that — silently,
+                                 * and permanently. Afterwards it is identity and cannot
+                                 * move at all.
+                                 */
+                                description={
+                                    keyIsInstalled
+                                        ? "Installed things point at this, so it's fixed now. A rename in Discord won't break it."
+                                        : 'How this flow refers to it. Follows the name until you edit it or install.'
+                                }
                                 value={resource.key}
                                 onChange={(event) => onUpdate({ key: event.currentTarget.value })}
                             />

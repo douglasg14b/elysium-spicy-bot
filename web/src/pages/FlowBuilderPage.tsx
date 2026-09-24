@@ -56,7 +56,7 @@ import {
     IconRocket,
     IconStack2,
 } from '@tabler/icons-react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { getGuildChannels } from '../api/config';
 import {
@@ -121,8 +121,8 @@ import { actorAvailableAt, availableVariablesAt } from '../flows/variables';
 import { NodePalette, NODE_DRAG_MIME } from '../flows/NodePalette';
 import { NodeInspector } from '../flows/NodeInspector';
 import { JourneyAttachmentControl } from '../flows/JourneyAttachmentControl';
-import { ResourcesPanel } from '../flows/ResourcesPanel';
-import { useResourceAutosave } from '../flows/useResourceAutosave';
+import { INSTALL_QUERY_PARAM } from '../flows/installStateChip';
+import { ResourcesDialog } from '../flows/ResourcesDialog';
 import {
     defaultDataFor,
     EDGE_STROKE_WIDTH,
@@ -262,6 +262,8 @@ function FlowBuilder() {
     const { flowId } = useParams<{ flowId: string }>();
     const { selected, loading: guildsLoading } = useGuilds();
     const navigate = useNavigate();
+    // Only for the flows list's `?install=1` hand-off; see the effect that consumes it.
+    const [searchParams, setSearchParams] = useSearchParams();
     const { screenToFlowPosition } = useReactFlow();
 
     const [nodes, setNodes, onNodesChange] = useNodesState<FlowCardNode>([]);
@@ -278,8 +280,9 @@ function FlowBuilder() {
      * graph silently discarded the resource edits too.
      */
     const [declaredResources, setDeclaredResources] = useState<ResourceDeclaration[]>([]);
-    const [resourcesSaving, setResourcesSaving] = useState(false);
-    const [resourcesError, setResourcesError] = useState<string | null>(null);
+    // The saving flag and the save error moved into `ResourcesDialog` with the autosave
+    // they describe. Nothing outside that modal ever read them, and keeping them here
+    // would have been two pieces of state the page held on another component's behalf.
     const [showResources, setShowResources] = useState(false);
     /**
      * Which journey this flow installs, and every journey it could install instead.
@@ -346,6 +349,28 @@ function FlowBuilder() {
     const installPlanRequest = useRef(0);
 
     /**
+     * Open the wizard when arrived at from the flows list's install button.
+     *
+     * The list has no install path of its own — the wizard reviews a plan the server
+     * builds, and a second copy of that on the list would be a second answer to "what will
+     * this do to my server". So the button navigates here with `?install=1`.
+     *
+     * **The parameter is stripped in the same effect**, with `replace` so no history entry
+     * is spent on it. Left in the URL it would reopen the wizard on every refresh and on
+     * every back-navigation to this flow, long after the operator dismissed it — a dialog
+     * that cannot be got rid of without editing the address bar.
+     */
+    useEffect(() => {
+        if (searchParams.get(INSTALL_QUERY_PARAM) !== '1') return;
+
+        setInstallOpen(true);
+
+        const next = new URLSearchParams(searchParams);
+        next.delete(INSTALL_QUERY_PARAM);
+        setSearchParams(next, { replace: true });
+    }, [searchParams, setSearchParams]);
+
+    /**
      * The inventory of what this flow already has in the guild, and the uninstall.
      *
      * Reachable from the builder because that is where the install lives: an operator
@@ -365,12 +390,40 @@ function FlowBuilder() {
      * default, since it proposes creating rather than destroying.
      */
     const [installedCount, setInstalledCount] = useState<number | null>(null);
+    /**
+     * Which declared resources are live, by key.
+     *
+     * Read from the same call as the count above rather than fetched separately, because it
+     * is the same answer sliced differently. The resources panel needs it to know when a
+     * key may stop following its name: once something in the guild is bound to a key, that
+     * key is identity — `resource_bindings` rows and node config sidecars point at it — and
+     * changing it would orphan both (`resourceKeyFollowsName.ts`).
+     *
+     * Empty while unknown, which narrows the rule to its hand-edit half rather than
+     * freezing everything. Freezing on a failed lookup would be the safer-looking choice
+     * and is the wrong one: it would silently reinstate the stale-key bug for any operator
+     * whose published lookup happened to fail.
+     */
+    const [installedResourceKeys, setInstalledResourceKeys] = useState<ReadonlySet<string>>(
+        () => new Set()
+    );
 
     const refreshInstalledCount = useCallback(async () => {
         if (!selected || !flowId) return;
         try {
             const state = await getPublishedState(selected.id, flowId);
             setInstalledCount(state.deletableResources.length + state.refusedResources.length);
+            // Both lists: a refused resource is still installed. `refused` is about whether
+            // a *teardown* may touch it — an adopted channel, a category with survivors —
+            // and an adopted resource is exactly the case where the key must not move, since
+            // the binding points at someone else's channel.
+            setInstalledResourceKeys(
+                new Set(
+                    [...state.deletableResources, ...state.refusedResources].map(
+                        (resource) => resource.resourceKey
+                    )
+                )
+            );
         } catch {
             // A failed lookup leaves the button on its install face rather than
             // guessing. The dialog does its own fetch and reports properly.
@@ -621,19 +674,18 @@ function FlowBuilder() {
         setDeclaredResources(next);
     }, []);
 
-    useResourceAutosave({
-        guildId: selected?.id,
-        flowId,
-        // Part of the autosave's identity: attaching swaps the declarations on screen
-        // without the flow id changing, and without this the replacement would be read
-        // as an edit and written straight into the journey just attached to.
-        journeyKey: attachment?.journeyKey,
-        resources: declaredResources,
-        loaded: !loading && !attachmentLoading,
-        onSaved: setDeclaredResources,
-        onSavingChange: setResourcesSaving,
-        onError: setResourcesError,
-    });
+    /**
+     * Where the declarations are saved: this flow, journey resolved server-side.
+     *
+     * Memoised because it is the autosave's identity by way of `ResourcesDialog`, and a new
+     * object every render would restart the debounce on each one — see the `targetRef` note
+     * in `useResourceAutosave`. `flowId` is the route parameter, so it is stable across a
+     * render and changes exactly when the builder moves to another flow.
+     */
+    const resourcesTarget = useMemo(
+        () => (flowId ? ({ kind: 'flow', flowId } as const) : undefined),
+        [flowId]
+    );
 
     /**
      * Re-read which journey this flow installs, and what else it could.
@@ -1544,36 +1596,41 @@ function FlowBuilder() {
              * resources out of a short scroll well, which was the other half of the
              * complaint.
              */}
-            <Modal
-                opened={showResources}
-                onClose={() => setShowResources(false)}
-                title="Resources this flow needs"
-                size="1100px"
-                styles={{ content: { height: 'min(88vh, 900px)' }, body: { paddingBottom: 24 } }}
-            >
-                {/*
-                 * Above the list, not beside it: the control answers "whose resources
-                 * are these?", and the whole list below is meaningless without it. A
-                 * flow on a shared journey is editing declarations other flows install.
-                 */}
-                <Stack gap="lg">
-                    <JourneyAttachmentControl
-                        attachment={attachment}
-                        journeys={guildJourneys}
-                        loading={attachmentLoading}
-                        onAttach={handleAttach}
-                        onDetach={handleDetach}
-                    />
-                    <ResourcesPanel
-                        resources={declaredResources}
-                        onChange={saveResources}
-                        roles={roles}
-                        channels={channels}
-                        saving={resourcesSaving}
-                        error={resourcesError ?? undefined}
-                    />
-                </Stack>
-            </Modal>
+            {/*
+             * The shell, the sizing, the autosave and the guild directory all live in
+             * `ResourcesDialog` now, so the flows page's group header can open the same
+             * editor. What stays here is the two things only the builder has: the journey
+             * it saves against, and the attachment control above the list.
+             */}
+            {selected && resourcesTarget && (
+                <ResourcesDialog
+                    opened={showResources}
+                    onClose={() => setShowResources(false)}
+                    guildId={selected.id}
+                    target={resourcesTarget}
+                    title="Resources this flow needs"
+                    /*
+                     * Above the list, not beside it: the control answers "whose resources
+                     * are these?", and the whole list below is meaningless without it. A
+                     * flow on a shared journey is editing declarations other flows install.
+                     */
+                    header={
+                        <JourneyAttachmentControl
+                            attachment={attachment}
+                            journeys={guildJourneys}
+                            loading={attachmentLoading}
+                            onAttach={handleAttach}
+                            onDetach={handleDetach}
+                        />
+                    }
+                    installedKeys={installedResourceKeys}
+                    resources={declaredResources}
+                    onChange={saveResources}
+                    journeyKey={attachment?.journeyKey}
+                    loaded={!loading && !attachmentLoading}
+                    onSaved={setDeclaredResources}
+                />
+            )}
 
             {/*
              * Review, then apply. Two steps rather than one button, because this

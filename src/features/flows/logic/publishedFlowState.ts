@@ -127,7 +127,15 @@ export async function getPublishedFlowState(
     };
 }
 
-function toPublishedResource(item: {
+/**
+ * One plan item as the wire reports it.
+ *
+ * Exported so the journey-scoped twin in `publishedJourneyState.ts` maps plan items the
+ * same way rather than keeping a second copy of the `action === 'refuse'` rule. That
+ * rule is the one thing standing between "this will be deleted" and "this survives", and
+ * two copies of it is two chances for a dialog to promise the wrong one.
+ */
+export function toPublishedResource(item: {
     resourceKey: string;
     kind: string;
     name: string;

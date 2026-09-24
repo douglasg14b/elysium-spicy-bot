@@ -306,3 +306,47 @@ describe('the label on the button that destroys things', () => {
         expect(summary.unpublishConfirmLabel).toBe('Yes, delete 1 resource');
     });
 });
+
+/**
+ * The two places this copy names its **owner** rather than its resources.
+ *
+ * Both were written when only a flow could own resources, and both say something false
+ * on a group header: the journey's channels were created by several flows, not by the
+ * one the operator happens to have in mind. The rest of the module is scope-neutral,
+ * which is why this is a discriminator rather than a second module.
+ */
+describe('scope-aware wording', () => {
+    const published = state({
+        deletableResources: [resource({ resourceKey: 'a', name: 'tickets' })],
+    });
+
+    it('attributes resources to the flow by default', () => {
+        const summary = summarisePublished(published);
+
+        expect(summary.leftBehind).toContain('it created');
+        expect(summary.groups[0].title).toBe('Created by this flow');
+    });
+
+    it('attributes them to the group when summarising a journey', () => {
+        const summary = summarisePublished(published, 'journey');
+
+        expect(summary.leftBehind).toContain('they created');
+        expect(summary.leftBehind).not.toContain('it created');
+        expect(summary.groups[0].title).toBe('Created by these flows');
+    });
+
+    /**
+     * Only the ownership wording moves. The inventory is the same list of the same
+     * resources either way, and a scope that quietly changed which rows appeared would
+     * be a dialog showing one thing and destroying another.
+     */
+    it('changes nothing else about the inventory', () => {
+        const asFlow = summarisePublished(published);
+        const asJourney = summarisePublished(published, 'journey');
+
+        expect(allLines(asJourney)).toEqual(allLines(asFlow));
+        expect(asJourney.deletableCount).toBe(asFlow.deletableCount);
+        expect(asJourney.unpublishLabel).toBe(asFlow.unpublishLabel);
+        expect(asJourney.canUnpublish).toBe(asFlow.canUnpublish);
+    });
+});

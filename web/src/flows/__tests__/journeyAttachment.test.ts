@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { JourneySummary } from '../../api/types';
 import {
     attachableJourneys,
-    deleteBlockedReason,
     describeAttachIntent,
     describeDetachIntent,
+    newJourneyNameFor,
     slugifyJourneyName,
     uniqueJourneyKey,
 } from '../journeyAttachment';
@@ -31,6 +31,39 @@ function journey(overrides: Partial<JourneySummary> = {}): JourneySummary {
         ...overrides,
     };
 }
+
+describe('newJourneyNameFor', () => {
+    it('reads as a container rather than as a copy of its first member', () => {
+        // The live bug: dragging onto "Flow E" produced a header reading "Flow E",
+        // directly above a member row also reading "Flow E".
+        expect(newJourneyNameFor('Flow E')).toBe('Flow E journey');
+    });
+
+    it('keeps the operator\'s name first, so a list stays scannable', () => {
+        expect(newJourneyNameFor('Onboarding')).toBe('Onboarding journey');
+    });
+
+    it('does not say journey twice', () => {
+        expect(newJourneyNameFor('Welcome journey')).toBe('Welcome journey');
+        expect(newJourneyNameFor('Welcome Journey')).toBe('Welcome Journey');
+    });
+
+    it('drops the suffix rather than truncating a name at the server\'s cap', () => {
+        // `createJourneyBody` refuses names over 100 characters. The suffix is ours and
+        // the name is theirs, so the suffix is what gives way.
+        const long = 'a'.repeat(96);
+        expect(newJourneyNameFor(long)).toBe(long);
+        expect(newJourneyNameFor(long).length).toBeLessThanOrEqual(100);
+
+        const justFits = 'a'.repeat(92);
+        expect(newJourneyNameFor(justFits)).toBe(`${justFits} journey`);
+        expect(newJourneyNameFor(justFits)).toHaveLength(100);
+    });
+
+    it('trims, so a padded flow name does not produce a padded journey name', () => {
+        expect(newJourneyNameFor('  Rules  ')).toBe('Rules journey');
+    });
+});
 
 describe('slugifyJourneyName', () => {
     it('produces a key the server\'s resource-key pattern accepts', () => {
@@ -66,35 +99,13 @@ describe('uniqueJourneyKey', () => {
     });
 });
 
-describe('deleteBlockedReason', () => {
-    it('is undefined when nothing is attached, so the delete is offered', () => {
-        expect(deleteBlockedReason(journey())).toBeUndefined();
-    });
-
-    it('names the single attached flow', () => {
-        const reason = deleteBlockedReason(
-            journey({ attachedFlows: [{ flowId: 'a', name: 'Welcome wagon' }] })
-        );
-
-        expect(reason).toContain('Welcome wagon');
-        expect(reason).toContain('Detach it first');
-    });
-
-    it('names every attached flow rather than counting them alone', () => {
-        // A count tells an operator the size of a problem they then have to go and find.
-        const reason = deleteBlockedReason(
-            journey({
-                attachedFlows: [
-                    { flowId: 'a', name: 'Welcome wagon' },
-                    { flowId: 'b', name: 'Age check' },
-                ],
-            })
-        );
-
-        expect(reason).toContain('Welcome wagon');
-        expect(reason).toContain('Age check');
-    });
-});
+/*
+ * `deleteBlockedReason`'s tests were here. Removed 2026-09-22 with the function and the
+ * journeys page it served — nothing deletes a journey from the client any more, so there
+ * is no rule left to pin. The name-every-flow convention those tests guarded is still
+ * enforced where it is still reachable: `sharedJourneyRefusal` on the server, and the
+ * orphan warning in `GroupConflictDialog`.
+ */
 
 describe('describeAttachIntent', () => {
     it('describes a first attach as gaining a journey', () => {

@@ -13,6 +13,7 @@
  */
 
 import type { InstallPlan, InstallPlanItem, InstallResult, ResourceKind } from '../api/types';
+import { joinWithAnd } from './nameLists';
 
 /** What the review step needs to say, decided here rather than in JSX. */
 export interface InstallPlanSummary {
@@ -34,12 +35,6 @@ export interface InstallPlanSummary {
 
 function plural(count: number, one: string, many: string): string {
     return `${count} ${count === 1 ? one : many}`;
-}
-
-function joinWithAnd(parts: readonly string[]): string {
-    if (parts.length === 0) return '';
-    if (parts.length === 1) return parts[0];
-    return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
 }
 
 /** The nouns one kind is counted by. */

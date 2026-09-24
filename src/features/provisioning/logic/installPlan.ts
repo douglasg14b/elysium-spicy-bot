@@ -4,6 +4,7 @@ import { parseDeclaredRoleReference } from './declaredRoleReference';
 import { compilePermissionIntents, type PermissionIntentContext } from './permissionIntent';
 import {
     orderResourcesForApply,
+    assertInstallable,
     validateJourneyDeclaration,
     type JourneyDeclaration,
     type ResourceDeclaration,
@@ -234,7 +235,12 @@ function describePermissionFailure(
 export function buildInstallPlan(input: BuildInstallPlanInput): InstallPlan {
     const { guild, journey, existingBindings, choices = {}, permissionContext } = input;
 
+    // Coherence, then installability. The emptiness check lives here rather than in
+    // `validateJourneyDeclaration` because storing an empty journey is legitimate —
+    // grouping two flows that declare nothing yet creates exactly one — and only an
+    // install has nothing to do with it.
     validateJourneyDeclaration(journey);
+    assertInstallable(journey);
 
     const bindingByKey = new Map(
         existingBindings.map((binding) => [binding.resourceKey, binding] as const)

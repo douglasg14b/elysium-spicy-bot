@@ -138,9 +138,86 @@ Each row is a commit.
 |---|---|---|
 | **A** | `flow_journey_links`, its dated migration, and the repo that reads it. Backfill every existing flow-owned journey so today's implicit links become explicit rows | Nothing. The five call sites still resolve by flow id, and every existing flow behaves identically |
 | **B** | Repoint the five lookups through the link, falling back to the implicit `journeyKey === flowId` when no link row exists | Nothing yet — but a flow can now *be* attached to a journey whose key is not its id |
-| **C** | A journeys page: list, create, rename, delete, and see which flows are attached | An operator can see and manage journeys as first-class things |
-| **D** | Attach and detach a flow from the builder, and from the journeys page | **A second flow can join a journey.** This is the slice's product |
+| **C** | ~~A journeys page~~ → **grouping on the flows page**: drag a flow onto another to group them, a journey band over the member rows, rename in place, drag out to leave. *Corrected 2026-09-22 — see below* | Flows that share a journey read as sharing one, and a lone flow still shows no journey at all |
+| **D** | Attach and detach a flow from the builder, and from the flows page | **A second flow can join a journey.** This is the slice's product |
 | **E** | Install once, from the journey, and watch every attached flow get its ids | The bar, proven on the live guild |
+
+### Slice C was built wrong, and rebuilt — 2026-09-22
+
+C originally shipped `JourneysListPage.tsx`, a `/journeys` route and a nav entry. That was
+the wrong surface, and it was already recorded as wrong: the PRD forbids a dedicated
+journeys page in three places dated 2026-09-19 (§5.8 twice, build order once). This
+document quoted the prohibition under *"What this is not"* and then listed C as a journeys
+page anyway.
+
+The page, its route and its nav entry are deleted. What replaced it:
+
+- **Grouping lives on the flows page.** `buildFlowsListRows` groups only journeys holding
+  **two or more** flows, so the implicit single-flow journey every resource-declaring flow
+  has stays invisible — Case A never meets the concept.
+- **The gesture is a drag**, onto a row to group and out of the band to leave, with the
+  outcome named on the hovered row before release.
+- **A merge is offered, and sometimes refused.** Dropping a flow that declares its own
+  resources opens a dialog naming each one. Merging is available only when the two key
+  sets are disjoint: a binding is keyed `(guildId, journeyKey, resourceKey)` and is never
+  re-keyed, so a collision would make one key name two live channels — and
+  `applyResourcesToFlows` already resolves such a collision by writing whichever snowflake
+  it saw first into every flow that mentions the key.
+- **"Leave them behind" orphans, loudly.** It never deletes a Discord object — the rule
+  `deleteByKey`, `/detach` and flow-delete all follow — but it is the one outcome the app
+  cannot walk back, so it carries a red block naming every stranded channel and a confirm
+  button that says the number out loud.
+
+Backend from `729439a` and the attach/detach routes from `359e426` were kept unchanged;
+only the page was wrong. The `journeys` CRUD routes also remain — `JourneySummary` and
+`listJourneys` are still used by the builder's attachment control.
+
+**The journey-scoped resources dialog, added the same day.** The group header's resources
+button first opened `InstalledResourcesDialog` through `group.flows[0]` — a dialog titled
+after a member flow, listing only that flow's posted buttons, whose uninstall the server
+refuses with a 409 whenever other flows share the journey, which is *every* group by
+definition. The button was labelled honestly about the workaround rather than left to lie,
+but the mockup's "resources open from both ends" was not delivered.
+
+It is now. `JourneyResourcesDialog` opens over the journey, and three routes back it:
+`GET/POST /journeys/:journeyKey/published|undeploy|unpublish`. **No new engine code was
+needed** — `previewUnpublish(guild, journeyKey)`, `buildUnpublishPlan` and
+`applyUnpublishPlan` were already journey-keyed and none of them knows what a flow is; the
+flow-scoping existed only at the route layer. Two things were genuinely new:
+
+- **Button messages fan out.** They are keyed per flow, so the journey's state gathers them
+  across every attached flow via `listFlowIdsForJourney`, and taking them down takes down
+  all of them.
+- **The shared-journey 409 deliberately does not fire on the journey route**, and a test
+  asserts it stays absent. That refusal protects flows from *each other* when an operator
+  is holding one flow and cannot see the rest; an operator acting on the journey is the
+  case it was pointing them toward. Reproducing it would make a shared journey impossible
+  to uninstall from the one screen that scopes the decision correctly.
+
+The per-flow dialog is unchanged and stays — it is the lone-flow case and the
+delete-flow confirmation path.
+
+**Corrected 2026-09-23, after live testing.** The paragraph above is right about the
+*inventory*, and the group header's resources button should never have opened it. That
+button's count is `resourceCount` — what the journey **declares** — and `JourneyResourcesDialog`
+lists only what is **installed**, so a journey with four declared and nothing installed read
+"4 resources" and opened a dialog saying "Nothing live in the server yet". Worse, a group's
+declarations were not editable at all without opening a member flow in the builder and using
+a toolbar that never mentions the journey.
+
+The button now opens the **declarations editor**: `ResourcesDialog`, the builder's resources
+modal extracted so both surfaces render the same `ResourcesPanel` over the same wiring. It
+saves against a `ResourceSaveTarget` — a flow *or* a journey — because the flow route
+409s on every write to a shared journey, and a group is shared by definition. The inventory
+keeps its own server-cog button on the header, shown only when something is installed.
+
+Four other live-test defects went with it: the per-flow inventory button is hidden on group
+member rows (inside a journey the resources are the journey's); a resource's key now follows
+its name until hand-edited or installed, instead of being slugified once at creation and
+rotting; the list carries an `installState` per row driving a chip and a hand-off into the
+builder's install wizard (`?install=1`); and a new group is named `"<target> journey"` rather
+than the bare flow name, which used to put a header and its first member side by side reading
+the same thing.
 
 ### Slice E's checklist, written while it was still fresh
 

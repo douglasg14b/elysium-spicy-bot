@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { declaredRoleReference } from '../declaredRoleReference';
 import {
     ResourceDeclarationError,
+    assertInstallable,
     orderResourcesForApply,
     validateJourneyDeclaration,
     type JourneyDeclaration,
@@ -33,8 +34,26 @@ describe('validateJourneyDeclaration', () => {
         ).not.toThrow();
     });
 
-    it('rejects a journey declaring nothing', () => {
-        expect(() => validateJourneyDeclaration(journey([]))).toThrow(ResourceDeclarationError);
+    /**
+     * An empty journey is coherent, and storing one is legitimate — it is what grouping
+     * two flows that declare nothing yet produces, and what every journey looks like the
+     * moment before its first resource. This used to throw, which meant
+     * `journeysRepo.create` refused to group two empty flows at all. The rule moved to
+     * {@link assertInstallable}; see the test below it.
+     */
+    it('accepts a journey declaring nothing — storing one is not installing one', () => {
+        expect(() => validateJourneyDeclaration(journey([]))).not.toThrow();
+    });
+
+    it('refuses to install a journey declaring nothing', () => {
+        // The rule the emptiness check was always about, now asked where it is true.
+        expect(() => assertInstallable(journey([]))).toThrow(ResourceDeclarationError);
+    });
+
+    it('allows installing a journey that declares something', () => {
+        expect(() =>
+            assertInstallable(journey([{ key: 'chan', kind: 'textChannel', defaultName: 'welcome' }]))
+        ).not.toThrow();
     });
 
     it('rejects a duplicate resource key', () => {

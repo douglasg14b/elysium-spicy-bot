@@ -10,10 +10,9 @@
  * See `resourceSaveQueue.ts` for the bug and the rule; this file is its wiring.
  */
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { notifications } from '@mantine/notifications';
 import { ApiError } from '../api/client';
-import { getFlowResources, saveFlowResources } from '../api/journeys';
 import type { ResourceDeclaration } from '../api/types';
 import {
     decideAutosaveAction,
@@ -22,19 +21,40 @@ import {
     RESOURCE_SAVE_DEBOUNCE_MS,
     shouldAcceptResponse,
 } from './resourceSaveQueue';
+import {
+    loadResources,
+    resourceTargetIdentity,
+    storeResources,
+    type ResourceSaveTarget,
+} from './resourceSaveTarget';
 
 interface ResourceAutosaveInput {
     /** Undefined until a guild is selected; nothing is sent before then. */
     guildId: string | undefined;
-    flowId: string | undefined;
+    /**
+     * Which endpoint this list is written to — a flow, or a journey directly.
+     *
+     * `undefined` before the caller knows, which is the builder's state while the route
+     * parameter is still being read. Nothing is sent until it is set.
+     *
+     * Replaced the previous `flowId` + `journeyKey` pair, which were two fields expressing
+     * one concept: the first said where to write and the second was only ever part of the
+     * bookkeeping identity. See `resourceSaveTarget.ts` for why the two surfaces cannot
+     * share one endpoint.
+     */
+    target: ResourceSaveTarget | undefined;
     /**
      * The journey the current list belongs to, or `undefined` while it is unknown or the
      * flow is attached to nothing.
      *
-     * Part of the save bookkeeping's identity, not a label. Attaching a flow to another
-     * journey replaces the list on screen without the flow id changing, and the effect
-     * would otherwise read the replacement as an edit and write it into the journey just
-     * attached to. See `AutosaveDecisionInput.identity`.
+     * Part of the save bookkeeping's identity, not a label, and still needed alongside a
+     * `flow` target: attaching a flow to another journey replaces the list on screen
+     * without the flow id changing, and the effect would otherwise read the replacement as
+     * an edit and write it into the journey just attached to. See
+     * `AutosaveDecisionInput.identity`.
+     *
+     * Redundant for a `journey` target, where it is the same key the target names — and
+     * harmless, because it then contributes a constant to the identity string.
      */
     journeyKey: string | undefined;
     resources: ResourceDeclaration[];
@@ -52,7 +72,7 @@ interface ResourceAutosaveInput {
 
 export function useResourceAutosave({
     guildId,
-    flowId,
+    target,
     journeyKey,
     resources,
     loaded,
@@ -69,9 +89,14 @@ export function useResourceAutosave({
      * place.
      *
      * A flow attached to nothing contributes an empty segment rather than being omitted,
-     * so `guild/flow/` and `guild/flow/onboarding` are distinguishable.
+     * so `guild/flow:abc/` and `guild/flow:abc/onboarding` are distinguishable.
+     *
+     * The target segment carries its **kind** as well as its id — see
+     * `resourceTargetIdentity`. A flow id and the key of its implicit journey are the same
+     * string, so without the prefix the builder's target and the group header's would
+     * collide and one surface's stored list would be read as an edit of the other's.
      */
-    const identity = `${guildId}/${flowId}/${journeyKey ?? ''}`;
+    const identity = `${guildId}/${target ? resourceTargetIdentity(target) : ''}/${journeyKey ?? ''}`;
     /**
      * The list as the server last confirmed it, or `undefined` for "send the next edit
      * whatever it looks like".
@@ -110,9 +135,44 @@ export function useResourceAutosave({
     const callbacksRef = useRef({ onSaved, onSavingChange, onError });
     callbacksRef.current = { onSaved, onSavingChange, onError };
 
+    /**
+     * The target, pinned to one object per distinct target.
+     *
+     * **This is load-bearing, not tidiness.** `target` is an object and both callers build
+     * it inline, so it is a fresh reference every render. Used directly as a `useCallback`
+     * dependency it would rebuild `send` on each render, which rebuilds the effect below,
+     * whose cleanup clears the pending `setTimeout` — the debounce would be reset by every
+     * render and the save would never fire at all. That is a silent, total loss of
+     * persistence, and no typecheck or existing test would notice it: the sequencing suite
+     * drives the pure decisions in `resourceSaveQueue.ts` rather than this effect.
+     *
+     * Keying the memo on `identity` rather than on the object is what fixes it, and it is
+     * exact rather than approximate: `identity` is built by `resourceTargetIdentity`, which
+     * *is* the canonical serialisation of this object, so two targets share a reference here
+     * precisely when they name the same endpoint.
+     *
+     * **It also has to be a value and not a ref.** A ref is written during render and read
+     * by the unmount flush during *cleanup*, which runs afterwards — so on the commit that
+     * changes the target, the flush watching the old identity would resolve its endpoint
+     * from the *new* target while carrying the old target's list. That writes one surface's
+     * declarations to another: the failure `baselineFlowRef` exists to prevent, arriving by
+     * a different door. A memo is captured by the closure that `identity` also built, so the
+     * two cannot disagree by construction.
+     */
+    const stableTarget = useMemo(
+        () => target,
+        // Deliberately keyed on the identity string rather than on the object. `identity`
+        // *is* the canonical serialisation of `target` (`resourceTargetIdentity`), so this
+        // holds one object per distinct target and re-renders that merely rebuild an equal
+        // one get the same reference back.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [identity]
+    );
+
     const send = useCallback(
         (next: ResourceDeclaration[]) => {
-            if (!guildId || !flowId) return;
+            if (!guildId || !stableTarget) return;
+            const target = stableTarget;
 
             const serialised = JSON.stringify(next);
             savedRef.current = serialised;
@@ -144,7 +204,7 @@ export function useResourceAutosave({
             savingChange(true);
             error(null);
 
-            void saveFlowResources(guildId, flowId, next)
+            void storeResources(guildId, target, next)
                 .then((stored) => {
                     // A response that a later edit has already superseded is dropped
                     // rather than applied. Applying it is the revert.
@@ -173,7 +233,7 @@ export function useResourceAutosave({
                     // the flow rather than on this being set.
                     savedRef.current = undefined;
 
-                    void getFlowResources(guildId, flowId).then((stored) => {
+                    void loadResources(guildId, target).then((stored) => {
                         if (!stillOnThisFlow()) return;
                         if (!shouldAcceptResponse(issued, issuedRef.current)) return;
                         savedRef.current = JSON.stringify(stored);
@@ -187,11 +247,14 @@ export function useResourceAutosave({
                     if (stillOnThisFlow() && issued === issuedRef.current) savingChange(false);
                 });
         },
-        [guildId, flowId, identity]
+        // `stableTarget` is pinned to `identity`, so naming the identity names both.
+        [guildId, identity, stableTarget]
     );
 
     useEffect(() => {
-        if (!loaded || !guildId || !flowId) return;
+        // The pinned target, not the raw prop: this effect's cleanup clears the debounce
+        // timer, so a dependency that changed every render would reset it every render.
+        if (!loaded || !guildId || !stableTarget) return;
 
         const serialised = JSON.stringify(resources);
 
@@ -220,7 +283,7 @@ export function useResourceAutosave({
 
         const handle = window.setTimeout(() => send(resources), RESOURCE_SAVE_DEBOUNCE_MS);
         return () => window.clearTimeout(handle);
-    }, [resources, loaded, guildId, flowId, identity, send]);
+    }, [resources, loaded, guildId, identity, stableTarget, send]);
 
     /**
      * Flush on unmount, so closing the builder mid-pause does not drop the last edit.
@@ -275,5 +338,5 @@ export function useResourceAutosave({
 
             send(pending);
         };
-    }, [send, guildId, flowId, identity]);
+    }, [send, guildId, identity]);
 }

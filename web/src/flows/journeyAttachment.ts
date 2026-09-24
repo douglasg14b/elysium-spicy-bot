@@ -46,27 +46,57 @@ export function uniqueJourneyKey(desired: string, existing: readonly string[]): 
 }
 
 /**
- * Whether deleting this journey will be refused, and why.
+ * What to call the journey two flows create by being dragged together.
  *
- * The server is the authority — `DELETE /journeys/:key` refuses while anything is
- * attached and names every flow — and this does **not** duplicate that rule to
- * pre-empt it. It exists so the page can disable the affordance and say what would have
- * to happen first, rather than offering a button whose only outcome is a red banner.
+ * It used to be the target flow's name verbatim, which produced a group header reading
+ * **Flow E** directly above a row also reading *Flow E* — the header looked like a
+ * duplicate of its own first member rather than the thing containing it, and nothing on
+ * screen introduced the word "journey" at the one moment the concept first appears.
  *
- * The refusal copy itself is never composed here. When a delete is attempted anyway the
- * server's message is shown verbatim, because it is the one that names the flows and it
- * is the one that is actually true at the moment of the attempt.
+ * **`"<target> journey"`, not `"Journey: <target>"`.** The header renders the name beside
+ * a route glyph and above "2 flows · shared resources", so it is already framed as a
+ * container; a `Journey:` prefix there reads as a field label repeating the frame, and it
+ * sorts every journey under "J" in any list that orders by name. The suffix keeps the
+ * operator's own word first — which is what they will scan for — and degrades into
+ * ordinary English the moment they rename it, because it *is* ordinary English.
+ *
+ * The name is only a starting point: the header's rename is one click away, and the key
+ * derived beside this is what anything installed actually points at. So this optimises for
+ * being immediately legible rather than for being permanent.
  */
-export function deleteBlockedReason(journey: JourneySummary): string | undefined {
-    const attached = journey.attachedFlows;
-    if (attached.length === 0) return undefined;
+export function newJourneyNameFor(targetFlowName: string): string {
+    const base = targetFlowName.trim();
 
-    return attached.length === 1
-        ? `**${attached[0].name}** is still attached. Detach it first.`
-        : `${attached.length} flows are still attached: ${attached
-              .map((flow) => `**${flow.name}**`)
-              .join(', ')}. Detach them first.`;
+    // A flow already called "... journey" would otherwise become "Onboarding journey
+    // journey". Case-insensitive because the operator's capitalisation is theirs to keep.
+    if (/\bjourney$/i.test(base)) return base;
+
+    // The server caps journey names at 100 characters and refuses longer ones with a 400.
+    // A flow name can reach that cap on its own, so the suffix has to be the part that
+    // gives way — truncating the operator's name to make room for our word would be this
+    // helper editing what they typed.
+    const suffixed = `${base} journey`;
+    return suffixed.length <= JOURNEY_NAME_MAX_LENGTH ? suffixed : base;
 }
+
+/**
+ * The server's own cap, from `updateJourneyBody`/`createJourneyBody` in
+ * `src/web/api/journeyRoutes.ts`. Mirrored rather than imported for the reason the whole
+ * `web/api/types.ts` mirror exists: importing from `src/` drags the bot tree into the web
+ * build.
+ */
+const JOURNEY_NAME_MAX_LENGTH = 100;
+
+/*
+ * `deleteBlockedReason` was here: it disabled the journeys page's delete button and said
+ * which flows were holding the journey. Removed 2026-09-22 along with that page.
+ *
+ * Nothing replaced it because nothing deletes a journey any more. A journey now dies when
+ * its last flow leaves, which is the same rule that governs its appearance run backwards
+ * — so there is no affordance to pre-emptively disable, and no operator staring at a
+ * button whose only outcome would be a refusal. `DELETE /journeys/:key` and its
+ * name-every-flow refusal are untouched on the server.
+ */
 
 /**
  * What pressing "attach" is about to do, for the confirmation the operator reads.

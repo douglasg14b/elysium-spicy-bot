@@ -1,9 +1,16 @@
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { flowsRepo } from '../../features/flows/data/flowsRepo';
+import { getPublishedJourneyState } from '../../features/flows/logic/publishedJourneyState';
+import {
+    undeployFlowButtons,
+    type UndeployedButtonMessage,
+} from '../../features/flows/logic/undeployFlowButtons';
 import { flowJourneyLinksRepo } from '../../features/provisioning/data/flowJourneyLinksRepo';
 import { DuplicateJourneyKeyError, journeysRepo } from '../../features/provisioning/data/journeysRepo';
 import type { JourneyEntity } from '../../features/provisioning/data/journeysSchema';
+import { resourceBindingsRepo } from '../../features/provisioning/data/resourceBindingsRepo';
+import { planJourneyMerge } from '../../features/provisioning/logic/journeyMergePlan';
 import { resolveFlowJourney } from '../../features/provisioning/logic/resolveFlowJourney';
 import {
     otherFlowsOnJourney,
@@ -18,8 +25,10 @@ import {
     RESOURCE_KINDS,
     ResourceDeclarationError,
 } from '../../features/provisioning/logic/resourceDeclaration';
+import { previewUnpublish, unpublishJourney } from '../../features/provisioning';
 import type { AppEnv } from '../types';
 import { flowNameInGuild } from './flowNameInGuild';
+import { publishedBody } from './publishedBody';
 
 /**
  * Journey CRUD. Mounted under the `/api/guilds` route group, so `requireAuth` and
@@ -132,6 +141,29 @@ const updateJourneyBody = z.object({
     resources: z.array(resourceSchema).optional(),
 });
 
+/**
+ * What the flows page sends when a row is dropped onto another.
+ *
+ * `resolution` has no default on purpose. Omitting it is only legal when the moving flow
+ * declares nothing — the silent, common case — and any other omission is a 400 rather
+ * than an assumed answer, because both outcomes are consequential and one of them
+ * abandons live channels.
+ *
+ * The new journey's key is supplied by the client, which already derives a unique slug
+ * for the attach modal. Validated here against the same shape every other key uses, so
+ * a hand-rolled request cannot conjure one the rest of the system could not store.
+ */
+const groupFlowBody = z.object({
+    targetFlowId: z.string().min(1, 'Name the flow being grouped with.'),
+    resolution: z.enum(['merge', 'leave']).optional(),
+    newJourneyKey: resourceKeySchema.optional(),
+    newJourneyName: z
+        .string()
+        .min(1, 'Give the journey a name.')
+        .max(100, 'Journey names cap at 100 characters.')
+        .optional(),
+});
+
 function journeyDetail(journey: JourneyEntity) {
     return {
         journeyKey: journey.journeyKey,
@@ -219,6 +251,134 @@ export function journeyRoutes(): Hono<AppEnv> {
         }
 
         return c.json(journeyDetail(journey));
+    });
+
+    /**
+     * What this **journey** has live in the guild.
+     *
+     * The group header's inventory. Distinct from
+     * `GET /flows/:flowId/published` in the half that matters: the button messages of
+     * every attached flow are here, because unpublishing the journey takes all of them
+     * down. The page used to reach this information through its first member, which
+     * showed one flow's buttons beside an action that would have removed its siblings'
+     * too.
+     *
+     * `journeysRepo.getByKey` is guild-scoped, so a key belonging to another guild is a
+     * 404 and never confirms that guild's journey exists. The check is also what makes
+     * the empty state honest: without it a foreign key would plan against no bindings and
+     * report "nothing installed" for a journey that is fully installed elsewhere.
+     */
+    app.get('/:guildId/journeys/:journeyKey/published', async (c) => {
+        const guild = c.get('guild');
+        const journeyKey = c.req.param('journeyKey');
+
+        const journey = await journeysRepo.getByKey(guild.id, journeyKey);
+        if (!journey) {
+            return c.json({ error: 'Journey not found.' }, 404);
+        }
+
+        return c.json(publishedBody(await getPublishedJourneyState(guild, journeyKey)));
+    });
+
+    /**
+     * Take every attached flow's trigger buttons back out of the guild.
+     *
+     * Fans out over the journey's attachments and undeploys each, which is the same
+     * scope the inventory above reports — the dialog's "take buttons down" must remove
+     * exactly what it just listed.
+     *
+     * Unlike `POST /flows/:flowId/undeploy`, this **does** require the journey to exist.
+     * That route can run after its flow's row is gone because `flow_button_messages`
+     * outlives the flow and its id is the only way back to those messages; here the
+     * journey row is the only thing that names which flows to fan out to, so a missing
+     * one leaves nothing to act on rather than a cleanup worth attempting.
+     *
+     * Results are flattened across flows and reported as one list. The operator asked
+     * about the journey, and per-flow buckets would make them reassemble the answer.
+     *
+     * **Sequential, and a throw from one flow does not lose the others.**
+     * `undeployFlowButtons` already loops message by message and carries on past a
+     * failure, for the stated reason that buttons in one channel have nothing to do with
+     * buttons in another. Fanning out with `Promise.all` would invert that guarantee one
+     * level up: the first rejection discards every sibling's report, including deletions
+     * that have already happened in Discord — and those rows are the only record of where
+     * the remaining live buttons are. A flow that throws is reported as a failure against
+     * itself and the run continues.
+     */
+    app.post('/:guildId/journeys/:journeyKey/undeploy', async (c) => {
+        const guildId = c.get('guild').id;
+        const journeyKey = c.req.param('journeyKey');
+
+        const journey = await journeysRepo.getByKey(guildId, journeyKey);
+        if (!journey) {
+            return c.json({ error: 'Journey not found.' }, 404);
+        }
+
+        const flowIds = await flowJourneyLinksRepo.listFlowIdsForJourney(guildId, journeyKey);
+
+        const results: UndeployedButtonMessage[] = [];
+        for (const flowId of flowIds) {
+            try {
+                results.push(...(await undeployFlowButtons(guildId, flowId)).results);
+            } catch (error) {
+                // No channel or message id to name — the throw came from the lookup that
+                // would have supplied them. The flow id is what the operator can act on,
+                // and reporting nothing at all would make a failed flow look like one
+                // with no buttons.
+                results.push({
+                    channelId: '',
+                    messageId: '',
+                    outcome: 'failed',
+                    explanation: `Could not read the buttons for flow ${flowId}: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`,
+                });
+            }
+        }
+
+        return c.json({ results });
+    });
+
+    /**
+     * Destroy the channels and roles this journey created.
+     *
+     * **The shared-journey 409 deliberately does not fire here, and must not.** That
+     * refusal exists on `POST /flows/:flowId/unpublish` to stop one flow tearing down
+     * structure its siblings still install — the operator is holding a flow and cannot
+     * see the others. An operator acting on the *journey* is the legitimate case it was
+     * protecting against: they are looking at the group, the dialog names every flow
+     * affected, and there is no third party whose work is being destroyed behind their
+     * back. Reproducing the guard here would make a shared journey impossible to
+     * uninstall from the one screen that scopes the decision correctly.
+     *
+     * The plan is rebuilt server-side and applied, never accepted from the browser, for
+     * the reason the flow route records: a plan arriving over the wire is a list of
+     * snowflakes a client asked us to delete, and nothing would stop it naming objects
+     * the real plan refuses.
+     *
+     * No ownership check either, and none is available — a journey has no single owning
+     * flow once it is shared, which is precisely why `flowJourney`'s positive check
+     * could not be reused. The guild scope is the boundary: `getByKey` proves the
+     * journey is this guild's, and `requireGuildAccess` has already proved the caller
+     * may act on this guild.
+     */
+    app.post('/:guildId/journeys/:journeyKey/unpublish', async (c) => {
+        const guild = c.get('guild');
+        const journeyKey = c.req.param('journeyKey');
+
+        const journey = await journeysRepo.getByKey(guild.id, journeyKey);
+        if (!journey) {
+            return c.json({ error: 'Journey not found.' }, 404);
+        }
+
+        const plan = await previewUnpublish(guild, journeyKey);
+        const result = await unpublishJourney({ guild, approvedPlan: plan });
+
+        if (result.refusal) {
+            return c.json({ error: result.refusal }, 409);
+        }
+
+        return c.json({ results: result.results });
     });
 
     /**
@@ -495,6 +655,245 @@ export function journeyRoutes(): Hono<AppEnv> {
         // 200 either way. "Already detached" is the state the caller asked for, and a
         // 404 would make the UI report a failure for reaching the outcome it wanted.
         return c.json({ detached });
+    });
+
+    /**
+     * What grouping this flow with that one would do, before anything is written.
+     *
+     * The flows page calls this on drop and shows the answer. It exists as its own route
+     * rather than as a field on the group call because the operator has a real choice to
+     * make — merge the resources or leave them — and a dialog cannot offer a choice it
+     * has to perform first to describe.
+     *
+     * `target` is the *other* flow in the gesture: the row that was dropped on. Its
+     * journey is the destination, creating one if it has none, so this route answers for
+     * the journey that would exist rather than the one that does.
+     */
+    app.get('/:guildId/flows/:flowId/group-preview', async (c) => {
+        const guildId = c.get('guild').id;
+        const flowId = c.req.param('flowId');
+        const targetFlowId = c.req.query('target');
+
+        if (!targetFlowId) {
+            return c.json({ error: 'Name the flow being grouped with.' }, 400);
+        }
+        if (targetFlowId === flowId) {
+            return c.json({ error: 'A flow cannot be grouped with itself.' }, 400);
+        }
+
+        const [flow, target] = await Promise.all([
+            flowsRepo.getByFlowId(flowId),
+            flowsRepo.getByFlowId(targetFlowId),
+        ]);
+        if (!flow || flow.guildId !== guildId) {
+            return c.json({ error: 'Flow not found.' }, 404);
+        }
+        if (!target || target.guildId !== guildId) {
+            return c.json({ error: 'Flow not found.' }, 404);
+        }
+
+        const [moving, destination] = await Promise.all([
+            resolveFlowJourney(guildId, flowId),
+            resolveFlowJourney(guildId, targetFlowId),
+        ]);
+
+        // A journey holding more than one flow cannot follow one of them away: the
+        // others still install it. Refused here rather than in `planJourneyMerge`,
+        // which is pure and has no way to ask who else is attached.
+        if (moving) {
+            const others = await otherFlowsOnJourney(guildId, moving.journey.journeyKey, flowId, {
+                flowName: (otherFlowId) => flowNameInGuild(guildId, otherFlowId),
+            });
+            if (others.length > 0) {
+                return c.json(
+                    {
+                        error: sharedJourneyRefusal({
+                            journeyName: moving.journey.name,
+                            action: 'Moving this flow out of',
+                            others,
+                        }),
+                    },
+                    409
+                );
+            }
+        }
+
+        const bindings = moving
+            ? await resourceBindingsRepo.listByJourney(guildId, moving.journey.journeyKey)
+            : [];
+
+        const plan = planJourneyMerge({
+            movingDeclarations: moving?.journey.resources ?? [],
+            destinationDeclarations: destination?.journey.resources ?? [],
+            movingBindings: bindings,
+        });
+
+        return c.json({
+            /** Null when the target has no journey yet — one would be created. */
+            destination: destination
+                ? { journeyKey: destination.journey.journeyKey, name: destination.journey.name }
+                : null,
+            destinationName: destination?.journey.name ?? target.name,
+            movingFlowName: flow.name,
+            ...plan,
+        });
+    });
+
+    /**
+     * Group one flow with another: the drop, committed.
+     *
+     * One route rather than the client orchestrating create-then-attach, because those
+     * two writes have to agree. A crash between them leaves a journey nothing is
+     * attached to — the exact state `resolveFlowJourney`'s fallback exists to paper
+     * over, and the state slice E cannot delete the fallback until nothing produces.
+     *
+     * `resolution` is the operator's answer to the preview, and is required whenever
+     * the moving flow has resources of its own. Defaulting it would make the destructive
+     * choice the quiet one.
+     */
+    app.post('/:guildId/flows/:flowId/group', async (c) => {
+        const guildId = c.get('guild').id;
+        const flowId = c.req.param('flowId');
+
+        const parsed = groupFlowBody.safeParse(await c.req.json().catch(() => null));
+        if (!parsed.success) {
+            return c.json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body.' }, 400);
+        }
+        const { targetFlowId, resolution, newJourneyKey, newJourneyName } = parsed.data;
+
+        if (targetFlowId === flowId) {
+            return c.json({ error: 'A flow cannot be grouped with itself.' }, 400);
+        }
+
+        const [flow, target] = await Promise.all([
+            flowsRepo.getByFlowId(flowId),
+            flowsRepo.getByFlowId(targetFlowId),
+        ]);
+        if (!flow || flow.guildId !== guildId) {
+            return c.json({ error: 'Flow not found.' }, 404);
+        }
+        if (!target || target.guildId !== guildId) {
+            return c.json({ error: 'Flow not found.' }, 404);
+        }
+
+        const [moving, destination] = await Promise.all([
+            resolveFlowJourney(guildId, flowId),
+            resolveFlowJourney(guildId, targetFlowId),
+        ]);
+
+        // Same refusal as the preview. Re-checked rather than trusted from it: the
+        // preview is a separate request and anything could have attached in between.
+        if (moving) {
+            const others = await otherFlowsOnJourney(guildId, moving.journey.journeyKey, flowId, {
+                flowName: (otherFlowId) => flowNameInGuild(guildId, otherFlowId),
+            });
+            if (others.length > 0) {
+                return c.json(
+                    {
+                        error: sharedJourneyRefusal({
+                            journeyName: moving.journey.name,
+                            action: 'Moving this flow out of',
+                            others,
+                        }),
+                    },
+                    409
+                );
+            }
+        }
+
+        const movingResources = moving?.journey.resources ?? [];
+        if (movingResources.length > 0 && !resolution) {
+            return c.json(
+                { error: 'This flow declares resources; say whether to merge them or leave them.' },
+                400
+            );
+        }
+
+        try {
+            // The destination journey, created on demand when the target flow has none.
+            // Named after the target flow, matching how an implicit journey is named at
+            // `PUT /resources` — the key is identity, the name is for diagnostics.
+            let destinationJourney = destination?.journey;
+            if (!destinationJourney) {
+                if (!newJourneyKey) {
+                    return c.json({ error: 'A new group needs a key.' }, 400);
+                }
+                destinationJourney = await journeysRepo.create({
+                    guildId,
+                    journeyKey: newJourneyKey,
+                    name: newJourneyName ?? target.name,
+                    resources: [],
+                });
+                await flowJourneyLinksRepo.attach({
+                    guildId,
+                    flowId: targetFlowId,
+                    journeyKey: destinationJourney.journeyKey,
+                });
+            }
+
+            if (resolution === 'merge' && movingResources.length > 0) {
+                const plan = planJourneyMerge({
+                    movingDeclarations: movingResources,
+                    destinationDeclarations: destinationJourney.resources,
+                    movingBindings: [],
+                });
+                // Re-checked for the same reason as the shared-journey guard above, and
+                // because this is the write that would make a colliding key permanent.
+                if (!plan.canMerge) {
+                    return c.json(
+                        {
+                            error: `Both journeys declare ${plan.collisions
+                                .map((collision) => `**${collision.key}**`)
+                                .join(', ')}. Rename one side before grouping.`,
+                        },
+                        409
+                    );
+                }
+
+                destinationJourney = await journeysRepo.update(
+                    guildId,
+                    destinationJourney.journeyKey,
+                    { resources: [...destinationJourney.resources, ...movingResources] }
+                );
+
+                /*
+                 * A merge is a **move**, so the source is emptied once the copy lands.
+                 *
+                 * Leaving it populated shipped and was caught in live testing: the source
+                 * row survives, and `/detach` only deletes a link, so
+                 * `resolveFlowJourney`'s `journeyKey === flowId` fallback resurrects the
+                 * old journey with its copies still in it. Group then ungroup left one
+                 * category declared by two journeys, both naming one real Discord object
+                 * — and no later question about who owns it has a single answer.
+                 *
+                 * The row itself stays. Its `resource_bindings` still name live objects
+                 * and deleting the row they hang off would strand them, which is the rule
+                 * `deleteByKey` and `/detach` already follow. Emptying the declarations
+                 * is the part that makes the move a move; the bindings are unpublish's
+                 * business, and the merge dialog already told the operator which of them
+                 * it was bringing along.
+                 */
+                if (moving) {
+                    await journeysRepo.update(guildId, moving.journey.journeyKey, {
+                        resources: [],
+                    });
+                }
+            }
+
+            await flowJourneyLinksRepo.attach({
+                guildId,
+                flowId,
+                journeyKey: destinationJourney.journeyKey,
+            });
+
+            return c.json({
+                journeyKey: destinationJourney.journeyKey,
+                name: destinationJourney.name,
+                resourceCount: destinationJourney.resources.length,
+            });
+        } catch (error) {
+            return errorResponse(c, error);
+        }
     });
 
     app.post('/:guildId/journeys', async (c) => {

@@ -11,12 +11,10 @@ import {
 } from '../../features/flows/engine/nodeDataValidation';
 import { deployFlowButtons } from '../../features/flows/logic/deployFlowButtons';
 import { pendingResourceFields } from '../../features/flows/logic/pendingResourceFields';
-import {
-    getPublishedFlowState,
-    type PublishedFlowState,
-} from '../../features/flows/logic/publishedFlowState';
+import { getPublishedFlowState } from '../../features/flows/logic/publishedFlowState';
 import { undeployFlowButtons } from '../../features/flows/logic/undeployFlowButtons';
 import { guildSettingsRepo } from '../../features-system/guild-settings';
+import { loadFlowJourneyIndex, type FlowJourneyMembership } from './flowJourneyIndex';
 import { toDeclarationFromRow } from '../../features/provisioning/data/journeysRepo';
 import { resolveFlowJourney } from '../../features/provisioning/logic/resolveFlowJourney';
 import {
@@ -36,6 +34,7 @@ import {
 } from '../../features/provisioning';
 import type { AppEnv } from '../types';
 import { flowNameInGuild } from './flowNameInGuild';
+import { publishedBody } from './publishedBody';
 
 /**
  * Flow CRUD + deploy for the Phase 4 builder. Mounted under the `/api/guilds` route
@@ -67,13 +66,22 @@ function flowDetail(flow: FlowEntity) {
     };
 }
 
-/** The wire shape for the flow list: metadata plus a node count, no graph. */
-function flowSummary(flow: FlowEntity) {
+/**
+ * The wire shape for the flow list: metadata plus a node count, no graph.
+ *
+ * `journey` is present for every flow that resolves to one — including the implicit
+ * single-flow case, whose `memberCount` is 1. The page decides from that number whether
+ * to render a group at all; the server deliberately does not pre-judge it, because
+ * "which journey is this flow in" and "should the operator be shown the concept" are
+ * different questions and only the second is a layout choice.
+ */
+function flowSummary(flow: FlowEntity, journey: FlowJourneyMembership | null) {
     return {
         flowId: flow.flowId,
         name: flow.name,
         enabled: flow.enabled,
         nodeCount: flow.graph.nodes.length,
+        journey,
         createdAt: new Date(flow.createdAt).toISOString(),
         updatedAt: new Date(flow.updatedAt).toISOString(),
     };
@@ -173,23 +181,6 @@ function invalidGraphBody(issues: readonly FlowValidationIssue[]): {
  */
 function describeCause(cause: unknown): string {
     return cause instanceof Error ? cause.message : String(cause);
-}
-
-/**
- * The wire shape for what a flow has live in the guild.
- *
- * `mayHaveUnrecordedButtons` is on the wire rather than left to the browser to know,
- * because it is a fact about the *data* — buttons posted before the recording table
- * existed were never written down and cannot be found. A dialog that said "nothing is
- * published" off an empty list would be promising more than this data can support.
- */
-function publishedBody(state: PublishedFlowState) {
-    return {
-        buttonMessages: state.buttonMessages,
-        deletableResources: state.deletableResources,
-        refusedResources: state.refusedResources,
-        mayHaveUnrecordedButtons: state.mayHaveUnrecordedButtons,
-    };
 }
 
 /**
@@ -367,8 +358,20 @@ export function flowRoutes(): Hono<AppEnv> {
 
     // List a guild's flows (summaries — the builder fetches the graph on open).
     app.get('/:guildId/flows', async (c) => {
-        const flows = await flowsRepo.getByGuildId(c.get('guild').id);
-        return c.json({ flows: flows.map(flowSummary) });
+        const guildId = c.get('guild').id;
+        const flows = await flowsRepo.getByGuildId(guildId);
+
+        // One index for the whole list rather than a resolve per flow: the page groups
+        // by journey, so every row needs the answer and an N+1 here would be paid on
+        // every visit.
+        const journeys = await loadFlowJourneyIndex(
+            guildId,
+            flows.map((flow) => flow.flowId)
+        );
+
+        return c.json({
+            flows: flows.map((flow) => flowSummary(flow, journeys.get(flow.flowId) ?? null)),
+        });
     });
 
     // One flow with its full graph.

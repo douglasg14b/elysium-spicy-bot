@@ -21,6 +21,7 @@
  */
 
 import type { PublishedFlowState, PublishedResource, ResourceKind } from '../api/types';
+import { joinWithAnd } from './nameLists';
 import { RESOURCE_KIND_STYLES } from './resourceMeta';
 
 /**
@@ -105,6 +106,22 @@ export interface PublishedSummary {
     readonly unpublishConfirmLabel: string;
 }
 
+/**
+ * Whose resources are being described.
+ *
+ * Two words in this module are about the **owner** rather than the resources — the
+ * "Created by this flow" heading and the "it created" in `leftBehind` — and both are
+ * wrong on a group header, where the owner is a journey that several flows install. A
+ * discriminator rather than a forked module: everything else here, which is the arithmetic
+ * and the grouping and the ordering, is identical for both scopes, and a second copy would
+ * be a second place to fix the next copy change.
+ *
+ * `journey` says "these flows" rather than naming the journey, because the dialog title
+ * already names it and the heading sits directly beneath. Repeating the name in both is
+ * the restatement the confirmation card was deleted for.
+ */
+export type PublishedScope = 'flow' | 'journey';
+
 function plural(count: number, one: string, many: string): string {
     return `${count} ${count === 1 ? one : many}`;
 }
@@ -132,12 +149,6 @@ function describeResources(resources: readonly PublishedResource[]): string {
     }
 
     return joinWithAnd(parts);
-}
-
-function joinWithAnd(parts: readonly string[]): string {
-    if (parts.length === 0) return '';
-    if (parts.length === 1) return parts[0];
-    return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
 }
 
 /**
@@ -194,7 +205,10 @@ function toLine(resource: PublishedResource, fate: 'deleted' | 'kept'): Publishe
  * came to check, and burying it under the survivors would make them scroll past what is
  * safe to find what is not.
  */
-export function summarisePublished(state: PublishedFlowState): PublishedSummary {
+export function summarisePublished(
+    state: PublishedFlowState,
+    scope: PublishedScope = 'flow'
+): PublishedSummary {
     const buttonCount = state.buttonMessages.length;
     const deletable = state.deletableResources;
 
@@ -203,7 +217,12 @@ export function summarisePublished(state: PublishedFlowState): PublishedSummary 
         parts.push(`${plural(buttonCount, 'button message', 'button messages')} still posted`);
     }
     if (deletable.length > 0) {
-        parts.push(`${describeResources(deletable)} it created`);
+        // "it created" names the flow; on a journey the creator is the group, so the
+        // pronoun has to change with it or the sentence attributes shared channels to a
+        // single flow the operator may not even have open.
+        parts.push(
+            `${describeResources(deletable)} ${scope === 'journey' ? 'they created' : 'it created'}`
+        );
     }
 
     /*
@@ -231,7 +250,7 @@ export function summarisePublished(state: PublishedFlowState): PublishedSummary 
     const groups: readonly PublishedGroup[] = ([
         {
             id: 'created',
-            title: 'Created by this flow',
+            title: scope === 'journey' ? 'Created by these flows' : 'Created by this flow',
             caption: 'uninstalling deletes these',
             destructive: true,
             lines: deletable.map((resource) => toLine(resource, 'deleted')),

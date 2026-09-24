@@ -19,6 +19,27 @@ export class ResourceBindingsRepo {
             .execute();
     }
 
+    /**
+     * Every binding in a guild, across all its journeys.
+     *
+     * For the flows list, which needs an install state per row and would otherwise ask
+     * `listByJourney` once per journey — an N+1 over a list that grows with the server,
+     * and the shape that looks fine on a developer's two journeys. Same reasoning as
+     * `loadFlowJourneyIndex`, which this feeds.
+     *
+     * Returns rows rather than counts because the caller has to tell a **live** binding
+     * from an `intended` one: an intent with no `discordId` is the crash-safety record
+     * written before the guild was touched, and counting it as installed would report a
+     * journey as live on the strength of an install that failed.
+     */
+    async listByGuild(guildId: string): Promise<ResourceBindingEntity[]> {
+        return database
+            .selectFrom('resource_bindings')
+            .selectAll()
+            .where('guildId', '=', guildId)
+            .execute();
+    }
+
     async get(
         guildId: string,
         journeyKey: string,
