@@ -191,6 +191,31 @@ function postForget(bindingId: number | string, journeyKey: string = JOURNEY_KEY
     );
 }
 
+/*
+ * `Response.json()` is typed `unknown`, so every read needs a shape.
+ *
+ * Two helpers rather than a cast per call site: the cast is a claim about the wire, and
+ * stating it in one place means a route that changes its response breaks here rather
+ * than in whichever assertion happened to read the changed field first. The shapes are
+ * deliberately loose — this file asserts route *behaviour*, and `driftWireShapeDrift`
+ * is what holds the field names to `driftBody.ts`.
+ */
+async function readJson<T>(response: Response): Promise<T> {
+    return (await response.json()) as T;
+}
+
+interface DriftResponse {
+    readonly drifted: readonly {
+        readonly resourceKey: string;
+        readonly kind: string;
+        readonly repairable: boolean;
+        readonly drift: readonly { readonly kind: string; readonly explanation: string }[];
+    }[];
+    readonly cleanKeys: readonly string[];
+    readonly unchecked: readonly { readonly resourceKey: string }[];
+    readonly orphans: readonly { readonly bindingId: number }[];
+}
+
 /** Guild-scoped, so a key belonging to another guild genuinely answers nothing. */
 function journeyExists(rows: readonly JourneyEntity[]): void {
     journeysRepoMock.getByKey.mockImplementation(
@@ -219,7 +244,7 @@ describe('GET /journeys/:journeyKey/drift', () => {
         const response = await getDrift();
         expect(response.status).toBe(200);
 
-        const body = await response.json();
+        const body = await readJson<DriftResponse>(response);
         expect(body.drifted).toHaveLength(1);
         expect(body.orphans).toHaveLength(1);
         // Both questions on one screen is the point: an operator asking "is my server
@@ -241,7 +266,7 @@ describe('GET /journeys/:journeyKey/drift', () => {
             })
         );
 
-        const body = await (await getDrift()).json();
+        const body = await readJson<DriftResponse>(await getDrift());
         expect(body.drifted[0].drift).toHaveLength(2);
         expect(body.drifted[0].drift[0].kind).toBe('renamed');
         expect(body.drifted[0].drift[0].explanation).toContain('general-chat');
@@ -262,7 +287,7 @@ describe('GET /journeys/:journeyKey/drift', () => {
             emptyPlan({ drifted: [driftReport({ repairable: false })] })
         );
 
-        const body = await (await getDrift()).json();
+        const body = await readJson<DriftResponse>(await getDrift());
         expect(body.drifted[0].repairable).toBe(false);
     });
 
@@ -275,7 +300,7 @@ describe('GET /journeys/:journeyKey/drift', () => {
             })
         );
 
-        const body = await (await getDrift()).json();
+        const body = await readJson<DriftResponse>(await getDrift());
         expect(body.unchecked).toHaveLength(1);
         expect(body.cleanKeys).toEqual([]);
         expect(body.drifted).toEqual([]);
@@ -389,7 +414,7 @@ describe('POST /journeys/:journeyKey/repair', () => {
         const response = await postRepair({ resourceKeys: ['qa-channel'] });
 
         expect(response.status).toBe(409);
-        expect((await response.json()).error).toBe('Wrong guild.');
+        expect((await readJson<{ error: string }>(response)).error).toBe('Wrong guild.');
     });
 
     it('reports a partial repair as 200, because what was fixed is really fixed', async () => {
@@ -403,7 +428,7 @@ describe('POST /journeys/:journeyKey/repair', () => {
         const response = await postRepair({ resourceKeys: ['qa-channel', 'welcome'] });
 
         expect(response.status).toBe(200);
-        expect((await response.json()).results).toHaveLength(2);
+        expect((await readJson<{ results: unknown[] }>(response)).results).toHaveLength(2);
     });
 
     it('404s a journey from another guild without repairing anything', async () => {
@@ -425,7 +450,7 @@ describe('POST /journeys/:journeyKey/orphans/:bindingId/forget', () => {
         expect(response.status).toBe(200);
         expect(bindingsRepo.forget).toHaveBeenCalledWith(42);
 
-        const body = await response.json();
+        const body = await readJson<{ forgotten: boolean; objectRemains: boolean; name: string }>(response);
         expect(body.forgotten).toBe(true);
         // The distinction the operator is owed: something is still sitting in their
         // server that nothing tracks any more.
@@ -436,7 +461,7 @@ describe('POST /journeys/:journeyKey/orphans/:bindingId/forget', () => {
     it('says the object is gone when only the record was left', async () => {
         previewOrphansMock.mockResolvedValue([orphan({ stillInGuild: false })]);
 
-        const body = await (await postForget(42)).json();
+        const body = await readJson<{ objectRemains: boolean }>(await postForget(42));
 
         expect(body.objectRemains).toBe(false);
     });

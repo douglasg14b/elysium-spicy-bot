@@ -42,7 +42,8 @@ import type { ResourceKind } from './resourceDeclaration';
  * Mirrors {@link UnpublishOutcome} rather than inventing a third vocabulary for the
  * same three things: it worked, we declined, or Discord said no.
  */
-const REPAIR_OUTCOMES = ['repaired', 'refused', 'failed'] as const;
+/** Exported for the wire-shape drift gate, which compares it against the browser's copy. */
+export const REPAIR_OUTCOMES = ['repaired', 'refused', 'failed'] as const;
 export type RepairOutcome = (typeof REPAIR_OUTCOMES)[number];
 
 export interface RepairedResource {
@@ -183,9 +184,19 @@ export async function applyDriftRepair(
             /*
              * A throw mid-repair means the *remaining* drifts were not applied — but
              * anything already written to the guild stays written, and saying nothing
-             * about it is the worse failure. `partiallyRepaired` carries what landed
-             * before the throw, so an operator is never told "failed" about a channel
-             * that was in fact renamed.
+             * about it is the worse failure.
+             *
+             * So a partial repair is **`failed` carrying a populated `repaired`**, and
+             * that array is the only thing distinguishing it from a repair that changed
+             * nothing. There is deliberately no fourth outcome: `REPAIR_OUTCOMES`
+             * mirrors `UnpublishOutcome` rather than inventing a vocabulary, and the
+             * run really did fail — it just failed after doing something.
+             *
+             * **A reader who takes this as four outcomes gets it wrong**, and one
+             * already did: the browser's mirror grew a `partiallyRepaired` member from
+             * an earlier draft of this comment, so every partial repair was reported to
+             * the operator as a flat failure — the exact misreport the paragraph above
+             * exists to prevent. Any consumer must branch on `repaired`, not on a name.
              */
             const partial = error instanceof PartialRepairError ? error.repaired : [];
             results.push({

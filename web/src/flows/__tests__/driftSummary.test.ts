@@ -181,7 +181,13 @@ describe('repairLabel', () => {
 
 describe('summariseRepair', () => {
     function result(overrides: Partial<RepairedResource> = {}): RepairedResource {
-        return { resourceKey: 'qa', name: 'questions', outcome: 'repaired', ...overrides };
+        return {
+            resourceKey: 'qa',
+            kind: 'textChannel',
+            name: 'questions',
+            outcome: 'repaired',
+            ...overrides,
+        };
     }
 
     it('reports a clean run plainly', () => {
@@ -201,15 +207,39 @@ describe('summariseRepair', () => {
         expect(summary.message).toContain('Missing permissions.');
     });
 
+    /*
+     * The shape below is what the engine actually sends, and getting it wrong is how
+     * this function shipped broken.
+     *
+     * `applyDriftRepair` catches `PartialRepairError` and emits `outcome: 'failed'`
+     * with a populated `repaired` array — there is no `partiallyRepaired` outcome;
+     * `REPAIR_OUTCOMES` has three members. The first version of this test invented a
+     * fourth, asserted against it, and passed, while the real partial path fell through
+     * to the plain-failure branch. A fixture that manufactures a value the server
+     * cannot produce certifies nothing.
+     *
+     * So partiality is read off the field that genuinely carries it.
+     */
     it('counts a partial repair as done rather than failed', () => {
         // A rename landed before a later permission fix threw. Telling the operator it
         // "failed" would be wrong about a channel that really was renamed.
         const summary = summariseRepair([
-            result({ outcome: 'partiallyRepaired', repaired: ['renamed'], explanation: 'Discord refused.' }),
+            result({ outcome: 'failed', repaired: ['renamed'], explanation: 'Discord refused.' }),
         ]);
 
         expect(summary.title).toBe('Partly repaired');
         expect(summary.message).toContain('1 repaired');
+    });
+
+    it('treats a failure that landed nothing as a plain failure', () => {
+        // The discriminator is `repaired`, so a bare failure must not be dressed up as
+        // partial success.
+        const summary = summariseRepair([
+            result({ outcome: 'failed', explanation: 'Missing permissions.' }),
+        ]);
+
+        expect(summary.title).not.toBe('Partly repaired');
+        expect(summary.message).toContain('0 repaired');
     });
 
     it('treats an empty result as nothing to do, not as a failure', () => {

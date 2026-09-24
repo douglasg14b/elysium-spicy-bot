@@ -91,6 +91,72 @@ export interface DriftBody {
     readonly orphans: readonly OrphanBody[];
 }
 
+/*
+ * The member lists the drift gate compares, and the compile-time guards that keep each
+ * list honest about its own interface.
+ *
+ * The same machinery `ticketRoutes.ts` uses, and it is here because this file's absence
+ * of it cost something real: `RepairOutcome` was mirrored in the browser with a fourth
+ * member the server cannot emit, so every partial repair was reported to the operator
+ * as a flat failure. Two clean typechecks and 43 tests said nothing, because each
+ * workspace compiles only against its own copy.
+ *
+ * `satisfies` rejects a name that is not a member; `KeyListsComplete` below rejects a
+ * member missing from a list. So the arrays cannot silently fall behind the interfaces,
+ * and the test only has to compare arrays.
+ */
+export const DRIFT_DETAIL_KEYS = ['kind', 'explanation'] as const satisfies readonly (keyof DriftDetailBody)[];
+
+export const DRIFT_RESOURCE_KEYS = [
+    'resourceKey',
+    'name',
+    'kind',
+    'drift',
+    'repairable',
+] as const satisfies readonly (keyof DriftResourceBody)[];
+
+export const ORPHAN_KEYS = [
+    'bindingId',
+    'resourceKey',
+    'kind',
+    'name',
+    'stillInGuild',
+    'neverSettled',
+    'explanation',
+] as const satisfies readonly (keyof OrphanBody)[];
+
+export const UNCHECKED_KEYS = [
+    'resourceKey',
+    'name',
+    'reason',
+] as const satisfies readonly (keyof DriftBody['unchecked'][number])[];
+
+export const DRIFT_BODY_KEYS = [
+    'journeyKey',
+    'drifted',
+    'cleanKeys',
+    'unchecked',
+    'orphans',
+] as const satisfies readonly (keyof DriftBody)[];
+
+type KeyListsComplete =
+    | Exclude<keyof DriftDetailBody, (typeof DRIFT_DETAIL_KEYS)[number]>
+    | Exclude<keyof DriftResourceBody, (typeof DRIFT_RESOURCE_KEYS)[number]>
+    | Exclude<keyof OrphanBody, (typeof ORPHAN_KEYS)[number]>
+    | Exclude<keyof DriftBody['unchecked'][number], (typeof UNCHECKED_KEYS)[number]>
+    | Exclude<keyof DriftBody, (typeof DRIFT_BODY_KEYS)[number]>;
+
+/**
+ * Do not delete as unused: removing this erases the guards above.
+ *
+ * The tuple wrapper is load-bearing, for the reason `ticketRoutes.ts` records: a bare
+ * `KeyListsComplete extends never` distributes over the union and is vacuously true for
+ * an empty one, so it would pass whatever the lists said.
+ */
+type _KeyListsAreComplete = [KeyListsComplete] extends [never] ? true : never;
+const _keyListsAreComplete: _KeyListsAreComplete = true;
+void _keyListsAreComplete;
+
 export function driftBody(
     plan: JourneyDriftPlan,
     orphans: readonly OrphanedBinding[]
@@ -101,9 +167,13 @@ export function driftBody(
             resourceKey: report.resourceKey,
             name: report.name,
             kind: report.kind,
-            drift: report.drift.map((kind) => ({
-                kind: kind.kind,
-                explanation: describeDrift(kind, report.kind),
+            // `detail`, not `kind`: the loop variable is a whole `ResourceDriftKind`
+            // sitting beside `report.kind`, which is a `ResourceKind`. Naming both
+            // `kind` made `kind.kind` read as a typo and hid the argument order of
+            // `describeDrift` — the one call here a future edit could plausibly invert.
+            drift: report.drift.map((detail) => ({
+                kind: detail.kind,
+                explanation: describeDrift(detail, report.kind),
             })),
             repairable: report.repairable,
         })),

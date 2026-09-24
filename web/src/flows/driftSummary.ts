@@ -104,8 +104,19 @@ export interface RepairReport {
  */
 export function summariseRepair(results: readonly RepairedResource[]): RepairReport {
     const repaired = results.filter((result) => result.outcome === 'repaired');
-    const partial = results.filter((result) => result.outcome === 'partiallyRepaired');
-    const failed = results.filter((result) => result.outcome === 'failed');
+    /*
+     * Partiality is carried by `repaired`, not by an outcome of its own.
+     *
+     * The engine's vocabulary is three values. When a repair throws after an earlier
+     * drift on the same resource has already been written, `applyDriftRepair` emits
+     * `failed` *with* the landed kinds in `repaired` — so that array is the
+     * discriminator, and reading the outcome alone loses the distinction entirely.
+     */
+    const isPartial = (result: RepairedResource): boolean =>
+        result.outcome === 'failed' && (result.repaired?.length ?? 0) > 0;
+
+    const partial = results.filter(isPartial);
+    const failed = results.filter((result) => result.outcome === 'failed' && !isPartial(result));
     const refused = results.filter((result) => result.outcome === 'refused');
 
     if (results.length === 0) {
@@ -129,6 +140,8 @@ export function summariseRepair(results: readonly RepairedResource[]): RepairRep
 
     const stuck = [...partial, ...failed, ...refused];
     const firstReason = stuck[0]?.explanation ?? 'Discord said no.';
+    // A partially repaired resource counts as done: something really was put back, and
+    // saying otherwise is wrong about a change the operator can see in their server.
     const done = repaired.length + partial.length;
 
     return {

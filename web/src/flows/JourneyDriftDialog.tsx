@@ -130,7 +130,17 @@ export function JourneyDriftDialog({
         if (!drift) return;
 
         const keys = repairableKeys(drift);
-        if (keys.length === 0) return;
+        if (keys.length === 0) {
+            // Never a silent click. Reachable when the report changes between render
+            // and press, and a button that does nothing visible reads as a broken one.
+            const report = summariseRepair([]);
+            notifications.show({
+                color: report.color,
+                title: report.title,
+                message: report.message,
+            });
+            return;
+        }
 
         setBusy(true);
         try {
@@ -145,8 +155,14 @@ export function JourneyDriftDialog({
             // A failed re-read leaves the last report on screen rather than blanking
             // it: the notification above already said what happened, and an empty
             // report would contradict it.
+            //
+            // Guarded on the key, because these handlers are plain async functions and
+            // are *not* torn down when the dialog closes — unlike the mount effect. An
+            // operator who acts on one journey, presses Done and opens another would
+            // otherwise see the first journey's report under the second one's title,
+            // which the header renders from props and could not contradict.
             const next = await refresh();
-            if (next) setDrift(next);
+            if (next && next.journeyKey === journeyKey) setDrift(next);
             onChanged?.();
         } catch (err) {
             notifications.show({

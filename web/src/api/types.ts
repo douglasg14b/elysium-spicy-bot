@@ -917,13 +917,31 @@ export interface JourneyDrift {
     orphans: OrphanedResource[];
 }
 
-export type RepairOutcome = 'repaired' | 'refused' | 'failed' | 'partiallyRepaired';
+/**
+ * What became of one approved repair.
+ *
+ * Mirrors `REPAIR_OUTCOMES` in `src/features/provisioning/logic/applyDriftRepair.ts`,
+ * and it is **three** values, not four. An earlier version of this mirror added a
+ * `partiallyRepaired` member because a comment on the server's catch block names one —
+ * the comment describes an intent the code does not implement. A partial repair is
+ * `failed` carrying a populated `repaired`; see `RepairedResource.repaired`.
+ */
+export type RepairOutcome = 'repaired' | 'refused' | 'failed';
 
 export interface RepairedResource {
     resourceKey: string;
+    kind: string;
     name: string;
     outcome: RepairOutcome;
-    /** Which drift kinds were actually put back. */
+    /**
+     * Which drift kinds were actually put back.
+     *
+     * Load-bearing on the `failed` path, not just informational: a resource whose
+     * rename landed before a later permission write threw comes back as `failed` with
+     * this populated, and it is the **only** signal distinguishing that from a repair
+     * that changed nothing. Reporting such a resource as a flat failure tells an
+     * operator nothing happened to a channel that really was renamed.
+     */
     repaired?: string[];
     explanation?: string;
 }
@@ -1327,3 +1345,70 @@ const ticketKeyListsAreComplete: [TicketKeyListsAreComplete] extends [never]
     : ['A ticket wire-shape key list is missing', TicketKeyListsAreComplete] = true;
 
 void ticketKeyListsAreComplete;
+
+/*
+ * The same gate for the drift wire shapes, mirroring `src/web/api/driftBody.ts`.
+ *
+ * Added after the fact, and the reason is worth keeping: `RepairOutcome` was mirrored
+ * here with a fourth member — `partiallyRepaired` — that the server has never emitted.
+ * The browser filtered for it, always found nothing, and reported every partial repair
+ * as a flat failure, telling operators that nothing happened to channels that really
+ * had been renamed. Both workspaces typechecked clean throughout, because each compiles
+ * only against its own copy of the shape.
+ *
+ * `REPAIR_OUTCOMES` is gated as a vocabulary rather than a key list, which is the row
+ * that would have caught it.
+ */
+export const REPAIR_OUTCOMES = ['repaired', 'refused', 'failed'] as const;
+
+export const DRIFT_DETAIL_KEYS = [
+    'kind',
+    'explanation',
+] as const satisfies readonly (keyof DriftDetail)[];
+
+export const DRIFT_RESOURCE_KEYS = [
+    'resourceKey',
+    'name',
+    'kind',
+    'drift',
+    'repairable',
+] as const satisfies readonly (keyof DriftedResource)[];
+
+export const ORPHAN_KEYS = [
+    'bindingId',
+    'resourceKey',
+    'kind',
+    'name',
+    'stillInGuild',
+    'neverSettled',
+    'explanation',
+] as const satisfies readonly (keyof OrphanedResource)[];
+
+export const UNCHECKED_KEYS = [
+    'resourceKey',
+    'name',
+    'reason',
+] as const satisfies readonly (keyof UncheckedResource)[];
+
+export const DRIFT_BODY_KEYS = [
+    'journeyKey',
+    'drifted',
+    'cleanKeys',
+    'unchecked',
+    'orphans',
+] as const satisfies readonly (keyof JourneyDrift)[];
+
+/** Fails to compile if a drift wire shape gains a member absent from its list above. */
+type DriftKeyListsAreComplete =
+    | Exclude<keyof DriftDetail, (typeof DRIFT_DETAIL_KEYS)[number]>
+    | Exclude<keyof DriftedResource, (typeof DRIFT_RESOURCE_KEYS)[number]>
+    | Exclude<keyof OrphanedResource, (typeof ORPHAN_KEYS)[number]>
+    | Exclude<keyof UncheckedResource, (typeof UNCHECKED_KEYS)[number]>
+    | Exclude<keyof JourneyDrift, (typeof DRIFT_BODY_KEYS)[number]>;
+
+/** Do not delete as unused: removing it erases the guard above. */
+const driftKeyListsAreComplete: [DriftKeyListsAreComplete] extends [never]
+    ? true
+    : ['A drift wire-shape key list is missing', DriftKeyListsAreComplete] = true;
+
+void driftKeyListsAreComplete;
