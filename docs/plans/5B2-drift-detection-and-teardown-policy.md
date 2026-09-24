@@ -311,7 +311,15 @@ policy that existed only in a route comment. Both are now closed; the third item
 plan listed — persisting per-item teardown outcomes — is **not** done and is carried
 below.
 
-**Sabotage runs: ten in all**, each failing exactly its named test and nothing else.
+**The adoption promise was guarded by a boolean that travelled.** `applyDriftRepair`
+read `repairable` off the plan it was handed, which is fine while the only caller is
+this process and becomes a client's *claim* the moment a route exists. Found by asking
+who supplies the plan rather than by a test failing. `withAdoptionReasserted` now
+recomputes it from the binding rows, and can only ever take repairability away — it
+cannot loosen a plan that was already cautious. Pinned while it cost four lines rather
+than after a route made it silent.
+
+**Sabotage runs: twelve in all**, each failing exactly its named test and nothing else.
 The three that were most worth doing: the extra-overwrites rule (its failure makes the
 report useless rather than wrong), the adoption refusals in both detection and repair,
 and the apply-time re-check. Two sabotages in slice C caught the *mutation* via a spy
