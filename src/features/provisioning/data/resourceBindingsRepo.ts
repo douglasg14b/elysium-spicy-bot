@@ -165,6 +165,35 @@ export class ResourceBindingsRepo {
     }
 
     /**
+     * Refresh the cached name of a settled binding.
+     *
+     * Deliberately *not* `rebind`, which exists to point a row at a different object
+     * and takes a new `discordId` to do it. A rename repair changes nothing about
+     * identity — it is the same channel, put back to the name the journey declared —
+     * so it must not go through a call whose whole purpose is to move a binding.
+     *
+     * The name is diagnostics-only and never used for lookup (see the schema's note on
+     * issue #22), so a stale one breaks nothing functional. It is updated anyway
+     * because every later drift report and every teardown preview describes the
+     * resource by this name, and one that disagrees with the guild makes a report an
+     * operator cannot match up to what they are looking at.
+     *
+     * Guarded on the snowflake rather than the row id, because the caller is holding a
+     * live object and that is the fact worth checking: zero rows back means the
+     * binding moved underneath the repair, which is a refusal rather than an error.
+     */
+    async renameBinding(input: { discordId: string; name: string }): Promise<boolean> {
+        const result = await database
+            .updateTable('resource_bindings')
+            .set({ name: input.name, updatedAt: new Date().toISOString() })
+            .where('discordId', '=', input.discordId)
+            .where('state', '!=', 'intended')
+            .executeTakeFirst();
+
+        return Number(result.numUpdatedRows) > 0;
+    }
+
+    /**
      * Drop a binding that was never settled.
      *
      * Used when an apply fails before the guild was mutated, so a stale `intended`

@@ -7,6 +7,12 @@ import {
 } from './logic/applyUnpublishPlan';
 import { buildInstallPlan, type InstallPlan, type ResourceChoice } from './logic/installPlan';
 import { buildJourneyDriftPlan, type JourneyDriftPlan } from './logic/journeyDriftPlan';
+import {
+    applyDriftRepair,
+    type ApplyDriftRepairResult,
+    type PermissionOverwriteWrite,
+} from './logic/applyDriftRepair';
+import { compilePermissionIntents, PermissionIntentError } from './logic/permissionIntent';
 import { buildUnpublishPlan, type UnpublishPlan } from './logic/unpublishPlan';
 import type { JourneyDeclaration } from './logic/resourceDeclaration';
 
@@ -136,6 +142,67 @@ export async function previewDrift(input: PreviewDriftInput): Promise<JourneyDri
             subjectId: input.subjectId,
             staffRoleIds: input.staffRoleIds,
         },
+    });
+}
+
+export interface RepairDriftInput extends PreviewDriftInput {
+    /**
+     * The report the operator actually reviewed.
+     *
+     * Required rather than rebuilt here, for the same reason `installJourney` and
+     * `unpublishJourney` require theirs: repairing against a freshly built report would
+     * act on findings nobody was shown. The applier re-checks each object immediately
+     * before touching it, so a stale report cannot cause a wrong write — it can only
+     * cause a no-op, which is reported honestly as nothing repaired.
+     */
+    readonly approvedPlan: JourneyDriftPlan;
+    /** The resource keys the operator ticked. */
+    readonly approvedKeys: ReadonlySet<string>;
+}
+
+/**
+ * Put approved drift back to what the journey declared.
+ *
+ * Compiles the permission models here rather than in the applier, which has no guild
+ * and deliberately refuses to guess at one: a key whose model cannot be compiled is
+ * simply absent from the map, and the applier fails that item nameably instead of
+ * writing a permission model it inferred.
+ */
+export async function repairDrift(
+    input: RepairDriftInput
+): Promise<ApplyDriftRepairResult> {
+    const compiledOverwrites = new Map<string, readonly PermissionOverwriteWrite[]>();
+
+    for (const declaration of input.journey.resources) {
+        if (!declaration.permissions?.length) continue;
+
+        try {
+            const compiled = compilePermissionIntents(declaration.permissions, {
+                guild: input.guild,
+                subjectId: input.subjectId,
+                staffRoleIds: input.staffRoleIds,
+            });
+            compiledOverwrites.set(
+                declaration.key,
+                compiled.map((overwrite) => ({
+                    id: String(overwrite.id),
+                    allow: (overwrite.allow as bigint[]) ?? [],
+                    deny: (overwrite.deny as bigint[]) ?? [],
+                }))
+            );
+        } catch (error) {
+            // Left out of the map rather than aborting the run. The applier refuses
+            // that one resource and repairs the rest, which is right: a `subject`
+            // intent on one channel must not block a rename fix on another.
+            if (!(error instanceof PermissionIntentError)) throw error;
+        }
+    }
+
+    return applyDriftRepair({
+        guild: input.guild,
+        plan: input.approvedPlan,
+        approvedKeys: input.approvedKeys,
+        compiledOverwrites,
     });
 }
 

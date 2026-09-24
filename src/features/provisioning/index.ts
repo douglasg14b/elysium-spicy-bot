@@ -89,6 +89,17 @@ export type {
 export { describeDrift, hasDrift } from './logic/resourceDrift';
 export type { JourneyDriftPlan, UncheckedResource } from './logic/journeyDriftPlan';
 
+// Repair reconciles the guild *to* the declaration, never the other way. An adopted
+// resource and a wrong-type binding are both refused rather than repaired — the first
+// is the adoption promise, the second needs a decision only the operator can take.
+export { applyDriftRepair } from './logic/applyDriftRepair';
+export type {
+    ApplyDriftRepairResult,
+    RepairedResource,
+    RepairOutcome,
+    PermissionOverwriteWrite,
+} from './logic/applyDriftRepair';
+
 export type {
     ResourceBindingEntity,
     ResourceBindingState,
