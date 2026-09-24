@@ -16,6 +16,7 @@ import { IconAlertTriangle, IconShieldHalf, IconBolt } from '@tabler/icons-react
 import { ApiError } from '../api/client';
 import { getGuildChannels, getWarningsConfig, updateWarningsConfig } from '../api/config';
 import type { GuildChannel, WarningsConfig } from '../api/types';
+import { channelOptionLabel, postableChannels } from '../flows/resourceAdoption';
 import { useGuilds } from '../guilds/GuildContext';
 import { PAGE_MAX_WIDTH } from '../theme';
 
@@ -64,8 +65,18 @@ export function WarningsPage() {
         };
     }, [selected]);
 
+    /*
+     * Postable channels only. The directory now carries categories so they can be
+     * adopted in the flow builder, and a mod-log notice posted to a category id fails
+     * at send time — the same filter every other channel picker applies, through the
+     * same predicate so they cannot drift apart.
+     */
     const channelOptions = useMemo(
-        () => channels.map((ch) => ({ value: ch.id, label: `# ${ch.name}` })),
+        () =>
+            postableChannels(channels).map((ch) => ({
+                value: ch.id,
+                label: channelOptionLabel(ch),
+            })),
         [channels]
     );
 

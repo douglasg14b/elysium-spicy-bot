@@ -6,6 +6,7 @@ import { warningsConfigRepo } from '../../features/warnings/data/warningsConfigR
 import { setWarningsModChannel } from '../../features/warnings/logic/setWarningsModChannel';
 import type { AppEnv } from '../types';
 import { accessibleGuilds } from './guildAccess';
+import { guildChannelBodies } from './guildBody';
 
 const warningsConfigBody = z.object({
     modChannelId: z.string().min(1, 'Pick a channel. Warning notices do not haunt the void.'),
@@ -41,10 +42,17 @@ export function guildRoutes(): Hono<AppEnv> {
         return c.json({ guilds });
     });
 
-    // Text channels for a guild (channel-picker display).
+    /*
+     * The guild's channels, for every picker that names one.
+     *
+     * Carries `type` and the parent, which is what lets a caller tell two channels
+     * called `#general` apart and lets a category be adopted at all. Categories are in
+     * the list rather than filtered out here: a consumer that must not offer one as a
+     * place to post filters on `type`, and doing it at the endpoint made that
+     * invariant invisible to the code depending on it.
+     */
     app.get('/:guildId/channels', (c) => {
-        const channels = textChannels(c.get('guild')).map((ch) => ({ id: ch.id, name: ch.name }));
-        return c.json({ channels });
+        return c.json({ channels: guildChannelBodies(c.get('guild')) });
     });
 
     // Assignable roles for a guild (role-picker display). Excludes @everyone and
@@ -197,9 +205,3 @@ function resolveWarningsConfig(
     return { modChannelId, modChannelName };
 }
 
-/** Text channels of a guild, sorted by name for stable display. */
-function textChannels(guild: Guild) {
-    return [...guild.channels.cache.values()]
-        .filter((ch) => ch.type === ChannelType.GuildText)
-        .sort((a, b) => a.name.localeCompare(b.name));
-}

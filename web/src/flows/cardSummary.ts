@@ -69,7 +69,18 @@ function resolveValue(
         case 'channelPicker': {
             if (typeof raw !== 'string' || !raw) return '';
             const channel = context.channels.find((candidate) => candidate.id === raw);
-            return channel ? `#${channel.name}` : '';
+            if (!channel) return '';
+            /*
+             * Resolved, not filtered. This names an id the config already holds, so
+             * hiding a category here would blank the card for a config that exists —
+             * and a card that says nothing is how a wrong value survives unnoticed.
+             *
+             * The `#` is withheld from one, though: the picker cannot produce a
+             * category any more, so seeing a bare name here means an older config is
+             * pointing somewhere a message cannot go, and dressing it up as a channel
+             * is the disguise that let it happen.
+             */
+            return channel.type === 'category' ? channel.name : `#${channel.name}`;
         }
         case 'duration': {
             if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) return '';

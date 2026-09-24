@@ -12,7 +12,12 @@ import type { GuildChannel, GuildRole, NodeDescriptor } from '../../api/types';
 import { summarizeFromDescriptor } from '../cardSummary';
 
 const ROLES: GuildRole[] = [{ id: 'r1', name: 'Moderator', color: 0, position: 1 }];
-const CHANNELS: GuildChannel[] = [{ id: 'c1', name: 'general' }];
+const CHANNELS: GuildChannel[] = [
+    { id: 'c1', name: 'general', type: 'text', parentId: null, parentName: null },
+    // A card may still be asked to name a category: an older config could hold one,
+    // and blanking the card would hide it rather than show it as wrong.
+    { id: 'cat1', name: 'Support', type: 'category', parentId: null, parentName: null },
+];
 
 /** A descriptor carrying only what the summary reads. */
 function descriptorWith(

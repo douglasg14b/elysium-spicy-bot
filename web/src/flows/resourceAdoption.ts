@@ -12,7 +12,12 @@
  * than rendering components (see `cardSummary.ts`, `variables.ts`).
  */
 
-import type { GuildChannel, ResourceDeclaration, ResourceKind } from '../api/types';
+import type {
+    GuildChannel,
+    GuildChannelType,
+    ResourceDeclaration,
+    ResourceKind,
+} from '../api/types';
 
 /**
  * Derive a key from a display name.
@@ -61,20 +66,66 @@ export interface ExistingChannelOption {
 /**
  * Whether a kind can be adopted from the builder's channel list.
  *
- * **Text channels only, and the reason is the endpoint, not the model.**
- * `GET /:guildId/channels` returns text channels alone (`guildRoutes.ts`,
- * `textChannels`), so the list holds nothing a category or a role could adopt.
- * Offering it under "Category" was worse than offering nothing: the picker showed
- * `#general` beside the label "Which category", the declaration passed Zod and
- * `validateJourneyDeclaration`, and the failure landed mid-apply in
- * `requireAdoptable` — after earlier resources were really created.
+ * **Channels and categories, not roles.** This was text-channels-only, and the reason
+ * given was the endpoint rather than the model: `GET /:guildId/channels` sent text
+ * channels alone, so the list held nothing a category could adopt. Offering it under
+ * "Category" anyway was worse than offering nothing — the picker showed `#general`
+ * beside the label "Which category", the declaration passed Zod and
+ * `validateJourneyDeclaration`, and the failure landed mid-apply in `requireAdoptable`,
+ * after earlier resources had really been created.
  *
- * The install model itself adopts all three kinds perfectly well. Widening this needs
- * the endpoint to return `type` so categories and roles can be listed separately;
- * until then the honest answer is that they cannot be picked here.
+ * The endpoint now sends `type`, so a category is a real option and this says so.
+ * **Roles still are not**, and that is a separate gap with a separate cause: they come
+ * from `GET /:guildId/roles`, which this module is never handed. The install model
+ * adopts all three kinds perfectly well; wiring roles up is browser work in
+ * `ResourcesPanel`, not an endpoint change.
  */
 export function canAdoptFromChannelList(kind: ResourceKind): boolean {
-    return kind === 'textChannel';
+    return kind === 'textChannel' || kind === 'category';
+}
+
+/**
+ * The channel types a declared resource of this kind may adopt.
+ *
+ * The one place that answers it, so a picker cannot offer a category to a declaration
+ * that wanted a channel. An announcement channel counts as a text channel here — a
+ * flow can post in one, and a declaration that says "text channel" is naming something
+ * to post in rather than a specific Discord product.
+ */
+function adoptableTypesFor(kind: ResourceKind): readonly GuildChannelType[] {
+    return kind === 'category' ? ['category'] : ['text', 'announcement'];
+}
+
+/**
+ * The channels a flow may post a message in.
+ *
+ * Exported and named because the alternative is what shipped: every picker mapping the
+ * raw list into "somewhere to post" and relying on the *server* to have filtered it.
+ * `ChannelPickerControl` carried a comment saying categories were excluded while doing
+ * nothing to exclude them — true only because of a filter two files away, on the other
+ * side of the wire. Now the invariant is enforced where it is claimed.
+ */
+export function postableChannels(channels: readonly GuildChannel[]): GuildChannel[] {
+    return channels.filter(
+        (channel) => channel.type === 'text' || channel.type === 'announcement'
+    );
+}
+
+/**
+ * How to name a channel so two of them can be told apart.
+ *
+ * The motivating case: two channels called `general`, one in Support and one in
+ * General, rendered as two identical `#general` rows. The operator picked one and
+ * found out later which. The parent is the cheapest thing that distinguishes them and
+ * the one a human actually navigates by.
+ *
+ * A category gets no `#` — it is not a channel you post in, and the prefix is the main
+ * thing that made a category read as one in the picker that should never have offered
+ * it.
+ */
+export function channelOptionLabel(channel: GuildChannel): string {
+    const name = channel.type === 'category' ? channel.name : `#${channel.name}`;
+    return channel.parentName ? `${name} · in ${channel.parentName}` : name;
 }
 
 /**
@@ -119,9 +170,14 @@ export function adoptableChannelOptions(
             .flatMap((resource) => resource.adoptDiscordId ?? [])
     );
 
+    // Filtered by *type* as well as by claim: a declaration asking for a category must
+    // not be offered a text channel, which is precisely the mismatch that used to
+    // survive validation and fail mid-apply.
+    const allowedTypes = new Set<GuildChannelType>(adoptableTypesFor(kind));
+
     return channels
-        .filter((channel) => !claimed.has(channel.id))
-        .map((channel) => ({ value: channel.id, label: `#${channel.name}` }));
+        .filter((channel) => allowedTypes.has(channel.type) && !claimed.has(channel.id))
+        .map((channel) => ({ value: channel.id, label: channelOptionLabel(channel) }));
 }
 
 export interface AdoptedResourceInput {

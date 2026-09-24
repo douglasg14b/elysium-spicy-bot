@@ -2,18 +2,95 @@ import { describe, expect, it } from 'vitest';
 import type { GuildChannel, ResourceDeclaration } from '../../api/types';
 import {
     adoptableChannelOptions,
+    canAdoptFromChannelList,
     canHaveParent,
+    channelOptionLabel,
     declarationForAdoptedChannel,
     declarationForNewResource,
+    postableChannels,
     slugifyResourceName,
     uniqueResourceKey,
 } from '../resourceAdoption';
 
+function textChannel(id: string, name: string, parentName: string | null = null): GuildChannel {
+    return {
+        id,
+        name,
+        type: 'text',
+        parentId: parentName ? `parent-of-${id}` : null,
+        parentName,
+    };
+}
+
+function category(id: string, name: string): GuildChannel {
+    return { id, name, type: 'category', parentId: null, parentName: null };
+}
+
 const CHANNELS: GuildChannel[] = [
-    { id: '100000000000000001', name: 'announcements' },
-    { id: '100000000000000002', name: 'general' },
-    { id: '100000000000000003', name: 'Rules & Info' },
+    textChannel('100000000000000001', 'announcements'),
+    textChannel('100000000000000002', 'general'),
+    textChannel('100000000000000003', 'Rules & Info'),
 ];
+
+/**
+ * The predicate every "somewhere to post" picker runs on.
+ *
+ * It exists because the alternative shipped once: `ChannelPickerControl` mapped the
+ * raw channel list straight into post targets under a comment claiming categories were
+ * excluded, which was true only because the *server* filtered them out — two files away
+ * and across the wire. The endpoint now sends categories so they can be adopted, which
+ * would have turned that comment into a lie and offered a category as a place to send a
+ * message. A config the executor cannot use, failing in a live guild after publish.
+ */
+describe('postableChannels', () => {
+    it('drops categories', () => {
+        const kept = postableChannels([
+            textChannel('1', 'general'),
+            category('cat1', 'Support'),
+            textChannel('2', 'random'),
+        ]);
+
+        expect(kept.map((channel) => channel.id)).toEqual(['1', '2']);
+    });
+
+    it('keeps announcement channels, which a flow can post in', () => {
+        const announcement: GuildChannel = {
+            id: 'a1',
+            name: 'news',
+            type: 'announcement',
+            parentId: null,
+            parentName: null,
+        };
+
+        expect(postableChannels([announcement])).toHaveLength(1);
+    });
+});
+
+describe('channelOptionLabel', () => {
+    it('gives a channel a hash and a category none', () => {
+        // The prefix is most of what made a category read as a channel in the picker
+        // that should never have offered it.
+        expect(channelOptionLabel(textChannel('1', 'general'))).toBe('#general');
+        expect(channelOptionLabel(category('cat1', 'Support'))).toBe('Support');
+    });
+
+    it('qualifies by parent when there is one', () => {
+        expect(channelOptionLabel(textChannel('1', 'general', 'Support'))).toBe(
+            '#general · in Support'
+        );
+    });
+});
+
+describe('canAdoptFromChannelList', () => {
+    it('admits categories now that the directory carries them', () => {
+        expect(canAdoptFromChannelList('category')).toBe(true);
+        expect(canAdoptFromChannelList('textChannel')).toBe(true);
+    });
+
+    it('still refuses roles, which come from a different endpoint', () => {
+        expect(canAdoptFromChannelList('role')).toBe(false);
+    });
+});
 
 describe('adoptableChannelOptions', () => {
     it('offers every guild channel when nothing is declared', () => {
@@ -24,6 +101,83 @@ describe('adoptableChannelOptions', () => {
             { value: '100000000000000002', label: '#general' },
             { value: '100000000000000003', label: '#Rules & Info' },
         ]);
+    });
+
+    /*
+     * ## Telling two channels of the same name apart
+     *
+     * The motivating case for widening `GET /channels`. Two channels called `general`
+     * in different categories rendered as two identical `#general` rows: the operator
+     * picked one and found out later which. Nothing in the picker could distinguish
+     * them, because the endpoint sent `{id, name}` and nothing else.
+     */
+    it('names the parent category so two channels of one name differ', () => {
+        const options = adoptableChannelOptions(
+            [
+                textChannel('1', 'general', 'Support'),
+                textChannel('2', 'general', 'Lounge'),
+            ],
+            'textChannel',
+            []
+        );
+
+        expect(options.map((option) => option.label)).toEqual([
+            '#general · in Support',
+            '#general · in Lounge',
+        ]);
+    });
+
+    it('leaves a top-level channel unqualified', () => {
+        // Nothing to disambiguate against, and "· in nothing" is noise on the common
+        // case.
+        const options = adoptableChannelOptions([textChannel('1', 'general')], 'textChannel', []);
+
+        expect(options[0]!.label).toBe('#general');
+    });
+
+    it('offers categories to a category declaration, and no channels', () => {
+        // Previously impossible: the endpoint sent text channels only, so a category
+        // declaration was offered `#general` under the label "Which category" — a
+        // declaration that passed validation and failed mid-apply in `requireAdoptable`.
+        const options = adoptableChannelOptions(
+            [textChannel('1', 'general'), category('cat1', 'Support')],
+            'category',
+            []
+        );
+
+        expect(options).toEqual([{ value: 'cat1', label: 'Support' }]);
+    });
+
+    it('never offers a category to a text-channel declaration', () => {
+        const options = adoptableChannelOptions(
+            [textChannel('1', 'general'), category('cat1', 'Support')],
+            'textChannel',
+            []
+        );
+
+        expect(options).toEqual([{ value: '1', label: '#general' }]);
+    });
+
+    it('offers an announcement channel where a text channel is wanted', () => {
+        // A flow can post in one, and a declaration saying "text channel" is naming
+        // somewhere to post rather than a specific Discord product.
+        const announcement: GuildChannel = {
+            id: 'a1',
+            name: 'news',
+            type: 'announcement',
+            parentId: null,
+            parentName: null,
+        };
+
+        expect(adoptableChannelOptions([announcement], 'textChannel', [])).toEqual([
+            { value: 'a1', label: '#news' },
+        ]);
+    });
+
+    it('offers nothing to a role declaration', () => {
+        // Roles come from a different endpoint this module is never handed, so the
+        // honest answer is still that they cannot be picked here.
+        expect(adoptableChannelOptions(CHANNELS, 'role', [])).toEqual([]);
     });
 
     it('offers nothing when the guild has no channels', () => {

@@ -39,10 +39,62 @@ export interface Guild {
     memberCount: number;
 }
 
+/**
+ * The channel kinds the guild directory reports.
+ *
+ * Mirrors `GUILD_CHANNEL_TYPES` in `src/web/api/guildBody.ts`, and a closed union
+ * because every consumer branches on it — a value nobody handled would be a category
+ * silently treated as a place to post.
+ */
+export const GUILD_CHANNEL_TYPES = ['text', 'category', 'announcement'] as const;
+export type GuildChannelType = (typeof GUILD_CHANNEL_TYPES)[number];
+
+/**
+ * One channel in the guild directory. Mirrors `GuildChannelBody`.
+ *
+ * `type` is **required on purpose.** The list used to be text channels only, so every
+ * consumer could map it straight into "somewhere to post" — and `ChannelPickerControl`
+ * did exactly that, under a comment claiming categories were excluded. They were, by a
+ * filter two files away on the server. Now that categories are in the list, a required
+ * discriminator is what makes each of those call sites a place the compiler points at
+ * rather than a bug that surfaces in a live guild after publish.
+ */
 export interface GuildChannel {
     id: string;
     name: string;
+    type: GuildChannelType;
+    /** The category this sits in, or null at the top level. Always null for a category. */
+    parentId: string | null;
+    /** Resolved server-side, so a row describes itself without a second lookup. */
+    parentName: string | null;
 }
+
+export const GUILD_CHANNEL_KEYS = [
+    'id',
+    'name',
+    'type',
+    'parentId',
+    'parentName',
+] as const satisfies readonly (keyof GuildChannel)[];
+
+export const GUILD_ROLE_KEYS = [
+    'id',
+    'name',
+    'color',
+    'position',
+] as const satisfies readonly (keyof GuildRole)[];
+
+/** Fails to compile if a guild wire shape gains a member absent from its list above. */
+type GuildKeyListsAreComplete =
+    | Exclude<keyof GuildChannel, (typeof GUILD_CHANNEL_KEYS)[number]>
+    | Exclude<keyof GuildRole, (typeof GUILD_ROLE_KEYS)[number]>;
+
+/** Do not delete as unused: removing it erases the guard above. */
+const guildKeyListsAreComplete: [GuildKeyListsAreComplete] extends [never]
+    ? true
+    : ['A guild wire-shape key list is missing', GuildKeyListsAreComplete] = true;
+
+void guildKeyListsAreComplete;
 
 export interface WarningsConfig {
     modChannelId: string | null;

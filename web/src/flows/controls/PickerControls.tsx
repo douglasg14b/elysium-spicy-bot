@@ -19,6 +19,7 @@
 import { useMemo } from 'react';
 import { Select, Text } from '@mantine/core';
 import { roleColorHex } from '../nodeMeta';
+import { channelOptionLabel, postableChannels } from '../resourceAdoption';
 import { asText, resourceKeyFieldFor, type ControlProps } from './types';
 import type { BlockConfigField, ResourceDeclaration, ResourceKind } from '../../api/types';
 
@@ -164,13 +165,24 @@ export function ChannelPickerControl({
     const current = currentValue(value, config?.[resourceKeyField]);
 
     const options = useMemo(() => {
-        const existing = context.channels.map((channel) => ({
+        /*
+         * Categories are excluded **here**, which is a change from what this comment
+         * used to claim.
+         *
+         * It previously said categories were excluded while doing nothing to exclude
+         * them — true only because `GET /channels` filtered them out on the server, two
+         * files away and across the wire. The endpoint now sends them so a category can
+         * be adopted, which would have made this list offer one as a place to post: a
+         * config the executor cannot use, failing in a live guild after publish.
+         *
+         * `postableChannels` is the same predicate the adoption picker uses, so the two
+         * cannot disagree about what "somewhere to post" means.
+         */
+        const existing = postableChannels(context.channels).map((channel) => ({
             value: channel.id,
-            label: `# ${channel.name}`,
+            label: channelOptionLabel(channel),
         }));
 
-        // Categories are excluded: a message goes in a text channel, and offering a
-        // category here would produce a config the executor cannot use.
         const declared = declaredGroup({
             resources: context.declaredResources,
             kinds: ['textChannel'],
