@@ -5,7 +5,13 @@ import {
     applyUnpublishPlan,
     type ApplyUnpublishPlanResult,
 } from './logic/applyUnpublishPlan';
-import { buildInstallPlan, type InstallPlan, type ResourceChoice } from './logic/installPlan';
+import {
+    buildInstallPlan,
+    existsInGuildAs,
+    type InstallPlan,
+    type ResourceChoice,
+} from './logic/installPlan';
+import { findOrphanedBindings, type OrphanedBinding } from './logic/orphanedBindings';
 import { buildJourneyDriftPlan, type JourneyDriftPlan } from './logic/journeyDriftPlan';
 import {
     applyDriftRepair,
@@ -142,6 +148,30 @@ export async function previewDrift(input: PreviewDriftInput): Promise<JourneyDri
             subjectId: input.subjectId,
             staffRoleIds: input.staffRoleIds,
         },
+    });
+}
+
+/**
+ * Resources this journey installed and no longer declares.
+ *
+ * Reads only. Separate from `previewDrift` rather than folded into it because the two
+ * answer different questions about different things — drift is about resources we still
+ * want, and this is about ones we have and no longer asked for. The honest answers
+ * differ too: drift offers a repair, and an orphan offers a delete or a forget.
+ */
+export async function previewOrphans(input: {
+    readonly guild: Guild;
+    readonly journey: JourneyDeclaration;
+}): Promise<readonly OrphanedBinding[]> {
+    const bindings = await resourceBindingsRepo.listByJourney(
+        input.guild.id,
+        input.journey.journeyKey
+    );
+
+    return findOrphanedBindings({
+        journey: input.journey,
+        bindings,
+        existsInGuild: (kind, discordId) => existsInGuildAs(input.guild, kind, discordId),
     });
 }
 

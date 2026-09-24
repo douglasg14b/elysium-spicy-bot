@@ -256,6 +256,80 @@ decisions are:
 the report useless rather than wrong), the adopted-resource repair refusal, and the
 apply-time re-check. Each has the property that a passing test might prove nothing.
 
+## What A–D actually found — corrections to this plan
+
+Recorded as they landed, because a plan that only says what was intended is worth less
+later than one that says where it was wrong.
+
+**The permission comparison was typed against the wrong thing, and `tsc` caught it.**
+Slice A first typed `compiledOverwrites` as `discord.js`'s `OverwriteResolvable`,
+reasoning that this is what `compilePermissionIntents` returns. It is not: that type is
+what `discord.js` accepts on the way *in*, and it permits a `Role` or a `GuildMember`,
+so the module claimed to handle shapes it cannot compare and cannot repair. The
+compiler in fact returns plain ids with `bigint` arrays, which is now its own named
+type. A change to the compiler's output breaks at compile time instead of producing a
+silently empty diff.
+
+**The two `discord.js` write paths disagree about vocabulary**, and the plan assumed
+one. `permissionOverwrites.set` and `channels.create` take bit arrays; `edit` takes a
+map of permission *names*. Slice C was written against bits and would have failed only
+against a live guild. `PermissionsBitField.toArray()` does the translation rather than
+a hand-written table, which would be one release from being silently wrong about a flag
+nothing tests.
+
+**`setParent` needed a flag the plan did not mention, and it is load-bearing.**
+Discord's default on a move is to *sync* the channel's overwrites to its new category —
+so repairing a reparent would have destroyed the permission model this feature exists to
+protect. `lockPermissions: false`.
+
+**The three-way outcome in slice B was a hole, found by asking what a weak test was
+worth.** A resource whose permissions could not be compiled landed in `cleanKeys` with
+its reason discarded, so the plan reported it clean and the operator was never told it
+had gone unexamined — the exact false-clean the module header argues against. `unchecked`
+is now a third answer. Related: the two questions are asked *independently* rather than
+as an if/else chain, because a resource can both drift and go unchecked, and a chain
+drops whichever it tests second.
+
+**`resourceBindingsRepo` had no way to update a cached name.** `settle` accepts only
+`intended` rows and `rebind` exists to point a row at a *different* object; a rename
+repair changes nothing about identity. Slice C added `renameBinding`, guarded on the
+snowflake rather than the row id, because the caller is holding a live object and that
+is the fact worth checking.
+
+**A test helper silently discarded its overrides.** `binding()` in slice A's tests
+accepted a `Partial` and never spread it, so two tests passed against a fixture that
+ignored what they set. The `as ResourceBindingEntity` cast is what hid it from `tsc`.
+Worth recording because it is the same false-pass class this repo has shipped before,
+and because it was found by a test failing for the *right* reason rather than by
+review.
+
+**Slice D was smaller than planned, for the reason the plan predicted.** Teardown was
+already built — plan/confirm, the adoption promise, the category cascade, permission and
+hierarchy preflight, and a TOCTOU re-check. The two real gaps were orphans (a resource
+removed from the panel whose object survives, previously on no screen at all) and a
+policy that existed only in a route comment. Both are now closed; the third item the
+plan listed — persisting per-item teardown outcomes — is **not** done and is carried
+below.
+
+**Sabotage runs: ten in all**, each failing exactly its named test and nothing else.
+The three that were most worth doing: the extra-overwrites rule (its failure makes the
+report useless rather than wrong), the adoption refusals in both detection and repair,
+and the apply-time re-check. Two sabotages in slice C caught the *mutation* via a spy
+rather than a return value, which is the stronger evidence.
+
+## Still open
+
+- **Per-item teardown outcomes are not persisted.** An operator who tears down, gets
+  three refusals, and returns tomorrow has no record of what was left behind except by
+  re-running. Named in slice D's scope and deliberately not built — it wants a table,
+  and the question of how long such a record should live is not one to answer in a
+  tail-end commit.
+- **No surface.** Slices A–D are engine and service only. Nothing in the dashboard
+  shows a drift report or offers a repair, so none of this is reachable by an operator
+  yet.
+- **Slice E has not run.** Everything here is test-verified only, which is the condition
+  every step in this programme has ended by making false.
+
 ## Ordering
 
 1. **A before B** — dependency.

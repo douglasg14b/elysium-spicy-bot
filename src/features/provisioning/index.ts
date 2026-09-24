@@ -92,6 +92,12 @@ export type { JourneyDriftPlan, UncheckedResource } from './logic/journeyDriftPl
 // Repair reconciles the guild *to* the declaration, never the other way. An adopted
 // resource and a wrong-type binding are both refused rather than repaired — the first
 // is the adoption promise, the second needs a decision only the operator can take.
+// A resource the journey installed and no longer declares. Not drift — there is no
+// declaration left to compare against, so the honest answers are delete or forget
+// rather than repair. Until this existed, such an object appeared on no screen at all.
+export { findOrphanedBindings, describeOrphan } from './logic/orphanedBindings';
+export type { OrphanedBinding } from './logic/orphanedBindings';
+
 export { applyDriftRepair } from './logic/applyDriftRepair';
 export type {
     ApplyDriftRepairResult,
