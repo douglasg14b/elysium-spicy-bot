@@ -712,7 +712,7 @@ All 29 §5.7 and §5.8 requirements are placed — 10 in 5A, 19 in 5B. Nothing i
 | Drift detection and repair (§5.7) | Reads existing state, adds no column |
 | Explicit teardown policy / uninstall (§5.7, §5.8) | Needs an install to exist before it can be undone |
 | Rate-limit-aware application, resumable (§5.7) | Pacing layer over a working apply. Real, but our guild is small |
-| A resource may be bound by more than one journey (§5.7) | Matters at two journeys; we will have one |
+| ~~A resource may be bound by more than one journey (§5.7)~~ | **Cut 2026-09-24 — a decided non-requirement, not a deferral.** See below |
 | Subsystem configuration is a declarable resource (§5.7) | Blocked on issue #22 — ticket categories are name-keyed, not id-keyed |
 | Verify, don't overwrite (§5.7) | Adoption in 5A binds what the operator picks; *checking* it against required config is the drift machinery |
 | Ambiguous names disambiguate explicitly (§5.7) | 5A's plan lists candidates; ranked-suggestion UI is builder work |
@@ -727,6 +727,45 @@ All 29 §5.7 and §5.8 requirements are placed — 10 in 5A, 19 in 5B. Nothing i
 | Cross-path sequencing uses existing mechanisms (§5.8) | A constraint on authors, not code |
 | Install wizard (§5.8) | 5A ships plan → confirm → apply; the wizard is its UI |
 | Onboarding journey template ships (§5.8) | That is step 6 |
+
+### Two things cut from 5B, 2026-09-24
+
+Both by the operator, and neither is a deferral — they are removed from the
+requirement set. Recorded here rather than deleted silently, because a requirement
+that vanishes without a reason gets rebuilt by the next person who reads §5.7.
+
+**A resource bound by more than one journey is a non-requirement.** The row above
+deferred it on volume ("matters at two journeys; we will have one"), which was the
+wrong reason and would have brought it back the moment a second journey existed. The
+real reason is that the case does not arise from the design:
+
+> *A journey is the unit that encompasses many flows. If someone wants a resource that
+> crosses journeys, they add the flow to that journey instead.*
+
+That is the definition doing its job. §5.8's decision 1 already says a journey is the
+scope in which a resource key is visible, and 5B.1 made adding a flow to an existing
+journey a drag on the flows page — so the workaround for a cross-journey resource is
+cheaper than the feature, and produces a more accurate model besides. Two journeys
+needing one channel are one journey that was split by mistake.
+
+What this does **not** change: `sharedJourneyGuard.ts` stays exactly as it is. It
+guards several *flows* sharing one journey, which is supported and is 5B.1's whole
+product. Nothing there is about resources spanning journeys.
+
+**"In-app onboarding install" was a misreading, and the PRD already said so.**
+Onboarding was the operator's *example* of a journey somebody might build, and it was
+promoted into the schedule as a deliverable. §1.4 has held the correct reading the
+whole time:
+
+> *The onboarding journey in §6.2 is an **example that motivates capabilities**, never
+> a specification of behaviour the engine encodes.*
+
+So there is no "onboarding install" feature to build, and the install wizard row above
+stays deferred on its own merits rather than being pulled forward to serve one. This is
+the same failure the top of this document describes — detail spent on a target nobody
+had yet examined — reappearing in the *target* rather than in the schedule, which is
+why it survived several readings. Step 6's bar still names onboarding, and that is
+fine: it is the proof, not the spec.
 
 ### Ordering constraints
 
