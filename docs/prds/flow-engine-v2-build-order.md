@@ -725,7 +725,7 @@ All 29 §5.7 and §5.8 requirements are placed — 10 in 5A, 19 in 5B. Nothing i
 | Trigger buttons deploy per destination (§5.8) | Independent of provisioning |
 | Disconnected subgraphs are legible (§5.8) | Builder work |
 | Cross-path sequencing uses existing mechanisms (§5.8) | A constraint on authors, not code |
-| Install wizard (§5.8) | 5A ships plan → confirm → apply; the wizard is its UI |
+| ~~Install wizard (§5.8)~~ | **Cut 2026-09-24 by the operator** — 5A's plan → confirm → apply already installs, and the flows page hands off to it. See below |
 | Onboarding journey template ships (§5.8) | That is step 6 |
 
 ### Two things cut from 5B, 2026-09-24
@@ -760,12 +760,23 @@ whole time:
 > *The onboarding journey in §6.2 is an **example that motivates capabilities**, never
 > a specification of behaviour the engine encodes.*
 
-So there is no "onboarding install" feature to build, and the install wizard row above
-stays deferred on its own merits rather than being pulled forward to serve one. This is
-the same failure the top of this document describes — detail spent on a target nobody
-had yet examined — reappearing in the *target* rather than in the schedule, which is
-why it survived several readings. Step 6's bar still names onboarding, and that is
-fine: it is the proof, not the spec.
+So there is no "onboarding install" feature to build. This is the same failure the top
+of this document describes — detail spent on a target nobody had yet examined —
+reappearing in the *target* rather than in the schedule, which is why it survived
+several readings. Step 6's bar still names onboarding, and that is fine: it is the
+proof, not the spec.
+
+**The install wizard goes with it**, by the operator in the same breath: *"I don't think
+we need an install wizard on the flows page."* The capability already exists and was
+never the missing part — `GET .../install-plan` + `POST .../install` shipped in 5A
+(`cee325d`), and §5.8's own flows-page requirement says a row's install chip *"hands off
+to the builder's existing install wizard rather than introducing a second install
+path."* A separate §5.8 "wizard" deliverable would have been that second path.
+
+Recorded because this row survived one editing pass after the decision: the onboarding
+half was cut and the wizard row left standing, then read back to the operator as open
+work. The row's old justification — "5A ships plan → confirm → apply; the wizard is its
+UI" — was already describing something that exists.
 
 ### Ordering constraints
 
