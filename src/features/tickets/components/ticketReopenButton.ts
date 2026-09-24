@@ -7,9 +7,8 @@ import {
 import { TICKET_BUTTON_CONFIGS } from '../logic/ticketButtonConfigs';
 import { resolveTicketAction } from '../logic/resolveTicketAction';
 import { replyTicketFailure, ticketErrorMessage } from '../logic/ticketErrorMessage';
-import { syncTicketChannelToState } from '../logic/ticketChannelOps';
-import { buildTicketButtons, buildTicketEmbed } from '../logic/ticketPresentation';
-import { reopenTicket } from '../ticketService';
+import { applyTicketTransition } from '../logic/applyTicketTransition';
+import { ticketIdentityFromMember } from '../logic/resolveTicketIdentity';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 
 export const TICKET_REOPEN_BUTTON_ID = TICKET_BUTTON_CONFIGS.REOPEN.customId;
@@ -29,40 +28,32 @@ export function TicketReopenButtonComponent() {
     /**
      * Reopens a closed ticket.
      *
-     * The claim survives a close/reopen round trip now, so a reopened ticket
-     * returns to the claimed category if it had a claimer. The old path cleared
-     * the claim on reopen, which it had to: status was a single enum where
-     * "claimed" and "open" were mutually exclusive values.
+     * The claim survives a close/reopen round trip now, so a reopened ticket returns
+     * to the claimed category if it had a claimer. The old path cleared the claim on
+     * reopen, which it had to: status was a single enum where "claimed" and "open"
+     * were mutually exclusive values.
      */
     async function handler(interaction: ButtonInteraction): Promise<InteractionHandlerResult> {
         const resolved = await resolveTicketAction(interaction, 'reopen tickets');
         if (!resolved.ok) return replyTicketFailure(interaction, ticketErrorMessage(resolved.error));
-        const { guild, member, channel, config, ticket } = resolved.value;
+        const { guild, member, config, ticket, definition } = resolved.value;
 
         await interaction.deferUpdate();
 
-        const result = await reopenTicket(ticket.id);
-        if (!result.ok) return replyTicketFailure(interaction, `❌ ${ticketErrorMessage(result.error)}`);
-        const updated = result.value;
-
-        // The inverse of the close case: this call restores the subject's access.
-        // Failing silently leaves a ticket that says it is open but which the
-        // person it concerns cannot see or post in.
-        const syncResult = await syncTicketChannelToState(channel, guild, updated, config);
-        if (!syncResult.ok) {
-            console.error('Error syncing ticket channel after reopen:', syncResult.error);
-            await replyTicketFailure(
-                interaction,
-                '⚠️ The ticket was reopened, but its channel permissions could not be updated — the subject may still be locked out. Check the permissions.'
-            );
-        }
-
-        await interaction.message.edit({
-            embeds: [buildTicketEmbed(updated)],
-            components: buildTicketButtons(updated),
+        const result = await applyTicketTransition({
+            guild,
+            config,
+            ticket,
+            definition,
+            transition: 'reopen',
+            actor: { id: member.id, mention: member.toString(), identity: ticketIdentityFromMember(member) },
+            message: interaction.message,
         });
 
-        await channel.send(`🔓 **Ticket Reopened**\nThis ticket has been reopened by ${member}.`);
+        if (!result.ok) return replyTicketFailure(interaction, `❌ ${result.message}`);
+        if (result.outcome.syncWarning) {
+            await replyTicketFailure(interaction, result.outcome.syncWarning);
+        }
 
         return { status: 'success' };
     }

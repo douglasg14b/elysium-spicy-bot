@@ -1,8 +1,8 @@
 import { fail, ok, type Result } from '../../shared';
 import { ticketingRepo } from './data/ticketingRepo';
 import { ticketsRepo } from './data/ticketsRepo';
-import type { TicketEntity, TicketType } from './data/ticketsSchema';
-import { getTicketTypeDefinition } from './logic/ticketTypes';
+import type { TicketTypeDefinition } from './data/ticketingSchema';
+import type { TicketEntity, TicketIdentity, TicketType } from './data/ticketsSchema';
 
 /**
  * The ticket system's own surface, owing nothing to Discord interactions or to
@@ -36,11 +36,24 @@ import { getTicketTypeDefinition } from './logic/ticketTypes';
 export interface OpenTicketInput {
     readonly guildId: string;
     readonly type: TicketType;
+    /**
+     * The guild's declaration for `type`, resolved by the caller.
+     *
+     * Passed in rather than looked up, because the service must not read
+     * `ticketing_config` to answer "does this type auto-claim" when the caller
+     * already read it to find the category. It also keeps this module's stated
+     * rule intact: it decides, and a decision made from data handed to it is
+     * testable without a database.
+     */
+    readonly definition: TicketTypeDefinition;
     readonly subjectId: string;
     /** Null when a flow opens the ticket and no human filed it. */
     readonly openerId: string | null;
     readonly title: string;
     readonly reason: string;
+    /** Who these people were at open. An unresolvable person yields null, never a placeholder. */
+    readonly subjectIdentity: TicketIdentity | null;
+    readonly openerIdentity: TicketIdentity | null;
 }
 
 /**
@@ -74,13 +87,15 @@ async function allocateTicketNumber(guildId: string): Promise<Result<number>> {
  * half-made ticket at all, because the embed *was* the state.
  */
 export async function openTicket(input: OpenTicketInput): Promise<Result<TicketEntity>> {
-    const definition = getTicketTypeDefinition(input.type);
-
     const numberResult = await allocateTicketNumber(input.guildId);
     if (!numberResult.ok) return numberResult;
 
     const now = new Date().toISOString();
-    const claimerId = definition.autoClaimOnOpen ? input.openerId : null;
+    const claimerId = input.definition.autoClaimOnOpen ? input.openerId : null;
+    // An auto-claim makes the opener the claimer, so it records the opener's
+    // names under the claimer's columns too. Derived from the same identity
+    // rather than re-resolved, so the two cannot disagree about one person.
+    const claimerIdentity = claimerId ? input.openerIdentity : null;
 
     try {
         const ticket = await ticketsRepo.create({
@@ -92,6 +107,13 @@ export async function openTicket(input: OpenTicketInput): Promise<Result<TicketE
             openerId: input.openerId,
             claimerId,
             channelId: null,
+            subjectUsername: input.subjectIdentity?.username ?? null,
+            subjectNickname: input.subjectIdentity?.nickname ?? null,
+            openerUsername: input.openerIdentity?.username ?? null,
+            openerNickname: input.openerIdentity?.nickname ?? null,
+            claimerUsername: claimerIdentity?.username ?? null,
+            claimerNickname: claimerIdentity?.nickname ?? null,
+            stateMessageId: null,
             title: input.title,
             reason: input.reason,
             openedAt: now,
@@ -121,7 +143,33 @@ export async function attachTicketChannel(ticketId: number, channelId: string): 
     }
 }
 
-export async function claimTicket(ticketId: number, claimerId: string): Promise<Result<TicketEntity>> {
+/**
+ * Records which in-channel message renders this ticket's state.
+ *
+ * Separate from {@link attachTicketChannel} because the message is sent *after*
+ * the channel exists, and a caller that fails to send one leaves a ticket with a
+ * channel and no rendering — which is recoverable — rather than no ticket.
+ *
+ * A caller with no interaction to re-render from resolves the message by this id,
+ * so it is written at open rather than left null for a later consumer to
+ * discover it never arrives.
+ */
+export async function recordTicketStateMessage(
+    ticketId: number,
+    stateMessageId: string
+): Promise<Result<TicketEntity>> {
+    try {
+        return ok(await ticketsRepo.update(ticketId, { stateMessageId }));
+    } catch (error) {
+        return fail(error instanceof Error ? error : new Error(String(error)));
+    }
+}
+
+export async function claimTicket(
+    ticketId: number,
+    claimerId: string,
+    identity: TicketIdentity | null
+): Promise<Result<TicketEntity>> {
     const ticket = await ticketsRepo.getById(ticketId);
     if (!ticket) return fail(`No ticket found with id ${ticketId}`);
 
@@ -142,7 +190,12 @@ export async function claimTicket(ticketId: number, claimerId: string): Promise<
         // actually decides. Two moderators pressing Claim together both pass the
         // read, and the second gets nothing back from the conditional update
         // rather than silently overwriting the first.
-        const claimed = await ticketsRepo.claimIfUnclaimed(ticketId, claimerId, new Date().toISOString());
+        const claimed = await ticketsRepo.claimIfUnclaimed(
+            ticketId,
+            claimerId,
+            new Date().toISOString(),
+            identity
+        );
         if (!claimed) {
             return fail(`Ticket #${ticket.ticketNumber} was just claimed by someone else.`);
         }
@@ -159,6 +212,11 @@ export async function claimTicket(ticketId: number, claimerId: string): Promise<
  * Only expressible because ownership and lifecycle are separate columns. Under
  * the old enum, unclaiming meant moving back to `active`, which is why "is it
  * claimed" and "is it open" could not be asked independently.
+ *
+ * Clears the claimer's names with the claim. A released ticket keeps no claimer,
+ * so it keeps no claimer name; "who handled this" survives on a *closed* ticket
+ * because closing keeps the claim, which is the rule {@link closeTicket} already
+ * states.
  */
 export async function unclaimTicket(ticketId: number): Promise<Result<TicketEntity>> {
     const ticket = await ticketsRepo.getById(ticketId);
@@ -169,7 +227,14 @@ export async function unclaimTicket(ticketId: number): Promise<Result<TicketEnti
     }
 
     try {
-        return ok(await ticketsRepo.update(ticketId, { claimerId: null, claimedAt: null }));
+        return ok(
+            await ticketsRepo.update(ticketId, {
+                claimerId: null,
+                claimedAt: null,
+                claimerUsername: null,
+                claimerNickname: null,
+            })
+        );
     } catch (error) {
         return fail(error instanceof Error ? error : new Error(String(error)));
     }

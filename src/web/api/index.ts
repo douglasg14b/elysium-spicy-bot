@@ -7,6 +7,7 @@ import { flowRoutes } from './flowRoutes';
 import { guildRoutes } from './guildRoutes';
 import { journeyRoutes } from './journeyRoutes';
 import { nodeRoutes } from './nodeRoutes';
+import { ticketRoutes } from './ticketRoutes';
 
 /**
  * Registers all JSON API routes under /api.
@@ -45,6 +46,12 @@ export function registerApiRoutes(app: Hono<AppEnv>): void {
     // Journey CRUD shares the same prefix — a journey is guild-scoped structure, and
     // authorizing it separately would be a second answer to the same question.
     app.route('/api/guilds', journeyRoutes());
+    // Tickets — the list, one ticket, the four lifecycle actions and the ticket config.
+    // Same prefix again, so `requireGuildAccess` above already authorizes every route
+    // in it and the router adds no middleware of its own. A ticket is moderator-facing
+    // data in a guild the caller already administers, so it is the existing tier
+    // rather than a second authorization concept.
+    app.route('/api/guilds', ticketRoutes());
 
     // Node catalogue for the builder palette — authed, but not guild-scoped.
     app.use('/api/nodes', requireAuth);

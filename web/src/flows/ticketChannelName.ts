@@ -8,13 +8,23 @@
  * nothing else. An author looking at the block could not tell what the channel
  * would be called, and the natural guess is wrong.
  *
- * A mirror of `TICKET_TYPE_DEFINITIONS` and `buildTicketChannelNameForType` in
- * `src/features/tickets/logic/ticketTypes.ts`. Mirrored rather than served: this
- * is four strings of static code constant that change roughly never, and the
- * alternatives both cost more than they buy — a ticket endpoint is a router, a
- * fetch, a loading state and an error state for data that is not per-guild, and
- * putting the preview on the validation response would make a hint that updates as
- * you type depend on a round trip and on having saved.
+ * A mirror of `buildTicketChannelName` in
+ * `src/features/tickets/logic/ticketTypes.ts`, which the browser cannot import
+ * because that module reaches `discord.js`.
+ *
+ * **The templates below are the seed, not the truth.** This file originally
+ * claimed they were "static code constant that change roughly never" and that the
+ * data "is not per-guild". Both stopped being true when a ticket type became a row
+ * in `ticketing_config`: an operator can edit any template on the tickets config
+ * page and declare types this bundle has never heard of. So the preview is honest
+ * about its own reach — {@link isPreviewableTicketType} recognises only the seeded
+ * keys, and an edited template renders the seeded preview, which is a name the
+ * guild may no longer use.
+ *
+ * Closing that gap is the flow-builder ticket-type picker's job (plan step C):
+ * once the picker reads the guild's own types it can carry their templates, and
+ * {@link buildMirroredChannelName} already takes the template as an argument so
+ * that the substitution logic will not need touching when it does.
  *
  * `ticketChannelNamePreviewDrift.test.ts` holds the mirror to the real builder by
  * running both and comparing the output — so the *sanitizer* is gated too, not
@@ -35,12 +45,13 @@ import type { NodeDescriptor } from '../api/types';
 const TICKET_TYPE_FIELD = 'ticketType';
 
 /**
- * Each ticket type's channel-name template, mirroring the server's definitions.
+ * The channel-name templates of the two types every guild is **seeded** with.
  *
- * Note these are the *type definitions'* templates. `TicketingConfig` also carries
- * a `ticketChannelNameTemplate` column, which the ticket config modal displays —
- * but `buildTicketChannelNameForType` does not read it, so it names nothing. The
- * templates below are the ones Discord actually sees.
+ * Mirrors `DEFAULT_TICKET_TYPES` in
+ * `src/features/tickets/data/defaultTicketTypes.ts`, which is the migration's seed
+ * value — not a runtime lookup table. A guild's live templates are in its
+ * `ticketing_config.ticketTypes`, and the drift gate can only hold this file to the
+ * seed, because the seed is the only part that exists in source on both sides.
  */
 export const TICKET_TYPE_NAME_TEMPLATES = {
     support: 'S{{####}}-{{subject}}-{{opener}}',
@@ -86,32 +97,40 @@ const SAMPLE_SUBJECT = 'someone';
  * an edge case in this preview but the normal path.
  */
 export function previewTicketChannelName(type: PreviewableTicketType): string {
-    return buildMirroredChannelName(type, SAMPLE_SUBJECT);
+    return buildMirroredChannelName(TICKET_TYPE_NAME_TEMPLATES[type], SAMPLE_SUBJECT);
 }
 
 /**
- * The mirror of `buildTicketChannelNameForType`, over an arbitrary subject.
+ * The mirror of `buildTicketChannelName`, over an arbitrary template and subject.
  *
- * Exported for the drift gate alone, and it is what makes that gate real: with
- * only {@link previewTicketChannelName} reachable, every comparison runs on the
- * stand-in `someone` — already lowercase and pure ASCII — so a mirror that had
- * dropped the lowercasing or the character strip would still agree with the
- * server on the one input anybody tested. It shipped that way for a commit, and a
- * sabotage check is what found it.
+ * Takes the **template**, not a type key, for the same reason the server's builder
+ * came to take a definition rather than a key: templates are operator-authored
+ * per-guild data now, so a function that could only name the two keys compiled into
+ * this bundle could not preview a guild's own type at all. The seeded keys reach it
+ * through {@link previewTicketChannelName}.
  *
- * The production path has exactly one caller and one input; this is the same code
- * with the subject lifted out, not a second implementation.
+ * Exported for the drift gate too, and that is what makes the gate real: with only
+ * {@link previewTicketChannelName} reachable, every comparison runs on the stand-in
+ * `someone` — already lowercase and pure ASCII — so a mirror that had dropped the
+ * lowercasing or the character strip would still agree with the server on the one
+ * input anybody tested. It shipped that way for a commit, and a sabotage check is
+ * what found it.
+ *
+ * **`replaceAll`, not `replace`**, matching the server. A string needle replaces
+ * only the first occurrence, so a template repeating a token — which an operator
+ * may now write, since templates are free text — rendered the second one literally:
+ * `S{{####}}-{{subject}}-{{subject}}` previewed as `s0042-someone-subject` once
+ * Discord stripped the braces. The server fixed this when templates became
+ * editable; the mirror had to follow or it would preview a different name than the
+ * one created.
  */
-export function buildMirroredChannelName(
-    type: PreviewableTicketType,
-    subjectName: string
-): string {
+export function buildMirroredChannelName(template: string, subjectName: string): string {
     const sanitize = (name: string): string => name.replace(/[^a-z0-9-]/gi, '').toLowerCase();
 
-    return TICKET_TYPE_NAME_TEMPLATES[type]
-        .replace('{{####}}', SAMPLE_TICKET_NUMBER)
-        .replace('{{subject}}', sanitize(subjectName))
-        .replace('{{opener}}', '')
+    return template
+        .replaceAll('{{####}}', SAMPLE_TICKET_NUMBER)
+        .replaceAll('{{subject}}', sanitize(subjectName))
+        .replaceAll('{{opener}}', '')
         .replace(/-+/g, '-')
         .replace(/-$/, '');
 }

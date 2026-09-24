@@ -1,10 +1,10 @@
 import { z } from 'zod';
-import { ChannelType } from 'discord.js';
 import type { BlockManifest } from '../manifest';
 import { ticketingRepo } from '../../../tickets/data/ticketingRepo';
 import { isTicketingConfigConfigured } from '../../../tickets/data/ticketingSchema';
-import { closeTicket } from '../../../tickets';
-import { syncTicketChannelToState } from '../../../tickets/logic/ticketChannelOps';
+import { closeTicket, getTicket } from '../../../tickets';
+import { applyTicketTransition } from '../../../tickets/logic/applyTicketTransition';
+import { getTicketTypeDefinition } from '../../../tickets/logic/ticketTypes';
 
 export const ACTION_CLOSE_TICKET = 'action.closeTicket';
 
@@ -63,21 +63,66 @@ export const block: BlockManifest<CloseTicketConfig> = {
             throw new Error(`Close Ticket needs a ticket id, got "${config.ticketId}"`);
         }
 
-        const closed = await closeTicket(ticketId);
-        if (!closed.ok) throw closed.error;
-        const ticket = closed.value;
-
-        // Moving the channel is a best-effort reflection of a decision that has
-        // already been recorded. A ticket whose channel is gone is still closed;
-        // the record is the truth and the channel is one of its renderings.
-        if (!ticket.channelId) return { kind: 'continue' };
+        /*
+         * The close goes through the same orchestration the dashboard and the four
+         * buttons use, so this block stopped being a fifth copy of
+         * commit-then-sync-then-warn. That means the config and the type definition
+         * have to be resolved *first*, because the orchestration takes both — where
+         * the old code closed the row and only then went looking for a config.
+         *
+         * The fallback is unchanged and deliberate: a guild with no usable ticket
+         * config, or a ticket holding a type it no longer declares, still gets the
+         * row closed. The record is the truth and the channel is one of its
+         * renderings, so a flow must not be blocked from closing a ticket because
+         * the guild's *presentation* config has rotted. What is lost in that case is
+         * the channel move, which is what the old code lost too.
+         */
+        /*
+         * Guild-scoped, and the check is this block's own: `getTicket` matches on the id
+         * alone. `ticketId` normally arrives as `{{var.ticketId}}` from an upstream Open
+         * Ticket block and so belongs to this run's guild — but it is a free-text field a
+         * flow author can type a literal into, and nothing downstream would catch it,
+         * because the orchestration is handed the row rather than looking it up. Every
+         * other surface in this feature makes this check; it would be odd for the one
+         * reachable by a typo not to.
+         */
+        const existing = await getTicket(ticketId);
+        if (!existing || existing.guildId !== context.guild.id) {
+            throw new Error(`Close Ticket found no ticket with id ${ticketId} in this server`);
+        }
 
         const configEntity = await ticketingRepo.get(context.guild.id);
-        if (!isTicketingConfigConfigured(configEntity)) return { kind: 'continue' };
+        const definition = isTicketingConfigConfigured(configEntity)
+            ? getTicketTypeDefinition(configEntity.config, existing.type)
+            : undefined;
 
-        const channel = await context.client.channels.fetch(ticket.channelId).catch(() => null);
-        if (channel?.type === ChannelType.GuildText) {
-            await syncTicketChannelToState(channel, context.guild, ticket, configEntity.config);
+        if (!isTicketingConfigConfigured(configEntity) || !definition) {
+            const closed = await closeTicket(ticketId);
+            if (!closed.ok) throw closed.error;
+            return { kind: 'continue' };
+        }
+
+        const result = await applyTicketTransition({
+            guild: context.guild,
+            config: configEntity.config,
+            ticket: existing,
+            definition,
+            transition: 'close',
+            // A flow has no human actor. Named as the automation rather than left
+            // blank, because the in-channel announcement is read by the people in the
+            // ticket and "closed by" with nothing after it reads like a bug.
+            actor: { id: context.client.user?.id ?? 'flow', mention: 'an automated flow', identity: null },
+        });
+
+        // Thrown rather than swallowed: the block's contract is that the ticket is
+        // closed when it continues, and the service's refusals are the reasons it is
+        // not — already closed, already deleted, changed state underneath.
+        if (!result.ok) throw new Error(result.message);
+
+        if (result.outcome.syncWarning) {
+            // Nowhere to reply to in a flow run, so it is logged rather than
+            // surfaced. The row is committed either way.
+            console.warn(`[flows] ${ACTION_CLOSE_TICKET}: ${result.outcome.syncWarning}`);
         }
 
         return { kind: 'continue' };

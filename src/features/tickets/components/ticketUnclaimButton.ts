@@ -8,9 +8,8 @@ import { memberHasModeratorPerms, memberHasModeratorRole } from '../logic/hasMod
 import { TICKET_BUTTON_CONFIGS } from '../logic/ticketButtonConfigs';
 import { resolveTicketAction } from '../logic/resolveTicketAction';
 import { replyTicketFailure, ticketErrorMessage } from '../logic/ticketErrorMessage';
-import { syncTicketChannelToState } from '../logic/ticketChannelOps';
-import { buildTicketButtons, buildTicketEmbed } from '../logic/ticketPresentation';
-import { unclaimTicket } from '../ticketService';
+import { applyTicketTransition } from '../logic/applyTicketTransition';
+import { ticketIdentityFromMember } from '../logic/resolveTicketIdentity';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 
 export const TICKET_UNCLAIM_BUTTON_ID = TICKET_BUTTON_CONFIGS.UNCLAIM.customId;
@@ -30,15 +29,17 @@ export function TicketUnclaimButtonComponent() {
     /**
      * Releases the claim on this channel's ticket.
      *
-     * Carries one rule the service cannot: *who* may release a claim. The
-     * service knows only that a claim exists, so the "yours, or you outrank the
-     * person holding it" check stays here, where the acting member is known.
-     * Whether the ticket is claimed at all is left to `unclaimTicket`.
+     * Carries one rule neither the service nor the orchestration can: *who* may
+     * release a claim. The service knows only that a claim exists, and the
+     * orchestration is shared by a web route whose actor is a session rather than a
+     * member — so the "yours, or you outrank the person holding it" check stays here,
+     * where the acting member is known. Whether the ticket is claimed at all is left
+     * to `unclaimTicket`.
      */
     async function handler(interaction: ButtonInteraction): Promise<InteractionHandlerResult> {
         const resolved = await resolveTicketAction(interaction, 'unclaim tickets');
         if (!resolved.ok) return replyTicketFailure(interaction, ticketErrorMessage(resolved.error));
-        const { guild, member, channel, config, ticket } = resolved.value;
+        const { guild, member, config, ticket, definition } = resolved.value;
 
         // Same disjunction the gate uses, deliberately. Testing only
         // `memberHasModeratorPerms` here would be near-vacuous — the gate has
@@ -52,25 +53,20 @@ export function TicketUnclaimButtonComponent() {
 
         await interaction.deferUpdate();
 
-        const result = await unclaimTicket(ticket.id);
-        if (!result.ok) return replyTicketFailure(interaction, `❌ ${ticketErrorMessage(result.error)}`);
-        const updated = result.value;
-
-        const syncResult = await syncTicketChannelToState(channel, guild, updated, config);
-        if (!syncResult.ok) {
-            console.error('Error syncing ticket channel after unclaim:', syncResult.error);
-            await replyTicketFailure(
-                interaction,
-                '⚠️ The ticket was released, but its channel could not be moved or re-permissioned. Check the category and permissions.'
-            );
-        }
-
-        await interaction.message.edit({
-            embeds: [buildTicketEmbed(updated)],
-            components: buildTicketButtons(updated),
+        const result = await applyTicketTransition({
+            guild,
+            config,
+            ticket,
+            definition,
+            transition: 'unclaim',
+            actor: { id: member.id, mention: member.toString(), identity: ticketIdentityFromMember(member) },
+            message: interaction.message,
         });
 
-        await channel.send(`↩️ **Ticket Released**\nThis ticket has been released by ${member} and is up for grabs.`);
+        if (!result.ok) return replyTicketFailure(interaction, `❌ ${result.message}`);
+        if (result.outcome.syncWarning) {
+            await replyTicketFailure(interaction, result.outcome.syncWarning);
+        }
 
         return { status: 'success' };
     }

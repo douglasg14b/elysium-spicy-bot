@@ -1,15 +1,22 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
-import { TICKET_TYPES, attachTicketChannel, openTicket } from '../../../tickets';
+import { attachTicketChannel, openTicket, recordTicketStateMessage } from '../../../tickets';
 import { ticketingRepo } from '../../../tickets/data/ticketingRepo';
 import { isTicketingConfigConfigured } from '../../../tickets/data/ticketingSchema';
 import { createTicketChannelForTicket } from '../../../tickets/logic/ticketChannelOps';
 import { buildTicketButtons, buildTicketEmbed } from '../../../tickets/logic/ticketPresentation';
+import { getTicketTypeDefinition } from '../../../tickets/logic/ticketTypes';
+import { ticketIdentityFromMember } from '../../../tickets/logic/resolveTicketIdentity';
 
 export const ACTION_OPEN_TICKET = 'action.openTicket';
 
 export const openTicketConfigSchema = z.object({
-    ticketType: z.enum(TICKET_TYPES),
+    // Free text rather than an enum: a ticket type is a row in the guild's
+    // `ticketing_config` now, so a closed union in source would reject every type an
+    // operator declares. The `options` below stay the two seeded keys until the
+    // picker learns to read the guild's own list — `checkFieldChoices` requires a
+    // `select` to offer non-empty options, so they cannot simply be emptied here.
+    ticketType: z.string().min(1),
     title: z.string().min(1).max(100),
     // Optional rather than defaulted: a schema default the builder does not also
     // declare produces a node whose key is simply unset, which the conformance
@@ -105,13 +112,28 @@ export const block: BlockManifest<OpenTicketConfig> = {
             throw new Error(`Ticketing is not configured for guild ${context.guild.id}`);
         }
 
+        // Thrown for the same reason as the configuration check above: a flow
+        // configured to open a type the guild does not declare is an authoring
+        // mistake, loud rather than a path the author is expected to branch on.
+        const definition = getTicketTypeDefinition(configEntity.config, config.ticketType);
+        if (!definition) {
+            throw new Error(
+                `Guild ${context.guild.id} declares no ticket type "${config.ticketType}"`
+            );
+        }
+
         const ticketResult = await openTicket({
             guildId: context.guild.id,
             type: config.ticketType,
+            definition,
             subjectId: context.subject.id,
             openerId: null,
             title: config.title,
             reason: config.reason || 'Opened automatically by a flow',
+            // `context.subject` is already a `GuildMember`, so this costs no fetch.
+            // The opener is null — a flow filed this — so there is no opener to name.
+            subjectIdentity: ticketIdentityFromMember(context.subject),
+            openerIdentity: null,
         });
         if (!ticketResult.ok) throw ticketResult.error;
         const ticket = ticketResult.value;
@@ -134,10 +156,18 @@ export const block: BlockManifest<OpenTicketConfig> = {
 
         const message = await channel.send({
             content: `<@${ticket.subjectId}>`,
-            embeds: [buildTicketEmbed(attached.value)],
+            embeds: [buildTicketEmbed(attached.value, definition)],
             components: buildTicketButtons(attached.value),
             allowedMentions: { parse: ['users'] },
         });
+
+        // Recorded so a caller with no interaction can re-render this embed. Logged
+        // rather than thrown: the row is the ticket and the flow has already done the
+        // thing it was asked to do.
+        const stateMessage = await recordTicketStateMessage(attached.value.id, message.id);
+        if (!stateMessage.ok) {
+            console.error('[action.openTicket] Failed to record ticket state message id:', stateMessage.error);
+        }
 
         // Pinning is a convenience now, not load-bearing. Under the old design
         // the pinned message *was* the ticket's only state, so failing to pin

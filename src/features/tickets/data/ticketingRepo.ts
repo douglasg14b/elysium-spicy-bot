@@ -1,5 +1,13 @@
+import type { Transaction } from 'kysely';
 import { database } from '../../../features-system/data-persistence/database';
-import { TicketingConfigEntity, NewTicketingConfigEntity, TicketingConfigUpdateEntity } from './ticketingSchema';
+import type { Database } from '../../../features-system/data-persistence/database';
+import { DB_TYPE } from '../../../environment';
+import {
+    TicketingConfigEntity,
+    NewTicketingConfigEntity,
+    TicketingConfigUpdateEntity,
+    type TicketingConfig,
+} from './ticketingSchema';
 
 export class TicketingRepo {
     async get(guildId: string): Promise<TicketingConfigEntity | null> {
@@ -46,6 +54,96 @@ export class TicketingRepo {
 
     async delete(guildId: string): Promise<void> {
         await database.deleteFrom('ticketing_config').where('guildId', '=', guildId).execute();
+    }
+
+    /**
+     * Read-modify-writes the `config` blob inside one transaction.
+     *
+     * **Why this exists rather than `get` then `update`.** `config` is a single JSON
+     * column holding every ticket setting, so any edit is a whole-blob rewrite. Two
+     * editors saving at once — the dashboard's config page and the Discord config
+     * modal, or two browser tabs — each read the blob, each apply their own change to
+     * the copy they read, and the second write silently discards the first. Not a
+     * narrow window either: it spans an HTTP round trip and an operator's thinking
+     * time.
+     *
+     * `mutate` may also **refuse**, by returning null, and that is the second reason
+     * for the transaction: deleting a ticket type has to count the tickets holding it
+     * and then write, and those being two statements is how a type gets deleted out
+     * from under a ticket opened in between. Running the count inside the same
+     * transaction as the write closes it.
+     *
+     * Returns the config as written, or null when `mutate` refused. `mutate` gets the
+     * row as it is *inside* the transaction, never a copy read earlier.
+     *
+     * **`mutate` is handed the transaction, and any query it makes MUST use it.**
+     * Kysely's `SqliteDialect` has a single connection behind a mutex — "SQLite only has
+     * one single connection", per its own driver — which this transaction holds for its
+     * whole duration. A query issued on the module-level `database` singleton from inside
+     * `mutate` therefore waits for a mutex that cannot be released until `mutate`
+     * returns: a hard deadlock, verified empirically, not a theoretical one. It does not
+     * merely hang the request — it poisons the only connection in the process, so every
+     * later query for every feature queues behind it forever and the bot is dead until
+     * restart. That is why the executor is a parameter rather than something a caller may
+     * reach for on its own.
+     *
+     * **Not `entityVersion`.** That column is a schema-migration marker here — every
+     * writer hardcodes `1` and nothing compares it — so overloading it as an
+     * optimistic-concurrency counter would give one name two meanings and silently
+     * change what an existing row's `1` asserts.
+     */
+    async mutateConfig(
+        guildId: string,
+        mutate: (
+            current: TicketingConfigEntity,
+            transaction: Transaction<Database>
+        ) => Promise<TicketingConfig | null> | TicketingConfig | null
+    ): Promise<TicketingConfig | null> {
+        return database.transaction().execute(async (transaction) => {
+            let select = transaction
+                .selectFrom('ticketing_config')
+                .selectAll()
+                .where('guildId', '=', guildId);
+
+            /*
+             * The lock is **postgres-only, and it is not optional there.**
+             *
+             * Nothing in `database.ts` sets an isolation level, so postgres runs the
+             * default READ COMMITTED — under which a read-then-write inside one
+             * transaction still loses updates. Two editors both read the pre-image blob,
+             * both merge onto it, and the second write wins silently. A transaction alone
+             * does *not* prevent that, which is the whole hazard this method exists for,
+             * so the row has to be locked explicitly.
+             *
+             * It cannot be unconditional: sqlite has no `FOR UPDATE`, `better-sqlite3`
+             * rejects the statement outright with `near "for": syntax error`, and sqlite
+             * is the dialect CI runs — so a bare `.forUpdate()` would break every config
+             * save on the only arm anything exercises. sqlite needs no lock anyway: the
+             * `SELECT` takes a SHARED lock that serializes writers, and the loser gets
+             * `SQLITE_BUSY` rather than quietly clobbering.
+             *
+             * The two arms therefore reach the same guarantee by different means, and
+             * each one names its own dialect rather than leaving them to look equivalent.
+             */
+            if (DB_TYPE === 'postgres') {
+                select = select.forUpdate();
+            }
+
+            const existing = await select.executeTakeFirst();
+
+            if (!existing) return null;
+
+            const next = await mutate(existing, transaction);
+            if (!next) return null;
+
+            await transaction
+                .updateTable('ticketing_config')
+                .set({ config: JSON.stringify(next) })
+                .where('guildId', '=', guildId)
+                .execute();
+
+            return next;
+        });
     }
 
     async incrementTicketNumber(guildId: string): Promise<number> {

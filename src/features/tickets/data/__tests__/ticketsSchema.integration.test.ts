@@ -3,6 +3,8 @@ import { CamelCasePlugin, Kysely, SqliteDialect, sql } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SqlDatePlugin } from '../../../../features-system/data-persistence/plugins/sqlDatePlugin';
 import { up } from '../../../../features-system/data-persistence/migrations/2026-09-17-Create_Tickets_Table';
+import { up as addIdentityAndTypes } from '../../../../features-system/data-persistence/migrations/2026-09-23-Add_Ticket_Identity_And_Types';
+import { up as createTicketingConfig } from '../../../../features-system/data-persistence/migrations/2025-11-10-Create_Ticketing_Config';
 import type { TicketTable } from '../ticketsSchema';
 
 /**
@@ -44,13 +46,28 @@ beforeAll(async () => {
         ],
     });
 
-    // The migration's own sqlite arm, so a change to it is what this runs
-    // against rather than a hand-copied schema that can drift.
-    process.env.DB_TYPE = 'sqlite';
+    // The migrations' own sqlite arms, so a change to one is what this runs against
+    // rather than a hand-copied schema that can drift.
+    //
+    // `DB_TYPE` is read at *import* time by every migration module
+    // (`2026-09-17-Create_Tickets_Table.ts:2`), so setting it here would be too late.
+    // `vitest.setup.ts` sets it to `sqlite` before any test file is imported;
+    // asserted rather than assumed, because a wrong value silently runs the postgres
+    // arm against SQLite and the failure is a confusing syntax error.
+    expect(process.env.DB_TYPE).toBe('sqlite');
+
     // The migration is typed `Kysely<any>`, as every migration in this repo is —
     // it runs before the schema it creates exists.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await up(db as unknown as Kysely<any>);
+    const migrationDb = db as unknown as Kysely<any>;
+
+    // Production order: `ticketing_config` (2025-11-10), then `tickets` (2026-09-17),
+    // then the identity columns and the type seed (2026-09-23). Ordered to match rather
+    // than to be merely sufficient — the seed reads `ticketing_config`, so a fixture that
+    // ran them the other way round would only pass while it happened to touch no rows.
+    await createTicketingConfig(migrationDb);
+    await up(migrationDb);
+    await addIdentityAndTypes(migrationDb);
 });
 
 afterAll(async () => {
@@ -74,6 +91,23 @@ const baseRow = {
     updatedAt: '2026-09-17T10:00:00.000Z',
 };
 
+/**
+ * The identity snapshots and the state message id, added by the later migration.
+ *
+ * Deliberately **not** folded into `baseRow`: the tests below that omit them are what
+ * prove the columns are genuinely nullable on a row written without them, which is the
+ * shape every pre-migration ticket has.
+ */
+const identityColumns = {
+    subjectUsername: 'subjectuser',
+    subjectNickname: 'Kitten',
+    openerUsername: 'openeruser',
+    openerNickname: null,
+    claimerUsername: null,
+    claimerNickname: null,
+    stateMessageId: 'state-message-1',
+};
+
 describe('the tickets table, against real SQL', () => {
     it('returns the inserted row and coerces its timestamps back to Date', async () => {
         const inserted = await db
@@ -89,6 +123,47 @@ describe('the tickets table, against real SQL', () => {
         expect(inserted?.openedAt.toISOString()).toBe('2026-09-17T10:00:00.000Z');
         // A nullable timestamp stays null rather than becoming an epoch Date.
         expect(inserted?.closedAt).toBeNull();
+    });
+
+    it('accepts a row written without any identity snapshot, leaving all seven columns null', async () => {
+        // Every ticket that predates the identity migration has this shape, so the
+        // columns must be genuinely nullable — no default, and `''` would be a
+        // username.
+        const inserted = await db
+            .insertInto('tickets')
+            .values({ ...baseRow, guildId: 'guild-no-identity', ticketNumber: 1, channelId: 'channel-ni' })
+            .returningAll()
+            .executeTakeFirstOrThrow();
+
+        expect(inserted.subjectUsername).toBeNull();
+        expect(inserted.subjectNickname).toBeNull();
+        expect(inserted.openerUsername).toBeNull();
+        expect(inserted.openerNickname).toBeNull();
+        expect(inserted.claimerUsername).toBeNull();
+        expect(inserted.claimerNickname).toBeNull();
+        expect(inserted.stateMessageId).toBeNull();
+    });
+
+    it('round-trips the identity snapshots, keeping a null nickname distinct from a recorded one', async () => {
+        const inserted = await db
+            .insertInto('tickets')
+            .values({
+                ...baseRow,
+                ...identityColumns,
+                guildId: 'guild-identity',
+                ticketNumber: 1,
+                channelId: 'channel-id',
+            })
+            .returningAll()
+            .executeTakeFirstOrThrow();
+
+        expect(inserted.subjectUsername).toBe('subjectuser');
+        expect(inserted.subjectNickname).toBe('Kitten');
+        // The distinction `displayName` could not express: a recorded username with no
+        // nickname set.
+        expect(inserted.openerUsername).toBe('openeruser');
+        expect(inserted.openerNickname).toBeNull();
+        expect(inserted.stateMessageId).toBe('state-message-1');
     });
 
     it('rejects a second ticket with the same number in the same guild', async () => {

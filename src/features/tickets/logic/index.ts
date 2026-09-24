@@ -5,4 +5,8 @@ export * from './ticketTypes';
 export * from './ticketChannelOps';
 export * from './ticketPresentation';
 export * from './resolveTicketAction';
+export * from './applyTicketTransition';
 export * from './ticketErrorMessage';
+export * from './resolveTicketIdentity';
+export * from './ticketTypeInUse';
+export * from './setTicketTypes';

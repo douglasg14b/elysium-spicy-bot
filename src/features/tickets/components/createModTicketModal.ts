@@ -12,12 +12,24 @@ import { DISCORD_CLIENT } from '../../../discordClient';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { ticketingRepo } from '../data/ticketingRepo';
 import { isTicketingConfigConfigured } from '../data/ticketingSchema';
-import { attachTicketChannel, openTicket } from '../ticketService';
+import { attachTicketChannel, openTicket, recordTicketStateMessage } from '../ticketService';
 import { createTicketChannelForTicket } from '../logic/ticketChannelOps';
 import { buildTicketButtons, buildTicketEmbed } from '../logic/ticketPresentation';
+import { getTicketTypeDefinition } from '../logic/ticketTypes';
+import { resolveTicketIdentity } from '../logic/resolveTicketIdentity';
 import { ticketErrorMessage } from '../logic/ticketErrorMessage';
 
 const MOD_TICKET_MODAL_ID = 'mod_ticket_create_modal';
+
+/**
+ * The type this panel opens.
+ *
+ * Still a fixed key: the mod panel is a one-button surface and choosing a type is
+ * a UI question the panel does not yet ask. It now has to *exist* in the guild's
+ * config rather than being guaranteed by a source-level union, which is why the
+ * handler refuses by name when it does not.
+ */
+const MOD_TICKET_TYPE = 'support';
 
 const USER_INPUT_ID = 'mod_ticket_user_input';
 const TITLE_INPUT_ID = 'mod_ticket_title_input';
@@ -94,6 +106,16 @@ export function CreateModTicketModalComponent() {
         }
         const ticketsConfig = configEntity.config;
 
+        // Resolved before anything is written. A guild that deleted its support type
+        // gets told which type is missing rather than a half-made ticket.
+        const definition = getTicketTypeDefinition(ticketsConfig, MOD_TICKET_TYPE);
+        if (!definition) {
+            return {
+                status: 'error',
+                message: `❌ This server has no \`${MOD_TICKET_TYPE}\` ticket type declared. Add it back in the ticket config before opening one.`,
+            };
+        }
+
         try {
             // The same path a flow takes, differing only in having a human
             // opener. Previously this handler had its own creation path: it
@@ -101,13 +123,27 @@ export function CreateModTicketModalComponent() {
             // wrote the counter back *absolutely* — so it not only raced itself
             // across a Discord round trip, it would overwrite an atomic
             // increment made by any other opener in the meantime.
+            // Two identity snapshots, each one member fetch. A real Discord call on
+            // a path whose design goal was to stay off Discord — accepted because it
+            // is paid once at open rather than once per render, which is the trade
+            // the snapshot columns exist to make. The username comes from the `User`
+            // already fetched above, so only the nickname depends on the fetch, and a
+            // subject who has left the guild still records a name.
+            const [subjectIdentity, openerIdentity] = await Promise.all([
+                resolveTicketIdentity(interaction.guild, targetUser),
+                resolveTicketIdentity(interaction.guild, interaction.user),
+            ]);
+
             const ticketResult = await openTicket({
                 guildId: interaction.guild.id,
-                type: 'support',
+                type: MOD_TICKET_TYPE,
+                definition,
                 subjectId: targetUser.id,
                 openerId: interaction.user.id,
                 title,
                 reason,
+                subjectIdentity,
+                openerIdentity,
             });
             if (!ticketResult.ok) {
                 return {
@@ -142,10 +178,19 @@ export function CreateModTicketModalComponent() {
 
             const initialMessage = await ticketChannel.send({
                 content: `${targetUser} - A moderation ticket has been created for you.`,
-                embeds: [buildTicketEmbed(attached.value)],
+                embeds: [buildTicketEmbed(attached.value, definition)],
                 components: buildTicketButtons(attached.value),
                 allowedMentions: { parse: ['users'] },
             });
+
+            // Recorded so a caller with no interaction can re-render this embed. A
+            // failure here is not fatal to the ticket — the row is the ticket and its
+            // own buttons still work — but it is loud, because silence would leave a
+            // column that looks like it is never written.
+            const stateMessage = await recordTicketStateMessage(attached.value.id, initialMessage.id);
+            if (!stateMessage.ok) {
+                console.error('Failed to record ticket state message id:', stateMessage.error);
+            }
 
             // Pinning is a convenience now rather than load-bearing: the row is
             // the ticket, so an unpinned message costs nothing but scrollback.

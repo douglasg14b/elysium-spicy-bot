@@ -3,8 +3,8 @@ import {
     ensureBlocksDiscovered,
     listBlockDefinitions,
 } from '../../../flows/blocks/registry';
-import { TICKET_TYPES } from '../../data/ticketsSchema';
-import { buildTicketChannelNameForType, getTicketTypeDefinition } from '../ticketTypes';
+import { DEFAULT_TICKET_TYPES } from '../../data/defaultTicketTypes';
+import { buildTicketChannelName } from '../ticketTypes';
 import {
     TICKET_TYPE_NAME_TEMPLATES,
     buildMirroredChannelName,
@@ -26,11 +26,38 @@ import {
  * lowercasing, the separator collapse and the trailing-dash strip. A preview that
  * got those wrong would be a confident preview of a name Discord never assigns,
  * which is worse than the confusion the preview was built to end.
+ *
+ * **What this gate can and cannot reach**, since ticket types became guild data:
+ * it holds the mirror to `DEFAULT_TICKET_TYPES` — the migration's *seed* — because
+ * that is the only part of the type record living in source on both sides. A guild
+ * whose operator edited a template is beyond any source-level gate; the preview's
+ * own doc comment says so, and the flow-builder type picker is what will fix it. The
+ * substitution logic, which is the part that actually produced wrong names, is gated
+ * in full: the template is an input here, so these cases drive templates no guild is
+ * seeded with.
  */
 
+/** The seeded type keys, which the browser mirror claims to know. */
+const SEEDED_TYPES = Object.keys(DEFAULT_TICKET_TYPES) as readonly string[];
+
 const REMEDY =
-    'Reconcile `web/src/flows/ticketChannelName.ts` with `buildTicketChannelNameForType` ' +
-    'and TICKET_TYPE_DEFINITIONS in `src/features/tickets/logic/ticketTypes.ts`.';
+    'Reconcile `web/src/flows/ticketChannelName.ts` with `buildTicketChannelName` in ' +
+    '`src/features/tickets/logic/ticketTypes.ts` and the seed in ' +
+    '`src/features/tickets/data/defaultTicketTypes.ts`.';
+
+/**
+ * The real builder over a bare template, matching the mirror's signature.
+ *
+ * The server takes a whole `TicketTypeDefinition` because production always has one;
+ * only `nameTemplate` is read. Wrapping it here lets a case state the template it is
+ * testing inline rather than constructing a permission model it does not care about.
+ */
+function realChannelName(template: string, subjectName: string): string {
+    return buildTicketChannelName(
+        { ...DEFAULT_TICKET_TYPES.support, nameTemplate: template },
+        { ticketNumber: 42, subjectName, openerName: null }
+    );
+}
 
 describe('which blocks claim to create a channel they do not name', () => {
     /**
@@ -93,32 +120,39 @@ describe('which blocks claim to create a channel they do not name', () => {
 });
 
 describe('ticket channel name preview drift', () => {
-    it('mirrors every ticket type the server defines', () => {
-        const server = [...TICKET_TYPES].sort();
+    it('mirrors every ticket type the server seeds', () => {
+        const server = [...SEEDED_TYPES].sort();
         const browser = Object.keys(TICKET_TYPE_NAME_TEMPLATES).sort();
 
         expect(
             browser,
-            `The previewable ticket types have drifted. Server: [${server.join(', ')}]; ` +
+            `The previewable ticket types have drifted. Server seed: [${server.join(', ')}]; ` +
                 `browser: [${browser.join(', ')}]. A type the browser does not know renders no ` +
                 `preview at all on a block configured to open it. ${REMEDY}`
         ).toEqual(server);
     });
 
-    it.each(TICKET_TYPES)('mirrors the %s template verbatim', (type) => {
-        expect(
-            TICKET_TYPE_NAME_TEMPLATES[type],
-            `The \`${type}\` channel-name template has drifted. ${REMEDY}`
-        ).toBe(getTicketTypeDefinition(type).nameTemplate);
-    });
-
-    it.each(TICKET_TYPES)('previews the %s name the builder really produces', (type) => {
+    it.each(SEEDED_TYPES)('mirrors the %s template verbatim', (type) => {
         expect(isPreviewableTicketType(type)).toBe(true);
         if (!isPreviewableTicketType(type)) return;
 
+        expect(
+            TICKET_TYPE_NAME_TEMPLATES[type],
+            `The \`${type}\` channel-name template has drifted from the seed. ${REMEDY}`
+        ).toBe(DEFAULT_TICKET_TYPES[type]?.nameTemplate);
+    });
+
+    it.each(SEEDED_TYPES)('previews the %s name the builder really produces', (type) => {
+        expect(isPreviewableTicketType(type)).toBe(true);
+        if (!isPreviewableTicketType(type)) return;
+
+        const definition = DEFAULT_TICKET_TYPES[type];
+        expect(definition).toBeDefined();
+        if (!definition) return;
+
         // The same inputs the preview assumes: a flow-opened ticket has no opener,
         // and the preview's stand-in number and subject are what it substitutes.
-        const real = buildTicketChannelNameForType(type, {
+        const real = buildTicketChannelName(definition, {
             ticketNumber: 42,
             subjectName: 'someone',
             openerName: null,
@@ -130,6 +164,40 @@ describe('ticket channel name preview drift', () => {
                 'This gates the sanitizer and the separator collapse, not just the template ' +
                 `string. ${REMEDY}`
         ).toBe(real);
+    });
+
+    /**
+     * A repeated token, which only became reachable when templates became editable.
+     *
+     * The server moved to `replaceAll` for exactly this: a string needle replaces the
+     * first occurrence only, so the second `{{subject}}` survived into the channel
+     * name and Discord stripped its braces, silently yielding `…-subject`. Neither
+     * seeded template repeats a token, so nothing above this case would notice the
+     * mirror still using `replace` — and the mirror *did*, until this merge.
+     *
+     * Driven through both implementations rather than pinned to a literal alone, so
+     * it gates the pair rather than one side's idea of the answer.
+     */
+    it.each([
+        // The template's own characters are *not* lowercased — only the sanitized
+        // subject is — so the leading `S` survives. Worth pinning: the sanitizer
+        // lowercases, and the obvious wrong expectation is that the whole name does.
+        ['S{{####}}-{{subject}}-{{subject}}', 'S0042-alice-alice'],
+        ['{{####}}-{{####}}-{{subject}}', '0042-0042-alice'],
+        // Two openers, both empty for a flow-opened ticket: gates that the collapse
+        // runs after every substitution rather than after the first.
+        ['T{{####}}-{{opener}}-{{subject}}-{{opener}}', 'T0042-alice'],
+    ])('substitutes every occurrence in %s, as the server does', (template, expected) => {
+        const real = realChannelName(template, 'alice');
+
+        expect(
+            buildMirroredChannelName(template, 'alice'),
+            `The preview disagrees with the server on the repeated-token template ` +
+                `"${template}". An operator may write one — templates are free text — and a ` +
+                `mirror using \`replace\` renders the second token literally. ${REMEDY}`
+        ).toBe(real);
+
+        expect(real, `The real builder's output changed. ${REMEDY}`).toBe(expected);
     });
 
     /**
@@ -155,14 +223,11 @@ describe('ticket channel name preview drift', () => {
         // A subject sanitizing to nothing leaves no dangling separator.
         ['✨✨', 'S0042'],
     ])('sanitizes %s the same way the real builder does', (subjectName, expected) => {
-        const real = buildTicketChannelNameForType('support', {
-            ticketNumber: 42,
-            subjectName,
-            openerName: null,
-        });
+        const supportTemplate = TICKET_TYPE_NAME_TEMPLATES.support;
+        const real = realChannelName(supportTemplate, subjectName);
 
         expect(
-            buildMirroredChannelName('support', subjectName),
+            buildMirroredChannelName(supportTemplate, subjectName),
             `The preview's sanitizer disagrees with the server's on "${subjectName}". ${REMEDY}`
         ).toBe(real);
 

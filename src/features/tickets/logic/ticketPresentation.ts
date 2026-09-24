@@ -1,4 +1,5 @@
 import { ActionRowBuilder, ButtonBuilder, EmbedBuilder } from 'discord.js';
+import type { TicketTypeDefinition } from '../data/ticketingSchema';
 import type { TicketEntity } from '../data/ticketsSchema';
 import {
     TicketClaimButtonComponent,
@@ -7,7 +8,6 @@ import {
     TicketReopenButtonComponent,
     TicketUnclaimButtonComponent,
 } from '../components';
-import { getTicketTypeDefinition } from './ticketTypes';
 
 const EMBED_FIELD_VALUE_MAX_LENGTH = 1024;
 
@@ -26,10 +26,14 @@ function truncate(value: string, maxLength = EMBED_FIELD_VALUE_MAX_LENGTH): stri
  *
  * That is also why there is no hidden data field here any more. Nothing reads
  * state back off the message, so nothing needs to be smuggled into it.
+ *
+ * `definition` is a second positional parameter rather than the whole config,
+ * because the embed renders exactly one string from it and a function taking a
+ * config to read a label is the god-parameter shape. Non-optional: absence is
+ * resolved at the entry point, so this stays a pure render with no branch to
+ * forget.
  */
-export function buildTicketEmbed(ticket: TicketEntity): EmbedBuilder {
-    const definition = getTicketTypeDefinition(ticket.type);
-
+export function buildTicketEmbed(ticket: TicketEntity, definition: TicketTypeDefinition): EmbedBuilder {
     // Exhaustive rather than a ternary chain, so a new status has to be given a
     // rendering instead of quietly displaying as open.
     let statusText: string;

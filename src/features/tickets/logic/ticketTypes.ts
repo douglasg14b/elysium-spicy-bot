@@ -1,106 +1,51 @@
 import { PermissionsBitField } from 'discord.js';
-import type { TicketType } from '../data/ticketsSchema';
+import type {
+    TicketingConfig,
+    TicketPermissionModel,
+    TicketRolePermissions,
+    TicketTypeDefinition,
+} from '../data/ticketingSchema';
 
 /**
- * Who gets what on a ticket channel, declared once per role a person can play.
+ * The type-shaped rules that need discord.js, and the lookup into a guild's own
+ * declarations.
  *
- * Lifted to data rather than written inline at each site because the old code
- * expressed its permission intent three times — at creation, at close, at reopen
- * — and the three had already drifted: `createTicketChannel` denied `@everyone`
- * explicitly while `reopenTicketChannel` reset it to inherit, so a reopened
- * ticket was *more* permissive than the same ticket when new, and whether that
- * mattered depended on which category it landed in.
- *
- * With the arrangement declared per type, adding verification cannot quietly
- * lose the rule that a type's model is enforced by the type — there is no third
- * branch to forget.
+ * `TicketRolePermissions`, `TicketPermissionModel` and `TicketTypeDefinition`
+ * moved to `data/ticketingSchema.ts` when types became a persisted JSON member —
+ * `logic/` must not own a column's type — and the two permission presets moved to
+ * `data/defaultTicketTypes.ts`, which the migration reads. They are re-exported
+ * here so existing importers of this module keep working.
  */
-export interface TicketRolePermissions {
-    readonly view: boolean;
-    readonly send: boolean;
-    readonly readHistory: boolean;
-    readonly manageMessages: boolean;
-}
+export type { TicketPermissionModel, TicketRolePermissions, TicketTypeDefinition };
+export { DEFAULT_TICKET_TYPES, PARTICIPANT_PERMISSIONS, STAFF_PERMISSIONS } from '../data/defaultTicketTypes';
 
 /**
- * The permission model for one ticket type.
+ * A guild's declaration for one ticket type, or `undefined` when it has none.
  *
- * `subject` is who the ticket is about, `opener` whoever filed it (absent when a
- * flow did), `staff` the configured moderation roles. `everyone` is always a
- * denial; it is named rather than assumed so the drift above stays impossible to
- * reintroduce.
+ * **Synchronous, and it stays that way.** `config` is a JSON column that arrives
+ * whole in one read, and every caller already holds the entity: the four button
+ * handlers get it from `resolveTicketAction`'s `TicketActionContext.config`, and
+ * both open paths read it to create the channel. Making this async would push
+ * `await` through `buildTicketEmbed` and `buildTicketButtons` — two pure render
+ * functions — to fetch data the caller is already holding.
+ *
+ * Returns `undefined` rather than throwing or substituting a default. A ticket
+ * whose type was deleted out from under it must fail *nameably* at the surface
+ * that has somewhere to put the message, which is what
+ * `root-cause-over-workarounds.md` means by "no silent alternates".
+ *
+ * **Absence is rare but not impossible, and not only via a hand-edited blob.**
+ * `deleteTicketType` refuses while any ticket holds a type, but that check and the
+ * write are two statements, so a ticket opened in the window between them lands on a
+ * type that is then removed. A row written by a process older than the seed migration
+ * is the other route. Both are exactly why there is no fallback: the caller says which
+ * type is missing and stops, rather than re-permissioning a real channel from a guess.
  */
-export interface TicketPermissionModel {
-    readonly subject: TicketRolePermissions;
-    readonly opener: TicketRolePermissions;
-    readonly staff: TicketRolePermissions;
-}
-
-export interface TicketTypeDefinition {
-    readonly type: TicketType;
-    readonly label: string;
-    /**
-     * Channel name template. `{{####}}` is the zero-padded ticket number,
-     * `{{subject}}` and `{{opener}}` the usernames.
-     *
-     * Per type because §5.6 requires it and because the previous single
-     * hardcoded constant is what made the old channel-name regex — and every
-     * predicate built on it — blind to any ticket that was not a support ticket.
-     */
-    readonly nameTemplate: string;
-    readonly permissions: TicketPermissionModel;
-    /**
-     * Whether opening auto-claims to the opener.
-     *
-     * True for support, because a moderator filing a ticket about someone is
-     * already handling it. False for verification: a flow opens it and no human
-     * has picked it up yet, which is exactly the state the old model could not
-     * represent since creation always auto-claimed.
-     */
-    readonly autoClaimOnOpen: boolean;
-}
-
-const STAFF_PERMISSIONS: TicketRolePermissions = {
-    view: true,
-    send: true,
-    readHistory: true,
-    manageMessages: true,
-};
-
-const PARTICIPANT_PERMISSIONS: TicketRolePermissions = {
-    view: true,
-    send: true,
-    readHistory: true,
-    manageMessages: false,
-};
-
-const TICKET_TYPE_DEFINITIONS: Readonly<Record<TicketType, TicketTypeDefinition>> = {
-    support: {
-        type: 'support',
-        label: 'Support',
-        nameTemplate: 'S{{####}}-{{subject}}-{{opener}}',
-        permissions: {
-            subject: PARTICIPANT_PERMISSIONS,
-            opener: { ...PARTICIPANT_PERMISSIONS, manageMessages: true },
-            staff: STAFF_PERMISSIONS,
-        },
-        autoClaimOnOpen: true,
-    },
-    verification: {
-        type: 'verification',
-        label: 'Verification',
-        nameTemplate: 'V{{####}}-{{subject}}',
-        permissions: {
-            subject: PARTICIPANT_PERMISSIONS,
-            opener: PARTICIPANT_PERMISSIONS,
-            staff: STAFF_PERMISSIONS,
-        },
-        autoClaimOnOpen: false,
-    },
-};
-
-export function getTicketTypeDefinition(type: TicketType): TicketTypeDefinition {
-    return TICKET_TYPE_DEFINITIONS[type];
+export function getTicketTypeDefinition(
+    config: TicketingConfig,
+    type: string
+): TicketTypeDefinition | undefined {
+    return config.ticketTypes?.[type];
 }
 
 /**
@@ -135,7 +80,7 @@ export function toPermissionOverwrite(permissions: TicketRolePermissions): {
     return { allow, deny };
 }
 
-interface TicketChannelNameParams {
+export interface TicketChannelNameParams {
     readonly ticketNumber: number;
     readonly subjectName: string;
     readonly openerName: string | null;
@@ -144,25 +89,33 @@ interface TicketChannelNameParams {
 /**
  * Builds a channel name from the type's template.
  *
- * Replaces `buildTicketChannelName`, which ignored the stored template entirely
- * and always used the one hardcoded support constant — while the config modal
- * presented the template as an editable field and silently discarded whatever
- * was typed into it.
+ * Takes the **definition**, not a type key plus a config: it needs only
+ * `nameTemplate`, and threading a whole config through to read one string is the
+ * context-tunneling `elegance.md` names. Renamed from
+ * `buildTicketChannelNameForType` because it no longer takes a type.
  *
  * A template with no `{{opener}}` is how a flow-opened ticket names itself
  * without inventing a placeholder opener; any leftover separators from the
  * absent token are collapsed rather than left dangling.
+ *
+ * **`replaceAll`, not `replace`.** A string needle replaces only the *first*
+ * occurrence, so `S{{####}}-{{subject}}-{{subject}}` used to render
+ * `S0001-alice-{{subject}}` — and since Discord strips braces, the operator silently
+ * got `s0001-alice-subject`. Templates are operator-authored free text now, which is
+ * the whole point of this step, so that was reachable through the supported path: the
+ * exact "accepted, stored, then silently mangled" class the phantom
+ * `SUPPORT_TICKET_NAME_TEMPLATE` is being deleted for.
  */
-export function buildTicketChannelNameForType(
-    type: TicketType,
+export function buildTicketChannelName(
+    definition: TicketTypeDefinition,
     { ticketNumber, subjectName, openerName }: TicketChannelNameParams
 ): string {
     const sanitize = (name: string): string => name.replace(/[^a-z0-9-]/gi, '').toLowerCase();
 
-    return getTicketTypeDefinition(type)
-        .nameTemplate.replace('{{####}}', ticketNumber.toString().padStart(4, '0'))
-        .replace('{{subject}}', sanitize(subjectName))
-        .replace('{{opener}}', openerName ? sanitize(openerName) : '')
+    return definition.nameTemplate
+        .replaceAll('{{####}}', ticketNumber.toString().padStart(4, '0'))
+        .replaceAll('{{subject}}', sanitize(subjectName))
+        .replaceAll('{{opener}}', openerName ? sanitize(openerName) : '')
         .replace(/-+/g, '-')
         .replace(/-$/, '');
 }
