@@ -720,8 +720,8 @@ All 29 §5.7 and §5.8 requirements are placed — 10 in 5A, 19 in 5B. Nothing i
 | Provisioning opt-in per resource (§5.7) | "Bind to one I made by hand" is adoption, which 5A has; the per-resource *decline* toggle is UI |
 | Resource binding is one autocomplete field (§5.7) | Explicitly a builder-surface requirement |
 | Journey install is idempotent (§5.8) | 5A must not duplicate; full converge-after-partial-failure needs resume |
-| A flow may hold many triggers (§5.8) | Independent of provisioning |
-| Every trigger in a flow fires (§5.8) | Independent — already in *Carried forward* as a known defect |
+| ~~A flow may hold many triggers (§5.8)~~ | **Done 2026-09-24** — nothing to build; it worked once the dispatchers started every trigger |
+| ~~Every trigger in a flow fires (§5.8)~~ | **Done 2026-09-24** — `.find()` → `.filter()` in both gateway dispatchers, each trigger its own isolated run |
 | Trigger buttons deploy per destination (§5.8) | Independent of provisioning |
 | ~~Disconnected subgraphs are legible (§5.8)~~ | **Done 2026-09-24** — computed live in the browser, because a save-time verdict goes stale on the next edge drag |
 | Cross-path sequencing uses existing mechanisms (§5.8) | A constraint on authors, not code |
@@ -927,20 +927,17 @@ Sabotage check for this one: declare a channel that references a declared role, 
 
 **Genuinely independent — safe to run in parallel.** These touch the flow engine and builder canvas and never open a provisioning file:
 
-- A flow may hold many triggers (§5.8)
-- Every trigger in a flow fires (§5.8) — already a known defect in *Carried forward*
+- ~~A flow may hold many triggers (§5.8)~~ — **done 2026-09-24**
+- ~~Every trigger in a flow fires (§5.8)~~ — **done 2026-09-24**
 - ~~Trigger buttons deploy per destination (§5.8)~~ — **done 2026-09-20**
 - ~~Disconnected subgraphs are legible (§5.8)~~ — **done 2026-09-24**
 
-The build order already marks the first three "Independent of provisioning". They are filed under 5B by position, not by subject.
-
-**The two that remain are one change.** `memberJoinDispatch.ts:28` and
-`reactionAddDispatch.ts:91` both locate a flow's trigger with `.find()`, so a flow
-holding two triggers of the same kind fires exactly one — chosen by array order, which
-is authoring order. "Many triggers" is therefore not a feature to add so much as the
-thing that stops being broken when "every trigger fires" is fixed: the executor already
-takes `triggerNodeId` per run, and graph validation already tolerates several trigger
-roots.
+**All four are now done, and none of them ever needed provisioning.** That is worth
+keeping as evidence about the table rather than about the work: these sat in 5B by
+position, were marked "independent of provisioning" in the build order, and then waited
+behind it anyway. Two of the four turned out to be *already built* and one was a
+two-line defect. A row filed next to work it does not depend on gets the schedule of
+that work.
 
 One in-slice caveat: 5A.1's own items are **not** parallelisable against each other. 3, 4 and 5 all edit the same panel and the same declaration type.
 
@@ -988,7 +985,7 @@ Real findings from earlier work, owned but not scheduled. Not requirements.
 - **Fan-out is silently dropped in three places**, not one — `executor.ts:348` (plain edges), `:344` (condition handles), `resolveWaitExit` `:251`/`:253`. A fix scoped to one line leaves the requirement violated while appearing done.
 - **A stale graph save is silently applied** — nothing carries a read-version through the flow update route, so two browser tabs mean last-write-wins and a canvas of work vanishes with no error.
 - **Graphs stored before M1 can carry an edge on a handle its block never declares**, and such a run ends reporting success having skipped a branch.
-- **Only the first matching trigger fires**, so a second trigger of the same kind on one canvas is silently dead.
+- ~~**Only the first matching trigger fires**, so a second trigger of the same kind on one canvas is silently dead.~~ **Closed 2026-09-24.** `.find()` → `.filter()` in both gateway dispatchers, each trigger its own isolated run with its own seed. Two adjacent defects fell out of the fix: `reactionAddDispatch` used `return` instead of `continue` on a failed member fetch, so one unresolvable member abandoned dispatch for every remaining flow in the guild; and `memberJoinDispatch` had no test suite at all, which is how something this simple survived — one two-trigger case would have caught it.
 - **`action.sendDM` fails the whole run** when a member has DMs closed; the failure taxonomy that would classify it does not exist.
 - **`reclaimAbandonedClaims` hands back every outstanding claim with no age filter** — correct only because it runs once at startup in a single-process bot. The claim must become identifying before any sweep goes periodic or a second instance points at one database.
 - **The block-kind vocabulary is declared three times** — the engine union, the runs repo's validation schema, and the web copy.

@@ -266,4 +266,158 @@ describe('handleReactionAdd', () => {
         expect(executeFlow).toHaveBeenCalledTimes(1);
         expect(contextFromExecuteFlow().channel).toBeUndefined();
     });
+
+    /*
+     * ## Every matching trigger fires, not the first one authored
+     *
+     * The dispatcher used `.find()`, so a flow holding two triggers that both match
+     * ran exactly one of them — chosen by position in `graph.nodes`, which is
+     * *authoring order* and means nothing to an author. The other branch was silently
+     * dead: no log, no validation warning, no way to tell from the canvas.
+     *
+     * It only bites when two triggers match the same event, so the common two-message
+     * case hid it. The single-emoji case below is the one an author would actually
+     * build — two reasons to react to the same message — and it ran half the flow.
+     */
+    it('fires every trigger that matches, not just the first', async () => {
+        const base = reactionFlow();
+        const twoTriggers: FlowEntity = {
+            ...base,
+            graph: {
+                ...base.graph,
+                nodes: [
+                    base.graph.nodes[0]!,
+                    {
+                        ...base.graph.nodes[0]!,
+                        id: 'trigger-2',
+                        position: { x: 0, y: 120 },
+                    },
+                    base.graph.nodes[1]!,
+                ],
+            },
+        };
+        getByGuildId.mockResolvedValue([twoTriggers]);
+
+        await handleReactionAdd(aReaction(), USER);
+
+        expect(executeFlow).toHaveBeenCalledTimes(2);
+        expect(executeFlow.mock.calls.map((call) => call[2])).toEqual(['trigger', 'trigger-2']);
+    });
+
+    it('still fires only the triggers that match', async () => {
+        // The fan-out must not become "run every trigger on the flow": a second
+        // trigger watching a different message is not this event.
+        const base = reactionFlow();
+        const mixed: FlowEntity = {
+            ...base,
+            graph: {
+                ...base.graph,
+                nodes: [
+                    base.graph.nodes[0]!,
+                    {
+                        ...base.graph.nodes[0]!,
+                        id: 'trigger-elsewhere',
+                        position: { x: 0, y: 120 },
+                        data: { channelId: CHANNEL_ID, messageId: 'another-message', emoji: EMOJI },
+                    },
+                    base.graph.nodes[1]!,
+                ],
+            },
+        };
+        getByGuildId.mockResolvedValue([mixed]);
+
+        await handleReactionAdd(aReaction(), USER);
+
+        expect(executeFlow).toHaveBeenCalledTimes(1);
+        expect(executeFlow.mock.calls[0]![2]).toBe('trigger');
+    });
+
+    it('runs the remaining triggers after one of them throws', async () => {
+        // Each trigger is its own run. `executeFlow` already isolates a flow from its
+        // siblings for this reason, and two entry points into one graph deserve the
+        // same treatment.
+        const base = reactionFlow();
+        const twoTriggers: FlowEntity = {
+            ...base,
+            graph: {
+                ...base.graph,
+                nodes: [
+                    base.graph.nodes[0]!,
+                    { ...base.graph.nodes[0]!, id: 'trigger-2', position: { x: 0, y: 120 } },
+                    base.graph.nodes[1]!,
+                ],
+            },
+        };
+        getByGuildId.mockResolvedValue([twoTriggers]);
+        executeFlow.mockRejectedValueOnce(new Error('first one exploded'));
+
+        await handleReactionAdd(aReaction(), USER);
+
+        expect(executeFlow).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not let one trigger run leak variables into the next', async () => {
+        /*
+         * Each trigger gets its own seed.
+         *
+         * Sharing one across both runs would in fact survive the real executor, which
+         * re-bags `variables` through `emptyBagWith` on the way in — but that is the
+         * *executor's* guarantee, and two runs' isolation should not rest on a
+         * property this dispatcher neither states nor owns. Asserted at this boundary
+         * so the seeds stay separate whatever the executor later does.
+         */
+        const base = reactionFlow();
+        const twoTriggers: FlowEntity = {
+            ...base,
+            graph: {
+                ...base.graph,
+                nodes: [
+                    base.graph.nodes[0]!,
+                    { ...base.graph.nodes[0]!, id: 'trigger-2', position: { x: 0, y: 120 } },
+                    base.graph.nodes[1]!,
+                ],
+            },
+        };
+        getByGuildId.mockResolvedValue([twoTriggers]);
+
+        // Whatever the first run does to the bag it was given must not be visible to
+        // the second.
+        executeFlow.mockImplementationOnce((...args: unknown[]) => {
+            const seed = args[3] as { variables: Record<string, unknown> };
+            seed.variables.leaked = 'from the first run';
+            return Promise.resolve({ status: 'success' });
+        });
+
+        await handleReactionAdd(aReaction(), USER);
+
+        expect(executeFlow).toHaveBeenCalledTimes(2);
+        const secondSeed = executeFlow.mock.calls[1]![3] as { variables: Record<string, unknown> };
+        expect(secondSeed.variables.leaked).toBeUndefined();
+    });
+
+    it('keeps dispatching to other flows when one member fetch fails', async () => {
+        /*
+         * The loop used `return` here, not `continue`.
+         *
+         * One member the bot cannot fetch — left the guild between reacting and the
+         * event landing, or an API hiccup — abandoned dispatch for **every remaining
+         * flow in the guild**, not just this one. The surrounding try/catch isolates
+         * per flow deliberately; this one path stepped straight over it.
+         */
+        const failingGuild = {
+            id: GUILD_ID,
+            members: { fetch: vi.fn().mockRejectedValue(new Error('unknown member')) },
+        };
+
+        getByGuildId.mockResolvedValue([
+            { ...reactionFlow(), flowId: 'flow-first' },
+            { ...reactionFlow(), flowId: 'flow-second' },
+        ]);
+
+        await handleReactionAdd(aReaction({ guild: failingGuild }), USER);
+
+        // Neither runs — the member could not be resolved for either — but the point
+        // is that the second was *attempted*, which the fetch count proves.
+        expect(failingGuild.members.fetch).toHaveBeenCalledTimes(2);
+    });
 });

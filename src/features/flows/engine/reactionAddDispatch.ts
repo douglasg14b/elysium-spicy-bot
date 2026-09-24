@@ -88,7 +88,21 @@ export async function handleReactionAdd(
             continue;
         }
 
-        const triggerNode = flow.graph.nodes.find((node) => {
+        /*
+         * **Every** matching trigger, not the first.
+         *
+         * This was `.find()`, which meant a flow holding two triggers that both match
+         * this reaction ran exactly one of them — picked by position in `graph.nodes`,
+         * i.e. the order the author happened to drop them on the canvas. The other
+         * branch was silently dead: nothing logged it, no validation mentioned it, and
+         * the canvas showed two live-looking triggers.
+         *
+         * Each is its own run. `executeFlow` already takes the trigger's node id and
+         * threads it through the run record, so two entry points into one graph are
+         * two runs that can be told apart afterwards — nothing here had to be invented
+         * to support that.
+         */
+        const triggerNodes = flow.graph.nodes.filter((node) => {
             if (!isTriggerStartedBy(node.type, 'reactionAdd')) {
                 return false;
             }
@@ -103,7 +117,7 @@ export async function handleReactionAdd(
             );
         });
 
-        if (!triggerNode) {
+        if (triggerNodes.length === 0) {
             continue;
         }
 
@@ -111,24 +125,47 @@ export async function handleReactionAdd(
         try {
             member = await guild.members.fetch(user.id);
         } catch (error) {
+            // `continue`, never `return`. This was a `return`, so one member the bot
+            // could not resolve — someone who left between reacting and the event
+            // landing — abandoned dispatch for every *remaining flow in the guild*,
+            // stepping straight over the per-flow isolation the catch below exists to
+            // provide.
             console.error(`[flows] Could not fetch member ${user.id} for reaction flow:`, error);
-            return;
+            continue;
         }
 
-        const context: FlowRunSeed = {
-            client: reaction.client,
-            guild,
-            // The reacting member both is who the run is about and caused it.
-            subject: member,
-            actor: member,
-            channel: reactionChannel,
-            variables: {},
-        };
+        for (const triggerNode of triggerNodes) {
+            /*
+             * A fresh seed per trigger, built inside the loop.
+             *
+             * Sharing one object across both runs happens to be safe today —
+             * `executeFlowSegment` re-bags `variables` through `emptyBagWith` on the
+             * way in and reassigns rather than mutating — but that is a property of
+             * the *executor*, and relying on it here would make two runs' isolation
+             * depend on a guarantee this file neither states nor owns. Two runs get
+             * two seeds; the object costs nothing.
+             */
+            const context: FlowRunSeed = {
+                client: reaction.client,
+                guild,
+                // The reacting member both is who the run is about and caused it.
+                subject: member,
+                actor: member,
+                channel: reactionChannel,
+                variables: {},
+            };
 
-        try {
-            await executeFlow(flow.flowId, flow.graph, triggerNode.id, context);
-        } catch (error) {
-            console.error(`[flows] Unexpected error running reactionAdd flow ${flow.flowId}:`, error);
+            try {
+                await executeFlow(flow.flowId, flow.graph, triggerNode.id, context);
+            } catch (error) {
+                // Isolated per *trigger*, not just per flow: two entry points into one
+                // graph are as independent as two flows, so one throwing must not
+                // strand the other.
+                console.error(
+                    `[flows] Unexpected error running reactionAdd flow ${flow.flowId} from ${triggerNode.id}:`,
+                    error
+                );
+            }
         }
     }
 }
