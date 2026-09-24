@@ -355,6 +355,67 @@ describe('buildJourneyDriftPlan', () => {
          * clean — a false clean here is a privacy failure.
          */
         /**
+         * A permission may name a role **this journey creates**, via the `resource:`
+         * prefix. `applyInstallPlan` resolves those against the ids it just created
+         * before compiling; drift has the same information in its bindings and must do
+         * the same.
+         *
+         * Without it, `audienceToIds` finds `resource:in-approval` absent from the role
+         * cache and throws, so the resource lands in `unchecked` blaming a `subject`
+         * audience that is not involved. That is the *most* security-sensitive shape
+         * there is — "this room is visible only to the role this journey creates" —
+         * going permanently unchecked, with a misleading reason.
+         */
+        it('resolves a permission naming a role this journey declares', () => {
+            const plan = buildJourneyDriftPlan({
+                guild: makeGuild(
+                    [
+                        textChannel('channel-1', 'welcome', null, [
+                            { id: EVERYONE, allow: 0n, deny: VIEW },
+                            {
+                                id: 'role-created',
+                                allow: bitsOf(VIEW, SEND, THREADS, REACT),
+                                deny: 0n,
+                            },
+                        ]),
+                    ],
+                    [{ id: 'role-created', name: 'In Approval' }]
+                ),
+                journey: journey([
+                    { key: 'approval-role', kind: 'role', defaultName: 'In Approval' },
+                    {
+                        key: 'welcome-channel',
+                        kind: 'textChannel',
+                        defaultName: 'welcome',
+                        permissions: [
+                            { audience: 'everyone', access: 'hidden' },
+                            {
+                                audience: 'roles',
+                                access: 'readWrite',
+                                roleIds: ['resource:approval-role'],
+                            },
+                        ],
+                    },
+                ]),
+                bindings: [
+                    binding({
+                        resourceKey: 'approval-role',
+                        kind: 'role',
+                        discordId: 'role-created',
+                        name: 'In Approval',
+                    }),
+                    binding(),
+                ],
+                permissionContext,
+            });
+
+            // Compared, not skipped — and the live overwrites satisfy the declaration.
+            expect(plan.unchecked).toEqual([]);
+            expect(plan.drifted).toEqual([]);
+            expect(plan.cleanKeys).toContain('welcome-channel');
+        });
+
+        /**
          * The false-clean this feature exists to prevent. An unchecked staff-only
          * channel reported as clean is a system certifying privacy it never verified,
          * so `unchecked` is a third answer rather than a rounding of the other two.

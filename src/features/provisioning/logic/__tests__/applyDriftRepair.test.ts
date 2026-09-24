@@ -80,6 +80,7 @@ function makeGuild(channels: Record<string, FakeChannelState>, guildId = 'guild-
 
 function report(overrides: Partial<ResourceDriftReport> = {}): ResourceDriftReport {
     return {
+        bindingId: 1,
         resourceKey: 'welcome-channel',
         name: 'welcome',
         kind: 'textChannel',
@@ -257,7 +258,18 @@ describe('applyDriftRepair', () => {
             const channel = fakeChannel('welcome');
             await applyDriftRepair({
                 guild: makeGuild({ 'channel-1': channel }),
-                plan: plan([report({ drift: [permissionDrift] })]),
+                plan: plan([
+                    report({
+                        drift: [
+                            {
+                                kind: 'permissions',
+                                differences: [
+                                    { id: 'role-staff', missingAllow: [], missingDeny: [] },
+                                ],
+                            },
+                        ],
+                    }),
+                ]),
                 approvedKeys: new Set(['welcome-channel']),
                 compiledOverwrites: new Map([
                     ['welcome-channel', [{ id: 'role-staff', allow: [VIEW], deny: [SEND] }]],
@@ -273,21 +285,92 @@ describe('applyDriftRepair', () => {
         });
 
         /**
-         * Guessing at a permission model would be the one failure worse than the drift
-         * it was meant to fix.
+         * The compiled model holds every declared id; the report holds only the ones
+         * that diverged. Writing the whole model would re-derive the repair's own
+         * target — and would reset an id the comparison reported as *clean*, because
+         * extra grants are deliberately not drift. An operator approving a fix for one
+         * role would silently revoke a colleague's hand-added access to another.
          */
-        it('fails rather than guessing when no compiled model was supplied', async () => {
+        it('writes only the ids the report flagged, not the whole compiled model', async () => {
             const channel = fakeChannel('welcome');
-            const result = await applyDriftRepair({
+            await applyDriftRepair({
                 guild: makeGuild({ 'channel-1': channel }),
                 plan: plan([report({ drift: [permissionDrift] })]),
+                approvedKeys: new Set(['welcome-channel']),
+                compiledOverwrites: new Map([
+                    [
+                        'welcome-channel',
+                        [
+                            { id: EVERYONE, allow: [], deny: [VIEW] },
+                            // Declared, clean, and must not be touched.
+                            { id: 'role-staff', allow: [VIEW, SEND], deny: [] },
+                        ],
+                    ],
+                ]),
+                repo,
+            });
+
+            expect(channel.edit).toHaveBeenCalledTimes(1);
+            expect(channel.edit).toHaveBeenCalledWith(
+                EVERYONE,
+                expect.any(Object),
+                expect.any(Object)
+            );
+        });
+
+        /**
+         * Guessing at a permission model would be the one failure worse than the drift
+         * it was meant to fix — so declining is a **refusal**, a promise kept, not a
+         * failure. `failed` would read to an operator as transient and worth retrying,
+         * when it will never succeed. Checked before anything is touched, so a rename
+         * on the same resource cannot land first and then be reported as a total loss.
+         */
+        it('refuses rather than guessing when no compiled model was supplied', async () => {
+            const channel = fakeChannel('lobby');
+            const result = await applyDriftRepair({
+                guild: makeGuild({ 'channel-1': channel }),
+                plan: plan([report({ drift: [renamedDrift, permissionDrift] })]),
                 approvedKeys: new Set(['welcome-channel']),
                 repo,
             });
 
             expect(channel.edit).not.toHaveBeenCalled();
-            expect(result.results[0]?.outcome).toBe('failed');
+            // Nothing touched at all — not even the rename that would otherwise apply.
+            expect(channel.setName).not.toHaveBeenCalled();
+            expect(result.results[0]?.outcome).toBe('refused');
             expect(result.results[0]?.explanation).toMatch(/without guessing/);
+        });
+
+        /**
+         * `unchecked` exists so a resource is never falsely certified as clean.
+         * Rewriting permissions the operator was told went unexamined would defeat that
+         * from the apply side — they approved a report that said "not checked".
+         */
+        it('refuses to repair permissions that were never checked', async () => {
+            const channel = fakeChannel('welcome');
+            const basePlan = plan([report({ drift: [permissionDrift] })]);
+            const result = await applyDriftRepair({
+                guild: makeGuild({ 'channel-1': channel }),
+                plan: {
+                    ...basePlan,
+                    unchecked: [
+                        {
+                            resourceKey: 'welcome-channel',
+                            name: 'welcome',
+                            reason: 'A `subject` audience names a per-run member.',
+                        },
+                    ],
+                },
+                approvedKeys: new Set(['welcome-channel']),
+                compiledOverwrites: new Map([
+                    ['welcome-channel', [{ id: EVERYONE, allow: [], deny: [VIEW] }]],
+                ]),
+                repo,
+            });
+
+            expect(channel.edit).not.toHaveBeenCalled();
+            expect(result.results[0]?.outcome).toBe('refused');
+            expect(result.results[0]?.explanation).toMatch(/not checked/);
         });
     });
 

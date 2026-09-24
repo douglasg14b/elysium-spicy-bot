@@ -406,6 +406,33 @@ describe('detectResourceDrift', () => {
         });
     });
 
+    /**
+     * Adoption records the *declared* name, not the live one.
+     *
+     * `applyInstallPlan` settles an `adopt` with `name: item.name` — the declaration's
+     * name — while `requireAdoptable` deliberately never renames the object. So an
+     * operator who adopts `#lounge` for a resource defaulting to `welcome` gets a
+     * binding saying `welcome` and a channel still called `#lounge`.
+     *
+     * Comparing against `binding.name` therefore reports a rename that never happened,
+     * on every adopted resource, forever. The adoption guard currently hides the
+     * consequence by withholding repair — but the report is still wrong, and the guard
+     * and the bug are one `state` value apart.
+     */
+    it('does not report a rename when an adopted object keeps its own name', () => {
+        const report = detectResourceDrift(
+            input({
+                // What `applyInstallPlan` now records on adopt: the object's own name,
+                // which differs from the declaration's `defaultName` and should not.
+                declaration: declaration({ defaultName: 'welcome' }),
+                binding: binding({ state: 'adopted', name: 'lounge' }),
+                live: live({ name: 'lounge' }),
+            })
+        );
+
+        expect(report.drift).toEqual([]);
+    });
+
     describe('the adoption promise', () => {
         /**
          * Detected but not repairable. A staff-only channel going public matters
@@ -416,7 +443,11 @@ describe('detectResourceDrift', () => {
         it('detects drift on an adopted resource but withholds repair', () => {
             const report = detectResourceDrift(
                 input({
-                    binding: binding({ state: 'adopted' }),
+                    // Bound while the channel was called `welcome`, renamed since. This
+                    // is drift on an adopted resource — genuinely worth reporting — as
+                    // distinct from the phantom case above, where the binding never
+                    // matched the live name to begin with.
+                    binding: binding({ state: 'adopted', name: 'welcome' }),
                     live: live({ name: 'renamed-by-hand' }),
                 })
             );

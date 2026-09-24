@@ -222,6 +222,51 @@ describe('the intent guards, as real UPDATE statements', () => {
         expect(after.discordId).toBe('chan-new');
     });
 
+    /**
+     * `discord_id` carries no unique index — deliberately, because the schema
+     * anticipates one channel being bound by more than one journey. So a rename repair
+     * keyed on the snowflake alone would rewrite every row pointing at that object, in
+     * every guild, and the returned row count could not tell a correctly-scoped write
+     * from an over-broad one.
+     *
+     * Exercised against real SQL rather than a fake repo, because the defect lives
+     * entirely in the WHERE clause.
+     */
+    it('renames only the binding row it was given, not every row on that channel', async () => {
+        const mine = await insertIntent('welcome-channel', {
+            state: 'created',
+            discordId: 'chan-shared',
+            name: 'welcome',
+        });
+        const theirs = await insertIntent('their-welcome', {
+            journeyKey: 'other-journey',
+            state: 'created',
+            discordId: 'chan-shared',
+            name: 'their-name',
+        });
+
+        const rename = (id: number, expected: string, name: string) =>
+            db
+                .updateTable('resource_bindings')
+                .set({ name, updatedAt: new Date().toISOString() })
+                .where('id', '=', id)
+                .where('discordId', '=', expected)
+                .where('state', '!=', 'intended')
+                .executeTakeFirst();
+
+        expect(Number((await rename(mine.id, 'chan-shared', 'repaired')).numUpdatedRows)).toBe(1);
+
+        const other = await db
+            .selectFrom('resource_bindings')
+            .selectAll()
+            .where('id', '=', theirs.id)
+            .executeTakeFirstOrThrow();
+        expect(other.name).toBe('their-name');
+
+        // A stale snowflake expectation refuses rather than writing to the wrong row.
+        expect(Number((await rename(mine.id, 'chan-moved', 'nope')).numUpdatedRows)).toBe(0);
+    });
+
     it('converges when two installs record the same intent', async () => {
         // `onConflict do nothing` plus a follow-up read, which is how the repo avoids
         // a check-then-insert race.

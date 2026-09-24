@@ -14,7 +14,11 @@ import {
     type PermissionIntent,
     type PermissionIntentContext,
 } from './permissionIntent';
-import type { JourneyDeclaration, ResourceDeclaration } from './resourceDeclaration';
+import type {
+    JourneyDeclaration,
+    ResourceDeclaration,
+    ResourceKind,
+} from './resourceDeclaration';
 
 export interface ApplyInstallPlanInput {
     readonly guild: Guild;
@@ -190,6 +194,26 @@ export async function applyInstallPlan(
             };
         }
 
+        /*
+         * What to record as the binding's name.
+         *
+         * For a `create` this is the declared name, because we just gave the object
+         * that name. For an **adopt** it must be the object's *live* name: adoption
+         * binds to something that already exists and deliberately never renames it
+         * (`requireAdoptable` validates the id and type and nothing else), so recording
+         * the declared name would say the channel is called `welcome` when the operator
+         * can plainly see it is called `#lounge`.
+         *
+         * That mismatch is not cosmetic. Drift detection compares the live name against
+         * this column, so recording the wrong one makes **every adopted resource report
+         * a rename that never happened**, permanently. The adoption promise currently
+         * hides the consequence by withholding repair — but a report that cries wolf on
+         * exactly the resources the operator asked us not to touch is how an operator
+         * learns to ignore the whole feature.
+         */
+        const recordedName =
+            item.action === 'adopt' ? liveNameOf(guild, item.kind, discordId) ?? item.name : item.name;
+
         // The guild is now mutated. Every failure past this point must still report
         // what was applied, or the operator retries blindly and duplicates it.
         let settled: boolean;
@@ -202,13 +226,13 @@ export async function applyInstallPlan(
                           expectedDiscordId: binding.discordId,
                           discordId,
                           state: item.action === 'adopt' ? 'adopted' : 'created',
-                          name: item.name,
+                          name: recordedName,
                       })
                     : await resourceBindingsRepo.settle({
                           id: binding.id,
                           discordId,
                           state: item.action === 'adopt' ? 'adopted' : 'created',
-                          name: item.name,
+                          name: recordedName,
                       });
         } catch (error) {
             return {
@@ -238,6 +262,21 @@ export async function applyInstallPlan(
     }
 
     return { applied };
+}
+
+/**
+ * The name a guild object currently carries, or `undefined` if it is not there.
+ *
+ * Used only on the adopt path, where the object predates us and keeps whatever name it
+ * already had. `undefined` falls back to the declared name at the call site — a binding
+ * with no name at all is worse than one with an optimistic name, and the object has
+ * just been proven to exist by `requireAdoptable`, so this returning nothing means the
+ * cache is thin rather than that the object is gone.
+ */
+function liveNameOf(guild: Guild, kind: ResourceKind, discordId: string): string | undefined {
+    return kind === 'role'
+        ? guild.roles.cache.get(discordId)?.name
+        : guild.channels.cache.get(discordId)?.name;
 }
 
 /**

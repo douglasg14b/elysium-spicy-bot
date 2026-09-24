@@ -79,13 +79,34 @@ describe('findOrphanedBindings', () => {
         expect(orphans[0]?.stillInGuild).toBe(false);
     });
 
-    it('treats an intended row as not in the guild, whatever the predicate says', () => {
+    /**
+     * The crash-safety state: the object was created and the row never settled. This
+     * is the case that made excluding `intended` from the existence check dangerous —
+     * the report would say "already gone" about a channel sitting right there, and an
+     * operator forgetting the row would create the invisible permanent object this
+     * module exists to eliminate.
+     */
+    it('reports a never-settled row whose object does exist as still in the guild', () => {
         const orphans = findOrphanedBindings({
             journey: journey([]),
-            // An `intended` row records an install that never reached Discord. Its
-            // discordId, if any, names nothing.
             bindings: [binding({ state: 'intended' })],
             existsInGuild: present,
+        });
+
+        expect(orphans[0]).toMatchObject({
+            stillInGuild: true,
+            neverSettled: true,
+            // Never ours to delete: only a `created` binding may be.
+            mayDelete: false,
+        });
+        expect(describeOrphan(orphans[0]!)).toMatch(/never completed/);
+    });
+
+    it('reports a never-settled row with no object as gone', () => {
+        const orphans = findOrphanedBindings({
+            journey: journey([]),
+            bindings: [binding({ state: 'intended' })],
+            existsInGuild: absent,
         });
 
         expect(orphans[0]?.stillInGuild).toBe(false);

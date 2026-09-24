@@ -12,14 +12,18 @@ import {
     type ResourceChoice,
 } from './logic/installPlan';
 import { findOrphanedBindings, type OrphanedBinding } from './logic/orphanedBindings';
-import { buildJourneyDriftPlan, type JourneyDriftPlan } from './logic/journeyDriftPlan';
+import {
+    buildJourneyDriftPlan,
+    compileForComparison,
+    resolveDeclaredRoles,
+    type JourneyDriftPlan,
+} from './logic/journeyDriftPlan';
 import {
     applyDriftRepair,
     withAdoptionReasserted,
     type ApplyDriftRepairResult,
     type PermissionOverwriteWrite,
 } from './logic/applyDriftRepair';
-import { compilePermissionIntents, PermissionIntentError } from './logic/permissionIntent';
 import { buildUnpublishPlan, type UnpublishPlan } from './logic/unpublishPlan';
 import type { JourneyDeclaration } from './logic/resourceDeclaration';
 
@@ -220,32 +224,35 @@ export async function repairDrift(
         input.journey.journeyKey
     );
     const plan = withAdoptionReasserted(input.approvedPlan, bindings);
+    const bindingByKey = new Map(
+        bindings.map((binding) => [binding.resourceKey, binding] as const)
+    );
 
     const compiledOverwrites = new Map<string, readonly PermissionOverwriteWrite[]>();
 
     for (const declaration of input.journey.resources) {
         if (!declaration.permissions?.length) continue;
 
-        try {
-            const compiled = compilePermissionIntents(declaration.permissions, {
-                guild: input.guild,
-                subjectId: input.subjectId,
-                staffRoleIds: input.staffRoleIds,
-            });
-            compiledOverwrites.set(
-                declaration.key,
-                compiled.map((overwrite) => ({
-                    id: String(overwrite.id),
-                    allow: (overwrite.allow as bigint[]) ?? [],
-                    deny: (overwrite.deny as bigint[]) ?? [],
-                }))
-            );
-        } catch (error) {
-            // Left out of the map rather than aborting the run. The applier refuses
-            // that one resource and repairs the rest, which is right: a `subject`
-            // intent on one channel must not block a rename fix on another.
-            if (!(error instanceof PermissionIntentError)) throw error;
-        }
+        /*
+         * The same compile the *comparison* used, through the same function.
+         *
+         * Two copies of this marshalling existed briefly and they disagreed — one
+         * filtered non-bigints, the other cast. Worse, this one skipped
+         * `resolveDeclaredRoles`, so a permission naming a role the journey creates
+         * compiled here and not there, or the reverse. Repair must write exactly the
+         * model the operator was shown as drifted, so it has to reach it by the
+         * identical route.
+         *
+         * A key left out of the map is refused by the applier rather than aborting the
+         * run: a `subject` intent on one channel must not block a rename fix on
+         * another.
+         */
+        const compiled = compileForComparison(
+            resolveDeclaredRoles(declaration.permissions, bindingByKey),
+            { guild: input.guild, subjectId: input.subjectId, staffRoleIds: input.staffRoleIds }
+        );
+
+        if (compiled) compiledOverwrites.set(declaration.key, compiled);
     }
 
     return applyDriftRepair({

@@ -1,8 +1,10 @@
 import { ChannelType, type Guild, type GuildBasedChannel } from 'discord.js';
 import type { ResourceBindingEntity } from '../data/resourceBindingsSchema';
+import { parseDeclaredRoleReference } from './declaredRoleReference';
 import {
     compilePermissionIntents,
     PermissionIntentError,
+    type PermissionIntent,
     type PermissionIntentContext,
 } from './permissionIntent';
 import type { JourneyDeclaration, ResourceKind } from './resourceDeclaration';
@@ -127,10 +129,10 @@ export function buildJourneyDriftPlan(input: BuildJourneyDriftPlanInput): Journe
             declaration,
             binding,
             live,
-            compiledOverwrites: compileForComparison(declaration.permissions, {
-                guild,
-                ...permissionContext,
-            }),
+            compiledOverwrites: compileForComparison(
+                resolveDeclaredRoles(declaration.permissions, bindingByKey),
+                { guild, ...permissionContext }
+            ),
             declaredParentId: resolveDeclaredParentId(declaration.parentKey, bindingByKey),
             botId: guild.members.me?.id,
         });
@@ -188,6 +190,55 @@ function resolveDeclaredParentId(
 }
 
 /**
+ * Swap `resource:<key>` role references for the ids those resources are bound to.
+ *
+ * A permission may name a role **this journey creates** — "this room is visible only
+ * to the role this journey creates" is the shape 5A.1 exists to support. Install
+ * resolves those against the ids it has just created (`resolveDeclaredRoles` in
+ * `applyInstallPlan`); drift holds the same information in its bindings and has to do
+ * the same, or `audienceToIds` finds `resource:approval-role` absent from the role
+ * cache and throws.
+ *
+ * The consequence of not doing it is not a crash but something worse: the resource
+ * lands in `unchecked` blaming a `subject` audience that is not involved, so the *most*
+ * security-sensitive resources go permanently unexamined behind a misleading reason.
+ *
+ * **Unresolvable references are dropped rather than thrown on**, which is the one place
+ * this deliberately differs from install. Install throws because creating a channel
+ * whose permissions name a role that does not exist yet is an ordering bug it must
+ * refuse. Here it just means the role has not been installed, which is install's
+ * subject — and an intent left with no ids at all still fails to compile, landing in
+ * `unchecked` where it belongs.
+ */
+export function resolveDeclaredRoles(
+    permissions: readonly PermissionIntent[] | undefined,
+    bindingByKey: ReadonlyMap<string, ResourceBindingEntity>
+): readonly PermissionIntent[] | undefined {
+    if (!permissions?.length) return permissions;
+
+    return permissions.map((intent) => {
+        if (!intent.roleIds?.length) return intent;
+
+        let changed = false;
+        const roleIds: string[] = [];
+
+        for (const roleId of intent.roleIds) {
+            const referencedKey = parseDeclaredRoleReference(roleId);
+            if (!referencedKey) {
+                roleIds.push(roleId);
+                continue;
+            }
+
+            changed = true;
+            const resolved = bindingByKey.get(referencedKey)?.discordId;
+            if (resolved) roleIds.push(resolved);
+        }
+
+        return changed ? { ...intent, roleIds } : intent;
+    });
+}
+
+/**
  * Compile a declaration's permission intents, or give up nameably.
  *
  * `compilePermissionIntents` throws a {@link PermissionIntentError} for a model that
@@ -199,7 +250,7 @@ function resolveDeclaredParentId(
  * to propagate, because a drift report that silently degrades on an unexpected error
  * is precisely the false-clean this feature exists to prevent.
  */
-function compileForComparison(
+export function compileForComparison(
     intents: JourneyDeclaration['resources'][number]['permissions'],
     context: PermissionIntentContext
 ): readonly CompiledOverwrite[] | undefined {

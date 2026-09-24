@@ -178,15 +178,28 @@ export class ResourceBindingsRepo {
      * resource by this name, and one that disagrees with the guild makes a report an
      * operator cannot match up to what they are looking at.
      *
-     * Guarded on the snowflake rather than the row id, because the caller is holding a
-     * live object and that is the fact worth checking: zero rows back means the
-     * binding moved underneath the repair, which is a refusal rather than an error.
+     * **Scoped by the row id, with the snowflake as the optimistic guard.** The first
+     * version keyed on `discordId` alone, and that was wrong in a way worth recording:
+     * `discord_id` carries no unique index — the migration indexes the key triple and
+     * deliberately not the snowflake, because sharing one channel between journeys is a
+     * case the schema anticipates. So an UPDATE keyed on it alone rewrites *every* row
+     * pointing at that object, in every guild, and the returned row count cannot tell a
+     * correctly-scoped write from an over-broad one.
+     *
+     * Every sibling mutator here is scoped by `id`; this is now no exception. Zero rows
+     * back means the binding moved underneath the repair, which is a refusal rather
+     * than an error — and with both predicates that answer is finally trustworthy.
      */
-    async renameBinding(input: { discordId: string; name: string }): Promise<boolean> {
+    async renameBinding(input: {
+        id: number;
+        expectedDiscordId: string;
+        name: string;
+    }): Promise<boolean> {
         const result = await database
             .updateTable('resource_bindings')
             .set({ name: input.name, updatedAt: new Date().toISOString() })
-            .where('discordId', '=', input.discordId)
+            .where('id', '=', input.id)
+            .where('discordId', '=', input.expectedDiscordId)
             .where('state', '!=', 'intended')
             .executeTakeFirst();
 

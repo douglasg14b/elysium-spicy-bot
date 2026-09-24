@@ -51,6 +51,15 @@ export interface OrphanedBinding {
      * still be forgotten; the object may not be touched.
      */
     readonly mayDelete: boolean;
+    /**
+     * Whether the install that recorded this row never completed.
+     *
+     * Distinct from `stillInGuild` because the two come apart in the case that
+     * matters: a crash between creating the object and settling the row leaves a
+     * never-settled row *with* a live object. Saying only "gone" or "here" would
+     * describe that state wrongly either way.
+     */
+    readonly neverSettled: boolean;
 }
 
 export interface FindOrphanedBindingsInput {
@@ -86,12 +95,26 @@ export function findOrphanedBindings(
             kind: binding.kind,
             name: binding.name,
             ...(binding.discordId ? { discordId: binding.discordId } : {}),
+            /*
+             * Asked whenever there is an id to ask about, **including for an
+             * `intended` row**.
+             *
+             * The first version excluded `intended`, reasoning that such a row never
+             * reached the guild. That is the usual case and not the dangerous one: a
+             * crash between creating the channel and settling the row leaves
+             * `intended` with a live object behind it — the exact state the schema's
+             * crash-safety note describes. Excluding it made the report say "already
+             * gone from the server" about a channel sitting right there, so an
+             * operator forgetting the row would create precisely the invisible
+             * permanent object this module exists to eliminate, by the one route it
+             * was not looking at.
+             */
             stillInGuild:
-                !!binding.discordId &&
-                binding.state !== 'intended' &&
-                input.existsInGuild(binding.kind, binding.discordId),
-            // The adoption promise survives the declaration that referenced it.
+                !!binding.discordId && input.existsInGuild(binding.kind, binding.discordId),
+            // The adoption promise survives the declaration that referenced it, and an
+            // `intended` row is not ours to delete either — only `created` is.
             mayDelete: binding.state === 'created',
+            neverSettled: binding.state === 'intended',
         }));
 }
 
@@ -107,6 +130,13 @@ export function describeOrphan(orphan: OrphanedBinding): string {
 
     if (!orphan.stillInGuild) {
         return `**${orphan.name}** is no longer declared by this journey, and the ${label} is already gone from the server. Only the leftover record remains.`;
+    }
+
+    // A live object behind a never-settled row: the install crashed partway. Neither
+    // "already gone" nor "we made this" is true, so it gets its own sentence rather
+    // than being rounded to whichever is closer.
+    if (orphan.neverSettled) {
+        return `**${orphan.name}** is no longer declared by this journey, and its record was never completed — but a ${label} matching it is still in your server. Check it before removing the record, because nothing will track it afterwards.`;
     }
 
     if (!orphan.mayDelete) {

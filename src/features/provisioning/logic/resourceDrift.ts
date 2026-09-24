@@ -135,6 +135,14 @@ export interface ResourceDriftInput {
 }
 
 export interface ResourceDriftReport {
+    /**
+     * The binding row this is about.
+     *
+     * Carried so a repair can scope its write to one row. `discordId` cannot do that
+     * job — it has no unique index, deliberately, because one channel may be bound by
+     * more than one row.
+     */
+    readonly bindingId: number;
     readonly resourceKey: string;
     readonly name: string;
     readonly kind: ResourceKind;
@@ -188,6 +196,7 @@ export function detectResourceDrift(input: ResourceDriftInput): ResourceDriftRep
     }
 
     const base = {
+        bindingId: binding.id,
         resourceKey: declaration.key,
         name: binding.name,
         kind: declaration.kind,

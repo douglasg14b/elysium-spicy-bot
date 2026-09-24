@@ -45,16 +45,21 @@ const recordIntent = vi.fn(async (input: Record<string, string>) => {
     return created;
 });
 
-const settle = vi.fn(async (input: { id: number; discordId: string; state: string }) => {
-    calls.push(`settle:${input.discordId}`);
-    if (!settleResult) return false;
-    const binding = bindings.find((candidate) => candidate.id === input.id);
-    if (binding) {
-        (binding as { discordId: string | null }).discordId = input.discordId;
-        (binding as { state: string }).state = input.state;
+const settle = vi.fn(
+    async (input: { id: number; discordId: string; state: string; name: string }) => {
+        calls.push(`settle:${input.discordId}`);
+        if (!settleResult) return false;
+        const binding = bindings.find((candidate) => candidate.id === input.id);
+        if (binding) {
+            (binding as { discordId: string | null }).discordId = input.discordId;
+            (binding as { state: string }).state = input.state;
+            // Applied because drift compares the live name against this column, so a
+            // harness that drops it cannot see the adopt-path defect at all.
+            (binding as { name: string }).name = input.name;
+        }
+        return true;
     }
-    return true;
-});
+);
 
 const rebind = vi.fn(
     async (input: { id: number; expectedDiscordId: string; discordId: string; state: string }) => {
@@ -78,7 +83,8 @@ const discardIntent = vi.fn(async (id: number) => {
 vi.mock('../../data/resourceBindingsRepo', () => ({
     resourceBindingsRepo: {
         recordIntent: (input: Record<string, string>) => recordIntent(input),
-        settle: (input: { id: number; discordId: string; state: string }) => settle(input),
+        settle: (input: { id: number; discordId: string; state: string; name: string }) =>
+            settle(input),
         rebind: (input: {
             id: number;
             expectedDiscordId: string;
@@ -100,8 +106,17 @@ interface FakeCreated {
     type: ChannelType;
 }
 
-function makeGuild(options: { failChannelCreate?: boolean; existingRoleIds?: string[] } = {}) {
-    const channels = new Map<string, FakeCreated>();
+function makeGuild(
+    options: {
+        failChannelCreate?: boolean;
+        existingRoleIds?: string[];
+        /** Channels that predate the install, for exercising the adopt path. */
+        existingChannels?: readonly FakeCreated[];
+    } = {}
+) {
+    const channels = new Map<string, FakeCreated>(
+        (options.existingChannels ?? []).map((channel) => [channel.id, channel] as const)
+    );
     // Roles that resolve in this guild: the ones it started with, plus whatever the
     // install creates as it runs.
     const createdRoles = new Set<string>([
@@ -320,6 +335,49 @@ describe('applyInstallPlan', () => {
         expect(category?.action).toBe('created');
         expect(category?.discordId).not.toBe('chan-gone');
         expect(calls).toContain('create:Arrivals');
+    });
+
+    /**
+     * Adoption binds to an object that already exists and deliberately never renames
+     * it. Recording the *declared* name would then say the channel is called `Arrivals`
+     * while the operator can plainly see it is called `Lounge`.
+     *
+     * That is not cosmetic: drift detection compares the live name against this column,
+     * so the wrong one makes every adopted resource report a rename that never
+     * happened, permanently — on exactly the resources the operator asked us not to
+     * touch.
+     */
+    it('records an adopted object under its own name, not the declared one', async () => {
+        const guild = makeGuild({
+            existingChannels: [
+                { id: 'chan-lounge', name: 'Lounge', type: ChannelType.GuildCategory },
+            ],
+        });
+
+        const plan = {
+            guildId: 'guild-1',
+            journeyKey: 'onboarding',
+            items: [
+                {
+                    resourceKey: 'arrivals-category',
+                    kind: 'category' as const,
+                    action: 'adopt' as const,
+                    name: 'Arrivals',
+                    discordId: 'chan-lounge',
+                },
+            ],
+            blockers: [],
+        };
+
+        const result = await applyInstallPlan({
+            guild,
+            journey: { ...JOURNEY, resources: [JOURNEY.resources[0]] },
+            plan,
+            staffRoleIds: [],
+        });
+
+        expect(result.failure).toBeUndefined();
+        expect(bindings[0]).toMatchObject({ state: 'adopted', name: 'Lounge' });
     });
 
     it('refuses to adopt a resource deleted between approval and apply', async () => {

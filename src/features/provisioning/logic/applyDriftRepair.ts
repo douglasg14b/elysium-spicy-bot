@@ -165,19 +165,33 @@ export async function applyDriftRepair(
     for (const report of plan.drifted) {
         if (!approvedKeys.has(report.resourceKey)) continue;
 
-        const refusal = refuseReason(report);
+        const refusal = refuseReason(report, input);
         if (refusal) {
             results.push({ ...describe(report), outcome: 'refused', explanation: refusal });
             continue;
         }
 
         try {
-            const repaired = await repairOne({ guild, report, input, reason, repo });
-            results.push({ ...describe(report), outcome: 'repaired', repaired });
+            const { repaired, notes } = await repairOne({ guild, report, input, reason, repo });
+            results.push({
+                ...describe(report),
+                outcome: 'repaired',
+                repaired,
+                ...(notes.length > 0 ? { explanation: notes.join(' ') } : {}),
+            });
         } catch (error) {
+            /*
+             * A throw mid-repair means the *remaining* drifts were not applied — but
+             * anything already written to the guild stays written, and saying nothing
+             * about it is the worse failure. `partiallyRepaired` carries what landed
+             * before the throw, so an operator is never told "failed" about a channel
+             * that was in fact renamed.
+             */
+            const partial = error instanceof PartialRepairError ? error.repaired : [];
             results.push({
                 ...describe(report),
                 outcome: 'failed',
+                ...(partial.length > 0 ? { repaired: partial } : {}),
                 explanation:
                     error instanceof Error
                         ? error.message
@@ -237,7 +251,10 @@ export function withAdoptionReasserted(
  * Both reasons are promises rather than limitations, which is why they are stated to
  * the operator rather than silently skipped.
  */
-function refuseReason(report: ResourceDriftReport): string | undefined {
+function refuseReason(
+    report: ResourceDriftReport,
+    input: ApplyDriftRepairInput
+): string | undefined {
     if (!report.repairable) {
         return `**${report.name}** was adopted rather than created by this journey, so it is left exactly where it is. Change it yourself if the drift was not intended.`;
     }
@@ -247,7 +264,70 @@ function refuseReason(report: ResourceDriftReport): string | undefined {
         return `This binding no longer points at a ${report.kind}. That cannot be repaired automatically — re-bind the resource to the right object, or remove it and install again.`;
     }
 
+    /*
+     * A permission repair with no compiled model is a **refusal**, not a failure, and
+     * the distinction is the one this whole vocabulary rests on: `refused` means a
+     * promise we chose to keep, `failed` means Discord said no. Guessing at a
+     * permission model is the one outcome worse than the drift, so declining to is a
+     * choice — and calling it `failed` would read to an operator as transient, worth
+     * retrying, when it will never succeed.
+     *
+     * Checked here rather than thrown from inside the loop so the whole item is
+     * refused with **nothing touched**, instead of a rename landing first and then
+     * being reported as a total failure.
+     */
+    const needsPermissions = report.drift.some((entry) => entry.kind === 'permissions');
+    if (needsPermissions && !input.compiledOverwrites?.get(report.resourceKey)) {
+        return `The permission model for **${report.name}** could not be compiled, so its overwrites cannot be repaired without guessing at them. Nothing was changed.`;
+    }
+
+    /*
+     * A resource whose permissions were never *checked* must not have them rewritten.
+     *
+     * `unchecked` exists so a resource is never falsely certified as clean. Repairing
+     * permissions the operator was explicitly told went unexamined would defeat that
+     * from the apply side — they approved a report that said "not checked", and a write
+     * would be acting on a comparison that never happened.
+     */
+    const uncheckedHere = input.plan.unchecked.find(
+        (entry) => entry.resourceKey === report.resourceKey
+    );
+    if (needsPermissions && uncheckedHere) {
+        return `**${report.name}**'s permissions were not checked, so they are not repaired. ${uncheckedHere.reason}`;
+    }
+
     return undefined;
+}
+
+/**
+ * A repair that failed partway, carrying what had already landed.
+ *
+ * Exists so the catch can report a rename that succeeded before a later drift threw.
+ * Without it a partially-applied repair reports as a total failure, and the operator —
+ * whose only evidence is this report — is told nothing happened to a channel that has
+ * in fact been renamed.
+ */
+class PartialRepairError extends Error {
+    constructor(
+        message: string,
+        readonly repaired: readonly ResourceDriftKind['kind'][]
+    ) {
+        super(message);
+        this.name = 'PartialRepairError';
+    }
+}
+
+interface RepairOneResult {
+    /** What actually changed in the guild, not what was found. */
+    readonly repaired: readonly ResourceDriftKind['kind'][];
+    /**
+     * Things worth telling the operator that are not failures.
+     *
+     * A successful repair whose bookkeeping could not be completed is still a
+     * successful repair, but silence about it would make the report claim more than
+     * happened.
+     */
+    readonly notes: readonly string[];
 }
 
 interface RepairOneInput {
@@ -267,12 +347,45 @@ interface RepairOneInput {
  * same distinction `applyUnpublishPlan` draws with its `deletedHere` flag, and for the
  * same reason: this report is the only evidence the operator gets.
  */
-async function repairOne(context: RepairOneInput): Promise<ResourceDriftKind['kind'][]> {
+async function repairOne(context: RepairOneInput): Promise<RepairOneResult> {
     const { guild, report, input, reason } = context;
     const repaired: ResourceDriftKind['kind'][] = [];
+    const notes: string[] = [];
 
     for (const drift of report.drift) {
-        switch (drift.kind) {
+        try {
+            await applyOneDrift({ context, drift, repaired });
+        } catch (error) {
+            // Carry what already landed out through the throw, so a rename that
+            // succeeded before a later drift failed is still reported as done.
+            throw new PartialRepairError(
+                error instanceof Error
+                    ? error.message
+                    : `Discord refused the change to **${report.name}**.`,
+                repaired
+            );
+        }
+    }
+
+    if (repaired.includes('renamed')) {
+        const note = await syncRenamedBinding(context);
+        if (note) notes.push(note);
+    }
+
+    return { repaired, notes };
+}
+
+interface ApplyOneDriftInput {
+    readonly context: RepairOneInput;
+    readonly drift: ResourceDriftKind;
+    readonly repaired: ResourceDriftKind['kind'][];
+}
+
+/** One drift, applied. Pushes onto `repaired` only when the guild actually changed. */
+async function applyOneDrift({ context, drift, repaired }: ApplyOneDriftInput): Promise<void> {
+    const { guild, report, input, reason } = context;
+
+    switch (drift.kind) {
             case 'renamed': {
                 const channel = guild.channels.cache.get(report.discordId);
                 const role = guild.roles.cache.get(report.discordId);
@@ -319,17 +432,26 @@ async function repairOne(context: RepairOneInput): Promise<ResourceDriftKind['ki
             }
 
             case 'permissions': {
-                const overwrites = input.compiledOverwrites?.get(report.resourceKey);
-                if (!overwrites) {
-                    // Refused rather than guessed. Writing a permission model this
-                    // module inferred would be the one failure worse than the drift.
-                    throw new Error(
-                        `No compiled permission model was supplied for "${report.resourceKey}", so its overwrites cannot be repaired without guessing at them.`
-                    );
-                }
+                // Absence is refused up front by `refuseReason`, so reaching here with
+                // no model would be a programming error rather than an operator one.
+                const overwrites = input.compiledOverwrites?.get(report.resourceKey) ?? [];
+
+                /*
+                 * **Only the ids the report actually flagged.**
+                 *
+                 * `overwrites` is the whole compiled model; `drift.differences` is the
+                 * subset that diverged. Writing the whole model would re-derive the
+                 * repair's own target instead of acting on what the operator approved —
+                 * the exact thing `ResourceDriftKind`'s doc comment forbids, and it has
+                 * a real consequence: an id the comparison reported as *clean* (because
+                 * a colleague loosened it deliberately, and extra grants are not drift)
+                 * would be silently reset by a repair approved for something else.
+                 */
+                const driftedIds = new Set(drift.differences.map((entry) => entry.id));
+                const toWrite = overwrites.filter((overwrite) => driftedIds.has(overwrite.id));
 
                 const channel = guild.channels.cache.get(report.discordId);
-                if (channel && 'permissionOverwrites' in channel) {
+                if (channel && 'permissionOverwrites' in channel && toWrite.length > 0) {
                     /*
                      * Edited per id, never `set`.
                      *
@@ -347,7 +469,7 @@ async function repairOne(context: RepairOneInput): Promise<ResourceDriftKind['ki
                      * hands to `channels.create`, so repair writes the identical model
                      * install would have written.
                      */
-                    for (const overwrite of overwrites) {
+                    for (const overwrite of toWrite) {
                         await channel.permissionOverwrites.edit(
                             overwrite.id,
                             toOverwriteOptions(overwrite),
@@ -363,23 +485,37 @@ async function repairOne(context: RepairOneInput): Promise<ResourceDriftKind['ki
                 // Unreachable: refused before this function is called. The arm exists
                 // so a new drift kind cannot be added without deciding what repairing
                 // it means.
-                break;
-        }
+            break;
     }
+}
 
-    // The binding's cached name is diagnostics-only, but a stale one makes every later
-    // report describe the resource by a name nobody uses. Updated last, so a failed
-    // guild write never leaves the row claiming a change that did not happen.
-    if (repaired.includes('renamed')) {
-        const renamed = report.drift.find((entry) => entry.kind === 'renamed');
-        if (renamed?.kind === 'renamed') {
-            await context.repo.renameBinding({
-                discordId: report.discordId,
-                name: renamed.declared,
-            });
-        }
-    }
+/**
+ * Refresh the binding's cached name after a successful rename.
+ *
+ * Runs last, so a failed guild write never leaves the row claiming a change that did
+ * not happen. Returns a note when the row would not take the update.
+ */
+async function syncRenamedBinding(context: RepairOneInput): Promise<string | undefined> {
+    const { report, repo } = context;
+    const renamed = report.drift.find((entry) => entry.kind === 'renamed');
+    if (renamed?.kind !== 'renamed') return undefined;
 
-    return repaired;
+    const updated = await repo.renameBinding({
+        id: report.bindingId,
+        expectedDiscordId: report.discordId,
+        name: renamed.declared,
+    });
+
+    if (updated) return undefined;
+
+    /*
+     * Reported, not swallowed. Zero rows back means the binding moved underneath the
+     * repair — re-bound, or torn down, while the operator was reading. The guild write
+     * already happened and is correct; what is stale is the cached name, which is
+     * diagnostics-only and self-heals on the next repair. So this is a note rather than
+     * a failure — but discarding it would leave the operator's only evidence claiming a
+     * clean repair while the row and the guild disagree.
+     */
+    return `The server was updated, but **${report.name}**'s record had already moved, so its cached name was left alone.`;
 }
 
