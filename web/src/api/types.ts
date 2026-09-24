@@ -843,6 +843,106 @@ export interface UnpublishedResource {
 }
 
 /**
+ * One way a live object no longer matches what its journey declared.
+ *
+ * Mirrors `DriftDetailBody` in `src/web/api/driftBody.ts`. `kind` is `string` rather
+ * than a union for the same reason `PublishedResource.kind` is: a drift kind this build
+ * does not recognise must still show its sentence rather than be dropped, and the
+ * sentence is written by the server anyway.
+ */
+export interface DriftDetail {
+    kind: string;
+    /** Server-authored prose, in Discord markdown. Render through `withEmphasis`. */
+    explanation: string;
+}
+
+/**
+ * A resource that is still declared, still there, and no longer what it was.
+ *
+ * Mirrors `DriftResourceBody`. `repairable` comes from the server and is **not**
+ * inferred from `drift` — adoption is a property of the binding and appears in no drift
+ * kind, so a client deriving it would offer a repair the server refuses.
+ */
+export interface DriftedResource {
+    resourceKey: string;
+    name: string;
+    kind: string;
+    drift: DriftDetail[];
+    repairable: boolean;
+}
+
+/**
+ * A resource the journey installed and no longer declares.
+ *
+ * Mirrors `OrphanBody`. `stillInGuild` and `neverSettled` come apart in the case that
+ * matters — a crash between creating an object and settling its row leaves a
+ * never-settled record with a live object behind it — so both travel rather than one
+ * being derived from the other.
+ */
+export interface OrphanedResource {
+    bindingId: number;
+    resourceKey: string;
+    kind: string;
+    name: string;
+    stillInGuild: boolean;
+    neverSettled: boolean;
+    /** Server-authored prose, in Discord markdown. Render through `withEmphasis`. */
+    explanation: string;
+}
+
+/** A resource found, but whose permissions could not be compared, and why. */
+export interface UncheckedResource {
+    resourceKey: string;
+    name: string;
+    reason: string;
+}
+
+/**
+ * The answer to "is my server still what I asked for".
+ *
+ * Mirrors `DriftBody` in `src/web/api/driftBody.ts`. Drift and orphans arrive together
+ * because they are one screen: they are different questions, but an operator asking
+ * this one is owed both answers at once.
+ *
+ * `cleanKeys` is carried so the dialog can say "checked 6, 2 drifted" rather than
+ * "2 drifted" — the difference between a report an operator trusts and a number they
+ * have to go and verify. `unchecked` is a third state beside clean and drifted, and
+ * collapsing it into either is a lie in the direction that costs most.
+ */
+export interface JourneyDrift {
+    journeyKey: string;
+    drifted: DriftedResource[];
+    cleanKeys: string[];
+    unchecked: UncheckedResource[];
+    orphans: OrphanedResource[];
+}
+
+export type RepairOutcome = 'repaired' | 'refused' | 'failed' | 'partiallyRepaired';
+
+export interface RepairedResource {
+    resourceKey: string;
+    name: string;
+    outcome: RepairOutcome;
+    /** Which drift kinds were actually put back. */
+    repaired?: string[];
+    explanation?: string;
+}
+
+/** What forgetting one leftover record did. */
+export interface ForgottenOrphan {
+    forgotten: boolean;
+    resourceKey: string;
+    name: string;
+    /**
+     * Whether the object is still sitting in the server with nothing tracking it.
+     *
+     * The distinction an operator is owed: forgetting a record behind a live object
+     * means something remains that no screen will mention again.
+     */
+    objectRemains: boolean;
+}
+
+/**
  * One reason a save was refused, addressed to the thing that caused it.
  *
  * Mirrors `FlowValidationIssue` in `src/features/flows/engine/nodeDataValidation.ts`.

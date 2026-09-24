@@ -64,6 +64,7 @@ import {
     IconGripVertical,
     IconPencil,
     IconPlus,
+    IconRadar,
     IconRoute,
     IconServerCog,
     IconStack2,
@@ -96,6 +97,7 @@ import {
 import { GroupConflictDialog } from '../flows/GroupConflictDialog';
 import { installChipFor, INSTALL_QUERY_PARAM } from '../flows/installStateChip';
 import { InstalledResourcesDialog } from '../flows/InstalledResourcesDialog';
+import { JourneyDriftDialog } from '../flows/JourneyDriftDialog';
 import { JourneyResourcesDialog } from '../flows/JourneyResourcesDialog';
 import {
     newJourneyNameFor,
@@ -500,6 +502,7 @@ function GroupHeaderRow({
     rename,
     onOpenResources,
     onOpenInstalled,
+    onOpenDrift,
     onInstall,
 }: {
     readonly group: GroupRow;
@@ -508,6 +511,8 @@ function GroupHeaderRow({
     readonly onOpenResources: (group: GroupRow) => void;
     /** Open the teardown inventory — what is actually live in the guild. */
     readonly onOpenInstalled: (group: GroupRow) => void;
+    /** Open the drift report — whether what is live still matches the declarations. */
+    readonly onOpenDrift: (group: GroupRow) => void;
     readonly onInstall: (flowId: string) => void;
 }) {
     const headerCell = { background: GROUP_HEADER_BG };
@@ -675,6 +680,36 @@ function GroupHeaderRow({
                             </Button>
                         </Tooltip>
                     )}
+                    {/*
+                     * The drift check, beside the inventory and gated the same way.
+                     *
+                     * The two are the natural pair: the inventory answers "what is
+                     * there", and this answers "is it still what I asked for" — the
+                     * question the install chip only appears to answer, since that
+                     * reads the binding table rather than the guild.
+                     *
+                     * No chip on the header for it, deliberately. A chip has to be
+                     * earned by being *already known*, and drift is not: finding it
+                     * costs a Discord read per resource, so a chip would mean checking
+                     * every journey on every page load to decorate rows that are almost
+                     * always clean. The button is the honest affordance — it says a
+                     * check is available, not that one has been done.
+                     */}
+                    {group.journey.installState !== 'none' && (
+                        <Tooltip label="Check this journey against your server">
+                            <Button
+                                size="xs"
+                                variant="subtle"
+                                color="gray"
+                                px={8}
+                                onClick={() => onOpenDrift(group)}
+                                aria-label={`Check ${group.name} for drift`}
+                            >
+                                <IconRadar size={14} />
+                            </Button>
+                        </Tooltip>
+                    )}
+
                     {!rename.editing && (
                         <Tooltip label="Rename journey">
                             <Button
@@ -812,6 +847,16 @@ export function FlowsListPage() {
      * Merging them into a `mode` would make every read of this state a two-part question.
      */
     const [editingJourneyKey, setEditingJourneyKey] = useState<string | null>(null);
+
+    /**
+     * The journey being checked for drift, held as its key.
+     *
+     * A third piece of state for the same reason the second exists: this is a third
+     * question about the same journey — what it declares, what it has live, and whether
+     * those two still agree — and the one that writes to the *guild* rather than to the
+     * declaration. A `mode` union would make reading any of them a two-part question.
+     */
+    const [driftJourneyKey, setDriftJourneyKey] = useState<string | null>(null);
 
     /** The flow in the air, and the row it is hovering. */
     const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -1342,6 +1387,11 @@ export function FlowsListPage() {
         rows.find(
             (row): row is GroupRow => row.kind === 'group' && row.journeyKey === managingJourneyKey
         ) ?? null;
+    /** The group whose drift report is open, as the current list sees it. See above. */
+    const driftGroup =
+        rows.find(
+            (row): row is GroupRow => row.kind === 'group' && row.journeyKey === driftJourneyKey
+        ) ?? null;
     /** The group whose declarations are open, as the current list sees it. See above. */
     const editingGroup =
         rows.find(
@@ -1543,6 +1593,9 @@ export function FlowsListPage() {
                                                 onOpenInstalled={(group) =>
                                                     setManagingJourneyKey(group.journeyKey)
                                                 }
+                                                onOpenDrift={(group) =>
+                                                    setDriftJourneyKey(group.journeyKey)
+                                                }
                                                 onInstall={openInstallWizard}
                                             />
                                             {row.flows.map((flow, index) => (
@@ -1717,6 +1770,24 @@ export function FlowsListPage() {
                     // Re-read rather than patched: an unpublish changes what the header's
                     // resource count means, and an undeploy changes nothing on the row but
                     // costs one quiet request to stay honest either way.
+                    onChanged={() => void refreshFlows({ quiet: true })}
+                />
+            )}
+
+            {/*
+             * The journey checked against the server, opened from the group header.
+             *
+             * The third question, and the only one of the three that reads the guild
+             * itself rather than our record of it. A repair can rename a channel back,
+             * which the header shows, so it refreshes on change like the others.
+             */}
+            {driftGroup && selected && (
+                <JourneyDriftDialog
+                    opened
+                    onClose={() => setDriftJourneyKey(null)}
+                    guildId={selected.id}
+                    journeyKey={driftGroup.journeyKey}
+                    journeyName={driftGroup.name}
                     onChanged={() => void refreshFlows({ quiet: true })}
                 />
             )}

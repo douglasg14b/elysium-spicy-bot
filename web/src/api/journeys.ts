@@ -4,11 +4,14 @@ import { api } from './client';
 import type {
     AttachResult,
     FlowAttachment,
+    ForgottenOrphan,
     GroupPreview,
     GroupResolution,
     Journey,
+    JourneyDrift,
     JourneySummary,
     PublishedFlowState,
+    RepairedResource,
     ResourceDeclaration,
     UndeployedButtonMessage,
     UnpublishedResource,
@@ -211,6 +214,63 @@ export function unpublishJourney(
 ): Promise<{ results: UnpublishedResource[] }> {
     return api.post<{ results: UnpublishedResource[] }>(
         `/api/guilds/${guildId}/journeys/${encodeURIComponent(journeyKey)}/unpublish`,
+        {}
+    );
+}
+
+/**
+ * What this journey installed that no longer matches what it declares.
+ *
+ * The third question about a resource, after "does it exist" (the install plan) and
+ * "may I delete it" (the published inventory). Orphans ride in the same response
+ * because they belong to the same screen, not because they are the same question.
+ *
+ * Reads the guild rather than the binding table's opinion of it, which is the whole
+ * difference between this and the `installState` on the flows list.
+ */
+export function getJourneyDrift(guildId: string, journeyKey: string): Promise<JourneyDrift> {
+    return api.get<JourneyDrift>(
+        `/api/guilds/${guildId}/journeys/${encodeURIComponent(journeyKey)}/drift`
+    );
+}
+
+/**
+ * Put the named resources back to what the journey declared.
+ *
+ * Keys only. The server rebuilds the report itself rather than accepting the one the
+ * browser was shown — sending it back would let a client name resources the real
+ * comparison never found. A key whose drift has since resolved is simply reported as
+ * nothing to do.
+ *
+ * Reconciles the guild **to** the declaration, never the reverse, and never touches an
+ * adopted resource whatever this asks for.
+ */
+export function repairJourneyDrift(
+    guildId: string,
+    journeyKey: string,
+    resourceKeys: readonly string[]
+): Promise<{ results: RepairedResource[] }> {
+    return api.post<{ results: RepairedResource[] }>(
+        `/api/guilds/${guildId}/journeys/${encodeURIComponent(journeyKey)}/repair`,
+        { resourceKeys }
+    );
+}
+
+/**
+ * Drop the leftover record of a resource this journey no longer declares.
+ *
+ * **Forgets the row; never touches the object.** Deleting a stray channel needs guards
+ * the whole-journey teardown already owns, so an operator who wants the object gone
+ * uses that or removes it in Discord. The response says whether anything was left
+ * behind.
+ */
+export function forgetJourneyOrphan(
+    guildId: string,
+    journeyKey: string,
+    bindingId: number
+): Promise<ForgottenOrphan> {
+    return api.post<ForgottenOrphan>(
+        `/api/guilds/${guildId}/journeys/${encodeURIComponent(journeyKey)}/orphans/${bindingId}/forget`,
         {}
     );
 }
