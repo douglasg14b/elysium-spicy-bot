@@ -72,6 +72,20 @@ export function hasRepairable(drift: JourneyDrift): boolean {
  * hide that the first is a promise being kept and the second is a job to do.
  *
  * Returns null when the resource *is* repairable, so a caller can render nothing.
+ *
+ * ## Why the reason is derived here and the decision is not
+ *
+ * `repairable` comes from the server and is never inferred — a client guessing it would
+ * offer a repair the server refuses. This function only picks the *sentence* for a
+ * decision already made, which is a weaker claim, and it is deliberately arranged so
+ * that being wrong is survivable: the `wrongType` branch is the one visible in the
+ * drift kinds, and everything else falls through to adoption, which is the more
+ * conservative thing to tell an operator.
+ *
+ * **If a third reason for withholding a repair ever appears, move this to the server**
+ * as a `withheldReason` beside `repairable`. It was not moved now because the wire cost
+ * — a field, two `*_KEYS` entries and a gate row — buys nothing while there are two
+ * reasons and one of them is structurally visible.
  */
 export function whyNotRepairable(resource: DriftedResource): string | null {
     if (resource.repairable) return null;

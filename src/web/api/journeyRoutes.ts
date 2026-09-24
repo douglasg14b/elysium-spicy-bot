@@ -147,6 +147,25 @@ export const resourceSchema = z.object({
  * "repaired 0" would hide that.
  */
 /**
+ * A `resource_bindings` row id, as it appears in a path.
+ *
+ * Matched as **text** rather than coerced, because `Number` is lenient in ways a row id
+ * is not: `Number('0x2a')` is 42, and so are `' 42 '`, `'4.2e1'` and `'42.0'` — while
+ * `Number('')` is **0**, which `Number.isInteger` accepts. None of those could reach the
+ * wrong row, since the orphan re-find is the real gate, and that was the problem: the
+ * 400 was decorative and the whole protection rested on a downstream lookup. A validator
+ * that accepts hex for a primary key is the wrong shape even where it is harmless.
+ *
+ * `max(16)` because the id is a `Generated<number>` and sixteen digits is already past
+ * anything this table will hold — it stops a caller handing us a string long enough to
+ * lose precision on the way to a `number`.
+ */
+const bindingIdSchema = z
+    .string()
+    .regex(/^\d{1,16}$/, 'A binding id is a whole number.')
+    .refine((value) => Number(value) > 0, 'A binding id starts at 1.');
+
+/**
  * Exported for the route test that asserts a forged `approvedPlan` is stripped here
  * rather than merely ignored downstream. That distinction is not observable through
  * the handler — see the test — so the schema is checked directly.
@@ -534,10 +553,11 @@ export function journeyRoutes(): Hono<AppEnv> {
             return c.json({ error: 'Journey not found.' }, 404);
         }
 
-        const bindingId = Number(c.req.param('bindingId'));
-        if (!Number.isInteger(bindingId)) {
+        const parsedId = bindingIdSchema.safeParse(c.req.param('bindingId'));
+        if (!parsedId.success) {
             return c.json({ error: 'Binding id must be a whole number.' }, 400);
         }
+        const bindingId = Number(parsedId.data);
 
         /*
          * Re-found through `previewOrphans` rather than forgotten by id directly.

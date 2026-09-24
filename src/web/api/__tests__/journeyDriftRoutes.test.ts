@@ -493,6 +493,50 @@ describe('POST /journeys/:journeyKey/orphans/:bindingId/forget', () => {
         expect(bindingsRepo.forget).not.toHaveBeenCalled();
     });
 
+    /*
+     * `Number()` accepts far more than a row id, and the first version of this guard
+     * used it: `Number('0x2a')` is 42, so is `' 42 '`, so is `'4.2e1'` — and `Number('')`
+     * is **0**, which `Number.isInteger` waves through. None of those could delete the
+     * wrong row, because the orphan re-find is the real gate and a coerced id simply
+     * fails to match. That is exactly the problem: it made the 400 decorative and put
+     * the whole protection on a downstream lookup, which is the silent-alternate shape
+     * `root-cause-over-workarounds.md` forbids.
+     *
+     * A binding id is a positive integer in decimal. Anything else is a malformed
+     * request and is told so.
+     */
+    it.each(['0x2a', ' 42 ', '4.2e1', '-5', '42.0', '1e21'])(
+        'rejects %j rather than coercing it to a row id',
+        async (bindingId) => {
+            const response = await postForget(bindingId);
+
+            expect(response.status).toBe(400);
+            expect(previewOrphansMock).not.toHaveBeenCalled();
+            expect(bindingsRepo.forget).not.toHaveBeenCalled();
+        }
+    );
+
+    it('never reaches the handler at all for an empty id', async () => {
+        // `.../orphans//forget` has no segment to bind, so the route does not match and
+        // Hono 404s before the schema is consulted. Asserted rather than left implicit
+        // because `Number('')` is **0** — had this reached the old guard, `isInteger`
+        // would have waved a zero through to the lookup.
+        const response = await postForget('');
+
+        expect(response.status).toBe(404);
+        expect(previewOrphansMock).not.toHaveBeenCalled();
+        expect(bindingsRepo.forget).not.toHaveBeenCalled();
+    });
+
+    it('still accepts an ordinary decimal id', async () => {
+        previewOrphansMock.mockResolvedValue([orphan()]);
+
+        const response = await postForget(42);
+
+        expect(response.status).toBe(200);
+        expect(bindingsRepo.forget).toHaveBeenCalledWith(42);
+    });
+
     it('404s a journey from another guild without touching any record', async () => {
         journeyExists([journeyRow({ guildId: OTHER_GUILD, journeyKey: 'theirs' })]);
 
