@@ -393,8 +393,20 @@ function bitStrings(bits: readonly bigint[]): string[] {
 /** A one-line description of one drift, for a report an operator reads. */
 export function describeDrift(drift: ResourceDriftKind, kind: ResourceKind): string {
     switch (drift.kind) {
+        /*
+         * States the disagreement without claiming who moved, because either side may
+         * have. This used to read "Renamed from X to Y", which was right when the only
+         * way to reach it was someone renaming the channel in Discord — and became
+         * backwards the moment renaming the row in the resources panel started counting
+         * as drift. In that case nothing was renamed *from* the declared name: the
+         * operator typed it, and the channel never had it.
+         *
+         * Naming both sides by where they live is the honest version and reads correctly
+         * whichever moved, which is also the point of repairing to the declaration
+         * regardless of direction.
+         */
         case 'renamed':
-            return `Renamed from **${drift.declared}** to **${drift.actual}**.`;
+            return `This flow calls it **${drift.declared}**; in the server it is **${drift.actual}**.`;
         case 'reparented':
             return drift.actualParentId
                 ? `Moved out of the category this journey put it in.`

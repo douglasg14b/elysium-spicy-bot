@@ -3,8 +3,28 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
     test: {
         include: ['**/*.test.ts'],
-        // Replacing `exclude` drops Vitest defaults — keep `node_modules` / `dist` out or `pnpm test` runs dependency suites.
-        exclude: ['**/node_modules/**', '**/dist/**', '**/*.live.test.ts'],
+        /*
+         * Replacing `exclude` drops Vitest defaults — keep `node_modules` / `dist` out or
+         * `pnpm test` runs dependency suites.
+         *
+         * `.claude/worktrees/**` is the same hazard one step out. A git worktree created
+         * *inside* the repo is a second checkout this glob walks into, and it has no
+         * `node_modules` of its own, so its copies of our own files fail to resolve their
+         * imports — one worktree turned `pnpm test` red with `Failed to load url
+         * @tabler/icons-react`, pointing at a path nobody had edited. The failure names
+         * a dependency rather than a worktree, so it reads as a broken install and sends
+         * you to reinstall packages that are fine.
+         *
+         * Excluded rather than removing the worktree, because whether a worktree should
+         * exist is its owner's call and this file's job is to not run other checkouts'
+         * tests either way.
+         */
+        exclude: [
+            '**/node_modules/**',
+            '**/dist/**',
+            '**/.claude/worktrees/**',
+            '**/*.live.test.ts',
+        ],
         setupFiles: ['./vitest.setup.ts'],
         /**
          * Eighteen test files call `ensureBlocksDiscovered`, and discovery is a
