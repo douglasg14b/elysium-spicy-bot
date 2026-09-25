@@ -225,8 +225,39 @@ export function detectResourceDrift(input: ResourceDriftInput): ResourceDriftRep
 
     const drift: ResourceDriftKind[] = [];
 
-    if (live.name !== binding.name) {
-        drift.push({ kind: 'renamed', declared: binding.name, actual: live.name });
+    /*
+     * What the name *should* be depends on how we came to own it, and the two answers
+     * are genuinely different rather than one being a fallback for the other.
+     *
+     *  - **Created.** The journey gave this object its name, so the **declaration** is
+     *    the reference. Comparing to `binding.name` — the name at install time — caught
+     *    only renames made in Discord and missed the other direction entirely: an
+     *    operator editing the Name in the resources panel changed what the journey
+     *    wants, and nothing noticed. The row saved, showed the new name, and no
+     *    mechanism ever applied it, since install short-circuits at `reuse` for a
+     *    settled binding. The edit looked like an edit and was a no-op — and a later
+     *    repair of unrelated drift wrote the *old* name back over it.
+     *  - **Adopted.** The object kept its own name *by promise*, so the declaration and
+     *    the live name are expected to differ and will differ forever. The **binding**
+     *    is the reference here, and `applyInstallPlan` records the live name at adopt
+     *    time precisely so this comparison has something true to sit against. Using the
+     *    declaration would report a rename that never happened on every adopted
+     *    resource, permanently — crying wolf on exactly the resources the operator asked
+     *    us not to touch, which is how they learn to ignore the whole report.
+     *
+     * So a rename in Discord and a rename in the panel are the same disagreement seen
+     * from two sides, and the operator repairs either — but only where the journey owns
+     * the name in the first place.
+     *
+     * Note the adoption promise governs the *repair* independently: `repairable` above
+     * is false for an adopted binding, so even the Discord-side rename of an adopted
+     * object is reported and refused. Chosen over treating an explicit edit as consent —
+     * a promise the operator can click through is a weaker promise than the one made.
+     */
+    const expectedName = binding.state === 'adopted' ? binding.name : declaration.defaultName;
+
+    if (live.name !== expectedName) {
+        drift.push({ kind: 'renamed', declared: expectedName, actual: live.name });
     }
 
     const reparented = detectReparent(input);

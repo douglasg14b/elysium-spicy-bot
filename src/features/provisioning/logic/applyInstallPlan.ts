@@ -204,12 +204,17 @@ export async function applyInstallPlan(
          * the declared name would say the channel is called `welcome` when the operator
          * can plainly see it is called `#lounge`.
          *
-         * That mismatch is not cosmetic. Drift detection compares the live name against
-         * this column, so recording the wrong one makes **every adopted resource report
-         * a rename that never happened**, permanently. The adoption promise currently
-         * hides the consequence by withholding repair — but a report that cries wolf on
-         * exactly the resources the operator asked us not to touch is how an operator
-         * learns to ignore the whole feature.
+         * That mismatch is not cosmetic. Drift detection measures an **adopted** object
+         * against this column — precisely because the declaration and the live name are
+         * expected to differ forever on the adopt path — so recording the wrong one makes
+         * every adopted resource report a rename that never happened, permanently. The
+         * adoption promise would hide the consequence by withholding repair, but a report
+         * that cries wolf on exactly the resources the operator asked us not to touch is
+         * how they learn to ignore the whole feature.
+         *
+         * A **created** object is measured against its declaration instead, so that
+         * renaming the row in the resources panel is drift the operator can repair. See
+         * `detectResourceDrift`, which owns that split; this column is one half of it.
          */
         const recordedName =
             item.action === 'adopt' ? liveNameOf(guild, item.kind, discordId) ?? item.name : item.name;
