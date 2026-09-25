@@ -16,9 +16,9 @@ import { ChannelType, type Guild, type GuildBasedChannel } from 'discord.js';
  *  - **Two channels called `#general` were indistinguishable.** The operator picked one
  *    of two identical rows and found out later which.
  *  - **A category could not be adopted at all.** The install model adopts all three
- *    kinds; the picker could not offer what the endpoint never sent, which
- *    `canAdoptFromChannelList` records as an endpoint limitation rather than a model
- *    one.
+ *    kinds; the picker could not offer what the endpoint never sent. (Roles were the
+ *    same gap with a different cause — they come from `GET /roles`, and the panel
+ *    simply never handed that list to a picker. `adoptableRoleOptions` closes it.)
  *  - And the *absence* of a type was load-bearing in a place nobody had written down:
  *    `ChannelPickerControl` maps every channel it is given into "somewhere to post",
  *    with a comment claiming categories are excluded. They were — by this endpoint's
@@ -35,11 +35,32 @@ import { ChannelType, type Guild, type GuildBasedChannel } from 'discord.js';
  * The channel kinds this endpoint reports.
  *
  * A closed vocabulary rather than discord.js's numeric `ChannelType`, because the
- * browser must not carry a copy of that enum and only these three mean anything to a
+ * browser must not carry a copy of that enum and only these two mean anything to a
  * flow or a declaration. Everything else — voice, stage, forum, thread — is filtered
  * out rather than labelled, since nothing in the product can target one.
+ *
+ * ## Why announcement channels are not in this list
+ *
+ * They were, briefly, and it was wrong — not because an announcement channel is
+ * unusable, but because **this endpoint is not where that question gets answered.**
+ * Three places already disagreed about which channels a flow may use:
+ *
+ *  - `actionSendMessage` / `actionPostEmbed` ask `isTextBased() && 'send' in channel`,
+ *    a capability check an announcement channel passes.
+ *  - `deployFlowButtons` refuses anything but `ChannelType.GuildText`.
+ *  - `existsInGuildAs`, which gates adoption, does the same.
+ *
+ * Listing `announcement` here added a *fourth* opinion and matched none of them: the
+ * picker offered one, the declaration passed every save-time check, and the apply threw
+ * in `requireAdoptable` after earlier resources had really been created — the
+ * half-applied state the up-front validation exists to prevent.
+ *
+ * The directory now reports what the strictest consumer accepts. Widening it again
+ * means first giving the product one answer to "may a flow use this channel?" and making
+ * all three sites ask it; until then, a type this endpoint does not send is a type no
+ * picker can offer, which is the honest failure.
  */
-export const GUILD_CHANNEL_TYPES = ['text', 'category', 'announcement'] as const;
+export const GUILD_CHANNEL_TYPES = ['text', 'category'] as const;
 export type GuildChannelType = (typeof GUILD_CHANNEL_TYPES)[number];
 
 export interface GuildChannelBody {
@@ -98,11 +119,11 @@ void _keyListsAreComplete;
 /**
  * Which of a channel's types the browser is told about, or `undefined` to omit it.
  *
- * Announcement channels are included and labelled distinctly rather than folded into
- * `text`. A flow *can* post in one, so hiding them would withhold a legitimate target,
- * but they are not interchangeable — Discord rate-limits them differently and a message
- * there can be published to following servers, which is worth an operator knowing
- * before they point a welcome flow at one.
+ * Announcement channels fall through to `undefined` along with voice, stage and forum.
+ * That is deliberate and is **not** a claim that a flow could not post in one — see the
+ * note on `GUILD_CHANNEL_TYPES`. It is that provisioning and button deployment both
+ * refuse anything but `GuildText`, and a directory that offers what those two reject
+ * produces a declaration that fails after the apply has already started.
  */
 function channelTypeOf(channel: GuildBasedChannel): GuildChannelType | undefined {
     switch (channel.type) {
@@ -110,8 +131,6 @@ function channelTypeOf(channel: GuildBasedChannel): GuildChannelType | undefined
             return 'text';
         case ChannelType.GuildCategory:
             return 'category';
-        case ChannelType.GuildAnnouncement:
-            return 'announcement';
         default:
             return undefined;
     }

@@ -85,9 +85,10 @@ import { PermissionIntentEditor } from './PermissionIntentEditor';
 import { ResourceChip } from './ResourceChip';
 import {
     adoptableChannelOptions,
-    canAdoptFromChannelList,
+    adoptableRoleOptions,
+    canAdopt,
     canHaveParent,
-    declarationForAdoptedChannel,
+    declarationForAdoptedResource,
     declarationForNewResource,
 } from './resourceAdoption';
 import { RESOURCE_CHIPS } from './resourceChips';
@@ -301,10 +302,10 @@ export function ResourcesPanel({
     }
 
     /**
-     * Point a row at an existing channel, or back at a new one.
+     * Point a row at an existing channel or role, or back at a new one.
      *
-     * Adopting re-seeds the name and the key from the channel, which is the behaviour
-     * the old add form had through `declarationForAdoptedChannel` and the reason that
+     * Adopting re-seeds the name and the key from the target, which is the behaviour
+     * the old add form had through `declarationForAdoptedResource` and the reason that
      * helper still exists: a row left reading `new-channel` while bound to `#rules`
      * tells the operator the wrong name for what install is about to touch, and the key
      * — the flow's permanent handle on it — would be wrong too.
@@ -319,28 +320,38 @@ export function ResourcesPanel({
      * Clearing the picker leaves the name alone entirely. There is no channel to take a
      * name from, and reverting to `new-channel` would discard a real edit.
      */
-    function setAdoption(index: number, channelId: string | undefined) {
+    function setAdoption(index: number, discordId: string | undefined) {
         const target = resources[index];
         if (!target) return;
 
-        if (!channelId) {
+        if (!discordId) {
             updateResource(index, { adoptDiscordId: undefined });
             return;
         }
 
-        const channel = channels.find((candidate) => candidate.id === channelId);
-        // The picker only offers ids from this list, so a miss means the list changed
+        /*
+         * Which list to look in is decided by the row's own kind, not by searching
+         * both. A role declaration must not resolve its name from a channel that
+         * happens to share the id — nothing would stop the seeded name being a
+         * channel's, and the row would then describe the wrong object entirely.
+         */
+        const adoptable: { id: string; name: string } | undefined =
+            target.kind === 'role'
+                ? roles.find((candidate) => candidate.id === discordId)
+                : channels.find((candidate) => candidate.id === discordId);
+
+        // The picker only offers ids from that list, so a miss means the list changed
         // under the selection. Binding the id without a name we can trust is better
         // than guessing one.
-        if (!channel) {
-            updateResource(index, { adoptDiscordId: channelId });
+        if (!adoptable) {
+            updateResource(index, { adoptDiscordId: discordId });
             return;
         }
 
         const others = resources.filter((_resource, position) => position !== index);
         const generated = declarationForNewResource({ name: '', kind: target.kind, existing: others });
-        const adopted = declarationForAdoptedChannel({
-            channel,
+        const adopted = declarationForAdoptedResource({
+            target: adoptable,
             kind: target.kind,
             existing: others,
             parentKey: target.parentKey,
@@ -357,7 +368,7 @@ export function ResourcesPanel({
         // `new-channel-2` and a bare equality would never call it untouched. The same
         // predicate decides whether a rename may carry the key, so adoption and renaming
         // cannot disagree about which keys are still ours.
-        const patch: Partial<ResourceDeclaration> = { adoptDiscordId: channelId };
+        const patch: Partial<ResourceDeclaration> = { adoptDiscordId: discordId };
 
         if (target.defaultName === generated.defaultName) {
             patch.defaultName = adopted.defaultName;
@@ -630,7 +641,8 @@ function ResourceRow({
     onRemove,
 }: ResourceRowProps) {
     const showParentPicker = canHaveParent(resource.kind) && categories.length > 0;
-    const showAdoptPicker = canAdoptFromChannelList(resource.kind);
+    const showAdoptPicker = canAdopt(resource.kind);
+    const adoptingRole = resource.kind === 'role';
     const style = RESOURCE_KIND_STYLES[resource.kind];
     const KindIcon = style.icon;
     const adopting = Boolean(resource.adoptDiscordId);
@@ -644,12 +656,13 @@ function ResourceRow({
 
     const hasBlockingChip = chips.some((chip) => RESOURCE_CHIPS[chip.id].tone === 'error');
 
-    const adoptOptions = adoptableChannelOptions(
-        channels,
-        resource.kind,
-        allResources,
-        resource.key
-    );
+    // One of the two is always empty — the functions each refuse a kind they do not
+    // serve — so concatenating them is the whole of the routing. A `kind` switch here
+    // would put the same decision in a third place.
+    const adoptOptions = [
+        ...adoptableChannelOptions(channels, resource.kind, allResources, resource.key),
+        ...adoptableRoleOptions(roles, resource.kind, allResources, resource.key),
+    ];
 
     // Focus runs after the body has mounted, which is why it is an effect keyed on the
     // request rather than something done when the chip is clicked. `Collapse` renders
@@ -807,7 +820,7 @@ function ResourceRow({
                                 description={
                                     adopting
                                         ? 'Install will adopt this rather than creating anything. Clear it to create a new one instead.'
-                                        : 'Leave empty to create a new one. Pick a channel to adopt it instead.'
+                                        : `Leave empty to create a new one. Pick ${adoptingRole ? 'a role' : 'a channel'} to adopt it instead.`
                                 }
                                 placeholder="No — create a new one"
                                 data={adoptOptions}

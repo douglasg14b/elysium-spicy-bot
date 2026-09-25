@@ -226,9 +226,10 @@ export const RESOURCE_CHIPS: Record<ResourceChipId, ResourceChipStyle> = {
      * operator meets as an unexplained red banner after pressing save. That is the
      * exact failure `duplicateKey` exists to prevent, one field over.
      *
-     * The add form's picker already hides a channel another row adopts
-     * (`adoptableChannelOptions`), so this is reachable only by editing an existing
-     * row's picker — which is precisely the case nothing else covers.
+     * The row's picker already hides an object another row adopts — both
+     * `adoptableChannelOptions` and `adoptableRoleOptions` share one claimed-id set
+     * for exactly that reason — so this is reachable only by editing an existing
+     * row's picker, which is precisely the case nothing else covers.
      */
     duplicateAdoption: {
         tone: 'error',

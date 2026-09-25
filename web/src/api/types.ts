@@ -45,8 +45,12 @@ export interface Guild {
  * Mirrors `GUILD_CHANNEL_TYPES` in `src/web/api/guildBody.ts`, and a closed union
  * because every consumer branches on it — a value nobody handled would be a category
  * silently treated as a place to post.
+ *
+ * Announcement channels are deliberately absent; the server-side note explains why the
+ * endpoint is the wrong place to answer "may a flow use this channel?" while three
+ * existing sites still answer it differently.
  */
-export const GUILD_CHANNEL_TYPES = ['text', 'category', 'announcement'] as const;
+export const GUILD_CHANNEL_TYPES = ['text', 'category'] as const;
 export type GuildChannelType = (typeof GUILD_CHANNEL_TYPES)[number];
 
 /**

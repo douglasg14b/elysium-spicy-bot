@@ -122,7 +122,6 @@ describe('GET /:guildId/channels', () => {
 
         expect(byId(rows, '1').type).toBe('text');
         expect(byId(rows, SUPPORT_CATEGORY).type).toBe('category');
-        expect(byId(rows, '4').type).toBe('announcement');
     });
 
     it('includes categories, which it used to filter out', async () => {
@@ -133,11 +132,24 @@ describe('GET /:guildId/channels', () => {
         expect(rows.map((row) => row.id)).toContain(SUPPORT_CATEGORY);
     });
 
-    it('labels an announcement channel distinctly rather than as text', async () => {
-        // A flow can post in one, so hiding it would withhold a legitimate target —
-        // but they are not interchangeable, and an operator pointing a welcome flow at
-        // one is worth telling.
-        expect(byId(await listChannels(), '4').type).toBe('announcement');
+    /**
+     * The regression this endpoint briefly shipped.
+     *
+     * An announcement channel was reported as its own type, which made the adoption
+     * picker offer one — and `existsInGuildAs` accepts nothing but `GuildText`, so the
+     * declaration passed every save-time check and threw in `requireAdoptable` partway
+     * through the apply, with earlier resources already created.
+     *
+     * The point is not that an announcement channel is unusable: `actionSendMessage`
+     * would post in one happily, because it asks `isTextBased()` rather than the type.
+     * It is that **this endpoint is not where that disagreement gets settled**, and a
+     * directory offering what provisioning rejects turns a validation failure into a
+     * half-applied guild.
+     */
+    it('excludes announcement channels, which provisioning refuses to adopt', async () => {
+        const ids = (await listChannels()).map((row) => row.id);
+
+        expect(ids).not.toContain('4');
     });
 
     it('excludes voice, stage and forum channels', async () => {

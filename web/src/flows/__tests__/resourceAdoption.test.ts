@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import type { GuildChannel, ResourceDeclaration } from '../../api/types';
+import type { GuildChannel, GuildRole, ResourceDeclaration } from '../../api/types';
 import {
     adoptableChannelOptions,
+    adoptableRoleOptions,
+    canAdopt,
     canAdoptFromChannelList,
     canHaveParent,
     channelOptionLabel,
-    declarationForAdoptedChannel,
+    declarationForAdoptedResource,
     declarationForNewResource,
     postableChannels,
+    roleOptionLabel,
     slugifyResourceName,
     uniqueResourceKey,
 } from '../resourceAdoption';
@@ -25,6 +28,15 @@ function textChannel(id: string, name: string, parentName: string | null = null)
 function category(id: string, name: string): GuildChannel {
     return { id, name, type: 'category', parentId: null, parentName: null };
 }
+
+function role(id: string, name: string): GuildRole {
+    return { id, name, color: 0, position: 1 };
+}
+
+const ROLES: GuildRole[] = [
+    role('200000000000000001', 'Verified'),
+    role('200000000000000002', 'In Approval'),
+];
 
 const CHANNELS: GuildChannel[] = [
     textChannel('100000000000000001', 'announcements'),
@@ -53,16 +65,10 @@ describe('postableChannels', () => {
         expect(kept.map((channel) => channel.id)).toEqual(['1', '2']);
     });
 
-    it('keeps announcement channels, which a flow can post in', () => {
-        const announcement: GuildChannel = {
-            id: 'a1',
-            name: 'news',
-            type: 'announcement',
-            parentId: null,
-            parentName: null,
-        };
+    it('keeps ordinary text channels', () => {
+        const kept = postableChannels([textChannel('1', 'general', 'Support')]);
 
-        expect(postableChannels([announcement])).toHaveLength(1);
+        expect(kept.map((channel) => channel.id)).toEqual(['1']);
     });
 });
 
@@ -87,8 +93,85 @@ describe('canAdoptFromChannelList', () => {
         expect(canAdoptFromChannelList('textChannel')).toBe(true);
     });
 
-    it('still refuses roles, which come from a different endpoint', () => {
+    it('refuses roles, which are not in the channel list at all', () => {
+        // Not a statement that a role cannot be adopted — `canAdopt` says it can.
+        // This function answers only "is it in *this* list".
         expect(canAdoptFromChannelList('role')).toBe(false);
+    });
+});
+
+describe('canAdopt', () => {
+    /*
+     * The capability the install model always had and the panel never offered.
+     * `installPlan` turns any declaration carrying an `adoptDiscordId` into an `adopt`,
+     * and `existsInGuildAs` validates a role id against the role cache exactly as it
+     * does a channel — so a third of the resources an operator can declare were
+     * create-only for no reason anything in the engine required.
+     */
+    it('is true for every kind, because the install model adopts all three', () => {
+        expect(canAdopt('textChannel')).toBe(true);
+        expect(canAdopt('category')).toBe(true);
+        expect(canAdopt('role')).toBe(true);
+    });
+});
+
+describe('adoptableRoleOptions', () => {
+    it('offers the guild roles to a role declaration', () => {
+        expect(adoptableRoleOptions(ROLES, 'role', [])).toEqual([
+            { value: '200000000000000001', label: '@Verified' },
+            { value: '200000000000000002', label: '@In Approval' },
+        ]);
+    });
+
+    it('offers nothing to a channel or category declaration', () => {
+        // The panel concatenates both option lists, so a function that answered for a
+        // kind it does not serve would put roles in the channel picker.
+        expect(adoptableRoleOptions(ROLES, 'textChannel', [])).toEqual([]);
+        expect(adoptableRoleOptions(ROLES, 'category', [])).toEqual([]);
+    });
+
+    it('does not offer a role another resource already adopts', () => {
+        const declared: ResourceDeclaration[] = [
+            {
+                key: 'verified',
+                kind: 'role',
+                defaultName: 'Verified',
+                adoptDiscordId: '200000000000000001',
+            },
+        ];
+
+        expect(adoptableRoleOptions(ROLES, 'role', declared).map((option) => option.value)).toEqual(
+            ['200000000000000002']
+        );
+    });
+
+    it("keeps a row's own adoption selectable so editing it does not blank the picker", () => {
+        const declared: ResourceDeclaration[] = [
+            {
+                key: 'verified',
+                kind: 'role',
+                defaultName: 'Verified',
+                adoptDiscordId: '200000000000000001',
+            },
+        ];
+
+        expect(
+            adoptableRoleOptions(ROLES, 'role', declared, 'verified').map((option) => option.value)
+        ).toContain('200000000000000001');
+    });
+
+    it('offers nothing when the guild has no assignable roles', () => {
+        // `GET /roles` excludes @everyone and managed roles, so a guild with only
+        // those sends an empty list rather than a list this has to re-filter.
+        expect(adoptableRoleOptions([], 'role', [])).toEqual([]);
+    });
+});
+
+describe('roleOptionLabel', () => {
+    it('writes a role the way Discord does', () => {
+        // The prefix is what tells an operator which list they are looking at, the
+        // same job `#` does for a channel.
+        expect(roleOptionLabel(role('1', 'Verified'))).toBe('@Verified');
     });
 });
 
@@ -158,25 +241,9 @@ describe('adoptableChannelOptions', () => {
         expect(options).toEqual([{ value: '1', label: '#general' }]);
     });
 
-    it('offers an announcement channel where a text channel is wanted', () => {
-        // A flow can post in one, and a declaration saying "text channel" is naming
-        // somewhere to post rather than a specific Discord product.
-        const announcement: GuildChannel = {
-            id: 'a1',
-            name: 'news',
-            type: 'announcement',
-            parentId: null,
-            parentName: null,
-        };
-
-        expect(adoptableChannelOptions([announcement], 'textChannel', [])).toEqual([
-            { value: 'a1', label: '#news' },
-        ]);
-    });
-
-    it('offers nothing to a role declaration', () => {
-        // Roles come from a different endpoint this module is never handed, so the
-        // honest answer is still that they cannot be picked here.
+    it('offers nothing to a role declaration, which adopts from the role list', () => {
+        // Roles come from `GET /roles`, which this function is never handed —
+        // `adoptableRoleOptions` is their equivalent.
         expect(adoptableChannelOptions(CHANNELS, 'role', [])).toEqual([]);
     });
 
@@ -217,14 +284,11 @@ describe('adoptableChannelOptions', () => {
         expect(options.map((option) => option.value)).toContain('100000000000000001');
     });
 
-    it('offers nothing for a role, which this list cannot hold', () => {
-        expect(adoptableChannelOptions(CHANNELS, 'role', [])).toEqual([]);
-    });
-
-    it('offers nothing for a category, because the endpoint returns text channels only', () => {
+    it('offers no text channel to a category declaration', () => {
         // Offering these under "Category" produced a declaration that passed every
         // save-time check and then threw mid-apply in `requireAdoptable`, after
-        // earlier resources were already created.
+        // earlier resources were already created. `CHANNELS` holds no category, so
+        // the honest answer for a category declaration is an empty list.
         expect(adoptableChannelOptions(CHANNELS, 'category', [])).toEqual([]);
     });
 });
@@ -240,10 +304,10 @@ describe('canHaveParent', () => {
     });
 });
 
-describe('declarationForAdoptedChannel', () => {
+describe('declarationForAdoptedResource', () => {
     it('produces a declaration the server accepts, seeded from the channel', () => {
-        const declaration = declarationForAdoptedChannel({
-            channel: CHANNELS[0]!,
+        const declaration = declarationForAdoptedResource({
+            target: CHANNELS[0]!,
             kind: 'textChannel',
             existing: [],
         });
@@ -257,8 +321,8 @@ describe('declarationForAdoptedChannel', () => {
     });
 
     it('slugs a key the server will accept from a name it would not', () => {
-        const declaration = declarationForAdoptedChannel({
-            channel: CHANNELS[2]!,
+        const declaration = declarationForAdoptedResource({
+            target: CHANNELS[2]!,
             kind: 'textChannel',
             existing: [],
         });
@@ -276,8 +340,8 @@ describe('declarationForAdoptedChannel', () => {
             { key: 'announcements', kind: 'textChannel', defaultName: 'something else' },
         ];
 
-        const declaration = declarationForAdoptedChannel({
-            channel: CHANNELS[0]!,
+        const declaration = declarationForAdoptedResource({
+            target: CHANNELS[0]!,
             kind: 'textChannel',
             existing,
         });
@@ -286,8 +350,8 @@ describe('declarationForAdoptedChannel', () => {
     });
 
     it('carries a parent for a channel', () => {
-        const declaration = declarationForAdoptedChannel({
-            channel: CHANNELS[1]!,
+        const declaration = declarationForAdoptedResource({
+            target: CHANNELS[1]!,
             kind: 'textChannel',
             existing: [],
             parentKey: 'arrivals',
@@ -297,9 +361,37 @@ describe('declarationForAdoptedChannel', () => {
     });
 
     it('drops a parent on a category, which does not nest', () => {
-        const declaration = declarationForAdoptedChannel({
-            channel: CHANNELS[1]!,
+        const declaration = declarationForAdoptedResource({
+            target: CHANNELS[1]!,
             kind: 'category',
+            existing: [],
+            parentKey: 'arrivals',
+        });
+
+        expect(declaration.parentKey).toBeUndefined();
+    });
+
+    it('adopts a role, seeding the name and key from it', () => {
+        // The function takes `{id, name}` structurally rather than a `GuildChannel`,
+        // which is the whole of what made a role unable to go through it.
+        const declaration = declarationForAdoptedResource({
+            target: ROLES[1]!,
+            kind: 'role',
+            existing: [],
+        });
+
+        expect(declaration).toEqual({
+            key: 'in-approval',
+            kind: 'role',
+            defaultName: 'In Approval',
+            adoptDiscordId: '200000000000000002',
+        });
+    });
+
+    it('drops a parent on an adopted role, which the server rejects one for', () => {
+        const declaration = declarationForAdoptedResource({
+            target: ROLES[0]!,
+            kind: 'role',
             existing: [],
             parentKey: 'arrivals',
         });

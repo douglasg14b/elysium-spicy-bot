@@ -15,6 +15,7 @@
 import type {
     GuildChannel,
     GuildChannelType,
+    GuildRole,
     ResourceDeclaration,
     ResourceKind,
 } from '../api/types';
@@ -66,34 +67,55 @@ export interface ExistingChannelOption {
 /**
  * Whether a kind can be adopted from the builder's channel list.
  *
- * **Channels and categories, not roles.** This was text-channels-only, and the reason
- * given was the endpoint rather than the model: `GET /:guildId/channels` sent text
- * channels alone, so the list held nothing a category could adopt. Offering it under
- * "Category" anyway was worse than offering nothing — the picker showed `#general`
- * beside the label "Which category", the declaration passed Zod and
- * `validateJourneyDeclaration`, and the failure landed mid-apply in `requireAdoptable`,
- * after earlier resources had really been created.
+ * **Channels and categories, not roles** — not because a role cannot be adopted, but
+ * because a role is not in this list. Roles arrive from `GET /:guildId/roles` as a
+ * separate shape, and `adoptableRoleOptions` is their equivalent; `canAdopt` is what a
+ * caller asking "does this row get a picker at all?" should use.
  *
- * The endpoint now sends `type`, so a category is a real option and this says so.
- * **Roles still are not**, and that is a separate gap with a separate cause: they come
- * from `GET /:guildId/roles`, which this module is never handed. The install model
- * adopts all three kinds perfectly well; wiring roles up is browser work in
- * `ResourcesPanel`, not an endpoint change.
+ * This was text-channels-only, and the reason given was the endpoint rather than the
+ * model: `GET /:guildId/channels` sent text channels alone, so the list held nothing a
+ * category could adopt. Offering it under "Category" anyway was worse than offering
+ * nothing — the picker showed `#general` beside the label "Which category", the
+ * declaration passed Zod and `validateJourneyDeclaration`, and the failure landed
+ * mid-apply in `requireAdoptable`, after earlier resources had really been created.
  */
 export function canAdoptFromChannelList(kind: ResourceKind): boolean {
     return kind === 'textChannel' || kind === 'category';
 }
 
 /**
+ * Whether a declared resource of this kind can be pointed at something existing.
+ *
+ * All three kinds, which is what the install model has always supported — `installPlan`
+ * turns any declaration carrying an `adoptDiscordId` into an `adopt`, and
+ * `existsInGuildAs` validates a role id against the role cache exactly as it does a
+ * channel. The panel simply never offered roles a picker, so the capability was
+ * unreachable for a third of the resources an operator can declare.
+ *
+ * Exhaustive on `ResourceKind` so a fourth kind cannot be added without deciding this.
+ */
+export function canAdopt(kind: ResourceKind): boolean {
+    switch (kind) {
+        case 'textChannel':
+        case 'category':
+        case 'role':
+            return true;
+        default: {
+            const unreachable: never = kind;
+            throw new Error(`Unhandled resource kind: ${String(unreachable)}`);
+        }
+    }
+}
+
+/**
  * The channel types a declared resource of this kind may adopt.
  *
  * The one place that answers it, so a picker cannot offer a category to a declaration
- * that wanted a channel. An announcement channel counts as a text channel here — a
- * flow can post in one, and a declaration that says "text channel" is naming something
- * to post in rather than a specific Discord product.
+ * that wanted a channel — precisely the mismatch that used to survive validation and
+ * fail mid-apply.
  */
 function adoptableTypesFor(kind: ResourceKind): readonly GuildChannelType[] {
-    return kind === 'category' ? ['category'] : ['text', 'announcement'];
+    return kind === 'category' ? ['category'] : ['text'];
 }
 
 /**
@@ -106,9 +128,7 @@ function adoptableTypesFor(kind: ResourceKind): readonly GuildChannelType[] {
  * side of the wire. Now the invariant is enforced where it is claimed.
  */
 export function postableChannels(channels: readonly GuildChannel[]): GuildChannel[] {
-    return channels.filter(
-        (channel) => channel.type === 'text' || channel.type === 'announcement'
-    );
+    return channels.filter((channel) => channel.type === 'text');
 }
 
 /**
@@ -162,13 +182,7 @@ export function adoptableChannelOptions(
 ): ExistingChannelOption[] {
     if (!canAdoptFromChannelList(kind)) return [];
 
-    const claimed = new Set(
-        declared
-            .filter((resource) => resource.key !== exceptKey)
-            // `flatMap` over an assertion: an absent id contributes nothing rather
-            // than being filtered and then re-asserted as present.
-            .flatMap((resource) => resource.adoptDiscordId ?? [])
-    );
+    const claimed = idsClaimedByOtherRows(declared, exceptKey);
 
     // Filtered by *type* as well as by claim: a declaration asking for a category must
     // not be offered a text channel, which is precisely the mismatch that used to
@@ -180,8 +194,100 @@ export function adoptableChannelOptions(
         .map((channel) => ({ value: channel.id, label: channelOptionLabel(channel) }));
 }
 
+/**
+ * The existing roles a role declaration may adopt.
+ *
+ * The sibling of `adoptableChannelOptions`, and separate rather than generic because a
+ * role and a channel share nothing but `{id, name}`: a role has no type to filter on
+ * and no parent to disambiguate by, while a channel is meaningless without both. One
+ * function over a union would be a `kind` switch wearing a type parameter.
+ *
+ * **What makes this safe is upstream.** `GET /:guildId/roles` already excludes
+ * `@everyone` and managed roles, and the exclusion is not cosmetic: `@everyone`'s id
+ * *is the guild id*, so adopting it would bind a declaration to the same id the
+ * `everyone` audience compiles to — and since later intents override earlier ones per
+ * id in `compilePermissionIntents`, the canonical "deny everyone, then allow staff"
+ * declaration would erase its own deny and produce a world-readable channel that every
+ * plan and dashboard still reports as staff-only. This function does not re-filter,
+ * because duplicating that rule is how the two copies drift; it consumes a list the
+ * endpoint has already made safe.
+ */
+export function adoptableRoleOptions(
+    roles: readonly GuildRole[],
+    kind: ResourceKind,
+    declared: readonly ResourceDeclaration[],
+    exceptKey?: string
+): ExistingChannelOption[] {
+    if (kind !== 'role') return [];
+
+    const claimed = idsClaimedByOtherRows(declared, exceptKey);
+
+    return roles
+        .filter((role) => !claimed.has(role.id))
+        .map((role) => ({ value: role.id, label: roleOptionLabel(role) }));
+}
+
+/**
+ * How a role reads in the picker.
+ *
+ * `@` for the same reason a channel gets `#`: it is how Discord writes one, and the
+ * prefix is what tells an operator at a glance which list they are looking at. Roles
+ * carry no parent, so there is nothing to qualify with — two roles of one name are
+ * genuinely indistinguishable here, which is a gap this cannot close because the wire
+ * shape has nothing else to say about them.
+ */
+export function roleOptionLabel(role: GuildRole): string {
+    return `@${role.name}`;
+}
+
+/**
+ * The Discord ids other declarations have already adopted.
+ *
+ * Shared by both pickers so "already claimed" cannot mean one thing for channels and
+ * another for roles. Claimed ids are **left out** of the options rather than shown and
+ * rejected on save: two resources adopting one id is refused by
+ * `validateJourneyDeclaration`, and an option that can only produce an error is worse
+ * than no option — the operator picks it, the save fails, and nothing in the picker
+ * said why.
+ *
+ * Ids are compared across kinds rather than within one. A role id and a channel id can
+ * never collide in practice, and scoping the set per kind would be a filter with no
+ * effect that the next reader has to prove is harmless.
+ */
+function idsClaimedByOtherRows(
+    declared: readonly ResourceDeclaration[],
+    exceptKey?: string
+): ReadonlySet<string> {
+    return new Set(
+        declared
+            .filter((resource) => resource.key !== exceptKey)
+            // `flatMap` over an assertion: an absent id contributes nothing rather
+            // than being filtered and then re-asserted as present.
+            .flatMap((resource) => resource.adoptDiscordId ?? [])
+    );
+}
+
+/**
+ * Something in the guild a declaration can be pointed at.
+ *
+ * Structural rather than `GuildChannel | GuildRole` because this is the whole of what
+ * adoption reads: an id to bind to and a name to seed from. Naming the two wire shapes
+ * would make every future field on either of them look like something adoption might
+ * depend on, and would have to be widened again for the next kind.
+ */
+export interface AdoptableTarget {
+    readonly id: string;
+    readonly name: string;
+}
+
 export interface AdoptedResourceInput {
-    readonly channel: GuildChannel;
+    /**
+     * The channel **or role** being adopted.
+     *
+     * Was `channel`, and renaming it is the point: a role declaration adopting a role
+     * went through this function reading a field that said otherwise.
+     */
+    readonly target: AdoptableTarget;
     readonly kind: ResourceKind;
     /** The rows already declared, so the derived key does not collide with one. */
     readonly existing: readonly ResourceDeclaration[];
@@ -190,23 +296,23 @@ export interface AdoptedResourceInput {
 }
 
 /**
- * Build the declaration for adopting a channel that already exists.
+ * Build the declaration for adopting something that already exists.
  *
- * The name and key are seeded from the channel, because the UI already knows them and
+ * The name and key are seeded from the target, because the UI already knows them and
  * making the operator retype what is on screen is the complaint this exists to answer.
  * Both stay editable afterwards — the key is identity, and an operator may want their
- * own regardless of what the channel happens to be called today.
+ * own regardless of what the channel or role happens to be called today.
  */
-export function declarationForAdoptedChannel(
+export function declarationForAdoptedResource(
     input: AdoptedResourceInput
 ): ResourceDeclaration {
-    const { channel, kind, existing, parentKey } = input;
+    const { target, kind, existing, parentKey } = input;
 
     const declaration: ResourceDeclaration = {
-        key: uniqueResourceKey(slugifyResourceName(channel.name), existing),
+        key: uniqueResourceKey(slugifyResourceName(target.name), existing),
         kind,
-        defaultName: channel.name,
-        adoptDiscordId: channel.id,
+        defaultName: target.name,
+        adoptDiscordId: target.id,
     };
 
     // Only carried when the kind can actually hold one — see `canHaveParent`.
