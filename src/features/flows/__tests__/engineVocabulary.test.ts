@@ -122,6 +122,20 @@ const DOMAIN_VOCABULARY = [
     // Discord nouns the engine genuinely handles
     'guild', 'member', 'user', 'channel', 'role', 'message', 'embed', 'button',
     'reaction', 'emoji', 'interaction', 'client', 'event', 'permission',
+    // A domain event the engine dispatches, on the same footing as `reaction`.
+    //
+    // `engine/levelUpDispatch.ts` exists for the same reason `reactionAddDispatch`
+    // does — an event arrives, the registry says which triggers it starts, and runs
+    // begin — so the noun is earned by a dispatcher the interpreter owns, not by the
+    // interpreter learning what a level is *for*. It knows a level was reached; it
+    // does not know about XP, curves, cooldowns or rewards, and none of those words
+    // are admitted here.
+    //
+    // `xp` is deliberately **not** on this list. The dispatcher carries `totalXp`
+    // only as an opaque value under a key the *block* names
+    // (`LEVEL_REACHED_VARIABLES`), which is what keeps that word out of `engine/`
+    // and is why that constant lives in the block directory rather than here.
+    'level',
     // Persistence nouns
     'repo', 'table', 'column', 'migration', 'row', 'entity', 'version', 'dialect',
 ];

@@ -28,6 +28,7 @@ const fixtureRoot = (name: string): string => path.join(FIXTURE_ROOT, name);
  */
 const SHIPPED_BLOCK_TYPES = [
     'action.assignRole',
+    'action.awardXp',
     'action.closeTicket',
     'action.delay',
     'action.openTicket',
@@ -42,7 +43,9 @@ const SHIPPED_BLOCK_TYPES = [
     'condition.hasRole',
     'condition.inChannel',
     'condition.isBooster',
+    'condition.levelAtLeast',
     'trigger.buttonClick',
+    'trigger.levelReached',
     'trigger.memberJoin',
     'trigger.reactionAdd',
 ] as const;

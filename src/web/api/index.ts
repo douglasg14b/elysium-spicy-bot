@@ -6,6 +6,7 @@ import { botRoutes } from './botRoutes';
 import { flowRoutes } from './flowRoutes';
 import { guildRoutes } from './guildRoutes';
 import { journeyRoutes } from './journeyRoutes';
+import { levelingRoutes } from './levelingRoutes';
 import { nodeRoutes } from './nodeRoutes';
 import { ticketRoutes } from './ticketRoutes';
 
@@ -52,6 +53,11 @@ export function registerApiRoutes(app: Hono<AppEnv>): void {
     // data in a guild the caller already administers, so it is the existing tier
     // rather than a second authorization concept.
     app.route('/api/guilds', ticketRoutes());
+    // Leveling — the guild leaderboard and one member's stats. Same prefix again, so
+    // `requireGuildAccess` above already authorizes it and the router adds no middleware.
+    // A member's XP is moderator-facing data in a guild the caller already administers, so
+    // it is the existing tier rather than a second authorization concept.
+    app.route('/api/guilds', levelingRoutes());
 
     // Node catalogue for the builder palette — authed, but not guild-scoped.
     app.use('/api/nodes', requireAuth);

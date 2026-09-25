@@ -1,7 +1,13 @@
 import { isCooldownActive, toActivityDate } from './activityFilters';
 import type { LevelingProgress } from '../data/levelingProgressSchema';
 
-export type XpActivityType = 'message' | 'reaction' | 'voice';
+import type { LevelingActivityEventType } from '../constants/activityEventTypes';
+
+/**
+ * Kept identical to the persisted vocabulary rather than restated, so a new activity
+ * kind cannot be storable but ungrantable.
+ */
+export type XpActivityType = LevelingActivityEventType;
 
 export type XpGrantComputation = {
     previousTotalXp: number;
@@ -89,5 +95,16 @@ function getLastActivityAt(
             return existing.lastReactionXpAt;
         case 'voice':
             return existing.lastVoiceXpAt ?? null;
+        case 'flow':
+            /*
+             * No timestamp of its own, and deliberately not borrowing one.
+             *
+             * A flow grant is an authored decision, not a rate-limited reward, so there
+             * is nothing for a cooldown to protect against: returning null makes
+             * `isCooldownActive` false whatever cooldown the caller passes. Reusing
+             * another kind's timestamp here would let a member who had just spoken
+             * silently lose the XP a flow meant to give them.
+             */
+            return null;
     }
 }

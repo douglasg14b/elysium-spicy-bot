@@ -6,6 +6,36 @@ import type { LevelingActivityEvent } from '../../data/levelingActivityEventSche
 
 export type ActivityStatus = 'active' | 'quiet' | 'dormant' | 'none';
 
+/**
+ * The statuses, as data, for the places that need to enumerate them.
+ *
+ * Added because this union now crosses the wire to the web UI, where the browser mirrors
+ * it by hand. A closed vocabulary mirrored as a *type* alone drifts silently — the repo
+ * has already been bitten by exactly that, with a browser filtering forever for a member
+ * the server never emitted — so the members exist as an array a drift test can compare.
+ */
+export const ACTIVITY_STATUSES = [
+    'active',
+    'quiet',
+    'dormant',
+    'none',
+] as const satisfies readonly ActivityStatus[];
+
+/**
+ * Do not delete as unused: removing this lets the list above go stale.
+ *
+ * `satisfies` rejects a member that is not an `ActivityStatus` but says nothing about one
+ * the list *omits*, which is the direction that rots. The tuple wrapper is load-bearing —
+ * a bare `extends never` distributes and is vacuously true for an empty union.
+ */
+type MissingActivityStatus = Exclude<ActivityStatus, (typeof ACTIVITY_STATUSES)[number]>;
+
+const activityStatusesAreComplete: [MissingActivityStatus] extends [never]
+    ? true
+    : ['ACTIVITY_STATUSES is missing a member', MissingActivityStatus] = true;
+
+void activityStatusesAreComplete;
+
 export type StatsCardMetrics = {
     activityStatus: ActivityStatus;
     lastActiveAt: Date | null;

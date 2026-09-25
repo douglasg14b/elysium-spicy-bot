@@ -18,6 +18,7 @@ import { calculateMessageXp } from './logic/messageXp';
 import { getLevelFromTotalXp, messageHasImageAttachment, rollRandomXp } from './logic/xpCalculator';
 import { XpActivityType } from './logic/xpGrant';
 import { announceLevelUp } from './levelUpAnnouncer';
+import { notifyLevelUp } from './levelUpSubscribers';
 import {
     createVoiceSessionCoordinator,
     VoiceSessionCoordinator,
@@ -287,6 +288,18 @@ export class LevelingService {
                 level,
                 totalXp,
             });
+
+            /*
+             * Notified per level crossed, beside the announcement rather than inside it:
+             * `announceLevelUp` returns early when the guild has no notification channel
+             * or the bot cannot post there, so hooking it would silently gate every
+             * subscriber on unrelated Discord configuration.
+             *
+             * Awaited, so a slow subscriber cannot interleave two levels of the same
+             * climb out of order. `notifyLevelUp` swallows its own failures, so this
+             * cannot strand a level the member has already been awarded.
+             */
+            await notifyLevelUp({ guild, userId, level, totalXp });
         }
     }
 
@@ -317,6 +330,19 @@ function getCooldownMs(activityType: XpActivityType, config: LevelingConfig): nu
             return config.reactionCooldownMs;
         case 'voice':
             return getVoiceXpSettings().voiceCooldownMs;
+        case 'flow':
+            /*
+             * No cooldown. A flow grant is an authored decision rather than a
+             * rate-limited reward, and `getLastActivityAt` reports no timestamp for it,
+             * so no value here would gate anything — zero says that rather than
+             * implying a window that does not exist.
+             *
+             * Unreachable in practice today: this service grants only the three Discord
+             * activity kinds, and a flow awards XP through `awardFlowXp` instead. The
+             * arm exists because the union is shared with the persisted vocabulary, and
+             * a silent fallthrough would be a cooldown of `undefined`.
+             */
+            return 0;
     }
 }
 

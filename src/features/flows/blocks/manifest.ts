@@ -44,8 +44,14 @@ export type BlockPaletteGroup = (typeof BLOCK_PALETTE_GROUPS)[number];
  *
  * `buttonClick` is the interaction case: the button is rendered by the deploy
  * path and arrives back as a component interaction rather than a gateway event.
+ *
+ * `levelUp` is the first member that is neither: it is a *domain* event raised by
+ * another feature, which leveling publishes through its own subscriber seam because
+ * nothing on the gateway announces a level. The name still describes something that
+ * happened in the world rather than a use case, which is the bar this vocabulary
+ * holds — see `__tests__/engineVocabulary.test.ts`.
  */
-export const BLOCK_TRIGGER_SOURCES = ['buttonClick', 'memberJoin', 'reactionAdd'] as const;
+export const BLOCK_TRIGGER_SOURCES = ['buttonClick', 'levelUp', 'memberJoin', 'reactionAdd'] as const;
 
 export type BlockTriggerSource = (typeof BLOCK_TRIGGER_SOURCES)[number];
 

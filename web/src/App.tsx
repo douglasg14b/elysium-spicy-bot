@@ -1,9 +1,5 @@
 import { Center, Loader } from '@mantine/core';
-import {
-    IconCake,
-    IconChartBar,
-    IconTrendingUp,
-} from '@tabler/icons-react';
+import { IconCake, IconChartBar } from '@tabler/icons-react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import { BotIdentityProvider } from './brand/BotIdentityContext';
@@ -14,6 +10,8 @@ import { WarningsPage } from './pages/WarningsPage';
 import { ComingSoonPage } from './pages/ComingSoonPage';
 import { FlowsListPage } from './pages/FlowsListPage';
 import { FlowBuilderPage } from './pages/FlowBuilderPage';
+import { LevelingPage } from './pages/LevelingPage';
+import { LevelingUserPage } from './pages/LevelingUserPage';
 import { ServerSettingsPage } from './pages/ServerSettingsPage';
 import { TicketsListPage } from './pages/TicketsListPage';
 import { TicketDetailPage } from './pages/TicketDetailPage';
@@ -68,16 +66,16 @@ function Gate() {
                             />
                         }
                     />
-                    <Route
-                        path="/leveling"
-                        element={
-                            <ComingSoonPage
-                                title="Leveling"
-                                blurb="Reward the regulars. XP, ranks, and the flex cards that come with them."
-                                icon={<IconTrendingUp size={22} color="var(--mantine-color-brand-6)" />}
-                            />
-                        }
-                    />
+                    <Route path="/leveling" element={<LevelingPage />} />
+                    {/*
+                     * `/leveling/:userId` is the only child segment, so there is no static one
+                     * to order it against — unlike `/tickets/config` above. Written after the
+                     * parent for the same reason that block gives: the order is what a reader
+                     * checks, and leaving it to React Router's ranking silently would make a
+                     * later router change a routing bug. Any static `/leveling/...` page added
+                     * later belongs *above* this line.
+                     */}
+                    <Route path="/leveling/:userId" element={<LevelingUserPage />} />
                     <Route path="/tickets" element={<TicketsListPage />} />
                     {/*
                      * `/tickets/config` is declared **before** `/tickets/:ticketId` because

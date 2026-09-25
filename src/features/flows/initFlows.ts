@@ -1,6 +1,7 @@
 import { Events } from 'discord.js';
 import { interactionsRegistry } from '../../features-system/commands';
 import { DISCORD_CLIENT } from '../../discordClient';
+import { registerLevelUpSubscriber } from '../leveling';
 import { registerResourceWriteBack } from '../provisioning';
 import { applyResourcesToFlows } from './logic/applyResourcesToFlows';
 import { ensureBlocksDiscovered } from './blocks/registry';
@@ -9,6 +10,7 @@ import { FLOW_CHOICE_CUSTOM_ID_PREFIX, FLOW_CUSTOM_ID_PREFIX } from './constants
 import { handleFlowChoiceInteraction } from './engine/flowChoiceDispatch';
 import { startFlowRunScheduler } from './engine/flowRunScheduler';
 import { handleFlowButtonInteraction } from './engine/flowTriggerDispatch';
+import { handleLevelUp } from './engine/levelUpDispatch';
 import { handleMemberJoin } from './engine/memberJoinDispatch';
 import { handleReactionAdd } from './engine/reactionAddDispatch';
 
@@ -43,6 +45,18 @@ async function initializeFlows(): Promise<void> {
     // consume the provisioning barrel, and provisioning must not know flows exist.
     // Without this line an install still succeeds and simply writes nothing back.
     registerResourceWriteBack(applyResourcesToFlows);
+
+    // Tell leveling to notify us when somebody levels up.
+    //
+    // Registered from this side for the same reason as the write-back above: leveling is
+    // a base capability and must not know flows exist. Without this line a level-up still
+    // announces and simply starts no runs.
+    //
+    // Safe despite `initLeveling()` running before `initFlows()` in `bot.ts`: this hands
+    // over a callback rather than reading the block registry, and the registry is only
+    // consulted when a level-up actually arrives — long after `ensureBlocksDiscovered`
+    // above has completed.
+    registerLevelUpSubscriber(handleLevelUp);
 
     // Admin slash command to post a flow's trigger button(s) to a channel.
     interactionsRegistry.register(flowDeployCommand, handleFlowDeployCommand);

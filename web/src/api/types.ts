@@ -152,7 +152,7 @@ export const BLOCK_PALETTE_GROUPS = ['triggers', 'conditions', 'actions'] as con
 export type BlockPaletteGroup = (typeof BLOCK_PALETTE_GROUPS)[number];
 
 /** What makes a trigger fire. Set by triggers and by nothing else. */
-export const BLOCK_TRIGGER_SOURCES = ['buttonClick', 'memberJoin', 'reactionAdd'] as const;
+export const BLOCK_TRIGGER_SOURCES = ['buttonClick', 'levelUp', 'memberJoin', 'reactionAdd'] as const;
 
 export type BlockTriggerSource = (typeof BLOCK_TRIGGER_SOURCES)[number];
 
@@ -1468,3 +1468,243 @@ const driftKeyListsAreComplete: [DriftKeyListsAreComplete] extends [never]
     : ['A drift wire-shape key list is missing', DriftKeyListsAreComplete] = true;
 
 void driftKeyListsAreComplete;
+
+/* ---- Leveling ---- */
+
+/*
+ * The browser's copy of the leveling wire shapes in `src/web/api/levelingRoutes.ts`.
+ *
+ * Hand-mirrored rather than imported, for the same reason as the ticket block above: one
+ * `import type` from `src/` into `web/src/` pulls the whole bot source tree into this
+ * project's compilation and breaks `pnpm build:web`. The duplication is therefore
+ * necessary, and `src/web/api/__tests__/levelingWireShapeDrift.test.ts` is what keeps it
+ * honest — it compares the `*_KEYS` arrays below against the server's, member for member,
+ * so a shape that grows on one side alone fails there rather than in production.
+ *
+ * Nested shapes are mirrored and gated **separately** (`LevelingMember`,
+ * `LevelingActivitySummary`, `LevelingActivityBucket`, `LevelingActivityChart`,
+ * `LevelingUserMetrics`), not just as a key on their parent: gating `metrics` as one name
+ * would leave all fourteen metrics inside it completely unchecked.
+ */
+
+/**
+ * The period a member's stats are computed over, mirrored from `STATS_PERIODS` in
+ * `src/features/leveling/logic/statsPeriod.ts`.
+ *
+ * Closed on both sides and ordered shortest to longest, because that is the order the
+ * period picker offers them. The server parses the `?period=` query against its own copy,
+ * so a value only this side knows about comes back silently downgraded to the default.
+ */
+export const STATS_PERIODS = ['week', 'month', 'year'] as const;
+export type StatsPeriod = (typeof STATS_PERIODS)[number];
+
+/**
+ * How recently a member has been active, mirrored from `ACTIVITY_STATUSES` in
+ * `src/features/leveling/cards/statsCard/statsCardMetrics.ts`.
+ *
+ * Gated as a vocabulary rather than a key list: the badge on the member panel switches on
+ * it, so a status the server starts emitting and this side does not declare renders as no
+ * badge at all.
+ */
+export const ACTIVITY_STATUSES = ['active', 'quiet', 'dormant', 'none'] as const;
+export type ActivityStatus = (typeof ACTIVITY_STATUSES)[number];
+
+/** A member as Discord currently knows them, resolved beside their stored progress. */
+export interface LevelingMember {
+    userId: string;
+    displayName: string;
+    username: string;
+    /** Null when the account has no avatar, so the browser renders its own fallback. */
+    avatarUrl: string | null;
+    isBot: boolean;
+}
+
+/** A row on the leaderboard. */
+export interface LevelingRankingRow {
+    rank: number;
+    userId: string;
+    /** Null when the member has left the guild but still holds progress. */
+    member: LevelingMember | null;
+    level: number;
+    totalXp: number;
+    messageCount: number;
+    reactionCount: number;
+    photoUploadCount: number;
+    lastActiveAt: string | null;
+}
+
+export interface LevelingListResult {
+    entries: LevelingRankingRow[];
+    totalRankedMembers: number;
+    truncated: boolean;
+    /** Whether the guild has leveling switched on at all. */
+    enabled: boolean;
+}
+
+export interface LevelingActivitySummary {
+    messageCount: number;
+    reactionCount: number;
+    photoUploadCount: number;
+    voiceSessionCount: number;
+    totalXp: number;
+    eventCount: number;
+}
+
+export interface LevelingActivityBucket {
+    activityDate: string;
+    messageCount: number;
+    reactionCount: number;
+    photoUploadCount: number;
+    voiceSessionCount: number;
+}
+
+export interface LevelingActivityChart {
+    granularity: 'daily' | 'weekly';
+    buckets: LevelingActivityBucket[];
+}
+
+export interface LevelingUserMetrics {
+    activityStatus: ActivityStatus;
+    lastActiveAt: string | null;
+    memberSince: string | null;
+    tenureDays: number;
+    recentMsgsPerDay: number;
+    recentXpPerDay: number;
+    allTimeMsgsPerDay: number;
+    messageSharePercent: number;
+    reactionSharePercent: number;
+    voiceSharePercent: number;
+    photoRatePercent: number;
+    avgMessageLengthRecent: number | null;
+    avgXpPerMessageRecent: number | null;
+    dailyPeakEvents: number;
+}
+
+export interface LevelingUserDetail {
+    userId: string;
+    member: LevelingMember | null;
+    level: number;
+    totalXp: number;
+    xpWithinLevel: number;
+    xpToNextLevel: number;
+    xpForCurrentLevelStep: number;
+    hasAnyActivity: boolean;
+    statsPeriod: StatsPeriod;
+    recentPeriodDays: number;
+    recentActivity: LevelingActivitySummary;
+    totalActivity: LevelingActivitySummary;
+    voiceSessionCount: number;
+    totalVoiceSeconds: number;
+    activityChart: LevelingActivityChart;
+    metrics: LevelingUserMetrics;
+}
+
+/*
+ * The member lists `levelingWireShapeDrift.test.ts` compares against the server's.
+ *
+ * Same mechanism as the ticket lists above: `satisfies` rejects a name that is not a
+ * member, and the check below rejects a member missing from the list, so `tsc -b` holds
+ * each list to its interface in both directions and the test only compares two arrays.
+ */
+export const LEVELING_MEMBER_KEYS = [
+    'userId',
+    'displayName',
+    'username',
+    'avatarUrl',
+    'isBot',
+] as const satisfies readonly (keyof LevelingMember)[];
+
+export const LEVELING_RANKING_ROW_KEYS = [
+    'rank',
+    'userId',
+    'member',
+    'level',
+    'totalXp',
+    'messageCount',
+    'reactionCount',
+    'photoUploadCount',
+    'lastActiveAt',
+] as const satisfies readonly (keyof LevelingRankingRow)[];
+
+export const LEVELING_LIST_RESULT_KEYS = [
+    'entries',
+    'totalRankedMembers',
+    'truncated',
+    'enabled',
+] as const satisfies readonly (keyof LevelingListResult)[];
+
+export const LEVELING_ACTIVITY_SUMMARY_KEYS = [
+    'messageCount',
+    'reactionCount',
+    'photoUploadCount',
+    'voiceSessionCount',
+    'totalXp',
+    'eventCount',
+] as const satisfies readonly (keyof LevelingActivitySummary)[];
+
+export const LEVELING_ACTIVITY_BUCKET_KEYS = [
+    'activityDate',
+    'messageCount',
+    'reactionCount',
+    'photoUploadCount',
+    'voiceSessionCount',
+] as const satisfies readonly (keyof LevelingActivityBucket)[];
+
+export const LEVELING_ACTIVITY_CHART_KEYS = [
+    'granularity',
+    'buckets',
+] as const satisfies readonly (keyof LevelingActivityChart)[];
+
+export const LEVELING_USER_METRICS_KEYS = [
+    'activityStatus',
+    'lastActiveAt',
+    'memberSince',
+    'tenureDays',
+    'recentMsgsPerDay',
+    'recentXpPerDay',
+    'allTimeMsgsPerDay',
+    'messageSharePercent',
+    'reactionSharePercent',
+    'voiceSharePercent',
+    'photoRatePercent',
+    'avgMessageLengthRecent',
+    'avgXpPerMessageRecent',
+    'dailyPeakEvents',
+] as const satisfies readonly (keyof LevelingUserMetrics)[];
+
+export const LEVELING_USER_DETAIL_KEYS = [
+    'userId',
+    'member',
+    'level',
+    'totalXp',
+    'xpWithinLevel',
+    'xpToNextLevel',
+    'xpForCurrentLevelStep',
+    'hasAnyActivity',
+    'statsPeriod',
+    'recentPeriodDays',
+    'recentActivity',
+    'totalActivity',
+    'voiceSessionCount',
+    'totalVoiceSeconds',
+    'activityChart',
+    'metrics',
+] as const satisfies readonly (keyof LevelingUserDetail)[];
+
+/** Fails to compile if a leveling wire shape gains a member absent from its list above. */
+type LevelingKeyListsAreComplete =
+    | Exclude<keyof LevelingMember, (typeof LEVELING_MEMBER_KEYS)[number]>
+    | Exclude<keyof LevelingRankingRow, (typeof LEVELING_RANKING_ROW_KEYS)[number]>
+    | Exclude<keyof LevelingListResult, (typeof LEVELING_LIST_RESULT_KEYS)[number]>
+    | Exclude<keyof LevelingActivitySummary, (typeof LEVELING_ACTIVITY_SUMMARY_KEYS)[number]>
+    | Exclude<keyof LevelingActivityBucket, (typeof LEVELING_ACTIVITY_BUCKET_KEYS)[number]>
+    | Exclude<keyof LevelingActivityChart, (typeof LEVELING_ACTIVITY_CHART_KEYS)[number]>
+    | Exclude<keyof LevelingUserMetrics, (typeof LEVELING_USER_METRICS_KEYS)[number]>
+    | Exclude<keyof LevelingUserDetail, (typeof LEVELING_USER_DETAIL_KEYS)[number]>;
+
+/** Do not delete as unused: removing it erases the guard above. */
+const levelingKeyListsAreComplete: [LevelingKeyListsAreComplete] extends [never]
+    ? true
+    : ['A leveling wire-shape key list is missing', LevelingKeyListsAreComplete] = true;
+
+void levelingKeyListsAreComplete;

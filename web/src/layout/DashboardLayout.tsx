@@ -183,6 +183,18 @@ export function DashboardLayout() {
                                 to={entry.to}
                                 label={entry.label}
                                 leftSection={entry.icon}
+                                /*
+                                 * Exact equality, so a detail page — `/tickets/123`,
+                                 * `/leveling/456`, `/flows/abc` — highlights nothing.
+                                 *
+                                 * Left exact deliberately rather than switched to a prefix
+                                 * match while adding leveling's drill-down: every feature with
+                                 * a child route already behaves this way, and changing the rule
+                                 * here would change it for tickets and flows at the same time —
+                                 * a three-feature nav change smuggled into a one-feature diff.
+                                 * Each detail page carries a breadcrumb that links back to its
+                                 * list, which is what actually says where you are.
+                                 */
                                 active={location.pathname === entry.to}
                                 variant="filled"
                                 color="brand"

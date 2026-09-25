@@ -2,15 +2,14 @@ import {
     AttachmentBuilder,
     ChatInputCommandInteraction,
     Guild,
-    GuildMember,
     PermissionsBitField,
     SlashCommandBuilder,
 } from 'discord.js';
 import { commandError, commandSuccess } from '../../../features-system/commands';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { levelingProgressRepo } from '../data/levelingProgressRepo';
-import { cardAvatarUrlFromUser } from '../cards/shared/cardAvatarUrl';
 import { renderBelowThresholdCard } from '../cards/belowThresholdCard/renderBelowThresholdCard';
+import { fetchMemberSnapshots, toMemberSnapshot } from '../logic/fetchMemberSnapshots';
 import {
     buildBelowThresholdReport,
     formatBelowThresholdCsv,
@@ -26,8 +25,6 @@ export const LEVEL_REPORT_COMMAND_NAME = 'level-report';
 
 /** Current-member reports fetch the full roster; fail loud above this size. */
 export const CURRENT_SCOPE_MEMBER_LIMIT = 5_000;
-
-const MEMBER_ID_FETCH_BATCH_SIZE = 100;
 
 export const levelReportCommand = new SlashCommandBuilder()
     .setName(LEVEL_REPORT_COMMAND_NAME)
@@ -140,16 +137,6 @@ export async function handleLevelReportCommand(
     }
 }
 
-function toMemberSnapshot(member: GuildMember): GuildMemberSnapshot {
-    return {
-        userId: member.id,
-        displayName: member.displayName,
-        username: member.user.username,
-        isBot: member.user.bot,
-        avatarUrl: cardAvatarUrlFromUser(member.user, 128),
-    };
-}
-
 async function loadReportMemberSnapshots(
     guild: Guild,
     filter: BelowThresholdFilter,
@@ -160,25 +147,9 @@ async function loadReportMemberSnapshots(
             .filter((row) => isBelowThreshold(row.level, row.totalXp, filter))
             .map((row) => row.userId);
 
-        return fetchMembersByIds(guild, candidateIds);
+        return fetchMemberSnapshots(guild, candidateIds);
     }
 
     const memberCollection = await guild.members.fetch();
     return memberCollection.map(toMemberSnapshot);
-}
-
-async function fetchMembersByIds(guild: Guild, userIds: readonly string[]): Promise<GuildMemberSnapshot[]> {
-    if (userIds.length === 0) {
-        return [];
-    }
-
-    const snapshots: GuildMemberSnapshot[] = [];
-
-    for (let offset = 0; offset < userIds.length; offset += MEMBER_ID_FETCH_BATCH_SIZE) {
-        const batch = userIds.slice(offset, offset + MEMBER_ID_FETCH_BATCH_SIZE);
-        const fetched = await guild.members.fetch({ user: batch });
-        snapshots.push(...fetched.map(toMemberSnapshot));
-    }
-
-    return snapshots;
 }
