@@ -25,19 +25,34 @@ A chip that would appear on the majority of rows fails the rule by definition, h
 is. That test is what killed five candidates from the first design, and it is the test to apply
 to a sixth.
 
-## Two tiers
+## Three tiers
 
 | Tier | Tone | Colour | Means |
 | --- | --- | --- | --- |
 | info | `info` | grey, or **teal** for adoption | True, deliberate, and not the default. Nothing is wrong. |
 | problem | `warn` | amber | Saves fine, installs fine, and probably does not do what you think. |
-| problem | `error` | red | The save or the install **will refuse it**. |
+| problem | `blocksInstall` | orange | Saves fine. **The install will refuse it.** |
+| problem | `error` | red | The **save** will refuse it. |
 
 The line between `warn` and `error` is not a matter of degree. `error` is a claim about the
 server — that `validateJourneyDeclaration` or the route's Zod schema would reject this
 declaration — and it is the reason `detectResourceProblems.ts` mirrors those rules rather than
 approximating them. A red chip that cries wolf costs the entire vocabulary its credibility, and
 an amber chip promoted to red blocks a save the server would have honoured.
+
+`blocksInstall` was added for `nameTaken`, and exists because neither neighbouring tier could
+hold it honestly. `resourceChipAgreement.test.ts` holds every `error` chip to being a declaration
+the **save gate** really rejects, and that gate has no guild to compare a name against — the save
+genuinely succeeds. But the amber tier is defined as "saves fine, *installs fine*", which a name
+collision does not. It is the one tier whose claim is about the **guild** rather than the
+declaration, which is also why its detection is the only one taking a directory argument, and why
+that argument is optional: absent means "we could not find out", and the honest response to that
+is silence.
+
+`isBlockingChip` deliberately does **not** count it. That predicate gates the row's red border and
+the save path, and a row whose only problem is a name collision must still be saveable — an
+operator part-way through authoring should not be stopped over something that only matters at
+install. Ask `blocksInstallChip` when the question is whether the install would refuse.
 
 `adopted` is the single exception to tone-picks-colour: it is `info` but teal, because adoption
 is the one fact that changes what install *does to the server*, and it reads as a different kind
@@ -48,13 +63,14 @@ of statement from "this is private".
 | Chip id | Tone | Label | Appears when | Clicking it |
 | --- | --- | --- | --- | --- |
 | `duplicateKey` | error | `Duplicate key` | Two resources share a key. `validateJourneyDeclaration` rejects the save outright, and nothing warns you while typing it. **Both** rows are chipped, not just the second — the fix is to change one, and which one is your choice. | Focuses the key field. |
-| `duplicateAdoption` | error | `Adopted twice` | Two resources adopt the same guild object. One guild object cannot be two resources; the same validator refuses it. | Focuses the "already exists" picker. |
+| `duplicateAdoption` | error | `Adopted twice` | Two resources adopt the same guild object. One guild object cannot be two resources; the same validator refuses it. | Focuses the name box, which is where you pick a different one. |
 | `invalidKey` | error | `Invalid key` / `Name required` | The key fails `^[a-z0-9]+(-[a-z0-9]+)*$` or its 1–64 cap, or the name is empty or over 100 characters. Zod refuses the save. One chip covers both fields because they sit together and the fix is the same shape; the wording still distinguishes them. | Focuses the offending field. |
 | `ruleNamesNoRole` | error | `Rule N names no role` | A `roles` intent with an empty list (refused at save), or one naming a declared role the flow does not have — or names a key that is not a role at all (both refused at save). | Focuses that rule's role picker. |
+| `nameTaken` | blocksInstall | `Name taken` | Something in the guild already has this name and this row does not adopt it. The save succeeds; `installPlan` blocks the item with *"A channel named X already exists. Choose whether to adopt it or create a new one under a different name."* Raised here so the refusal lands on the row that caused it rather than after a whole journey is authored. Deliberately **not** auto-adopted — a name that happens to collide is not the operator choosing that object, and §5.7 forbids a binding they did not explicitly make. | Focuses the name box, whose list holds the object it collided with. |
 | `nobodyCanSee` | warn | `Nobody can see this` | `permissions: []` — inheritance cleared with no rules to replace it. Produces a channel only the bot and admins can see. Almost always a mistake. | Focuses "Back to inheriting". |
 | `perRunOnly` | warn | `Per-run only` | Any `subject` audience. `journeyNeedsSubject` makes the whole flow non-installable as shared server structure — a consequence that otherwise hides inside an expanded rule. | Focuses that rule. |
 | `permissionsUntouched` | warn | `Permissions untouched` | Adopted **and** carrying rules. `applyInstallPlan` only compiles overwrites on the create path, so the rules are saved and never applied. | Scrolls to the rules. |
-| `adopted` | info (teal) | `Adopted` | `adoptDiscordId` is set. Install binds the existing channel instead of creating one. | Focuses the "already exists" picker. |
+| `adopted` | info (teal) | `Adopted` | `adoptDiscordId` is set. Install binds the existing channel or role instead of creating one. | Focuses the name box, which is also the adopt control. |
 | `private` | info | `Private` | A rule hides it from `@everyone`. The common, deliberate case, worth stating because "who can see this" is the question the modal exists to answer. | Scrolls to the rules. |
 | `orderedRules` | info | `N rules in order` | Two or more rules, and none of them a simple hide. | Scrolls to the rules. |
 

@@ -716,9 +716,9 @@ All 29 §5.7 and §5.8 requirements are placed — 10 in 5A, 19 in 5B. Nothing i
 | Subsystem configuration is a declarable resource (§5.7) | Blocked on issue #22 — ticket categories are name-keyed, not id-keyed |
 | ~~Verify, don't overwrite (§5.7)~~ | **Done 2026-09-24** — this *is* the drift machinery, and the adoption promise is what "don't overwrite" names: an adopted resource is compared and reported, never repaired |
 | ~~Ambiguous names disambiguate explicitly (§5.7)~~ | **Done 2026-09-24** — the directory carries `type` and the parent, so two `#general`s differ; categories and then roles became adoptable with it (`68cad4c`, `2e2b2eb`). One gap stays open by nature: two roles of one name have nothing to qualify by, since a role's wire shape is `{id, name, color, position}` |
-| Suggestions are ranked, never auto-applied (§5.7) | Same — UI affordance over the same binding call |
+| ~~Suggestions are ranked, never auto-applied (§5.7)~~ | **Done 2026-09-24** — with the autocomplete row, since the two requirements describe one control. Exact → prefix → substring; a collision raises `nameTaken` rather than auto-binding |
 | Provisioning opt-in per resource (§5.7) | "Bind to one I made by hand" is adoption, which 5A has; the per-resource *decline* toggle is UI |
-| Resource binding is one autocomplete field (§5.7) | Explicitly a builder-surface requirement |
+| ~~Resource binding is one autocomplete field (§5.7)~~ | **Done 2026-09-24** — the Name box and the adopt picker merged into one `Autocomplete`; needed a new `blocksInstall` chip tone for the save-fine/install-blocked state neither existing tier could hold |
 | Journey install is idempotent (§5.8) | 5A must not duplicate; full converge-after-partial-failure needs resume |
 | ~~A flow may hold many triggers (§5.8)~~ | **Done 2026-09-24** — nothing to build; it worked once the dispatchers started every trigger |
 | ~~Every trigger in a flow fires (§5.8)~~ | **Done 2026-09-24** — `.find()` → `.filter()` in both gateway dispatchers, each trigger its own isolated run |

@@ -54,6 +54,7 @@ import type { RefObject } from 'react';
 import {
     ActionIcon,
     Alert,
+    Autocomplete,
     Box,
     Button,
     Collapse,
@@ -72,6 +73,7 @@ import {
     IconLink,
     IconSearch,
     IconTrash,
+    IconX,
 } from '@tabler/icons-react';
 import type {
     GuildChannel,
@@ -93,6 +95,7 @@ import {
 } from './resourceAdoption';
 import { RESOURCE_CHIPS } from './resourceChips';
 import { keyForRenamedResource, keyIsStillDerived } from './resourceKeyFollowsName';
+import { disambiguateOptions, rankSuggestions } from './resourceNameSuggestions';
 import type { ResourceChipJumpTarget } from './resourceChips';
 import { RESOURCE_KIND_ORDER, RESOURCE_KIND_STYLES } from './resourceMeta';
 import {
@@ -109,6 +112,16 @@ import {
  * name so far right that the chips lose their column.
  */
 const CHILD_INDENT_PX = 22;
+
+/**
+ * How many suggestions the name box offers at once.
+ *
+ * A large guild has hundreds of channels, and an empty query matches all of them — the
+ * state a freshly opened row is in. The list is ranked, so the cut falls on the worst
+ * matches; what it protects is a dropdown taller than the modal on the one interaction
+ * where the operator has given us nothing to narrow by.
+ */
+const SUGGESTION_LIMIT = 20;
 
 interface ResourcesPanelProps {
     resources: ResourceDeclaration[];
@@ -212,7 +225,13 @@ export function ResourcesPanel({
     // One detection pass per render, keyed by position. Three of the checks are
     // relational — duplicate keys, duplicate adoptions, role references naming a key
     // the flow does not declare — so this cannot be done a row at a time.
-    const detected = useMemo(() => detectResourceProblems(resources), [resources]);
+    // The directory is handed in so `nameTaken` can fire — the one detection that is
+    // about the guild rather than the declaration, and the reason the parameter is
+    // optional there (the cross-boundary agreement test has no guild to pass).
+    const detected = useMemo(
+        () => detectResourceProblems(resources, { channels, roles }),
+        [resources, channels, roles]
+    );
     const chipsByIndex = useMemo(() => {
         const byIndex = new Map<number, readonly ResourceChipInstance[]>();
         for (const entry of detected) byIndex.set(entry.index, entry.chips);
@@ -281,7 +300,11 @@ export function ResourcesPanel({
      * old key in the same call, so a category's children follow it through a rename without
      * ever passing through a state the server would refuse.
      */
-    function renameResource(index: number, nextName: string) {
+    function renameResource(
+        index: number,
+        nextName: string,
+        options?: { readonly clearAdoption?: boolean }
+    ) {
         const target = resources[index];
         if (!target) return;
 
@@ -297,6 +320,20 @@ export function ResourcesPanel({
         // the patch as a rename and rebuilds the list, which would remount every row on
         // each keystroke of the name field.
         if (nextKey !== undefined) patch.key = nextKey;
+
+        /*
+         * Dropping an adoption travels with the rename rather than in its own call.
+         *
+         * Now that the name box *is* the adopt picker, typing over an adopted name is
+         * how an operator says "not that one after all" — and the two changes have to
+         * land in one patch, because both are derived from the same captured
+         * `resources` and a second call would overwrite the first rather than compose
+         * with it.
+         *
+         * Explicit `undefined` rather than omitted: `applyResourcePatch` reads a present
+         * key holding `undefined` as a deletion and an absent one as "leave it alone".
+         */
+        if (options?.clearAdoption) patch.adoptDiscordId = undefined;
 
         updateResource(index, patch);
     }
@@ -555,7 +592,9 @@ export function ResourcesPanel({
                                 (declared) => declared.key !== row.resource.key
                             )}
                             onUpdate={(patch) => updateResource(row.index, patch)}
-                            onRename={(nextName) => renameResource(row.index, nextName)}
+                            onRename={(nextName, options) =>
+                                renameResource(row.index, nextName, options)
+                            }
                             keyIsInstalled={installedKeys?.has(row.resource.key) ?? false}
                             onAdopt={(channelId) => setAdoption(row.index, channelId)}
                             onRemove={() => removeResource(row.index)}
@@ -608,8 +647,12 @@ interface ResourceRowProps {
     allResources: ResourceDeclaration[];
     declaredRoles: ResourceDeclaration[];
     onUpdate: (patch: Partial<ResourceDeclaration>) => void;
-    /** Renaming is its own callback because the key may have to follow the name. */
-    onRename: (nextName: string) => void;
+    /**
+     * Renaming is its own callback because the key may have to follow the name — and,
+     * now that the name box is also the adopt picker, because typing over an adopted
+     * name has to drop the adoption in the *same* patch.
+     */
+    onRename: (nextName: string, options?: { readonly clearAdoption?: boolean }) => void;
     /** Whether this row's key is frozen by something live in the guild. */
     keyIsInstalled: boolean;
     /** Adoption is its own callback because it may re-seed the name and key too. */
@@ -641,17 +684,16 @@ function ResourceRow({
     onRemove,
 }: ResourceRowProps) {
     const showParentPicker = canHaveParent(resource.kind) && categories.length > 0;
-    const showAdoptPicker = canAdopt(resource.kind);
     const adoptingRole = resource.kind === 'role';
     const style = RESOURCE_KIND_STYLES[resource.kind];
     const KindIcon = style.icon;
     const adopting = Boolean(resource.adoptDiscordId);
 
     // The expanded body owns these, which is why the jump decision is routed here
-    // rather than taken in `ResourceChip`: only this component can focus them.
+    // rather than taken in `ResourceChip`: only this component can focus them. There
+    // is no `adoptRef` any more — the name box *is* the adopt control.
     const nameRef = useRef<HTMLInputElement>(null);
     const keyRef = useRef<HTMLInputElement>(null);
-    const adoptRef = useRef<HTMLInputElement>(null);
     const rulesRef = useRef<HTMLDivElement>(null);
 
     const hasBlockingChip = chips.some((chip) => RESOURCE_CHIPS[chip.id].tone === 'error');
@@ -659,10 +701,142 @@ function ResourceRow({
     // One of the two is always empty — the functions each refuse a kind they do not
     // serve — so concatenating them is the whole of the routing. A `kind` switch here
     // would put the same decision in a third place.
-    const adoptOptions = [
-        ...adoptableChannelOptions(channels, resource.kind, allResources, resource.key),
-        ...adoptableRoleOptions(roles, resource.kind, allResources, resource.key),
-    ];
+    const adoptOptions = useMemo(
+        () =>
+            // Disambiguated **here**, once, so the dropdown and the committed row share
+            // one label space. Doing it downstream of ranking put them in two: the list
+            // offered `@Verified (r2)` and the adopted row then read its label from the
+            // undecorated source, so picking one of two identical objects left nothing
+            // on screen saying which — the question the suffix exists to answer.
+            disambiguateOptions(
+                canAdopt(resource.kind)
+                    ? [
+                          ...adoptableChannelOptions(
+                              channels,
+                              resource.kind,
+                              allResources,
+                              resource.key
+                          ),
+                          ...adoptableRoleOptions(
+                              roles,
+                              resource.kind,
+                              allResources,
+                              resource.key
+                          ),
+                      ]
+                    : []
+            ),
+        [channels, roles, resource.kind, resource.key, allResources]
+    );
+
+    /**
+     * The suggestion list, ranked against what has been typed so far.
+     *
+     * **Keyed by Discord id, not by label**, and that is load-bearing in three separate
+     * ways — all of which the first cut got wrong by making the display string carry the
+     * binding:
+     *
+     *  - Mantine throws on a duplicate option `value`, *during render*. Two roles named
+     *    `Verified`, or two top-level channels named `general`, produce identical labels
+     *    — both ordinary in a real guild — and the exception lands inside `Collapse`,
+     *    taking down the tree rather than glitching a dropdown. Ids are unique by
+     *    construction.
+     *  - Resolving a click by label returns the *first* entry sharing it, so picking the
+     *    second `#general` would bind the first one's id. The row would then show the
+     *    right name and the wrong binding, and install would adopt a channel nobody
+     *    pointed at.
+     *  - Recognising a *selection* by comparing the typed text to a label is unsound for
+     *    categories specifically: `channelOptionLabel` deliberately gives a category no
+     *    `#`, and a top-level one has no parent either, so its label is the bare name.
+     *    Typing `Arrivals` would have silently adopted an existing `Arrivals` — the exact
+     *    thing §5.7 forbids twice and that `nameTaken` exists to avoid doing.
+     *
+     * `limit` is applied here rather than passed to Mantine: in v7 `limit` is handed *to*
+     * the filter function rather than applied after it, so a custom `filter` that ignores
+     * the argument — as ours must, the list being pre-ranked — silently renders every
+     * option. A fresh row in a 300-channel guild would open a 300-row dropdown.
+     */
+    const ranked = useMemo(
+        () => rankSuggestions(adoptOptions, resource.defaultName).slice(0, SUGGESTION_LIMIT),
+        [adoptOptions, resource.defaultName]
+    );
+    const suggestionData = useMemo(
+        () => ranked.map((entry) => ({ value: entry.option.value, label: entry.option.label })),
+        [ranked]
+    );
+
+    /**
+     * What the combobox shows while adopting.
+     *
+     * The declaration's own name normally, but the **adopted object's label** once a row
+     * is bound — because the label is what the dropdown offered and what identifies which
+     * of two same-named objects this is. Showing the bare name would make an adopted
+     * `#general · in Support` indistinguishable from an adopted `#general · in Lounge`
+     * the moment the dropdown closed.
+     */
+    const adoptedLabel = adopting
+        ? adoptOptions.find((option) => option.value === resource.adoptDiscordId)?.label
+        : undefined;
+
+    const adoptionDescription = adopting
+        ? 'Adopting what you already have. Install will bind to it and leave it alone — not rename it, not touch its permissions.'
+        : `What it gets called. Pick one of the ${adoptingRole ? 'roles' : 'channels'} listed to use that instead of creating a new one.`;
+
+    /**
+     * Set for the one `onChange` Mantine fires as part of committing a selection.
+     *
+     * `Autocomplete`'s `onOptionSubmit` runs `onOptionSubmit?.(val)` and then
+     * `handleValueChange(optionsLockup[val].label)` — which, on a controlled input, is
+     * our own `onChange` with the label. So every pick arrives here as **two** calls in
+     * one event, and taking the second at face value would rename the row (clearing the
+     * adoption the first call just made) on every single selection.
+     *
+     * A ref rather than state, because it must be readable within the same event that
+     * set it; a state update would not have landed yet. It is a genuine signal — set
+     * only by `onOptionSubmit`, consumed once — rather than a guess about what the text
+     * looks like, which is precisely the mistake this replaced.
+     */
+    const submittingOption = useRef(false);
+
+    /**
+     * Picking a suggestion. Adoption, and never anything else.
+     *
+     * Separate from typing because Mantine tells us which it was: `onOptionSubmit`
+     * receives the option's **value**, so the binding never round-trips through a string
+     * a human could also have typed. That is what makes *"the operator is never silently
+     * bound to something they did not choose"* true structurally rather than by hoping
+     * label decoration is unguessable — which it is not, since a top-level category's
+     * label is its bare name.
+     */
+    function onSuggestionPicked(discordId: string) {
+        submittingOption.current = true;
+        onAdopt(discordId);
+    }
+
+    /**
+     * Typing. Always a rename, and it **clears an existing adoption**.
+     *
+     * Worth stating: having adopted `#welcome` and then typed a different name, the
+     * operator has said they want something else, and silently keeping the old binding
+     * while showing the new name would be the row lying about what install will touch.
+     *
+     * **One call, not two.** The obvious shape is `onAdopt(undefined)` followed by
+     * `onRename(next)`, and it silently loses the first: both derive their next list from
+     * the `resources` captured by this render, so the second overwrites rather than
+     * composes. `onRename` takes the un-adopt as part of the same patch, which is the
+     * same reason a rename carries its key — `applyResourcePatch` is the only place
+     * allowed to sequence field changes.
+     */
+    function onNameTyped(next: string) {
+        // The echo of a selection, not a keystroke. `onSuggestionPicked` has already
+        // adopted, and `setAdoption` seeds the name from the adopted object.
+        if (submittingOption.current) {
+            submittingOption.current = false;
+            return;
+        }
+
+        onRename(next, { clearAdoption: adopting });
+    }
 
     // Focus runs after the body has mounted, which is why it is an effect keyed on the
     // request rather than something done when the chip is clicked. `Collapse` renders
@@ -673,7 +847,6 @@ function ResourceRow({
         onJumpHandled,
         nameRef,
         keyRef,
-        adoptRef,
         rulesRef,
     });
 
@@ -770,23 +943,71 @@ function ResourceRow({
                         style={{ borderTop: '1px solid var(--mantine-color-dark-6)' }}
                     >
                         <Group gap="md" wrap="nowrap" align="flex-start" grow>
-                            <TextInput
+                            {/*
+                              * One control, not two. This was a Name box beside a "Does it
+                              * already exist?" picker, and the PRD names that shape as the
+                              * thing to remove: *"one autocomplete field, not an
+                              * adopt-or-create fork"*. From the operator's side adopting and
+                              * creating are the same gesture — they know what the thing is
+                              * called, and whether it exists is something the panel can
+                              * answer. Two controls made them answer it twice, and the second
+                              * answer was optional, so the common mistake was typing
+                              * `welcome` into a row that then tried to create a *second*
+                              * `#welcome`.
+                              *
+                              * Free text is the point: `Autocomplete` rather than a
+                              * `Select`, because a name nothing matches is a perfectly good
+                              * answer meaning "create it". A `Select` cannot say that.
+                              */}
+                            <Autocomplete
                                 ref={nameRef}
                                 size="sm"
                                 label="Name"
-                                description={
-                                    adopting
-                                        ? 'What it is called today. Install will not rename it.'
-                                        : 'What it gets called when created.'
-                                }
+                                description={adoptionDescription}
                                 placeholder={style.namePlaceholder}
-                                value={resource.defaultName}
-                                // `onRename`, not `onUpdate`: until the key is claimed or
-                                // installed it follows the name, and both fields have to
-                                // move in one patch so references stay intact.
-                                onChange={(event) => onRename(event.currentTarget.value)}
+                                // The adopted object's label once bound, so an adopted
+                                // `#general · in Support` stays distinguishable from an
+                                // adopted `#general · in Lounge` after the dropdown shuts.
+                                value={adoptedLabel ?? resource.defaultName}
+                                data={suggestionData}
+                                // Typing renames; picking adopts. They are *different
+                                // callbacks* rather than one handler inspecting the text,
+                                // because only `onOptionSubmit` carries the id — matching
+                                // the typed string against a label would bind the first of
+                                // two same-named objects, and would silently adopt a
+                                // category, whose label is its bare name.
+                                onChange={onNameTyped}
+                                onOptionSubmit={onSuggestionPicked}
+                                // Mantine filters `data` itself by default, which would
+                                // re-answer a question `rankSuggestions` has already
+                                // answered — and answer it differently, since it does not
+                                // know the exact-before-prefix rule. The list handed in is
+                                // already both filtered and ranked, and already cut to
+                                // `SUGGESTION_LIMIT`: v7 hands `limit` *to* the filter
+                                // rather than applying it after, so passing it alongside a
+                                // custom filter that ignores it does nothing at all.
+                                filter={({ options }) => options}
                                 leftSection={
-                                    style.prefix ? <Text c="dimmed">{style.prefix}</Text> : undefined
+                                    adopting ? (
+                                        <IconLink size={16} color="var(--mantine-color-teal-5)" />
+                                    ) : style.prefix ? (
+                                        <Text c="dimmed">{style.prefix}</Text>
+                                    ) : undefined
+                                }
+                                rightSection={
+                                    adopting ? (
+                                        <Tooltip label="Create a new one instead" withArrow>
+                                            <ActionIcon
+                                                size="sm"
+                                                variant="subtle"
+                                                color="gray"
+                                                onClick={() => onAdopt(undefined)}
+                                                aria-label="Stop adopting and create a new one"
+                                            >
+                                                <IconX size={14} />
+                                            </ActionIcon>
+                                        </Tooltip>
+                                    ) : undefined
                                 }
                             />
 
@@ -811,32 +1032,6 @@ function ResourceRow({
                                 onChange={(event) => onUpdate({ key: event.currentTarget.value })}
                             />
                         </Group>
-
-                        {showAdoptPicker && (
-                            <Select
-                                ref={adoptRef}
-                                size="sm"
-                                label="Does it already exist?"
-                                description={
-                                    adopting
-                                        ? 'Install will adopt this rather than creating anything. Clear it to create a new one instead.'
-                                        : `Leave empty to create a new one. Pick ${adoptingRole ? 'a role' : 'a channel'} to adopt it instead.`
-                                }
-                                placeholder="No — create a new one"
-                                data={adoptOptions}
-                                value={resource.adoptDiscordId ?? null}
-                                onChange={(next) => onAdopt(next ?? undefined)}
-                                searchable
-                                clearable
-                                nothingFoundMessage="No match"
-                                comboboxProps={{ withinPortal: true }}
-                                leftSection={
-                                    adopting ? (
-                                        <IconLink size={16} color="var(--mantine-color-teal-5)" />
-                                    ) : undefined
-                                }
-                            />
-                        )}
 
                         {showParentPicker && (
                             <Select
@@ -917,7 +1112,6 @@ interface FocusOnRequestInput {
     onJumpHandled: () => void;
     nameRef: RefObject<HTMLInputElement>;
     keyRef: RefObject<HTMLInputElement>;
-    adoptRef: RefObject<HTMLInputElement>;
     rulesRef: RefObject<HTMLDivElement>;
 }
 
@@ -940,7 +1134,6 @@ function useFocusOnRequest({
     onJumpHandled,
     nameRef,
     keyRef,
-    adoptRef,
     rulesRef,
 }: FocusOnRequestInput): void {
     const target = pendingJump?.target;
@@ -952,16 +1145,14 @@ function useFocusOnRequest({
         // synchronously here finds nothing on the render that first opens the row.
         const handle = window.requestAnimationFrame(() => {
             switch (pendingJump.target) {
-                case 'nameField':
+                case 'nameCombobox':
+                    // One target where there were two. Every chip that used to ask for
+                    // the adopt picker is asking for this same control now — it is the
+                    // name box *and* the list of things to adopt.
                     focusAndSelect(nameRef.current);
                     break;
                 case 'keyField':
                     focusAndSelect(keyRef.current);
-                    break;
-                case 'adoptPicker':
-                    // A `Select` is a text input under the hood; focusing opens it to
-                    // the list, which is the thing the chip is complaining about.
-                    adoptRef.current?.focus();
                     break;
                 case 'rules':
                     rulesRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -988,7 +1179,7 @@ function useFocusOnRequest({
         // `target` is in the deps so a second click on a *different* chip of the same
         // row re-runs this; `pendingJump` identity alone would do it, but naming the
         // field makes the intent legible.
-    }, [pendingJump, target, expanded, onJumpHandled, nameRef, keyRef, adoptRef, rulesRef]);
+    }, [pendingJump, target, expanded, onJumpHandled, nameRef, keyRef, rulesRef]);
 }
 
 interface FocusNameOnMountInput {

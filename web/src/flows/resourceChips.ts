@@ -56,13 +56,26 @@ import {
 /**
  * How seriously to take a chip.
  *
- * Three values rather than two, because "saves fine but is probably wrong" and "the
- * save will be refused" are genuinely different actions for the reader: the first is
- * worth a look before publishing, the second blocks them right now. Collapsing them
- * into one "problem" tone would make an amber row and a red row equally urgent, and
- * the amber ones are the common case.
+ * Four values, because each names a different thing the reader has to do:
+ *
+ *  - `info` — true, deliberate, not the default. Nothing to do.
+ *  - `warn` — saves and installs fine, and is probably still wrong. Worth a look before
+ *    publishing.
+ *  - `blocksInstall` — **saves fine, install will refuse it.** Nothing is wrong with the
+ *    declaration as data; it is wrong about the guild.
+ *  - `error` — the save itself will be refused. Blocks them right now.
+ *
+ * `blocksInstall` was added for `nameTaken` and is the tier the vocabulary was missing.
+ * Neither existing tier could hold it honestly: `resourceChipAgreement.test.ts` asserts
+ * that every `error` chip is a declaration `validateJourneyDeclaration` really rejects,
+ * and that gate has no guild to compare against — while its definition of the amber tier
+ * is "saveable **and installable**", which a name collision is not. Squeezing it into
+ * either would have made one of those two claims false, and both are load-bearing: a red
+ * chip that cries wolf costs the vocabulary its credibility, and an amber chip that
+ * silently means "this will fail later" is the banner-after-install problem the chips
+ * exist to prevent.
  */
-export type ResourceChipTone = 'info' | 'warn' | 'error';
+export type ResourceChipTone = 'info' | 'warn' | 'blocksInstall' | 'error';
 
 /**
  * Which field a chip jumps to when clicked.
@@ -71,13 +84,14 @@ export type ResourceChipTone = 'info' | 'warn' | 'error';
  * pick a ref, and an unrecognised target has nothing to focus. `rules` means the
  * permission editor as a whole; `rule` means one numbered row inside it, which is why
  * the chips carrying a rule index are the ones that use it.
+ *
+ * `nameField` and `adoptPicker` used to be separate targets because the row had two
+ * controls. They are now **one** combobox — the operator types a name into it and picks
+ * an existing object from the same list — so `nameCombobox` replaces both. Nothing was
+ * lost in the merge: no chip ever pointed at `nameField`, and the two that pointed at
+ * `adoptPicker` are asking for the same control by its new name.
  */
-export type ResourceChipJumpTarget =
-    | 'adoptPicker'
-    | 'keyField'
-    | 'nameField'
-    | 'rules'
-    | 'rule';
+export type ResourceChipJumpTarget = 'nameCombobox' | 'keyField' | 'rules' | 'rule';
 
 /** Every chip this vocabulary can show. Adding one means adding it here first. */
 export type ResourceChipId =
@@ -87,6 +101,7 @@ export type ResourceChipId =
     | 'nobodyCanSee'
     | 'perRunOnly'
     | 'permissionsUntouched'
+    | 'nameTaken'
     | 'duplicateKey'
     | 'duplicateAdoption'
     | 'invalidKey'
@@ -148,7 +163,7 @@ export const RESOURCE_CHIPS: Record<ResourceChipId, ResourceChipStyle> = {
         icon: IconLink,
         label: () => 'Adopted',
         reason: 'Install binds an existing channel instead of creating one — the single fact that changes what install does to the server.',
-        jumpTo: 'adoptPicker',
+        jumpTo: 'nameCombobox',
     },
 
     private: {
@@ -206,6 +221,38 @@ export const RESOURCE_CHIPS: Record<ResourceChipId, ResourceChipStyle> = {
         jumpTo: 'rules',
     },
 
+    /**
+     * The install-time refusal, moved to where the operator can act on it.
+     *
+     * `installPlan.ts` blocks an item whose declared name matches an existing guild
+     * object when nothing is adopted: *"A channel named X already exists. Choose whether
+     * to adopt it or create a new one under a different name."* That blocker is correct
+     * and stays. What was wrong is **when** the operator met it — after authoring a whole
+     * journey and pressing install, named against a resource key rather than the row
+     * they typed into.
+     *
+     * Its own tone rather than `error`, and the distinction is not pedantry.
+     * `resourceChipAgreement.test.ts` holds every `error` chip to being a declaration
+     * `validateJourneyDeclaration` really rejects, and that gate has no guild to compare
+     * a name against — the save genuinely succeeds. Calling this red would make the
+     * agreement test's promise false in the direction that matters most: a chip blocking
+     * a save the server would have honoured.
+     *
+     * **Deliberately not auto-adopted.** Selecting the suggestion is one click away, and
+     * doing it for the operator would bind them to an object they did not choose — which
+     * the PRD forbids twice, in §5.7's *"never silently bound to something they did not
+     * choose"* and *"a binding is only established by an explicit selection or an
+     * explicit new name"*. A name that happens to collide is not consent.
+     */
+    nameTaken: {
+        tone: 'blocksInstall',
+        color: 'orange',
+        icon: IconAlertTriangle,
+        label: () => 'Name taken',
+        reason: 'Something in the guild already has this name and this row does not adopt it. The save succeeds; `installPlan` blocks the item and asks whether to adopt it or rename.',
+        jumpTo: 'nameCombobox',
+    },
+
     duplicateKey: {
         tone: 'error',
         color: 'red',
@@ -237,7 +284,7 @@ export const RESOURCE_CHIPS: Record<ResourceChipId, ResourceChipStyle> = {
         icon: IconX,
         label: () => 'Adopted twice',
         reason: 'Another resource adopts the same guild object. One guild object cannot be two resources, and `validateJourneyDeclaration` rejects the save.',
-        jumpTo: 'adoptPicker',
+        jumpTo: 'nameCombobox',
     },
 
     /**
@@ -281,6 +328,10 @@ export const RESOURCE_CHIP_ORDER: readonly ResourceChipId[] = [
     'duplicateAdoption',
     'invalidKey',
     'ruleNamesNoRole',
+    // Below the save-blockers and above the warnings: a row that cannot be saved has a
+    // more urgent problem than one that cannot be installed, and both outrank "this is
+    // probably not what you meant".
+    'nameTaken',
     'nobodyCanSee',
     'perRunOnly',
     'permissionsUntouched',
@@ -293,11 +344,28 @@ export const RESOURCE_CHIP_ORDER: readonly ResourceChipId[] = [
 export const RESOURCE_CHIP_IDS: readonly ResourceChipId[] = RESOURCE_CHIP_ORDER;
 
 /**
- * Whether a chip means the save or the install will be refused.
+ * Whether a chip means the **save** will be refused.
  *
  * Asked of the tone rather than of a list of ids, so a chip added as an `error` is
- * counted by the toolbar's red badge without anyone remembering to add it twice.
+ * counted without anyone remembering to add it twice.
+ *
+ * `blocksInstall` is deliberately excluded. This predicate gates the row's red border
+ * and the save path, and a name collision saves perfectly well — treating it as blocking
+ * here would stop an operator persisting work they are part-way through, over a problem
+ * that only matters at install. `blocksInstallChip` is the one to ask when the question
+ * is whether the *install* would refuse.
  */
 export function isBlockingChip(id: ResourceChipId): boolean {
     return RESOURCE_CHIPS[id].tone === 'error';
+}
+
+/**
+ * Whether a chip means the **install** will refuse this, though the save will not.
+ *
+ * Separate from `isBlockingChip` because the two gate different things and conflating
+ * them was the temptation this tier exists to resist: an install-blocker must be visible
+ * on a collapsed row and named in the plan, but must never prevent a save.
+ */
+export function blocksInstallChip(id: ResourceChipId): boolean {
+    return RESOURCE_CHIPS[id].tone === 'blocksInstall';
 }

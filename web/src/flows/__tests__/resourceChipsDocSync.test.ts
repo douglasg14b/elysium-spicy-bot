@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { RESOURCE_CHIPS, RESOURCE_CHIP_IDS, RESOURCE_CHIP_ORDER } from '../resourceChips';
+import type { ResourceChipTone } from '../resourceChips';
 
 /**
  * The table and the contract doc cannot drift.
@@ -124,11 +125,15 @@ describe('the table is internally consistent', () => {
         ).toEqual([]);
     });
 
-    it('orders errors before warnings before info', () => {
+    it('orders errors before install-blockers before warnings before info', () => {
         // The render order is a decision the doc states: a row that cannot save leads
-        // with why. Asserted rather than left to whoever edits the array next.
+        // with why, then one that cannot install. Asserted rather than left to whoever
+        // edits the array next.
         const tones = RESOURCE_CHIP_ORDER.map((id) => RESOURCE_CHIPS[id].tone);
-        const rank = { error: 0, warn: 1, info: 2 } as const;
+        const rank = { error: 0, blocksInstall: 1, warn: 2, info: 3 } as const satisfies Record<
+            ResourceChipTone,
+            number
+        >;
 
         expect(tones.map((tone) => rank[tone])).toEqual(
             [...tones.map((tone) => rank[tone])].sort((first, second) => first - second)

@@ -51,10 +51,16 @@
  * it needs a parent or role-reference loop the pickers cannot express.
  */
 
-import type { PermissionIntent, ResourceDeclaration } from '../api/types';
+import type {
+    GuildChannel,
+    GuildRole,
+    PermissionIntent,
+    ResourceDeclaration,
+} from '../api/types';
 import { parseDeclaredRoleReference } from './declaredRoleReference';
 import type { ResourceChipDetail, ResourceChipId } from './resourceChips';
 import { RESOURCE_CHIP_ORDER, RESOURCE_CHIPS } from './resourceChips';
+import { collidableNamesFor, nameCollidesWithExisting } from './resourceNameSuggestions';
 
 /**
  * The key rule, copied from `resourceKeySchema` in `src/web/api/journeyRoutes.ts`.
@@ -105,7 +111,22 @@ export interface ResourceChipsForResource {
  * journey rather than a resource.
  */
 export function detectResourceProblems(
-    resources: readonly ResourceDeclaration[]
+    resources: readonly ResourceDeclaration[],
+    /**
+     * What the guild already contains, when the caller knows.
+     *
+     * **Optional on purpose, and the optionality is the contract.** Every other
+     * detection here answers a question about the *declaration* — something the server's
+     * save gate can also answer, which is what `resourceChipAgreement.test.ts` holds
+     * this file to. `nameTaken` is the one detection about the *guild*, which the save
+     * gate cannot see and which the agreement test therefore must be able to exclude by
+     * simply not passing it.
+     *
+     * Absent means "we could not find out", and the honest response to that is silence
+     * rather than a guess: a row is not flagged for colliding with a directory nobody
+     * loaded. The panel always has the directory; the agreement test never does.
+     */
+    guild?: GuildContext
 ): readonly ResourceChipsForResource[] {
     const duplicatedKeys = keysDeclaredMoreThanOnce(resources);
     const duplicatedAdoptions = adoptionsDeclaredMoreThanOnce(resources);
@@ -123,9 +144,16 @@ export function detectResourceProblems(
                 duplicatedAdoptions,
                 declaredKeys,
                 roleKeys,
+                guild,
             })
         ),
     }));
+}
+
+/** The guild directory, for the one detection that is about the server rather than the declaration. */
+export interface GuildContext {
+    readonly channels: readonly GuildChannel[];
+    readonly roles: readonly GuildRole[];
 }
 
 /**
@@ -149,6 +177,7 @@ interface ChipContext {
     readonly duplicatedAdoptions: ReadonlySet<string>;
     readonly declaredKeys: ReadonlySet<string>;
     readonly roleKeys: ReadonlySet<string>;
+    readonly guild: GuildContext | undefined;
 }
 
 function chipsForResource(context: ChipContext): ResourceChipInstance[] {
@@ -178,6 +207,35 @@ function chipsForResource(context: ChipContext): ResourceChipInstance[] {
         if (ruleNamesNoRole(intent, context)) {
             chips.push({ id: 'ruleNamesNoRole', detail: { ruleIndex } });
         }
+    }
+
+    // --- install blockers: the save takes this, the install will not -------------
+
+    /*
+     * The one detection about the *guild* rather than the declaration.
+     *
+     * `installPlan` blocks an item whose declared name matches an existing object when
+     * nothing is adopted, and the operator used to meet that refusal after authoring a
+     * whole journey and pressing install. Raising it on the row that caused it is the
+     * whole point — and it is checked only when the caller supplied a directory, since
+     * "we could not find out" must read as silence rather than as a clean bill.
+     *
+     * Suppressed while the name is invalid, because `invalidKey` already has the row and
+     * an empty name cannot collide with anything. Two chips for one empty box would be
+     * the row complaining twice about one keystroke.
+     */
+    if (context.guild && isValidResourceName(resource.defaultName)) {
+        const collides = nameCollidesWithExisting({
+            declaredName: resource.defaultName,
+            adoptDiscordId: resource.adoptDiscordId,
+            guildNames: collidableNamesFor({
+                kind: resource.kind,
+                channels: context.guild.channels,
+                roles: context.guild.roles,
+            }),
+        });
+
+        if (collides) chips.push({ id: 'nameTaken', detail: {} });
     }
 
     // --- warnings: this saves, and probably does not mean what you think ---------

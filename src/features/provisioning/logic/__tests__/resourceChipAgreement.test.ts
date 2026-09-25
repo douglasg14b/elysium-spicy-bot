@@ -1,9 +1,15 @@
+import { ChannelType } from 'discord.js';
 import { describe, expect, it } from 'vitest';
 import { detectResourceProblems } from '../../../../../web/src/flows/detectResourceProblems';
 import { RESOURCE_CHIPS } from '../../../../../web/src/flows/resourceChips';
-import type { ResourceDeclaration as BrowserResourceDeclaration } from '../../../../../web/src/api/types';
+import type {
+    GuildChannel as BrowserGuildChannel,
+    GuildRole as BrowserGuildRole,
+    ResourceDeclaration as BrowserResourceDeclaration,
+} from '../../../../../web/src/api/types';
 import { resourceSchema } from '../../../../web/api/journeyRoutes';
 import { declaredRoleReference } from '../declaredRoleReference';
+import { buildInstallPlan } from '../installPlan';
 import { validateJourneyDeclaration, type JourneyDeclaration } from '../resourceDeclaration';
 
 /**
@@ -218,5 +224,160 @@ describe('the absence of a red chip agrees with the server', () => {
 
     it.each(ACCEPTED)('the browser shows no red chip on $name', ({ resources }) => {
         expect(browserSeesError(resources)).toBe(false);
+    });
+});
+
+/**
+ * The third tier, and the one whose claim the two above cannot make.
+ *
+ * `blocksInstall` says "the save takes this, the install will not", so neither existing
+ * assertion covers it: `serverVerdict` only runs the save gates, which accept it, and a
+ * red-chip check would be asserting the opposite of the truth. Checking it needs the
+ * real `buildInstallPlan` against a guild, which is why this block exists rather than a
+ * row in `REJECTED`.
+ *
+ * The same rule applies as for the red tier: **a chip with no row here is a claim
+ * nothing has checked.** `nameTaken` is currently the only member.
+ */
+
+/** A guild holding one channel and one role, both named so a declaration can collide. */
+function guildWith(channelNames: readonly string[], roleNames: readonly string[]) {
+    const channels = channelNames.map((name, index) => ({
+        id: `channel-${index}`,
+        name,
+        type: ChannelType.GuildText,
+    }));
+    const roles = [
+        { id: 'role-staff', name: 'Staff' },
+        ...roleNames.map((name, index) => ({ id: `role-${index}`, name })),
+    ];
+
+    const channelMap = new Map(channels.map((channel) => [channel.id, channel]));
+    const roleMap = new Map(roles.map((role) => [role.id, role]));
+
+    return {
+        id: 'guild-1',
+        name: 'Test Guild',
+        channels: {
+            cache: {
+                has: (id: string) => channelMap.has(id),
+                get: (id: string) => channelMap.get(id),
+                filter: (fn: (channel: (typeof channels)[number]) => boolean) => ({
+                    map: <T,>(project: (channel: (typeof channels)[number]) => T) =>
+                        [...channelMap.values()].filter(fn).map(project),
+                }),
+            },
+        },
+        roles: {
+            everyone: { id: 'everyone-role' },
+            cache: {
+                has: (id: string) => roleMap.has(id),
+                filter: (fn: (role: { id: string; name: string }) => boolean) => ({
+                    map: <T,>(project: (role: { id: string; name: string }) => T) =>
+                        [...roleMap.values()].filter(fn).map(project),
+                }),
+            },
+        },
+        members: {
+            me: {
+                id: 'bot-member',
+                permissions: { has: () => true },
+                roles: { highest: { position: 5 } },
+            },
+        },
+    } as never;
+}
+
+/** Whether the browser would put an install-blocking chip on this list. */
+function browserSeesInstallBlocker(
+    resources: readonly BrowserResourceDeclaration[],
+    guild: { channels: BrowserGuildChannel[]; roles: BrowserGuildRole[] }
+): boolean {
+    return detectResourceProblems(resources, guild).some((entry) =>
+        entry.chips.some((chip) => RESOURCE_CHIPS[chip.id].tone === 'blocksInstall')
+    );
+}
+
+describe('install-blocking chips agree with the install planner', () => {
+    const COLLIDING_NAME = 'welcome';
+
+    const browserGuild = {
+        channels: [
+            {
+                id: 'channel-0',
+                name: COLLIDING_NAME,
+                type: 'text' as const,
+                parentId: null,
+                parentName: null,
+            },
+        ],
+        roles: [],
+    };
+
+    const resources: BrowserResourceDeclaration[] = [
+        channel({ key: 'welcome', defaultName: COLLIDING_NAME }),
+    ];
+
+    it('the save really accepts what nameTaken claims it will', () => {
+        // The whole reason this is not an `error`. Calling it red would block a save
+        // the server would have honoured, which is the failure the red tier's
+        // credibility rests on not making.
+        const verdict = serverVerdict(resources);
+        expect(verdict.accepted, verdict.accepted ? '' : verdict.reason).toBe(true);
+    });
+
+    it('the install really blocks what nameTaken claims it will', () => {
+        const plan = buildInstallPlan({
+            guild: guildWith([COLLIDING_NAME], []),
+            journey: {
+                journeyKey: 'flow-1',
+                name: 'Flow 1',
+                resources: resources as JourneyDeclaration['resources'],
+            },
+            existingBindings: [],
+        });
+
+        const item = plan.items.find((candidate) => candidate.resourceKey === 'welcome');
+        expect(item?.action).toBe('blocked');
+    });
+
+    it('the browser flags it before the install is attempted', () => {
+        expect(browserSeesInstallBlocker(resources, browserGuild)).toBe(true);
+    });
+
+    it('does not flag a name nothing in the guild has', () => {
+        expect(
+            browserSeesInstallBlocker(
+                [channel({ key: 'arrivals', defaultName: 'arrivals' })],
+                browserGuild
+            )
+        ).toBe(false);
+    });
+
+    it('does not flag a colliding name the row actually adopts', () => {
+        // Adopting is the resolution, not the problem — and the install agrees, since
+        // an `adoptDiscordId` short-circuits the name lookup entirely.
+        expect(
+            browserSeesInstallBlocker(
+                [
+                    channel({
+                        key: 'welcome',
+                        defaultName: COLLIDING_NAME,
+                        adoptDiscordId: 'channel-0',
+                    }),
+                ],
+                browserGuild
+            )
+        ).toBe(false);
+    });
+
+    it('stays silent when no guild directory was supplied', () => {
+        // Absent means "we could not find out". A row is not flagged for colliding
+        // with a directory nobody loaded.
+        expect(
+            detectResourceProblems(resources).some((entry) =>
+                entry.chips.some((chip) => RESOURCE_CHIPS[chip.id].tone === 'blocksInstall')
+            )
+        ).toBe(false);
     });
 });
