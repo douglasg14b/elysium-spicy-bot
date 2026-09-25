@@ -62,6 +62,9 @@ import type { ResourceChipDetail, ResourceChipId } from './resourceChips';
 import { RESOURCE_CHIP_ORDER, RESOURCE_CHIPS } from './resourceChips';
 import { collidableNamesFor, nameCollidesWithExisting } from './resourceNameSuggestions';
 
+/** Shared so an absent `installedKeys` does not allocate a set per resource per render. */
+const EMPTY_KEYS: ReadonlySet<string> = new Set();
+
 /**
  * The key rule, copied from `resourceKeySchema` in `src/web/api/journeyRoutes.ts`.
  *
@@ -145,6 +148,7 @@ export function detectResourceProblems(
                 declaredKeys,
                 roleKeys,
                 guild,
+                installedKeys: guild?.installedKeys ?? EMPTY_KEYS,
             })
         ),
     }));
@@ -154,6 +158,19 @@ export function detectResourceProblems(
 export interface GuildContext {
     readonly channels: readonly GuildChannel[];
     readonly roles: readonly GuildRole[];
+    /**
+     * Resource keys this journey has already installed.
+     *
+     * Part of the guild context rather than a separate argument because it answers the
+     * same question the directory does — *what is already out there* — and because
+     * `nameTaken` is unsound without it. `installPlan` never name-checks a key holding a
+     * settled binding, so an installed row must not be told its name is taken by the
+     * very object it installed.
+     *
+     * Optional, and absent means "none known". The panel supplies it; the cross-boundary
+     * agreement test supplies neither this nor the directory.
+     */
+    readonly installedKeys?: ReadonlySet<string>;
 }
 
 /**
@@ -178,6 +195,7 @@ interface ChipContext {
     readonly declaredKeys: ReadonlySet<string>;
     readonly roleKeys: ReadonlySet<string>;
     readonly guild: GuildContext | undefined;
+    readonly installedKeys: ReadonlySet<string>;
 }
 
 function chipsForResource(context: ChipContext): ResourceChipInstance[] {
@@ -220,11 +238,30 @@ function chipsForResource(context: ChipContext): ResourceChipInstance[] {
      * whole point — and it is checked only when the caller supplied a directory, since
      * "we could not find out" must read as silence rather than as a clean bill.
      *
-     * Suppressed while the name is invalid, because `invalidKey` already has the row and
-     * an empty name cannot collide with anything. Two chips for one empty box would be
-     * the row complaining twice about one keystroke.
+     * Three suppressions, and the third is the one that matters:
+     *
+     *  - **An invalid name.** `invalidKey` already has the row, and an empty name cannot
+     *    collide with anything. Two chips for one empty box would be the row complaining
+     *    twice about one keystroke.
+     *  - **An adopted row**, handled inside `nameCollidesWithExisting`: matching the name
+     *    of the thing you are adopting is the point, not a problem.
+     *  - **An installed key.** `installPlan` short-circuits on a settled binding at
+     *    `action: 'reuse'` and **never reaches `findByName`** — so for an installed
+     *    resource the install raises nothing and this chip would be claiming otherwise.
+     *
+     * That third case is not a corner. A journey that has been installed has a binding
+     * for *every* resource and a live object in the guild carrying *every* declared
+     * name, so without it the chip fires on every row of a perfectly healthy journey —
+     * which is both wrong and the fastest way to teach an operator that the amber chips
+     * are noise. It was found on the first live look, having been predicted in review and
+     * shipped anyway on the grounds that over-warning degrades safely. It does not: a
+     * warning that is always on is indistinguishable from a broken one.
      */
-    if (context.guild && isValidResourceName(resource.defaultName)) {
+    if (
+        context.guild &&
+        isValidResourceName(resource.defaultName) &&
+        !context.installedKeys.has(resource.key)
+    ) {
         const collides = nameCollidesWithExisting({
             declaredName: resource.defaultName,
             adoptDiscordId: resource.adoptDiscordId,

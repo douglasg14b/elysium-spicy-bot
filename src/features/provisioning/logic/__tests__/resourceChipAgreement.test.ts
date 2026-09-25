@@ -291,7 +291,11 @@ function guildWith(channelNames: readonly string[], roleNames: readonly string[]
 /** Whether the browser would put an install-blocking chip on this list. */
 function browserSeesInstallBlocker(
     resources: readonly BrowserResourceDeclaration[],
-    guild: { channels: BrowserGuildChannel[]; roles: BrowserGuildRole[] }
+    guild: {
+        channels: BrowserGuildChannel[];
+        roles: BrowserGuildRole[];
+        installedKeys?: ReadonlySet<string>;
+    }
 ): boolean {
     return detectResourceProblems(resources, guild).some((entry) =>
         entry.chips.some((chip) => RESOURCE_CHIPS[chip.id].tone === 'blocksInstall')
@@ -369,6 +373,64 @@ describe('install-blocking chips agree with the install planner', () => {
                 browserGuild
             )
         ).toBe(false);
+    });
+
+    /**
+     * The chip must not fire on a resource this journey already installed.
+     *
+     * `buildInstallPlan` short-circuits on a settled binding at `action: 'reuse'` and
+     * never reaches `findByName`, so the install raises nothing here. Without the
+     * suppression the chip fires on **every row of a healthy installed journey** — the
+     * live-testing report that prompted this — because an installed journey owns a live
+     * object carrying every name it declares.
+     *
+     * Predicted in review and shipped anyway, on the grounds that over-warning degrades
+     * safely. It does not: a warning that is always on is indistinguishable from a
+     * broken one.
+     */
+    it('the install really reuses an installed key rather than blocking it', () => {
+        const plan = buildInstallPlan({
+            guild: guildWith([COLLIDING_NAME], []),
+            journey: {
+                journeyKey: 'flow-1',
+                name: 'Flow 1',
+                resources: resources as JourneyDeclaration['resources'],
+            },
+            existingBindings: [
+                {
+                    resourceKey: 'welcome',
+                    discordId: 'channel-0',
+                    kind: 'textChannel',
+                    state: 'created',
+                    name: COLLIDING_NAME,
+                } as never,
+            ],
+        });
+
+        expect(plan.items.find((item) => item.resourceKey === 'welcome')?.action).toBe('reuse');
+    });
+
+    it('the browser stays silent on an installed key, as the planner does', () => {
+        expect(
+            browserSeesInstallBlocker(resources, {
+                ...browserGuild,
+                installedKeys: new Set(['welcome']),
+            })
+        ).toBe(false);
+    });
+
+    it('still flags an uninstalled row beside an installed one', () => {
+        // The suppression is per key, not per journey. A newly added row colliding with
+        // something in the guild is still a real install blocker.
+        expect(
+            browserSeesInstallBlocker(
+                [
+                    channel({ key: 'welcome', defaultName: COLLIDING_NAME }),
+                    channel({ key: 'welcome-2', defaultName: COLLIDING_NAME }),
+                ],
+                { ...browserGuild, installedKeys: new Set(['welcome']) }
+            )
+        ).toBe(true);
     });
 
     it('stays silent when no guild directory was supplied', () => {

@@ -229,9 +229,13 @@ export function ResourcesPanel({
     // The directory is handed in so `nameTaken` can fire — the one detection that is
     // about the guild rather than the declaration, and the reason the parameter is
     // optional there (the cross-boundary agreement test has no guild to pass).
+    //
+    // `installedKeys` travels with it because the chip is unsound without it: a journey
+    // that has been installed owns a live object carrying every name it declares, so the
+    // chip would fire on every row of a healthy journey.
     const detected = useMemo(
-        () => detectResourceProblems(resources, { channels, roles }),
-        [resources, channels, roles]
+        () => detectResourceProblems(resources, { channels, roles, installedKeys }),
+        [resources, channels, roles, installedKeys]
     );
     const chipsByIndex = useMemo(() => {
         const byIndex = new Map<number, readonly ResourceChipInstance[]>();

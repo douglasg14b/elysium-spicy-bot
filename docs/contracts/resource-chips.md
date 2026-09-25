@@ -54,6 +54,15 @@ the save path, and a row whose only problem is a name collision must still be sa
 operator part-way through authoring should not be stopped over something that only matters at
 install. Ask `blocksInstallChip` when the question is whether the install would refuse.
 
+**A tier claiming to predict the install must track what the install actually does.** `nameTaken`
+shipped firing on installed resources, because `buildInstallPlan` short-circuits on a settled
+binding at `action: 'reuse'` and never reaches its name check — so on a healthy installed journey
+the chip appeared on *every row*. It was predicted in review and shipped anyway, on the reasoning
+that over-warning degrades safely. It does not. A warning that is always on is indistinguishable
+from a broken one, and it costs the amber tiers the credibility the red tier is so carefully
+protected for. This is the governing rule's clause (a) — *not the default* — applied to a tier
+rather than to a row.
+
 `adopted` is the single exception to tone-picks-colour: it is `info` but teal, because adoption
 is the one fact that changes what install *does to the server*, and it reads as a different kind
 of statement from "this is private".
@@ -66,7 +75,7 @@ of statement from "this is private".
 | `duplicateAdoption` | error | `Adopted twice` | Two resources adopt the same guild object. One guild object cannot be two resources; the same validator refuses it. | Focuses the name box, which is where you pick a different one. |
 | `invalidKey` | error | `Invalid key` / `Name required` | The key fails `^[a-z0-9]+(-[a-z0-9]+)*$` or its 1–64 cap, or the name is empty or over 100 characters. Zod refuses the save. One chip covers both fields because they sit together and the fix is the same shape; the wording still distinguishes them. | Focuses the offending field. |
 | `ruleNamesNoRole` | error | `Rule N names no role` | A `roles` intent with an empty list (refused at save), or one naming a declared role the flow does not have — or names a key that is not a role at all (both refused at save). | Focuses that rule's role picker. |
-| `nameTaken` | blocksInstall | `Name taken` | Something in the guild already has this name and this row does not adopt it. The save succeeds; `installPlan` blocks the item with *"A channel named X already exists. Choose whether to adopt it or create a new one under a different name."* Raised here so the refusal lands on the row that caused it rather than after a whole journey is authored. Deliberately **not** auto-adopted — a name that happens to collide is not the operator choosing that object, and §5.7 forbids a binding they did not explicitly make. | Focuses the name box, whose list holds the object it collided with. |
+| `nameTaken` | blocksInstall | `Name taken` | Something in the guild already has this name, this row does not adopt it, **and this row is not already installed**. The save succeeds; `installPlan` blocks the item with *"A channel named X already exists. Choose whether to adopt it or create a new one under a different name."* Raised here so the refusal lands on the row that caused it rather than after a whole journey is authored. Deliberately **not** auto-adopted — a name that happens to collide is not the operator choosing that object, and §5.7 forbids a binding they did not explicitly make. | Focuses the name box, whose list holds the object it collided with. |
 | `nobodyCanSee` | warn | `Nobody can see this` | `permissions: []` — inheritance cleared with no rules to replace it. Produces a channel only the bot and admins can see. Almost always a mistake. | Focuses "Back to inheriting". |
 | `perRunOnly` | warn | `Per-run only` | Any `subject` audience. `journeyNeedsSubject` makes the whole flow non-installable as shared server structure — a consequence that otherwise hides inside an expanded rule. | Focuses that rule. |
 | `permissionsUntouched` | warn | `Permissions untouched` | Adopted **and** carrying rules. `applyInstallPlan` only compiles overwrites on the create path, so the rules are saved and never applied. | Scrolls to the rules. |
