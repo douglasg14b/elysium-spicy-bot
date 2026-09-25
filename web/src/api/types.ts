@@ -1691,6 +1691,120 @@ export const LEVELING_USER_DETAIL_KEYS = [
     'metrics',
 ] as const satisfies readonly (keyof LevelingUserDetail)[];
 
+/**
+ * The cohorts the insights report bands a server into, mirrored from `COHORT_KEYS` in
+ * `src/features/leveling/logic/levelingCohorts.ts`.
+ *
+ * Ordered least to most active, which is the order the chart legend lists them in. Gated as
+ * a vocabulary rather than a key list: the legend and the colour scale switch on it, so a
+ * cohort the server starts reporting and this side does not declare draws no line at all.
+ *
+ * `topOnePercent` deliberately overlaps `topQuarter` — it is a spotlight on the tail, not a
+ * fifth exclusive band, so summing `memberCount` across cohorts over-counts by design.
+ */
+export const COHORT_KEYS = ['bottomHalf', 'middle', 'topQuarter', 'topOnePercent'] as const;
+export type CohortKey = (typeof COHORT_KEYS)[number];
+
+/** One point on the "how many members ever got this far" curve. */
+export interface LevelingLevelReachPoint {
+    level: number;
+    membersReached: number;
+    /** 0–100, share of tracked members. The count beside it is the truth. */
+    percentReached: number;
+}
+
+export interface LevelingCohortProgressionPoint {
+    level: number;
+    medianDays: number;
+    membersReached: number;
+    /** True below the server's thin-cohort threshold: a hint, not a fact. */
+    thin: boolean;
+}
+
+export interface LevelingCohortSummary {
+    cohort: CohortKey;
+    memberCount: number;
+    medianTotalXp: number;
+    medianLevel: number;
+    medianActiveDays: number;
+    progression: LevelingCohortProgressionPoint[];
+}
+
+export interface LevelingXpDistribution {
+    typicalXp: number;
+    meanXp: number;
+    meanToTypicalRatio: number;
+    topMemberXp: number;
+    deciles: number[];
+}
+
+export interface LevelingInsightsBody {
+    trackedMembers: number;
+    /**
+     * The highest level anybody reached. Unclamped, and null when nobody has earned anything.
+     *
+     * Can exceed the last point on `levelReach`, which stops at the report's tracked ceiling.
+     * `levelReachTruncated` says when that has happened, so the page can explain the gap
+     * rather than look wrong.
+     */
+    topLevel: number | null;
+    /** True when somebody is above the tracked ceiling, so the reach curve ends early. */
+    levelReachTruncated: boolean;
+    levelReach: LevelingLevelReachPoint[];
+    cohorts: LevelingCohortSummary[];
+    /** Null when there is no XP to describe a distribution of. */
+    xpDistribution: LevelingXpDistribution | null;
+    firstActivityDate: string | null;
+    lastActivityDate: string | null;
+    /** ISO. When the report was computed, so the page can say how stale it is. */
+    computedAt: string;
+    /** True when served from the loader's cache rather than computed for this request. */
+    cached: boolean;
+}
+
+export const LEVELING_LEVEL_REACH_POINT_KEYS = [
+    'level',
+    'membersReached',
+    'percentReached',
+] as const satisfies readonly (keyof LevelingLevelReachPoint)[];
+
+export const LEVELING_COHORT_PROGRESSION_POINT_KEYS = [
+    'level',
+    'medianDays',
+    'membersReached',
+    'thin',
+] as const satisfies readonly (keyof LevelingCohortProgressionPoint)[];
+
+export const LEVELING_COHORT_SUMMARY_KEYS = [
+    'cohort',
+    'memberCount',
+    'medianTotalXp',
+    'medianLevel',
+    'medianActiveDays',
+    'progression',
+] as const satisfies readonly (keyof LevelingCohortSummary)[];
+
+export const LEVELING_XP_DISTRIBUTION_KEYS = [
+    'typicalXp',
+    'meanXp',
+    'meanToTypicalRatio',
+    'topMemberXp',
+    'deciles',
+] as const satisfies readonly (keyof LevelingXpDistribution)[];
+
+export const LEVELING_INSIGHTS_BODY_KEYS = [
+    'trackedMembers',
+    'topLevel',
+    'levelReachTruncated',
+    'levelReach',
+    'cohorts',
+    'xpDistribution',
+    'firstActivityDate',
+    'lastActivityDate',
+    'computedAt',
+    'cached',
+] as const satisfies readonly (keyof LevelingInsightsBody)[];
+
 /** Fails to compile if a leveling wire shape gains a member absent from its list above. */
 type LevelingKeyListsAreComplete =
     | Exclude<keyof LevelingMember, (typeof LEVELING_MEMBER_KEYS)[number]>
@@ -1700,7 +1814,15 @@ type LevelingKeyListsAreComplete =
     | Exclude<keyof LevelingActivityBucket, (typeof LEVELING_ACTIVITY_BUCKET_KEYS)[number]>
     | Exclude<keyof LevelingActivityChart, (typeof LEVELING_ACTIVITY_CHART_KEYS)[number]>
     | Exclude<keyof LevelingUserMetrics, (typeof LEVELING_USER_METRICS_KEYS)[number]>
-    | Exclude<keyof LevelingUserDetail, (typeof LEVELING_USER_DETAIL_KEYS)[number]>;
+    | Exclude<keyof LevelingUserDetail, (typeof LEVELING_USER_DETAIL_KEYS)[number]>
+    | Exclude<keyof LevelingLevelReachPoint, (typeof LEVELING_LEVEL_REACH_POINT_KEYS)[number]>
+    | Exclude<
+          keyof LevelingCohortProgressionPoint,
+          (typeof LEVELING_COHORT_PROGRESSION_POINT_KEYS)[number]
+      >
+    | Exclude<keyof LevelingCohortSummary, (typeof LEVELING_COHORT_SUMMARY_KEYS)[number]>
+    | Exclude<keyof LevelingXpDistribution, (typeof LEVELING_XP_DISTRIBUTION_KEYS)[number]>
+    | Exclude<keyof LevelingInsightsBody, (typeof LEVELING_INSIGHTS_BODY_KEYS)[number]>;
 
 /** Do not delete as unused: removing it erases the guard above. */
 const levelingKeyListsAreComplete: [LevelingKeyListsAreComplete] extends [never]

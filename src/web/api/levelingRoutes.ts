@@ -2,20 +2,27 @@ import { Hono } from 'hono';
 import type { Guild } from 'discord.js';
 import {
     loadGuildLevelRankings,
+    loadLevelingInsights,
     loadUserLevelStats,
     levelingConfigRepo,
     parseStatsPeriod,
     type ActivityStatus,
+    type CohortKey,
+    type CohortProgressionPoint,
+    type CohortSummary,
     type GuildLevelRankingEntry,
+    type LevelingInsights,
+    type LevelReachPoint,
     type StatsPeriod,
     type UserLevelStats,
+    type XpDistribution,
 } from '../../features/leveling';
 import { fetchMemberSnapshotsById } from '../../features/leveling/logic/fetchMemberSnapshots';
 import type { GuildMemberSnapshot } from '../../features/leveling/logic/belowThresholdReport';
 import type { AppEnv } from '../types';
 
 /**
- * Leveling: the guild leaderboard and one member's stats.
+ * Leveling: the guild leaderboard, one member's stats, and the guild-wide insights report.
  *
  * Read-only on purpose. Leveling's XP tuning has no write path in the repo, and five of
  * its columns are overwritten by `constants.ts` on every read, so a form offering them
@@ -96,6 +103,35 @@ export function levelingRoutes(): Hono<AppEnv> {
         const member = await memberSnapshot(guild, resolved.userId);
 
         const body: LevelingUserDetail = userDetail(stats, member);
+        return c.json(body);
+    });
+
+    app.get('/:guildId/leveling/insights', async (c) => {
+        const guild = c.get('guild');
+
+        const result = await loadLevelingInsights(guild.id);
+
+        if (!result.ok) {
+            /*
+             * 503 rather than 400 or 500: nothing about the request is malformed and nothing
+             * is broken — the guild's history is simply too large to scan without stalling
+             * the bot, which is a capacity answer and the one status that says "try later".
+             * The count and the ceiling are both named because "too big" without a number
+             * gives an operator nothing to act on.
+             */
+            return c.json(
+                {
+                    error:
+                        `This guild has ${result.eventCount.toLocaleString('en-US')} logged XP events, ` +
+                        `over the ${result.ceiling.toLocaleString('en-US')} ceiling the insights report ` +
+                        `will scan. Crunching that would lock the bot up for everyone, so it is sitting ` +
+                        `this one out.`,
+                },
+                503
+            );
+        }
+
+        const body: LevelingInsightsBody = insightsBody(result.insights, result.computedAt, result.cached);
         return c.json(body);
     });
 
@@ -229,6 +265,78 @@ function totals(source: {
     };
 }
 
+function levelReachPoint(point: LevelReachPoint): LevelingLevelReachPoint {
+    return {
+        level: point.level,
+        membersReached: point.membersReached,
+        percentReached: point.percentReached,
+    };
+}
+
+function cohortProgressionPoint(point: CohortProgressionPoint): LevelingCohortProgressionPoint {
+    return {
+        level: point.level,
+        medianDays: point.medianDays,
+        membersReached: point.membersReached,
+        thin: point.thin,
+    };
+}
+
+function cohortSummary(cohort: CohortSummary): LevelingCohortSummary {
+    return {
+        cohort: cohort.cohort,
+        memberCount: cohort.memberCount,
+        medianTotalXp: cohort.medianTotalXp,
+        medianLevel: cohort.medianLevel,
+        medianActiveDays: cohort.medianActiveDays,
+        progression: cohort.progression.map(cohortProgressionPoint),
+    };
+}
+
+function xpDistribution(distribution: XpDistribution): LevelingXpDistribution {
+    return {
+        typicalXp: distribution.typicalXp,
+        meanXp: distribution.meanXp,
+        meanToTypicalRatio: distribution.meanToTypicalRatio,
+        topMemberXp: distribution.topMemberXp,
+        deciles: [...distribution.deciles],
+    };
+}
+
+/**
+ * The report, plus how fresh it is.
+ *
+ * `readonly` arrays are copied rather than passed through: the wire interfaces are mutable
+ * by the convention of this file, and the cache hands out the *same* object to every caller
+ * of `loadLevelingInsights` within the TTL, so aliasing its arrays into a response body
+ * would let a later mutation rewrite what the next hit serves.
+ *
+ * Exported for its test. Through the route this is unobservable — `c.json` serializes
+ * immediately, so the JSON a test reads back is a copy whatever this function does, and a
+ * test asserting it via HTTP passes with every copy removed. The invariant is only
+ * reachable on the returned object, so that is where it is asserted.
+ */
+export function insightsBody(
+    insights: LevelingInsights,
+    computedAt: Date,
+    cached: boolean
+): LevelingInsightsBody {
+    return {
+        trackedMembers: insights.trackedMembers,
+        topLevel: insights.topLevel,
+        levelReachTruncated: insights.levelReachTruncated,
+        levelReach: insights.levelReach.map(levelReachPoint),
+        cohorts: insights.cohorts.map(cohortSummary),
+        xpDistribution: insights.xpDistribution ? xpDistribution(insights.xpDistribution) : null,
+        firstActivityDate: insights.firstActivityDate,
+        lastActivityDate: insights.lastActivityDate,
+        // ISO at the boundary, for the same reason `lastActiveAt` is converted above: the
+        // mirrored type claims `string`, and only this call makes that true.
+        computedAt: computedAt.toISOString(),
+        cached,
+    };
+}
+
 /* ---- Wire shapes ---- */
 
 export interface LevelingMember {
@@ -317,6 +425,63 @@ export interface LevelingUserDetail {
     totalVoiceSeconds: number;
     activityChart: LevelingActivityChart;
     metrics: LevelingUserMetrics;
+}
+
+/** One point on the "how many members ever got this far" curve. */
+export interface LevelingLevelReachPoint {
+    level: number;
+    membersReached: number;
+    /** 0–100, share of tracked members. The count beside it is the truth. */
+    percentReached: number;
+}
+
+export interface LevelingCohortProgressionPoint {
+    level: number;
+    medianDays: number;
+    membersReached: number;
+    /** True below `THIN_COHORT_THRESHOLD` members: a hint, not a fact. */
+    thin: boolean;
+}
+
+export interface LevelingCohortSummary {
+    cohort: CohortKey;
+    memberCount: number;
+    medianTotalXp: number;
+    medianLevel: number;
+    medianActiveDays: number;
+    progression: LevelingCohortProgressionPoint[];
+}
+
+export interface LevelingXpDistribution {
+    typicalXp: number;
+    meanXp: number;
+    meanToTypicalRatio: number;
+    topMemberXp: number;
+    deciles: number[];
+}
+
+export interface LevelingInsightsBody {
+    trackedMembers: number;
+    /**
+     * The highest level anybody reached. Unclamped, and null when nobody has earned anything.
+     *
+     * Can exceed the last point on {@link levelReach}, which stops at the report's tracked
+     * ceiling — {@link levelReachTruncated} says when that has happened so the page can
+     * explain the gap rather than look wrong.
+     */
+    topLevel: number | null;
+    /** True when somebody is above the tracked ceiling, so the reach curve ends early. */
+    levelReachTruncated: boolean;
+    levelReach: LevelingLevelReachPoint[];
+    cohorts: LevelingCohortSummary[];
+    /** Null when there is no XP to describe a distribution of. */
+    xpDistribution: LevelingXpDistribution | null;
+    firstActivityDate: string | null;
+    lastActivityDate: string | null;
+    /** ISO. When the report was computed, so the page can say how stale it is. */
+    computedAt: string;
+    /** True when served from the loader's cache rather than computed for this request. */
+    cached: boolean;
 }
 
 /* ---- Drift gate ---- */
@@ -416,8 +581,51 @@ export const LEVELING_USER_DETAIL_KEYS = [
     'metrics',
 ] as const satisfies readonly (keyof LevelingUserDetail)[];
 
+export const LEVELING_LEVEL_REACH_POINT_KEYS = [
+    'level',
+    'membersReached',
+    'percentReached',
+] as const satisfies readonly (keyof LevelingLevelReachPoint)[];
+
+export const LEVELING_COHORT_PROGRESSION_POINT_KEYS = [
+    'level',
+    'medianDays',
+    'membersReached',
+    'thin',
+] as const satisfies readonly (keyof LevelingCohortProgressionPoint)[];
+
+export const LEVELING_COHORT_SUMMARY_KEYS = [
+    'cohort',
+    'memberCount',
+    'medianTotalXp',
+    'medianLevel',
+    'medianActiveDays',
+    'progression',
+] as const satisfies readonly (keyof LevelingCohortSummary)[];
+
+export const LEVELING_XP_DISTRIBUTION_KEYS = [
+    'typicalXp',
+    'meanXp',
+    'meanToTypicalRatio',
+    'topMemberXp',
+    'deciles',
+] as const satisfies readonly (keyof LevelingXpDistribution)[];
+
+export const LEVELING_INSIGHTS_BODY_KEYS = [
+    'trackedMembers',
+    'topLevel',
+    'levelReachTruncated',
+    'levelReach',
+    'cohorts',
+    'xpDistribution',
+    'firstActivityDate',
+    'lastActivityDate',
+    'computedAt',
+    'cached',
+] as const satisfies readonly (keyof LevelingInsightsBody)[];
+
 /*
- * No re-export of `STATS_PERIODS` / `ACTIVITY_STATUSES` here on purpose.
+ * No re-export of `STATS_PERIODS` / `ACTIVITY_STATUSES` / `COHORT_KEYS` here on purpose.
  *
  * An alias would read as convenience for the drift test, but it would make that test
  * depend on this file still choosing to forward a constant it never otherwise uses:
@@ -441,7 +649,15 @@ type KeyListsComplete =
     | Exclude<keyof LevelingActivityBucket, (typeof LEVELING_ACTIVITY_BUCKET_KEYS)[number]>
     | Exclude<keyof LevelingActivityChart, (typeof LEVELING_ACTIVITY_CHART_KEYS)[number]>
     | Exclude<keyof LevelingUserMetrics, (typeof LEVELING_USER_METRICS_KEYS)[number]>
-    | Exclude<keyof LevelingUserDetail, (typeof LEVELING_USER_DETAIL_KEYS)[number]>;
+    | Exclude<keyof LevelingUserDetail, (typeof LEVELING_USER_DETAIL_KEYS)[number]>
+    | Exclude<keyof LevelingLevelReachPoint, (typeof LEVELING_LEVEL_REACH_POINT_KEYS)[number]>
+    | Exclude<
+          keyof LevelingCohortProgressionPoint,
+          (typeof LEVELING_COHORT_PROGRESSION_POINT_KEYS)[number]
+      >
+    | Exclude<keyof LevelingCohortSummary, (typeof LEVELING_COHORT_SUMMARY_KEYS)[number]>
+    | Exclude<keyof LevelingXpDistribution, (typeof LEVELING_XP_DISTRIBUTION_KEYS)[number]>
+    | Exclude<keyof LevelingInsightsBody, (typeof LEVELING_INSIGHTS_BODY_KEYS)[number]>;
 
 const keyListsAreComplete: [KeyListsComplete] extends [never]
     ? true

@@ -10,6 +10,7 @@ import { WarningsPage } from './pages/WarningsPage';
 import { ComingSoonPage } from './pages/ComingSoonPage';
 import { FlowsListPage } from './pages/FlowsListPage';
 import { FlowBuilderPage } from './pages/FlowBuilderPage';
+import { LevelingInsightsPage } from './pages/LevelingInsightsPage';
 import { LevelingPage } from './pages/LevelingPage';
 import { LevelingUserPage } from './pages/LevelingUserPage';
 import { ServerSettingsPage } from './pages/ServerSettingsPage';
@@ -68,13 +69,20 @@ function Gate() {
                     />
                     <Route path="/leveling" element={<LevelingPage />} />
                     {/*
-                     * `/leveling/:userId` is the only child segment, so there is no static one
-                     * to order it against — unlike `/tickets/config` above. Written after the
-                     * parent for the same reason that block gives: the order is what a reader
-                     * checks, and leaving it to React Router's ranking silently would make a
-                     * later router change a routing bug. Any static `/leveling/...` page added
-                     * later belongs *above* this line.
+                     * `/leveling/insights` is declared **before** `/leveling/:userId`, which is
+                     * what the previous version of this comment asked of whoever added the first
+                     * static child here. The two genuinely overlap: without an order to point
+                     * at, the word `insights` reads as a user id — and it is not a snowflake, so
+                     * the member page would answer with its "not a user id" panel rather than
+                     * the report.
+                     *
+                     * React Router v6 ranks static segments above dynamic ones, so either order
+                     * in fact resolves correctly; it is written this way because that is what a
+                     * reader checks, and relying on the ranking silently would make a later
+                     * router change a routing bug. Same situation as `/tickets/config` below.
+                     * Any further static `/leveling/...` page belongs above the dynamic line too.
                      */}
+                    <Route path="/leveling/insights" element={<LevelingInsightsPage />} />
                     <Route path="/leveling/:userId" element={<LevelingUserPage />} />
                     <Route path="/tickets" element={<TicketsListPage />} />
                     {/*

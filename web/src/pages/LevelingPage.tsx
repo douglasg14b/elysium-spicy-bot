@@ -40,6 +40,7 @@ import { useNavigate } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { listLeveling } from '../api/leveling';
 import type { LevelingRankingRow } from '../api/types';
+import { LevelingTabs } from '../leveling/LevelingTabs';
 import { leaderboardTotals } from '../leveling/levelingLeaderboard';
 import { memberPresentation } from '../leveling/levelingMember';
 import { formatMoment } from '../leveling/levelingPresentation';
@@ -148,6 +149,10 @@ export function LevelingPage() {
                     </div>
                 </Group>
             </div>
+
+            {/* The two views of leveling. Shared with the insights page so the highlight and the
+                URL cannot disagree — see `LevelingTabs`. */}
+            <LevelingTabs />
 
             {/*
              * Said before the table, not instead of it. Progress rows outlive the switch, so

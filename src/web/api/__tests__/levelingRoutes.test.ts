@@ -19,6 +19,7 @@ import type { AppEnv } from '../../types';
 
 const loadGuildLevelRankings = vi.fn();
 const loadUserLevelStats = vi.fn();
+const loadLevelingInsights = vi.fn();
 const fetchMemberSnapshotsById = vi.fn();
 
 const levelingConfigRepoMock = {
@@ -45,13 +46,16 @@ vi.mock('../../../features/leveling', async () => {
     return {
         loadGuildLevelRankings,
         loadUserLevelStats,
+        loadLevelingInsights,
         levelingConfigRepo: levelingConfigRepoMock,
         parseStatsPeriod: actual.parseStatsPeriod,
     };
 });
 vi.mock('../../../features/leveling/logic/fetchMemberSnapshots', () => ({ fetchMemberSnapshotsById }));
 
-const { levelingRoutes, LEVELING_LIST_CAP } = await import('../levelingRoutes');
+const { levelingRoutes, insightsBody, LEVELING_LIST_CAP } = await import('../levelingRoutes');
+
+type LevelingInsights = Parameters<typeof insightsBody>[0];
 
 const GUILD_ID = 'guild-1';
 const USER_ID = '111111111111111111';
@@ -197,6 +201,56 @@ function userStats(overrides: UserStatsOverrides = {}) {
     };
 }
 
+interface InsightsOverrides {
+    trackedMembers?: number;
+    topLevel?: number | null;
+    levelReach?: unknown[];
+    cohorts?: unknown[];
+    xpDistribution?: Record<string, unknown> | null;
+    firstActivityDate?: string | null;
+    lastActivityDate?: string | null;
+}
+
+function insights(overrides: InsightsOverrides = {}) {
+    return {
+        trackedMembers: 391,
+        topLevel: 34,
+        levelReach: [
+            { level: 2, membersReached: 300, percentReached: 77 },
+            { level: 3, membersReached: 210, percentReached: 54 },
+        ],
+        cohorts: [
+            {
+                cohort: 'topQuarter',
+                memberCount: 98,
+                medianTotalXp: 18_400,
+                medianLevel: 17,
+                medianActiveDays: 62,
+                progression: [{ level: 2, medianDays: 1, membersReached: 98, thin: false }],
+            },
+        ],
+        xpDistribution: {
+            typicalXp: 1_200,
+            meanXp: 4_800,
+            meanToTypicalRatio: 4,
+            topMemberXp: 142_000,
+            deciles: [10, 60, 180, 420, 1_200, 2_600, 5_100, 11_000, 29_000],
+        },
+        firstActivityDate: '2026-05-01',
+        lastActivityDate: '2026-09-24',
+        ...overrides,
+    };
+}
+
+function insightsResult(overrides: { insights?: unknown; computedAt?: Date; cached?: boolean } = {}) {
+    return {
+        ok: true as const,
+        insights: overrides.insights ?? insights(),
+        computedAt: overrides.computedAt ?? new Date('2026-09-25T09:00:00.000Z'),
+        cached: overrides.cached ?? false,
+    };
+}
+
 /**
  * The router behind a middleware that sets both context variables.
  *
@@ -261,10 +315,27 @@ interface DetailBody {
     };
 }
 
+interface InsightsBody {
+    trackedMembers: number;
+    topLevel: number | null;
+    levelReach: { level: number; membersReached: number; percentReached: number }[];
+    cohorts: {
+        cohort: string;
+        memberCount: number;
+        progression: { level: number; medianDays: number; thin: boolean }[];
+    }[];
+    xpDistribution: { typicalXp: number; meanXp: number; deciles: number[] } | null;
+    firstActivityDate: string | null;
+    lastActivityDate: string | null;
+    computedAt: string;
+    cached: boolean;
+}
+
 beforeEach(() => {
     vi.clearAllMocks();
     loadGuildLevelRankings.mockResolvedValue(rankings());
     loadUserLevelStats.mockResolvedValue(userStats());
+    loadLevelingInsights.mockResolvedValue(insightsResult());
     fetchMemberSnapshotsById.mockResolvedValue(new Map([[USER_ID, memberSnapshot()]]));
     levelingConfigRepoMock.getByGuildId.mockResolvedValue({ guildId: GUILD_ID, enabled: true });
 });
@@ -546,5 +617,144 @@ describe('GET /:guildId/leveling/users/:userId', () => {
 
         expect(body.member).toBeNull();
         expect(body.totalXp).toBe(12_500);
+    });
+});
+
+describe('GET /:guildId/leveling/insights', () => {
+    it('returns the report with computedAt as an ISO string rather than a Date', async () => {
+        const response = await get('/leveling/insights');
+        const body = (await response.json()) as InsightsBody;
+
+        expect(response.status).toBe(200);
+        expect(body.trackedMembers).toBe(391);
+        expect(body.topLevel).toBe(34);
+        expect(body.levelReach).toHaveLength(2);
+        expect(body.cohorts[0].cohort).toBe('topQuarter');
+        // Two levels deep, and the level the gate is thinnest at: a progression point that
+        // lost its `thin` flag on the way out would mark a three-person median as a fact.
+        expect(body.cohorts[0].progression[0].thin).toBe(false);
+        expect(body.xpDistribution?.deciles).toHaveLength(9);
+
+        expect(typeof body.computedAt).toBe('string');
+        expect(body.computedAt).toBe('2026-09-25T09:00:00.000Z');
+    });
+
+    // The conversion itself is asserted on `insightsBody` below, where it can actually fail:
+    // `JSON.stringify` turns a `Date` into the same ISO text, so this pair only pins the
+    // value the page reads, not the route's ownership of the format.
+
+    it('reports cached straight through from the loader', async () => {
+        loadLevelingInsights.mockResolvedValue(insightsResult({ cached: true }));
+
+        const body = (await (await get('/leveling/insights')).json()) as InsightsBody;
+
+        // The page says "as of a minute ago" off this flag. Hard-coding it either way would
+        // make a five-minute-old report indistinguishable from a fresh scan.
+        expect(body.cached).toBe(true);
+    });
+
+    it('503s when the loader refuses the scan, naming the count and the ceiling', async () => {
+        loadLevelingInsights.mockResolvedValue({
+            ok: false,
+            refusal: 'too-many-events',
+            eventCount: 1_200_000,
+            ceiling: 750_000,
+        });
+
+        const response = await get('/leveling/insights');
+        const body = (await response.json()) as ErrorBody;
+
+        /*
+         * 503, not 400 and not 500: the request is well-formed and nothing is broken — the
+         * guild is simply too large to scan without stalling the bot for everyone, which is
+         * the one condition that means "ask again later".
+         */
+        expect(response.status).toBe(503);
+        // The numbers are the actionable part. "Too big" without them tells an operator
+        // nothing about how far over they are or whether trimming history would help.
+        expect(body.error).toContain('1,200,000');
+        expect(body.error).toContain('750,000');
+    });
+
+    it('answers 200 for a guild with no activity at all, keeping the nulls', async () => {
+        /*
+         * A brand-new guild is the shape most likely to crash a report built on maxima and
+         * medians: `topLevel` and `xpDistribution` are null by design rather than zeroed,
+         * and the mapping has to carry that through instead of reading a field off null.
+         */
+        loadLevelingInsights.mockResolvedValue(
+            insightsResult({
+                insights: insights({
+                    trackedMembers: 0,
+                    topLevel: null,
+                    levelReach: [],
+                    cohorts: [],
+                    xpDistribution: null,
+                    firstActivityDate: null,
+                    lastActivityDate: null,
+                }),
+            })
+        );
+
+        const response = await get('/leveling/insights');
+        const body = (await response.json()) as InsightsBody;
+
+        expect(response.status).toBe(200);
+        expect(body.trackedMembers).toBe(0);
+        // Null rather than 0: a zero here would render as "level 0", a level nobody holds.
+        expect(body.topLevel).toBeNull();
+        expect(body.xpDistribution).toBeNull();
+        expect(body.firstActivityDate).toBeNull();
+        expect(body.levelReach).toEqual([]);
+        expect(body.cohorts).toEqual([]);
+    });
+
+    it('asks the loader for the guild in context', async () => {
+        await get('/leveling/insights');
+
+        expect(loadLevelingInsights).toHaveBeenCalledWith(GUILD_ID);
+    });
+
+});
+
+describe('insightsBody', () => {
+    /*
+     * Asserted on the mapper rather than through the route, and that is the whole point.
+     *
+     * `c.json` serializes immediately, so the JSON a route test reads back is a fresh object
+     * no matter what this function did — an aliasing test via HTTP passes with every copy
+     * removed, which was verified rather than assumed. The invariant is only observable on
+     * the returned object.
+     *
+     * It matters because the loader caches one insights object per guild for five minutes and
+     * hands the *same* one to every caller in that window: an aliased array that anything
+     * downstream sorts, reverses or pushes to would rewrite what the next request serves,
+     * with no second scan to put it back.
+     */
+    it('copies the cached report’s arrays instead of aliasing them', () => {
+        const cached = insights() as unknown as LevelingInsights;
+
+        const body = insightsBody(cached, new Date('2026-09-25T09:00:00.000Z'), false);
+
+        body.levelReach.length = 0;
+        body.cohorts[0].progression.length = 0;
+        body.xpDistribution?.deciles.push(999_999);
+
+        expect(cached.levelReach).toHaveLength(2);
+        expect(cached.cohorts[0].progression).toHaveLength(1);
+        expect(cached.xpDistribution?.deciles).toHaveLength(9);
+    });
+
+    it('converts computedAt to an ISO string rather than carrying the Date', () => {
+        // On the returned object, where it is still a `Date` unless the mapper converted it —
+        // via HTTP `JSON.stringify` would produce the same ISO text either way.
+        const body = insightsBody(
+            insights() as unknown as LevelingInsights,
+            new Date('2026-09-25T09:00:00.000Z'),
+            false
+        );
+
+        expect(typeof body.computedAt).toBe('string');
+        expect(body.computedAt).toBe('2026-09-25T09:00:00.000Z');
     });
 });

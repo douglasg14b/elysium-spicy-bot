@@ -7,7 +7,12 @@
  */
 
 import { api } from './client';
-import type { LevelingListResult, LevelingUserDetail, StatsPeriod } from './types';
+import type {
+    LevelingInsightsBody,
+    LevelingListResult,
+    LevelingUserDetail,
+    StatsPeriod,
+} from './types';
 
 /** The guild leaderboard, capped server-side — read `truncated` before believing the count. */
 export function listLeveling(guildId: string): Promise<LevelingListResult> {
@@ -35,4 +40,18 @@ export function getLevelingUser(
     return api.get<LevelingUserDetail>(
         `/api/guilds/${guildId}/leveling/users/${userId}${query}`
     );
+}
+
+/**
+ * The guild-wide insights report.
+ *
+ * Takes no parameters: the server computes the whole report from every logged XP day and
+ * caches it, so there is no window to narrow and nothing this side could ask it to filter.
+ *
+ * **Refuses with a 503 on a guild too large to scan**, which is a capacity answer rather
+ * than a fault — `ApiError.status` is how the caller tells that apart from a real failure,
+ * so this deliberately does not catch it and flatten the distinction into a null.
+ */
+export function getLevelingInsights(guildId: string): Promise<LevelingInsightsBody> {
+    return api.get<LevelingInsightsBody>(`/api/guilds/${guildId}/leveling/insights`);
 }

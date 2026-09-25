@@ -19,6 +19,24 @@ export type { UserLevelStats, ActivityChart } from './logic/loadUserLevelStats';
 export { loadGuildLevelRankings, DEFAULT_GUILD_RANKINGS_LIMIT } from './logic/loadGuildLevelRankings';
 export type { GuildLevelRankings, GuildLevelRankingEntry } from './logic/loadGuildLevelRankings';
 
+/*
+ * Only what a consumer actually imports. `clearLevelingInsightsCache` and `COHORT_LABELS`
+ * were exported here first and had no call site — the cache seam is reached directly from
+ * its own test, and the browser mirrors its own cohort labels rather than importing them
+ * across the workspace boundary. Both remain one relative import away.
+ */
+export { loadLevelingInsights } from './logic/loadLevelingInsights';
+export type { LevelingInsightsResult } from './logic/loadLevelingInsights';
+export type {
+    LevelingInsights,
+    LevelReachPoint,
+    CohortSummary,
+    CohortProgressionPoint,
+    XpDistribution,
+} from './logic/buildLevelingInsights';
+
+export type { CohortKey } from './logic/levelingCohorts';
+
 export { loadUserLevelProfile } from './logic/loadUserLevelProfile';
 export type { UserLevelProfile } from './logic/userLevelProfile';
 

@@ -3,14 +3,19 @@ import {
     LEVELING_ACTIVITY_BUCKET_KEYS,
     LEVELING_ACTIVITY_CHART_KEYS,
     LEVELING_ACTIVITY_SUMMARY_KEYS,
+    LEVELING_COHORT_PROGRESSION_POINT_KEYS,
+    LEVELING_COHORT_SUMMARY_KEYS,
+    LEVELING_INSIGHTS_BODY_KEYS,
+    LEVELING_LEVEL_REACH_POINT_KEYS,
     LEVELING_LIST_RESULT_KEYS,
     LEVELING_MEMBER_KEYS,
     LEVELING_RANKING_ROW_KEYS,
     LEVELING_USER_DETAIL_KEYS,
     LEVELING_USER_METRICS_KEYS,
+    LEVELING_XP_DISTRIBUTION_KEYS,
 } from '../levelingRoutes';
 /*
- * The two vocabularies come from the modules that *own* them, not from the route's
+ * The vocabularies come from the modules that *own* them, not from the route's
  * convenience re-exports.
  *
  * Via the aliases, deleting `LEVELING_STATS_PERIODS` from `levelingRoutes.ts` — a tidy-up
@@ -20,6 +25,7 @@ import {
  */
 import { STATS_PERIODS } from '../../../features/leveling/logic/statsPeriod';
 import { ACTIVITY_STATUSES } from '../../../features/leveling/cards/statsCard/statsCardMetrics';
+import { COHORT_KEYS } from '../../../features/leveling/logic/levelingCohorts';
 import * as browserTypes from '../../../../web/src/api/types';
 
 /**
@@ -56,7 +62,9 @@ const REMEDY =
  * The nested shapes get their own rows on purpose. `LevelingUserDetail` gates `metrics` and
  * `activityChart` by name alone, which says nothing about what is inside them — a
  * fifteenth metric or a sixth bucket column would leave every parent row green while the
- * panel that reads it renders nothing.
+ * panel that reads it renders nothing. The same holds two levels deep for the insights
+ * body: `cohorts` is one key, and `progression` inside each cohort is another, so the
+ * progression point needs its own row or a new field on it is invisible to this gate.
  */
 const SHAPES = [
     { name: 'LevelingMember', server: LEVELING_MEMBER_KEYS, browser: browserTypes.LEVELING_MEMBER_KEYS },
@@ -95,16 +103,42 @@ const SHAPES = [
         server: LEVELING_USER_DETAIL_KEYS,
         browser: browserTypes.LEVELING_USER_DETAIL_KEYS,
     },
+    {
+        name: 'LevelingLevelReachPoint',
+        server: LEVELING_LEVEL_REACH_POINT_KEYS,
+        browser: browserTypes.LEVELING_LEVEL_REACH_POINT_KEYS,
+    },
+    {
+        name: 'LevelingCohortProgressionPoint',
+        server: LEVELING_COHORT_PROGRESSION_POINT_KEYS,
+        browser: browserTypes.LEVELING_COHORT_PROGRESSION_POINT_KEYS,
+    },
+    {
+        name: 'LevelingCohortSummary',
+        server: LEVELING_COHORT_SUMMARY_KEYS,
+        browser: browserTypes.LEVELING_COHORT_SUMMARY_KEYS,
+    },
+    {
+        name: 'LevelingXpDistribution',
+        server: LEVELING_XP_DISTRIBUTION_KEYS,
+        browser: browserTypes.LEVELING_XP_DISTRIBUTION_KEYS,
+    },
+    {
+        name: 'LevelingInsightsBody',
+        server: LEVELING_INSIGHTS_BODY_KEYS,
+        browser: browserTypes.LEVELING_INSIGHTS_BODY_KEYS,
+    },
 ] as const satisfies readonly { name: string; server: readonly string[]; browser: readonly string[] }[];
 
 /**
- * The two closed vocabularies, gated as vocabularies rather than key lists.
+ * The closed vocabularies, gated as vocabularies rather than key lists.
  *
  * Separate rows because they fail differently from a shape: a member missing from a key
  * list is data the browser cannot read, whereas a value missing from one of these is a
  * value the browser cannot *type* — `?period=` is parsed server-side against its own copy,
- * so a period only one side knows about comes back silently downgraded, and an activity
- * status only the server emits renders as no badge at all.
+ * so a period only one side knows about comes back silently downgraded, an activity
+ * status only the server emits renders as no badge at all, and a cohort only the server
+ * reports draws no line on the progression chart.
  */
 const VOCABULARIES = [
     { name: 'STATS_PERIODS', server: STATS_PERIODS, browser: browserTypes.STATS_PERIODS },
@@ -113,6 +147,7 @@ const VOCABULARIES = [
         server: ACTIVITY_STATUSES,
         browser: browserTypes.ACTIVITY_STATUSES,
     },
+    { name: 'COHORT_KEYS', server: COHORT_KEYS, browser: browserTypes.COHORT_KEYS },
 ] as const satisfies readonly { name: string; server: readonly string[]; browser: readonly string[] }[];
 
 describe('leveling wire shape drift between server and browser', () => {

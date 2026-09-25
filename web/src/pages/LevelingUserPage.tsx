@@ -45,7 +45,8 @@ import { Link, useParams } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { getLevelingUser } from '../api/leveling';
 import { STATS_PERIODS, type LevelingUserDetail, type StatsPeriod } from '../api/types';
-import { CHART_HEIGHT_PX, EMPTY_BAR_HEIGHT_PX, activityChartView } from '../leveling/levelingChart';
+import { ChartBar } from '../leveling/ChartBar';
+import { CHART_HEIGHT_PX, activityChartView } from '../leveling/levelingChart';
 import { memberPresentation, type MemberPresentation } from '../leveling/levelingMember';
 import {
     ACTIVITY_STATUS_PRESENTATION,
@@ -457,9 +458,12 @@ function LoadedStats({
                             style={{ overflowX: 'auto' }}
                         >
                             {chart.bars.map((bar) => (
-                                <Tooltip
+                                <ChartBar
                                     key={bar.activityDate}
-                                    withArrow
+                                    heightPercent={bar.heightPercent}
+                                    filled={bar.total > 0}
+                                    flex="1 1 6px"
+                                    minWidth={4}
                                     /*
                                      * Photos read as a qualifier on the message count, not as a
                                      * fourth peer: they are a flag on a message, so listing them
@@ -471,30 +475,7 @@ function LoadedStats({
                                      * `9/15` reads as a single day holding a week's events.
                                      */
                                     label={`${bucketLabel(bar.activityDate, detail.activityChart.granularity)} · ${bar.total} events — ${bar.messageCount} msg${bar.photoUploadCount > 0 ? ` (${bar.photoUploadCount} with photos)` : ''}, ${bar.reactionCount} reactions, ${bar.voiceSessionCount} voice`}
-                                >
-                                    <div
-                                        style={{
-                                            flex: '1 1 6px',
-                                            minWidth: 4,
-                                            // A percentage of the row's fixed height, so the
-                                            // tallest bar fills it and the rest are honestly
-                                            // proportional to it.
-                                            height: `${bar.heightPercent}%`,
-                                            // An empty bucket keeps a hairline, so the axis
-                                            // reads as a continuous window rather than a row
-                                            // with holes in it. Taken from the chart module,
-                                            // which floors a non-empty bar well above it —
-                                            // hard-coding a second number here is what once
-                                            // made the floor and the hairline the same height.
-                                            minHeight: EMPTY_BAR_HEIGHT_PX,
-                                            borderRadius: 2,
-                                            background:
-                                                bar.total > 0
-                                                    ? 'var(--mantine-color-brand-6)'
-                                                    : 'var(--mantine-color-dark-5)',
-                                        }}
-                                    />
-                                </Tooltip>
+                                />
                             ))}
                         </Group>
                         {chart.allEmpty ? (
