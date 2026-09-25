@@ -11,6 +11,7 @@ import {
     declarationForNewResource,
     postableChannels,
     roleOptionLabel,
+    shouldSeedNameFromAdopted,
     slugifyResourceName,
     uniqueResourceKey,
 } from '../resourceAdoption';
@@ -397,6 +398,47 @@ describe('declarationForAdoptedResource', () => {
         });
 
         expect(declaration.parentKey).toBeUndefined();
+    });
+});
+
+/**
+ * The bug a live run found that 507 green tests did not.
+ *
+ * Adopting a channel left the row bound, showing that channel's label, and carrying a red
+ * `Name required` chip the field gave no way to satisfy. The rule was inline in
+ * `ResourcesPanel.setAdoption`, and the panel has no jsdom tests, so nothing drove it.
+ */
+describe('shouldSeedNameFromAdopted', () => {
+    it('seeds over the generated name nobody chose', () => {
+        expect(
+            shouldSeedNameFromAdopted({
+                currentName: 'new-channel',
+                generatedName: 'new-channel',
+            })
+        ).toBe(true);
+    });
+
+    it('seeds over an emptied name, which is how the combobox is searched', () => {
+        // The reported case: typed `games`, cleared the field to see the full list,
+        // picked a suggestion. Not the generated name any more, so the old rule read it
+        // as a deliberate edit and preserved an empty string.
+        expect(
+            shouldSeedNameFromAdopted({ currentName: '', generatedName: 'new-channel' })
+        ).toBe(true);
+    });
+
+    it('treats whitespace as empty, since the server does', () => {
+        expect(
+            shouldSeedNameFromAdopted({ currentName: '   ', generatedName: 'new-channel' })
+        ).toBe(true);
+    });
+
+    it("leaves a name the operator actually typed", () => {
+        // Still the original point of the guard: having named the row `games`, picking
+        // which channel it is should not rename it.
+        expect(
+            shouldSeedNameFromAdopted({ currentName: 'games', generatedName: 'new-channel' })
+        ).toBe(false);
     });
 });
 

@@ -323,6 +323,37 @@ export function declarationForAdoptedResource(
     return declaration;
 }
 
+/**
+ * Whether adopting should overwrite the name the row currently carries.
+ *
+ * Extracted from `ResourcesPanel.setAdoption` because it was inline there, and being
+ * inline is why nothing caught it getting this wrong: the panel has no jsdom tests, so a
+ * decision living in the component is a decision nothing drives.
+ *
+ * Two cases say yes, and the second is the one that was missing:
+ *
+ *  - **The generated name**, `new-channel` and friends. Nobody chose it, and leaving it
+ *    while the row binds `#rules` tells the operator the wrong name for what install
+ *    will touch.
+ *  - **An empty name.** Searching the combobox means clearing the field — that is how
+ *    you get the full list — so an operator who typed `games`, wiped it to search, and
+ *    picked a suggestion ends up here. The old rule saw "not the generated name" and
+ *    read it as a deliberate edit to preserve, which left the row adopted, displaying
+ *    the adopted object's label, and carrying a red `Name required` chip the field gave
+ *    no way to satisfy.
+ *
+ * Anything else is the operator's own name and is left alone. A blank is nobody's
+ * deliberate choice — `isValidResourceName` and the server both reject it — so there is
+ * no edit to argue with.
+ */
+export function shouldSeedNameFromAdopted(input: {
+    readonly currentName: string;
+    /** What `declarationForNewResource` would have called a fresh row of this kind. */
+    readonly generatedName: string;
+}): boolean {
+    return !input.currentName.trim() || input.currentName === input.generatedName;
+}
+
 export interface NewResourceInput {
     readonly name: string;
     readonly kind: ResourceKind;

@@ -92,6 +92,7 @@ import {
     canHaveParent,
     declarationForAdoptedResource,
     declarationForNewResource,
+    shouldSeedNameFromAdopted,
 } from './resourceAdoption';
 import { RESOURCE_CHIPS } from './resourceChips';
 import { keyForRenamedResource, keyIsStillDerived } from './resourceKeyFollowsName';
@@ -407,9 +408,29 @@ export function ResourcesPanel({
         // cannot disagree about which keys are still ours.
         const patch: Partial<ResourceDeclaration> = { adoptDiscordId: discordId };
 
-        if (target.defaultName === generated.defaultName) {
+        // The rule lives in `resourceAdoption.ts` where the suite can drive it — inline
+        // here is what let it be wrong about an emptied name for a whole release.
+        if (
+            shouldSeedNameFromAdopted({
+                currentName: target.defaultName,
+                generatedName: generated.defaultName,
+            })
+        ) {
             patch.defaultName = adopted.defaultName;
         }
+        /*
+         * The key follows only while it is still derived — asked against the *generated*
+         * name rather than `generated.key`, because that value is de-duplicated against
+         * the rest of the list, so a second unnamed channel holds `new-channel-2` and a
+         * bare equality would never call it untouched. The same predicate decides whether
+         * a rename may carry the key, so adoption and renaming cannot disagree about
+         * which keys are still ours.
+         *
+         * Note this deliberately does **not** get the empty-name exemption above. A key
+         * is identity — node configs may already name it — so `games` surviving onto a
+         * row now called `welcome` is untidy but harmless, while silently renaming a key
+         * something else points at is not. The key stays editable and visible.
+         */
         if (keyIsStillDerived({ ...target, defaultName: generated.defaultName })) {
             patch.key = adopted.key;
         }
@@ -773,14 +794,36 @@ function ResourceRow({
      * of two same-named objects this is. Showing the bare name would make an adopted
      * `#general · in Support` indistinguishable from an adopted `#general · in Lounge`
      * the moment the dropdown closed.
+     *
+     * **Withheld when the declaration has no name**, which is the one case where showing
+     * the label would be a lie rather than a clarification. A row can carry an adoption
+     * and an empty `defaultName` — the save refuses it and `Name required` says so — and
+     * a full-looking field beside that red chip gives the operator nothing to act on.
+     * Better an empty box that agrees with the chip and can be typed into.
+     *
+     * `setAdoption` now seeds the name on adopting an empty row, so this should be
+     * unreachable from the picker. It is kept because the state is still *representable*
+     * — a hand-edited name cleared after adopting reaches it — and the failure mode of
+     * getting this wrong is a form that cannot be submitted or understood.
      */
-    const adoptedLabel = adopting
-        ? adoptOptions.find((option) => option.value === resource.adoptDiscordId)?.label
-        : undefined;
+    const adoptedLabel =
+        adopting && resource.defaultName.trim()
+            ? adoptOptions.find((option) => option.value === resource.adoptDiscordId)?.label
+            : undefined;
 
+    /*
+     * One line each, because two wrap at this column width and a description that wraps
+     * pushes the Key field out of alignment with it — the two sit in a `grow` row and
+     * are read as a pair.
+     *
+     * The adopting line loses "not rename it, not touch its permissions": the permissions
+     * half is already said, at more length and in the place it applies, by the amber
+     * alert below the rules. Saying it twice in one row spends the space that made the
+     * field wrap.
+     */
     const adoptionDescription = adopting
-        ? 'Adopting what you already have. Install will bind to it and leave it alone — not rename it, not touch its permissions.'
-        : `What it gets called. Pick one of the ${adoptingRole ? 'roles' : 'channels'} listed to use that instead of creating a new one.`;
+        ? 'Binds to this. Install leaves it exactly as it is.'
+        : `What it gets called, or pick an existing ${adoptingRole ? 'role' : 'channel'}.`;
 
     /**
      * Set for the one `onChange` Mantine fires as part of committing a selection.
@@ -1025,8 +1068,8 @@ function ResourceRow({
                                  */
                                 description={
                                     keyIsInstalled
-                                        ? "Installed things point at this, so it's fixed now. A rename in Discord won't break it."
-                                        : 'How this flow refers to it. Follows the name until you edit it or install.'
+                                        ? 'Fixed — installed things point at this.'
+                                        : 'Follows the name until you edit it.'
                                 }
                                 value={resource.key}
                                 onChange={(event) => onUpdate({ key: event.currentTarget.value })}
