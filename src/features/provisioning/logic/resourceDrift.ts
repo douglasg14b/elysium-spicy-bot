@@ -1,5 +1,6 @@
 import type { ResourceBindingEntity } from '../data/resourceBindingsSchema';
 import type { ResourceDeclaration, ResourceKind } from './resourceDeclaration';
+import { normaliseResourceName } from './resourceName';
 
 /**
  * Whether a live guild object is still what its journey declared it to be.
@@ -254,7 +255,18 @@ export function detectResourceDrift(input: ResourceDriftInput): ResourceDriftRep
      * object is reported and refused. Chosen over treating an explicit edit as consent —
      * a promise the operator can click through is a weaker promise than the one made.
      */
-    const expectedName = binding.state === 'adopted' ? binding.name : declaration.defaultName;
+    /*
+     * The declared name is normalised the way Discord will store it, so a declaration
+     * saved as `Welcome Mat` before names were normalised on save is compared as
+     * `welcome-mat` — the name install actually created. Without it every such row
+     * reports a rename on a clean install, and repair can never clear it, because
+     * Discord rewrites the repaired name straight back. The adopted side needs nothing:
+     * `binding.name` was read off the live object.
+     */
+    const expectedName =
+        binding.state === 'adopted'
+            ? binding.name
+            : normaliseResourceName(declaration.kind, declaration.defaultName);
 
     if (live.name !== expectedName) {
         drift.push({ kind: 'renamed', declared: expectedName, actual: live.name });

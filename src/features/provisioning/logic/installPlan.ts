@@ -2,6 +2,7 @@ import { ChannelType, PermissionFlagsBits, type Guild } from 'discord.js';
 import type { ResourceBindingEntity } from '../data/resourceBindingsSchema';
 import { parseDeclaredRoleReference } from './declaredRoleReference';
 import { compilePermissionIntents, type PermissionIntentContext } from './permissionIntent';
+import { normaliseResourceName } from './resourceName';
 import {
     orderResourcesForApply,
     assertInstallable,
@@ -249,7 +250,14 @@ export function buildInstallPlan(input: BuildInstallPlanInput): InstallPlan {
 
     for (const resource of orderResourcesForApply(journey.resources)) {
         const choice = choices[resource.key];
-        const name = choice?.name?.trim() || resource.defaultName;
+        // The name Discord will store, so the binding records what the guild holds, a
+        // later drift check compares like with like, and the name match below finds an
+        // existing `#staff-chat` for a declared `Staff Chat` instead of planning a
+        // duplicate beside it.
+        const name = normaliseResourceName(
+            resource.kind,
+            choice?.name?.trim() || resource.defaultName
+        );
         const base = {
             resourceKey: resource.key,
             kind: resource.kind,

@@ -49,7 +49,7 @@
  * are told at the point of editing, which is where the question is actually asked.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import {
     ActionIcon,
@@ -96,6 +96,7 @@ import {
 } from './resourceAdoption';
 import { RESOURCE_CHIPS } from './resourceChips';
 import { keyForRenamedResource, keyIsStillDerived } from './resourceKeyFollowsName';
+import { normaliseResourceName } from './resourceName';
 import { disambiguateOptions, rankSuggestions } from './resourceNameSuggestions';
 import type { ResourceChipJumpTarget } from './resourceChips';
 import { RESOURCE_KIND_ORDER, RESOURCE_KIND_STYLES } from './resourceMeta';
@@ -313,14 +314,18 @@ export function ResourcesPanel({
         const target = resources[index];
         if (!target) return;
 
+        // Normalised as typed, so the field shows the name Discord will store — a space
+        // becomes a hyphen on the keystroke, as it does in Discord's own client.
+        const name = normaliseResourceName(target.kind, nextName);
+
         const nextKey = keyForRenamedResource({
             resource: target,
-            nextName,
+            nextName: name,
             resources,
             installedKeys,
         });
 
-        const patch: Partial<ResourceDeclaration> = { defaultName: nextName };
+        const patch: Partial<ResourceDeclaration> = { defaultName: name };
         // Omitted rather than set to the current key: `applyResourcePatch` reads a `key` in
         // the patch as a rename and rebuilds the list, which would remount every row on
         // each keystroke of the name field.
@@ -845,6 +850,8 @@ function ResourceRow({
      */
     const submittingOption = useRef(false);
 
+    const rememberCaret = useCaretThroughNormalisation(nameRef, resource.defaultName);
+
     /**
      * Picking a suggestion. Adoption, and never anything else.
      *
@@ -882,6 +889,7 @@ function ResourceRow({
             return;
         }
 
+        rememberCaret();
         onRename(next, { clearAdoption: adopting });
     }
 
@@ -1259,6 +1267,43 @@ function useFocusNameOnMount({
 
         return () => window.cancelAnimationFrame(handle);
     }, [focusNameOnMount, expanded, nameRef, onNameFocusHandled]);
+}
+
+/**
+ * Keep the cursor where the operator was typing when the name comes back normalised.
+ *
+ * `renameResource` rewrites the name as it is typed — `Welcome Mat` to `welcome-mat` —
+ * so the value React renders differs from the one the browser just produced. React then
+ * assigns the input's value, and assigning a value moves the caret to the end. Typing a
+ * space into the middle of `welcomemat` would put every following character after `mat`.
+ *
+ * The caret is read in the change handler, while the input still holds what was typed,
+ * and restored in a layout effect, after React has written the normalised value and
+ * before the browser paints. The position carries over unchanged because the rule maps
+ * character for character; it is clamped for the rare lowercase that changes length.
+ *
+ * Returns the function the change handler calls to remember the caret.
+ */
+function useCaretThroughNormalisation(
+    inputRef: RefObject<HTMLInputElement>,
+    name: string
+): () => void {
+    const caret = useRef<number | null>(null);
+
+    useLayoutEffect(() => {
+        const position = caret.current;
+        caret.current = null;
+        const input = inputRef.current;
+        // Only while it still has focus: a caret set on a field someone has left would
+        // do nothing visible, and reaching into it is not this hook's business.
+        if (position === null || !input || document.activeElement !== input) return;
+        const clamped = Math.min(position, input.value.length);
+        input.setSelectionRange(clamped, clamped);
+    }, [inputRef, name]);
+
+    return useCallback(() => {
+        caret.current = inputRef.current?.selectionStart ?? null;
+    }, [inputRef]);
 }
 
 function focusAndSelect(input: HTMLInputElement | null): void {

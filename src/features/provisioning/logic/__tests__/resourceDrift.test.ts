@@ -462,6 +462,38 @@ describe('detectResourceDrift', () => {
             expect(report.repairable).toBe(true);
         });
 
+        /*
+         * A declaration saved before names were normalised on save still reads
+         * `Welcome Mat`, while Discord stored the channel as `welcome-mat`. Compared
+         * exactly, that is a rename on a clean install that repair can never clear —
+         * Discord rewrites the repaired name straight back.
+         */
+        it('compares a text channel by the name Discord stores, not the one typed', () => {
+            const report = detectResourceDrift(
+                input({
+                    declaration: declaration({ defaultName: 'Welcome Mat' }),
+                    binding: binding({ state: 'created', name: 'welcome-mat' }),
+                    live: live({ name: 'welcome-mat' }),
+                })
+            );
+
+            expect(report.drift).toEqual([]);
+        });
+
+        it('still compares a category by its exact name, since Discord keeps its case', () => {
+            const report = detectResourceDrift(
+                input({
+                    declaration: declaration({ kind: 'category', defaultName: 'Front Desk' }),
+                    binding: binding({ kind: 'category', state: 'created', name: 'Front Desk' }),
+                    live: live({ kind: 'category', name: 'front desk' }),
+                })
+            );
+
+            expect(report.drift).toEqual([
+                { kind: 'renamed', declared: 'Front Desk', actual: 'front desk' },
+            ]);
+        });
+
         it('still reports a created resource renamed in Discord', () => {
             // The original direction, which must keep working: the declaration is the
             // reference for a created object regardless of which side moved.
