@@ -87,7 +87,7 @@ export interface InjectedRejection {
 
 type RouteResponse = { readonly status: 200 | 201; readonly body: unknown } | { readonly status: 204 };
 
-type RouteKey = `${'POST' | 'PATCH' | 'PUT'} /${string}`;
+type RouteKey = `${'GET' | 'POST' | 'PATCH' | 'PUT'} /${string}`;
 type RouteParams = Readonly<Record<string, string>>;
 
 /** A checked request, ready to be applied to server state. */
@@ -165,6 +165,18 @@ const createRoleSchema = z.strictObject({
 });
 
 const ROUTES: readonly Route[] = [
+    defineRoute({
+        /*
+         * A read, and the one way to learn what Discord holds without waiting for the
+         * gateway: discord.js replaces each cached channel, overwrites included, with what
+         * comes back. `previewDrift` calls it for exactly that reason.
+         */
+        key: 'GET /guilds/:guildId/channels',
+        schema: z.undefined(),
+        apply(state, params) {
+            return { status: 200, body: state.guildChannels(params.guildId) };
+        },
+    }),
     defineRoute({
         key: 'POST /guilds/:guildId/channels',
         schema: createChannelSchema,
@@ -327,6 +339,22 @@ function answer(state: ServerState, method: string, path: string, rawBody: unkno
     throw new TestDiscordError(`TestDiscord has no handler for ${method} ${path}.`);
 }
 
+/** A response as `@discordjs/rest` types what `makeRequest` resolves with. */
+type RestResponse = Awaited<ReturnType<RESTOptions['makeRequest']>>;
+
+/**
+ * Hand a fetch `Response` to discord.js as the type it declares.
+ *
+ * An identity at runtime, and under the root tsconfig (Node types only) the compiler
+ * accepts the value unaided. `web/e2e` compiles this file with the DOM lib loaded as well,
+ * and there `Response.body` is the DOM's `ReadableStream` while `@discordjs/rest` types it
+ * as `node:stream/web`'s. The two differ only in their declarations: both are Node's fetch
+ * `Response` when the tests run. The cast sits here, once, so no other line needs one.
+ */
+function asRestResponse(response: Response): RestResponse {
+    return response as unknown as RestResponse;
+}
+
 /**
  * A `makeRequest` that answers from server state and records every request it sees.
  *
@@ -347,7 +375,7 @@ export function createRestTransport(
             body = parseBody(init.body, method, path);
             const { status, response } = deferral.deferDuring(() => answer(state, method, path, body));
             log.requests.push({ method, path, body, status });
-            return response;
+            return asRestResponse(response);
         } catch (error) {
             // Every throw here is the harness's own — a gap in what it models, or a request
             // it refuses to guess at — never a Discord answer, which is always a response.

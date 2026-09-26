@@ -138,8 +138,19 @@ export interface PreviewDriftInput {
  *
  * Takes the same permission inputs as the install preview so the comparison compiles
  * the identical models the apply would, for the same reason stated on `previewInstall`.
+ *
+ * **Channels are read from Discord, not from the cache**, in one request. The cache
+ * learns of a permission write only from the gateway event that follows it — Discord
+ * answers the write itself with a bare 204 — so a check straight after a repair could
+ * read the overwrites from before it. The drift dialog re-reads immediately after
+ * repairing, and it showed the operator "Back in line" above the same drift it had
+ * just fixed, with the button to fix it again. The refetch replaces each cached
+ * channel, overwrites included, with what Discord holds now. Roles need no refetch: a
+ * role write answers with the role, which discord.js applies on the spot.
  */
 export async function previewDrift(input: PreviewDriftInput): Promise<JourneyDriftPlan> {
+    await input.guild.channels.fetch();
+
     const bindings = await resourceBindingsRepo.listByJourney(
         input.guild.id,
         input.journey.journeyKey

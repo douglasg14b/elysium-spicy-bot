@@ -430,6 +430,11 @@ export class ServerState {
         return this.locateChannel(channelId).channel;
     }
 
+    /** Every channel in a guild as Discord holds it now, for `GET /guilds/:id/channels`. */
+    guildChannels(guildId: string): ServerChannelPayload[] {
+        return structuredClone([...this.guild(guildId).channels.values()]);
+    }
+
     hasChannel(channelId: string): boolean {
         return this.findChannel(channelId) !== undefined;
     }

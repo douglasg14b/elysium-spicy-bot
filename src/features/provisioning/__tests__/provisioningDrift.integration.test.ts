@@ -41,9 +41,11 @@ import { createProvisioningTestDb, withinDeadlockTimeout } from './support/provi
  *
  * A re-check after a **permission** repair flushes the gateway first. Discord answers that
  * PUT with a bare 204, so the client's cache learns of the change only from the gateway
- * event, and TestDiscord holds REST-caused events back until asked. The flush is the test
- * saying out loud that it is waiting for Discord's announcement — in production the
- * drift dialog re-reads immediately after a repair, with no such wait.
+ * event, and TestDiscord holds REST-caused events back until asked. `previewDrift` no
+ * longer depends on that event — it refetches the guild's channels before comparing —
+ * so the flush settles the cache for the assertions here rather than for the check.
+ * `web/e2e/journeyDrift.test.tsx` is the test that re-reads with no flush, as the
+ * dialog does.
  */
 
 const testDb = await createProvisioningTestDb();
