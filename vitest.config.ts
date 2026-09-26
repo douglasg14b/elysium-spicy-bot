@@ -2,7 +2,37 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
     test: {
-        include: ['**/*.test.ts'],
+        /*
+         * Two projects, split by file extension, because they need different globals.
+         *
+         * `node` is every suite this repo had before component tests: the bot, the API,
+         * and the dashboard's extracted `.ts` logic. `dom` is `web/**\/*.test.tsx` only —
+         * components rendered into jsdom through Testing Library.
+         *
+         * By extension rather than by folder so a component test can sit in the same
+         * `__tests__` directory as the logic test for the module it renders, and so the
+         * 500-odd plain dashboard tests keep running without a DOM they never needed.
+         * jsdom is not free: it is a second of environment setup per file.
+         *
+         * `include` lives on each project rather than up here. `extends: true` merges
+         * the root into each project with array concatenation, so a root `include` would
+         * be *added* to the dom project's and hand it every `.ts` suite as well.
+         */
+        projects: [
+            {
+                extends: true,
+                test: { name: 'node', include: ['**/*.test.ts'] },
+            },
+            {
+                extends: true,
+                test: {
+                    name: 'dom',
+                    include: ['web/src/**/*.test.tsx'],
+                    environment: 'jsdom',
+                    setupFiles: ['./web/src/__tests__/support/setupDom.ts'],
+                },
+            },
+        ],
         /*
          * Replacing `exclude` drops Vitest defaults — keep `node_modules` / `dist` out or
          * `pnpm test` runs dependency suites.
