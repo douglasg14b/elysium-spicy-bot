@@ -92,6 +92,30 @@ function keyIsDerivedFrom(key: string, name: string): boolean {
     return new RegExp(`^${escapeForRegExp(slug)}-\\d+$`).test(key);
 }
 
+/**
+ * Whether the key is still following the name, **including while the name is blank**.
+ *
+ * `keyIsStillDerived` cannot answer for a blank name: nothing derives from an empty slug,
+ * so it says no, and the next name typed would leave the key where it was, permanently.
+ * Names go blank routinely — clearing the field is how the combobox is searched, and a
+ * keystroke on an adopted row starts the name over — so the structural test alone froze
+ * the key on exactly the rows being renamed.
+ *
+ * So the answer is carried across the blank instead: `heldThroughBlankName` says whether
+ * the key was still following at the moment its name went blank, which the caller
+ * records. This is the one exception to the module's rule of remembering no events, and
+ * it is safe as session state because a blank name never persists (the save refuses it).
+ * Across a reload every name is non-blank and the structural test answers again.
+ */
+export function keyIsFollowing(
+    resource: ResourceDeclaration,
+    heldThroughBlankName: boolean
+): boolean {
+    return slugifyResourceName(resource.defaultName)
+        ? keyIsStillDerived(resource)
+        : heldThroughBlankName;
+}
+
 /** Escape a slug for literal use in a pattern. Slugs are `[a-z0-9-]`, but this is cheap. */
 function escapeForRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -118,6 +142,13 @@ export interface KeyFollowInput {
      * alone — see the module header for why that degrades safely.
      */
     readonly installedKeys?: ReadonlySet<string>;
+    /**
+     * Whether the key was still following when this resource's name went blank.
+     *
+     * Only read while the name *is* blank — see `keyIsFollowing`. Omitted means no,
+     * which leaves the key where it is: the safe answer when nobody recorded it.
+     */
+    readonly keyHeldThroughBlankName?: boolean;
 }
 
 /**
@@ -137,7 +168,7 @@ export function keyForRenamedResource(input: KeyFollowInput): string | undefined
     // Still a generated key means nobody has claimed it. Asked against the *current* name
     // rather than any stored original, so a row renamed twice without touching the key
     // keeps following on the third — and `-N` suffixed keys still count as ours.
-    if (!keyIsStillDerived(resource)) return undefined;
+    if (!keyIsFollowing(resource, input.keyHeldThroughBlankName ?? false)) return undefined;
 
     const desired = slugifyResourceName(nextName);
 

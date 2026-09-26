@@ -9,6 +9,7 @@ import {
     channelOptionLabel,
     declarationForAdoptedResource,
     declarationForNewResource,
+    nameTypedOverAdoption,
     postableChannels,
     roleOptionLabel,
     shouldSeedNameFromAdopted,
@@ -439,6 +440,39 @@ describe('shouldSeedNameFromAdopted', () => {
         expect(
             shouldSeedNameFromAdopted({ currentName: 'games', generatedName: 'new-channel' })
         ).toBe(false);
+    });
+});
+
+describe('nameTypedOverAdoption', () => {
+    it('keeps only the character typed at the end of the label', () => {
+        expect(nameTypedOverAdoption({ shown: '#rules', next: '#rulesx', caret: 7 })).toBe('x');
+    });
+
+    it('keeps only the character typed in the middle of the label', () => {
+        expect(nameTypedOverAdoption({ shown: '#rules', next: '#ruxles', caret: 4 })).toBe('x');
+    });
+
+    it('reads an insertion from the caret, so repeated letters cannot shift it', () => {
+        // `ab` pasted after the `#`. A prefix/suffix diff alone would read `ba`.
+        expect(nameTypedOverAdoption({ shown: '#aa', next: '#abaa', caret: 3 })).toBe('ab');
+    });
+
+    it('keeps none of the decoration on a channel adopted inside a category', () => {
+        expect(
+            nameTypedOverAdoption({
+                shown: '#general · in Support',
+                next: '#general · in Supportx',
+                caret: 22,
+            })
+        ).toBe('x');
+    });
+
+    it('empties the field on a deletion, which is the search-everything state', () => {
+        expect(nameTypedOverAdoption({ shown: '#rules', next: '#rule', caret: 5 })).toBe('');
+    });
+
+    it('keeps what replaced a selection', () => {
+        expect(nameTypedOverAdoption({ shown: '#rules', next: 'lobby', caret: 5 })).toBe('lobby');
     });
 });
 

@@ -92,10 +92,16 @@ import {
     canHaveParent,
     declarationForAdoptedResource,
     declarationForNewResource,
+    nameTypedOverAdoption,
     shouldSeedNameFromAdopted,
+    slugifyResourceName,
 } from './resourceAdoption';
 import { RESOURCE_CHIPS } from './resourceChips';
-import { keyForRenamedResource, keyIsStillDerived } from './resourceKeyFollowsName';
+import {
+    keyForRenamedResource,
+    keyIsFollowing,
+    keyIsStillDerived,
+} from './resourceKeyFollowsName';
 import { normaliseResourceName } from './resourceName';
 import { disambiguateOptions, rankSuggestions } from './resourceNameSuggestions';
 import type { ResourceChipJumpTarget } from './resourceChips';
@@ -220,6 +226,13 @@ export function ResourcesPanel({
     const [pendingJump, setPendingJump] = useState<PendingJump | undefined>(undefined);
     /** A freshly added row, whose name field should take focus once it mounts. */
     const [pendingNameFocus, setPendingNameFocus] = useState<number | undefined>(undefined);
+    /**
+     * Keys that were still following their name when the name went blank.
+     *
+     * A ref, not state: it changes no render, only what the next keystroke decides.
+     * Session-only is enough because a blank name never saves.
+     */
+    const keysHeldThroughBlankName = useRef(new Set<string>());
 
     const categories = resources.filter((resource) => resource.kind === 'category');
     const declaredRoles = resources.filter((resource) => resource.kind === 'role');
@@ -318,12 +331,25 @@ export function ResourcesPanel({
         // becomes a hyphen on the keystroke, as it does in Discord's own client.
         const name = normaliseResourceName(target.kind, nextName);
 
+        const heldThroughBlank = keysHeldThroughBlankName.current.has(target.key);
         const nextKey = keyForRenamedResource({
             resource: target,
             nextName: name,
             resources,
             installedKeys,
+            keyHeldThroughBlankName: heldThroughBlank,
         });
+
+        // Whether the key was following is decided on the way *into* a blank name, while
+        // there is still a name to ask — see `keyIsFollowing`. A blank name keeps its key,
+        // so the entry is keyed by the key it holds throughout.
+        if (!slugifyResourceName(name)) {
+            if (keyIsFollowing(target, heldThroughBlank)) {
+                keysHeldThroughBlankName.current.add(target.key);
+            }
+        } else {
+            keysHeldThroughBlankName.current.delete(target.key);
+        }
 
         const patch: Partial<ResourceDeclaration> = { defaultName: name };
         // Omitted rather than set to the current key: `applyResourcePatch` reads a `key` in
@@ -819,6 +845,7 @@ function ResourceRow({
         adopting && resource.defaultName.trim()
             ? adoptOptions.find((option) => option.value === resource.adoptDiscordId)?.label
             : undefined;
+    const shownName = adoptedLabel ?? resource.defaultName;
 
     /*
      * One line each, because two wrap at this column width and a description that wraps
@@ -874,6 +901,11 @@ function ResourceRow({
      * operator has said they want something else, and silently keeping the old binding
      * while showing the new name would be the row lying about what install will touch.
      *
+     * On an adopted row the keystroke **starts the name over** rather than editing the
+     * label it landed in. The label is decoration (`#general · in Support`), so editing
+     * it in place turned it into a name. `nameTypedOverAdoption` keeps only what was
+     * typed.
+     *
      * **One call, not two.** The obvious shape is `onAdopt(undefined)` followed by
      * `onRename(next)`, and it silently loses the first: both derive their next list from
      * the `resources` captured by this render, so the second overwrites rather than
@@ -890,7 +922,14 @@ function ResourceRow({
         }
 
         rememberCaret();
-        onRename(next, { clearAdoption: adopting });
+        const typed = adopting
+            ? nameTypedOverAdoption({
+                  shown: shownName,
+                  next,
+                  caret: nameRef.current?.selectionStart ?? null,
+              })
+            : next;
+        onRename(typed, { clearAdoption: adopting });
     }
 
     // Focus runs after the body has mounted, which is why it is an effect keyed on the
@@ -1023,7 +1062,7 @@ function ResourceRow({
                                 // The adopted object's label once bound, so an adopted
                                 // `#general · in Support` stays distinguishable from an
                                 // adopted `#general · in Lounge` after the dropdown shuts.
-                                value={adoptedLabel ?? resource.defaultName}
+                                value={shownName}
                                 data={suggestionData}
                                 // Typing renames; picking adopts. They are *different
                                 // callbacks* rather than one handler inspecting the text,

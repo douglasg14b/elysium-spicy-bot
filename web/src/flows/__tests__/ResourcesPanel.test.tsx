@@ -121,9 +121,50 @@ describe('ResourcesPanel', () => {
         const name = await openRow(user, 'rules');
         await user.type(name, 'x');
 
-        // Only the adoption is asserted. What the *name* should become is open: the field
-        // shows the adopted label, `#rules`, so the keystroke lands on the decoration too.
         expect(current()[0]?.adoptDiscordId).toBeUndefined();
+        // Starts the name over: the `#` of the label it was typed into is decoration.
+        expect(current()[0]?.defaultName).toBe('x');
+        expect(name.value).toBe('x');
+
+        // And the next keystroke is ordinary typing on a row that is no longer adopted.
+        await user.type(name, 'y');
+        expect(current()[0]?.defaultName).toBe('xy');
+    });
+
+    it('starts over from nothing when an adopted name is backspaced', async () => {
+        const { user, current } = renderPanel({
+            resources: [
+                { key: 'general', kind: 'textChannel', defaultName: 'general', adoptDiscordId: 'c1' },
+            ],
+            channels: [{ id: 'c1', name: 'general', type: 'text', parentId: 'p1', parentName: 'Support' }],
+        });
+
+        const name = await openRow(user, 'general');
+        expect(name.value).toBe('#general · in Support');
+        await user.type(name, '{Backspace}');
+
+        expect(current()[0]).toMatchObject({ defaultName: '' });
+        expect(current()[0]?.adoptDiscordId).toBeUndefined();
+        expect(name.value).toBe('');
+
+        // The key waited through the empty name and follows the new one.
+        await user.type(name, 'lobby');
+        expect(current()[0]).toMatchObject({ defaultName: 'lobby', key: 'lobby' });
+    });
+
+    it('keeps a hand-typed key when the name is cleared and retyped', async () => {
+        const { user, current } = renderPanel({
+            resources: [{ key: 'games', kind: 'textChannel', defaultName: 'games' }],
+        });
+
+        const name = await openRow(user, 'games');
+        const key = screen.getByRole('textbox', { name: 'Key' });
+        await user.clear(key);
+        await user.type(key, 'arcade');
+        await user.clear(name);
+        await user.type(name, 'lobby');
+
+        expect(current()[0]).toMatchObject({ defaultName: 'lobby', key: 'arcade' });
     });
 
     describe('Name taken', () => {
