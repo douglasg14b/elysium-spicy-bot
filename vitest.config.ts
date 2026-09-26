@@ -32,6 +32,21 @@ export default defineConfig({
                     setupFiles: ['./web/src/__tests__/support/setupDom.ts'],
                 },
             },
+            /*
+             * The dashboard against the bot: real components, real API routes, the real
+             * database and real discord.js against TestDiscord, in one test. Under
+             * `web/` so React resolves to the dashboard's copy; see `web/e2e/tsconfig.json`
+             * for why these files have a type-check of their own.
+             */
+            {
+                extends: true,
+                test: {
+                    name: 'e2e',
+                    include: ['web/e2e/**/*.test.tsx'],
+                    environment: 'jsdom',
+                    setupFiles: ['./web/src/__tests__/support/setupDom.ts'],
+                },
+            },
         ],
         /*
          * Replacing `exclude` drops Vitest defaults — keep `node_modules` / `dist` out or

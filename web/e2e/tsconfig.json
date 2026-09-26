@@ -1,0 +1,25 @@
+{
+    // End-to-end tests import the dashboard (JSX, DOM) and the bot (Node, discord.js) in
+    // one file, so neither side's tsconfig can check them: `web/tsconfig.json` has no Node
+    // types and includes only `web/src`, and the root one has no JSX and excludes `web/`.
+    // Run with `pnpm typecheck:e2e`. Server files these tests import are checked here too,
+    // under the dashboard's stricter settings.
+    "compilerOptions": {
+        "target": "ES2022",
+        // `DOM.AsyncIterable` because TestDiscord hands discord.js a fetch `Response`, and
+        // `@discordjs/rest` types its body as Node's async-iterable `ReadableStream`.
+        "lib": ["ES2022", "DOM", "DOM.Iterable", "DOM.AsyncIterable"],
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "jsx": "react-jsx",
+        "strict": true,
+        "noEmit": true,
+        "skipLibCheck": true,
+        "esModuleInterop": true,
+        "resolveJsonModule": true,
+        "isolatedModules": true,
+        "experimentalDecorators": true,
+        "types": ["node"]
+    },
+    "include": ["."]
+}
