@@ -367,12 +367,26 @@ async function repairOne(context: RepairOneInput): Promise<RepairOneResult> {
         try {
             await applyOneDrift({ context, drift, repaired });
         } catch (error) {
+            const refusal =
+                error instanceof Error
+                    ? error.message
+                    : `Discord refused the change to **${report.name}**.`;
+
+            /*
+             * A rename that landed before a later drift failed is still recorded on the
+             * row. Skipping it here used to leave the binding naming the old channel
+             * forever: a created binding's drift compares against the declaration, so
+             * once the guild holds the declared name the rename is never reported again
+             * and nothing else ever corrects the row.
+             */
+            const renameNote = repaired.includes('renamed')
+                ? await recordLandedRename(context)
+                : undefined;
+
             // Carry what already landed out through the throw, so a rename that
             // succeeded before a later drift failed is still reported as done.
             throw new PartialRepairError(
-                error instanceof Error
-                    ? error.message
-                    : `Discord refused the change to **${report.name}**.`,
+                renameNote ? `${refusal} ${renameNote}` : refusal,
                 repaired
             );
         }
@@ -501,10 +515,26 @@ async function applyOneDrift({ context, drift, repaired }: ApplyOneDriftInput): 
 }
 
 /**
+ * Record a rename that landed, on the way out of a repair that then failed.
+ *
+ * The Discord refusal is what the operator needs to see, so a database failure here is
+ * folded into the message rather than thrown over it — reported, not swallowed.
+ */
+async function recordLandedRename(context: RepairOneInput): Promise<string | undefined> {
+    try {
+        return await syncRenamedBinding(context);
+    } catch {
+        return `The server was renamed, but **${context.report.name}**'s record could not be updated to match.`;
+    }
+}
+
+/**
  * Refresh the binding's cached name after a successful rename.
  *
- * Runs last, so a failed guild write never leaves the row claiming a change that did
- * not happen. Returns a note when the row would not take the update.
+ * Called only once the guild write has landed, so the row never claims a change that
+ * did not happen — including when a later drift on the same resource fails, which is
+ * {@link recordLandedRename}'s job. Returns a note when the row would not take the
+ * update.
  */
 async function syncRenamedBinding(context: RepairOneInput): Promise<string | undefined> {
     const { report, repo } = context;
