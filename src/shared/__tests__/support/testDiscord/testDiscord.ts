@@ -3,7 +3,7 @@ import { GatewayLink } from './gateway';
 import { ServerGuild } from './handles';
 import { createRestTransport, type RecordedRequest, type TransportLog } from './restRouter';
 import { ServerState } from './serverState';
-import { createTestClient } from './testClient';
+import { createTestClient, redirectToTransport } from './testClient';
 import { TestDiscordError } from './testDiscordError';
 
 export interface CreateGuildOptions {
@@ -64,17 +64,30 @@ export class TestDiscord {
     }
 
     /**
+     * Faults recorded so far, oldest first. {@link destroy} rethrows them; a process that
+     * never destroys, such as the dashboard preview server, reads them here instead.
+     */
+    get faults(): readonly Error[] {
+        return this.log.faults;
+    }
+
+    /**
      * Connect a client: gateway handshake, then every later change is dispatched to it.
      *
      * Takes no bot yet. Provisioning drives service functions with a `Guild` rather than
      * booting the bot, so this returns the client for {@link clientGuild} to read from.
+     *
+     * `options.client` drives a client product code already holds instead of a new one,
+     * for code that reads `DISCORD_CLIENT` rather than being handed a guild. It must never
+     * have been logged in.
      */
-    async start(): Promise<Client<true>> {
+    async start(options: { readonly client?: Client } = {}): Promise<Client<true>> {
         if (this.client) {
             throw new TestDiscordError('TestDiscord is already started.');
         }
 
-        const client = createTestClient(createRestTransport(this.state, this.log, this.gateway));
+        const transport = createRestTransport(this.state, this.log, this.gateway);
+        const client = options.client ? redirectToTransport(options.client, transport) : createTestClient(transport);
         try {
             this.gateway.connect(client);
         } catch (error) {

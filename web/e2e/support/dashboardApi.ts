@@ -1,8 +1,6 @@
 import type { Client } from 'discord.js';
-import { Hono } from 'hono';
 import { onTestFinished, vi } from 'vitest';
-import { journeyRoutes } from '../../../src/web/api/journeyRoutes';
-import type { AppEnv } from '../../../src/web/types';
+import { buildDashboardApp, type DashboardOperator } from './dashboardApp';
 
 /** A request the dashboard sent, as the bot's API received it. */
 export interface DashboardRequest {
@@ -16,55 +14,24 @@ export interface DashboardApi {
     readonly requests: readonly DashboardRequest[];
 }
 
+/** Signed in when a test does not say who. Not a guild member; a test that needs one passes it. */
+const DEFAULT_OPERATOR: DashboardOperator = { id: '100000000000000001', username: 'e2e-operator' };
+
 /**
  * Serve the dashboard's `fetch` from the bot's real API routes, for one test.
  *
- * The routes, the provisioning engine behind them, the database and discord.js are all
- * the production modules. Two things are replaced:
+ * The routes, the engines behind them, the database and discord.js are all the
+ * production modules; {@link buildDashboardApp} says what is replaced. The network is too:
+ * `fetch` is handed to Hono's `app.request` directly, so no port is bound.
  *
- *  - **The network.** `fetch` is handed to Hono's `app.request` directly, so no port is
- *    bound.
- *  - **Authentication.** `requireAuth` and `requireGuildAccess` need a session cookie and
- *    Discord OAuth. This resolves the guild from `client` instead, the way
- *    `requireGuildAccess` resolves it from the bot's cache, and sets it on the context
- *    where every guild route reads it. Who may reach a guild is not under test here; the
- *    middleware has its own suite.
- *
- * Only the routers a test needs are mounted, so a new dashboard call fails loudly
- * instead of reaching something half-wired.
- *
- * **Anything the product would not normally answer is a fault**: a route that isn't
- * mounted, a guild the client does not hold, or an unhandled exception in a route. The
- * dashboard turns every one of those into a quiet error message, so each is recorded
- * and rethrown when the test finishes. Designed refusals (4xx a route returns itself)
- * reach the component as normal. This is the rule `installFakeApi` and TestDiscord
- * follow too.
+ * Every fault the app reports is recorded and rethrown when the test finishes, because
+ * the dashboard turns each into a quiet error message and a test could otherwise pass
+ * for the wrong reason. This is the rule `installFakeApi` and TestDiscord follow too.
  */
-export function installDashboardApi(client: Client<true>): DashboardApi {
+export function installDashboardApi(client: Client<true>, operator: DashboardOperator = DEFAULT_OPERATOR): DashboardApi {
     const requests: DashboardRequest[] = [];
     const faults: string[] = [];
-
-    const app = new Hono<AppEnv>();
-
-    app.use('/api/guilds/:guildId/*', async (c, next) => {
-        const guild = client.guilds.cache.get(c.req.param('guildId'));
-        if (!guild) {
-            faults.push(`${c.req.method} ${c.req.path}: the client holds no guild ${c.req.param('guildId')}`);
-            return c.json({ error: 'Unknown guild.' }, 404);
-        }
-        c.set('guild', guild);
-        await next();
-    });
-    app.route('/api/guilds', journeyRoutes());
-
-    app.notFound((c) => {
-        faults.push(`${c.req.method} ${c.req.path}: no route is mounted for this`);
-        return c.json({ error: 'Not found.' }, 404);
-    });
-    app.onError((error, c) => {
-        faults.push(`${c.req.method} ${c.req.path}: ${error.stack ?? String(error)}`);
-        return c.json({ error: 'Internal error.' }, 500);
-    });
+    const app = buildDashboardApp({ client, operator, onFault: (fault) => faults.push(fault) });
 
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         const url = new URL(typeof input === 'string' ? input : input.toString(), 'http://dashboard.test');
