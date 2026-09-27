@@ -1,4 +1,4 @@
-import type { Client, Guild, PermissionsString } from 'discord.js';
+import { GatewayIntentBits, type Client, type Guild, type PermissionsString } from 'discord.js';
 import { GatewayLink } from './gateway';
 import { ServerGuild } from './handles';
 import { createRestTransport, type RecordedRequest, type TransportLog } from './restRouter';
@@ -103,6 +103,9 @@ export class TestDiscord {
         }
 
         this.state.connect(this.gateway);
+        // Discord sends MESSAGE_* events only to a client that asked for them, and the
+        // harness does not model them — so message writes fault for a client that asked.
+        this.state.messages.setClientReceivesMessageEvents(client.options.intents.has(GatewayIntentBits.GuildMessages));
         this.client = client;
         return client;
     }

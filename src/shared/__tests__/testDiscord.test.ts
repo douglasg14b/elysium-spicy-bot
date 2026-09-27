@@ -66,10 +66,10 @@ function cachedTextChannel(guild: Guild, channelId: string): TextChannel {
 
 describe('TestDiscord refuses what it does not model', () => {
     it('throws on a route it has no handler for, naming the method and path', async () => {
-        const { discord, channel, liveGuild } = await startedGuild();
+        const { discord, guild, liveGuild } = await startedGuild();
 
-        await expect(cachedChannel(liveGuild, channel.id).delete()).rejects.toThrow(
-            `TestDiscord has no handler for DELETE /channels/${channel.id}`
+        await expect(liveGuild.setName('renamed-guild')).rejects.toThrow(
+            `TestDiscord has no handler for PATCH /guilds/${guild.id}`
         );
 
         // Recorded as well as thrown, so a gap product code swallowed still fails the test.
@@ -77,13 +77,19 @@ describe('TestDiscord refuses what it does not model', () => {
     });
 
     it('fails at destroy when product code swallows the gap', async () => {
-        const { discord, channel, liveGuild } = await startedGuild();
+        const { discord, liveGuild } = await startedGuild();
 
-        await cachedChannel(liveGuild, channel.id)
-            .delete()
-            .catch(() => undefined);
+        await liveGuild.setName('renamed-guild').catch(() => undefined);
 
-        await expect(discord.destroy()).rejects.toThrow(/no handler for DELETE/);
+        await expect(discord.destroy()).rejects.toThrow(/no handler for PATCH/);
+    });
+
+    it('refuses to delete a category that still holds channels, rather than guessing at the orphaning', async () => {
+        const { discord, category, liveGuild } = await startedGuild();
+
+        await expect(cachedChannel(liveGuild, category.id).delete()).rejects.toThrow(/would orphan its channels/);
+        expect(category.exists).toBe(true);
+        await expect(discord.destroy()).rejects.toThrow(TestDiscordError);
     });
 
     it('throws on a body field its handler does not model', async () => {
@@ -158,6 +164,22 @@ describe('TestDiscord keeps the client in step with the server', () => {
 
         expect(channel.exists).toBe(false);
         expect(liveGuild.channels.cache.has(channel.id)).toBe(false);
+    });
+
+    it('deletes a channel the bot asks to delete, and the held CHANNEL_DELETE agrees', async () => {
+        const { discord, category, channel, liveGuild } = await startedGuild();
+
+        await cachedChannel(liveGuild, channel.id).delete('tidying up');
+        // Children first, then the category, which is what lets the category go.
+        await cachedChannel(liveGuild, category.id).delete('tidying up');
+        discord.flushGateway();
+
+        expect(channel.exists).toBe(false);
+        expect(category.exists).toBe(false);
+        expect(liveGuild.channels.cache.has(channel.id)).toBe(false);
+        expect(discord.writesTo(channel)).toEqual([
+            { method: 'DELETE', path: `/channels/${channel.id}`, body: undefined, status: 200 },
+        ]);
     });
 
     it('throws when a dispatch does not reach the cache, instead of passing silently', async () => {

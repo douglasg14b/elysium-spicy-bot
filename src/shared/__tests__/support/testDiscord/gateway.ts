@@ -98,6 +98,17 @@ function describeMismatch(client: Client, event: HarnessEvent): string | undefin
         case GatewayDispatchEvents.ChannelDelete:
             return client.channels.cache.has(event.d.id) ? `the client still holds channel ${event.d.id}` : undefined;
 
+        case GatewayDispatchEvents.ChannelPinsUpdate: {
+            const channel = client.channels.cache.get(event.d.channel_id);
+            const expected = event.d.last_pin_timestamp ? Date.parse(event.d.last_pin_timestamp) : null;
+            if (!channel?.isTextBased() || !('lastPinTimestamp' in channel)) {
+                return `the client holds no text channel ${event.d.channel_id} to record a pin on`;
+            }
+            return channel.lastPinTimestamp === expected
+                ? undefined
+                : `channel ${event.d.channel_id} records its last pin at ${channel.lastPinTimestamp}, Discord holds ${expected}`;
+        }
+
         case GatewayDispatchEvents.GuildRoleCreate: {
             const role = client.guilds.cache.get(event.d.guild_id)?.roles.cache.get(event.d.role.id);
             return role?.name === event.d.role.name ? undefined : `the client holds no role ${event.d.role.id}`;

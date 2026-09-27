@@ -1,5 +1,6 @@
 import { ChannelType, OverwriteType, RESTJSONErrorCodes, type RESTOptions } from 'discord.js';
 import { z } from 'zod';
+import { createMessageSchema, editMessageSchema } from './messageSchemas';
 import type { ServerState } from './serverState';
 import { TestDiscordError } from './testDiscordError';
 
@@ -10,7 +11,7 @@ import { TestDiscordError } from './testDiscordError';
  * touches no global dispatcher — so suites run in parallel without sharing an intercept,
  * and nothing here can reach the network.
  *
- * **Only the routes provisioning actually calls are modelled**, and every request body is
+ * **Only the routes provisioning and the ticket lifecycle actually call are modelled**, and every request body is
  * parsed strictly. An unmatched route, or a body carrying a field no handler models,
  * throws a {@link TestDiscordError} naming it. The alternative — a quiet 404 or an empty
  * success — would turn a new API call in product code into a passing test, which is the
@@ -85,9 +86,19 @@ export interface InjectedRejection {
     readonly route?: ChannelWriteRoute;
 }
 
-type RouteResponse = { readonly status: 200 | 201; readonly body: unknown } | { readonly status: 204 };
+/** The body Discord answers a refusal with, which `DiscordAPIError` parses. */
+interface DiscordErrorBody {
+    readonly code: RESTJSONErrorCodes;
+    readonly message: string;
+}
 
-type RouteKey = `${'GET' | 'POST' | 'PATCH' | 'PUT'} /${string}`;
+type RouteResponse =
+    | { readonly status: 200 | 201; readonly body: unknown }
+    | { readonly status: 204 }
+    /** Only for an object that does not exist — Discord's answer there is certain; anything else faults. */
+    | { readonly status: 404; readonly body: DiscordErrorBody };
+
+type RouteKey = `${'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'} /${string}`;
 type RouteParams = Readonly<Record<string, string>>;
 
 /** A checked request, ready to be applied to server state. */
@@ -219,6 +230,23 @@ const ROUTES: readonly Route[] = [
         },
     }),
     defineRoute({
+        /*
+         * Discord answers with the channel as it was, and announces CHANNEL_DELETE. The
+         * audit-log reason travels as a header, which the harness does not record.
+         *
+         * A category that still holds channels is refused: Discord would orphan them with
+         * a CHANNEL_UPDATE each, and the harness does not model that cascade.
+         */
+        key: 'DELETE /channels/:channelId',
+        schema: z.undefined(),
+        validate(state, params) {
+            state.checkDeleteChannel(params.channelId);
+        },
+        apply(state, params) {
+            return { status: 200, body: state.deleteChannel(params.channelId) };
+        },
+    }),
+    defineRoute({
         key: 'PATCH /channels/:channelId',
         schema: editChannelSchema,
         validate(state, params, body) {
@@ -263,7 +291,114 @@ const ROUTES: readonly Route[] = [
             return { status: 204 };
         },
     }),
+    defineRoute({
+        /*
+         * A read discord.js makes only when the channel is not in its cache —
+         * `guild.channels.fetch(id)` answers from the cache otherwise. So in practice it is
+         * how product code finds out a channel is gone: a deleted channel has already left
+         * the cache with its CHANNEL_DELETE, and Discord answers the fetch with 10003.
+         */
+        key: 'GET /channels/:channelId',
+        schema: z.undefined(),
+        apply(state, params) {
+            if (!state.hasChannel(params.channelId)) return unknownChannel();
+            return { status: 200, body: structuredClone(state.channel(params.channelId)) };
+        },
+    }),
+    defineRoute({
+        /*
+         * Discord answers 200 with the message. It announces MESSAGE_CREATE only to a
+         * client holding the GuildMessages intent, which the harness client does not —
+         * see `ServerMessages` for the fault that keeps that honest.
+         */
+        key: 'POST /channels/:channelId/messages',
+        schema: createMessageSchema,
+        validate(state, params, body) {
+            if (state.hasChannel(params.channelId)) state.messages.checkSend(params.channelId, body);
+        },
+        apply(state, params, body) {
+            if (!state.hasChannel(params.channelId)) return unknownChannel();
+            return { status: 200, body: state.messages.send(params.channelId, body) };
+        },
+    }),
+    defineRoute({
+        /* Like the channel read: discord.js asks only when the message is not cached. */
+        key: 'GET /channels/:channelId/messages/:messageId',
+        schema: z.undefined(),
+        validate(_state, params) {
+            requireMessageId(params);
+        },
+        apply(state, params) {
+            return missingMessage(state, params) ?? {
+                status: 200,
+                body: state.messages.find(params.channelId, params.messageId),
+            };
+        },
+    }),
+    defineRoute({
+        key: 'PATCH /channels/:channelId/messages/:messageId',
+        schema: editMessageSchema,
+        validate(state, params, body) {
+            requireMessageId(params);
+            if (!missingMessage(state, params)) state.messages.checkEdit(params.channelId, params.messageId, body);
+        },
+        apply(state, params, body) {
+            return missingMessage(state, params) ?? {
+                status: 200,
+                body: state.messages.edit(params.channelId, params.messageId, body),
+            };
+        },
+    }),
+    defineRoute({
+        /*
+         * The pin route discord.js 14.23 calls; the older `/channels/:id/pins/:id` is
+         * deprecated and deliberately not answered, so a client that fell back to it would
+         * fault rather than pass. Discord answers 204, posts its pin notice, and announces
+         * CHANNEL_PINS_UPDATE, which the Guilds intent delivers.
+         */
+        key: 'PUT /channels/:channelId/messages/pins/:messageId',
+        schema: z.undefined(),
+        validate(state, params) {
+            if (!missingMessage(state, params)) state.messages.checkPin(params.channelId, params.messageId);
+        },
+        apply(state, params) {
+            const missing = missingMessage(state, params);
+            if (missing) return missing;
+            state.messages.pin(params.channelId, params.messageId);
+            return { status: 204 };
+        },
+    }),
 ];
+
+/** Discord's answer for a channel it does not hold: a 404 carrying 10003. */
+function unknownChannel(): RouteResponse {
+    return { status: 404, body: { code: RESTJSONErrorCodes.UnknownChannel, message: 'Unknown Channel' } };
+}
+
+/**
+ * Refuse a path whose message segment is not a message id.
+ *
+ * `/channels/:id/messages/pins` — listing a channel's pins — has the same shape as a
+ * single-message path, and answering it as "Unknown Message" would be a plausible default
+ * for a call the harness does not model.
+ */
+function requireMessageId(params: RouteParams): void {
+    if (!/^\d{17,20}$/.test(params.messageId ?? '')) {
+        throw new TestDiscordError(
+            `TestDiscord received /channels/${params.channelId}/messages/${params.messageId}, which does not name a message. That route is not modelled.`
+        );
+    }
+}
+
+/** The 404 for whichever of a message's channel or the message itself Discord does not hold. */
+function missingMessage(state: ServerState, params: RouteParams): RouteResponse | undefined {
+    const channelId = params.channelId ?? '';
+    if (!state.hasChannel(channelId)) return unknownChannel();
+    if (!state.messages.find(channelId, params.messageId ?? '')) {
+        return { status: 404, body: { code: RESTJSONErrorCodes.UnknownMessage, message: 'Unknown Message' } };
+    }
+    return undefined;
+}
 
 /** Path params when `path` fits the route's template, otherwise undefined. */
 function matchRoute(route: Route, method: string, path: string): RouteParams | undefined {
@@ -311,6 +446,9 @@ function jsonResponse(status: number, payload: unknown): Response {
 
 /** The injected rejection that applies to this request, if any. */
 function rejectionFor(state: ServerState, route: Route, params: RouteParams): InjectedRejection | undefined {
+    // A rejection refuses writes. A read of a refused channel still answers, as it would
+    // for a bot that may view a channel but not manage it.
+    if (route.key.startsWith('GET ')) return undefined;
     const rejection = params.channelId ? state.rejectionFor(params.channelId) : undefined;
     if (!rejection) return undefined;
     return !rejection.route || rejection.route === route.key ? rejection : undefined;

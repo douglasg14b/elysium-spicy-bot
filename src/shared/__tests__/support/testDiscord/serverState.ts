@@ -20,12 +20,14 @@ import {
     type APIRole,
     type APITextChannel,
     type APIUser,
+    type GatewayChannelPinsUpdateDispatchData,
     type GatewayGuildCreateDispatchData,
     type GatewayGuildMemberAddDispatchData,
     type GatewayGuildRoleModifyDispatchData,
     type GatewayReadyDispatchData,
     type PermissionsString,
 } from 'discord.js';
+import { ServerMessages } from './messageState';
 import type { InjectedRejection } from './restRouter';
 import { TestDiscordError } from './testDiscordError';
 
@@ -50,6 +52,7 @@ export type HarnessEvent =
     | { readonly t: GatewayDispatchEvents.ChannelCreate; readonly d: ServerChannelPayload }
     | { readonly t: GatewayDispatchEvents.ChannelUpdate; readonly d: ServerChannelPayload }
     | { readonly t: GatewayDispatchEvents.ChannelDelete; readonly d: ServerChannelPayload }
+    | { readonly t: GatewayDispatchEvents.ChannelPinsUpdate; readonly d: GatewayChannelPinsUpdateDispatchData }
     | { readonly t: GatewayDispatchEvents.GuildRoleCreate; readonly d: GatewayGuildRoleModifyDispatchData }
     | { readonly t: GatewayDispatchEvents.GuildMemberAdd; readonly d: GatewayGuildMemberAddDispatchData }
     | { readonly t: GatewayDispatchEvents.GuildCreate; readonly d: GatewayGuildCreateDispatchData };
@@ -183,6 +186,9 @@ function assertStoredVerbatim(type: ModelledChannelType, name: string): void {
 export class ServerState {
     /** The one bot every guild here has installed. */
     readonly botUser: APIUser;
+
+    /** Every channel's messages. Publishes through this state's sink, so events cannot take a second route. */
+    readonly messages = new ServerMessages(this, (event) => this.sink?.publish(event));
 
     private readonly guilds = new Map<string, GuildRecord>();
     private readonly rejections = new Map<string, InjectedRejection>();
@@ -367,8 +373,12 @@ export class ServerState {
         this.sink?.publish({ t: GatewayDispatchEvents.ChannelUpdate, d: structuredClone(channel) });
     }
 
-    deleteChannel(channelId: string): void {
-        const { guild, channel } = this.locateChannel(channelId);
+    /**
+     * Refuse a delete the harness cannot model. Reads only; public for the same reason as
+     * {@link checkNewChannel}.
+     */
+    checkDeleteChannel(channelId: string): void {
+        const { guild } = this.locateChannel(channelId);
 
         // Deleting a category orphans its children, which Discord announces as a
         // CHANNEL_UPDATE per child. Unmodelled, so refused rather than half-done.
@@ -380,10 +390,17 @@ export class ServerState {
                 `Deleting category ${channelId} would orphan its channels, which the harness does not model. Move or delete them first.`
             );
         }
+    }
+
+    /** Remove a channel, answering with it as it was: Discord's DELETE returns the deleted channel. */
+    deleteChannel(channelId: string): ServerChannelPayload {
+        this.checkDeleteChannel(channelId);
+        const { guild, channel } = this.locateChannel(channelId);
 
         guild.channels.delete(channelId);
         this.rejections.delete(channelId);
         this.sink?.publish({ t: GatewayDispatchEvents.ChannelDelete, d: structuredClone(channel) });
+        return structuredClone(channel);
     }
 
     /**
@@ -428,6 +445,28 @@ export class ServerState {
 
     channel(channelId: string): Readonly<ServerChannelPayload> {
         return this.locateChannel(channelId).channel;
+    }
+
+    /**
+     * Record a text channel's newest message, or its newest pin, as Discord does on each.
+     *
+     * No CHANNEL_UPDATE: Discord announces these as MESSAGE_CREATE and CHANNEL_PINS_UPDATE,
+     * never as a change to the channel, so this updates what a fetch returns and nothing
+     * else. The pin's own event is `ServerMessages`' to publish.
+     */
+    noteChannelActivity(
+        channelId: string,
+        activity: { readonly lastMessageId?: string; readonly lastPinTimestamp?: string }
+    ): void {
+        const { channel } = this.locateChannel(channelId);
+        if (channel.type !== ChannelType.GuildText) return;
+        if (activity.lastMessageId !== undefined) channel.last_message_id = activity.lastMessageId;
+        if (activity.lastPinTimestamp !== undefined) channel.last_pin_timestamp = activity.lastPinTimestamp;
+    }
+
+    /** A member of a guild, or undefined when the user is not in it. */
+    member(guildId: string, userId: string): Readonly<APIGuildMember> | undefined {
+        return this.guild(guildId).members.get(userId);
     }
 
     /** Every channel in a guild as Discord holds it now, for `GET /guilds/:id/channels`. */

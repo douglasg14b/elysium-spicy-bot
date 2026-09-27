@@ -9,5 +9,6 @@ export type {
     ServerMember,
     ServerRole,
 } from './handles';
+export type { ServerMessageView } from './messageState';
 export type { ChannelWriteRoute, InjectedRejection, RecordedRequest } from './restRouter';
 export { TestDiscordError } from './testDiscordError';

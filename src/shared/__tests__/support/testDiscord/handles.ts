@@ -5,6 +5,7 @@ import {
     type APIOverwrite,
     type PermissionsString,
 } from 'discord.js';
+import { toMessageView, type ServerMessageView } from './messageState';
 import type { InjectedRejection } from './restRouter';
 import type { ModelledChannelType, ServerState } from './serverState';
 import { TestDiscordError } from './testDiscordError';
@@ -98,6 +99,22 @@ export class ServerChannel {
 
     overwriteFor(target: OverwriteTarget): OverwriteView | undefined {
         return this.overwrites.find((overwrite) => overwrite.id === target.id);
+    }
+
+    /** Every message Discord holds here, oldest first — the bot's and the notices Discord posts itself. */
+    get messages(): readonly ServerMessageView[] {
+        // Throws for a channel Discord no longer holds, rather than reading out its old messages.
+        this.state.channel(this.id);
+        return this.state.messages.inChannel(this.id).map(toMessageView);
+    }
+
+    /** One message Discord holds here, as it is now. */
+    message(messageId: string): ServerMessageView {
+        const found = this.messages.find((message) => message.id === messageId);
+        if (!found) {
+            throw new TestDiscordError(`Channel ${this.id} holds no message ${messageId}.`);
+        }
+        return found;
     }
 
     /** Whether Discord still holds this channel. */
