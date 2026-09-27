@@ -2,16 +2,19 @@ import {
     AppShell,
     Avatar,
     Badge,
+    Burger,
     Group,
     Image,
     Menu,
     NavLink,
     Stack,
     Text,
+    Tooltip,
     UnstyledButton,
     Loader,
     Center,
 } from '@mantine/core';
+import { useDisclosure } from '@mantine/hooks';
 import {
     IconChartBar,
     IconShieldHalf,
@@ -63,15 +66,22 @@ export function DashboardLayout() {
     const { name: botName, logoUrl } = useBotIdentity();
     const { selected, loading } = useGuilds();
     const location = useLocation();
+    const [navOpened, { toggle: toggleNav, close: closeNav }] = useDisclosure();
 
     return (
-        <AppShell header={{ height: 56 }} navbar={{ width: 264, breakpoint: 'sm' }} padding="md" bg="dark.9">
+        <AppShell
+            header={{ height: 56 }}
+            navbar={{ width: 264, breakpoint: 'sm', collapsed: { mobile: !navOpened } }}
+            padding="md"
+            bg="dark.9"
+        >
             <AppShell.Header bg="dark.8">
                 <Group h="100%" px="md" justify="space-between">
                     <Group gap="sm">
+                        <Burger opened={navOpened} onClick={toggleNav} hiddenFrom="sm" size="sm" />
                         <Image src={logoUrl} alt={botName} h={40} w={40} radius="md" fit="contain" />
                         <Wordmark fw={700} size="16px" />
-                        <Badge variant="outline" color="gray" radius="xl" size="sm">
+                        <Badge variant="outline" color="gray" radius="xl" size="sm" visibleFrom="xs">
                             18+ Admin
                         </Badge>
                     </Group>
@@ -103,7 +113,7 @@ export function DashboardLayout() {
                                             <Text size="13px" fw={600}>
                                                 {user.username}
                                             </Text>
-                                            <Text size="11px" c="green">
+                                            <Text size="11px" c="green" visibleFrom="xs">
                                                 ● Connected via Discord
                                             </Text>
                                         </Stack>
@@ -149,9 +159,11 @@ export function DashboardLayout() {
                                     {monogram(selected.name)}
                                 </Avatar>
                                 <Stack gap={0} style={{ overflow: 'hidden' }}>
-                                    <Text size="13.5px" fw={600} truncate>
-                                        {selected.name}
-                                    </Text>
+                                    <Tooltip label={selected.name} openDelay={300} withinPortal>
+                                        <Text size="13.5px" fw={600} truncate>
+                                            {selected.name}
+                                        </Text>
+                                    </Tooltip>
                                     <Text size="11px" c="dark.2">
                                         {selected.memberCount.toLocaleString()} members
                                     </Text>
@@ -198,6 +210,7 @@ export function DashboardLayout() {
                                 active={location.pathname === entry.to}
                                 variant="filled"
                                 color="brand"
+                                onClick={closeNav}
                                 rightSection={
                                     entry.isNew ? (
                                         <Badge size="xs" color="brand" variant="filled" radius="xl">

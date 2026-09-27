@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ResourceDeclaration } from '../../api/types';
-import { keyForRenamedResource, keyIsStillDerived } from '../resourceKeyFollowsName';
+import { keyForRenamedResource, keyIsFollowing, keyIsStillDerived } from '../resourceKeyFollowsName';
 
 function channel(key: string, defaultName: string): ResourceDeclaration {
     return { key, kind: 'textChannel', defaultName };
@@ -35,6 +35,18 @@ describe('keyIsStillDerived', () => {
         // derived from a name that derives nothing.
         expect(keyIsStillDerived(channel('resource-2', '!!!'))).toBe(false);
         expect(keyIsStillDerived(channel('welcome', ''))).toBe(false);
+    });
+});
+
+describe('keyIsFollowing', () => {
+    it('asks the name while there is one, whatever was recorded', () => {
+        expect(keyIsFollowing(channel('welcome', 'Welcome'), false)).toBe(true);
+        expect(keyIsFollowing(channel('lobby', 'Welcome'), true)).toBe(false);
+    });
+
+    it('answers from the record while the name is blank', () => {
+        expect(keyIsFollowing(channel('welcome', ''), true)).toBe(true);
+        expect(keyIsFollowing(channel('welcome', '!!!'), false)).toBe(false);
     });
 });
 
@@ -161,6 +173,29 @@ describe('keyForRenamedResource', () => {
                 nextName: '',
                 resources: [resource],
             })
+        ).toBeUndefined();
+    });
+
+    it('resumes following once a blank name means something again, if it was held', () => {
+        // The documented intent of holding the key, which the structural test alone
+        // could not deliver: from a blank name nothing looks derived.
+        const blank = channel('welcome', '');
+
+        expect(
+            keyForRenamedResource({
+                resource: blank,
+                nextName: 'lobby',
+                resources: [blank],
+                keyHeldThroughBlankName: true,
+            })
+        ).toBe('lobby');
+    });
+
+    it('stays put after a blank name when nobody recorded it as following', () => {
+        const blank = channel('arcade', '');
+
+        expect(
+            keyForRenamedResource({ resource: blank, nextName: 'lobby', resources: [blank] })
         ).toBeUndefined();
     });
 

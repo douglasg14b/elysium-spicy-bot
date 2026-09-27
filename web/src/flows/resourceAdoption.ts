@@ -354,6 +354,59 @@ export function shouldSeedNameFromAdopted(input: {
     return !input.currentName.trim() || input.currentName === input.generatedName;
 }
 
+/**
+ * The name a row gets when someone types into it while it is adopted: **only what they
+ * typed**, never the label it was typed into.
+ *
+ * An adopted row's field shows the adopted object's label — `#rules`, or
+ * `#general · in Support` — because that is what identifies it. The label is decoration,
+ * not a name, so editing it in place produced names like `#rulesx` and
+ * `#general-·-in-supportx`. Typing on an adopted row now means starting over: `x` gives
+ * `x`, and a deletion gives an empty field, which is the search-everything state.
+ *
+ * The input only reports its whole new value, so what was typed is recovered by
+ * comparing that value with `shown`, what the field held before:
+ *
+ *  - **An insertion** — typing or pasting with nothing selected — is exact. The caret
+ *    sits just after the inserted text and the growth in length says how much there
+ *    was, so the segment is sliced out directly. This is the common case.
+ *  - **Anything else** (a selection replaced, a deletion) takes what lies between the
+ *    longest shared prefix and the longest shared suffix. For a deletion that is empty,
+ *    which is the intended result. For a replacement, a run of repeated characters at
+ *    its edge can shift where the segment is read from. The length is still right, and
+ *    the operator sees the result straight away.
+ */
+export function nameTypedOverAdoption(input: {
+    /** What the field showed before the keystroke: the adopted label. */
+    readonly shown: string;
+    /** What the field holds now. */
+    readonly next: string;
+    /** The caret after the keystroke, when the input could report it. */
+    readonly caret: number | null;
+}): string {
+    const { shown, next, caret } = input;
+    const grownBy = next.length - shown.length;
+
+    if (caret !== null && grownBy > 0 && caret >= grownBy) {
+        const start = caret - grownBy;
+        if (next.slice(0, start) + next.slice(caret) === shown) return next.slice(start, caret);
+    }
+
+    let prefix = 0;
+    while (prefix < shown.length && prefix < next.length && shown[prefix] === next[prefix]) {
+        prefix += 1;
+    }
+    let suffix = 0;
+    while (
+        suffix < shown.length - prefix &&
+        suffix < next.length - prefix &&
+        shown[shown.length - 1 - suffix] === next[next.length - 1 - suffix]
+    ) {
+        suffix += 1;
+    }
+    return next.slice(prefix, next.length - suffix);
+}
+
 export interface NewResourceInput {
     readonly name: string;
     readonly kind: ResourceKind;

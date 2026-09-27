@@ -6,6 +6,9 @@
     "type": "module",
     "scripts": {
         "build": "tsc --noEmit",
+        "typecheck:e2e": "tsc -p web/e2e/tsconfig.json",
+        "preview:dashboard": "tsx web/e2e/preview/previewServer.ts",
+        "preview:shoot": "tsx web/e2e/preview/shoot.ts",
         "start": "tsx src/bot.ts",
         "dev": "pnpm migrate:latest:dev && concurrently --raw --kill-others \"pnpm dev:bot\" \"pnpm dev:web\"",
         "dev:bot": "cross-env TSX=true dotenvx run --env-file=.env.local -- tsx watch src/bot.ts",

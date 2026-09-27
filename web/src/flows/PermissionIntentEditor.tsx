@@ -382,7 +382,16 @@ function IntentRow({
                 borderRadius: 5,
             }}
         >
-            <Group gap={4} wrap="nowrap" align="center">
+            {/*
+             * `wrap="wrap"`: this row's fixed-width neighbours (the access picker, three
+             * icon buttons) already fill most of a 390px dialog, and `nowrap` combined
+             * with the audience picker's old `minWidth: 0` let it get flex-shrunk down
+             * to ~40px — a box narrower than either of its own option labels, so it
+             * rendered with nothing legible in it. Wrapping the row, and giving the
+             * audience picker a floor it won't shrink past, keeps both selects readable;
+             * the row just grows to two lines instead of hiding one control.
+             */}
+            <Group gap={4} wrap="wrap" align="center">
                 <Badge size="xs" variant="default" c="dimmed" px={5}>
                     {index + 1}
                 </Badge>
@@ -407,7 +416,7 @@ function IntentRow({
                     }}
                     disabled={disabled}
                     allowDeselect={false}
-                    style={{ flex: 1, minWidth: 0 }}
+                    style={{ flex: '1 1 110px', minWidth: 110 }}
                     comboboxProps={{ withinPortal: true }}
                 />
 
@@ -421,7 +430,12 @@ function IntentRow({
                     onChange={(next) => next && onUpdate({ access: next as PermissionAccess })}
                     disabled={disabled}
                     allowDeselect={false}
-                    w={110}
+                    // 110px clipped "Read & write" — its own longest option — down to
+                    // "Read & w" inside the box. Wide enough for that label plus the
+                    // leading icon and the dropdown caret, and fixed rather than `flex`
+                    // because the row's stretch belongs to the audience picker beside it.
+                    w={148}
+                    miw={148}
                     leftSection={<AccessIcon size={13} color={`var(--mantine-color-${access.color}-5)`} />}
                     comboboxProps={{ withinPortal: true }}
                 />

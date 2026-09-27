@@ -178,3 +178,6 @@ __probe*
 # beside the repo. Local thinking, not source — and untracked files here are
 # otherwise swept up by `git add -A` into whatever commit happens to be next.
 nimbalyst-local/
+
+# Dashboard preview screenshots (`pnpm preview:shoot`). Regenerated on demand.
+web/e2e/preview/.shots/

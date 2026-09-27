@@ -407,30 +407,126 @@ describe('detectResourceDrift', () => {
     });
 
     /**
-     * Adoption records the *declared* name, not the live one.
+     * Which name is the *right* name depends on how we came to own the object.
      *
-     * `applyInstallPlan` settles an `adopt` with `name: item.name` — the declaration's
-     * name — while `requireAdoptable` deliberately never renames the object. So an
-     * operator who adopts `#lounge` for a resource defaulting to `welcome` gets a
-     * binding saying `welcome` and a channel still called `#lounge`.
+     * A **created** resource was given its name by the journey, so the declaration is
+     * the reference. An **adopted** one kept its own name by promise, so the declaration
+     * and the live name differ forever and by design — `applyInstallPlan` records the
+     * live name at adopt time precisely so there is something true to compare against.
      *
-     * Comparing against `binding.name` therefore reports a rename that never happened,
-     * on every adopted resource, forever. The adoption guard currently hides the
-     * consequence by withholding repair — but the report is still wrong, and the guard
-     * and the bug are one `state` value apart.
+     * Getting this backwards fails in both directions and neither is subtle: compare an
+     * adopted object to the declaration and every adopted resource reports a rename that
+     * never happened, permanently; compare a created one to the binding and an operator
+     * renaming the row in the panel gets silence, a no-op, and a later repair that
+     * writes their old name back.
      */
-    it('does not report a rename when an adopted object keeps its own name', () => {
-        const report = detectResourceDrift(
-            input({
-                // What `applyInstallPlan` now records on adopt: the object's own name,
-                // which differs from the declaration's `defaultName` and should not.
-                declaration: declaration({ defaultName: 'welcome' }),
-                binding: binding({ state: 'adopted', name: 'lounge' }),
-                live: live({ name: 'lounge' }),
-            })
-        );
+    describe('which name is expected', () => {
+        it('does not report a rename when an adopted object keeps its own name', () => {
+            const report = detectResourceDrift(
+                input({
+                    // Adopted `#lounge` for a resource declared as `welcome`. The two
+                    // differ because adoption never renames, which is the promise.
+                    declaration: declaration({ defaultName: 'welcome' }),
+                    binding: binding({ state: 'adopted', name: 'lounge' }),
+                    live: live({ name: 'lounge' }),
+                })
+            );
 
-        expect(report.drift).toEqual([]);
+            expect(report.drift).toEqual([]);
+        });
+
+        /*
+         * The gap found by live testing.
+         *
+         * Editing the Name of an installed row changed what the journey wants, and
+         * nothing noticed: drift compared the live object to `binding.name`, install
+         * short-circuits at `reuse` for a settled binding, and so the edit saved,
+         * displayed, and never reached Discord. Worse, repairing unrelated drift wrote
+         * the *old* name back over it.
+         */
+        it('reports a rename when the operator renames a created resource in the panel', () => {
+            const report = detectResourceDrift(
+                input({
+                    // Installed as `welcome`, since renamed to `greetings` in the panel.
+                    declaration: declaration({ defaultName: 'greetings' }),
+                    binding: binding({ state: 'created', name: 'welcome' }),
+                    live: live({ name: 'welcome' }),
+                })
+            );
+
+            expect(report.drift).toEqual([
+                { kind: 'renamed', declared: 'greetings', actual: 'welcome' },
+            ]);
+            // Repairable, so the operator's route is the button they already use for
+            // every other kind of drift rather than a separate "reinstall to apply".
+            expect(report.repairable).toBe(true);
+        });
+
+        /*
+         * A declaration saved before names were normalised on save still reads
+         * `Welcome Mat`, while Discord stored the channel as `welcome-mat`. Compared
+         * exactly, that is a rename on a clean install that repair can never clear —
+         * Discord rewrites the repaired name straight back.
+         */
+        it('compares a text channel by the name Discord stores, not the one typed', () => {
+            const report = detectResourceDrift(
+                input({
+                    declaration: declaration({ defaultName: 'Welcome Mat' }),
+                    binding: binding({ state: 'created', name: 'welcome-mat' }),
+                    live: live({ name: 'welcome-mat' }),
+                })
+            );
+
+            expect(report.drift).toEqual([]);
+        });
+
+        it('still compares a category by its exact name, since Discord keeps its case', () => {
+            const report = detectResourceDrift(
+                input({
+                    declaration: declaration({ kind: 'category', defaultName: 'Front Desk' }),
+                    binding: binding({ kind: 'category', state: 'created', name: 'Front Desk' }),
+                    live: live({ kind: 'category', name: 'front desk' }),
+                })
+            );
+
+            expect(report.drift).toEqual([
+                { kind: 'renamed', declared: 'Front Desk', actual: 'front desk' },
+            ]);
+        });
+
+        it('still reports a created resource renamed in Discord', () => {
+            // The original direction, which must keep working: the declaration is the
+            // reference for a created object regardless of which side moved.
+            const report = detectResourceDrift(
+                input({
+                    declaration: declaration({ defaultName: 'welcome' }),
+                    binding: binding({ state: 'created', name: 'welcome' }),
+                    live: live({ name: 'renamed-by-hand' }),
+                })
+            );
+
+            expect(report.drift).toEqual([
+                { kind: 'renamed', declared: 'welcome', actual: 'renamed-by-hand' },
+            ]);
+        });
+
+        it('reports but refuses to repair a renamed adopted row', () => {
+            // Editing the Name of an adopted row is reported like any other drift and
+            // the button declines it. An explicit edit was considered as consent and
+            // rejected: a promise the operator can click through is a weaker promise.
+            const report = detectResourceDrift(
+                input({
+                    declaration: declaration({ defaultName: 'something-else' }),
+                    binding: binding({ state: 'adopted', name: 'lounge' }),
+                    live: live({ name: 'lounge' }),
+                })
+            );
+
+            // The declaration moved, but an adopted object is measured against its
+            // binding — so this is *not* drift at all, and nothing is offered.
+            expect(report.drift).toEqual([]);
+            expect(report.repairable).toBe(false);
+        });
     });
 
     describe('the adoption promise', () => {

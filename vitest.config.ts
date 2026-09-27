@@ -2,9 +2,74 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
     test: {
-        include: ['**/*.test.ts'],
-        // Replacing `exclude` drops Vitest defaults — keep `node_modules` / `dist` out or `pnpm test` runs dependency suites.
-        exclude: ['**/node_modules/**', '**/dist/**', '**/*.live.test.ts'],
+        /*
+         * Two projects, split by file extension, because they need different globals.
+         *
+         * `node` is every suite this repo had before component tests: the bot, the API,
+         * and the dashboard's extracted `.ts` logic. `dom` is `web/**\/*.test.tsx` only —
+         * components rendered into jsdom through Testing Library.
+         *
+         * By extension rather than by folder so a component test can sit in the same
+         * `__tests__` directory as the logic test for the module it renders, and so the
+         * 500-odd plain dashboard tests keep running without a DOM they never needed.
+         * jsdom is not free: it is a second of environment setup per file.
+         *
+         * `include` lives on each project rather than up here. `extends: true` merges
+         * the root into each project with array concatenation, so a root `include` would
+         * be *added* to the dom project's and hand it every `.ts` suite as well.
+         */
+        projects: [
+            {
+                extends: true,
+                test: { name: 'node', include: ['**/*.test.ts'] },
+            },
+            {
+                extends: true,
+                test: {
+                    name: 'dom',
+                    include: ['web/src/**/*.test.tsx'],
+                    environment: 'jsdom',
+                    setupFiles: ['./web/src/__tests__/support/setupDom.ts'],
+                },
+            },
+            /*
+             * The dashboard against the bot: real components, real API routes, the real
+             * database and real discord.js against TestDiscord, in one test. Under
+             * `web/` so React resolves to the dashboard's copy; see `web/e2e/tsconfig.json`
+             * for why these files have a type-check of their own.
+             */
+            {
+                extends: true,
+                test: {
+                    name: 'e2e',
+                    include: ['web/e2e/**/*.test.tsx'],
+                    environment: 'jsdom',
+                    setupFiles: ['./web/src/__tests__/support/setupDom.ts'],
+                },
+            },
+        ],
+        /*
+         * Replacing `exclude` drops Vitest defaults — keep `node_modules` / `dist` out or
+         * `pnpm test` runs dependency suites.
+         *
+         * `.claude/worktrees/**` is the same hazard one step out. A git worktree created
+         * *inside* the repo is a second checkout this glob walks into, and it has no
+         * `node_modules` of its own, so its copies of our own files fail to resolve their
+         * imports — one worktree turned `pnpm test` red with `Failed to load url
+         * @tabler/icons-react`, pointing at a path nobody had edited. The failure names
+         * a dependency rather than a worktree, so it reads as a broken install and sends
+         * you to reinstall packages that are fine.
+         *
+         * Excluded rather than removing the worktree, because whether a worktree should
+         * exist is its owner's call and this file's job is to not run other checkouts'
+         * tests either way.
+         */
+        exclude: [
+            '**/node_modules/**',
+            '**/dist/**',
+            '**/.claude/worktrees/**',
+            '**/*.live.test.ts',
+        ],
         setupFiles: ['./vitest.setup.ts'],
         /**
          * Eighteen test files call `ensureBlocksDiscovered`, and discovery is a

@@ -1,0 +1,51 @@
+import type { Client } from 'discord.js';
+import { onTestFinished, vi } from 'vitest';
+import { buildDashboardApp, type DashboardOperator } from './dashboardApp';
+
+/** A request the dashboard sent, as the bot's API received it. */
+export interface DashboardRequest {
+    readonly method: string;
+    /** Pathname plus search. */
+    readonly path: string;
+}
+
+export interface DashboardApi {
+    /** Every request the dashboard sent, in order. */
+    readonly requests: readonly DashboardRequest[];
+}
+
+/** Signed in when a test does not say who. Not a guild member; a test that needs one passes it. */
+const DEFAULT_OPERATOR: DashboardOperator = { id: '100000000000000001', username: 'e2e-operator' };
+
+/**
+ * Serve the dashboard's `fetch` from the bot's real API routes, for one test.
+ *
+ * The routes, the engines behind them, the database and discord.js are all the
+ * production modules; {@link buildDashboardApp} says what is replaced. The network is too:
+ * `fetch` is handed to Hono's `app.request` directly, so no port is bound.
+ *
+ * Every fault the app reports is recorded and rethrown when the test finishes, because
+ * the dashboard turns each into a quiet error message and a test could otherwise pass
+ * for the wrong reason. This is the rule `installFakeApi` and TestDiscord follow too.
+ */
+export function installDashboardApi(client: Client<true>, operator: DashboardOperator = DEFAULT_OPERATOR): DashboardApi {
+    const requests: DashboardRequest[] = [];
+    const faults: string[] = [];
+    const app = buildDashboardApp({ client, operator, onFault: (fault) => faults.push(fault) });
+
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url = new URL(typeof input === 'string' ? input : input.toString(), 'http://dashboard.test');
+        const path = `${url.pathname}${url.search}`;
+        requests.push({ method: (init?.method ?? 'GET').toUpperCase(), path });
+        return app.request(path, init);
+    });
+
+    onTestFinished(() => {
+        vi.unstubAllGlobals();
+        if (faults.length > 0) {
+            throw new Error(`The dashboard hit something the API does not answer:\n  ${faults.join('\n  ')}`);
+        }
+    });
+
+    return { requests };
+}

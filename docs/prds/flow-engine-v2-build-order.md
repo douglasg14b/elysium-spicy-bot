@@ -709,7 +709,7 @@ All 29 §5.7 and §5.8 requirements are placed — 10 in 5A, 19 in 5B. Nothing i
 
 | Requirement | Why it waits |
 |---|---|
-| ~~Drift detection and repair (§5.7)~~ | **Done 2026-09-24** — engine in 5B.2 slices A–C, operator surface in slice F. Reachable from the flows page group header |
+| ~~Drift detection and repair (§5.7)~~ | **Done and live-verified 2026-09-24** — engine in 5B.2 slices A–C, operator surface in slice F. Detection and repair both exercised against a real guild. Three defects the suite could not see came out of that run: two in the resources panel (see below) and the name comparison being one-directional (§5.7's amended drift entry) |
 | ~~Explicit teardown policy / uninstall (§5.7, §5.8)~~ | **Done 2026-09-24** — 5B.2 slice D. Most of it already existed; the gap was orphans and an unwritten policy |
 | Rate-limit-aware application, resumable (§5.7) | Pacing layer over a working apply. Real, but our guild is small |
 | ~~A resource may be bound by more than one journey (§5.7)~~ | **Cut 2026-09-24 — a decided non-requirement, not a deferral.** See below |
@@ -718,7 +718,7 @@ All 29 §5.7 and §5.8 requirements are placed — 10 in 5A, 19 in 5B. Nothing i
 | ~~Ambiguous names disambiguate explicitly (§5.7)~~ | **Done 2026-09-24** — the directory carries `type` and the parent, so two `#general`s differ; categories and then roles became adoptable with it (`68cad4c`, `2e2b2eb`). One gap stays open by nature: two roles of one name have nothing to qualify by, since a role's wire shape is `{id, name, color, position}` |
 | ~~Suggestions are ranked, never auto-applied (§5.7)~~ | **Done 2026-09-24** — with the autocomplete row, since the two requirements describe one control. Exact → prefix → substring; a collision raises `nameTaken` rather than auto-binding |
 | Provisioning opt-in per resource (§5.7) | "Bind to one I made by hand" is adoption, which 5A has; the per-resource *decline* toggle is UI |
-| ~~Resource binding is one autocomplete field (§5.7)~~ | **Done 2026-09-24** — the Name box and the adopt picker merged into one `Autocomplete`; needed a new `blocksInstall` chip tone for the save-fine/install-blocked state neither existing tier could hold |
+| ~~Resource binding is one autocomplete field (§5.7)~~ | **Done and live-verified 2026-09-24** — the Name box and the adopt picker merged into one `Autocomplete`; needed a new `blocksInstall` chip tone for the save-fine/install-blocked state neither existing tier could hold. **Two defects found in the first minutes of live use, both in states the suite could not reach** — see below |
 | Journey install is idempotent (§5.8) | 5A must not duplicate; full converge-after-partial-failure needs resume |
 | ~~A flow may hold many triggers (§5.8)~~ | **Done 2026-09-24** — nothing to build; it worked once the dispatchers started every trigger |
 | ~~Every trigger in a flow fires (§5.8)~~ | **Done 2026-09-24** — `.find()` → `.filter()` in both gateway dispatchers, each trigger its own isolated run |
@@ -727,6 +727,35 @@ All 29 §5.7 and §5.8 requirements are placed — 10 in 5A, 19 in 5B. Nothing i
 | Cross-path sequencing uses existing mechanisms (§5.8) | A constraint on authors, not code |
 | ~~Install wizard (§5.8)~~ | **Cut 2026-09-24 by the operator** — 5A's plan → confirm → apply already installs, and the flows page hands off to it. See below |
 | Onboarding journey template ships (§5.8) | That is step 6 |
+
+### What the first live session with 5B surfaced, 2026-09-24
+
+Same shape as step 3's four commits above, and the same argument: these are what an
+operator hit while *using* it, and none was reachable by the suite. Three of the four
+were found within minutes of the app being opened, against 513 green browser tests and
+2124 green server ones.
+
+| Commit | What an operator hit |
+|---|---|
+| `83dcf2e` | Adopting a channel could leave the row bound, showing that channel's label, and carrying a red `Name required` chip the field gave no way to satisfy — searching the combobox means clearing the name, and the re-seed guard read an empty string as a deliberate edit worth keeping |
+| `f7c2dec` | `Name taken` fired on **every row** of a healthy installed journey. Of course the name is taken; the journey installed the thing holding it |
+| `0559a33` | Renaming a resource in the panel was a silent no-op — drift only ever compared against the install-time name, so the edit saved, displayed, and reached nothing |
+| `b2dd26e` | The rename finding read "Renamed from X to Y", which is backwards when the panel is the side that moved |
+
+Three lessons worth carrying, because each is a category rather than an incident:
+
+- **A decision inside a component is a decision no test drives.** `web/` has no jsdom, so
+  the name re-seed rule living in `ResourcesPanel.setAdoption` sat in the one place the
+  suite cannot reach. It moved to `resourceAdoption.ts` and got four cases. Any rule with
+  a wrong answer belongs in a `.ts` module; the component should only render.
+- **"It only over-warns" is not a severity argument.** `f7c2dec` was *predicted in review*
+  and shipped anyway on the grounds that a false positive degrades safely. It does not: a
+  warning that fires on the normal case is indistinguishable from a broken one, and it
+  spends the credibility the red tier is so carefully protected for. This is the chip
+  rule's clause (a) — *not the default* — applied to a tier rather than a row.
+- **Changing what can produce a finding means re-reading the sentence that describes it.**
+  `b2dd26e` existed only because `0559a33` added a second way to reach a message written
+  when there was one.
 
 ### Two things cut from 5B, 2026-09-24
 

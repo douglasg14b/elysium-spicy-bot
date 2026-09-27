@@ -13,7 +13,7 @@ export function LoginPage() {
 
     return (
         <Center mih="100vh" bg="dark.9" px="md">
-            <Card w={420} p="xl" bg="dark.7" withBorder>
+            <Card w="100%" maw={420} p="xl" bg="dark.7" withBorder>
                 <Stack gap="lg" align="center">
                     <Image src={logoUrl} alt={botName} h={72} w={72} radius="lg" fit="contain" />
                     <Stack gap={4} align="center">

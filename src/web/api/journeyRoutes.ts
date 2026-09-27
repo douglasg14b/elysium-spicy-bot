@@ -12,6 +12,7 @@ import type { JourneyEntity } from '../../features/provisioning/data/journeysSch
 import { resourceBindingsRepo } from '../../features/provisioning/data/resourceBindingsRepo';
 import { planJourneyMerge } from '../../features/provisioning/logic/journeyMergePlan';
 import { resolveFlowJourney } from '../../features/provisioning/logic/resolveFlowJourney';
+import { normaliseResourceName } from '../../features/provisioning/logic/resourceName';
 import {
     otherFlowsOnJourney,
     sharedJourneyRefusal,
@@ -123,19 +124,32 @@ const discordIdSchema = z
  * `detectResourceProblems` judges, and fails if the three disagree. Nothing else
  * should import it — the save path is the only caller.
  */
-export const resourceSchema = z.object({
-    key: resourceKeySchema,
-    kind: z.enum(RESOURCE_KINDS),
-    defaultName: z
-        .string()
-        .min(1, 'Give the resource a name.')
-        .max(100, 'Resource names cap at 100 characters.'),
-    parentKey: resourceKeySchema.optional(),
-    permissions: z.array(permissionIntentSchema).optional(),
-    description: z.string().max(500, 'Descriptions cap at 500 characters.').optional(),
-    /** Set when the operator picked something that already exists instead of declaring a new one. */
-    adoptDiscordId: discordIdSchema.optional(),
-});
+export const resourceSchema = z
+    .object({
+        key: resourceKeySchema,
+        kind: z.enum(RESOURCE_KINDS),
+        defaultName: z
+            .string()
+            .min(1, 'Give the resource a name.')
+            .max(100, 'Resource names cap at 100 characters.'),
+        parentKey: resourceKeySchema.optional(),
+        permissions: z.array(permissionIntentSchema).optional(),
+        description: z.string().max(500, 'Descriptions cap at 500 characters.').optional(),
+        /** Set when the operator picked something that already exists instead of declaring a new one. */
+        adoptDiscordId: discordIdSchema.optional(),
+    })
+    /*
+     * Stored as the name Discord will hold, so the declaration never disagrees with the
+     * channel it installs. Normalised rather than rejected: journeys saved before this
+     * rule carry names like `Welcome Mat`, and refusing them would 400 the operator's
+     * next unrelated save of that journey — they get fixed on it instead. The panel
+     * already normalises as the operator types, so a browser save is unchanged by this;
+     * it is here because the browser is a client, not the authority.
+     */
+    .transform((resource) => ({
+        ...resource,
+        defaultName: normaliseResourceName(resource.kind, resource.defaultName),
+    }));
 
 /**
  * Which drifted resources the operator ticked.
