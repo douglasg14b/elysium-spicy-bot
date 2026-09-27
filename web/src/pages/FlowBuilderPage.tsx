@@ -40,7 +40,9 @@ import {
     Text,
     TextInput,
     Tooltip,
+    useMantineTheme,
 } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import {
     IconAlertTriangle,
@@ -262,6 +264,38 @@ function useStoredWidth(
 }
 
 export function FlowBuilderPage() {
+    const theme = useMantineTheme();
+    const navigate = useNavigate();
+    /*
+     * Below `md` the palette and inspector, plus the navbar from `sm` up, leave the canvas
+     * nothing and the page scrolls sideways. The builder is desktop-first by decision, so
+     * a phone or a portrait tablet is told so rather than handed a page it cannot use.
+     * Read on the first render, not in an effect, so a phone never mounts the canvas.
+     */
+    const tooNarrow = useMediaQuery(`(max-width: calc(${theme.breakpoints.md} - 1px))`, false, {
+        getInitialValueInEffect: false,
+    });
+
+    if (tooNarrow) {
+        return (
+            <Stack gap="md" maw={480}>
+                <Alert color="gray" title="The builder needs more room">
+                    A flow is built on a canvas with the palette on one side and the inspector on the other, and this
+                    screen can&apos;t fit all three. Open this one on something wider.
+                </Alert>
+                <Button
+                    variant="light"
+                    color="gray"
+                    leftSection={<IconChevronLeft size={16} />}
+                    onClick={() => navigate('/flows')}
+                    w="fit-content"
+                >
+                    Back to flows
+                </Button>
+            </Stack>
+        );
+    }
+
     return (
         <ReactFlowProvider>
             <FlowBuilder />
