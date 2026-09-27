@@ -502,13 +502,26 @@ export function TicketsConfigPage() {
                                 </Text>
                             </Stack>
                         ) : (
-                            <Table verticalSpacing="sm" horizontalSpacing="md" highlightOnHover>
+                            // `ScrollContainer`, matching the tickets list: the card's own
+                            // `overflow: hidden` would otherwise squeeze every column on a
+                            // narrow viewport rather than let the excess scroll, which is how
+                            // "On open" ended up clipped even at 120px on a desktop width that
+                            // was never actually narrow — the column was simply too tight.
+                            <Table.ScrollContainer minWidth={900}>
+                            {/*
+                             * `layout="fixed"` for the same reason the tickets list needs it:
+                             * a long, guild-authored label is one unbroken word as far as the
+                             * browser's `auto` table layout is concerned, and it will borrow
+                             * width from `Key`/`Auto-claim` to make room unless the columns
+                             * are fixed and each cell handles its own overflow.
+                             */}
+                            <Table layout="fixed" verticalSpacing="sm" horizontalSpacing="md" highlightOnHover>
                                 <Table.Thead>
                                     <Table.Tr>
                                         <Table.Th>Label</Table.Th>
                                         <Table.Th w={150}>Key</Table.Th>
                                         <Table.Th>Channel name</Table.Th>
-                                        <Table.Th w={120}>Auto-claim</Table.Th>
+                                        <Table.Th w={150}>Auto-claim</Table.Th>
                                         <Table.Th w={110} />
                                     </Table.Tr>
                                 </Table.Thead>
@@ -578,6 +591,7 @@ export function TicketsConfigPage() {
                                     ))}
                                 </Table.Tbody>
                             </Table>
+                            </Table.ScrollContainer>
                         )}
                     </Card>
                 </>

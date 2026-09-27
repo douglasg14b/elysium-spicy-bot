@@ -506,15 +506,30 @@ export function TicketsListPage() {
                         )}
                     </Stack>
                 ) : (
-                    <Table verticalSpacing="sm" horizontalSpacing="md" highlightOnHover>
+                    // `ScrollContainer` rather than letting the card's `overflow: hidden` do
+                    // it: without this, a narrow viewport didn't just squeeze the table — it
+                    // shrank every column, including ones with an explicit width, until the
+                    // claim/close buttons were compressed off the edge with no way to reach
+                    // them at all. Scrolling keeps every column at a readable width instead.
+                    // Fits a 1280 laptop's content area, so only narrower screens scroll: at
+                    // 1180 the actions column sat past the card's edge even at 1440.
+                    <Table.ScrollContainer minWidth={900}>
+                    {/*
+                     * `layout="fixed"`: under the default `auto` layout, one very wide
+                     * unbroken badge label (a guild can declare any type name it likes) made
+                     * Chrome renegotiate every column's width around it, shrinking `Type`
+                     * below its own `w` — fixed layout means each `Table.Th` width is taken
+                     * as given, and an individual cell's own overflow rules handle the rest.
+                     */}
+                    <Table layout="fixed" verticalSpacing="sm" horizontalSpacing="md" highlightOnHover>
                         <Table.Thead>
                             <Table.Tr>
                                 <Table.Th w={80}>Number</Table.Th>
-                                <Table.Th w={130}>Type</Table.Th>
+                                <Table.Th w={150}>Type</Table.Th>
                                 <Table.Th>Title</Table.Th>
-                                <Table.Th w={180}>Subject</Table.Th>
-                                <Table.Th w={180}>Claimed by</Table.Th>
-                                <Table.Th w={150}>Last updated</Table.Th>
+                                <Table.Th w={140}>Subject</Table.Th>
+                                <Table.Th w={140}>Claimed by</Table.Th>
+                                <Table.Th w={120}>Last updated</Table.Th>
                                 <Table.Th w={170} />
                             </Table.Tr>
                         </Table.Thead>
@@ -541,9 +556,15 @@ export function TicketsListPage() {
                                              * somebody wrote.
                                              */}
                                             {ticket.typeLabel ? (
-                                                <Badge variant="light" color="brand" radius="sm">
-                                                    {ticket.typeLabel}
-                                                </Badge>
+                                                // A guild names its own types, so a label can
+                                                // easily outrun any column width chosen here —
+                                                // the tooltip is what makes a truncated one
+                                                // still readable rather than merely present.
+                                                <Tooltip label={ticket.typeLabel} multiline w={250} withArrow>
+                                                    <Badge variant="light" color="brand" radius="sm" style={{ maxWidth: '100%' }}>
+                                                        {ticket.typeLabel}
+                                                    </Badge>
+                                                </Tooltip>
                                             ) : (
                                                 <Tooltip
                                                     label="This server no longer declares that ticket type, so there is no label to show."
@@ -572,17 +593,32 @@ export function TicketsListPage() {
                                             </Badge>
                                         </Table.Td>
                                         <Table.Td>
-                                            <Text size="12.5px" c="dark.1" lineClamp={1}>
-                                                {participantLabel(ticket.subject)}
-                                            </Text>
+                                            {/*
+                                             * A nickname plus a handle can run well past 180px
+                                             * — `lineClamp` keeps the row short, the tooltip is
+                                             * what keeps the rest of the name readable at all.
+                                             */}
+                                            <Tooltip label={participantLabel(ticket.subject)} multiline w={250} withArrow>
+                                                <Text size="12.5px" c="dark.1" lineClamp={1}>
+                                                    {participantLabel(ticket.subject)}
+                                                </Text>
+                                            </Tooltip>
                                         </Table.Td>
                                         <Table.Td>
-                                            <Text size="12.5px" c="dark.2" lineClamp={1}>
-                                                {optionalParticipantLabel(
-                                                    ticket.claimer,
-                                                    'Unclaimed'
-                                                )}
-                                            </Text>
+                                            <Tooltip
+                                                label={optionalParticipantLabel(ticket.claimer, 'Unclaimed')}
+                                                multiline
+                                                w={250}
+                                                withArrow
+                                                disabled={!ticket.claimer}
+                                            >
+                                                <Text size="12.5px" c="dark.2" lineClamp={1}>
+                                                    {optionalParticipantLabel(
+                                                        ticket.claimer,
+                                                        'Unclaimed'
+                                                    )}
+                                                </Text>
+                                            </Tooltip>
                                         </Table.Td>
                                         <Table.Td>
                                             <Text size="12.5px" c="dark.2">
@@ -631,6 +667,7 @@ export function TicketsListPage() {
                             })}
                         </Table.Tbody>
                     </Table>
+                    </Table.ScrollContainer>
                 )}
 
                 {/*

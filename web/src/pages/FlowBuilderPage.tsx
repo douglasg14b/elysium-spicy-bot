@@ -1277,12 +1277,17 @@ function FlowBuilder() {
             m="calc(var(--app-shell-padding) * -1)"
             h="calc(100dvh - var(--app-shell-header-offset, 0rem) - var(--app-shell-footer-offset, 0rem))"
         >
-            {/* Toolbar */}
+            {/*
+             * Toolbar. Wraps rather than overflowing: its controls need about 880px on one
+             * line, and at 1024 the page scrolled sideways by the difference. The body
+             * below is `flex: 1`, so a second toolbar line comes out of the canvas's height.
+             */}
             <Group
-                h={52}
+                mih={52}
+                py={8}
                 px="md"
                 gap={8}
-                wrap="nowrap"
+                wrap="wrap"
                 bg="dark.8"
                 style={{ borderBottom: '1px solid var(--mantine-color-dark-5)', flexShrink: 0 }}
             >
@@ -1292,11 +1297,19 @@ function FlowBuilder() {
                         color="gray"
                         onClick={() => navigate('/flows')}
                         aria-label="Back to flows"
+                        style={{ flexShrink: 0 }}
                     >
                         <IconChevronLeft size={18} />
                     </ActionIcon>
                 </Tooltip>
 
+                {/*
+                 * Flexible rather than a fixed 220px: at 1440 that left most of a spare
+                 * row empty while a long name still clipped, and at 1024 a fixed width
+                 * ate space the buttons below needed and shrank *them* to unreadable
+                 * slivers instead. Growing/shrinking here means the name is what gives
+                 * ground first.
+                 */}
                 <TextInput
                     value={name}
                     onChange={(e) => {
@@ -1305,182 +1318,186 @@ function FlowBuilder() {
                     }}
                     placeholder="Untitled flow"
                     variant="unstyled"
-                    w={220}
+                    style={{ flex: '1 1 120px', minWidth: 100, maxWidth: 480 }}
                     styles={{ input: { fontWeight: 700, fontSize: 14 } }}
                     aria-label="Flow name"
                 />
 
-                <Tooltip label="Undo">
-                    <ActionIcon
-                        variant="default"
-                        onClick={undo}
-                        disabled={!canUndo}
-                        aria-label="Undo"
-                    >
-                        <IconArrowBackUp size={16} />
-                    </ActionIcon>
-                </Tooltip>
-                <Tooltip label="Redo">
-                    <ActionIcon
-                        variant="default"
-                        onClick={redo}
-                        disabled={!canRedo}
-                        aria-label="Redo"
-                    >
-                        <IconArrowForwardUp size={16} />
-                    </ActionIcon>
-                </Tooltip>
+                {/* Moves to its own toolbar line before its buttons shrink, and wraps
+                    them only when even a whole line is too narrow, as on a phone. */}
+                <Group gap={8} wrap="wrap">
+                    <Tooltip label="Undo">
+                        <ActionIcon
+                            variant="default"
+                            onClick={undo}
+                            disabled={!canUndo}
+                            aria-label="Undo"
+                        >
+                            <IconArrowBackUp size={16} />
+                        </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label="Redo">
+                        <ActionIcon
+                            variant="default"
+                            onClick={redo}
+                            disabled={!canRedo}
+                            aria-label="Redo"
+                        >
+                            <IconArrowForwardUp size={16} />
+                        </ActionIcon>
+                    </Tooltip>
 
-                <Button
-                    color="brand"
-                    size="xs"
-                    leftSection={<IconDeviceFloppy size={15} />}
-                    onClick={() => void handleSave()}
-                    loading={saving}
-                    disabled={!dirty || saving}
-                >
-                    Save
-                </Button>
-
-                <Tooltip label="Channels and roles this flow needs but doesn’t have yet">
                     <Button
-                        variant="light"
-                        color="gray"
-                        size="xs"
-                        leftSection={<IconStack2 size={15} />}
-                        onClick={() => setShowResources(true)}
-                        rightSection={
-                            declaredResources.length > 0 ? (
-                                <Badge size="xs" circle variant="filled" color="brand">
-                                    {declaredResources.length}
-                                </Badge>
-                            ) : undefined
-                        }
-                    >
-                        Resources
-                    </Button>
-                </Tooltip>
-
-                {/*
-                 * One control, whose face follows the state.
-                 *
-                 * "Install" and "Installed" used to sit side by side — two buttons for
-                 * one concept, where the second was an adjective and so read as a status
-                 * label that happened to be clickable. Install and uninstall are not
-                 * siblings; they are the two directions of one operation, and which one
-                 * applies is a fact about the server, not a choice for the operator to
-                 * work out.
-                 *
-                 * Nothing installed → the install affordance, and only when there is
-                 * something declared to install. Anything installed → a menu whose
-                 * destructive direction is named, coloured, and one deliberate click
-                 * deeper, which is where a "delete real channels" action belongs.
-                 */}
-                {installedCount !== null && installedCount > 0 ? (
-                    <Menu shadow="md" width={252} position="bottom-start">
-                        <Menu.Target>
-                            <Button
-                                variant="light"
-                                color="teal"
-                                size="xs"
-                                leftSection={<IconCircleCheck size={15} />}
-                                rightSection={<IconChevronDown size={13} />}
-                            >
-                                Installed
-                            </Button>
-                        </Menu.Target>
-                        <Menu.Dropdown>
-                            <Menu.Item
-                                leftSection={<IconEye size={14} />}
-                                onClick={() => setInstalledOpen(true)}
-                            >
-                                See what’s in your server
-                                <Text size="11px" c="dimmed">
-                                    {installedCount} resource{installedCount === 1 ? '' : 's'}
-                                </Text>
-                            </Menu.Item>
-                            {declaredResources.length > 0 && (
-                                <Menu.Item
-                                    leftSection={<IconPackageImport size={14} />}
-                                    onClick={() => setInstallOpen(true)}
-                                >
-                                    Reinstall missing pieces
-                                    <Text size="11px" c="dimmed">
-                                        Rebuilds anything deleted by hand
-                                    </Text>
-                                </Menu.Item>
-                            )}
-                            <Menu.Divider />
-                            {/*
-                             * Opens the inventory rather than deleting on the spot. The
-                             * confirmation is the list plus the counted button inside —
-                             * a menu item must never be the last step before destroying
-                             * real channels.
-                             */}
-                            <Menu.Item
-                                color="red"
-                                leftSection={<IconPackageExport size={14} />}
-                                onClick={() => setInstalledOpen(true)}
-                            >
-                                Uninstall from server
-                                <Text size="11px" c="dimmed">
-                                    Deletes what this flow created
-                                </Text>
-                            </Menu.Item>
-                        </Menu.Dropdown>
-                    </Menu>
-                ) : (
-                    /*
-                     * Offered only when the flow declares something. An install button on
-                     * a flow with no declarations has nothing to do and would send the
-                     * operator to a dialog whose only content is the 404 explaining that.
-                     */
-                    declaredResources.length > 0 && (
-                        <Tooltip label="Create the channels and roles this flow needs">
-                            <Button
-                                variant="light"
-                                color="gray"
-                                size="xs"
-                                leftSection={<IconPackageImport size={15} />}
-                                onClick={() => setInstallOpen(true)}
-                            >
-                                Install {declaredResources.length}
-                            </Button>
-                        </Tooltip>
-                    )
-                )}
-
-                <Tooltip
-                    label={
-                        hasButtonTrigger
-                            ? 'Post this flow’s button to a channel'
-                            : 'Add a Button Click trigger first'
-                    }
-                >
-                    <Button
-                        variant="light"
                         color="brand"
                         size="xs"
-                        leftSection={<IconRocket size={15} />}
-                        onClick={() => setDeployOpen(true)}
-                        disabled={!hasButtonTrigger}
-                        data-disabled={!hasButtonTrigger || undefined}
+                        leftSection={<IconDeviceFloppy size={15} />}
+                        onClick={() => void handleSave()}
+                        loading={saving}
+                        disabled={!dirty || saving}
                     >
-                        Deploy
+                        Save
                     </Button>
-                </Tooltip>
 
-                <Switch
-                    ml={4}
-                    size="sm"
-                    color="green"
-                    label="Enabled"
-                    checked={enabled}
-                    onChange={(e) => void handleToggleEnabled(e.currentTarget.checked)}
-                    styles={{ label: { fontSize: 12.5, fontWeight: 600 } }}
-                />
+                    <Tooltip label="Channels and roles this flow needs but doesn’t have yet">
+                        <Button
+                            variant="light"
+                            color="gray"
+                            size="xs"
+                            leftSection={<IconStack2 size={15} />}
+                            onClick={() => setShowResources(true)}
+                            rightSection={
+                                declaredResources.length > 0 ? (
+                                    <Badge size="xs" circle variant="filled" color="brand">
+                                        {declaredResources.length}
+                                    </Badge>
+                                ) : undefined
+                            }
+                        >
+                            Resources
+                        </Button>
+                    </Tooltip>
 
-                <Text size="12px" c={dirty ? 'yellow.5' : 'dark.2'} ml="auto">
+                    {/*
+                     * One control, whose face follows the state.
+                     *
+                     * "Install" and "Installed" used to sit side by side — two buttons for
+                     * one concept, where the second was an adjective and so read as a status
+                     * label that happened to be clickable. Install and uninstall are not
+                     * siblings; they are the two directions of one operation, and which one
+                     * applies is a fact about the server, not a choice for the operator to
+                     * work out.
+                     *
+                     * Nothing installed → the install affordance, and only when there is
+                     * something declared to install. Anything installed → a menu whose
+                     * destructive direction is named, coloured, and one deliberate click
+                     * deeper, which is where a "delete real channels" action belongs.
+                     */}
+                    {installedCount !== null && installedCount > 0 ? (
+                        <Menu shadow="md" width={252} position="bottom-start">
+                            <Menu.Target>
+                                <Button
+                                    variant="light"
+                                    color="teal"
+                                    size="xs"
+                                    leftSection={<IconCircleCheck size={15} />}
+                                    rightSection={<IconChevronDown size={13} />}
+                                >
+                                    Installed
+                                </Button>
+                            </Menu.Target>
+                            <Menu.Dropdown>
+                                <Menu.Item
+                                    leftSection={<IconEye size={14} />}
+                                    onClick={() => setInstalledOpen(true)}
+                                >
+                                    See what’s in your server
+                                    <Text size="11px" c="dimmed">
+                                        {installedCount} resource{installedCount === 1 ? '' : 's'}
+                                    </Text>
+                                </Menu.Item>
+                                {declaredResources.length > 0 && (
+                                    <Menu.Item
+                                        leftSection={<IconPackageImport size={14} />}
+                                        onClick={() => setInstallOpen(true)}
+                                    >
+                                        Reinstall missing pieces
+                                        <Text size="11px" c="dimmed">
+                                            Rebuilds anything deleted by hand
+                                        </Text>
+                                    </Menu.Item>
+                                )}
+                                <Menu.Divider />
+                                {/*
+                                 * Opens the inventory rather than deleting on the spot. The
+                                 * confirmation is the list plus the counted button inside —
+                                 * a menu item must never be the last step before destroying
+                                 * real channels.
+                                 */}
+                                <Menu.Item
+                                    color="red"
+                                    leftSection={<IconPackageExport size={14} />}
+                                    onClick={() => setInstalledOpen(true)}
+                                >
+                                    Uninstall from server
+                                    <Text size="11px" c="dimmed">
+                                        Deletes what this flow created
+                                    </Text>
+                                </Menu.Item>
+                            </Menu.Dropdown>
+                        </Menu>
+                    ) : (
+                        /*
+                         * Offered only when the flow declares something. An install button on
+                         * a flow with no declarations has nothing to do and would send the
+                         * operator to a dialog whose only content is the 404 explaining that.
+                         */
+                        declaredResources.length > 0 && (
+                            <Tooltip label="Create the channels and roles this flow needs">
+                                <Button
+                                    variant="light"
+                                    color="gray"
+                                    size="xs"
+                                    leftSection={<IconPackageImport size={15} />}
+                                    onClick={() => setInstallOpen(true)}
+                                >
+                                    Install {declaredResources.length}
+                                </Button>
+                            </Tooltip>
+                        )
+                    )}
+
+                    <Tooltip
+                        label={
+                            hasButtonTrigger
+                                ? 'Post this flow’s button to a channel'
+                                : 'Add a Button Click trigger first'
+                        }
+                    >
+                        <Button
+                            variant="light"
+                            color="brand"
+                            size="xs"
+                            leftSection={<IconRocket size={15} />}
+                            onClick={() => setDeployOpen(true)}
+                            disabled={!hasButtonTrigger}
+                            data-disabled={!hasButtonTrigger || undefined}
+                        >
+                            Deploy
+                        </Button>
+                    </Tooltip>
+
+                    <Switch
+                        ml={4}
+                        size="sm"
+                        color="green"
+                        label="Enabled"
+                        checked={enabled}
+                        onChange={(e) => void handleToggleEnabled(e.currentTarget.checked)}
+                        styles={{ label: { fontSize: 12.5, fontWeight: 600 } }}
+                    />
+                </Group>
+
+                <Text size="12px" c={dirty ? 'yellow.5' : 'dark.2'} ml="auto" style={{ flexShrink: 0 }}>
                     {dirty ? 'Unsaved changes' : 'All changes saved'}
                 </Text>
             </Group>

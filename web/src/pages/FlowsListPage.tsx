@@ -336,6 +336,15 @@ function FlowRow({
     const highlighted = dragState.isOver && dragState.actionable;
     const background = highlighted ? DROP_TARGET_BG : group ? GROUP_MEMBER_BG : undefined;
     const cellBackground = group ? { background: background ?? GROUP_MEMBER_BG } : undefined;
+    /*
+     * The band closes on its last member with the table's own divider, so the tint
+     * does not bleed into the ungrouped rows below it. Every cell needs this, not
+     * just the last one — a border on a single `<td>` only draws under that column,
+     * which is how the line used to stop three-quarters of the way across the row
+     * instead of reaching the edge.
+     */
+    const lastMemberBorder =
+        group && isLastMember ? { borderBottom: '1px solid var(--mantine-color-dark-6)' } : undefined;
 
     return (
         <Table.Tr
@@ -351,7 +360,9 @@ function FlowRow({
                 boxShadow: highlighted ? DROP_TARGET_RING : undefined,
             }}
         >
-            <Table.Td style={group ? { ...cellBackground, borderLeft: GROUP_RAIL } : undefined}>
+            <Table.Td
+                style={group ? { ...cellBackground, ...lastMemberBorder, borderLeft: GROUP_RAIL } : undefined}
+            >
                 <Group gap={8} wrap="nowrap" pl={group ? 14 : 0}>
                     <DragGrip
                         label={flow.name}
@@ -384,17 +395,17 @@ function FlowRow({
                     )}
                 </Group>
             </Table.Td>
-            <Table.Td style={cellBackground}>
+            <Table.Td style={{ ...cellBackground, ...lastMemberBorder }}>
                 <Badge variant="light" color="gray" radius="xl">
                     {flow.nodeCount}
                 </Badge>
             </Table.Td>
-            <Table.Td style={cellBackground}>
+            <Table.Td style={{ ...cellBackground, ...lastMemberBorder }}>
                 <Text size="12.5px" c="dark.2">
                     {formatUpdated(flow.updatedAt)}
                 </Text>
             </Table.Td>
-            <Table.Td style={cellBackground}>
+            <Table.Td style={{ ...cellBackground, ...lastMemberBorder }}>
                 <Switch
                     color="green"
                     checked={flow.enabled}
@@ -403,16 +414,9 @@ function FlowRow({
                     aria-label={`Enable ${flow.name}`}
                 />
             </Table.Td>
-            <Table.Td
-                style={
-                    // The band closes on its last member with the table's own divider, so
-                    // the tint does not bleed into the ungrouped rows below it.
-                    group && isLastMember
-                        ? { ...cellBackground, borderBottom: '1px solid var(--mantine-color-dark-6)' }
-                        : cellBackground
-                }
-            >
-                <Group gap={6} justify="flex-end" wrap="nowrap">
+            <Table.Td style={{ ...cellBackground, ...lastMemberBorder }}>
+                {/* Wraps, so a row carrying an install chip grows a line rather than the column. */}
+                <Group gap={6} justify="flex-end" wrap="wrap">
                     {/*
                      * Only on an ungrouped row. A member's install state *is* its journey's,
                      * so repeating it per member would put the same chip on every row of a
@@ -610,7 +614,7 @@ function GroupHeaderRow({
             <Table.Td style={headerCell} />
             <Table.Td style={headerCell} />
             <Table.Td style={headerCell}>
-                <Group gap={6} justify="flex-end" wrap="nowrap">
+                <Group gap={6} justify="flex-end" wrap="wrap">
                     {/*
                      * The install state, and the way to fix it. First, because it is the
                      * only thing here that can be *wrong* — the rest are ways in.
@@ -1554,73 +1558,85 @@ export function FlowsListPage() {
                             setOverId(null);
                         }}
                     >
-                        <Table verticalSpacing="sm" horizontalSpacing="md" highlightOnHover>
-                            <Table.Thead>
-                                <Table.Tr>
-                                    <Table.Th>Flow</Table.Th>
-                                    <Table.Th w={110}>Nodes</Table.Th>
-                                    <Table.Th w={170}>Last updated</Table.Th>
-                                    <Table.Th w={120}>Enabled</Table.Th>
-                                    <Table.Th w={140} />
-                                </Table.Tr>
-                            </Table.Thead>
-                            <Table.Tbody>
-                                {rows.map((row) =>
-                                    row.kind === 'flow' ? (
-                                        <FlowRow
-                                            key={row.flow.flowId}
-                                            flow={row.flow}
-                                            group={null}
-                                            isLastMember={false}
-                                            dragState={dragStateFor(row.flow.flowId)}
-                                            toggling={togglingId === row.flow.flowId}
-                                            actions={rowActions}
-                                        />
-                                    ) : (
-                                        /*
-                                         * A fragment per band rather than a wrapper
-                                         * element: a `<div>` between `<tbody>` and its
-                                         * rows is invalid table markup and collapses the
-                                         * columns the band shares with every other row.
-                                         */
-                                        <Fragment key={row.journeyKey}>
-                                            <GroupHeaderRow
-                                                group={row}
-                                                rename={renameControl(row)}
-                                                onOpenResources={(group) =>
-                                                    setEditingJourneyKey(group.journeyKey)
-                                                }
-                                                onOpenInstalled={(group) =>
-                                                    setManagingJourneyKey(group.journeyKey)
-                                                }
-                                                onOpenDrift={(group) =>
-                                                    setDriftJourneyKey(group.journeyKey)
-                                                }
-                                                onInstall={openInstallWizard}
+                        {/*
+                         * A horizontal scroller, not a clip. The actions column carries
+                         * up to five controls on a journey row (install chip + button,
+                         * edit, manage, delete), and the Card's `overflow: hidden` used to
+                         * squeeze them into 140px with no ellipsis: "Install" read "In".
+                         * Now the actions wrap onto a second line inside a column sized
+                         * for the common row, and only a phone scrolls sideways. Sizing
+                         * the column for the crowded row instead pushed Edit off-screen on
+                         * every row at 1024.
+                         */}
+                        <Table.ScrollContainer minWidth={700}>
+                            <Table verticalSpacing="sm" horizontalSpacing="md" highlightOnHover>
+                                <Table.Thead>
+                                    <Table.Tr>
+                                        <Table.Th>Flow</Table.Th>
+                                        <Table.Th w={70}>Nodes</Table.Th>
+                                        <Table.Th w={150}>Last updated</Table.Th>
+                                        <Table.Th w={90}>Enabled</Table.Th>
+                                        <Table.Th w={230} />
+                                    </Table.Tr>
+                                </Table.Thead>
+                                <Table.Tbody>
+                                    {rows.map((row) =>
+                                        row.kind === 'flow' ? (
+                                            <FlowRow
+                                                key={row.flow.flowId}
+                                                flow={row.flow}
+                                                group={null}
+                                                isLastMember={false}
+                                                dragState={dragStateFor(row.flow.flowId)}
+                                                toggling={togglingId === row.flow.flowId}
+                                                actions={rowActions}
                                             />
-                                            {row.flows.map((flow, index) => (
-                                                <FlowRow
-                                                    key={flow.flowId}
-                                                    flow={flow}
+                                        ) : (
+                                            /*
+                                             * A fragment per band rather than a wrapper
+                                             * element: a `<div>` between `<tbody>` and its
+                                             * rows is invalid table markup and collapses the
+                                             * columns the band shares with every other row.
+                                             */
+                                            <Fragment key={row.journeyKey}>
+                                                <GroupHeaderRow
                                                     group={row}
-                                                    isLastMember={index === row.flows.length - 1}
-                                                    dragState={dragStateFor(flow.flowId)}
-                                                    toggling={togglingId === flow.flowId}
-                                                    actions={rowActions}
+                                                    rename={renameControl(row)}
+                                                    onOpenResources={(group) =>
+                                                        setEditingJourneyKey(group.journeyKey)
+                                                    }
+                                                    onOpenInstalled={(group) =>
+                                                        setManagingJourneyKey(group.journeyKey)
+                                                    }
+                                                    onOpenDrift={(group) =>
+                                                        setDriftJourneyKey(group.journeyKey)
+                                                    }
+                                                    onInstall={openInstallWizard}
                                                 />
-                                            ))}
-                                        </Fragment>
-                                    )
-                                )}
-                                {/* Mounted whenever a band exists, shown only mid-drag. */}
-                                {hasAnyGroup && (
-                                    <UngroupedZoneRow
-                                        dragState={dragStateFor(UNGROUPED_ZONE_ID)}
-                                        visible={canLeaveGroup}
-                                    />
-                                )}
-                            </Table.Tbody>
-                        </Table>
+                                                {row.flows.map((flow, index) => (
+                                                    <FlowRow
+                                                        key={flow.flowId}
+                                                        flow={flow}
+                                                        group={row}
+                                                        isLastMember={index === row.flows.length - 1}
+                                                        dragState={dragStateFor(flow.flowId)}
+                                                        toggling={togglingId === flow.flowId}
+                                                        actions={rowActions}
+                                                    />
+                                                ))}
+                                            </Fragment>
+                                        )
+                                    )}
+                                    {/* Mounted whenever a band exists, shown only mid-drag. */}
+                                    {hasAnyGroup && (
+                                        <UngroupedZoneRow
+                                            dragState={dragStateFor(UNGROUPED_ZONE_ID)}
+                                            visible={canLeaveGroup}
+                                        />
+                                    )}
+                                </Table.Tbody>
+                            </Table>
+                        </Table.ScrollContainer>
 
                         {/*
                          * The floating preview portals to `body` rather than cloning the

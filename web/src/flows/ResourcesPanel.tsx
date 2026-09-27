@@ -568,14 +568,22 @@ export function ResourcesPanel({
                 </Alert>
             )}
 
-            <Group gap="sm" wrap="nowrap">
+            {/*
+             * Wraps rather than `nowrap`: at the dialog's narrowest (Mantine clamps the
+             * modal to the viewport below `sm`), a fourth fixed-width element beside a
+             * flexed search box left nothing to shrink but the kind buttons themselves,
+             * which squeezed "Channel"/"Category"/"Role" down to unreadable slivers.
+             * Wrapping keeps every label intact; the search box drops to its own line
+             * first because it is the one flexible child.
+             */}
+            <Group gap="sm" wrap="wrap">
                 <TextInput
                     size="sm"
                     placeholder="Filter resources…"
                     value={filter}
                     onChange={(event) => setFilter(event.currentTarget.value)}
                     leftSection={<IconSearch size={16} />}
-                    style={{ flex: 1 }}
+                    style={{ flex: 1, minWidth: 180 }}
                 />
 
                 {/*
@@ -996,7 +1004,20 @@ function ResourceRow({
                                 {resource.defaultName}
                             </Text>
 
-                            <Group gap={6} wrap="wrap" justify="flex-end" style={{ marginLeft: 'auto' }}>
+                            {/*
+                             * `flexShrink: 0`: without it, this row's squeeze split between
+                             * the name above and the chips here, so a chip like "2 rules in
+                             * order" lost its own text mid-word ("2 RULES IN…") — a label
+                             * reading as a truncated name instead of the fact it states. The
+                             * name already truncates on purpose; chips are short and finite,
+                             * so they should be the one thing on this line that never is.
+                             */}
+                            <Group
+                                gap={6}
+                                wrap="wrap"
+                                justify="flex-end"
+                                style={{ marginLeft: 'auto', flexShrink: 0 }}
+                            >
                                 {chips.map((chip) => (
                                     <ResourceChip
                                         key={`${chip.id}-${chip.detail.ruleIndex ?? ''}`}
