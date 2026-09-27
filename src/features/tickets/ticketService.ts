@@ -144,6 +144,26 @@ export async function attachTicketChannel(ticketId: number, channelId: string): 
 }
 
 /**
+ * Records that a channel no longer exists in Discord, on the tickets that named it.
+ *
+ * The record outlives its channel (`channelId` is nullable for exactly this), so the
+ * ticket keeps its status and simply stops pointing at something that is not there;
+ * surfaces then say the channel is gone instead of linking to it. Called by whoever
+ * learns of it first: the gateway's channel delete while the bot is online, or a ticket
+ * action that asks Discord for the channel and is told it is unknown.
+ *
+ * An empty list is the ordinary answer for a channel that was never a ticket's, and for
+ * one `deleteTicket` already detached before deleting it.
+ */
+export async function forgetTicketChannel(channelId: string): Promise<Result<TicketEntity[]>> {
+    try {
+        return ok(await ticketsRepo.clearChannel(channelId));
+    } catch (error) {
+        return fail(error instanceof Error ? error : new Error(String(error)));
+    }
+}
+
+/**
  * Records which in-channel message renders this ticket's state.
  *
  * Separate from {@link attachTicketChannel} because the message is sent *after*

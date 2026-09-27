@@ -1,4 +1,6 @@
+import { DISCORD_CLIENT } from '../../discordClient';
 import { interactionsRegistry } from '../../features-system/commands';
+import { registerTicketChannelCleanup } from './logic/ticketChannelCleanup';
 import {
     CreateModTicketButtonComponent,
     CreateModTicketModalComponent,
@@ -40,4 +42,7 @@ export function initTicketsFeature(): void {
         TicketConfirmDeleteButtonComponent().handler
     );
     interactionsRegistry.register(TicketReopenButtonComponent().component(true), TicketReopenButtonComponent().handler);
+
+    // A ticket forgets a channel Discord has deleted, so no surface links to it.
+    registerTicketChannelCleanup(DISCORD_CLIENT);
 }

@@ -6,6 +6,7 @@ import type { FlowVariableValue } from '../../src/features/flows/blocks/types';
 import { defaultTicketTypes } from '../../src/features/tickets/data/defaultTicketTypes';
 import { ticketingRepo } from '../../src/features/tickets/data/ticketingRepo';
 import type { TicketEntity } from '../../src/features/tickets/data/ticketsSchema';
+import { registerTicketChannelCleanup } from '../../src/features/tickets/logic/ticketChannelCleanup';
 import { getTicket } from '../../src/features/tickets/ticketService';
 import {
     TestDiscord,
@@ -397,11 +398,7 @@ describe('acting on a ticket whose channel was deleted in Discord', () => {
         ]);
     });
 
-    // Skipped, not deleted: it fails today. Nothing clears `channelId` when Discord answers
-    // 10003 or a channel is deleted, so the page keeps linking to it. How the product should
-    // learn the channel is gone (on the next action, from the gateway, or both) is an
-    // open decision; this is the promise either answer has to keep.
-    it.skip('stops offering a link to the channel once Discord has said it is gone', async () => {
+    it('stops offering a link to the channel once Discord has said it is gone', async () => {
         const ticketGuild = await guildWithTickets();
         const title = 'Check-in whose channel somebody tidied away';
         const opened = await openTicket(ticketGuild, title);
@@ -417,6 +414,25 @@ describe('acting on a ticket whose channel was deleted in Discord', () => {
         // by hand." The bot has just been told exactly that by Discord.
         expect(screen.queryByRole('link', { name: 'Open the channel in Discord' })).toBeNull();
         expect(screen.getByText(/The channel is gone — deleted in Discord, by this bot or by hand/)).toBeTruthy();
+    });
+
+    it('forgets the channel as the gateway reports it deleted, before anyone acts on the ticket', async () => {
+        const ticketGuild = await guildWithTickets();
+        registerTicketChannelCleanup(ticketGuild.client);
+        const title = 'Check-in whose channel went while the bot was watching';
+        const opened = await openTicket(ticketGuild, title);
+
+        // An operator deletes it in Discord; the client hears CHANNEL_DELETE.
+        opened.channel.delete();
+        await waitFor(async () => expect((await getTicket(opened.ticket.id))?.channelId).toBeNull());
+
+        installDashboardApi(ticketGuild.client, ticketGuild.operator);
+        renderDashboard(`/tickets/${opened.ticket.id}`);
+        expect(await screen.findByText(/The channel is gone — deleted in Discord, by this bot or by hand/)).toBeTruthy();
+        expect(screen.queryByRole('link', { name: 'Open the channel in Discord' })).toBeNull();
+        // Losing the channel is not a lifecycle step: the ticket is still open and unclaimed.
+        expect(within(personRow('Claimed by')).getByText('Unclaimed — nobody has picked this up')).toBeTruthy();
+        expect((await getTicket(opened.ticket.id))?.status).toBe('open');
     });
 });
 

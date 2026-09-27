@@ -1,7 +1,14 @@
-import { ChannelType, type Guild, type Message, type TextChannel } from 'discord.js';
+import {
+    ChannelType,
+    DiscordAPIError,
+    RESTJSONErrorCodes,
+    type Guild,
+    type Message,
+    type TextChannel,
+} from 'discord.js';
 import type { ConfiguredTicketingConfig, TicketTypeDefinition } from '../data/ticketingSchema';
 import type { TicketEntity, TicketIdentity } from '../data/ticketsSchema';
-import { claimTicket, closeTicket, reopenTicket, unclaimTicket } from '../ticketService';
+import { claimTicket, closeTicket, forgetTicketChannel, reopenTicket, unclaimTicket } from '../ticketService';
 import { syncTicketChannelToState } from './ticketChannelOps';
 import { buildTicketButtons, buildTicketEmbed } from './ticketPresentation';
 import { ticketErrorMessage } from './ticketErrorMessage';
@@ -158,18 +165,44 @@ async function commit(
     }
 }
 
+interface ResolvedChannel {
+    /** Null when the ticket has no channel the bot can reach. */
+    readonly channel: TextChannel | null;
+    /** The ticket as it stands after asking, which differs only when Discord said the channel is gone. */
+    readonly ticket: TicketEntity;
+}
+
 /**
- * The ticket's channel, or null when it has none the bot can reach.
+ * The ticket's channel, and the ticket as it stands once Discord has been asked.
  *
  * A ticket whose channel was deleted is still a ticket — `channelId` is nullable for
  * exactly that reason — so an unreachable channel is not a failure of the transition,
  * which has already been recorded.
+ *
+ * `Unknown Channel` is the one answer that proves the channel is gone, deleted while the
+ * bot was offline or before the gateway said so. The ticket forgets it then, so the
+ * caller hands back a ticket that has stopped linking to it. Any other failure, `Missing
+ * Access` included, says nothing about whether the channel exists and changes nothing.
  */
-async function resolveChannel(guild: Guild, ticket: TicketEntity): Promise<TextChannel | null> {
-    if (!ticket.channelId) return null;
+async function resolveChannel(guild: Guild, ticket: TicketEntity): Promise<ResolvedChannel> {
+    if (!ticket.channelId) return { channel: null, ticket };
 
-    const channel = await guild.channels.fetch(ticket.channelId).catch(() => null);
-    return channel?.type === ChannelType.GuildText ? channel : null;
+    try {
+        const channel = await guild.channels.fetch(ticket.channelId);
+        return { channel: channel?.type === ChannelType.GuildText ? channel : null, ticket };
+    } catch (error) {
+        if (!(error instanceof DiscordAPIError && error.code === RESTJSONErrorCodes.UnknownChannel)) {
+            console.error(`[tickets] Could not fetch the channel for ticket #${ticket.ticketNumber}:`, error);
+            return { channel: null, ticket };
+        }
+
+        const forgotten = await forgetTicketChannel(ticket.channelId);
+        if (!forgotten.ok) {
+            console.error(`[tickets] Could not record that ticket #${ticket.ticketNumber}'s channel is gone:`, forgotten.error);
+            return { channel: null, ticket };
+        }
+        return { channel: null, ticket: forgotten.value.find((cleared) => cleared.id === ticket.id) ?? ticket };
+    }
 }
 
 /**
@@ -227,9 +260,8 @@ export async function applyTicketTransition(
         return { ok: false, message: committed.message };
     }
 
-    const ticket = committed.ticket;
     const copy = TRANSITION_COPY[input.transition];
-    const channel = await resolveChannel(input.guild, ticket);
+    const { channel, ticket } = await resolveChannel(input.guild, committed.ticket);
 
     let syncWarning: string | null = null;
     if (channel) {

@@ -453,6 +453,24 @@ export class TicketsRepo {
         return moved ?? null;
     }
 
+    /**
+     * Forget a channel Discord no longer holds, on every ticket still naming it.
+     *
+     * Every ticket, not the newest, because a closed and a reopened ticket can name the
+     * same channel (see {@link getByChannelId}) and both lost it. The state message goes
+     * with its channel, so its id is cleared too. One conditional write rather than a
+     * read and then an update, so a ticket re-attached to a new channel in between keeps
+     * the new one.
+     */
+    async clearChannel(channelId: string): Promise<TicketEntity[]> {
+        return database
+            .updateTable('tickets')
+            .set({ channelId: null, stateMessageId: null, updatedAt: new Date().toISOString() })
+            .where('channelId', '=', channelId)
+            .returningAll()
+            .execute();
+    }
+
     async update(id: number, changes: TicketUpdateEntity): Promise<TicketEntity> {
         const updated = await database
             .updateTable('tickets')
