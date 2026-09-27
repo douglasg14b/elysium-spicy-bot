@@ -5,6 +5,7 @@ import type { SeedApi } from './seedApi';
 import { seedDiscord, type ScenarioGuild } from './seedDiscord';
 import { seedFlows } from './seedFlows';
 import { seedSettings } from './seedSettings';
+import { seedTickets } from './seedTickets';
 
 export type { PreviewPage };
 
@@ -31,6 +32,7 @@ export const seedScenario = {
         const pages: PreviewPage[] = [];
         pages.push(...(await seedSettings(context)));
         pages.push(...(await seedFlows(context)));
+        pages.push(...(await seedTickets(context)));
         return pages;
     },
 };

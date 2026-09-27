@@ -8,11 +8,12 @@ import { PREVIEW_PAGES_PATH, type PreviewPage } from './previewPages';
  * Screenshot every page the running preview seeded, at several widths:
  *
  *   pnpm preview:shoot [--base http://localhost:5190] [--only flows-list,settings]
- *                      [--widths 1440,1024,390] [--out web/e2e/preview/.shots]
+ *                      [--widths 1440,1280,1024,390] [--out web/e2e/preview/.shots]
  *
  * Start `pnpm preview:dashboard` first. Each page is written as `<name>@<width>.png`,
  * full height. Alongside each file this prints what a picture can hide: horizontal
- * overflow, text cut off inside its box, console errors, and failed API calls.
+ * overflow, containers that scroll sideways, text cut off inside its box, console
+ * errors, and failed API calls.
  *
  * Uses the installed Chrome rather than a downloaded browser, so nothing is fetched to run it.
  */
@@ -21,7 +22,7 @@ const { values } = parseArgs({
     options: {
         base: { type: 'string', default: 'http://localhost:5190' },
         only: { type: 'string' },
-        widths: { type: 'string', default: '1440,1024,390' },
+        widths: { type: 'string', default: '1440,1280,1024,390' },
         out: { type: 'string', default: 'web/e2e/preview/.shots' },
     },
 });
@@ -31,28 +32,41 @@ const HEIGHT = 900;
 interface PageFindings {
     readonly overflowX: number;
     readonly clipped: readonly string[];
+    readonly scrollers: readonly string[];
 }
 
 /**
- * Elements whose text is wider than their box and hidden rather than wrapped. An
- * ellipsis is a choice, so those are reported too: whether it is the right choice is
- * the reviewer's call, and the list says where to look.
+ * Two things a full-page picture hides:
+ *
+ *  - **Clipped text**: elements whose text is wider than their box and hidden rather than
+ *    wrapped. An ellipsis is a choice, so those are reported too: whether it is the right
+ *    choice is the reviewer's call, and the list says where to look.
+ *  - **Sideways scrollers**: containers whose content runs past their right edge. The
+ *    screenshot shows only the part in view, so a table whose last column needs a scroll
+ *    looks like a table that ends there.
  */
 async function inspect(page: Page): Promise<PageFindings> {
     return page.evaluate(() => {
         const clipped: string[] = [];
+        const scrollers: string[] = [];
         for (const element of Array.from(document.querySelectorAll<HTMLElement>('body *'))) {
-            if (element.children.length > 0 || !element.textContent?.trim()) continue;
             if (element.closest('[aria-hidden="true"]')) continue;
             const style = getComputedStyle(element);
+            const hidden = element.scrollWidth - element.clientWidth;
+            if ((style.overflowX === 'auto' || style.overflowX === 'scroll') && hidden > 1) {
+                const label = element.innerText.trim().split('\n')[0]?.slice(0, 60) ?? '';
+                scrollers.push(`${hidden}px out of view in the box starting "${label}"`);
+            }
+            if (element.children.length > 0 || !element.textContent?.trim()) continue;
             const hides = style.overflow === 'hidden' || style.overflowX === 'hidden' || style.textOverflow === 'ellipsis';
-            if (hides && element.scrollWidth > element.clientWidth + 1) {
+            if (hides && hidden > 1) {
                 clipped.push(`"${element.textContent.trim().slice(0, 80)}" (${element.clientWidth}px box, ${element.scrollWidth}px text)`);
             }
         }
         return {
             overflowX: document.documentElement.scrollWidth - window.innerWidth,
             clipped,
+            scrollers,
         };
     });
 }
@@ -101,6 +115,7 @@ async function main(): Promise<void> {
 
                 console.log(`${file}`);
                 if (findings.overflowX > 0) console.log(`  overflows horizontally by ${findings.overflowX}px`);
+                for (const scroller of findings.scrollers) console.log(`  scrolls sideways: ${scroller}`);
                 for (const clipped of findings.clipped) console.log(`  clipped: ${clipped}`);
                 for (const problem of problems) console.log(`  ${problem}`);
                 await page.close();
