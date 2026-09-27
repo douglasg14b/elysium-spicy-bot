@@ -130,11 +130,10 @@ export async function createTicketChannelForTicket({
         return fail(`Ticket type "${ticket.type}" is not declared in this server's ticket config.`);
     }
 
-    // A ticket that auto-claims on open belongs in the claimed category from the
-    // start; one a flow opened is genuinely unclaimed and belongs in the open one.
-    const categoryName = definition.autoClaimOnOpen
-        ? config.claimedTicketCategoryName
-        : config.supportTicketCategoryName;
+    // Whether it *was* claimed, not whether its type auto-claims: a flow opening an
+    // auto-claim type has no opener to claim it for, so it is genuinely unclaimed and
+    // belongs in the open category. The same rule `syncTicketChannelToState` applies.
+    const categoryName = ticket.claimerId ? config.claimedTicketCategoryName : config.supportTicketCategoryName;
 
     const categoryResult = await findOrCreateModeratorCategory({
         guild,
