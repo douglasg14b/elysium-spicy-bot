@@ -1727,6 +1727,9 @@ export function FlowsListPage() {
                     guildId={selected.id}
                     flowId={managing.flowId}
                     flowName={managing.name}
+                    // An uninstall here changes the row's install chip, which is read from
+                    // the list, so the list is re-read like the journey dialogs below do.
+                    onChanged={() => void refreshFlows({ quiet: true })}
                     intro={
                         managingAlone ? undefined : (
                             <Text size="13.5px" c="dimmed">
