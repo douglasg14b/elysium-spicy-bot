@@ -2,11 +2,8 @@ import { serve } from '@hono/node-server';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 import { DISCORD_CLIENT } from '../../../src/discordClient';
-import { migrateTestDatabase } from '../../../src/features-system/data-persistence/__tests__/support/migrateTestDatabase';
-import { ensureBlocksDiscovered } from '../../../src/features/flows/blocks/registry';
-import { applyResourcesToFlows } from '../../../src/features/flows/logic/applyResourcesToFlows';
-import { registerResourceWriteBack } from '../../../src/features/provisioning';
 import { TestDiscord } from '../../../src/shared/__tests__/support/testDiscord';
+import { bootBotForDashboard } from '../support/bootBot';
 import { buildDashboardApp } from '../support/dashboardApp';
 import { PREVIEW_PAGES_PATH, type PreviewPage } from './previewPages';
 import { createSeedApi } from './scenario/seedApi';
@@ -23,13 +20,13 @@ export interface PreviewPorts {
  * `DISCORD_CLIENT` itself is what TestDiscord drives, not a second client, so the code
  * paths that read the singleton rather than a route's guild — the warnings channel check,
  * posting a trigger button — work here as they do in production.
+ *
+ * One consequence: the singleton subscribes to message events, which TestDiscord does not
+ * model, so any message the bot sends from here faults by design. Dashboard ticket actions
+ * post one, so they fault in the preview; `web/e2e/ticketActions.test.tsx` covers them.
  */
 export async function startPreview({ apiPort, webPort }: PreviewPorts): Promise<void> {
-    await migrateTestDatabase();
-    // What `initFlows` does before the web server starts, without the gateway listeners
-    // and the run scheduler: nothing here runs flows.
-    await ensureBlocksDiscovered();
-    registerResourceWriteBack(applyResourcesToFlows);
+    await bootBotForDashboard();
 
     const discord = new TestDiscord();
     const faultsReported = { count: 0 };

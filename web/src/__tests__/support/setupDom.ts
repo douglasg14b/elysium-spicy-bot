@@ -11,6 +11,7 @@
  * geometry is out of reach of these tests and belongs in a live check.
  */
 
+import { notifications } from '@mantine/notifications';
 import { cleanup } from '@testing-library/react';
 import { afterEach } from 'vitest';
 
@@ -18,9 +19,14 @@ import { afterEach } from 'vitest';
  * Testing Library unmounts after each test by itself only when the runner exposes a
  * global `afterEach`. Vitest's globals are off in this repo, so without this every
  * render stays mounted and the next test's queries find the previous test's DOM.
+ *
+ * Mantine keeps notifications in a module-level store that outlives the unmount, so one
+ * test's "#0001 claimed." would still be showing in the next, and past the display limit
+ * a new one is queued out of sight.
  */
 afterEach(() => {
     cleanup();
+    notifications.clean();
 });
 
 /*
