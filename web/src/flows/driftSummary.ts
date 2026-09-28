@@ -9,13 +9,22 @@
 import type { DriftedResource, JourneyDrift, OrphanedResource, RepairedResource } from '../api/types';
 
 /**
+ * What the operator calls the thing being checked.
+ *
+ * The check is always of a journey, but a lone flow's journey is never shown to the
+ * operator — its row, and every other surface, calls it a flow. Asked for rather than
+ * defaulted, so a new caller has to say which it is.
+ */
+export type DriftSubject = 'journey' | 'flow';
+
+/**
  * The headline, which is the only line most operators will read.
  *
  * States the **denominator**. "2 drifted" makes an operator wonder what else was
  * looked at; "2 of 7 checked" is an answer. This is the same reason `cleanKeys` is
  * carried over the wire at all rather than being a number the server throws away.
  */
-export function driftHeadline(drift: JourneyDrift): string {
+export function driftHeadline(drift: JourneyDrift, subject: DriftSubject): string {
     const checked = drift.drifted.length + drift.cleanKeys.length + drift.unchecked.length;
 
     if (checked === 0 && drift.orphans.length === 0) {
@@ -24,13 +33,13 @@ export function driftHeadline(drift: JourneyDrift): string {
 
     if (drift.drifted.length === 0) {
         return checked === 1
-            ? 'The one thing this journey installed is still exactly as declared.'
-            : `All ${checked} things this journey installed are still exactly as declared.`;
+            ? `The one thing this ${subject} installed is still exactly as declared.`
+            : `All ${checked} things this ${subject} installed are still exactly as declared.`;
     }
 
     return drift.drifted.length === 1
-        ? `1 of ${checked} no longer matches what this journey declares.`
-        : `${drift.drifted.length} of ${checked} no longer match what this journey declares.`;
+        ? `1 of ${checked} no longer matches what this ${subject} declares.`
+        : `${drift.drifted.length} of ${checked} no longer match what this ${subject} declares.`;
 }
 
 /**
@@ -116,7 +125,10 @@ export interface RepairReport {
  * already been written — so the honest report is neither "done" nor "failed", and the
  * first explanation is named rather than counted.
  */
-export function summariseRepair(results: readonly RepairedResource[]): RepairReport {
+export function summariseRepair(
+    results: readonly RepairedResource[],
+    subject: DriftSubject
+): RepairReport {
     const repaired = results.filter((result) => result.outcome === 'repaired');
     /*
      * Partiality is carried by `repaired`, not by an outcome of its own.
@@ -148,7 +160,7 @@ export function summariseRepair(results: readonly RepairedResource[]): RepairRep
         return {
             color: 'brand',
             title: 'Back in line',
-            message: `${count} resource${count === 1 ? '' : 's'} put back to what the journey declares.`,
+            message: `${count} resource${count === 1 ? '' : 's'} put back to what the ${subject} declares.`,
         };
     }
 

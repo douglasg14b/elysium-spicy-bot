@@ -59,7 +59,8 @@ function report(overrides: Partial<JourneyDrift> = {}): JourneyDrift {
 describe('driftHeadline', () => {
     it('states the denominator rather than a bare count of problems', () => {
         const line = driftHeadline(
-            report({ drifted: [drifted()], cleanKeys: ['a', 'b', 'c', 'd', 'e', 'f'] })
+            report({ drifted: [drifted()], cleanKeys: ['a', 'b', 'c', 'd', 'e', 'f'] }),
+            'journey'
         );
 
         // "1 drifted" makes an operator wonder what else was looked at.
@@ -72,26 +73,34 @@ describe('driftHeadline', () => {
                 drifted: [drifted()],
                 cleanKeys: ['a'],
                 unchecked: [{ resourceKey: 'dm', name: 'private', reason: 'Names a subject.' }],
-            })
+            }),
+            'journey'
         );
 
         expect(line).toContain('1 of 3');
     });
 
     it('says everything matches when nothing drifted', () => {
-        const line = driftHeadline(report({ cleanKeys: ['a', 'b'] }));
+        const line = driftHeadline(report({ cleanKeys: ['a', 'b'] }), 'journey');
 
         expect(line).toContain('All 2');
         expect(line).toContain('exactly as declared');
     });
 
     it('reads naturally for a single clean resource', () => {
-        expect(driftHeadline(report({ cleanKeys: ['a'] }))).toContain('The one thing');
+        expect(driftHeadline(report({ cleanKeys: ['a'] }), 'journey')).toContain('The one thing');
     });
 
     it('does not claim a clean bill of health before anything is installed', () => {
         // The empty case must not read as "all 0 are fine", which sounds like a pass.
-        expect(driftHeadline(report())).toBe('Nothing installed to check yet.');
+        expect(driftHeadline(report(), 'journey')).toBe('Nothing installed to check yet.');
+    });
+
+    it('calls a lone flow a flow, since its journey is never shown to the operator', () => {
+        const line = driftHeadline(report({ drifted: [drifted()], cleanKeys: ['a'] }), 'flow');
+
+        expect(line).toContain('what this flow declares');
+        expect(line).not.toContain('journey');
     });
 });
 
@@ -191,7 +200,7 @@ describe('summariseRepair', () => {
     }
 
     it('reports a clean run plainly', () => {
-        const summary = summariseRepair([result(), result({ resourceKey: 'b' })]);
+        const summary = summariseRepair([result(), result({ resourceKey: 'b' })], 'journey');
 
         expect(summary.color).toBe('brand');
         expect(summary.message).toContain('2 resources');
@@ -201,7 +210,7 @@ describe('summariseRepair', () => {
         const summary = summariseRepair([
             result(),
             result({ resourceKey: 'b', outcome: 'failed', explanation: 'Missing permissions.' }),
-        ]);
+        ], 'journey');
 
         expect(summary.color).toBe('orange');
         expect(summary.message).toContain('Missing permissions.');
@@ -225,7 +234,7 @@ describe('summariseRepair', () => {
         // "failed" would be wrong about a channel that really was renamed.
         const summary = summariseRepair([
             result({ outcome: 'failed', repaired: ['renamed'], explanation: 'Discord refused.' }),
-        ]);
+        ], 'journey');
 
         expect(summary.title).toBe('Partly repaired');
         expect(summary.message).toContain('1 repaired');
@@ -236,7 +245,7 @@ describe('summariseRepair', () => {
         // partial success.
         const summary = summariseRepair([
             result({ outcome: 'failed', explanation: 'Missing permissions.' }),
-        ]);
+        ], 'journey');
 
         expect(summary.title).not.toBe('Partly repaired');
         expect(summary.message).toContain('0 repaired');
@@ -245,7 +254,7 @@ describe('summariseRepair', () => {
     it('treats an empty result as nothing to do, not as a failure', () => {
         // The rebuild found the drift already resolved — which is what happens when an
         // operator fixes it by hand while reading the report.
-        const summary = summariseRepair([]);
+        const summary = summariseRepair([], 'journey');
 
         expect(summary.title).toBe('Nothing to do');
         expect(summary.color).not.toBe('red');

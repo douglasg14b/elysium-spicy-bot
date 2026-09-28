@@ -54,6 +54,7 @@ import {
     summariseForget,
     summariseRepair,
     whyNotRepairable,
+    type DriftSubject,
 } from './driftSummary';
 import { withEmphasis } from './publishedInventory';
 import { RESOURCE_KIND_STYLES } from './resourceMeta';
@@ -64,6 +65,8 @@ interface JourneyDriftDialogProps {
     readonly guildId: string;
     readonly journeyKey: string;
     readonly journeyName: string;
+    /** What the copy calls it: a lone flow's journey is never shown as one. */
+    readonly subject: DriftSubject;
     /**
      * Told after a repair or a forget, so the page can re-read its list.
      *
@@ -78,6 +81,7 @@ export function JourneyDriftDialog({
     guildId,
     journeyKey,
     journeyName,
+    subject,
     onChanged,
 }: JourneyDriftDialogProps) {
     /** `null` while loading — distinct from a loaded-and-clean result. */
@@ -102,11 +106,11 @@ export function JourneyDriftDialog({
             setLoadError(
                 err instanceof ApiError
                     ? err.message
-                    : "Couldn't check this journey against your server."
+                    : `Couldn't check this ${subject} against your server.`
             );
             return null;
         }
-    }, [guildId, journeyKey]);
+    }, [guildId, journeyKey, subject]);
 
     useEffect(() => {
         if (!opened) {
@@ -133,7 +137,7 @@ export function JourneyDriftDialog({
         if (keys.length === 0) {
             // Never a silent click. Reachable when the report changes between render
             // and press, and a button that does nothing visible reads as a broken one.
-            const report = summariseRepair([]);
+            const report = summariseRepair([], subject);
             notifications.show({
                 color: report.color,
                 title: report.title,
@@ -145,7 +149,7 @@ export function JourneyDriftDialog({
         setBusy(true);
         try {
             const { results } = await repairJourneyDrift(guildId, journeyKey, keys);
-            const report = summariseRepair(results);
+            const report = summariseRepair(results, subject);
             notifications.show({
                 color: report.color,
                 title: report.title,
@@ -217,7 +221,7 @@ export function JourneyDriftDialog({
                     <Group gap="xs">
                         <Loader size="xs" color="brand" />
                         <Text size="13px" c="dimmed">
-                            Comparing your server against what this journey declares…
+                            Comparing your server against what this {subject} declares…
                         </Text>
                     </Group>
                 )}
@@ -230,7 +234,7 @@ export function JourneyDriftDialog({
 
                 {drift && (
                     <Text size="13.5px" c={hasFindings(drift) ? 'bright' : 'dimmed'}>
-                        {driftHeadline(drift)}
+                        {driftHeadline(drift, subject)}
                     </Text>
                 )}
 

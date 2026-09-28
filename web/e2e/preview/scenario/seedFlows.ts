@@ -78,16 +78,19 @@ export async function seedFlows({ guild, clientGuild, discord, api }: SeedContex
         ],
     });
 
-    // Two flows sharing one journey.
+    // Two flows sharing one journey. Grouped before either declares anything: the group
+    // route names only a journey it creates, and declaring first would create one named
+    // after the flow, leaving the long name below silently unused. The declaration then
+    // goes to the journey, since a per-flow write to a shared journey is refused.
     const munchSignup = await createFlow('Munch sign-up');
     const munchReminder = await createFlow('Munch reminder, the day before');
-    await api.send('PUT', `${guildPath}/flows/${munchSignup.flowId}/resources`, {
-        resources: [{ key: 'munch-channel', kind: 'textChannel', defaultName: 'munch-announcements' }],
-    });
     await api.send('POST', `${guildPath}/flows/${munchReminder.flowId}/group`, {
         targetFlowId: munchSignup.flowId,
         newJourneyKey: 'events-and-munches',
         newJourneyName: 'Events & Munches (monthly, plus the big summer one)',
+    });
+    await api.send('PUT', `${guildPath}/journeys/events-and-munches`, {
+        resources: [{ key: 'munch-channel', kind: 'textChannel', defaultName: 'munch-announcements' }],
     });
 
     // Empty flows, so the list scrolls.

@@ -128,3 +128,47 @@ describe('installing a flow from the flows list', () => {
         expect(within(installedRow).queryByRole('button', { name: 'Install' })).toBeNull();
     });
 });
+
+/*
+ * Here rather than in `journeyDrift.test.tsx`, which drives the dialog on its own: what is
+ * under test is that an ungrouped row offers the check at all, which it once did not — only
+ * group headers did, so the common install had no way to ask.
+ */
+describe('checking an installed flow against the server from its row', () => {
+    it('finds a channel renamed in Discord, says so in terms of the flow, and puts it back', async () => {
+        const authored = await guildWithUninstalledFlow();
+        const faults: string[] = [];
+        const api = createSeedApi(
+            buildDashboardApp({ client: authored.client, operator: OPERATOR, onFault: (fault) => faults.push(fault) }),
+            authored.discord
+        );
+        const flows = await api.send<{ flows: { flowId: string; name: string }[] }>(
+            'GET',
+            `/api/guilds/${authored.guild.id}/flows`
+        );
+        const flowId = flows.flows.find((flow) => flow.name === FLOW_NAME)?.flowId;
+        await api.send('POST', `/api/guilds/${authored.guild.id}/flows/${flowId}/install`, {});
+        const installed = authored.discord.clientGuild(authored.guild).channels.cache.find(
+            (channel) => channel.name === 'welcome'
+        );
+        const welcome = authored.guild.channel(installed?.id ?? '');
+        welcome.rename('general-chat');
+        authored.discord.flushGateway();
+        expect(faults).toEqual([]);
+
+        installDashboardApi(authored.client, OPERATOR);
+        const { user } = renderDashboard('/flows');
+        await user.click(
+            within(await flowRow(FLOW_NAME)).getByRole('button', { name: `Check ${FLOW_NAME} for drift` })
+        );
+
+        const dialog = await screen.findByRole('dialog', { name: `Is ${FLOW_NAME} still what you asked for?` });
+        expect(await within(dialog).findByText('1 of 2 no longer matches what this flow declares.')).toBeTruthy();
+        await user.click(within(dialog).getByRole('button', { name: 'Repair 1 resource' }));
+
+        expect(
+            await within(dialog).findByText('All 2 things this flow installed are still exactly as declared.')
+        ).toBeTruthy();
+        expect(welcome.name).toBe('welcome');
+    });
+});

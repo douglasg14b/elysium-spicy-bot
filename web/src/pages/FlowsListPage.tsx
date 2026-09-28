@@ -98,6 +98,7 @@ import { GroupConflictDialog } from '../flows/GroupConflictDialog';
 import { installChipFor, INSTALL_QUERY_PARAM } from '../flows/installStateChip';
 import { InstalledResourcesDialog } from '../flows/InstalledResourcesDialog';
 import { JourneyDriftDialog } from '../flows/JourneyDriftDialog';
+import type { DriftSubject } from '../flows/driftSummary';
 import { JourneyResourcesDialog } from '../flows/JourneyResourcesDialog';
 import {
     newJourneyNameFor,
@@ -232,6 +233,8 @@ interface FlowRowActions {
      * which is the reason the builder makes it a reviewed two-step in the first place.
      */
     readonly onInstall: (flowId: string) => void;
+    /** Open the drift report for this flow's journey. Offered on ungrouped rows only. */
+    readonly onCheckDrift: (flow: FlowSummary) => void;
 }
 
 /**
@@ -464,6 +467,27 @@ function FlowRow({
                             </Button>
                         </Tooltip>
                     )}
+                    {/*
+                     * The drift check, for the same reason the inventory above is here:
+                     * on a lone flow the flow's scope and its journey's are one thing. It
+                     * used to exist only on group headers, so an ungrouped install — the
+                     * common one — had no way to ask whether the server still matched.
+                     * Gated like the header's, on something actually being installed.
+                     */}
+                    {!group && flow.journey && flow.journey.installState !== 'none' && (
+                        <Tooltip label="Check this flow against your server">
+                            <Button
+                                size="xs"
+                                variant="subtle"
+                                color="gray"
+                                px={8}
+                                onClick={() => actions.onCheckDrift(flow)}
+                                aria-label={`Check ${flow.name} for drift`}
+                            >
+                                <IconRadar size={14} />
+                            </Button>
+                        </Tooltip>
+                    )}
                     <Tooltip label="Delete flow">
                         <Button
                             size="xs"
@@ -525,7 +549,8 @@ function GroupHeaderRow({
         <Table.Tr style={{ background: GROUP_HEADER_BG }}>
             <Table.Td style={{ ...headerCell, borderLeft: GROUP_RAIL }}>
                 <Group gap={9} wrap="nowrap">
-                    <IconRoute size={15} color="var(--mantine-color-brand-4)" />
+                    {/* Not shrinkable: a name long enough to wrap squeezed it to a dot. */}
+                    <IconRoute size={15} color="var(--mantine-color-brand-4)" style={{ flexShrink: 0 }} />
                     {rename.editing ? (
                         <Group gap={7} wrap="nowrap">
                             {/*
@@ -1391,11 +1416,30 @@ export function FlowsListPage() {
         rows.find(
             (row): row is GroupRow => row.kind === 'group' && row.journeyKey === managingJourneyKey
         ) ?? null;
-    /** The group whose drift report is open, as the current list sees it. See above. */
-    const driftGroup =
-        rows.find(
-            (row): row is GroupRow => row.kind === 'group' && row.journeyKey === driftJourneyKey
-        ) ?? null;
+    /**
+     * The journey whose drift report is open, as the current list sees it, and the name the
+     * dialog calls it by. See above.
+     *
+     * Either a group header or a lone flow, because both offer the check. A lone flow is
+     * named as the flow — the operator never sees the journey a lone flow sits on, only
+     * the flow — so the dialog says what the row said.
+     */
+    let driftTarget: {
+        readonly journeyKey: string;
+        readonly name: string;
+        readonly subject: DriftSubject;
+    } | null = null;
+    for (const row of driftJourneyKey ? rows : []) {
+        if (row.kind === 'group' && row.journeyKey === driftJourneyKey) {
+            driftTarget = { journeyKey: row.journeyKey, name: row.name, subject: 'journey' };
+        } else if (row.kind === 'flow' && row.flow.journey?.journeyKey === driftJourneyKey) {
+            driftTarget = {
+                journeyKey: row.flow.journey.journeyKey,
+                name: row.flow.name,
+                subject: 'flow',
+            };
+        }
+    }
     /** The group whose declarations are open, as the current list sees it. See above. */
     const editingGroup =
         rows.find(
@@ -1445,6 +1489,7 @@ export function FlowsListPage() {
         onDelete: openDelete,
         onToggle: (flow, enabled) => void handleToggle(flow, enabled),
         onInstall: openInstallWizard,
+        onCheckDrift: (flow) => setDriftJourneyKey(flow.journey?.journeyKey ?? null),
     };
 
     const renameControl = (group: GroupRow): JourneyRenameControl => ({
@@ -1794,19 +1839,21 @@ export function FlowsListPage() {
             )}
 
             {/*
-             * The journey checked against the server, opened from the group header.
+             * The journey checked against the server, opened from a group header or a
+             * lone flow's row.
              *
              * The third question, and the only one of the three that reads the guild
              * itself rather than our record of it. A repair can rename a channel back,
              * which the header shows, so it refreshes on change like the others.
              */}
-            {driftGroup && selected && (
+            {driftTarget && selected && (
                 <JourneyDriftDialog
                     opened
                     onClose={() => setDriftJourneyKey(null)}
                     guildId={selected.id}
-                    journeyKey={driftGroup.journeyKey}
-                    journeyName={driftGroup.name}
+                    journeyKey={driftTarget.journeyKey}
+                    journeyName={driftTarget.name}
+                    subject={driftTarget.subject}
                     onChanged={() => void refreshFlows({ quiet: true })}
                 />
             )}

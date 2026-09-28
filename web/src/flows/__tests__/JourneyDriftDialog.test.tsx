@@ -46,6 +46,7 @@ function renderDialog() {
             guildId="g1"
             journeyKey="onboarding"
             journeyName="Onboarding"
+            subject="journey"
         />
     );
 }

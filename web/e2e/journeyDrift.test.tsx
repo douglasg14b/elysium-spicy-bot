@@ -118,6 +118,7 @@ function openDialog(lobby: InstalledLobby) {
             guildId={lobby.guild.id}
             journeyKey={JOURNEY_KEY}
             journeyName="Lobby"
+            subject="journey"
         />
     );
 }
