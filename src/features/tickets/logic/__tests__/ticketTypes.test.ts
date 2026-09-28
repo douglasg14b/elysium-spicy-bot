@@ -55,16 +55,16 @@ describe('getTicketTypeDefinition', () => {
 });
 
 describe('buildTicketChannelName', () => {
-    it('pads the number to four digits and lowercases the substituted names', () => {
-        // Only the *names* are lowercased — the template's own literals are left as
-        // the operator typed them, and Discord lowercases the channel name its end.
+    it('pads the number to four digits and lowercases the whole name, as Discord stores it', () => {
+        // The template's own `S` too: Discord lowercases a text channel's name, and a
+        // builder that left it would have the preview promise a name the guild never shows.
         expect(
             buildTicketChannelName(DEFAULT_TICKET_TYPES.support, {
                 ticketNumber: 43,
                 subjectName: 'SomeUser',
                 openerName: 'ModPerson',
             })
-        ).toBe('S0043-someuser-modperson');
+        ).toBe('s0043-someuser-modperson');
     });
 
     it('strips characters Discord would not accept in a channel name', () => {
@@ -74,7 +74,7 @@ describe('buildTicketChannelName', () => {
                 subjectName: 'kitten.brat_99',
                 openerName: null,
             })
-        ).toBe('V0007-kittenbrat99');
+        ).toBe('v0007-kittenbrat99');
     });
 
     it('collapses the separator rather than leaving a trailing hyphen when there is no opener', () => {
@@ -86,7 +86,7 @@ describe('buildTicketChannelName', () => {
                 subjectName: 'someuser',
                 openerName: null,
             })
-        ).toBe('S0043-someuser');
+        ).toBe('s0043-someuser');
     });
 
     it('substitutes every occurrence of a repeated token, not just the first', () => {
@@ -100,7 +100,7 @@ describe('buildTicketChannelName', () => {
                 subjectName: 'Alice',
                 openerName: null,
             })
-        ).toBe('S0001-alice-alice');
+        ).toBe('s0001-alice-alice');
     });
 
     it('does not pad a ticket number past four digits — the width is a minimum, not a cap', () => {
@@ -111,7 +111,7 @@ describe('buildTicketChannelName', () => {
                 subjectName: 'alice',
                 openerName: null,
             })
-        ).toBe('T123456');
+        ).toBe('t123456');
     });
 
     it('renders a template that names no tokens at all verbatim', () => {

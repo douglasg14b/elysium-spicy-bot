@@ -132,7 +132,8 @@ export function buildMirroredChannelName(template: string, subjectName: string):
         .replaceAll('{{subject}}', sanitize(subjectName))
         .replaceAll('{{opener}}', '')
         .replace(/-+/g, '-')
-        .replace(/-$/, '');
+        .replace(/-$/, '')
+        .toLowerCase();
 }
 
 /**

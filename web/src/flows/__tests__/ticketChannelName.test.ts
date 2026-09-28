@@ -17,19 +17,18 @@ describe('previewTicketChannelName', () => {
     it('shows a support channel with no dangling separator where the opener would be', () => {
         // A flow-opened ticket has no opener, so `{{opener}}` is always empty here
         // and the collapse is the normal path rather than an edge case.
-        expect(previewTicketChannelName('support')).toBe('S0042-someone');
+        expect(previewTicketChannelName('support')).toBe('s0042-someone');
     });
 
     it('shows a verification channel', () => {
-        expect(previewTicketChannelName('verification')).toBe('V0042-someone');
+        expect(previewTicketChannelName('verification')).toBe('v0042-someone');
     });
 
-    it('keeps the template prefix uppercase, as the real name does', () => {
-        // Counterintuitive and worth pinning: the sanitizer lowercases the
-        // *subject*, not the template, so the prefix survives as written. This
-        // previews the name the bot asks Discord for, which is exactly what the
-        // drift gate compares against.
-        expect(previewTicketChannelName('support').startsWith('S')).toBe(true);
+    it('shows the template prefix lowercase, as Discord stores it', () => {
+        // The shipped template says `S{{####}}`, and it used to preview as `S0042`
+        // while the guild showed `s0042`. The real builder now lowercases the whole
+        // name, and the drift gate holds this preview to it.
+        expect(previewTicketChannelName('support').startsWith('s')).toBe(true);
     });
 
     it('never leaves a doubled or trailing dash', () => {
@@ -66,7 +65,7 @@ describe('the channel a node will create', () => {
 
     it('names one for a block that declares it creates a ticket channel', () => {
         expect(ticketChannelNameFor(opensTickets, { ticketType: 'support', title: 'Hi' })).toBe(
-            'S0042-someone'
+            's0042-someone'
         );
     });
 

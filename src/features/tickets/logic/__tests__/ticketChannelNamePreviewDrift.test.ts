@@ -179,14 +179,13 @@ describe('ticket channel name preview drift', () => {
      * it gates the pair rather than one side's idea of the answer.
      */
     it.each([
-        // The template's own characters are *not* lowercased — only the sanitized
-        // subject is — so the leading `S` survives. Worth pinning: the sanitizer
-        // lowercases, and the obvious wrong expectation is that the whole name does.
-        ['S{{####}}-{{subject}}-{{subject}}', 'S0042-alice-alice'],
+        // The template's own characters are lowercased too, since Discord stores the
+        // name that way — so the leading `S` does not survive on either side.
+        ['S{{####}}-{{subject}}-{{subject}}', 's0042-alice-alice'],
         ['{{####}}-{{####}}-{{subject}}', '0042-0042-alice'],
         // Two openers, both empty for a flow-opened ticket: gates that the collapse
         // runs after every substitution rather than after the first.
-        ['T{{####}}-{{opener}}-{{subject}}-{{opener}}', 'T0042-alice'],
+        ['T{{####}}-{{opener}}-{{subject}}-{{opener}}', 't0042-alice'],
     ])('substitutes every occurrence in %s, as the server does', (template, expected) => {
         const real = realChannelName(template, 'alice');
 
@@ -212,16 +211,16 @@ describe('ticket channel name preview drift', () => {
      */
     it.each([
         // Mixed case: gates the `.toLowerCase()` the stand-in cannot exercise.
-        ['MixedCase', 'S0042-mixedcase'],
+        ['MixedCase', 's0042-mixedcase'],
         // Spaces and punctuation are stripped, not replaced with separators.
-        ['Two Words!', 'S0042-twowords'],
+        ['Two Words!', 's0042-twowords'],
         // Non-ASCII is stripped, not transliterated — a preview that quietly
         // transliterated would promise a channel name Discord never creates. Note
         // the ASCII letters *around* the stripped characters survive, so the
         // result is legible-looking nonsense rather than an obviously empty name.
-        ['Ünïcødé Näme', 'S0042-ncdnme'],
+        ['Ünïcødé Näme', 's0042-ncdnme'],
         // A subject sanitizing to nothing leaves no dangling separator.
-        ['✨✨', 'S0042'],
+        ['✨✨', 's0042'],
     ])('sanitizes %s the same way the real builder does', (subjectName, expected) => {
         const supportTemplate = TICKET_TYPE_NAME_TEMPLATES.support;
         const real = realChannelName(supportTemplate, subjectName);

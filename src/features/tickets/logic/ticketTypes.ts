@@ -105,6 +105,10 @@ export interface TicketChannelNameParams {
  * the whole point of this step, so that was reachable through the supported path: the
  * exact "accepted, stored, then silently mangled" class the phantom
  * `SUPPORT_TICKET_NAME_TEMPLATE` is being deleted for.
+ *
+ * **Lowercased whole**, not just the substituted names. Discord lowercases a text
+ * channel's name on the way in, so the shipped `S{{####}}` became `s0001` in the guild
+ * while the builder's preview, which mirrors this, promised `S0001`.
  */
 export function buildTicketChannelName(
     definition: TicketTypeDefinition,
@@ -117,5 +121,6 @@ export function buildTicketChannelName(
         .replaceAll('{{subject}}', sanitize(subjectName))
         .replaceAll('{{opener}}', openerName ? sanitize(openerName) : '')
         .replace(/-+/g, '-')
-        .replace(/-$/, '');
+        .replace(/-$/, '')
+        .toLowerCase();
 }
