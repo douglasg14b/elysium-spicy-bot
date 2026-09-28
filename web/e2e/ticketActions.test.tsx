@@ -40,10 +40,9 @@ import { renderDashboard } from './support/renderDashboard';
  * `/deploy-ticket-system` writes it, because no dashboard route creates the row. Everything
  * after that goes through the real config routes.
  *
- * The type used throughout is declared here rather than taken from the shipped two, both of
- * whose name templates start with a capital (`S{{####}}`, `V{{####}}`). Discord lowercases
- * text channel names, TestDiscord refuses to guess how, and the shipped `support` type
- * auto-claims — which a flow-opened ticket, having no opener, can never do.
+ * The type used throughout is declared here rather than taken from the shipped two, because
+ * the shipped `support` type auto-claims — which a flow-opened ticket, having no opener,
+ * can never do. One test opens a shipped type anyway, for the name its template produces.
  */
 
 const BOT_PERMISSIONS: readonly PermissionsString[] = ['ManageChannels', 'ManageRoles'];
@@ -445,6 +444,23 @@ describe('a flow opening a ticket of a type that auto-claims', () => {
         // Auto-claim needs an opener to claim for, and a flow is nobody. The channel belongs
         // where an unclaimed ticket's channel goes, which is where a claim then moves it from.
         expect(opened.ticket.claimerId).toBeNull();
+        expect(opened.channel.parentId).toBe(categoryNamed(ticketGuild, CATEGORIES.open).id);
+    });
+});
+
+describe('a flow opening a ticket of a shipped type', () => {
+    it('opens it into its category and links the ticket to the channel it created', async () => {
+        const ticketGuild = await guildWithTickets();
+
+        const opened = await openTicket(ticketGuild, 'Support the onboarding flow filed', 'support');
+
+        // The shipped support template names no opener for a flow-opened ticket, and the
+        // name is the lowercase one Discord stores — which the builder's preview shows too.
+        const named = ticketGuild.discord
+            .clientGuild(ticketGuild.guild)
+            .channels.cache.filter((channel) => channel.name === 's0001-ropebunny');
+        expect([...named.keys()]).toEqual([opened.ticket.channelId]);
+        expect(opened.channel.name).toBe('s0001-ropebunny');
         expect(opened.channel.parentId).toBe(categoryNamed(ticketGuild, CATEGORIES.open).id);
     });
 });

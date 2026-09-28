@@ -7,8 +7,10 @@ import {
     type APIActionRowComponent,
     type APIComponentInMessageActionRow,
     type APIEmbed,
+    type APIGuildMemberNoUser,
     type APIMessage,
     type APIUser,
+    type GatewayMessageCreateDispatchData,
 } from 'discord.js';
 import type { CreateMessageBody, EditMessageBody } from './messageSchemas';
 import type { HarnessEvent, ServerState } from './serverState';
@@ -33,14 +35,31 @@ import { TestDiscordError } from './testDiscordError';
  *  - **Pinning** posts the system notice Discord posts (type `ChannelPinnedMessage`,
  *    referencing the pinned message, which the API documents) and announces
  *    CHANNEL_PINS_UPDATE, which the `Guilds` intent delivers.
- *  - **No MESSAGE_CREATE or MESSAGE_UPDATE is dispatched**, because Discord only sends
- *    them to a client holding the `GuildMessages` intent and the harness client does not
- *    declare it. A client that does would be owed those events, so every write faults
- *    for one instead of quietly leaving its cache behind.
+ *  - **MESSAGE_CREATE and MESSAGE_UPDATE go only to a client holding the `GuildMessages`
+ *    intent**, as Discord sends them. The harness's own client does not declare it, so it
+ *    hears none; one driven through `TestDiscord.start({ client })` that does, such as
+ *    `DISCORD_CLIENT`, hears them all. A send and a pin notice each announce
+ *    MESSAGE_CREATE. An edit announces MESSAGE_UPDATE, and so does a pin, which flips the
+ *    pinned message's `pinned`. That last one is observed rather than documented — the
+ *    pin endpoint's docs name only CHANNEL_PINS_UPDATE — but it is the behaviour pin-log
+ *    bots are built on, and leaving it out would leave a pinned message unpinned in the
+ *    cache of every client that asked for message events.
+ *  - **A message event carries the whole message as stored**, plus the fields the gateway
+ *    adds for a guild message: `guild_id`, and the author's and each mentioned user's
+ *    `member` without its `user`. Those are what discord.js reads off one — `guild_id` to
+ *    place the message, the members to patch its member cache. MESSAGE_UPDATE carries the
+ *    full message too, as Discord now sends it. Content is always present: every message
+ *    here is the bot's own, which Discord delivers whether or not the client holds
+ *    `MessageContent`.
+ *  - **Message events are held like any other event a REST write causes**, until the
+ *    gateway is flushed. A pin's three arrive as MESSAGE_UPDATE, MESSAGE_CREATE, then
+ *    CHANNEL_PINS_UPDATE; Discord promises no order among them, so nothing may rely on it.
  *  - **Mentions** resolve only for `<@id>` tokens naming a guild member, with
  *    `allowed_mentions` absent or parsing users. Role and `@everyone` mentions, users
  *    outside the guild, and suppressed user mentions all fault: whether Discord still
- *    lists a suppressed mention in `mentions` is not something the harness knows.
+ *    lists a suppressed mention in `mentions` is not something the harness knows. So does
+ *    an edit that brings a mention in or replaces the content of a message holding one,
+ *    because how Discord recomputes `mentions` on an edit is not known either.
  */
 
 /** What the router has already checked a message write to be. */
@@ -97,7 +116,7 @@ export class ServerMessages {
         private readonly publish: (event: HarnessEvent) => void
     ) {}
 
-    /** Told by `TestDiscord.start()` whether the client subscribed to message events. */
+    /** Told by `TestDiscord.start()` whether the client subscribed to message events, which decides whether any are sent. */
     setClientReceivesMessageEvents(receives: boolean): void {
         this.clientReceivesMessageEvents = receives;
     }
@@ -114,7 +133,6 @@ export class ServerMessages {
 
     /** Refuse a send the harness cannot model. Reads only, so the router can run it before a rejection. */
     checkSend(channelId: string, draft: MessageDraft): void {
-        this.refuseWithoutMessageEvents();
         const channel = this.host.channel(channelId);
         if (channel.type !== ChannelType.GuildText) {
             throw new TestDiscordError(
@@ -141,12 +159,12 @@ export class ServerMessages {
             components: structuredClone(draft.components ?? []),
         };
         this.store(channelId, message);
+        this.announceCreate(message);
         return structuredClone(message);
     }
 
     /** Refuse an edit the harness cannot model. Reads only; the message must exist. */
     checkEdit(channelId: string, messageId: string, body: EditMessageBody): void {
-        this.refuseWithoutMessageEvents();
         const message = this.locate(channelId, messageId);
         if (message.author.id !== this.host.botUser.id) {
             throw new TestDiscordError(
@@ -156,6 +174,13 @@ export class ServerMessages {
         if (body.content !== undefined && ANY_MENTION.test(body.content)) {
             throw new TestDiscordError(
                 `TestDiscord received an edit of ${messageId} whose content mentions somebody. How Discord recomputes mentions on an edit is not modelled.`
+            );
+        }
+        // The same gap from the other side: new content replacing a message that
+        // mentioned somebody would leave its stored `mentions` describing text that is gone.
+        if (body.content !== undefined && message.mentions.length > 0) {
+            throw new TestDiscordError(
+                `TestDiscord received an edit replacing the content of ${messageId}, which mentions somebody. How Discord recomputes mentions on an edit is not modelled.`
             );
         }
     }
@@ -168,13 +193,13 @@ export class ServerMessages {
         if (body.embeds !== undefined) message.embeds = body.embeds.map(richEmbed);
         if (body.components !== undefined) message.components = structuredClone(body.components);
         message.edited_timestamp = new Date().toISOString();
+        this.announceUpdate(message);
 
         return structuredClone(message);
     }
 
     /** Refuse a pin the harness cannot model. Reads only; the message must exist. */
     checkPin(channelId: string, messageId: string): void {
-        this.refuseWithoutMessageEvents();
         if (this.locate(channelId, messageId).pinned) {
             throw new TestDiscordError(
                 `TestDiscord received a pin of message ${messageId}, which is already pinned. Whether Discord posts a second notice is not modelled.`
@@ -187,14 +212,16 @@ export class ServerMessages {
         const message = this.locate(channelId, messageId);
         const guildId = this.host.channel(channelId).guild_id;
         message.pinned = true;
+        this.announceUpdate(message);
 
         // Discord announces a pin in the channel as a system message pointing at what
         // was pinned — the notice members see as "pinned a message to this channel".
-        const notice = this.newMessage(channelId, MessageType.ChannelPinnedMessage);
-        this.store(channelId, {
-            ...notice,
+        const notice: APIMessage = {
+            ...this.newMessage(channelId, MessageType.ChannelPinnedMessage),
             message_reference: { message_id: messageId, channel_id: channelId, guild_id: guildId },
-        });
+        };
+        this.store(channelId, notice);
+        this.announceCreate(notice);
         this.host.noteChannelActivity(channelId, { lastPinTimestamp: notice.timestamp });
 
         this.publish({
@@ -203,12 +230,53 @@ export class ServerMessages {
         });
     }
 
-    private refuseWithoutMessageEvents(): void {
-        if (this.clientReceivesMessageEvents) {
+    /** MESSAGE_CREATE for a message just stored, if the client asked for message events. */
+    private announceCreate(message: APIMessage): void {
+        if (!this.clientReceivesMessageEvents) return;
+        this.publish({ t: GatewayDispatchEvents.MessageCreate, d: this.gatewayMessage(message) });
+    }
+
+    /** MESSAGE_UPDATE for a message just changed, if the client asked for message events. */
+    private announceUpdate(message: APIMessage): void {
+        if (!this.clientReceivesMessageEvents) return;
+        this.publish({ t: GatewayDispatchEvents.MessageUpdate, d: this.gatewayMessage(message) });
+    }
+
+    /**
+     * A stored message as the gateway carries it: a copy, plus what the gateway adds for a
+     * guild message — `guild_id`, and a `member` without `user` for the author and for
+     * each mentioned user. See the header for why these fields and no others.
+     *
+     * Typed as the create payload and used for updates too: Discord sends the full
+     * message on both, so the two discord-api-types shapes are the same.
+     */
+    private gatewayMessage(message: APIMessage): GatewayMessageCreateDispatchData {
+        const guildId = this.host.channel(message.channel_id).guild_id;
+        return {
+            ...structuredClone(message),
+            guild_id: guildId,
+            member: this.memberWithoutUser(guildId, message.author.id),
+            mentions: message.mentions.map((user) => ({
+                ...structuredClone(user),
+                member: this.memberWithoutUser(guildId, user.id),
+            })),
+        };
+    }
+
+    /**
+     * A guild member as a message event carries one. Throws for somebody outside the
+     * guild: what Discord puts in the event then is not modelled, and no message the
+     * harness stores can have one — mentions are checked against the guild on send.
+     */
+    private memberWithoutUser(guildId: string, userId: string): APIGuildMemberNoUser {
+        const member = this.host.member(guildId, userId);
+        if (!member) {
             throw new TestDiscordError(
-                'The connected client declares the GuildMessages intent, so Discord would dispatch MESSAGE_CREATE and MESSAGE_UPDATE for this write. TestDiscord does not model message events; drive the harness client from `TestDiscord.start()` instead.'
+                `TestDiscord has a message event naming ${userId}, who is not a member of guild ${guildId}. What Discord carries for them is not modelled.`
             );
         }
+        const { user: _user, ...withoutUser } = structuredClone(member);
+        return withoutUser;
     }
 
     /** The users `content` mentions, as Discord lists them. Throws on any mention it cannot model. */

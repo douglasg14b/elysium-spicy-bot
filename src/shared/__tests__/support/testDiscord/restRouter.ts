@@ -307,9 +307,9 @@ const ROUTES: readonly Route[] = [
     }),
     defineRoute({
         /*
-         * Discord answers 200 with the message. It announces MESSAGE_CREATE only to a
-         * client holding the GuildMessages intent, which the harness client does not —
-         * see `ServerMessages` for the fault that keeps that honest.
+         * Discord answers 200 with the message, and announces MESSAGE_CREATE only to a
+         * client holding the GuildMessages intent — which the harness client does not,
+         * and `DISCORD_CLIENT` does. `ServerMessages` decides which it is owed.
          */
         key: 'POST /channels/:channelId/messages',
         schema: createMessageSchema,

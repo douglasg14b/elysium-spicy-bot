@@ -24,6 +24,8 @@ import {
     type GatewayGuildCreateDispatchData,
     type GatewayGuildMemberAddDispatchData,
     type GatewayGuildRoleModifyDispatchData,
+    type GatewayMessageCreateDispatchData,
+    type GatewayMessageUpdateDispatchData,
     type GatewayReadyDispatchData,
     type PermissionsString,
 } from 'discord.js';
@@ -55,7 +57,9 @@ export type HarnessEvent =
     | { readonly t: GatewayDispatchEvents.ChannelPinsUpdate; readonly d: GatewayChannelPinsUpdateDispatchData }
     | { readonly t: GatewayDispatchEvents.GuildRoleCreate; readonly d: GatewayGuildRoleModifyDispatchData }
     | { readonly t: GatewayDispatchEvents.GuildMemberAdd; readonly d: GatewayGuildMemberAddDispatchData }
-    | { readonly t: GatewayDispatchEvents.GuildCreate; readonly d: GatewayGuildCreateDispatchData };
+    | { readonly t: GatewayDispatchEvents.GuildCreate; readonly d: GatewayGuildCreateDispatchData }
+    | { readonly t: GatewayDispatchEvents.MessageCreate; readonly d: GatewayMessageCreateDispatchData }
+    | { readonly t: GatewayDispatchEvents.MessageUpdate; readonly d: GatewayMessageUpdateDispatchData };
 
 /** Where published events go once a client is connected. Before that, nowhere. */
 export interface EventSink {
@@ -141,17 +145,6 @@ const EVERYONE_DEFAULT_PERMISSIONS: readonly PermissionsString[] = [
     'UseVAD',
 ];
 
-/**
- * Characters Discord rewrites in a text channel's name.
- *
- * Discord stores text channel names lowercased with whitespace turned into hyphens. The
- * exact rules are not modelled, so a name that would be rewritten is refused instead of
- * stored verbatim — storing it verbatim would agree with any product code that also
- * assumes the name comes back exactly as sent, which is the shared mistake this harness
- * must not make.
- */
-const REWRITTEN_IN_TEXT_NAMES = /[A-Z\s]/;
-
 /** A real snowflake, from the same generator discord.js uses. Always 17–19 digits. */
 function newSnowflake(): string {
     return SnowflakeUtil.generate().toString();
@@ -161,11 +154,61 @@ function permissionBits(names: readonly PermissionsString[]): string {
     return PermissionsBitField.resolve([...names]).toString();
 }
 
-function assertStoredVerbatim(type: ModelledChannelType, name: string): void {
-    if (type === ChannelType.GuildText && REWRITTEN_IN_TEXT_NAMES.test(name)) {
+/**
+ * Whitespace in a text channel name that Discord rewrites in a way nobody here has seen:
+ * leading or trailing whitespace, a run of it, or any whitespace character other than a
+ * plain space. Discord may trim, collapse, or refuse any of these; the harness does not
+ * know which, so it refuses them rather than store a guess.
+ */
+const UNSEEN_TEXT_NAME_WHITESPACE = /^\s|\s$|\s\s|[^\S ]/;
+
+/**
+ * Refuse a channel name whose stored form the harness cannot know. Reads nothing.
+ *
+ * Refused rather than rewritten by the product's own rule, because a rule the harness
+ * copied from the product would agree with the product exactly where both are wrong.
+ */
+function refuseUnseenName(type: ModelledChannelType, name: string): void {
+    if (type === ChannelType.GuildText && UNSEEN_TEXT_NAME_WHITESPACE.test(name)) {
         throw new TestDiscordError(
-            `Discord would rewrite the text channel name "${name}" (it lowercases and hyphenates them), and the harness does not model how. Use a name Discord stores as sent.`
+            `TestDiscord received the text channel name ${JSON.stringify(name)}, whose leading, trailing, repeated or non-space whitespace Discord rewrites in a way that is not modelled. Verify it against live Discord before modelling it.`
         );
+    }
+}
+
+/**
+ * The name Discord stores for a channel sent with `name`, which {@link refuseUnseenName}
+ * has already let through.
+ *
+ * Discord rewrites a **text** channel's name on the way in, and two of its rewrites are
+ * certain: it lowercases the name, and it turns a space between words into a hyphen, so
+ * `Welcome Mat` is stored as `welcome-mat`. Both are modelled, so what the bot reads back
+ * (the REST reply, the CHANNEL_* event, a later fetch) is what Discord would hand it, and
+ * product code that assumed the name comes back exactly as sent disagrees with the
+ * harness the way it would with Discord. Every other whitespace case is refused.
+ *
+ * **Punctuation is stored as sent.** Discord very likely strips some of it from text
+ * channel names, but which characters is not known here, and a guessed set would be a
+ * second model of Discord's rules that could share a mistake with the product's. A
+ * name whose punctuation Discord would rewrite is therefore stored verbatim, which is
+ * a known gap: the harness certifies nothing about punctuation either way.
+ *
+ * Categories keep their case and spaces in Discord, so they pass through untouched.
+ *
+ * Written here rather than imported from the product's `normaliseResourceName`, on
+ * purpose: the harness is an independent model of Discord, and borrowing the product's
+ * function would mirror any bug in it instead of catching it.
+ */
+function storedChannelName(type: ModelledChannelType, name: string): string {
+    switch (type) {
+        case ChannelType.GuildText:
+            return name.toLowerCase().replaceAll(' ', '-');
+        case ChannelType.GuildCategory:
+            return name;
+        default: {
+            const unmodelled: never = type;
+            throw new TestDiscordError(`No stored-name rule exists for channel type ${String(unmodelled)}.`);
+        }
     }
 }
 
@@ -276,14 +319,14 @@ export class ServerState {
     }
 
     /**
-     * Refuse a channel Discord would reject or rewrite. Reads only.
+     * Refuse a channel Discord would reject, or name in a way the harness cannot know. Reads only.
      *
      * Public so the REST router can run it *before* consulting an injected rejection —
      * a refused channel must still be loud about a request the harness cannot model.
      */
     checkNewChannel(guildId: string, input: Pick<NewChannel, 'type' | 'name' | 'parentId'>): void {
         const guild = this.guild(guildId);
-        assertStoredVerbatim(input.type, input.name);
+        refuseUnseenName(input.type, input.name);
         if (input.parentId !== null) this.requireCategory(guild, input.parentId);
         if (input.type === ChannelType.GuildCategory && input.parentId !== null) {
             throw new TestDiscordError(
@@ -292,10 +335,10 @@ export class ServerState {
         }
     }
 
-    /** Refuse an edit Discord would reject or rewrite. Reads only; public for the same reason as {@link checkNewChannel}. */
+    /** Refuse an edit Discord would reject, or name in a way the harness cannot know. Reads only; public for the same reason as {@link checkNewChannel}. */
     checkEdit(channelId: string, edit: Pick<ChannelEdit, 'name' | 'parentId'>): void {
         const { guild, channel } = this.locateChannel(channelId);
-        if (edit.name !== undefined) assertStoredVerbatim(channel.type, edit.name);
+        if (edit.name !== undefined) refuseUnseenName(channel.type, edit.name);
         if (edit.parentId === undefined || edit.parentId === null) return;
 
         if (channel.type === ChannelType.GuildCategory) {
@@ -313,7 +356,7 @@ export class ServerState {
         const base = {
             id: newSnowflake(),
             guild_id: guildId,
-            name: input.name,
+            name: storedChannelName(input.type, input.name),
             position: guild.channels.size,
             permission_overwrites: input.overwrites.map((overwrite) => ({ ...overwrite })),
         };
@@ -342,7 +385,7 @@ export class ServerState {
 
         // A category's parent can only ever be null, which `checkEdit` has established.
         if (edit.parentId !== undefined && channel.type === ChannelType.GuildText) channel.parent_id = edit.parentId;
-        if (edit.name !== undefined) channel.name = edit.name;
+        if (edit.name !== undefined) channel.name = storedChannelName(channel.type, edit.name);
         if (edit.overwrites !== undefined) {
             channel.permission_overwrites = edit.overwrites.map((overwrite) => ({ ...overwrite }));
         }
@@ -452,7 +495,7 @@ export class ServerState {
      *
      * No CHANNEL_UPDATE: Discord announces these as MESSAGE_CREATE and CHANNEL_PINS_UPDATE,
      * never as a change to the channel, so this updates what a fetch returns and nothing
-     * else. The pin's own event is `ServerMessages`' to publish.
+     * else. Both of those events are `ServerMessages`' to publish.
      */
     noteChannelActivity(
         channelId: string,

@@ -21,7 +21,8 @@ import { TestDiscordError } from './testDiscordError';
  * `handlePacket` quietly queues every dispatch outside a short whitelist — CHANNEL_UPDATE,
  * CHANNEL_CREATE and GUILD_ROLE_CREATE among them — and returns without error. A harness
  * that trusted the dispatch would then run a test against a cache that never changed, and
- * a silent no-op there reads exactly like a passing test.
+ * a silent no-op there reads exactly like a passing test. `handlePacket` does return false
+ * when it queues, so the harness reads that first and checks the cache on the rest.
  */
 
 /**
@@ -128,6 +129,33 @@ function describeMismatch(client: Client, event: HarnessEvent): string | undefin
             return guild.members.me ? undefined : `guild ${event.d.id} has no cached member for the bot`;
         }
 
+        case GatewayDispatchEvents.MessageCreate: {
+            // `lastMessageId` rather than the message cache: discord.js moves it on every
+            // MESSAGE_CREATE it applies, whatever the client's cache limits keep.
+            const channel = client.channels.cache.get(event.d.channel_id);
+            if (!channel?.isTextBased()) return `the client holds no text channel ${event.d.channel_id}`;
+            return channel.lastMessageId === event.d.id
+                ? undefined
+                : `channel ${event.d.channel_id} records its last message as ${channel.lastMessageId}, Discord sent ${event.d.id}`;
+        }
+
+        case GatewayDispatchEvents.MessageUpdate: {
+            const channel = client.channels.cache.get(event.d.channel_id);
+            if (!channel?.isTextBased()) return `the client holds no text channel ${event.d.channel_id}`;
+            const cached = channel.messages.cache.get(event.d.id);
+            // Nothing to hold it to. A queued update never gets here (`deliver` reads the
+            // queue signal first), so this is discord.js dropping an update for a message
+            // it does not hold — as it does without message partials; with them it builds
+            // one and caches it, and that copy is checked below.
+            if (!cached) return undefined;
+            // discord.js keeps an existing edit time when the event carries none, so only
+            // a present one is held to.
+            const editAgrees =
+                !event.d.edited_timestamp || cached.editedTimestamp === Date.parse(event.d.edited_timestamp);
+            const agrees = cached.content === event.d.content && cached.pinned === event.d.pinned && editAgrees;
+            return agrees ? undefined : `message ${event.d.id} does not carry the content, pin or edit time Discord sent`;
+        }
+
         default: {
             const unverified: never = event;
             throw new TestDiscordError(`No self-check exists for ${JSON.stringify(unverified)}.`);
@@ -212,9 +240,13 @@ export class GatewayLink implements EventSink, EventDeferral {
 
     private deliver(event: HarnessEvent): void {
         const client = this.connectedClient();
-        this.send({ op: GatewayOpcodes.Dispatch, s: this.nextSequence(), ...event });
+        const applied = this.send({ op: GatewayOpcodes.Dispatch, s: this.nextSequence(), ...event });
 
-        const mismatch = describeMismatch(client, event);
+        // `handlePacket` says outright when it queued a dispatch instead of applying it,
+        // which the cache alone cannot always show — a dropped MESSAGE_UPDATE and a
+        // queued one leave it looking the same. The cache check still runs on everything
+        // discord.js did apply.
+        const mismatch = applied ? describeMismatch(client, event) : 'discord.js queued the dispatch instead of applying it';
         if (mismatch) {
             throw new TestDiscordError(
                 `TestDiscord dispatched ${event.t} but the client's cache does not reflect it: ${mismatch}. ` +
@@ -225,8 +257,9 @@ export class GatewayLink implements EventSink, EventDeferral {
         }
     }
 
-    private send(packet: GatewayDispatchPayload): void {
-        internalsOf(this.connectedClient()).handlePacket(packet, SHARD);
+    /** Whether discord.js applied the packet — false when it queued it until Ready. */
+    private send(packet: GatewayDispatchPayload): boolean {
+        return internalsOf(this.connectedClient()).handlePacket(packet, SHARD);
     }
 
     private connectedClient(): Client {

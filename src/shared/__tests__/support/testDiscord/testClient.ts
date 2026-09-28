@@ -8,7 +8,9 @@ const FAKE_BOT_TOKEN = 'test-discord-not-a-real-token';
  *
  * The intents are the ones whose events the harness dispatches. Nothing enforces them
  * offline, but a client declaring intents it never receives events for would misdescribe
- * what the tests exercise.
+ * what the tests exercise. `GuildMessages` is left out on purpose: the harness dispatches
+ * message events only to a client that declares it, so this one reads every message back
+ * from REST replies alone, as a bot without that intent does.
  */
 export function createTestClient(makeRequest: RESTOptions['makeRequest']): Client {
     const client = new Client({

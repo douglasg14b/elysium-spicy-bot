@@ -21,9 +21,12 @@ export interface PreviewPorts {
  * paths that read the singleton rather than a route's guild — the warnings channel check,
  * posting a trigger button — work here as they do in production.
  *
- * One consequence: the singleton subscribes to message events, which TestDiscord does not
- * model, so any message the bot sends from here faults by design. Dashboard ticket actions
- * post one, so they fault in the preview; `web/e2e/ticketActions.test.tsx` covers them.
+ * One consequence: the singleton subscribes to message events, so TestDiscord dispatches
+ * MESSAGE_CREATE and MESSAGE_UPDATE for every message the bot sends, edits or pins from
+ * here — which the harness's own client never hears. Dashboard ticket actions post and
+ * edit messages, so the preview exercises that path; `web/e2e/ticketActions.test.tsx`
+ * covers the same actions on the harness's own client, which lacks `GuildMessages` and so
+ * hears no message events.
  */
 export async function startPreview({ apiPort, webPort }: PreviewPorts): Promise<void> {
     await bootBotForDashboard();

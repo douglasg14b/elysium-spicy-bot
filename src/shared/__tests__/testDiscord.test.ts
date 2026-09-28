@@ -101,12 +101,6 @@ describe('TestDiscord refuses what it does not model', () => {
         await expect(discord.destroy()).rejects.toThrow(TestDiscordError);
     });
 
-    it('refuses a text channel name Discord would rewrite, rather than storing it verbatim', async () => {
-        const { guild } = await startedGuild();
-
-        expect(() => guild.createTextChannel({ name: 'Welcome Mat' })).toThrow(/would rewrite/);
-    });
-
     it('refuses a channel created under a category with its overwrites omitted', async () => {
         const { discord, category, liveGuild } = await startedGuild();
 
@@ -114,6 +108,56 @@ describe('TestDiscord refuses what it does not model', () => {
             liveGuild.channels.create({ name: 'inherits', type: ChannelType.GuildText, parent: category.id })
         ).rejects.toThrow(/syncs the category's overwrites/);
         await expect(discord.destroy()).rejects.toThrow(TestDiscordError);
+    });
+});
+
+describe('TestDiscord stores channel names the way Discord does', () => {
+    it("lowercases a text channel's name and turns each space between words into a hyphen, on create and rename", async () => {
+        const { guild, category, liveGuild } = await startedGuild();
+
+        const created = await liveGuild.channels.create({
+            name: 'Welcome Mat Now',
+            type: ChannelType.GuildText,
+            parent: category.id,
+            permissionOverwrites: [],
+        });
+        expect(guild.channel(created.id).name).toBe('welcome-mat-now');
+        expect(created.name).toBe('welcome-mat-now');
+
+        await created.setName('Front Desk');
+        expect(guild.channel(created.id).name).toBe('front-desk');
+        expect(cachedChannel(liveGuild, created.id).name).toBe('front-desk');
+    });
+
+    it('refuses a text channel name whose whitespace Discord rewrites in a way nobody here has seen', async () => {
+        const { discord, guild, channel, liveGuild } = await startedGuild();
+        const liveChannel = cachedTextChannel(liveGuild, channel.id);
+
+        for (const name of [' leading', 'trailing ', 'two  spaces', 'tab\there', 'no break']) {
+            expect(() => guild.createTextChannel({ name })).toThrow(/whitespace Discord rewrites/);
+        }
+        await expect(liveChannel.setName('Upper  Case')).rejects.toThrow(/whitespace Discord rewrites/);
+        expect(channel.name).toBe('general');
+        await expect(discord.destroy()).rejects.toThrow(/faulted 1 time/);
+    });
+
+    it('stores an operator rename of a text channel rewritten too, and the client hears the stored name', async () => {
+        const { channel, liveGuild } = await startedGuild();
+
+        channel.rename('After Care');
+
+        expect(channel.name).toBe('after-care');
+        expect(cachedChannel(liveGuild, channel.id).name).toBe('after-care');
+    });
+
+    it("keeps a category's name exactly as sent", async () => {
+        const { category, liveGuild } = await startedGuild();
+
+        const created = await liveGuild.channels.create({ name: 'Tickets — Open', type: ChannelType.GuildCategory });
+        await cachedChannel(liveGuild, category.id).setName('Play Rooms');
+
+        expect(created.name).toBe('Tickets — Open');
+        expect(category.name).toBe('Play Rooms');
     });
 });
 
@@ -236,9 +280,9 @@ describe('TestDiscord failure injection', () => {
         channel.rejectWrites({ code: RESTJSONErrorCodes.MissingPermissions });
         const liveChannel = cachedTextChannel(liveGuild, channel.id);
 
-        // A clean 403 here would let a new field, or a name Discord would rewrite, pass unnoticed.
+        // A clean 403 here would let a new field, or a name the harness cannot store, pass unnoticed.
         await expect(liveChannel.setTopic('not modelled')).rejects.toBeInstanceOf(TestDiscordError);
-        await expect(liveChannel.setName('Upper Case')).rejects.toBeInstanceOf(TestDiscordError);
+        await expect(liveChannel.setName('Upper  Case')).rejects.toBeInstanceOf(TestDiscordError);
         await expect(discord.destroy()).rejects.toThrow(/faulted 2 time/);
     });
 });

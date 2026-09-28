@@ -127,16 +127,13 @@ async function runPlan(context: SeedContext, plan: TicketPlan, defaultClaimer: P
     );
 
     if (!plan.noChannel) {
-        // Lowercased because TestDiscord stores a text channel name verbatim rather than
-        // modelling Discord's own lowercasing — the product hits real Discord and never
-        // notices its `S{{####}}-...` templates arrive uppercase; the harness would rather
-        // refuse the mismatch than silently agree with a caller that assumed otherwise.
+        // Passed as the product renders it: TestDiscord lowercases it, as Discord does.
         const channel = context.guild.guild.createTextChannel({
             name: buildTicketChannelName(plan.definition, {
                 ticketNumber: ticket.ticketNumber,
                 subjectName: plan.subject.identity.username,
                 openerName: plan.opener?.identity.username ?? null,
-            }).toLowerCase(),
+            }),
         });
         ticket = must(await attachTicketChannel(ticket.id, channel.id), `attach a channel to #${ticket.ticketNumber}`);
     }

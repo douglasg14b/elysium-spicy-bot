@@ -640,10 +640,10 @@ describe('provisioning drift, composed against TestDiscord', () => {
 
     /*
      * Discord stores a text channel's name lowercased with spaces as hyphens. A
-     * declaration of `Welcome Mat` used to be sent as written — TestDiscord refuses a
-     * name Discord would rewrite rather than storing it verbatim, so the old behaviour
-     * fails this test at install — and live it produced a rename drift on a clean
-     * install that no repair could clear.
+     * declaration of `Welcome Mat` used to be sent as written, and live it produced a
+     * rename drift on a clean install that no repair could clear. TestDiscord stores the
+     * rewritten name as Discord does, so the old behaviour fails here on the binding's
+     * name (install) and on the clean drift check (drift) — each sabotage-verified.
      */
     it('10. a text channel declared with capitals and spaces installs under the name Discord stores, and checks clean', async () => {
         const scenario = await startScenario();

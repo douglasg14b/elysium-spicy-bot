@@ -103,8 +103,8 @@ export class TestDiscord {
         }
 
         this.state.connect(this.gateway);
-        // Discord sends MESSAGE_* events only to a client that asked for them, and the
-        // harness does not model them — so message writes fault for a client that asked.
+        // Discord sends MESSAGE_CREATE and MESSAGE_UPDATE only to a client that asked for
+        // them, so the harness dispatches them to this one only if it did.
         this.state.messages.setClientReceivesMessageEvents(client.options.intents.has(GatewayIntentBits.GuildMessages));
         this.client = client;
         return client;
