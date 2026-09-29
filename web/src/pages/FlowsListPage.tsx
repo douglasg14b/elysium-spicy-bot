@@ -244,7 +244,34 @@ interface FlowRowActions {
  * the same thing — a journey — and the only difference is which flow the wizard opens
  * against. Whether it renders at all is `installChipFor`'s decision, not this component's.
  */
-function InstallState({
+/**
+ * The install status badge alone — what a row's Status column shows.
+ *
+ * Split from the button that fixes it: a status is a fact about the row, a button is a
+ * control, and the two used to share one flex group that had to hold both a variable-width
+ * badge and a button, which is what forced either an oversized column or a wrap.
+ */
+function InstallChip({ journey }: { readonly journey: FlowJourneyMembership | null }) {
+    const chip = installChipFor(journey);
+    if (!chip) return null;
+
+    return (
+        <Tooltip label={chip.tooltip} withArrow multiline w={260}>
+            <Badge size="sm" variant="light" color={chip.color} radius="xl">
+                {chip.label}
+            </Badge>
+        </Tooltip>
+    );
+}
+
+/**
+ * The button that fixes what the Status column's chip says. Lives in the actions
+ * cluster — same reasoning as `InstallChip` above, the other half of the split.
+ *
+ * Renders nothing itself when there is nothing to install; the caller does not need to
+ * duplicate `installChipFor`'s judgement to decide whether to show this.
+ */
+function InstallButton({
     journey,
     onInstall,
 }: {
@@ -252,28 +279,20 @@ function InstallState({
     /** The flow to open the builder's wizard on. Any member installs the whole journey. */
     readonly onInstall: () => void;
 }) {
-    const chip = installChipFor(journey);
-    if (!chip) return null;
+    if (!installChipFor(journey)) return null;
 
     return (
-        <Group gap={6} wrap="nowrap">
-            <Tooltip label={chip.tooltip} withArrow multiline w={260}>
-                <Badge size="sm" variant="light" color={chip.color} radius="xl">
-                    {chip.label}
-                </Badge>
-            </Tooltip>
-            <Tooltip label="Review and install what this needs">
-                <Button
-                    size="xs"
-                    variant="light"
-                    color="brand"
-                    leftSection={<IconDownload size={13} />}
-                    onClick={onInstall}
-                >
-                    Install
-                </Button>
-            </Tooltip>
-        </Group>
+        <Tooltip label="Review and install what this needs">
+            <Button
+                size="xs"
+                variant="light"
+                color="brand"
+                leftSection={<IconDownload size={13} />}
+                onClick={onInstall}
+            >
+                Install
+            </Button>
+        </Tooltip>
     );
 }
 
@@ -366,7 +385,14 @@ function FlowRow({
             <Table.Td
                 style={group ? { ...cellBackground, ...lastMemberBorder, borderLeft: GROUP_RAIL } : undefined}
             >
-                <Group gap={8} wrap="nowrap" pl={group ? 14 : 0}>
+                {/*
+                 * `minWidth: 0` on both the flex container and the name below: a flex
+                 * item's default `min-width: auto` refuses to shrink below its content
+                 * size, which is invisible under `layout="auto"` (the column just grew)
+                 * but overflows into the Nodes column now that the table's columns are
+                 * `layout="fixed"` and this one has a real ceiling.
+                 */}
+                <Group gap={8} wrap="nowrap" pl={group ? 14 : 0} style={{ minWidth: 0 }}>
                     <DragGrip
                         label={flow.name}
                         attributes={draggable.attributes}
@@ -382,7 +408,7 @@ function FlowRow({
                             └
                         </Text>
                     )}
-                    <Text fw={600} size="13.5px">
+                    <Text fw={600} size="13.5px" truncate style={{ minWidth: 0 }}>
                         {flow.name}
                     </Text>
                     {/*
@@ -392,7 +418,7 @@ function FlowRow({
                      * only place the difference can honestly be read.
                      */}
                     {dragState.hint && (
-                        <Badge size="sm" variant="light" color="brand" radius="xl">
+                        <Badge size="sm" variant="light" color="brand" radius="xl" style={{ flex: 'none' }}>
                             {dragState.hint}
                         </Badge>
                     )}
@@ -418,16 +444,18 @@ function FlowRow({
                 />
             </Table.Td>
             <Table.Td style={{ ...cellBackground, ...lastMemberBorder }}>
-                {/* Wraps, so a row carrying an install chip grows a line rather than the column. */}
-                <Group gap={6} justify="flex-end" wrap="wrap">
-                    {/*
-                     * Only on an ungrouped row. A member's install state *is* its journey's,
-                     * so repeating it per member would put the same chip on every row of a
-                     * band under a header already carrying it — and each copy would offer
-                     * an install that does the identical thing.
-                     */}
+                {/*
+                 * Only on an ungrouped row. A member's install state *is* its journey's,
+                 * so repeating it per member would put the same chip on every row of a
+                 * band under a header already carrying it — and each copy would offer
+                 * an install that does the identical thing.
+                 */}
+                {!group && <InstallChip journey={flow.journey} />}
+            </Table.Td>
+            <Table.Td style={{ ...cellBackground, ...lastMemberBorder }}>
+                <Group gap={6} justify="flex-end" wrap="nowrap">
                     {!group && (
-                        <InstallState
+                        <InstallButton
                             journey={flow.journey}
                             onInstall={() => actions.onInstall(flow.flowId)}
                         />
@@ -548,7 +576,14 @@ function GroupHeaderRow({
     return (
         <Table.Tr style={{ background: GROUP_HEADER_BG }}>
             <Table.Td style={{ ...headerCell, borderLeft: GROUP_RAIL }}>
-                <Group gap={9} wrap="nowrap">
+                {/*
+                 * `minWidth: 0` here and on the name below: a flex item's default
+                 * `min-width: auto` refuses to shrink below its content size, invisible
+                 * under `layout="auto"` (the column just grew) but overflowing into the
+                 * Nodes column now that the table's columns are `layout="fixed"` and
+                 * this one has a real ceiling.
+                 */}
+                <Group gap={9} wrap="nowrap" style={{ minWidth: 0 }}>
                     {/* Not shrinkable: a name long enough to wrap squeezed it to a dot. */}
                     <IconRoute size={15} color="var(--mantine-color-brand-4)" style={{ flexShrink: 0 }} />
                     {rename.editing ? (
@@ -602,6 +637,7 @@ function GroupHeaderRow({
                                 type="button"
                                 fw={800}
                                 size="13.5px"
+                                truncate
                                 onClick={() => rename.onStart(group)}
                                 style={{
                                     background: 'transparent',
@@ -609,6 +645,7 @@ function GroupHeaderRow({
                                     padding: 0,
                                     cursor: 'pointer',
                                     color: 'inherit',
+                                    minWidth: 0,
                                 }}
                             >
                                 {group.name}
@@ -639,9 +676,17 @@ function GroupHeaderRow({
             <Table.Td style={headerCell} />
             <Table.Td style={headerCell} />
             <Table.Td style={headerCell}>
-                <Group gap={6} justify="flex-end" wrap="wrap">
+                {/*
+                 * The install status, alone. Its own column, not part of the actions
+                 * cluster — it is a fact about the journey, not a control, and the two
+                 * used to compete for space in the same right-aligned group.
+                 */}
+                <InstallChip journey={group.journey} />
+            </Table.Td>
+            <Table.Td style={headerCell}>
+                <Group gap={6} justify="flex-end" wrap="nowrap">
                     {/*
-                     * The install state, and the way to fix it. First, because it is the
+                     * The way to fix the Status column's chip. First, because it is the
                      * only thing here that can be *wrong* — the rest are ways in.
                      *
                      * The wizard is opened against the first member, and any member would
@@ -652,12 +697,11 @@ function GroupHeaderRow({
                      * which button messages were listed.
                      */}
                     {group.flows[0] && (
-                        <InstallState
+                        <InstallButton
                             journey={group.journey}
                             onInstall={() => onInstall(group.flows[0].flowId)}
                         />
                     )}
-
                     {/*
                      * **Declarations, not installations.** This button's count has always
                      * been `resourceCount` — what the journey *declares* — and it used to
@@ -805,7 +849,7 @@ function UngroupedZoneRow({
             }}
         >
             <Table.Td
-                colSpan={5}
+                colSpan={6}
                 style={visible ? undefined : { padding: 0, border: 'none', height: 0 }}
             >
                 {visible && (
@@ -1604,24 +1648,30 @@ export function FlowsListPage() {
                         }}
                     >
                         {/*
-                         * A horizontal scroller, not a clip. The actions column carries
-                         * up to five controls on a journey row (install chip + button,
-                         * edit, manage, delete), and the Card's `overflow: hidden` used to
-                         * squeeze them into 140px with no ellipsis: "Install" read "In".
-                         * Now the actions wrap onto a second line inside a column sized
-                         * for the common row, and only a phone scrolls sideways. Sizing
-                         * the column for the crowded row instead pushed Edit off-screen on
-                         * every row at 1024.
+                         * A horizontal scroller, not a clip. Status gets its own column,
+                         * separate from the actions cluster it used to share — a status
+                         * (the install chip) is a fact about the row, a set of buttons is
+                         * how you act on it, and cramming both into one right-aligned
+                         * group is what forced the chip to wrap or the column to guess at
+                         * a width wide enough for either. `layout="fixed"` makes every
+                         * width below authoritative regardless of one row's long name, and
+                         * a narrow viewport scrolls sideways via this container instead.
                          */}
-                        <Table.ScrollContainer minWidth={700}>
-                            <Table verticalSpacing="sm" horizontalSpacing="md" highlightOnHover>
+                        <Table.ScrollContainer minWidth={960}>
+                            <Table
+                                verticalSpacing="sm"
+                                horizontalSpacing="md"
+                                highlightOnHover
+                                layout="fixed"
+                            >
                                 <Table.Thead>
                                     <Table.Tr>
-                                        <Table.Th>Flow</Table.Th>
+                                        <Table.Th w={260}>Flow</Table.Th>
                                         <Table.Th w={70}>Nodes</Table.Th>
                                         <Table.Th w={150}>Last updated</Table.Th>
                                         <Table.Th w={90}>Enabled</Table.Th>
-                                        <Table.Th w={230} />
+                                        <Table.Th w={130}>Status</Table.Th>
+                                        <Table.Th w={260} />
                                     </Table.Tr>
                                 </Table.Thead>
                                 <Table.Tbody>

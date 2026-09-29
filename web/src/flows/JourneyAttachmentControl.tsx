@@ -142,7 +142,7 @@ export function JourneyAttachmentControl({
                         disabled={loading || options.length === 0}
                         onClick={() => setAttachOpen(true)}
                     >
-                        {attachment ? 'Move to journey' : 'Attach to journey'}
+                        {attachment ? 'Move to another journey' : 'Attach to journey'}
                     </Button>
                     {attachment && (
                         <Button
