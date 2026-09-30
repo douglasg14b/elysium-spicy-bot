@@ -112,6 +112,7 @@ import {
 } from '../flows/resizableColumn';
 import { graphIncluding } from '../flows/graphHistory';
 import {
+    changeLabel,
     kindLabel,
     summariseInstallFailure,
     summariseInstallOutcome,
@@ -1105,7 +1106,7 @@ function FlowBuilder() {
             // it again is the simplest way to show the operator what changed, and it
             // also covers the refusals that carry no plan at all.
             setConfirmInstall(false);
-            void loadInstallPlan();
+            if (failure.reloadPlan) void loadInstallPlan();
         } finally {
             setInstalling(false);
         }
@@ -1770,8 +1771,8 @@ function FlowBuilder() {
                                 <Stack gap={4}>
                                     {planSummary.changes.map((item) => (
                                         <Text key={item.resourceKey} size="12.5px">
-                                            <Text span c={item.action === 'adopt' ? 'yellow.5' : 'brand.4'} fw={600}>
-                                                {item.action === 'adopt' ? 'Adopt' : 'Create'}
+                                            <Text span c={changeLabel(item).color} fw={600}>
+                                                {changeLabel(item).label}
                                             </Text>{' '}
                                             {kindLabel(item.kind)}{' '}
                                             <Text span fw={600}>

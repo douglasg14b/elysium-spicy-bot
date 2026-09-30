@@ -56,7 +56,9 @@ vi.mock('../../../features-system/data-persistence/database', () => ({
     },
 }));
 
-const { installJourney, previewDrift, previewInstall, repairDrift } = await import('../provisioningService');
+const { installJourney, previewDrift, previewInstall, previewUnpublish, repairDrift, unpublishJourney } =
+    await import('../provisioningService');
+const { runInstall } = await import('../logic/runInstall');
 const { resourceBindingsRepo } = await import('../data/resourceBindingsRepo');
 
 const BOT_PERMISSIONS: readonly PermissionsString[] = ['ManageChannels', 'ManageRoles'];
@@ -681,5 +683,225 @@ describe('provisioning drift, composed against TestDiscord', () => {
             discordId: existing.id,
             name: 'staff-chat',
         });
+    });
+
+    /*
+     * The crash window: Discord made the category, and the process died before its
+     * binding was settled. Reached through the real apply by failing that one write,
+     * which leaves exactly what a crash leaves — an `intended` row with no id, and a
+     * category Discord holds that nothing records. Before recovery existed, the next
+     * plan blocked on the name and offered it for adoption, and uninstall would then
+     * never have deleted a category this journey made.
+     */
+    /**
+     * Install the lobby journey and die between creating its category and recording it.
+     *
+     * The settle is failed through a spy, which is also the only way to learn the id the
+     * create returned: TestDiscord's handles address a channel by id, not by name.
+     */
+    async function crashAfterCreatingCategory(scenario: Scenario): Promise<ServerChannel> {
+        const input = { guild: scenario.liveGuild, journey: lobbyJourney(), staffRoleIds: [scenario.staff.id] };
+
+        const settle = vi
+            .spyOn(resourceBindingsRepo, 'settle')
+            .mockRejectedValueOnce(new Error('the process died here'));
+        const firstPlan = await withinDeadlockTimeout(previewInstall(input), 'previewInstall');
+        const interrupted = await withinDeadlockTimeout(
+            installJourney({ ...input, approvedPlan: firstPlan }),
+            'installJourney'
+        );
+        const crashedCategoryId = settle.mock.calls[0]?.[0].discordId;
+        settle.mockRestore();
+
+        expect(interrupted.failure).toMatch(/recording its binding failed/);
+        expect(crashedCategoryId).toBeDefined();
+        expect(await bindingFor(scenario, LOBBY, CATEGORY_KEY)).toMatchObject({
+            state: 'intended',
+            discordId: null,
+        });
+        scenario.discord.flushGateway();
+
+        const lostCategory = scenario.guild.channel(crashedCategoryId ?? '');
+        expect(lostCategory.exists).toBe(true);
+        return lostCategory;
+    }
+
+    it('12. an install interrupted after creating a category takes it back on the next run, and uninstall deletes it', async () => {
+        const scenario = await startScenario();
+        const journey = lobbyJourney();
+        const lostCategory = await crashAfterCreatingCategory(scenario);
+
+        const result = await install(scenario, journey);
+
+        expect(result.applied.map((entry) => [entry.resourceKey, entry.discordId])).toEqual([
+            [CATEGORY_KEY, lostCategory.id],
+            [WELCOME_KEY, expect.any(String)],
+        ]);
+        expect(await bindingFor(scenario, LOBBY, CATEGORY_KEY)).toMatchObject({
+            state: 'created',
+            discordId: lostCategory.id,
+        });
+        const welcome = installedChannel(scenario, result, WELCOME_KEY);
+        expect(welcome.parentId).toBe(lostCategory.id);
+
+        // Provenance is the point: recorded as created, so teardown takes it back.
+        const teardown = await withinDeadlockTimeout(
+            previewUnpublish(scenario.liveGuild, LOBBY),
+            'previewUnpublish'
+        );
+        await withinDeadlockTimeout(
+            unpublishJourney({ guild: scenario.liveGuild, approvedPlan: teardown }),
+            'unpublishJourney'
+        );
+        expect(welcome.exists).toBe(false);
+        expect(lostCategory.exists).toBe(false);
+    });
+
+    it('12b. an interrupted install never takes back an object another journey has since bound', async () => {
+        const scenario = await startScenario();
+        const lostCategory = await crashAfterCreatingCategory(scenario);
+
+        // Another journey adopts the orphan before this one retries. Taking it back now
+        // would record it as created here, and this journey's uninstall would delete a
+        // category the other one depends on.
+        await install(
+            scenario,
+            { journeyKey: 'other', name: 'Other', resources: [{ key: 'home', kind: 'category', defaultName: 'Lobby' }] },
+            { home: { adoptDiscordId: lostCategory.id } }
+        );
+
+        const retry = await withinDeadlockTimeout(
+            previewInstall({ guild: scenario.liveGuild, journey: lobbyJourney(), staffRoleIds: [scenario.staff.id] }),
+            'previewInstall'
+        );
+
+        expect(retry.items.find((item) => item.resourceKey === CATEGORY_KEY)).toMatchObject({
+            action: 'blocked',
+            discordId: lostCategory.id,
+        });
+    });
+
+    /*
+     * Uninstalling instead of retrying. The intent row is the only thing tying the
+     * category to this journey, and it used to be forgotten as "never created" — leaving
+     * the category behind with nothing that remembered it.
+     */
+    it('12d. uninstalling after an interrupted create keeps the record and leaves the object, naming why', async () => {
+        const scenario = await startScenario();
+        const lostCategory = await crashAfterCreatingCategory(scenario);
+
+        const teardown = await withinDeadlockTimeout(previewUnpublish(scenario.liveGuild, LOBBY), 'previewUnpublish');
+        expect(teardown.items.find((item) => item.resourceKey === CATEGORY_KEY)).toMatchObject({
+            action: 'refuse',
+            refusalReason: 'interrupted-create',
+            discordId: lostCategory.id,
+        });
+
+        await withinDeadlockTimeout(
+            unpublishJourney({ guild: scenario.liveGuild, approvedPlan: teardown }),
+            'unpublishJourney'
+        );
+        expect(lostCategory.exists).toBe(true);
+        expect(await bindingFor(scenario, LOBBY, CATEGORY_KEY)).toMatchObject({ state: 'intended' });
+    });
+
+    /*
+     * Recovery searches by the intent's name, inside a window after the intent's time. A
+     * retry reuses the row, so unless a create refreshes it, a retry after a rename — or
+     * days later — is searched for under the old name or outside the window.
+     */
+    it('12c. a retried create refreshes its intent row; a bind does not, and a settled row never moves', async () => {
+        const intent = { guildId: 'guild-refresh', journeyKey: LOBBY, resourceKey: WELCOME_KEY, kind: 'textChannel' } as const;
+        const longAgo = '2026-01-01T00:00:00.000Z';
+
+        const first = await resourceBindingsRepo.recordIntent({ ...intent, name: 'welcome', startsCreate: true });
+        await testDb.db.updateTable('resource_bindings').set({ createdAt: longAgo }).where('id', '=', first.id).execute();
+
+        const bound = await resourceBindingsRepo.recordIntent({ ...intent, name: 'lounge', startsCreate: false });
+        expect(bound).toMatchObject({ id: first.id, name: 'welcome', createdAt: new Date(longAgo) });
+
+        const retried = await resourceBindingsRepo.recordIntent({ ...intent, name: 'lounge', startsCreate: true });
+        expect(retried).toMatchObject({ id: first.id, state: 'intended', name: 'lounge' });
+        expect(retried.createdAt.getTime()).toBeGreaterThan(new Date(longAgo).getTime());
+
+        await resourceBindingsRepo.settle({ id: first.id, discordId: '123456789012345678', state: 'created', name: 'lounge' });
+        const settled = await resourceBindingsRepo.recordIntent({ ...intent, name: 'renamed', startsCreate: true });
+        expect(settled).toMatchObject({ state: 'created', discordId: '123456789012345678', name: 'lounge' });
+    });
+
+    /*
+     * A double press. Without the lock both requests plan a create for every key, both
+     * create, and the loser finds its binding already settled — a duplicate category and
+     * channel left in the server, reported only after the fact.
+     */
+    it('13. two installs of one journey at once: one is refused before touching anything, and the other installs cleanly', async () => {
+        const scenario = await startScenario();
+        const input = { guild: scenario.liveGuild, journey: lobbyJourney(), staffRoleIds: [scenario.staff.id] };
+
+        const outcomes = await withinDeadlockTimeout(
+            Promise.all([runInstall(input), runInstall(input)]),
+            'runInstall twice'
+        );
+
+        expect(outcomes.map((outcome) => outcome.status).sort()).toEqual(['applied', 'busy']);
+        expect(outcomes.find((outcome) => outcome.status === 'busy')).toMatchObject({ running: 'install' });
+        const applied = outcomes.find((outcome) => outcome.status === 'applied');
+        expect(applied?.status === 'applied' && applied.failure).toBeFalsy();
+
+        // The lock is released afterwards: the next install runs, and reuses everything.
+        scenario.discord.flushGateway();
+        const again = await withinDeadlockTimeout(runInstall(input), 'runInstall again');
+        expect(again.status === 'applied' && again.applied.map((entry) => entry.action)).toEqual([
+            'reused',
+            'reused',
+        ]);
+    });
+
+    it('13b. an uninstall pressed while the journey is installing is refused, and deletes nothing', async () => {
+        const scenario = await startScenario();
+        const input = { guild: scenario.liveGuild, journey: lobbyJourney(), staffRoleIds: [scenario.staff.id] };
+
+        // The lock is claimed synchronously when `runInstall` is called, so the
+        // uninstall below arrives while it is held.
+        const installing = runInstall(input);
+        const teardown = await withinDeadlockTimeout(
+            unpublishJourney({
+                guild: scenario.liveGuild,
+                approvedPlan: { guildId: scenario.guild.id, journeyKey: LOBBY, items: [] },
+            }),
+            'unpublishJourney'
+        );
+        const installed = await withinDeadlockTimeout(installing, 'runInstall');
+
+        expect(teardown).toEqual({
+            results: [],
+            refusal: 'An install of this journey is still running, so nothing was changed. Wait for it to finish, then try again.',
+        });
+        expect(installed.status === 'applied' && installed.failure).toBeFalsy();
+    });
+
+    /*
+     * Rate limits are the transport's job, by decision (5B.3): `@discordjs/rest` sleeps on
+     * a 429's `Retry-After` and resends. This pins that it does so through the product's
+     * install, and that the resend cannot duplicate — Discord creates nothing on a 429.
+     */
+    it('14. a create Discord rate-limits is waited out and resent, and the install finishes clean', async () => {
+        const scenario = await startScenario();
+        scenario.guild.rateLimitNext('POST /guilds/:guildId/channels');
+
+        const result = await install(scenario, lobbyJourney());
+
+        const creates = scenario.discord.requests.filter(
+            (request) => request.method === 'POST' && request.path === `/guilds/${scenario.guild.id}/channels`
+        );
+        // The category is refused once and resent; the channel after it goes straight through.
+        expect(creates.map((request) => request.status)).toEqual([429, 201, 201]);
+        expect(result.applied.map((entry) => [entry.resourceKey, entry.action])).toEqual([
+            [CATEGORY_KEY, 'created'],
+            [WELCOME_KEY, 'created'],
+        ]);
+        expect(installedChannel(scenario, result, WELCOME_KEY).parentId).toBe(
+            installedChannel(scenario, result, CATEGORY_KEY).id
+        );
     });
 });

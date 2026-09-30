@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+    changeLabel,
     kindLabel,
     summariseInstallFailure,
     summariseInstallOutcome,
@@ -46,6 +47,21 @@ function result(overrides: Partial<InstallResult> = {}): InstallResult {
         ...overrides,
     };
 }
+
+describe('a resource an interrupted install left behind', () => {
+    it('is listed as taken back, never as a create', () => {
+        // "Create" would promise a second channel beside the one already there.
+        const recovering = item({ action: 'recover', discordId: '222' });
+        const summary = summariseInstallPlan(plan({ items: [recovering] }));
+
+        expect(summary.changes).toEqual([recovering]);
+        expect(summary.canApply).toBe(true);
+        expect(summary.headline).toBe(
+            'This will take back 1 channel an interrupted install left behind in your server.'
+        );
+        expect(changeLabel(recovering).label).toBe('Take back');
+    });
+});
 
 describe('naming a single resource by kind', () => {
     it('calls a category a category, not a channel', () => {
@@ -255,12 +271,19 @@ describe('summarising an install that threw', () => {
     it('promises nothing happened only for the statuses refused before applying', () => {
         // The route's own refusals plus the auth middleware's, all emitted before
         // anything is created — so the guild really is untouched.
-        for (const status of [400, 401, 403, 404, 409]) {
+        for (const status of [400, 401, 403, 404, 409, 423]) {
             const summary = summariseInstallFailure(status, 'This flow declares nothing.');
 
             expect(summary.title).toBe('Nothing installed');
             expect(summary.message).toBe('This flow declares nothing.');
         }
+    });
+
+    it('does not reload the plan while another install of the journey is applying', () => {
+        // A plan built mid-apply would call that install's half-made channels
+        // "left behind by an interrupted install". A 409 is drift and does reload.
+        expect(summariseInstallFailure(423, 'An install of this journey is still running.').reloadPlan).toBe(false);
+        expect(summariseInstallFailure(409, 'Your server changed.').reloadPlan).toBe(true);
     });
 
     it('does not claim a 500 installed nothing', () => {

@@ -1,4 +1,4 @@
-import { ChannelType, PermissionFlagsBits } from 'discord.js';
+import { ChannelType, PermissionFlagsBits, SnowflakeUtil } from 'discord.js';
 import { describe, expect, it } from 'vitest';
 import type { ResourceBindingEntity } from '../../data/resourceBindingsSchema';
 import { buildInstallPlan, isPlanApplicable, type PlanItem } from '../installPlan';
@@ -183,6 +183,98 @@ describe('buildInstallPlan', () => {
         });
 
         expect(itemFor(plan.items, 'welcome-channel').action).toBe('create');
+    });
+
+    describe('an install interrupted between creating and recording', () => {
+        // The intent row is written before the create is sent, so the object an
+        // interrupted install made is the same-named one created *after* the row.
+        const INTENT_AT = new Date('2026-09-27T12:00:00Z');
+        const idCreatedAt = (msFromIntent: number): string =>
+            SnowflakeUtil.generate({ timestamp: INTENT_AT.getTime() + msFromIntent }).toString();
+        const intent = binding({ state: 'intended', discordId: null, createdAt: INTENT_AT });
+
+        function planWith(channels: FakeChannel[], boundInGuild?: ReadonlySet<string>) {
+            return buildInstallPlan({
+                guild: makeGuild({ channels }),
+                journey: JOURNEY,
+                existingBindings: [intent],
+                boundInGuild,
+            });
+        }
+
+        it('recovers the one object made after the intent, rather than offering it for adoption', () => {
+            const made = idCreatedAt(200);
+            const welcome = itemFor(
+                planWith([{ id: made, name: 'welcome', type: ChannelType.GuildText }]).items,
+                'welcome-channel'
+            );
+
+            expect(welcome.action).toBe('recover');
+            expect(welcome.discordId).toBe(made);
+        });
+
+        it('does not recover a same-named object that predates the intent', () => {
+            // Made by hand before the install ever ran: a name collision, not ours.
+            const theirs = idCreatedAt(-60_000);
+            const welcome = itemFor(
+                planWith([{ id: theirs, name: 'welcome', type: ChannelType.GuildText }]).items,
+                'welcome-channel'
+            );
+
+            expect(welcome.action).toBe('blocked');
+            expect(welcome.reason).toMatch(/already exists/i);
+        });
+
+        it('does not recover a same-named object made long after the intent', () => {
+            // The intent's install died before sending anything; the operator made the
+            // channel by hand days later. Recovering it would hand it to uninstall.
+            const handMade = idCreatedAt(3 * 24 * 60 * 60_000);
+            const welcome = itemFor(
+                planWith([{ id: handMade, name: 'welcome', type: ChannelType.GuildText }]).items,
+                'welcome-channel'
+            );
+
+            expect(welcome.action).toBe('blocked');
+            expect(welcome.reason).toMatch(/already exists/i);
+        });
+
+        it('adopts rather than recovers when the operator names the object to adopt', () => {
+            const made = idCreatedAt(200);
+            const plan = buildInstallPlan({
+                guild: makeGuild({ channels: [{ id: made, name: 'welcome', type: ChannelType.GuildText }] }),
+                journey: JOURNEY,
+                existingBindings: [intent],
+                choices: { 'welcome-channel': { adoptDiscordId: made } },
+            });
+
+            expect(itemFor(plan.items, 'welcome-channel')).toMatchObject({ action: 'adopt', discordId: made });
+        });
+
+        it('does not recover an object another journey has bound', () => {
+            // Recovering it would hand this journey's uninstall another journey's channel.
+            const othersChannel = idCreatedAt(200);
+            const welcome = itemFor(
+                planWith(
+                    [{ id: othersChannel, name: 'welcome', type: ChannelType.GuildText }],
+                    new Set([othersChannel])
+                ).items,
+                'welcome-channel'
+            );
+
+            expect(welcome.action).toBe('blocked');
+        });
+
+        it('asks rather than guesses when several were made since', () => {
+            const plan = planWith([
+                { id: idCreatedAt(200), name: 'welcome', type: ChannelType.GuildText },
+                { id: idCreatedAt(400), name: 'welcome', type: ChannelType.GuildText },
+            ]);
+
+            const welcome = itemFor(plan.items, 'welcome-channel');
+            expect(welcome.action).toBe('blocked');
+            expect(welcome.reason).toMatch(/2 channels of that name have been made since/);
+            expect(isPlanApplicable(plan)).toBe(false);
+        });
     });
 
     describe('never binds by name on its own', () => {

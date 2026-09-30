@@ -6,7 +6,7 @@ import {
     type PermissionsString,
 } from 'discord.js';
 import { toMessageView, type ServerMessageView } from './messageState';
-import type { InjectedRejection } from './restRouter';
+import type { GuildCreateRoute, InjectedRejection } from './restRouter';
 import type { ModelledChannelType, ServerState } from './serverState';
 import { TestDiscordError } from './testDiscordError';
 
@@ -200,6 +200,17 @@ export class ServerGuild {
             throw new TestDiscordError(`Channel ${channelId} is not in guild ${this.id}.`);
         }
         return new ServerChannel(this.state, this.id, channelId);
+    }
+
+    /**
+     * Make Discord answer the bot's next create on `route` in this guild with one 429.
+     *
+     * Explicit injection, like `ServerChannel.rejectWrites`, and for the same reason: the
+     * harness does not decide for itself when Discord would throttle. See
+     * `InjectedRateLimit` in `restRouter.ts` for what this does and does not prove.
+     */
+    rateLimitNext(route: GuildCreateRoute, retryAfterMs = 50): void {
+        this.state.rateLimitNext(this.id, { route, retryAfterMs });
     }
 
     /** A handle for a role Discord holds — including ones the bot created over REST. */

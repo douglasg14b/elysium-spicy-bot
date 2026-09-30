@@ -86,6 +86,50 @@ export interface InjectedRejection {
     readonly route?: ChannelWriteRoute;
 }
 
+/** The guild-scoped creates a test may make Discord rate-limit once. */
+export type GuildCreateRoute = 'POST /guilds/:guildId/channels' | 'POST /guilds/:guildId/roles';
+
+/**
+ * Answer the next matching request with one 429, as Discord does.
+ *
+ * **A test-injected fault, not a model of Discord's limits.** Discord's real buckets,
+ * sublimits and reset windows are undocumented in the detail a model would need, and a
+ * harness that decided for itself when to throttle would be guessing. What this proves
+ * is narrower and certain: that the code under test survives the response Discord sends
+ * when it does throttle — status, headers and body as `@discordjs/rest` reads them.
+ */
+export interface InjectedRateLimit {
+    readonly route: GuildCreateRoute;
+    /** Sent as `Retry-After`. Keep it short: discord.js really sleeps for it. */
+    readonly retryAfterMs: number;
+}
+
+/**
+ * The 429 Discord sends for an exhausted per-route bucket.
+ *
+ * The bucket headers matter as much as `Retry-After`. With `X-RateLimit-Remaining: 0`
+ * and a reset, `@discordjs/rest` 2.6 marks the route's handler as locally limited and
+ * waits out the reset before resending — the path a real per-route limit takes. Without
+ * them it reads the response as a *sublimit* and takes a different branch, so a test
+ * would prove the retry through code a real bucket never reaches. Seconds, and may be
+ * fractional. `X-RateLimit-Scope: user` marks it as this bot's own limit.
+ */
+function rateLimitResponse(retryAfterMs: number): Response {
+    const retryAfter = String(retryAfterMs / 1000);
+    return new Response(JSON.stringify({ message: 'You are being rate limited.', retry_after: retryAfterMs / 1000, global: false }), {
+        status: 429,
+        headers: {
+            'content-type': 'application/json',
+            'retry-after': retryAfter,
+            'x-ratelimit-limit': '1',
+            'x-ratelimit-remaining': '0',
+            'x-ratelimit-reset-after': retryAfter,
+            'x-ratelimit-bucket': 'testdiscord-injected',
+            'x-ratelimit-scope': 'user',
+        },
+    });
+}
+
 /** The body Discord answers a refusal with, which `DiscordAPIError` parses. */
 interface DiscordErrorBody {
     readonly code: RESTJSONErrorCodes;
@@ -461,6 +505,11 @@ function answer(state: ServerState, method: string, path: string, rawBody: unkno
 
         // Checked first, so an unmodelled request is loud even on a channel told to refuse.
         const write = route.prepare(state, params, rawBody);
+
+        const rateLimit = params.guildId ? state.takeRateLimit(params.guildId, route.key) : undefined;
+        if (rateLimit) {
+            return { status: 429, response: rateLimitResponse(rateLimit.retryAfterMs) };
+        }
 
         const rejection = rejectionFor(state, route, params);
         if (rejection) {

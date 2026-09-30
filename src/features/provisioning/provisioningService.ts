@@ -25,6 +25,7 @@ import {
     type PermissionOverwriteWrite,
 } from './logic/applyDriftRepair';
 import { buildUnpublishPlan, type UnpublishPlan } from './logic/unpublishPlan';
+import { journeyBusyMessage, withJourneyLock } from './logic/journeyOperationLock';
 import type { JourneyDeclaration } from './logic/resourceDeclaration';
 
 export interface PreviewInstallInput {
@@ -44,15 +45,21 @@ export interface PreviewInstallInput {
  * applicable plan for a journey that cannot actually be installed.
  */
 export async function previewInstall(input: PreviewInstallInput): Promise<InstallPlan> {
-    const existingBindings = await resourceBindingsRepo.listByJourney(
-        input.guild.id,
-        input.journey.journeyKey
+    // One read serves both: this journey's rows decide reuse, and every row in the guild
+    // fences crash recovery off objects another journey owns.
+    const guildBindings = await resourceBindingsRepo.listByGuild(input.guild.id);
+    const existingBindings = guildBindings.filter(
+        (binding) => binding.journeyKey === input.journey.journeyKey
+    );
+    const boundInGuild = new Set(
+        guildBindings.flatMap((binding) => (binding.discordId ? [binding.discordId] : []))
     );
 
     return buildInstallPlan({
         guild: input.guild,
         journey: input.journey,
         existingBindings,
+        boundInGuild,
         choices: input.choices,
         permissionContext: {
             subjectId: input.subjectId,
@@ -78,6 +85,11 @@ export interface InstallJourneyInput extends PreviewInstallInput {
  *
  * Refuses a plan built for a different guild or journey — the cheapest possible guard
  * against a mixed-up approval mutating the wrong server.
+ *
+ * **Takes no lock of its own; reach it through `runInstall`**, which holds the journey's
+ * lock across the plan rebuild as well as this apply. Unlike repair and uninstall, the
+ * install lock has to cover the rebuild, so it cannot live here without `runInstall`
+ * acquiring it twice.
  */
 export async function installJourney(
     input: InstallJourneyInput
@@ -217,6 +229,17 @@ export interface RepairDriftInput extends PreviewDriftInput {
 export async function repairDrift(
     input: RepairDriftInput
 ): Promise<ApplyDriftRepairResult> {
+    // Taken here rather than by the route, so no caller can repair without it. Busy is
+    // a refusal — the one outcome that guarantees nothing was touched.
+    const outcome = await withJourneyLock(input.guild.id, input.journey.journeyKey, 'repair', () =>
+        repairUnderLock(input)
+    );
+    return outcome.status === 'busy'
+        ? { results: [], refusal: journeyBusyMessage(outcome.running) }
+        : outcome.value;
+}
+
+async function repairUnderLock(input: RepairDriftInput): Promise<ApplyDriftRepairResult> {
     /*
      * The adoption promise is re-derived from the database, never taken from the plan.
      *
@@ -304,7 +327,13 @@ export async function unpublishJourney(
         };
     }
 
-    return applyUnpublishPlan({ guild: input.guild, plan: input.approvedPlan });
+    // Taken here rather than by the route, so no caller can tear down without it.
+    const outcome = await withJourneyLock(input.guild.id, input.approvedPlan.journeyKey, 'uninstall', () =>
+        applyUnpublishPlan({ guild: input.guild, plan: input.approvedPlan })
+    );
+    return outcome.status === 'busy'
+        ? { results: [], refusal: journeyBusyMessage(outcome.running) }
+        : outcome.value;
 }
 
 export interface ResolvedJourneyResources {

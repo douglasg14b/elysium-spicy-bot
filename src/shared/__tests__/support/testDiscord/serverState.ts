@@ -30,7 +30,7 @@ import {
     type PermissionsString,
 } from 'discord.js';
 import { ServerMessages } from './messageState';
-import type { InjectedRejection } from './restRouter';
+import type { InjectedRateLimit, InjectedRejection } from './restRouter';
 import { TestDiscordError } from './testDiscordError';
 
 /**
@@ -235,6 +235,7 @@ export class ServerState {
 
     private readonly guilds = new Map<string, GuildRecord>();
     private readonly rejections = new Map<string, InjectedRejection>();
+    private readonly rateLimits = new Map<string, InjectedRateLimit>();
     private sink: EventSink | undefined;
     private nameSequence = 0;
 
@@ -532,6 +533,19 @@ export class ServerState {
 
     rejectionFor(channelId: string): InjectedRejection | undefined {
         return this.rejections.get(channelId);
+    }
+
+    rateLimitNext(guildId: string, rateLimit: InjectedRateLimit): void {
+        this.guild(guildId);
+        this.rateLimits.set(`${guildId} ${rateLimit.route}`, rateLimit);
+    }
+
+    /** The injected rate limit for this request, consumed so it fires exactly once. */
+    takeRateLimit(guildId: string, routeKey: string): InjectedRateLimit | undefined {
+        const key = `${guildId} ${routeKey}`;
+        const rateLimit = this.rateLimits.get(key);
+        this.rateLimits.delete(key);
+        return rateLimit;
     }
 
     readyPayload(): GatewayReadyDispatchData {

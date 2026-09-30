@@ -10,5 +10,11 @@ export type {
     ServerRole,
 } from './handles';
 export type { ServerMessageView } from './messageState';
-export type { ChannelWriteRoute, InjectedRejection, RecordedRequest } from './restRouter';
+export type {
+    ChannelWriteRoute,
+    GuildCreateRoute,
+    InjectedRateLimit,
+    InjectedRejection,
+    RecordedRequest,
+} from './restRouter';
 export { TestDiscordError } from './testDiscordError';

@@ -7,9 +7,10 @@ import type { ResourceKind } from '../logic/resourceDeclaration';
  * `intended` is the crash-safety state and the reason this column is not a boolean.
  * A row is written as `intended` *before* the guild is mutated, so a crash between
  * creating a channel and recording its id leaves evidence rather than an orphan. On
- * the next install the reconciler sees an `intended` row with no `discordId`, looks
- * for what it was about to create, and adopts or reports it instead of blindly
- * creating a duplicate (PRD §5.7).
+ * the next install, `buildInstallPlan` looks for the object an `intended` row was
+ * about to create — its kind and name, created after the row was written, bound by
+ * nothing else — and plans a `recover` that settles it as `created`. Several such
+ * objects block and ask; none means the create never landed (PRD §5.7).
  *
  * `created` and `adopted` are both live states; they differ only in provenance, which
  * matters for teardown — 5B may delete what it created and must never delete what it
@@ -23,9 +24,8 @@ export type ResourceBindingState = (typeof RESOURCE_BINDING_STATES)[number];
  *
  * Keyed by journey as well as guild because a resource key is only unique within its
  * journey; two journeys may each declare `welcome-channel` and mean different things.
- * (Sharing one channel *between* journeys is a 5B requirement — it needs unmanaging
- * under one journey to leave the other intact, which this shape allows but 5A does
- * not implement.)
+ * (Sharing one channel *between* journeys was cut as a non-requirement on 2026-09-24:
+ * two journeys needing one channel are one journey split by mistake.)
  *
  * `discordId` is nullable because a row exists before the resource does. That is the
  * entire point of writing it first, and it is why the unique index below covers the

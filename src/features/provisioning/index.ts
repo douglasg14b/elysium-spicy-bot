@@ -59,6 +59,12 @@ export { isPlanApplicable } from './logic/installPlan';
 export { runInstall } from './logic/runInstall';
 export type { InstallRunOutcome, RunInstallInput } from './logic/runInstall';
 
+// One guild-changing operation per journey at a time. Taken inside `runInstall`,
+// `repairDrift` and `unpublishJourney`, so no caller can skip it; only the message a
+// busy install is refused with is needed outside.
+export { journeyBusyMessage } from './logic/journeyOperationLock';
+export type { JourneyOperation } from './logic/journeyOperationLock';
+
 export type { AppliedResource, ApplyInstallPlanResult } from './logic/applyInstallPlan';
 
 // Teardown. The rule the whole surface rests on lives in `buildUnpublishPlan`: only a

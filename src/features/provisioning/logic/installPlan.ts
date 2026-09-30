@@ -1,4 +1,4 @@
-import { ChannelType, PermissionFlagsBits, type Guild } from 'discord.js';
+import { ChannelType, PermissionFlagsBits, SnowflakeUtil, type Guild } from 'discord.js';
 import type { ResourceBindingEntity } from '../data/resourceBindingsSchema';
 import { parseDeclaredRoleReference } from './declaredRoleReference';
 import { compilePermissionIntents, type PermissionIntentContext } from './permissionIntent';
@@ -16,12 +16,13 @@ import {
  * What the applier will do to one resource.
  *
  * `reuse` is a binding that already resolves, `adopt` is an existing guild object the
- * operator chose, `create` makes a new one. `blocked` is a first-class outcome rather
- * than a thrown error, because a plan that can only be shown when it is entirely
- * valid is useless for diagnosis — the operator needs to see the whole picture,
- * including the parts that cannot proceed.
+ * operator chose, `create` makes a new one. `recover` records an object an interrupted
+ * install created but never bound (see {@link findInterruptedCreates}). `blocked` is a
+ * first-class outcome rather than a thrown error, because a plan that can only be shown
+ * when it is entirely valid is useless for diagnosis — the operator needs to see the
+ * whole picture, including the parts that cannot proceed.
  */
-export const PLAN_ACTIONS = ['create', 'adopt', 'reuse', 'blocked'] as const;
+export const PLAN_ACTIONS = ['create', 'adopt', 'recover', 'reuse', 'blocked'] as const;
 export type PlanAction = (typeof PLAN_ACTIONS)[number];
 
 export interface PlanItem {
@@ -30,7 +31,7 @@ export interface PlanItem {
     readonly action: PlanAction;
     /** The name the resource will have, or already has. */
     readonly name: string;
-    /** Set for `adopt` and `reuse`: the guild object this resolves to. */
+    /** Set for `adopt`, `recover` and `reuse`: the guild object this resolves to. */
     readonly discordId?: string;
     /** Set for `blocked`: why, in words an operator can act on. */
     readonly reason?: string;
@@ -86,7 +87,46 @@ export interface BuildInstallPlanInput {
      * preview would be lying about what apply will do.
      */
     readonly permissionContext?: Omit<PermissionIntentContext, 'guild'>;
+    /**
+     * Every id bound by **any** journey in this guild, settled or not.
+     *
+     * Read only by crash recovery, which must never claim an object another journey
+     * owns: if journey B created a same-named channel after journey A's install died,
+     * recovering it under A would let A's uninstall delete B's channel. `previewInstall`
+     * always supplies it, and test 12b in `provisioningDrift.integration.test.ts` fails if
+     * it stops. **Optional for unit tests only**, which build plans with no other
+     * journeys; omitting it in production is the unsafe direction, not a default.
+     */
+    readonly boundInGuild?: ReadonlySet<string>;
 }
+
+/**
+ * How far before an intent row's timestamp a guild object may claim to have been
+ * created and still count as that intent's create.
+ *
+ * The intent's time comes from this host's clock and the object's from Discord's, so
+ * the two can disagree by whatever the host's clock is off. Both directions of error
+ * are safe: too tight and a genuine recovery falls back to the name-collision block
+ * the operator resolves by hand; too loose and an object made by hand in the seconds
+ * before a crash could be recovered in its place.
+ */
+const CLOCK_SKEW_ALLOWANCE_MS = 5_000;
+
+/**
+ * How long after an intent row's timestamp its create can still have landed.
+ *
+ * Without an upper bound, anything made at *any* point after an intent qualifies — and an
+ * intent with nothing behind it is as common as one with something: a process that died
+ * before the create was sent leaves the same row as one that died after. An operator who
+ * then makes `#welcome` by hand days later would see it offered back as "an interrupted
+ * install left this behind", settled as created, and deleted by the next uninstall.
+ *
+ * Ten minutes covers what can genuinely sit between writing the intent and Discord
+ * creating the object: `@discordjs/rest` resending a timed-out request up to three times
+ * at fifteen seconds each, plus rate-limit waits. Past it, the object falls back to the
+ * name-collision block, which asks.
+ */
+const CREATE_LANDING_WINDOW_MS = 10 * 60_000;
 
 const KIND_LABEL: Record<ResourceKind, string> = {
     category: 'category',
@@ -185,6 +225,37 @@ function findByName(guild: Guild, kind: ResourceKind, name: string): string[] {
 }
 
 /**
+ * The guild objects an interrupted install may have created for an `intended` row.
+ *
+ * An intent row is written *before* the create is sent (`applyInstallPlan`), so a
+ * process that dies after Discord made the object and before the row was settled
+ * leaves the row `intended` with no id, and the object untracked. A snowflake encodes
+ * the moment its object was created, which makes the object recognisable without an
+ * audit-log read or any marker of our own: it has the intent's kind and name, it was
+ * created within {@link CREATE_LANDING_WINDOW_MS} of the intent being written, and
+ * nothing else in the guild has bound it.
+ *
+ * Returns every candidate, for the same reason {@link findByName} does. One is a
+ * recovery; several is a question for the operator, never a guess. Uninstall asks the
+ * same question, so an interrupted create is never forgotten as "never created".
+ */
+export function findInterruptedCreates(
+    guild: Guild,
+    intent: ResourceBindingEntity,
+    excluded: ReadonlySet<string>
+): string[] {
+    const intendedAt = intent.createdAt.getTime();
+    const notBefore = intendedAt - CLOCK_SKEW_ALLOWANCE_MS;
+    const notAfter = intendedAt + CREATE_LANDING_WINDOW_MS;
+
+    return findByName(guild, intent.kind, intent.name).filter((discordId) => {
+        if (excluded.has(discordId)) return false;
+        const createdAt = SnowflakeUtil.timestampFrom(discordId);
+        return createdAt >= notBefore && createdAt <= notAfter;
+    });
+}
+
+/**
  * Dry-run a resource's permission intents, returning the problem if there is one.
  *
  * Compiling is the check — there is no separate validator to drift out of step with
@@ -234,7 +305,7 @@ function describePermissionFailure(
  * and only then does anything change.
  */
 export function buildInstallPlan(input: BuildInstallPlanInput): InstallPlan {
-    const { guild, journey, existingBindings, choices = {}, permissionContext } = input;
+    const { guild, journey, existingBindings, choices = {}, permissionContext, boundInGuild } = input;
 
     // Coherence, then installability. The emptiness check lives here rather than in
     // `validateJourneyDeclaration` because storing an empty journey is legitimate —
@@ -246,6 +317,10 @@ export function buildInstallPlan(input: BuildInstallPlanInput): InstallPlan {
     const bindingByKey = new Map(
         existingBindings.map((binding) => [binding.resourceKey, binding] as const)
     );
+    const alreadyBound = new Set(boundInGuild);
+    for (const binding of existingBindings) {
+        if (binding.discordId) alreadyBound.add(binding.discordId);
+    }
     const items: PlanItem[] = [];
 
     for (const resource of orderResourcesForApply(journey.resources)) {
@@ -309,6 +384,41 @@ export function buildInstallPlan(input: BuildInstallPlanInput): InstallPlan {
         // "adopt this", and they are resolved in that order so an operator can
         // override a standing preference for one install without editing the flow.
         const adoptDiscordId = choice?.adoptDiscordId ?? resource.adoptDiscordId;
+
+        // An intent with no id: an earlier install got as far as recording it, and may
+        // or may not have created the object before it stopped. Checked before the
+        // name match below, which would otherwise offer the object up for *adoption* —
+        // and an adopted resource is one uninstall never deletes, so a channel this
+        // bot made would become the operator's to clean up forever.
+        //
+        // Not when the operator has named an object to adopt: that is a statement that
+        // the thing predates the journey, and recovering it would record it as created
+        // and hand it to uninstall. And not when the resource's kind has changed since
+        // the intent was written — the object found would be of the old kind, and the
+        // apply's re-check would refuse it mid-install.
+        if (existing?.state === 'intended' && !adoptDiscordId && existing.kind === resource.kind) {
+            const interrupted = findInterruptedCreates(guild, existing, alreadyBound);
+            if (interrupted.length === 1) {
+                items.push({
+                    ...base,
+                    action: 'recover',
+                    discordId: interrupted[0],
+                    reason: `An earlier install created this ${KIND_LABEL[resource.kind]} and stopped before recording it. This records it as made by this journey.`,
+                });
+                continue;
+            }
+            if (interrupted.length > 1) {
+                items.push({
+                    ...base,
+                    action: 'blocked',
+                    reason: `An earlier install stopped while creating "${existing.name}", and ${interrupted.length} ${KIND_LABEL[resource.kind]}s of that name have been made since. Delete the extras, then run install again.`,
+                });
+                continue;
+            }
+            // Nothing matches: the install stopped before the create reached Discord.
+            // Falls through, and the apply reuses this same intent row.
+        }
+
         if (adoptDiscordId) {
             items.push(
                 existsInGuildAs(guild, resource.kind, adoptDiscordId)
@@ -366,5 +476,7 @@ export function isPlanApplicable(plan: InstallPlan): boolean {
 
 /** The items an apply would actually act on, in parent-before-child order. */
 export function planMutations(plan: InstallPlan): readonly PlanItem[] {
-    return plan.items.filter((item) => item.action === 'create' || item.action === 'adopt');
+    return plan.items.filter(
+        (item) => item.action === 'create' || item.action === 'adopt' || item.action === 'recover'
+    );
 }

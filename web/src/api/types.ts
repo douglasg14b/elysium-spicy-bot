@@ -763,11 +763,14 @@ export interface PublishedButtonMessage {
  * mean opposite things about ownership: the first was never ours, the second is ours
  * but now has someone else's channel inside it.
  */
-export type RefusalReason =
-    | 'adopted'
-    | 'category-has-survivors'
-    | 'missing-permission'
-    | 'unrecognised-state';
+export const REFUSAL_REASONS = [
+    'adopted',
+    'category-has-survivors',
+    'missing-permission',
+    'unrecognised-state',
+    'interrupted-create',
+] as const;
+export type RefusalReason = (typeof REFUSAL_REASONS)[number];
 
 export interface PublishedResource {
     resourceKey: string;
@@ -821,7 +824,8 @@ export interface UndeployedButtonMessage {
  * only be shown when it is entirely valid would be useless for working out why it
  * is not.
  */
-export type InstallPlanAction = 'create' | 'adopt' | 'reuse' | 'blocked';
+export const INSTALL_PLAN_ACTIONS = ['create', 'adopt', 'recover', 'reuse', 'blocked'] as const;
+export type InstallPlanAction = (typeof INSTALL_PLAN_ACTIONS)[number];
 
 /** One line of an install plan, as `GET /install-plan` sends it. */
 export interface InstallPlanItem {
@@ -830,9 +834,12 @@ export interface InstallPlanItem {
     action: InstallPlanAction;
     /** The name the resource will have, or already has. */
     name: string;
-    /** Set for `adopt` and `reuse`, and on a `blocked` name collision. */
+    /** Set for `adopt`, `recover` and `reuse`, and on a `blocked` name collision. */
     discordId?: string;
-    /** Why this is blocked, or why a create is replacing something deleted. */
+    /**
+     * Why this is blocked, why a create is replacing something deleted, or what an
+     * interrupted install left for a `recover` to record.
+     */
     reason?: string;
 }
 

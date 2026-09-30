@@ -4,6 +4,7 @@ import type { JourneyDeclaration } from './resourceDeclaration';
 import { installJourney, previewInstall } from '../provisioningService';
 import { runResourceWriteBack, type ResourceWriteBackResult } from '../resourceWriteBack';
 import type { AppliedResource } from './applyInstallPlan';
+import { withJourneyLock, type JourneyOperation } from './journeyOperationLock';
 
 /**
  * The one sequence that installs a journey, for every surface that offers to.
@@ -13,6 +14,8 @@ import type { AppliedResource } from './applyInstallPlan';
  * incidental to whichever surface calls them — each one is load bearing, and a second
  * copy would be a second place for one of them to go missing:
  *
+ *   0. **take the journey's lock**, so a double press or a repair running alongside
+ *      cannot act on a plan this install is invalidating (`journeyOperationLock.ts`).
  *   1. **rebuild the plan** rather than accept the approved one. The browser could POST
  *      one, and must not be allowed to, because a plan on the wire is a list of
  *      snowflakes a client asked us to mutate.
@@ -26,6 +29,11 @@ import type { AppliedResource } from './applyInstallPlan';
  * already agreed to and calling it a refusal.
  */
 export type InstallRunOutcome =
+    | {
+          /** Another operation on this journey holds its lock; nothing was touched. */
+          readonly status: 'busy';
+          readonly running: JourneyOperation;
+      }
     | {
           readonly status: 'notApplicable';
           /** The rebuilt plan, carrying the blockers that were not there at preview. */
@@ -63,6 +71,15 @@ export interface RunInstallInput {
  * in its own vocabulary.
  */
 export async function runInstall(input: RunInstallInput): Promise<InstallRunOutcome> {
+    // Held across the rebuild as well as the apply: a plan built while another
+    // operation is changing the guild is stale before anyone acts on it.
+    const outcome = await withJourneyLock(input.guild.id, input.journey.journeyKey, 'install', () =>
+        installUnderLock(input)
+    );
+    return outcome.status === 'busy' ? { status: 'busy', running: outcome.running } : outcome.value;
+}
+
+async function installUnderLock(input: RunInstallInput): Promise<InstallRunOutcome> {
     const { guild, journey, staffRoleIds } = input;
 
     const plan = await previewInstall({ guild, journey, staffRoleIds });

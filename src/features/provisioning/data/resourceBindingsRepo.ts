@@ -63,8 +63,8 @@ export class ResourceBindingsRepo {
      * re-run converge instead of duplicating: the unique index on the key triple
      * means a second install of the same journey finds its own prior intent.
      *
-     * `onConflict ... doNothing` rather than a check-then-insert, so two concurrent
-     * installs cannot both pass the check and then race the insert.
+     * An upsert rather than a check-then-insert, so two concurrent installs cannot both
+     * pass the check and then race the insert.
      */
     async recordIntent(input: {
         guildId: string;
@@ -72,6 +72,12 @@ export class ResourceBindingsRepo {
         resourceKey: string;
         kind: ResourceKind;
         name: string;
+        /**
+         * Whether this attempt is about to *create* the object, rather than bind one that
+         * already exists (adopt, recover). Only a create refreshes an existing intent —
+         * see below.
+         */
+        startsCreate: boolean;
     }): Promise<ResourceBindingEntity> {
         const now = new Date().toISOString();
 
@@ -88,7 +94,29 @@ export class ResourceBindingsRepo {
                 createdAt: now,
                 updatedAt: now,
             })
-            .onConflict((oc) => oc.columns(['guildId', 'journeyKey', 'resourceKey']).doNothing())
+            /*
+             * A settled row is always left exactly as it is.
+             *
+             * An `intended` row is refreshed when this attempt is about to create, so it
+             * describes *this* attempt: crash recovery (`findInterruptedCreates`) looks for
+             * an object with the intent's name and kind, created shortly after the intent's
+             * timestamp. Left at the first attempt's values, a retry after a rename — or a
+             * retry days later — would be searched for under the wrong name or outside its
+             * window, and fall through to offering its own object up for adoption.
+             *
+             * An adopt or a recover binds an object that already exists, so it must not
+             * move the timestamp: a recover whose own settle then failed would otherwise
+             * leave an intent newer than the object it was recovering, and the next run
+             * could no longer find it.
+             */
+            .onConflict((oc) => {
+                const conflict = oc.columns(['guildId', 'journeyKey', 'resourceKey']);
+                return input.startsCreate
+                    ? conflict
+                          .doUpdateSet({ kind: input.kind, name: input.name, createdAt: now, updatedAt: now })
+                          .where('resource_bindings.state', '=', 'intended')
+                    : conflict.doNothing();
+            })
             .execute();
 
         const binding = await this.get(input.guildId, input.journeyKey, input.resourceKey);

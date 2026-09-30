@@ -1,4 +1,4 @@
-import { ChannelType } from 'discord.js';
+import { ChannelType, DiscordAPIError, RESTJSONErrorCodes } from 'discord.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ResourceBindingEntity } from '../../data/resourceBindingsSchema';
 import { declaredRoleReference } from '../declaredRoleReference';
@@ -106,9 +106,24 @@ interface FakeCreated {
     type: ChannelType;
 }
 
+/** What Discord's refusal looks like to the caller: a 4xx, after which nothing was made. */
+function missingPermissions(): DiscordAPIError {
+    return new DiscordAPIError(
+        { code: RESTJSONErrorCodes.MissingPermissions, message: 'Missing Permissions' },
+        RESTJSONErrorCodes.MissingPermissions,
+        403,
+        'POST',
+        '/guilds/guild-1/channels',
+        { body: undefined, files: undefined }
+    );
+}
+
 function makeGuild(
     options: {
+        /** Discord refuses the create outright. */
         failChannelCreate?: boolean;
+        /** Discord creates the channel, but the answer never arrives. */
+        loseChannelCreateAnswer?: boolean;
         existingRoleIds?: string[];
         /** Channels that predate the install, for exercising the adopt path. */
         existingChannels?: readonly FakeCreated[];
@@ -138,12 +153,15 @@ function makeGuild(
             create: vi.fn(async (input: { name: string; type: ChannelType }) => {
                 if (options.failChannelCreate) {
                     calls.push(`create-failed:${input.name}`);
-                    throw new Error('Missing Permissions');
+                    throw missingPermissions();
                 }
                 const id = `chan-${nextId++}`;
                 calls.push(`create:${input.name}`);
                 const created = { id, name: input.name, type: input.type };
                 channels.set(id, created);
+                if (options.loseChannelCreateAnswer) {
+                    throw new Error('Request aborted');
+                }
                 return created;
             }),
         },
@@ -257,6 +275,20 @@ describe('applyInstallPlan', () => {
         expect(result.failure).toMatch(/Missing Permissions/);
         expect(calls).toContain('discard:1');
         expect(bindings).toHaveLength(0);
+    });
+
+    it('keeps the intent row when Discord never answered whether the create landed', async () => {
+        // A timeout or a 5xx after `@discordjs/rest`'s resends: the channel may well
+        // exist. The intent row is the only record crash recovery reads, so discarding
+        // it would leave the next install offering our own channel up for adoption.
+        const guild = makeGuild({ loseChannelCreateAnswer: true });
+        const plan = buildInstallPlan({ guild, journey: JOURNEY, existingBindings: [] });
+
+        const result = await applyInstallPlan({ guild, journey: JOURNEY, plan, staffRoleIds: [] });
+
+        expect(result.failure).toMatch(/never confirmed whether category "Arrivals" was created/);
+        expect(calls).not.toContain('discard:1');
+        expect(bindings).toMatchObject([{ resourceKey: 'arrivals-category', state: 'intended' }]);
     });
 
     it('stops at the first failure and reports what did succeed', async () => {

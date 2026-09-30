@@ -109,7 +109,7 @@ function describeItems(items: readonly InstallPlanItem[]): string {
  */
 export function summariseInstallPlan(plan: InstallPlan): InstallPlanSummary {
     const changes = plan.items.filter(
-        (item) => item.action === 'create' || item.action === 'adopt'
+        (item) => item.action === 'create' || item.action === 'adopt' || item.action === 'recover'
     );
     const unchanged = plan.items.filter((item) => item.action === 'reuse');
 
@@ -122,10 +122,14 @@ export function summariseInstallPlan(plan: InstallPlan): InstallPlanSummary {
 
     const creating = changes.filter((item) => item.action === 'create');
     const adopting = changes.filter((item) => item.action === 'adopt');
+    const recovering = changes.filter((item) => item.action === 'recover');
 
     const parts: string[] = [];
     if (creating.length > 0) parts.push(`create ${describeItems(creating)}`);
     if (adopting.length > 0) parts.push(`adopt ${describeItems(adopting)}`);
+    if (recovering.length > 0) {
+        parts.push(`take back ${describeItems(recovering)} an interrupted install left behind`);
+    }
 
     return {
         headline: parts.length > 0 ? `This will ${joinWithAnd(parts)} in your server.` : null,
@@ -134,6 +138,35 @@ export function summariseInstallPlan(plan: InstallPlan): InstallPlanSummary {
         changes,
         unchanged,
     };
+}
+
+/** How one change is labelled in the review list. */
+export interface ChangeLabel {
+    readonly label: string;
+    readonly color: string;
+}
+
+/**
+ * The verb and colour for one item the apply will act on.
+ *
+ * Decided here rather than as a ternary in the dialog: a two-way `adopt ? … : 'Create'`
+ * in JSX would have labelled a recovery as a create — a promise to make a second
+ * channel beside the one already there.
+ */
+export function changeLabel(item: InstallPlanItem): ChangeLabel {
+    switch (item.action) {
+        case 'adopt':
+            return { label: 'Adopt', color: 'yellow.5' };
+        case 'recover':
+            return { label: 'Take back', color: 'yellow.5' };
+        case 'create':
+            return { label: 'Create', color: 'brand.4' };
+        // Never in `changes`, and labelled truthfully anyway rather than as a create.
+        case 'reuse':
+            return { label: 'Keep', color: 'dimmed' };
+        case 'blocked':
+            return { label: 'Blocked', color: 'orange.5' };
+    }
 }
 
 /** How an install went, as a notification. */
@@ -218,20 +251,31 @@ export interface InstallFailureSummary {
     readonly tone: 'red' | 'orange';
     readonly title: string;
     readonly message: string;
+    /**
+     * Whether to fetch the plan again to show the operator what changed.
+     *
+     * Not after a 423: another install of this journey is still applying, and a plan
+     * built now would describe its half-made channels as left behind by an interrupted
+     * one.
+     */
+    readonly reloadPlan: boolean;
 }
+
+/** Another install, repair or uninstall of this journey holds its lock. */
+const JOURNEY_BUSY = 423;
 
 /**
  * The HTTP statuses the install endpoint refuses on **before** touching the guild.
  *
- * `POST /install` answers 404 for a flow that is not there and 409 for one whose
- * journey is refused or whose plan stopped being applicable; the auth middleware in
- * front of it answers 400/401/403 without the route running at all. Every one of them
- * is emitted ahead of any creation — including the `notApplicable` 409, which comes
- * out of `runInstall` before it installs anything — which is what makes "nothing was
- * touched" safe to say. A partial apply is a **200** carrying `failure`, so it never
- * reaches here.
+ * `POST /install` answers 404 for a flow that is not there, 409 for one whose journey
+ * is refused or whose plan stopped being applicable, and 423 while another operation
+ * holds the journey's lock; the auth middleware in front of it answers 400/401/403
+ * without the route running at all. Every one of them is emitted ahead of any creation
+ * — including the `notApplicable` 409, which comes out of `runInstall` before it
+ * installs anything — which is what makes "nothing was touched" safe to say. A partial
+ * apply is a **200** carrying `failure`, so it never reaches here.
  */
-const REFUSED_BEFORE_APPLYING: readonly number[] = [400, 401, 403, 404, 409];
+const REFUSED_BEFORE_APPLYING: readonly number[] = [400, 401, 403, 404, 409, JOURNEY_BUSY];
 
 /**
  * Describe a thrown install, for the one question the operator actually has: is my
@@ -252,11 +296,12 @@ export function summariseInstallFailure(
     message: string
 ): InstallFailureSummary {
     if (status !== null && REFUSED_BEFORE_APPLYING.includes(status)) {
-        return { tone: 'red', title: 'Nothing installed', message };
+        return { tone: 'red', title: 'Nothing installed', message, reloadPlan: status !== JOURNEY_BUSY };
     }
 
     return {
         tone: 'orange',
+        reloadPlan: true,
         title: 'Lost contact mid-install',
         message:
             "The request died on the way back, so nobody here knows how far it got — it may have " +

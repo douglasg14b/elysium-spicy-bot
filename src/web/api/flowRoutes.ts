@@ -23,6 +23,7 @@ import {
 } from '../../features/provisioning/logic/sharedJourneyGuard';
 import {
     isPlanApplicable,
+    journeyBusyMessage,
     journeyNeedsStaffRoles,
     journeyNeedsSubject,
     previewInstall,
@@ -599,6 +600,13 @@ export function flowRoutes(): Hono<AppEnv> {
             journey: lookup.journey,
             staffRoleIds,
         });
+
+        // 423 rather than 409: a 409 here means the server changed and the dialog
+        // reloads the plan to show what, but a plan built while another install is
+        // mid-apply would describe that install's half-made channels as interrupted.
+        if (outcome.status === 'busy') {
+            return c.json({ error: journeyBusyMessage(outcome.running) }, 423);
+        }
 
         if (outcome.status === 'notApplicable') {
             return c.json(

@@ -1,6 +1,6 @@
 import { ChannelType, PermissionFlagsBits, type Guild } from 'discord.js';
 import type { ResourceBindingEntity } from '../data/resourceBindingsSchema';
-import { existsInGuildAs } from './installPlan';
+import { existsInGuildAs, findInterruptedCreates } from './installPlan';
 import type { ResourceKind } from './resourceDeclaration';
 
 /**
@@ -25,12 +25,17 @@ export type UnpublishAction = (typeof UNPUBLISH_ACTIONS)[number];
  * that matter — `adopted` and `category-has-survivors` — are the promises this feature
  * rests on. An unrecognised reason has nothing to render.
  */
-const REFUSAL_REASONS = [
+export const REFUSAL_REASONS = [
     'adopted',
     'category-has-survivors',
     'missing-permission',
     /** A binding state this code does not recognise. Refused rather than guessed at. */
     'unrecognised-state',
+    /**
+     * An `intended` row whose object an interrupted install may have created. Neither
+     * deleted on a guess nor forgotten as "never created" — see `buildUnpublishPlan`.
+     */
+    'interrupted-create',
 ] as const;
 export type RefusalReason = (typeof REFUSAL_REASONS)[number];
 
@@ -211,6 +216,9 @@ export function buildUnpublishPlan(input: BuildUnpublishPlanInput): UnpublishPla
     );
 
     const items: UnpublishItem[] = [];
+    const journeyBoundIds = new Set(
+        bindings.flatMap((binding) => (binding.discordId ? [binding.discordId] : []))
+    );
     /**
      * The guild objects this run has already decided to delete.
      *
@@ -228,8 +236,37 @@ export function buildUnpublishPlan(input: BuildUnpublishPlanInput): UnpublishPla
             name: binding.name,
         } as const;
 
-        // An intended row never reached the guild — there is no `discordId` and nothing
-        // was ever created. Dropping the row is the whole of it.
+        /*
+         * An intended row with no id. Either its create never reached Discord, or it did
+         * and the install stopped before recording it — the state crash recovery exists
+         * for. Forgetting the row in the second case would erase the only thing tying
+         * the object to this journey, and a re-install would then offer it for adoption.
+         *
+         * So the question install asks is asked here too. A candidate is **refused**, not
+         * deleted: identity by name and creation time is good enough to *keep* a record,
+         * and not good enough to destroy a channel and its history on the strength of it.
+         * Install takes it back as created, after which uninstall deletes it normally.
+         */
+        if (binding.state === 'intended' && !binding.discordId) {
+            const interrupted = findInterruptedCreates(guild, binding, journeyBoundIds);
+            if (interrupted.length > 0) {
+                const noun = KIND_LABEL[binding.kind];
+                items.push({
+                    ...base,
+                    discordId: interrupted.length === 1 ? interrupted[0] : undefined,
+                    action: 'refuse',
+                    refusalReason: 'interrupted-create',
+                    explanation:
+                        interrupted.length === 1
+                            ? `An install of this journey stopped while creating **${binding.name}**, and a ${noun} of that name appeared moments later — most likely made by it. It is not deleted on a guess: run install to take it back, then uninstall removes it. Or delete it yourself.`
+                            : `An install of this journey stopped while creating **${binding.name}**, and ${interrupted.length} ${noun}s of that name appeared moments later. None is deleted on a guess: delete the ones you do not want, then run install to take back the last.`,
+                });
+                continue;
+            }
+        }
+
+        // An intended row that reached nothing: its create never landed, so there is no
+        // object and dropping the row is the whole of it.
         if (binding.state === 'intended' || !binding.discordId) {
             items.push({
                 ...base,

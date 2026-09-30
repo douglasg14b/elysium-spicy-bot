@@ -1,4 +1,4 @@
-import { ChannelType, type CategoryChannel, type Guild } from 'discord.js';
+import { ChannelType, DiscordAPIError, type CategoryChannel, type Guild } from 'discord.js';
 import { resourceBindingsRepo } from '../data/resourceBindingsRepo';
 import type { ResourceBindingEntity } from '../data/resourceBindingsSchema';
 import { parseDeclaredRoleReference } from './declaredRoleReference';
@@ -119,6 +119,7 @@ export async function applyInstallPlan(
                 resourceKey: item.resourceKey,
                 kind: item.kind,
                 name: item.name,
+                startsCreate: item.action === 'create',
             });
         } catch (error) {
             return {
@@ -159,38 +160,68 @@ export async function applyInstallPlan(
             continue;
         }
 
-        let discordId: string;
-        try {
-            discordId =
-                item.action === 'adopt'
-                    ? requireAdoptable(guild, item)
-                    : await createResource({
-                          guild,
-                          item,
-                          declaration,
-                          idByKey,
-                          permissionContext,
-                      });
-        } catch (error) {
-            // The guild was not mutated, so the intent row is noise — but only if it
-            // is *ours*. A pre-existing settled row must survive, and `discardIntent`
-            // is guarded on `intended` so it will not touch one.
-            if (!settledElsewhere) {
-                try {
-                    await resourceBindingsRepo.discardIntent(binding.id);
-                } catch (discardError) {
-                    // Reported rather than swallowed: the row stays `intended`, which
-                    // is the safe direction, but a human needs to know why the next
-                    // plan may mention a resource that was never created.
-                    console.error(
-                        `[provisioning] Failed to discard the intent row for "${item.resourceKey}" (binding ${binding.id}) in guild ${guild.id}:`,
-                        discardError
-                    );
-                }
+        // The guild was not mutated, so the intent row is noise — but only if it is
+        // *ours*. A pre-existing settled row must survive, and `discardIntent` is guarded
+        // on `intended` so it will not touch one.
+        const discardOwnIntent = async (): Promise<void> => {
+            if (settledElsewhere) return;
+            try {
+                await resourceBindingsRepo.discardIntent(binding.id);
+            } catch (discardError) {
+                // Reported rather than swallowed: the row stays `intended`, which is the
+                // safe direction, but a human needs to know why the next plan may mention
+                // a resource that was never created.
+                console.error(
+                    `[provisioning] Failed to discard the intent row for "${item.resourceKey}" (binding ${binding.id}) in guild ${guild.id}:`,
+                    discardError
+                );
             }
+        };
+
+        // Everything that can refuse *before* Discord is asked: a recovery or adoption
+        // whose object has gone, a parent with no id, a permission model that will not
+        // compile. None of it has touched the guild.
+        let bind: () => Promise<string>;
+        try {
+            // A recovery binds an object that already exists, exactly as an adoption
+            // does, so it gets the same re-check; only the provenance it records differs.
+            if (item.action === 'adopt' || item.action === 'recover') {
+                const existingId = requireAdoptable(guild, item);
+                bind = async () => existingId;
+            } else {
+                bind = prepareCreate({ guild, item, declaration, idByKey, permissionContext });
+            }
+        } catch (error) {
+            await discardOwnIntent();
             return {
                 applied,
                 failure: `Failed to ${item.action} ${item.kind} "${item.name}": ${describeError(error)}`,
+            };
+        }
+
+        let discordId: string;
+        try {
+            discordId = await bind();
+        } catch (error) {
+            /*
+             * Only a `DiscordAPIError` is Discord *refusing* — a 4xx with a reason, after
+             * which nothing was made. Anything else is an answer that never arrived: a
+             * timeout, a 5xx, a dropped connection. `@discordjs/rest` resends those up to
+             * three times before giving up, so Discord may have created the object once
+             * or more. Discarding the intent there would erase the one record crash
+             * recovery reads, and the next install would offer the object up for
+             * adoption — so the intent stays, and the next plan finds what landed.
+             */
+            if (error instanceof DiscordAPIError) {
+                await discardOwnIntent();
+                return {
+                    applied,
+                    failure: `Failed to ${item.action} ${item.kind} "${item.name}": ${describeError(error)}`,
+                };
+            }
+            return {
+                applied,
+                failure: `Discord never confirmed whether ${item.kind} "${item.name}" was created (${describeError(error)}). Run install again: if it was, the next plan takes it back rather than making another.`,
             };
         }
 
@@ -216,8 +247,19 @@ export async function applyInstallPlan(
          * renaming the row in the resources panel is drift the operator can repair. See
          * `detectResourceDrift`, which owns that split; this column is one half of it.
          */
+        // A recovered object also predates this run, and carries whatever name the
+        // interrupted attempt gave it — which a rename since would make differ from
+        // `item.name`.
         const recordedName =
-            item.action === 'adopt' ? liveNameOf(guild, item.kind, discordId) ?? item.name : item.name;
+            item.action === 'adopt' || item.action === 'recover'
+                ? liveNameOf(guild, item.kind, discordId) ?? item.name
+                : item.name;
+        /*
+         * A recovered object was **created** by this journey, whatever route found it.
+         * Recording it as adopted is the whole defect recovery exists to prevent:
+         * provenance is what teardown reads, and it never deletes an adopted resource.
+         */
+        const settledState = item.action === 'adopt' ? 'adopted' : 'created';
 
         // The guild is now mutated. Every failure past this point must still report
         // what was applied, or the operator retries blindly and duplicates it.
@@ -230,19 +272,19 @@ export async function applyInstallPlan(
                           id: binding.id,
                           expectedDiscordId: binding.discordId,
                           discordId,
-                          state: item.action === 'adopt' ? 'adopted' : 'created',
+                          state: settledState,
                           name: recordedName,
                       })
                     : await resourceBindingsRepo.settle({
                           id: binding.id,
                           discordId,
-                          state: item.action === 'adopt' ? 'adopted' : 'created',
+                          state: settledState,
                           name: recordedName,
                       });
         } catch (error) {
             return {
                 applied,
-                failure: `${item.kind} "${item.name}" was ${item.action === 'adopt' ? 'adopted' : 'created'} in the server (${discordId}), but recording its binding failed: ${describeError(error)}. Re-run install to reconcile; do not delete it by hand first.`,
+                failure: `${item.kind} "${item.name}" was ${settledState} in the server (${discordId}), but recording its binding failed: ${describeError(error)}. Re-run install to reconcile; do not delete it by hand first.`,
             };
         }
 
@@ -261,7 +303,7 @@ export async function applyInstallPlan(
         applied.push({
             resourceKey: item.resourceKey,
             discordId,
-            action: item.action === 'adopt' ? 'adopted' : 'created',
+            action: settledState,
             name: item.name,
         });
     }
@@ -285,7 +327,7 @@ function liveNameOf(guild: Guild, kind: ResourceKind, discordId: string): string
 }
 
 /**
- * Re-check an adoption at apply time.
+ * Re-check an adoption or a recovery at apply time.
  *
  * The plan verified this id when it was built, but a plan is reviewed by a human and
  * approval takes time — the channel can be deleted in between. Binding to it anyway
@@ -294,7 +336,7 @@ function liveNameOf(guild: Guild, kind: ResourceKind, discordId: string): string
  */
 function requireAdoptable(guild: Guild, item: PlanItem): string {
     if (!item.discordId) {
-        throw new Error('an adopt item carries no id');
+        throw new Error(`a ${item.action} item carries no id`);
     }
     if (!existsInGuildAs(guild, item.kind, item.discordId)) {
         throw new Error(
@@ -312,13 +354,20 @@ interface CreateResourceInput {
     readonly permissionContext: PermissionIntentContext;
 }
 
-async function createResource({
+/**
+ * Check everything a create needs, then hand back the one call that asks Discord.
+ *
+ * Split in two because the two halves fail differently. A throw from here has touched
+ * nothing and its intent row can go; a throw from the returned call may have created
+ * the object, and its intent row is the only record that it might exist.
+ */
+function prepareCreate({
     guild,
     item,
     declaration,
     idByKey,
     permissionContext,
-}: CreateResourceInput): Promise<string> {
+}: CreateResourceInput): () => Promise<string> {
     const overwrites = declaration.permissions?.length
         ? compilePermissionIntents(
               resolveDeclaredRoles(declaration.permissions, idByKey),
@@ -327,37 +376,41 @@ async function createResource({
         : undefined;
 
     switch (declaration.kind) {
-        case 'role': {
-            const role = await guild.roles.create({
-                name: item.name,
-                reason: `Provisioned for journey "${item.resourceKey}"`,
-            });
-            return role.id;
-        }
+        case 'role':
+            return async () => {
+                const role = await guild.roles.create({
+                    name: item.name,
+                    reason: `Provisioned for journey "${item.resourceKey}"`,
+                });
+                return role.id;
+            };
 
-        case 'category': {
-            const category = await guild.channels.create({
-                name: item.name,
-                type: ChannelType.GuildCategory,
-                permissionOverwrites: overwrites,
-                reason: `Provisioned for journey "${item.resourceKey}"`,
-            });
-            return category.id;
-        }
+        case 'category':
+            return async () => {
+                const category = await guild.channels.create({
+                    name: item.name,
+                    type: ChannelType.GuildCategory,
+                    permissionOverwrites: overwrites,
+                    reason: `Provisioned for journey "${item.resourceKey}"`,
+                });
+                return category.id;
+            };
 
         case 'textChannel': {
             const parent = resolveParent(guild, declaration, idByKey);
-            const channel = await guild.channels.create({
-                name: item.name,
-                type: ChannelType.GuildText,
-                parent,
-                // Without declared permissions a channel inherits its category's,
-                // which is the useful default and why this stays undefined rather
-                // than becoming an empty array (which would clear inheritance).
-                permissionOverwrites: overwrites,
-                reason: `Provisioned for journey "${item.resourceKey}"`,
-            });
-            return channel.id;
+            return async () => {
+                const channel = await guild.channels.create({
+                    name: item.name,
+                    type: ChannelType.GuildText,
+                    parent,
+                    // Without declared permissions a channel inherits its category's,
+                    // which is the useful default and why this stays undefined rather
+                    // than becoming an empty array (which would clear inheritance).
+                    permissionOverwrites: overwrites,
+                    reason: `Provisioned for journey "${item.resourceKey}"`,
+                });
+                return channel.id;
+            };
         }
     }
 }
