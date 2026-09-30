@@ -30,7 +30,7 @@ From PRD §1.3, unchanged. This is the durable product intent and the only seque
 | **3** | **A run can ask a human a question** | A moderator presses a button in a channel and *that* parked run advances; non-moderators are refused | **Done** — slice E ran against a live guild 2026-09-15 |
 | **4** | A flow can open and drive a ticket | A verification ticket is opened by a flow, is distinguishable from a support ticket, and its channel is addressable by later blocks | **Done** — live-verified 2026-09-15 |
 | **5A** | **A journey can build its own home** | Installing a journey on an empty guild creates its categories, channels, and roles with correct visibility | **Done** — live-verified 2026-09-20/21 |
-| **5B** | Installed structure stays healthy | Drift is detected and repairable, installs resume after interruption, and uninstall is safe | **Planned — next** |
+| **5B** | Installed structure stays healthy | Drift is detected and repairable, installs resume after interruption, and uninstall is safe | **Bar met in code 2026-09-27** — drift and uninstall live-verified (5B.2); resume after interruption built in [5B.3](../plans/5B3-install-converges-after-interruption.md), live run pending. Issue #22 is next, then subsystem configuration |
 | **6** | The real journey runs on it | Our onboarding and verification runs end-to-end on the engine with no bespoke code | Not started |
 
 **Only the current step is planned.** Steps 5B–6 have PRD sketches (§5.7–§5.9) that are starting material, not requirements.
@@ -700,7 +700,7 @@ All 29 §5.7 and §5.8 requirements are placed — 10 in 5A, 19 in 5B. Nothing i
 | Permission intent as `audience × access` (§5.7) | A grid, not named presets. Presets would have to be unpicked later |
 | Permission intent, not raw overwrites (§5.7) | Same decision, stated twice in the PRD |
 | Forward-only (§5.7) | A constraint, free to honour now |
-| Crash mid-apply cannot orphan a resource (§5.7) | **Intent recorded before mutation** — ordering + schema, not a feature |
+| Crash mid-apply cannot orphan a resource (§5.7) | **Intent recorded before mutation** — ordering + schema, not a feature. 5A built this half only; the half that reads the intent back — recovering the object an interrupted install made — landed in 5B.3 on 2026-09-27 |
 | Capability preflight (§5.7) | Role hierarchy failures must surface in the plan. Also the first real consumer of `BLOCK_CAPABILITIES` |
 | Exactly one journey per flow, implicit (§5.8) | Determines whether `flows` grows a column or a table appears. Cheap now, a migration later |
 | Journey bundle (§5.8) | The unit that owns resources; 5A needs the noun to exist |
@@ -711,7 +711,7 @@ All 29 §5.7 and §5.8 requirements are placed — 10 in 5A, 19 in 5B. Nothing i
 |---|---|
 | ~~Drift detection and repair (§5.7)~~ | **Done and live-verified 2026-09-24** — engine in 5B.2 slices A–C, operator surface in slice F. Detection and repair both exercised against a real guild. Three defects the suite could not see came out of that run: two in the resources panel (see below) and the name comparison being one-directional (§5.7's amended drift entry) |
 | ~~Explicit teardown policy / uninstall (§5.7, §5.8)~~ | **Done 2026-09-24** — 5B.2 slice D. Most of it already existed; the gap was orphans and an unwritten policy |
-| Rate-limit-aware application, resumable (§5.7) | Pacing layer over a working apply. Real, but our guild is small |
+| ~~Rate-limit-aware application, resumable (§5.7)~~ | **Done 2026-09-27, live run pending** — 5B.3 slices B and C. No pacing layer, by operator decision: `@discordjs/rest` waits out a 429 and resends, now pinned by a test. A per-journey lock refuses a second install, repair or uninstall while one runs |
 | ~~A resource may be bound by more than one journey (§5.7)~~ | **Cut 2026-09-24 — a decided non-requirement, not a deferral.** See below |
 | Subsystem configuration is a declarable resource (§5.7) | Blocked on issue #22 — ticket categories are name-keyed, not id-keyed |
 | ~~Verify, don't overwrite (§5.7)~~ | **Done 2026-09-24** — this *is* the drift machinery, and the adoption promise is what "don't overwrite" names: an adopted resource is compared and reported, never repaired |
@@ -719,10 +719,10 @@ All 29 §5.7 and §5.8 requirements are placed — 10 in 5A, 19 in 5B. Nothing i
 | ~~Suggestions are ranked, never auto-applied (§5.7)~~ | **Done 2026-09-24** — with the autocomplete row, since the two requirements describe one control. Exact → prefix → substring; a collision raises `nameTaken` rather than auto-binding |
 | Provisioning opt-in per resource (§5.7) | "Bind to one I made by hand" is adoption, which 5A has; the per-resource *decline* toggle is UI |
 | ~~Resource binding is one autocomplete field (§5.7)~~ | **Done and live-verified 2026-09-24** — the Name box and the adopt picker merged into one `Autocomplete`; needed a new `blocksInstall` chip tone for the save-fine/install-blocked state neither existing tier could hold. **Two defects found in the first minutes of live use, both in states the suite could not reach** — see below |
-| Journey install is idempotent (§5.8) | 5A must not duplicate; full converge-after-partial-failure needs resume |
+| ~~Journey install is idempotent (§5.8)~~ | **Done 2026-09-27, live run pending** — 5B.3 slice A. A stopped apply already converged; the crash window between creating and recording did not, and reclassified what it made as adopted |
 | ~~A flow may hold many triggers (§5.8)~~ | **Done 2026-09-24** — nothing to build; it worked once the dispatchers started every trigger |
 | ~~Every trigger in a flow fires (§5.8)~~ | **Done 2026-09-24** — `.find()` → `.filter()` in both gateway dispatchers, each trigger its own isolated run |
-| Trigger buttons deploy per destination (§5.8) | Independent of provisioning |
+| ~~Trigger buttons deploy per destination (§5.8)~~ | **Done 2026-09-20** — independent of provisioning, and was struck in the concurrency section below but not here |
 | ~~Disconnected subgraphs are legible (§5.8)~~ | **Done 2026-09-24** — computed live in the browser, because a save-time verdict goes stale on the next edge drag |
 | Cross-path sequencing uses existing mechanisms (§5.8) | A constraint on authors, not code |
 | ~~Install wizard (§5.8)~~ | **Cut 2026-09-24 by the operator** — 5A's plan → confirm → apply already installs, and the flows page hands off to it. See below |

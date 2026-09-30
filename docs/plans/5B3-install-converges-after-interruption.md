@@ -1,6 +1,6 @@
 # 5B.3 — An install converges after it is interrupted
 
-> **Status**: Planned, 2026-09-27
+> **Status**: Slices A–D landed 2026-09-27; E (live run) pending
 > **Owner**: Douglas
 > **Step**: 5B (PRD §5.7, §5.8)
 > **Predecessor**: [5B2-drift-detection-and-teardown-policy.md](5B2-drift-detection-and-teardown-policy.md) — done and live-verified
@@ -80,6 +80,14 @@ Outcomes:
 | None | `create`, as today | The crash landed before the create reached Discord. The existing intent row is reused by `recordIntent` and settled normally |
 | More than one | `blocked`, naming them | Two same-named objects made since the intent is not something to guess about |
 
+**Amended after review, 2026-09-27.** The window also has an **upper** bound — ten
+minutes after the intent — because an intent with nothing behind it is as common as one
+with something, and without the bound a channel made by hand days later would be offered
+back as ours. An explicit adopt wins over recovery; a changed kind skips it; a retried
+create refreshes its intent row so the window and name describe the latest attempt. A
+create whose answer never arrived keeps its intent (only a `DiscordAPIError` discards
+it), and uninstall **refuses** an intent whose object may exist instead of forgetting it.
+
 A small, named allowance for clock skew between this host and Discord goes on the
 comparison. Its failure direction is safe either way: too tight and a genuine recovery
 falls back to today's name-collision block; too loose and a hand-made channel created
@@ -95,7 +103,7 @@ human rename before the retry; the duplicate is visible and named in the plan as
 | # | Change | Proof |
 |---|---|---|
 | **A** | **Recover interrupted creates.** `recover` joins `PLAN_ACTIONS`; `buildInstallPlan` checks an `intended` row for its object before falling through to the name match; `applyInstallPlan` settles the row as `created` (the existing `settle`, already guarded on `intended`, is exactly the write needed). Mirror the action into `web/src/api/types.ts` and the install summary copy — *"`#welcome` was created by an install that was interrupted; this records it."* | TestDiscord integration: write an intent row, create the channel server-side afterwards, run install → one channel, binding `created`, id matches, and **unpublish then deletes it**. Second case: a same-named channel created *before* the intent is not recovered and still blocks. Sabotage: remove the recover branch, watch the first case fail |
-| **B** | **One mutating operation per journey at a time.** An in-process lock keyed `(guildId, journeyKey)`, taken by install, drift repair, and unpublish. A second press is **refused with a 409**, not queued — a queued apply would run a plan approved before the first one changed the guild. In-process is correct for a single-process bot; the limit is stated beside it, the same way `reclaimAbandonedClaims` states its own | Two concurrent installs of one journey → one 409, one channel. Sabotage: drop the lock, watch the duplicate appear |
+| **B** | **One mutating operation per journey at a time.** An in-process lock keyed `(guildId, journeyKey)`, taken by install (in `runInstall`, around the plan rebuild too; a busy install is a 423 so the dialog does not reload a mid-apply plan), drift repair and unpublish (inside `repairDrift` / `unpublishJourney`, as a `refusal`, so no caller can skip it). A second press is **refused**, not queued — a queued apply would run a plan approved before the first one changed the guild. In-process is correct for a single-process bot; the limit is stated beside it, the same way `reclaimAbandonedClaims` states its own | Two concurrent installs of one journey → one refused as busy, one channel. Sabotage: drop the lock, watch the duplicate appear |
 | **C** | **Rate limits: verify, don't build.** Operator decision 2026-09-27 — rely on `@discordjs/rest`. TestDiscord learns to answer a chosen route with one 429 and a short `retry_after`; install must complete with exactly one of each resource. The harness models this as a **test-injected fault**, not as Discord's real limits, and its docs say so | The test. If discord.js does not retry against the injected `makeRequest`, this slice becomes the finding |
 | **D** | **Docs.** Tick the three PRD rows. Correct `resourceBindingsSchema.ts:8-12` to describe the reconciler that now exists. Build order: 5B's status row, and strike "Trigger buttons deploy per destination" (done 2026-09-20, still unstruck in the 5B table) | — |
 | **E** | **Live run.** Install a multi-resource journey on the real guild; re-press install and see `reuse` throughout; press twice quickly and see the refusal. The crash window itself is milliseconds wide and is not reproducible by hand — say so rather than claim it; slice A's TestDiscord case is the evidence for it | Operator |
@@ -110,6 +118,17 @@ slice that closes the PRD row. C and D are independent.
 - **Not a pacing layer.** No batching or scheduling of our own on top of the transport.
 - **Not cross-process locking.** One bot process; if that changes, B's lock is the first
   thing to replace, and it says so.
+
+## Accepted, not fixed
+
+**A stale intent in journey A can take back journey B's in-flight create** (review,
+2026-09-27). B has created `welcome` but not yet settled it, so its row holds no id and
+`boundInGuild` cannot fence it off; A, holding an old intent for a same-named `welcome`,
+recovers it. The window is the milliseconds between B's create returning and B's settle,
+and it needs A to hold an unsettled intent of the same kind and name inside the ten-minute
+window. An apply-time re-check would not close it — B's row still has no id at that
+moment — and a unique index on `(guildId, discordId)` is a migration for a race this
+narrow. Revisit if two journeys ever install concurrently in practice.
 
 ## Observed, not in scope
 
