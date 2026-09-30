@@ -1,20 +1,32 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { flowGraphSchema, FLOW_GRAPH_VERSION, type FlowGraph } from '../../features/flows/data/flowGraph';
-import { flowsRepo } from '../../features/flows/data/flowsRepo';
+import { flowsRepo, type FlowWriteDecision } from '../../features/flows/data/flowsRepo';
 import type { FlowEntity } from '../../features/flows/data/flowsSchema';
-import { validateAuthoredGraph, validateFlowGraph } from '../../features/flows/engine/graphValidation';
-import {
-    describeIssue,
-    validateNodeData,
-    type FlowValidationIssue,
-} from '../../features/flows/engine/nodeDataValidation';
+import { validateFlowGraph } from '../../features/flows/engine/graphValidation';
+import type { FlowValidationIssue } from '../../features/flows/engine/nodeDataValidation';
+import { readDeclaredKeys } from '../../features/flows/logic/declaredResourceKeys';
 import { deployFlowButtons } from '../../features/flows/logic/deployFlowButtons';
-import { pendingResourceFields } from '../../features/flows/logic/pendingResourceFields';
+import {
+    flowReadinessIssues,
+    installBeforeEnablingMessage,
+    problemCount,
+    uninstalledResourceKeys,
+} from '../../features/flows/logic/flowReadiness';
 import { getPublishedFlowState } from '../../features/flows/logic/publishedFlowState';
 import { undeployFlowButtons } from '../../features/flows/logic/undeployFlowButtons';
 import { guildSettingsRepo } from '../../features-system/guild-settings';
-import { loadFlowJourneyIndex, type FlowJourneyMembership } from './flowJourneyIndex';
+import {
+    flowDetail,
+    flowDraft,
+    flowDraftBaseSchema,
+    flowNameSchema,
+    flowSummary,
+    invalidGraphBody,
+    type FlowSaveBody,
+} from './flowBody';
+import { flowDraftRoutes } from './flowDraftRoutes';
+import { loadFlowJourneyIndex } from './flowJourneyIndex';
 import { toDeclarationFromRow } from '../../features/provisioning/data/journeysRepo';
 import { resolveFlowJourney } from '../../features/provisioning/logic/resolveFlowJourney';
 import {
@@ -45,143 +57,126 @@ import { publishedBody } from './publishedBody';
  */
 
 const createFlowBody = z.object({
-    name: z.string().min(1, 'Give the flow a name.').max(100, 'Flow names cap at 100 characters.'),
+    name: flowNameSchema,
     graph: flowGraphSchema.optional(),
 });
 
 const updateFlowBody = z.object({
-    name: z.string().min(1, 'Give the flow a name.').max(100, 'Flow names cap at 100 characters.').optional(),
+    name: flowNameSchema.optional(),
     enabled: z.boolean().optional(),
     graph: flowGraphSchema.optional(),
+    baseUpdatedAt: flowDraftBaseSchema.optional(),
 });
 
-/** The wire shape for a single flow: the full graph plus metadata. */
-function flowDetail(flow: FlowEntity) {
+/** Why a PUT was refused before it could go live: the `{ error, issues }` body of a 400. */
+interface ReadinessRefusal {
+    readonly error: string;
+    /** Empty for the install refusal, where nothing on the canvas is wrong. */
+    readonly issues: readonly FlowValidationIssue[];
+}
+
+/** A PUT's parsed body, graph already through the structural check. */
+interface FlowPutRequest {
+    readonly name?: string;
+    readonly enabled?: boolean;
+    readonly graph?: FlowGraph;
+    /**
+     * The flow version the sent graph was edited from, consulted only if the save lands
+     * as a draft. A caller that does not say is taken to have edited the flow as it is
+     * now — the same answer the draft routes would get from a page that just loaded it.
+     */
+    readonly baseUpdatedAt?: string;
+}
+
+/** Who is saving — the draft a live flow's incomplete save lands on is theirs. */
+interface FlowSaver {
+    readonly id: string;
+    readonly name: string;
+}
+
+/**
+ * Where a PUT lands on the flow as it is **now**: the flow row, the saver's draft, or
+ * nowhere.
+ *
+ * Handed to `flowsRepo.mutate`, which calls it with the row inside the write's own
+ * transaction — so "is this flow live" and "is its stored graph ready" are answered
+ * about the row being written, not about a copy an earlier read happened to see.
+ * Synchronous, and closed over everything it needs from elsewhere, for the deadlock
+ * reason `mutate` gives.
+ *
+ * In this order:
+ *
+ *  - **A live flow's incomplete graph goes to the saver's draft** and the flow row is
+ *    not touched — not its graph, not its name. Storing it would put a half-finished
+ *    canvas in front of every member who presses its button; refusing it would throw
+ *    the work back. "Live" means live now and staying on: a request that switches the
+ *    flow off in the same breath is judged as the off flow it leaves behind. A graph
+ *    that is complete but **waiting on its install** goes the same way, for the reason
+ *    the switch-on below refuses one: a live flow would run members into the empty id.
+ *    That matters more with drafts about, because install writes its ids into the flow
+ *    and never into a draft — so a draft started before an install still has holes.
+ *  - **An incomplete flow cannot be switched on** (400), judged against the graph it
+ *    would run — the one arriving with the request, or the stored one. This also
+ *    catches an off flow sent an incomplete graph and `enabled: true` together, which
+ *    is a switch-on, not a live flow's edit, and gets that sentence.
+ *  - **A flow waiting on its install cannot be switched on** (400) — an off → on
+ *    switch only, so re-sending `enabled: true` to a flow already live is not suddenly
+ *    refused. Ready is about the canvas and says nothing about the guild; see
+ *    `uninstalledResourceKeys` for why this is its own check with its own sentence.
+ *  - Otherwise the row is written, and a graph arriving supersedes the saver's draft.
+ *
+ * `declaredKeys` is `null` exactly when the request could not have been refused — no
+ * graph and no switch-on — because the caller reads the declarations only when they
+ * can decide something.
+ */
+function decidePut(
+    current: FlowEntity,
+    request: FlowPutRequest,
+    saver: FlowSaver,
+    declaredKeys: ReadonlySet<string> | null
+): FlowWriteDecision<ReadinessRefusal> {
+    if (declaredKeys) {
+        const runs = request.graph ?? current.graph;
+        const issues = flowReadinessIssues(runs, declaredKeys);
+        const staysLive = current.enabled && request.enabled !== false;
+
+        if (
+            request.graph !== undefined &&
+            staysLive &&
+            (issues.length > 0 || uninstalledResourceKeys(request.graph, declaredKeys).length > 0)
+        ) {
+            return {
+                kind: 'draft',
+                draft: {
+                    authorId: saver.id,
+                    authorName: saver.name,
+                    name: request.name ?? current.name,
+                    graph: request.graph,
+                    baseUpdatedAt: request.baseUpdatedAt ?? new Date(current.updatedAt).toISOString(),
+                },
+            };
+        }
+        if (issues.length > 0 && request.enabled === true) {
+            return {
+                kind: 'refuse',
+                refusal: { error: `Fix ${problemCount(issues.length)} before turning this flow on.`, issues },
+            };
+        }
+        if (request.enabled === true && !current.enabled) {
+            const waiting = uninstalledResourceKeys(runs, declaredKeys);
+            if (waiting.length > 0) {
+                return { kind: 'refuse', refusal: { error: installBeforeEnablingMessage(waiting), issues: [] } };
+            }
+        }
+    }
+
     return {
-        flowId: flow.flowId,
-        name: flow.name,
-        enabled: flow.enabled,
-        graph: flow.graph,
-        createdAt: new Date(flow.createdAt).toISOString(),
-        updatedAt: new Date(flow.updatedAt).toISOString(),
+        kind: 'write',
+        input: { name: request.name, enabled: request.enabled, graph: request.graph },
+        // Only a graph is the saver's canvas landing. A rename or a toggle — the list's
+        // switch included — leaves a draft they are still working on where it is.
+        discardDraftOf: request.graph !== undefined ? saver.id : undefined,
     };
-}
-
-/**
- * The wire shape for the flow list: metadata plus a node count, no graph.
- *
- * `journey` is present for every flow that resolves to one — including the implicit
- * single-flow case, whose `memberCount` is 1. The page decides from that number whether
- * to render a group at all; the server deliberately does not pre-judge it, because
- * "which journey is this flow in" and "should the operator be shown the concept" are
- * different questions and only the second is a layout choice.
- */
-function flowSummary(flow: FlowEntity, journey: FlowJourneyMembership | null) {
-    return {
-        flowId: flow.flowId,
-        name: flow.name,
-        enabled: flow.enabled,
-        nodeCount: flow.graph.nodes.length,
-        journey,
-        createdAt: new Date(flow.createdAt).toISOString(),
-        updatedAt: new Date(flow.updatedAt).toISOString(),
-    };
-}
-
-type GraphSaveValidation =
-    | { ok: true; graph: FlowGraph }
-    | { ok: false; issues: readonly FlowValidationIssue[] };
-
-/**
- * The resource keys a flow declares, for the pair check below.
- *
- * Resolved through the flow's journey attachment rather than by assuming the journey
- * is keyed on the flow's own id, so a flow sharing a journey with others sees the keys
- * that journey declares. A flow attached to nothing has no journey row at all, which
- * is the normal state and not an error — hence the empty set rather than a 404.
- *
- * Ownership is deliberately *not* checked here. This set only decides which picker
- * fields are allowed to be empty pending an install; it creates nothing, so the
- * positive check {@link flowJourney} performs would cost a save its validity without
- * protecting anything.
- */
-async function declaredResourceKeys(guildId: string, flowId: string): Promise<ReadonlySet<string>> {
-    const resolved = await resolveFlowJourney(guildId, flowId);
-    return new Set((resolved?.journey.resources ?? []).map((resource) => resource.key));
-}
-
-/**
- * Full server-side graph validation, in the order that blames the right thing:
- * shape and structural integrity, then each node's `data` against its registry
- * schema ({@link validateNodeData}), then the authoring rules.
- *
- * Node data comes in the middle so an unknown block type is reported as an
- * unknown type, rather than as a pile of complaints about handles on a block
- * nobody recognises.
- *
- * `declaredKeys` is what lets a picker field be empty: a node that picked a
- * resource this flow declares but has not installed holds an empty snowflake and a
- * sidecar naming the declaration, and refusing that would make a whole feature
- * unsaveable. {@link pendingResourceFields} translates the declaration into the
- * engine's own vocabulary — "these fields are filled in later" — so the validator
- * stays a general check that has never heard of provisioning.
- *
- * Issues, not a joined string. Every one carries the node and field it came from,
- * which the builder puts next to the control that caused it; a dozen-node canvas
- * and a sentence naming only a field is not enough to find anything.
- *
- * The repo also enforces the structural and authoring rules on write — it owns the
- * write boundary, so a seed script cannot bypass them. It does **not** run the node
- * data check, which lives only here: it needs the flow's declarations, and a repo
- * reaching for them would invert the dependency between flows and provisioning.
- */
-function validateGraphForSave(graph: FlowGraph, declaredKeys: ReadonlySet<string>): GraphSaveValidation {
-    const structural = validateFlowGraph(graph);
-    if (!structural.valid) {
-        return { ok: false, issues: structural.errors.map((message) => ({ message })) };
-    }
-
-    const pending = pendingResourceFields(structural.graph, declaredKeys);
-    const nodeData = validateNodeData(structural.graph, { pendingFields: pending.pendingFields });
-    const nodeDataIssues = nodeData.valid ? [] : nodeData.issues;
-    // Reported together: a sidecar naming nothing and a field the schema refuses are
-    // the same author's same mistake seen from two sides, and showing one at a time
-    // would make fixing it a round trip per node.
-    const dataIssues = [...pending.issues, ...nodeDataIssues];
-    if (dataIssues.length > 0) {
-        return { ok: false, issues: dataIssues };
-    }
-
-    const authored = validateAuthoredGraph(structural.graph);
-    if (!authored.valid) {
-        return { ok: false, issues: authored.errors.map((message) => ({ message })) };
-    }
-
-    return { ok: true, graph: structural.graph };
-}
-
-/**
- * The 400 body for a rejected graph.
- *
- * `error` stays, and stays first: every existing client reads it, `ApiError` falls
- * back to it, and a notification with no room for a list still needs a sentence.
- * `issues` is the same information addressed to the nodes it came from.
- */
-function invalidGraphBody(issues: readonly FlowValidationIssue[]): {
-    error: string;
-    issues: readonly FlowValidationIssue[];
-} {
-    return { error: issues.map(describeIssue).join('; '), issues };
-}
-
-/**
- * A thrown value as one line for an operator.
- *
- * The message only — no stack, which would be the one thing in a repo error worth
- * keeping out of a response body.
- */
-function describeCause(cause: unknown): string {
-    return cause instanceof Error ? cause.message : String(cause);
 }
 
 /**
@@ -357,6 +352,11 @@ function installPlanBody(plan: InstallPlan) {
 export function flowRoutes(): Hono<AppEnv> {
     const app = new Hono<AppEnv>();
 
+    // Drafts live under each flow's URL, and every surface that mounts the flow routes
+    // — the API, the e2e harness, the preview server — must get them too. Mounted here
+    // rather than beside this router, so there is no second registration to forget.
+    app.route('/', flowDraftRoutes());
+
     // List a guild's flows (summaries — the builder fetches the graph on open).
     app.get('/:guildId/flows', async (c) => {
         const guildId = c.get('guild').id;
@@ -370,12 +370,16 @@ export function flowRoutes(): Hono<AppEnv> {
             flows.map((flow) => flow.flowId)
         );
 
+        // The same index answers each row's readiness: a flow's declared keys are its
+        // journey's, so `issueCount` costs no query beyond the three above. A malformed
+        // journey row fails the index — and so the list — exactly as it did before
+        // readiness was on it; no row is judged against a guess.
         return c.json({
-            flows: flows.map((flow) => flowSummary(flow, journeys.get(flow.flowId) ?? null)),
+            flows: flows.map((flow) => flowSummary(flow, journeys.get(flow.flowId))),
         });
     });
 
-    // One flow with its full graph.
+    // One flow with its full graph, and what stands between it and going live.
     app.get('/:guildId/flows/:flowId', async (c) => {
         const guildId = c.get('guild').id;
         const flow = await flowsRepo.getByFlowId(c.req.param('flowId'));
@@ -384,7 +388,15 @@ export function flowRoutes(): Hono<AppEnv> {
             return c.json({ error: 'Flow not found.' }, 404);
         }
 
-        return c.json(flowDetail(flow));
+        // Named 500 rather than `issues: []`, which would claim a flow is ready when the
+        // server cannot say. Not a new dead end: the builder also reads the flow's
+        // resources on open, which fails on the same malformed journey row.
+        const declared = await readDeclaredKeys(guildId, flow.flowId);
+        if (!declared.ok) {
+            return c.json({ error: declared.error }, 500);
+        }
+
+        return c.json(flowDetail(flow, flowReadinessIssues(flow.graph, declared.keys)));
     });
 
     // Create a flow. Starts empty + disabled unless a graph is supplied.
@@ -395,28 +407,43 @@ export function flowRoutes(): Hono<AppEnv> {
             return c.json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body.' }, 400);
         }
 
-        const graph: FlowGraph = parsed.data.graph ?? { version: FLOW_GRAPH_VERSION, nodes: [], edges: [] };
-        // No flow yet, so no journey and nothing declared. Correct rather than a
-        // shortcut: a flow cannot reference a declaration it has not saved.
-        const validated = validateGraphForSave(graph, new Set<string>());
-        if (!validated.ok) {
-            return c.json(invalidGraphBody(validated.issues), 400);
+        const structural = validateFlowGraph(
+            parsed.data.graph ?? { version: FLOW_GRAPH_VERSION, nodes: [], edges: [] }
+        );
+        if (!structural.valid) {
+            return c.json(invalidGraphBody(structural.errors), 400);
         }
+
+        // No flow yet, so no journey and nothing declared. Correct rather than a
+        // shortcut: a flow cannot reference a declaration it has not saved. An
+        // incomplete graph is stored all the same — a new flow starts switched off.
+        const issues = flowReadinessIssues(structural.graph, new Set<string>());
 
         const flow = await flowsRepo.create({
             guildId,
             name: parsed.data.name,
-            graph: validated.graph,
+            graph: structural.graph,
             enabled: false,
         });
 
-        return c.json(flowDetail(flow), 201);
+        return c.json(flowDetail(flow, issues), 201);
     });
 
-    // Update name / enabled / graph. Any supplied graph is fully validated first.
+    /*
+     * Update name / enabled / graph.
+     *
+     * A graph too broken to walk is refused outright. Anything else is judged by
+     * `decidePut`, against the row as it stands inside the write's own transaction: an
+     * incomplete graph is stored on a flow that is off, kept as the saver's draft on one
+     * that is live (`savedAs: 'draft'`, flow untouched), and a switch-on is refused (400)
+     * when the graph it would run is incomplete or still waiting on its install.
+     * Switching off, or renaming, is never refused for readiness.
+     */
     app.put('/:guildId/flows/:flowId', async (c) => {
         const guildId = c.get('guild').id;
         const flowId = c.req.param('flowId');
+        const user = c.get('user');
+        const saver: FlowSaver = { id: user.id, name: user.username };
         const existing = await flowsRepo.getByFlowId(flowId);
         if (!existing || existing.guildId !== guildId) {
             return c.json({ error: 'Flow not found.' }, 404);
@@ -429,48 +456,74 @@ export function flowRoutes(): Hono<AppEnv> {
 
         let graph: FlowGraph | undefined;
         if (parsed.data.graph !== undefined) {
-            /*
-             * `journeysRepo` validates the stored declaration on read and throws when
-             * a row is malformed. Caught and named rather than left to become a bare
-             * 500: the author would otherwise be told to "try again in a second" on a
-             * graph that is fine, forever, with nothing on screen pointing at the
-             * journey row that is actually broken.
-             *
-             * Deliberately **not** recovered from by treating the flow as declaring
-             * nothing. That would turn a corrupt row into "every picked resource is
-             * undeclared", blaming the author's graph for a data problem they cannot
-             * see or fix.
-             */
-            let declaredKeys: ReadonlySet<string>;
-            try {
-                declaredKeys = await declaredResourceKeys(guildId, flowId);
-            } catch (cause) {
-                return c.json(
-                    {
-                        error:
-                            "This flow's declared resources are stored in a state the server can't " +
-                            `read, so its graph can't be checked: ${describeCause(cause)}`,
-                    },
-                    500
-                );
+            const structural = validateFlowGraph(parsed.data.graph);
+            if (!structural.valid) {
+                return c.json(invalidGraphBody(structural.errors), 400);
             }
-
-            const validated = validateGraphForSave(parsed.data.graph, declaredKeys);
-            if (!validated.ok) {
-                return c.json(invalidGraphBody(validated.issues), 400);
-            }
-            graph = validated.graph;
+            graph = structural.graph;
         }
-
-        const flow = await flowsRepo.update(flowId, {
+        const request: FlowPutRequest = {
             name: parsed.data.name,
             enabled: parsed.data.enabled,
             graph,
-        });
+            baseUpdatedAt: parsed.data.baseUpdatedAt,
+        };
 
-        return c.json(flowDetail(flow));
+        /*
+         * Read before the transaction, never inside it: `mutate` holds sqlite's one
+         * connection, and the journey repos are singletons (see `mutate`).
+         *
+         * Only a request that *can* be refused needs the answer before writing — a graph
+         * arriving, or a switch-on. For one of those a malformed journey row refuses
+         * with its cause and writes nothing. A switch-off or a rename is written
+         * regardless, so a malformed journey row can never hold a live flow on.
+         */
+        const declared = await readDeclaredKeys(guildId, flowId);
+        const canBeRefused = graph !== undefined || request.enabled === true;
+        if (canBeRefused && !declared.ok) {
+            return c.json({ error: declared.error }, 500);
+        }
+
+        const outcome = await flowsRepo.mutate(flowId, (current) =>
+            decidePut(current, request, saver, declared.ok ? declared.keys : null)
+        );
+
+        if (outcome.kind === 'missing') {
+            // Deleted between the lookup above and the write.
+            return c.json({ error: 'Flow not found.' }, 404);
+        }
+        if (outcome.kind === 'refused') {
+            return c.json({ error: outcome.refusal.error, issues: outcome.refusal.issues }, 400);
+        }
+        if (!declared.ok) {
+            // Written, and said so: the response cannot describe the stored graph
+            // without the declarations, and a 500 that hid the write would send the
+            // operator to retry a switch-off that already happened. Only a request that
+            // could not be refused gets here, so this is never a draft.
+            return c.json({ error: `Saved. ${declared.error}` }, 500);
+        }
+
+        const flow = flowDetail(outcome.flow, flowReadinessIssues(outcome.flow.graph, declared.keys));
+        switch (outcome.kind) {
+            case 'written':
+                return c.json<FlowSaveBody>({ ...flow, savedAs: 'flow' });
+            case 'drafted':
+                return c.json<FlowSaveBody>({
+                    ...flow,
+                    savedAs: 'draft',
+                    draft: flowDraft(
+                        outcome.draft,
+                        saver.id,
+                        outcome.flow.updatedAt,
+                        flowReadinessIssues(outcome.draft.graph, declared.keys)
+                    ),
+                    uninstalled: uninstalledResourceKeys(outcome.draft.graph, declared.keys),
+                });
+        }
     });
 
+    // Deletes the flow and its drafts — unsaved work in this database, not anything in
+    // the guild; see `flowsRepo.deleteByFlowId` for what is deliberately left alone.
     app.delete('/:guildId/flows/:flowId', async (c) => {
         const guildId = c.get('guild').id;
         const flowId = c.req.param('flowId');

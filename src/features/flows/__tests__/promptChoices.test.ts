@@ -79,6 +79,7 @@ describe('answering a question', () => {
             flowRunsRepo: { getByRunId: () => Promise.resolve(parkedRun()) },
             flowsRepo: openGateFlow(),
             resume: resume as never,
+            failParked: vi.fn() as never,
         });
 
         expect(result.status).toBe('success');
@@ -108,6 +109,7 @@ describe('answering a question', () => {
             flowRunsRepo: { getByRunId: () => Promise.resolve(parkedRun()) },
             flowsRepo: openGateFlow(),
             resume: vi.fn().mockResolvedValue({ status: 'completed' }) as never,
+            failParked: vi.fn() as never,
         });
 
         expect(result.status).toBe('success');
@@ -132,6 +134,7 @@ describe('answering a question', () => {
             flowRunsRepo: { getByRunId: () => Promise.resolve(parkedRun()) },
             flowsRepo: openGateFlow(),
             resume: vi.fn().mockResolvedValue({ status: 'failed', error: 'boom' }) as never,
+            failParked: vi.fn() as never,
         });
 
         expect(result.status).toBe('error');
@@ -152,12 +155,14 @@ describe('answering a question', () => {
             flowRunsRepo: { getByRunId: () => Promise.resolve(null) },
             flowsRepo: openGateFlow(),
             resume: vi.fn() as never,
+            failParked: vi.fn() as never,
         });
 
         const closed = await handleFlowChoiceInteraction(buttonInteraction(buildFlowChoiceCustomId(RUN_ID, NODE_ID, 0)), {
             flowRunsRepo: { getByRunId: () => Promise.resolve({ ...parkedRun(), status: 'completed' }) },
             flowsRepo: openGateFlow(),
             resume: vi.fn() as never,
+            failParked: vi.fn() as never,
         });
 
         // Neither promises the other's fix: a missing row may be a question
@@ -180,6 +185,7 @@ describe('answering a question', () => {
                 flowRunsRepo: { getByRunId: () => Promise.resolve(parkedRun()) },
                 flowsRepo: gatedFlow({ principal: 'roles', roleIds: ['role-they-lack'] }),
                 resume: resume as never,
+                failParked: vi.fn() as never,
             }
         );
 
@@ -201,6 +207,7 @@ describe('answering a question', () => {
             flowRunsRepo: { getByRunId: () => Promise.resolve(parkedRun()) },
             flowsRepo: openGateFlow(),
             resume: resume as never,
+            failParked: vi.fn() as never,
         });
 
         expect(result.status).toBe('success');
@@ -221,6 +228,7 @@ describe('answering a question', () => {
                 flowRunsRepo: { getByRunId: () => Promise.resolve(askedAgain) },
                 flowsRepo: openGateFlow(),
                 resume: resume as never,
+                failParked: vi.fn() as never,
             }
         );
 
@@ -247,6 +255,7 @@ describe('answering a question', () => {
                 flowRunsRepo: { getByRunId: () => Promise.resolve(beforeTheColumn) },
                 flowsRepo: openGateFlow(),
                 resume: resume as never,
+                failParked: vi.fn() as never,
             }
         );
 
@@ -271,6 +280,7 @@ describe('answering a question', () => {
             flowRunsRepo: { getByRunId: () => Promise.resolve(somebodyElse) },
             flowsRepo: openGateFlow(),
             resume: resume as never,
+            failParked: vi.fn() as never,
         });
 
         expect(result.status).toBe('error');

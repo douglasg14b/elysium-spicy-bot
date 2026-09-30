@@ -5,18 +5,21 @@ import type { FlowRunEntity } from '../data/flowRunsSchema';
 import { FlowsRepo, flowsRepo } from '../data/flowsRepo';
 import { parseFlowChoiceCustomId } from '../utils/customId';
 import { evaluateEligibility, readEligibility, UNREADABLE_GATE_MESSAGE } from './eligibility';
-import { resumeFlowRun } from './flowRunResume';
+import { failParkedRun, resumeFlowRun } from './flowRunResume';
 
 export interface FlowChoiceDependencies {
     flowRunsRepo: Pick<FlowRunsRepo, 'getByRunId'>;
     flowsRepo: Pick<FlowsRepo, 'getByFlowId'>;
     resume: typeof resumeFlowRun;
+    /** Ends a run whose question can no longer be answered safely; see `refuseIfIneligible`. */
+    failParked: typeof failParkedRun;
 }
 
 const defaultDependencies: FlowChoiceDependencies = {
     flowRunsRepo,
     flowsRepo,
     resume: resumeFlowRun,
+    failParked: failParkedRun,
 };
 
 /**
@@ -128,7 +131,7 @@ export async function handleFlowChoiceInteraction(
         return replyWith(interaction, QUESTION_CLOSED_MESSAGE, 'skipped');
     }
 
-    const refusal = await refuseIfIneligible(interaction, run, parsed.nodeId, dependencies);
+    const refusal = await refuseIfIneligible(interaction, run, parsed.nodeId, claimedPark, dependencies);
     if (refusal) {
         return refusal;
     }
@@ -215,11 +218,18 @@ export async function handleFlowChoiceInteraction(
  * A missing flow, node or member is refused rather than admitted, for the reason
  * {@link evaluateEligibility} refuses an unsatisfiable gate: a gate that cannot be
  * evaluated has not been passed.
+ *
+ * **An unreadable gate also ends the run.** A switched-off flow may hold an unfinished
+ * gate, and the question parked on it would refuse every press until somebody fixed a
+ * problem nobody could see — forever, for a question with no timeout. So the run is
+ * failed with a reason an operator can find, the question's buttons come down, and the
+ * press is refused all the same: nothing about ending the run admits the presser.
  */
 async function refuseIfIneligible(
     interaction: ButtonInteraction,
     run: FlowRunEntity,
     nodeId: string,
+    claimedPark: string | undefined,
     dependencies: FlowChoiceDependencies
 ): Promise<InteractionHandlerResult | null> {
     // Wrapped for the reason the resume call below is: the interaction is already
@@ -247,7 +257,14 @@ async function refuseIfIneligible(
 
     const gate = readEligibility(node.data);
     if (!gate) {
-        return replyWith(interaction, `❌ ${UNREADABLE_GATE_MESSAGE}`, 'error', 'Unreadable eligibility rule');
+        const reason = `The question at node ${nodeId} has an eligibility rule the saved flow no longer lets anyone read`;
+        // The refusal below is sent whatever becomes of this. A failure to end the run
+        // is logged and leaves it parked — the state it was in — rather than turning a
+        // security refusal into "something went wrong, try again".
+        await dependencies.failParked(interaction.client, run, reason, claimedPark).catch((error: unknown) => {
+            console.error(`[flow-choice] Could not fail run ${run.runId} on its unreadable gate:`, error);
+        });
+        return replyWith(interaction, `❌ ${UNREADABLE_GATE_MESSAGE}`, 'error', reason);
     }
 
     // An open rule admits without reading the member at all, so it is answered

@@ -6,6 +6,7 @@ import { ELIGIBILITY_CONFIG_KEY, OPEN_GATE } from '../../engine/eligibility';
 import type { FlowGraph, FlowNode } from '../../data/flowGraph';
 import type { FlowEntity } from '../../data/flowsSchema';
 import type { FlowsRepo } from '../../data/flowsRepo';
+import { MalformedJourneyError } from '../../../provisioning';
 import { deployFlowButtons } from '../deployFlowButtons';
 import type { UndeployFlowButtonsResult } from '../undeployFlowButtons';
 
@@ -104,6 +105,14 @@ function undeployStub(calls: string[], results: UndeployFlowButtonsResult['resul
     };
 }
 
+/**
+ * A flow with no journey. Stubbed because the real lookup reads journey tables these
+ * cases never create; readiness itself runs for real against each case's graph.
+ */
+async function nothingDeclared(): Promise<ReadonlySet<string>> {
+    return new Set();
+}
+
 beforeAll(async () => {
     await ensureBlocksDiscovered();
 });
@@ -114,6 +123,7 @@ describe('posting to each destination', () => {
         const buttonMessagesRepo = makeButtonMessagesRepo(calls);
 
         const result = await deployFlowButtons(GUILD_ID, FLOW_ID, {
+            declaredKeys: nothingDeclared,
             getGuild: async () => makeGuild({ calls }),
             repo: repoFor(
                 flowEntity([
@@ -147,6 +157,7 @@ describe('posting to each destination', () => {
         const calls: string[] = [];
 
         const result = await deployFlowButtons(GUILD_ID, FLOW_ID, {
+            declaredKeys: nothingDeclared,
             getGuild: async () => makeGuild({ calls, channelIds: ['channel-rules'] }),
             repo: repoFor(
                 flowEntity([
@@ -172,6 +183,7 @@ describe('redeploying', () => {
         const calls: string[] = [];
 
         const result = await deployFlowButtons(GUILD_ID, FLOW_ID, {
+            declaredKeys: nothingDeclared,
             getGuild: async () => makeGuild({ calls }),
             repo: repoFor(flowEntity([buttonNode('rules')])),
             buttonMessagesRepo: makeButtonMessagesRepo(calls),
@@ -201,6 +213,7 @@ describe('redeploying', () => {
         const calls: string[] = [];
 
         const result = await deployFlowButtons(GUILD_ID, FLOW_ID, {
+            declaredKeys: nothingDeclared,
             getGuild: async () => makeGuild({ calls }),
             repo: repoFor(flowEntity([buttonNode('rules')])),
             buttonMessagesRepo: makeButtonMessagesRepo(calls),
@@ -229,6 +242,7 @@ describe('redeploying', () => {
         const calls: string[] = [];
 
         const result = await deployFlowButtons(GUILD_ID, FLOW_ID, {
+            declaredKeys: nothingDeclared,
             getGuild: async () => makeGuild({ calls, failChannelIds: ['channel-rules'] }),
             repo: repoFor(flowEntity([buttonNode('rules')])),
             buttonMessagesRepo: makeButtonMessagesRepo(calls),
@@ -255,6 +269,7 @@ describe('redeploying', () => {
         const calls: string[] = [];
 
         const result = await deployFlowButtons(GUILD_ID, FLOW_ID, {
+            declaredKeys: nothingDeclared,
             getGuild: async () => makeGuild({ calls, failChannelIds: ['channel-verify'] }),
             repo: repoFor(
                 flowEntity([
@@ -286,6 +301,7 @@ describe('a switched-off flow', () => {
         const calls: string[] = [];
 
         const result = await deployFlowButtons(GUILD_ID, FLOW_ID, {
+            declaredKeys: nothingDeclared,
             getGuild: async () => makeGuild({ calls }),
             repo: repoFor(flowEntity([buttonNode('rules')], false)),
             buttonMessagesRepo: makeButtonMessagesRepo(calls),
@@ -297,6 +313,46 @@ describe('a switched-off flow', () => {
         expect(result.message).toMatch(/switched off/);
         // Refused before the retire, so asking to deploy a disabled flow cannot take
         // down the buttons it already has.
+        expect(calls).toEqual([]);
+    });
+});
+
+describe('an incomplete flow', () => {
+    it('is refused before anything is retired or posted, even while switched on', async () => {
+        // Reachable without anyone saving a bad graph: a declaration a node still
+        // names can be removed from the journey under a live flow.
+        const calls: string[] = [];
+
+        const result = await deployFlowButtons(GUILD_ID, FLOW_ID, {
+            declaredKeys: nothingDeclared,
+            getGuild: async () => makeGuild({ calls }),
+            repo: repoFor(flowEntity([buttonNode('rules', { label: '' })])),
+            buttonMessagesRepo: makeButtonMessagesRepo(calls),
+            undeploy: undeployStub(calls),
+        });
+
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.message).toMatch(/isn't finished — 1 problem/);
+        expect(calls).toEqual([]);
+    });
+
+    it('names a journey it cannot read rather than judging the graph without it', async () => {
+        const calls: string[] = [];
+
+        const result = await deployFlowButtons(GUILD_ID, FLOW_ID, {
+            declaredKeys: async () => {
+                throw new MalformedJourneyError('flow-1', new Error('its resources column is not an array.'));
+            },
+            getGuild: async () => makeGuild({ calls }),
+            repo: repoFor(flowEntity([buttonNode('rules')])),
+            buttonMessagesRepo: makeButtonMessagesRepo(calls),
+            undeploy: undeployStub(calls),
+        });
+
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.message).toMatch(/not an array/);
         expect(calls).toEqual([]);
     });
 });

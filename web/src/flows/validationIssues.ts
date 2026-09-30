@@ -88,6 +88,18 @@ export function describeUnplacedIssue(issue: FlowValidationIssue): string {
 }
 
 /**
+ * "1 problem", "3 problems" — how the dashboard counts what stands between a flow and
+ * going live: the save notice, the switch's tooltip, the "Needs fixes" chip.
+ *
+ * The server counts its own refusals with its twin in `logic/flowReadiness.ts`; the two
+ * cannot share code across the workspace boundary. The card's "one problem to fix" is
+ * prose rather than a count, and stays its own.
+ */
+export function problemCount(count: number): string {
+    return `${count} ${count === 1 ? 'problem' : 'problems'}`;
+}
+
+/**
  * The one line a notification has room for.
  *
  * Says how much is wrong and where, rather than quoting one message — the messages
@@ -97,7 +109,7 @@ export function describeUnplacedIssue(issue: FlowValidationIssue): string {
  */
 export function summarizeIssues(issues: readonly FlowValidationIssue[]): string {
     const blocks = issuesByNode(issues).size;
-    const problems = `${issues.length} ${issues.length === 1 ? 'problem' : 'problems'}`;
+    const problems = problemCount(issues.length);
 
     if (blocks === 0) {
         // Nothing named a node: a whole-graph complaint, where there is no card to
@@ -110,9 +122,9 @@ export function summarizeIssues(issues: readonly FlowValidationIssue[]): string 
     // A mixed set: some issues are on cards, some are about the graph itself and are
     // on no card at all. Saying only "marked on the canvas" would send the author
     // looking for a red block that does not exist, so the homeless ones are spelled
-    // out. Today's three sources are mutually exclusive by control flow, so this is
-    // unreachable — but "nothing is ever dropped" should hold here rather than
-    // depending on a property of a different file.
+    // out. Only a structural refusal blames no node today, and it never arrives mixed
+    // with readiness issues — but "nothing is ever dropped" should hold here rather
+    // than depending on a property of a different file.
     const graphWide = issues.filter((issue) => !issue.nodeId).map((issue) => issue.message);
     return graphWide.length > 0 ? `${marked} Also: ${graphWide.join(' ')}` : marked;
 }

@@ -28,7 +28,8 @@ export interface FlowNodeCardData extends Record<string, unknown> {
     roles: GuildRole[];
     channels: GuildChannel[];
     /**
-     * How many things the last save found wrong with this node.
+     * How many things the server last found wrong with this node — when the flow was
+     * opened, or at the last save.
      *
      * A count rather than the issues themselves: the card has room for a number and
      * the inspector is where they are read. Carrying the list here would put the
@@ -40,8 +41,8 @@ export interface FlowNodeCardData extends Record<string, unknown> {
      *
      * Legal, and not a save failure — which is why it is a separate field rather than
      * another thing folded into `issueCount`. The two are different claims with
-     * different lifetimes: `issueCount` is what the *last save* found and is cleared on
-     * the next attempt, while this is recomputed from the live graph on every edit.
+     * different lifetimes: `issueCount` is what the server *last* found and is replaced
+     * on the next save, while this is recomputed from the live graph on every edit.
      *
      * A boolean rather than a reason: there is only one way to be unreachable, and the
      * card has room to say it once.

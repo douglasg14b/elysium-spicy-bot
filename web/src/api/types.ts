@@ -714,20 +714,150 @@ export interface FlowSummary {
     name: string;
     enabled: boolean;
     nodeCount: number;
+    /**
+     * How many problems stand between the stored graph and going live. `0` is ready.
+     *
+     * Anything above it means the flow is **incomplete**: saved, but refused if switched
+     * on. A count because the row has room for a chip; the list itself is in the builder.
+     */
+    issueCount: number;
     journey: FlowJourneyMembership | null;
     createdAt: string;
     updatedAt: string;
 }
 
-/** A single flow, graph included. */
+/**
+ * A single flow, graph included — the body of GET, POST and a successful PUT.
+ *
+ * `issues` describes the **stored** graph: empty when it is ready to go live, the
+ * reasons when it is not. A save that the server accepted can still carry some, because
+ * a switched-off flow may hold an unfinished graph.
+ */
 export interface Flow {
     flowId: string;
     name: string;
     enabled: boolean;
     graph: FlowGraph;
+    issues: FlowValidationIssue[];
     createdAt: string;
     updatedAt: string;
 }
+
+/** Mirrors `FLOW_DETAIL_KEYS` in `src/web/api/flowBody.ts`; `flowWireShapeDrift.test.ts` compares them. */
+export const FLOW_DETAIL_KEYS = [
+    'flowId',
+    'name',
+    'enabled',
+    'graph',
+    'issues',
+    'createdAt',
+    'updatedAt',
+] as const satisfies readonly (keyof Flow)[];
+
+/** Mirrors `FLOW_SUMMARY_KEYS` in `src/web/api/flowBody.ts`. */
+export const FLOW_SUMMARY_KEYS = [
+    'flowId',
+    'name',
+    'enabled',
+    'nodeCount',
+    'issueCount',
+    'journey',
+    'createdAt',
+    'updatedAt',
+] as const satisfies readonly (keyof FlowSummary)[];
+
+/**
+ * One operator's draft of a flow, without its graph — what the autosave gets back.
+ *
+ * `mine` is decided by the server, which knows who is signed in. `flowSavedSince` means
+ * the flow was saved after this draft was started, so loading it would put back what
+ * that save changed. Mirrors `FlowDraftSummaryBody` in `src/web/api/flowBody.ts`.
+ */
+export interface FlowDraftSummary {
+    draftId: number;
+    authorId: string;
+    /** A snapshot of their username when the draft was last written. */
+    authorName: string;
+    mine: boolean;
+    name: string;
+    baseUpdatedAt: string;
+    flowSavedSince: boolean;
+    createdAt: string;
+    updatedAt: string;
+}
+
+/**
+ * A draft ready to load onto the canvas: its graph, and that graph's readiness issues
+ * against the flow's declarations. Mirrors `FlowDraftBody`.
+ */
+export interface FlowDraft extends FlowDraftSummary {
+    graph: FlowGraph;
+    issues: FlowValidationIssue[];
+}
+
+/** Where a graph save landed. Mirrors `FLOW_SAVE_TARGETS`. */
+export const FLOW_SAVE_TARGETS = ['flow', 'draft'] as const;
+export type FlowSaveTarget = (typeof FLOW_SAVE_TARGETS)[number];
+
+/**
+ * A successful `PUT /flows/:flowId`. Mirrors `FlowSaveBody`.
+ *
+ * Always the flow as it now stands. `draft` means the flow is live and the graph was
+ * incomplete or waiting on its install, so it went to the caller's draft and the flow —
+ * graph, name, issues — is untouched. `draft.issues` are the ones the canvas should show;
+ * `uninstalled` names the declared resources the graph picks that aren't in the server.
+ */
+export type FlowSaveResult =
+    | (Flow & { savedAs: 'flow' })
+    | (Flow & { savedAs: 'draft'; draft: FlowDraft; uninstalled: string[] });
+
+export const FLOW_DRAFT_SUMMARY_KEYS = [
+    'draftId',
+    'authorId',
+    'authorName',
+    'mine',
+    'name',
+    'baseUpdatedAt',
+    'flowSavedSince',
+    'createdAt',
+    'updatedAt',
+] as const satisfies readonly (keyof FlowDraftSummary)[];
+
+export const FLOW_DRAFT_KEYS = [
+    ...FLOW_DRAFT_SUMMARY_KEYS,
+    'graph',
+    'issues',
+] as const satisfies readonly (keyof FlowDraft)[];
+
+export const FLOW_SAVED_TO_FLOW_KEYS = [
+    ...FLOW_DETAIL_KEYS,
+    'savedAs',
+] as const satisfies readonly (keyof Extract<FlowSaveResult, { savedAs: 'flow' }>)[];
+
+export const FLOW_SAVED_AS_DRAFT_KEYS = [
+    ...FLOW_DETAIL_KEYS,
+    'savedAs',
+    'draft',
+    'uninstalled',
+] as const satisfies readonly (keyof Extract<FlowSaveResult, { savedAs: 'draft' }>)[];
+
+/** Fails to compile if a flow wire shape gains a member absent from its list above. */
+type FlowKeyListsAreComplete =
+    | Exclude<keyof Flow, (typeof FLOW_DETAIL_KEYS)[number]>
+    | Exclude<keyof FlowSummary, (typeof FLOW_SUMMARY_KEYS)[number]>
+    | Exclude<keyof FlowDraftSummary, (typeof FLOW_DRAFT_SUMMARY_KEYS)[number]>
+    | Exclude<keyof FlowDraft, (typeof FLOW_DRAFT_KEYS)[number]>
+    | Exclude<keyof Extract<FlowSaveResult, { savedAs: 'flow' }>, (typeof FLOW_SAVED_TO_FLOW_KEYS)[number]>
+    | Exclude<keyof Extract<FlowSaveResult, { savedAs: 'draft' }>, (typeof FLOW_SAVED_AS_DRAFT_KEYS)[number]>
+    // The vocabulary, both ways: a `savedAs` arm the list does not name, or a name no arm has.
+    | Exclude<FlowSaveResult['savedAs'], FlowSaveTarget>
+    | Exclude<FlowSaveTarget, FlowSaveResult['savedAs']>;
+
+/** Do not delete as unused: removing it erases the guard above. */
+const flowKeyListsAreComplete: [FlowKeyListsAreComplete] extends [never]
+    ? true
+    : ['A flow wire-shape key list is missing', FlowKeyListsAreComplete] = true;
+void flowKeyListsAreComplete;
 
 /** One message a deploy posted. A flow gets one per destination channel. */
 export interface DeployedButtonMessage {
@@ -1024,7 +1154,12 @@ export interface ForgottenOrphan {
 }
 
 /**
- * One reason a save was refused, addressed to the thing that caused it.
+ * One reason a graph is not ready to go live, addressed to the thing that caused it.
+ *
+ * Arrives on a stored flow's `issues`, on a draft's, and on two refusals. One is
+ * structural: a graph too broken to store at all (400), whose issues blame no node. The
+ * other is switching on an incomplete flow (400). An incomplete graph sent to a live flow
+ * is not refused: it lands on the sender's draft, whose issues describe it.
  *
  * Mirrors `FlowValidationIssue` in `src/features/flows/engine/nodeDataValidation.ts`.
  * Both halves are optional and for the same reason they are there: a graph-wide

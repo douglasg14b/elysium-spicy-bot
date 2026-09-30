@@ -26,6 +26,7 @@ function flow(
         name,
         enabled: true,
         nodeCount: 3,
+        issueCount: 0,
         journey,
         createdAt: '2026-09-01T00:00:00.000Z',
         updatedAt: '2026-09-01T00:00:00.000Z',

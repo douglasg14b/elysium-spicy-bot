@@ -310,9 +310,10 @@ export async function executeFlowSegment(
             // handles the block does not declare do not count: nothing could
             // follow them.
             //
-            // `validateAuthoredGraph` rejects this shape at save time, so a graph
-            // saved since that rule exists cannot reach here. One saved *before*
-            // it still can, which is why this stays.
+            // `validateAuthoredGraph` keeps this shape from going live, so no run
+            // can *start* on one saved since that rule exists. One saved before it
+            // still can — and a parked run resumes against whatever graph is stored,
+            // switched off and incomplete or not — which is why this stays.
             const outgoing = edgesBySource.get(node.id) ?? [];
             const reachable = outgoing.some((edge) =>
                 definition.handles.some((handle) => (handle.id ?? undefined) === (edge.sourceHandle ?? undefined))
@@ -712,9 +713,10 @@ type NextNode = { ok: true; target: string | undefined } | { ok: false; error: s
  * Follow the edge leaving `node` by the handle the block named.
  *
  * Two outgoing edges on the same handle is a **named failure**, not a silent
- * first-match. Save-time validation rejects that graph, so reaching it here means
- * the graph predates the check or was written around it — and quietly picking one
- * of two branches is how a run does something its author never asked for.
+ * first-match. Readiness keeps that graph from going live, so reaching it here means
+ * the graph predates the check, was written around it, or is an incomplete one a
+ * parked run resumed into — and quietly picking one of two branches is how a run
+ * does something its author never asked for.
  *
  * An exit leading nowhere is not an error here, whichever handle it is: an
  * author ends a path by wiring nothing after it, and a condition whose `false`
@@ -748,8 +750,9 @@ function resolveNextNode(
 
     // An author ends a path by wiring nothing, so a dead end is usually fine.
     // What is not fine is an edge sitting on a handle the block never declared:
-    // save-time validation rejects those now, but a graph stored before that
-    // check can still carry one, and the run ends reporting success having
+    // readiness keeps those from going live now, but a graph stored before that
+    // check can still carry one — as can an unfinished one a parked run resumed
+    // into — and the run ends reporting success having
     // skipped whatever the author actually drew. Warn, because a silent success
     // is the one failure nobody goes looking for.
     if (!target) {

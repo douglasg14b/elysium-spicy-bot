@@ -8,6 +8,7 @@ import {
     isRenderableToken,
     tokensIn,
 } from './copyRendering';
+import type { FlowValidationIssue } from './nodeDataValidation';
 
 export type GraphValidationResult =
     | { valid: true; graph: FlowGraph }
@@ -20,10 +21,11 @@ export type GraphValidationResult =
  *  - node ids are unique
  *
  * These are **corruption** checks, which is why they run on read as well as on
- * write: a graph failing one of them cannot be walked at all. Authoring mistakes
- * that merely make a flow *wrong* belong in {@link validateAuthoredGraph}, which
- * runs only where a graph is being written — a rule added here would make every
- * flow in a guild unreadable the moment one old row stopped satisfying it.
+ * write, and why they are the only checks that refuse a write: a graph failing one
+ * of them cannot be walked at all. Authoring mistakes that merely make a flow
+ * *wrong* belong in {@link validateAuthoredGraph}, which decides whether a stored
+ * graph may go live rather than whether it may be stored — a rule added here would
+ * make every flow in a guild unreadable the moment one old row stopped satisfying it.
  *
  * Cycles are **permitted** as of Phase 5: back-edges are how a flow expresses a
  * loop (typically with an `action.delay` in the cycle so it parks between
@@ -68,12 +70,14 @@ export function validateFlowGraph(candidate: unknown): GraphValidationResult {
 }
 
 /**
- * The rules a graph must satisfy to be *written*, on top of structural integrity.
+ * The rules a graph must satisfy to go *live*, on top of structural integrity.
  *
  * Deliberately separate from {@link validateFlowGraph}: these catch a flow that
  * is wrong rather than one that is unreadable, so applying them on read would
  * strand graphs an earlier build happily saved — and take every other flow in
- * the guild down with them, since one throw fails the whole query.
+ * the guild down with them, since one throw fails the whole query. A graph that
+ * fails them is still storable, as an incomplete flow that cannot be enabled;
+ * `flowReadinessIssues` in `logic/flowReadiness.ts` is where they are asked.
  *
  * Checked here:
  *  - no output handle carries more than one outgoing edge
@@ -87,9 +91,30 @@ export function validateFlowGraph(candidate: unknown): GraphValidationResult {
  * before this check the run would report success having quietly done nothing.
  *
  * Requires the block registry, so callers must have awaited discovery.
+ *
+ * The messages of {@link authoredGraphIssues}, for callers that want a verdict and
+ * a sentence rather than placement.
  */
 export function validateAuthoredGraph(graph: FlowGraph): GraphValidationResult {
-    const errors: string[] = [];
+    const issues = authoredGraphIssues(graph);
+    return issues.length > 0
+        ? { valid: false, errors: issues.map((issue) => issue.message) }
+        : { valid: true, graph };
+}
+
+/**
+ * The rules {@link validateAuthoredGraph} checks, each finding addressed to the node
+ * it is about.
+ *
+ * Every rule here is about one node — the one fanning out, the one waiting with
+ * nothing after it, the one needing what its path cannot supply, the one whose copy
+ * holds a bad token — so every issue carries its `nodeId`. That is what lets the
+ * builder mark the card. Carrying the id alongside the message, rather than leaving a
+ * reader to find it in the text, is the difference between a card turning red and a
+ * locked switch with nothing on the canvas saying why.
+ */
+export function authoredGraphIssues(graph: FlowGraph): readonly FlowValidationIssue[] {
+    const issues: FlowValidationIssue[] = [];
 
     // Counted per source node, then per handle, so no handle name can collide
     // with another through a shared key separator. An edge the graph persists
@@ -113,10 +138,12 @@ export function validateAuthoredGraph(graph: FlowGraph): GraphValidationResult {
             const named = handle === undefined ? 'its default output' : `its "${handle}" output`;
 
             if (count > 1) {
-                errors.push(
-                    `Node ${sourceId} has ${count} edges leaving ${named}, but a handle may have only one. ` +
-                        'Remove the extra connections, or only one of those branches will ever run.'
-                );
+                issues.push({
+                    nodeId: sourceId,
+                    message:
+                        `Node ${sourceId} has ${count} edges leaving ${named}, but a handle may have only one. ` +
+                        'Remove the extra connections, or only one of those branches will ever run.',
+                });
             }
 
             // An unknown block type is `validateNodeData`'s finding to report; do
@@ -130,19 +157,21 @@ export function validateAuthoredGraph(graph: FlowGraph): GraphValidationResult {
                 const names = block.handles
                     .map((candidate) => (candidate.id === undefined ? 'its default output' : `"${candidate.id}"`))
                     .join(', ');
-                errors.push(
-                    `Node ${sourceId} (${node?.type}) has an edge leaving ${named}, which ${block.label} ` +
-                        `does not have. Its outputs are: ${names}.`
-                );
+                issues.push({
+                    nodeId: sourceId,
+                    message:
+                        `Node ${sourceId} (${node?.type}) has an edge leaving ${named}, which ${block.label} ` +
+                        `does not have. Its outputs are: ${names}.`,
+                });
             }
         }
     }
 
-    errors.push(...checkSuspendingNodesAreReachable(graph));
-    errors.push(...checkContextRequirements(graph));
-    errors.push(...checkCopyTokens(graph));
+    issues.push(...checkSuspendingNodesAreReachable(graph));
+    issues.push(...checkContextRequirements(graph));
+    issues.push(...checkCopyTokens(graph));
 
-    return errors.length > 0 ? { valid: false, errors } : { valid: true, graph };
+    return issues;
 }
 
 /**
@@ -168,8 +197,8 @@ export function validateAuthoredGraph(graph: FlowGraph): GraphValidationResult {
  * outgoing edges at all never appears in `handleUseByNode`, and that is precisely
  * the case this rejects.
  */
-function checkSuspendingNodesAreReachable(graph: FlowGraph): string[] {
-    const errors: string[] = [];
+function checkSuspendingNodesAreReachable(graph: FlowGraph): FlowValidationIssue[] {
+    const issues: FlowValidationIssue[] = [];
     const handlesBySource = new Map<string, Set<string | undefined>>();
 
     for (const edge of graph.edges) {
@@ -195,13 +224,15 @@ function checkSuspendingNodesAreReachable(graph: FlowGraph): string[] {
         const names = block.handles
             .map((handle) => (handle.id === undefined ? 'its default output' : `"${handle.id}"`))
             .join(', ');
-        errors.push(
-            `Node ${node.id} (${block.label}) waits for something to happen, but nothing is connected ` +
-                `to any of its outputs, so the flow would stop there. Connect one of: ${names}.`
-        );
+        issues.push({
+            nodeId: node.id,
+            message:
+                `Node ${node.id} (${block.label}) waits for something to happen, but nothing is connected ` +
+                `to any of its outputs, so the flow would stop there. Connect one of: ${names}.`,
+        });
     }
 
-    return errors;
+    return issues;
 }
 
 /**
@@ -245,18 +276,19 @@ function rejectedTokenErrors(
     nodeType: string,
     where: string,
     value: string
-): readonly string[] {
+): readonly FlowValidationIssue[] {
     return tokensIn(value)
         .filter((token) => !isRenderableToken(token))
-        .map(
-            (token) =>
+        .map((token) => ({
+            nodeId,
+            message:
                 `Node ${nodeId} (${nodeType}) has ${where} containing {{${token}}}, which is not ` +
-                `something a flow can fill in. ${describeVocabulary()}`
-        );
+                `something a flow can fill in. ${describeVocabulary()}`,
+        }));
 }
 
-function checkCopyTokens(graph: FlowGraph): readonly string[] {
-    const errors: string[] = [];
+function checkCopyTokens(graph: FlowGraph): readonly FlowValidationIssue[] {
+    const errors: FlowValidationIssue[] = [];
 
     for (const node of graph.nodes) {
         const block = getBlockDefinition(node.type);
@@ -309,28 +341,6 @@ function checkCopyTokens(graph: FlowGraph): readonly string[] {
     }
 
     return errors;
-}
-
-/**
- * Everything a graph must satisfy before it is stored: structural integrity,
- * then the authoring rules.
- *
- * **This is the write boundary.** It lives in the repo's create and update paths
- * rather than in the HTTP layer, so a seed script, an import tool, or any future
- * writer gets the same guarantees the builder does — a graph the executor cannot
- * walk correctly should be impossible to persist, whoever is doing the writing.
- *
- * Needs the block registry, so a caller must have awaited discovery. That is
- * true of the bot (init awaits it before the web server starts) and of any
- * script, which is why the seed script awaits it explicitly.
- */
-export function validateGraphForWrite(candidate: unknown): GraphValidationResult {
-    const structural = validateFlowGraph(candidate);
-    if (!structural.valid) {
-        return structural;
-    }
-
-    return validateAuthoredGraph(structural.graph);
 }
 
 /**
@@ -418,7 +428,7 @@ const CHECKED_REQUIREMENTS: Readonly<Record<CheckedRequirement, RequirementCheck
  * A node reachable from no trigger at all is not flagged — it is unreachable, so
  * it never runs, and blaming its requirements would bury the real problem.
  */
-function checkContextRequirements(graph: FlowGraph): readonly string[] {
+function checkContextRequirements(graph: FlowGraph): readonly FlowValidationIssue[] {
     const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
     const outgoing = new Map<string, string[]>();
     for (const edge of graph.edges) {
@@ -470,7 +480,7 @@ function checkContextRequirements(graph: FlowGraph): readonly string[] {
                 .map((node) => node.id)
         );
 
-    const errors: string[] = [];
+    const issues: FlowValidationIssue[] = [];
     const entries = Object.entries(CHECKED_REQUIREMENTS) as [CheckedRequirement, RequirementCheck][];
     for (const [requirement, checked] of entries) {
         // A message present is what says this route can lose the requirement, so
@@ -501,14 +511,16 @@ function checkContextRequirements(graph: FlowGraph): readonly string[] {
             if (!because) {
                 continue;
             }
-            errors.push(
-                `Node ${node.id} (${node.type}) needs "${requirement}" from the run, but ${because}. ` +
-                    checked.advice
-            );
+            issues.push({
+                nodeId: node.id,
+                message:
+                    `Node ${node.id} (${node.type}) needs "${requirement}" from the run, but ${because}. ` +
+                    checked.advice,
+            });
         }
     }
 
-    return errors;
+    return issues;
 }
 
 /**

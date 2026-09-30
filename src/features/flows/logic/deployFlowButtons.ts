@@ -12,6 +12,8 @@ import {
 } from '../data/flowButtonMessagesRepo';
 import { flowsRepo, type FlowsRepo } from '../data/flowsRepo';
 import type { FlowEntity } from '../data/flowsSchema';
+import { readDeclaredKeys } from './declaredResourceKeys';
+import { flowReadinessIssues, problemCount } from './flowReadiness';
 import { planButtonDeployment, type ButtonDestination } from './planButtonDeployment';
 import { undeployFlowButtons, type UndeployFlowButtonsResult } from './undeployFlowButtons';
 
@@ -45,6 +47,8 @@ interface DeployFlowButtonsDeps {
     buttonMessagesRepo?: Pick<FlowButtonMessagesRepo, 'persist'>;
     /** Retires whatever this flow already has live. Overridable for tests. */
     undeploy?: (guildId: string, flowId: string) => Promise<UndeployFlowButtonsResult>;
+    /** What the flow declares, for the readiness check. Overridable for tests. */
+    declaredKeys?: (guildId: string, flowId: string) => Promise<ReadonlySet<string>>;
 }
 
 async function defaultGetGuild(guildId: string): Promise<Guild | null> {
@@ -95,6 +99,35 @@ export async function deployFlowButtons(
         return {
             ok: false,
             message: `**${flow.name}** is switched off. Turn it on first, or its buttons will just sulk at everyone who presses them.`,
+        };
+    }
+
+    /*
+     * An incomplete flow is refused too — defence in depth rather than the gate.
+     *
+     * The gate is `enabled`: an incomplete flow cannot be switched on, and a live one
+     * cannot take an incomplete graph, so the check above already stops it. But
+     * readiness depends on more than the graph. Removing a declaration a node's sidecar
+     * still names makes a live flow incomplete without anyone touching it, and posting
+     * its buttons then would publish a flow that fails on the first press.
+     *
+     * Asked here for the same reason as the check above: both surfaces deploy, and
+     * this is the only place both pass through. A pending resource is *not* an issue
+     * here — it is ready, just uninstalled — and `planButtonDeployment` below is what
+     * refuses those, naming what to install.
+     */
+    const declared = await readDeclaredKeys(guildId, flowId, deps.declaredKeys);
+    if (!declared.ok) {
+        return { ok: false, message: declared.error };
+    }
+
+    const issues = flowReadinessIssues(flow.graph, declared.keys);
+    if (issues.length > 0) {
+        return {
+            ok: false,
+            message:
+                `**${flow.name}** isn't finished — ${problemCount(issues.length)} to fix before its ` +
+                "buttons go anywhere. They're marked on its canvas in the builder.",
         };
     }
 

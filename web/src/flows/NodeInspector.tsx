@@ -128,7 +128,11 @@ export function NodeInspector({
             {/*
              * Above the fields, not below: an issue with no control to sit under is
              * the one the author is least likely to find, so it goes where they are
-             * already looking after a failed save.
+             * already looking — on open, or after a save.
+             *
+             * "Can't go live", not "can't save": the flow may well be saved, as an
+             * unfinished one, and a title claiming otherwise would contradict the save
+             * notice sitting beside it.
              */}
             {placed.nodeLevel.length > 0 ? (
                 <Alert
@@ -136,7 +140,7 @@ export function NodeInspector({
                     variant="light"
                     p="xs"
                     icon={<IconAlertTriangle size={16} />}
-                    title="This block can't save"
+                    title="This block can't go live yet"
                 >
                     <Stack gap={2}>
                         {placed.nodeLevel.map((issue) => (

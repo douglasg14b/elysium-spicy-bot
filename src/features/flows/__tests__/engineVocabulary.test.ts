@@ -138,6 +138,12 @@ const DOMAIN_VOCABULARY = [
     'level',
     // Persistence nouns
     'repo', 'table', 'column', 'migration', 'row', 'entity', 'version', 'dialect',
+    // A flow's unsaved graph, kept per operator beside the flow it is a draft of
+    // (`flow_drafts`). Admitted as persistence, on the footing of `version` and
+    // `snapshot`: it is a state *any* flow's graph can be in, whatever the flow is for,
+    // and the executor never reads one — it runs `flows.graph` and nothing else. It
+    // names no use case, and folds onto none of the proven rejections.
+    'draft',
 ];
 
 /**
@@ -286,6 +292,12 @@ const GENERIC_VOCABULARY = [
     // still absent: it appears only in comments, where this gate does not reach and
     // should not.
     'components',
+    // Flow drafts. `author` is whoever wrote a draft — the noun `authored` above
+    // already implies, and no more domain-laden than `user`. `discard` is what a save
+    // does to the saver's superseded draft: mechanism, on the footing of `release` and
+    // `reset`. One word was renamed rather than admitted: the repo's input type was
+    // `UpsertFlowDraftInput` and is `FlowDraftInput`, since `input` was already here.
+    'author', 'discard',
 ];
 
 /**

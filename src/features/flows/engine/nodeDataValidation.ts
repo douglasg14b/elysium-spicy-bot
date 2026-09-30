@@ -53,7 +53,8 @@ export interface NodeDataValidationOptions {
  * {@link validateFlowGraph} only checks the graph's *shape* (ids, edges) —
  * `data` is an opaque record there. This is the second half: an unknown node
  * `type` or a `data` payload its node type rejects is an error, so a graph that
- * would fail at execution time is refused at save time instead.
+ * would fail at execution time is caught when it is saved — stored, if the flow is
+ * off, as an unfinished one that cannot be switched on until this passes.
  *
  * ## Emptiness is conditional, everything else is not
  *

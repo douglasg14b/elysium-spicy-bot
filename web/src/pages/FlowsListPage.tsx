@@ -83,6 +83,7 @@ import {
 import type {
     FlowJourneyMembership,
     FlowSummary,
+    FlowValidationIssue,
     GroupPreview,
     GroupResolution,
 } from '../api/types';
@@ -107,6 +108,7 @@ import {
 } from '../flows/journeyAttachment';
 import { ResourcesDialog, useLoadedResources } from '../flows/ResourcesDialog';
 import { LeaveGroupDialog } from '../flows/LeaveGroupDialog';
+import { problemCount, summarizeIssues } from '../flows/validationIssues';
 import { useGuilds } from '../guilds/GuildContext';
 import { PAGE_MAX_WIDTH } from '../theme';
 
@@ -259,6 +261,32 @@ function InstallChip({ journey }: { readonly journey: FlowJourneyMembership | nu
         <Tooltip label={chip.tooltip} withArrow multiline w={260}>
             <Badge size="sm" variant="light" color={chip.color} radius="xl">
                 {chip.label}
+            </Badge>
+        </Tooltip>
+    );
+}
+
+/**
+ * "Needs fixes" — the flow is saved but incomplete, so the server will refuse to switch
+ * it on.
+ *
+ * On **every** row, member rows included, unlike the install chip: readiness is a fact
+ * about one flow's graph, not about the journey it shares. Red rather than the install
+ * chip's orange because it blocks something — this flow cannot go live until it is
+ * fixed — where an uninstalled journey only has something left to do.
+ */
+function NeedsFixesChip({ issueCount }: { readonly issueCount: number }) {
+    if (issueCount === 0) return null;
+
+    return (
+        <Tooltip
+            label={`${problemCount(issueCount)} to fix before this flow can go live. Open it — they're marked on the canvas.`}
+            withArrow
+            multiline
+            w={260}
+        >
+            <Badge size="sm" variant="light" color="red" radius="xl">
+                Needs fixes
             </Badge>
         </Tooltip>
     );
@@ -445,12 +473,20 @@ function FlowRow({
             </Table.Td>
             <Table.Td style={{ ...cellBackground, ...lastMemberBorder }}>
                 {/*
-                 * Only on an ungrouped row. A member's install state *is* its journey's,
-                 * so repeating it per member would put the same chip on every row of a
-                 * band under a header already carrying it — and each copy would offer
-                 * an install that does the identical thing.
+                 * Stacked rather than side by side: the column is sized for one chip,
+                 * and a flow that is both unfinished and uninstalled is the case that
+                 * would otherwise wrap or steal width from its neighbours.
                  */}
-                {!group && <InstallChip journey={flow.journey} />}
+                <Stack gap={4} align="flex-start">
+                    <NeedsFixesChip issueCount={flow.issueCount} />
+                    {/*
+                     * Only on an ungrouped row. A member's install state *is* its journey's,
+                     * so repeating it per member would put the same chip on every row of a
+                     * band under a header already carrying it — and each copy would offer
+                     * an install that does the identical thing.
+                     */}
+                    {!group && <InstallChip journey={flow.journey} />}
+                </Stack>
             </Table.Td>
             <Table.Td style={{ ...cellBackground, ...lastMemberBorder }}>
                 <Group gap={6} justify="flex-end" wrap="nowrap">
@@ -1041,6 +1077,48 @@ export function FlowsListPage() {
         }
     }
 
+    /**
+     * Say why a flow could not be switched on, with the way to fix it one click away.
+     *
+     * The problems are marked on the flow's canvas, not on this page, so the notification
+     * carries the door to it rather than leaving the operator to find the row's Edit.
+     * Pinned open, like the other refusals here that the operator has to act on; keyed on
+     * the flow so pressing the switch again replaces the notice rather than stacking a
+     * second copy. Hidden first because Mantine silently drops a `show` whose id is still
+     * on screen, which would leave the first refusal's count up after it changed.
+     */
+    function showNotReady(
+        flow: FlowSummary,
+        title: string,
+        issues: readonly FlowValidationIssue[]
+    ): void {
+        const id = `flow-not-ready-${flow.flowId}`;
+        notifications.hide(id);
+        notifications.show({
+            id,
+            color: 'red',
+            title,
+            autoClose: false,
+            message: (
+                <Stack gap={6} align="flex-start">
+                    <Text size="sm">{summarizeIssues(issues)}</Text>
+                    <Button
+                        size="xs"
+                        variant="light"
+                        color="brand"
+                        leftSection={<IconPencil size={13} />}
+                        onClick={() => {
+                            notifications.hide(id);
+                            navigate(`/flows/${flow.flowId}`);
+                        }}
+                    >
+                        Fix it in the builder
+                    </Button>
+                </Stack>
+            ),
+        });
+    }
+
     async function handleToggle(flow: FlowSummary, enabled: boolean) {
         if (!selected) return;
         setTogglingId(flow.flowId);
@@ -1053,18 +1131,36 @@ export function FlowsListPage() {
             setFlows((prev) =>
                 prev.map((row) =>
                     row.flowId === flow.flowId
-                        ? { ...row, enabled: updated.enabled, updatedAt: updated.updatedAt }
+                        ? {
+                              ...row,
+                              enabled: updated.enabled,
+                              issueCount: updated.issues.length,
+                              updatedAt: updated.updatedAt,
+                          }
                         : row
                 )
             );
         } catch (err) {
+            // A refusal carrying issues is the stored graph's own list — fresher than the
+            // count this row was drawn with, so the chip is corrected from it too.
+            const issues = err instanceof ApiError ? err.issues : [];
             setFlows((prev) =>
                 prev.map((row) =>
-                    row.flowId === flow.flowId ? { ...row, enabled: flow.enabled } : row
+                    row.flowId === flow.flowId
+                        ? {
+                              ...row,
+                              enabled: flow.enabled,
+                              issueCount: issues.length > 0 ? issues.length : row.issueCount,
+                          }
+                        : row
                 )
             );
             const message =
                 err instanceof ApiError ? err.message : "Couldn't change that. Try again.";
+            if (issues.length > 0) {
+                showNotReady(flow, message, issues);
+                return;
+            }
             notifications.show({ color: 'red', title: "Couldn't update flow", message });
         } finally {
             setTogglingId(null);

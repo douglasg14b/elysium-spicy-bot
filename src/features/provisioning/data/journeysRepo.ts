@@ -37,6 +37,23 @@ export class DuplicateJourneyKeyError extends Error {
 }
 
 /**
+ * Raised when a stored journey row cannot be read as a declaration.
+ *
+ * Typed so a caller can tell "this row is corrupt" — a data problem worth naming to the
+ * operator — from a driver or connection failure, which is an ordinary server error and
+ * must not be dressed up as one. `cause` keeps the underlying complaint.
+ */
+export class MalformedJourneyError extends Error {
+    constructor(journeyKey: string, cause: unknown) {
+        super(
+            `Journey ${journeyKey} is stored malformed: ${cause instanceof Error ? cause.message : String(cause)}`,
+            { cause }
+        );
+        this.name = 'MalformedJourneyError';
+    }
+}
+
+/**
  * Persistence for journeys.
  *
  * Declarations are validated on every write *and* on read, mirroring `FlowsRepo`'s
@@ -176,16 +193,18 @@ export class JourneysRepo {
 
     /**
      * The SqliteJsonPlugin parses `resources` back into an array, but a row written by
-     * an older schema or edited by hand could still be malformed.
+     * an older schema or edited by hand could still be malformed. Every way that shows
+     * is raised as {@link MalformedJourneyError}.
      */
     private assertValidDeclaration(row: JourneyEntity): JourneyEntity {
-        if (!Array.isArray(row.resources)) {
-            throw new Error(
-                `Journey ${row.journeyKey} has a stored resources column that is not an array.`
-            );
+        try {
+            if (!Array.isArray(row.resources)) {
+                throw new Error('its resources column is not an array.');
+            }
+            validateJourneyDeclaration(toDeclarationFromRow(row));
+        } catch (cause) {
+            throw new MalformedJourneyError(row.journeyKey, cause);
         }
-
-        validateJourneyDeclaration(toDeclarationFromRow(row));
         return row;
     }
 }

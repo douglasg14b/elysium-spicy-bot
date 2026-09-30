@@ -206,9 +206,11 @@ export const eligibilityConfigSchema = eligibilitySchema.default(OPEN_GATE);
  *
  * * **No key at all** — every graph authored before gates existed. Open.
  * * **A valid gate** — the author set one. Used as written.
- * * **Something else** — a key holding a shape the schema rejects, which is only
- *   reachable by writing to the database directly, since save-time validation
- *   refuses it. Reported as `null`, and every caller must refuse on it.
+ * * **Something else** — a key holding a shape the schema rejects. An ordinary
+ *   save can store one: a switched-off flow may hold an unfinished graph, and a gate
+ *   whose principal was picked before its roles is exactly that. It cannot go live
+ *   that way, but a run already parked on the node reads it on the next press.
+ *   Reported as `null`, and every caller must refuse on it.
  *
  * That last asymmetry is the whole reason this is a function rather than a cast.
  * Absent means open because absence has a known, documented meaning; malformed

@@ -1,6 +1,6 @@
 /**
  * The seam between the builder and the engine: a graph shaped exactly as the
- * browser serialises one, put through the save-time validation the API applies,
+ * browser serialises one, put through the readiness checks the API applies,
  * and then executed.
  *
  * Everything else in this suite starts from a graph a *test helper* built. That
@@ -20,8 +20,9 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { executeFlow } from '../engine/executor';
-import { validateFlowGraph, validateAuthoredGraph } from '../engine/graphValidation';
-import { describeIssue, validateNodeData } from '../engine/nodeDataValidation';
+import { validateFlowGraph } from '../engine/graphValidation';
+import { describeIssue } from '../engine/nodeDataValidation';
+import { flowReadinessIssues } from '../logic/flowReadiness';
 import { ensureBlocksDiscovered } from '../blocks/registry';
 import type { FlowGraph } from '../data/flowGraph';
 import type { FlowRunSeed } from '../blocks/types';
@@ -92,23 +93,17 @@ function builderShapedGraph(): FlowGraph {
 }
 
 /**
- * The three checks `validateGraphForSave` in `flowRoutes.ts` runs, in its order.
+ * What stands between this graph and going live, as the API judges it: the
+ * structural check that refuses a save outright, then {@link flowReadinessIssues},
+ * which decides whether the stored flow may be enabled.
  *
- * Mirrored rather than imported because that function is module-private to the
- * route file. The order matters and is asserted by using it: an unknown block type
- * must be reported as an unknown type, not as complaints about its handles.
+ * Nothing declared, as for a flow with no journey — this graph picks real ids.
  */
-function validateAsSaveWould(graph: FlowGraph): readonly string[] {
+function readinessAsApiJudges(graph: FlowGraph): readonly string[] {
     const structural = validateFlowGraph(graph);
     if (!structural.valid) return structural.errors;
 
-    const nodeData = validateNodeData(structural.graph);
-    if (!nodeData.valid) return nodeData.issues.map(describeIssue);
-
-    const authored = validateAuthoredGraph(structural.graph);
-    if (!authored.valid) return authored.errors;
-
-    return [];
+    return flowReadinessIssues(structural.graph, new Set()).map(describeIssue);
 }
 
 function makeContext(options: { boosting: boolean }): {
@@ -135,9 +130,9 @@ function makeContext(options: { boosting: boolean }): {
 }
 
 describe('a graph shaped the way the builder emits one', () => {
-    it('passes the validation the save endpoint applies', async () => {
+    it('is ready to go live by the checks the API applies', async () => {
         await ensureBlocksDiscovered();
-        expect(validateAsSaveWould(builderShapedGraph())).toEqual([]);
+        expect(readinessAsApiJudges(builderShapedGraph())).toEqual([]);
     });
 
     it('runs, and takes the branch the member qualifies for', async () => {
@@ -156,13 +151,13 @@ describe('a graph shaped the way the builder emits one', () => {
         expect(plain.rolesAdd).toHaveBeenCalledWith(MEMBER_ROLE_ID);
     });
 
-    it('is rejected, naming the node, when the inspector left a field unset', async () => {
+    it('is held back from going live, naming the node, when the inspector left a field unset', async () => {
         await ensureBlocksDiscovered();
         const graph = builderShapedGraph();
         // What an author leaves behind by dropping a block and not configuring it.
         graph.nodes[2].data = {};
 
-        const errors = validateAsSaveWould(graph);
+        const errors = readinessAsApiJudges(graph);
         expect(errors.length).toBeGreaterThan(0);
         expect(errors.join(' ')).toContain(graph.nodes[2].id);
     });
@@ -178,7 +173,7 @@ describe('a graph shaped the way the builder emits one', () => {
      *
      * Rejecting it at save is the only point an author can act on it.
      */
-    it('is rejected when a question is asked with nothing wired to any answer', async () => {
+    it('is held back from going live when a question is asked with nothing wired to any answer', async () => {
         await ensureBlocksDiscovered();
         const graph = builderShapedGraph();
         const triggerId = graph.nodes[0].id;
@@ -195,7 +190,7 @@ describe('a graph shaped the way the builder emits one', () => {
         ];
         graph.edges = [{ id: 'edge-to-ask', source: triggerId, target: askId }];
 
-        const errors = validateAsSaveWould(graph);
+        const errors = readinessAsApiJudges(graph);
         expect(errors.join(' ')).toContain(askId);
     });
 });

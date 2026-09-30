@@ -27,7 +27,7 @@ function graphWith(nodes: FlowGraph['nodes']): FlowGraph {
     return { version: FLOW_GRAPH_VERSION, nodes, edges: [] };
 }
 
-/** Validate exactly as `validateGraphForSave` does, and return the issues. */
+/** The node-data half of `flowReadinessIssues`, and its issues. */
 function saveIssues(graph: FlowGraph, declared: readonly string[]) {
     const pending = pendingResourceFields(graph, new Set(declared));
     const nodeData = validateNodeData(graph, { pendingFields: pending.pendingFields });

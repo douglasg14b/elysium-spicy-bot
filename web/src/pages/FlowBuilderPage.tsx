@@ -63,12 +63,14 @@ import { ApiError } from '../api/client';
 import { getGuildChannels } from '../api/config';
 import {
     deployFlow,
+    discardFlowDraft,
     getFlow,
     getGuildRoles,
     getInstallPlan,
     getNodeTypes,
     getPublishedState,
     installFlow,
+    listFlowDrafts,
     updateFlow,
 } from '../api/flows';
 // Only the initial read lives here now; the write moved into `useResourceAutosave`.
@@ -81,6 +83,7 @@ import {
 } from '../api/journeys';
 import type {
     FlowAttachment,
+    FlowDraft,
     FlowEdge,
     FlowGraph,
     FlowValidationIssue,
@@ -112,6 +115,16 @@ import {
 } from '../flows/resizableColumn';
 import { graphIncluding } from '../flows/graphHistory';
 import {
+    builderStatusLine,
+    draftLabel,
+    draftOnlySaveMessage,
+    formatWhen,
+    orderDraftsForPicker,
+    type BuilderStatus,
+    type FlowDraftPayload,
+} from '../flows/flowDraftAutosave';
+import { useFlowDraftAutosave } from '../flows/useFlowDraftAutosave';
+import {
     changeLabel,
     kindLabel,
     summariseInstallFailure,
@@ -119,7 +132,7 @@ import {
     summariseInstallPlan,
 } from '../flows/installSummary';
 import { InstalledResourcesDialog } from '../flows/InstalledResourcesDialog';
-import { issuesByNode, summarizeIssues } from '../flows/validationIssues';
+import { issuesByNode, problemCount, summarizeIssues } from '../flows/validationIssues';
 import { convergingTriggerCounts } from '../flows/convergingTriggers';
 import { unreachableNodeIds } from '../flows/unreachableNodes';
 import { actorAvailableAt, availableVariablesAt } from '../flows/variables';
@@ -152,6 +165,13 @@ const FLOW_EDGE_TYPE = 'flowEdge';
 
 /** How many graph snapshots the undo stack keeps before dropping the oldest. */
 const HISTORY_LIMIT = 50;
+
+/** The status line's colour per tone — yellow for unsaved, orange for "look at this". */
+const STATUS_TONE_COLOUR: Record<BuilderStatus['tone'], string> = {
+    clean: 'dark.2',
+    dirty: 'yellow.5',
+    attention: 'orange.5',
+};
 
 /**
  * Edge styling: an edge inherits the colour and label of the handle it leaves by.
@@ -360,7 +380,11 @@ function FlowBuilder() {
     const [dirty, setDirty] = useState(false);
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
     /**
-     * Why the last save was refused, kept until the next save answers.
+     * What the server last found wrong with the graph, kept until it next answers.
+     *
+     * Filled on open from the flow's `issues`, so an incomplete flow opens with its
+     * cards already red, and replaced by every save — the issues of a graph it stored,
+     * or of one it refused.
      *
      * Not cleared on edit. An author fixing one of three problems would otherwise
      * watch the other two vanish with it, and have to save again to find out what
@@ -368,6 +392,37 @@ function FlowBuilder() {
      * graph as the server last saw it — and a save replaces the whole set.
      */
     const [saveIssues, setSaveIssues] = useState<readonly FlowValidationIssue[]>([]);
+    /**
+     * How many problems the **stored** graph has — what decides whether it may be
+     * switched on.
+     *
+     * Separate from `saveIssues` because the two part company on a refused save: those
+     * issues describe the graph the author just tried to send, while the stored one is
+     * untouched. A structurally broken save of a flow whose stored graph is ready would
+     * otherwise lock the switch on a graph the server never received.
+     */
+    const [storedIssueCount, setStoredIssueCount] = useState(0);
+    /**
+     * The last save landed on the operator's draft, not the flow: the flow is live and
+     * the graph was incomplete. The canvas is persisted — so not dirty — but it is not
+     * what members get, and the status line and the switch must not pretend otherwise.
+     */
+    const [savedAsDraftOnly, setSavedAsDraftOnly] = useState(false);
+    /** When the flow itself was last saved, for the picker's "Saved version" row. */
+    const [savedVersionAt, setSavedVersionAt] = useState<string | null>(null);
+    /**
+     * The flow version the canvas descends from: the flow's `updatedAt` when it was
+     * loaded or last saved here, or the base of a draft loaded from the picker. Every
+     * draft written from this canvas records it, which is what lets the picker say "flow
+     * saved since" about a save this page never saw.
+     */
+    const [canvasBase, setCanvasBase] = useState<string | null>(null);
+    /**
+     * Every operator's draft of this flow, as read on open. The picker lists them; nothing
+     * else reads this, so it is not kept in step with the autosave afterwards.
+     */
+    const [drafts, setDrafts] = useState<FlowDraft[]>([]);
+    const [draftPickerOpen, setDraftPickerOpen] = useState(false);
 
     const [deployOpen, setDeployOpen] = useState(false);
     const [deploying, setDeploying] = useState(false);
@@ -515,6 +570,141 @@ function FlowBuilder() {
         []
     );
 
+    /** The canvas as the engine's `FlowGraph` — what a save sends, and what a draft holds. */
+    const serialize = useCallback((): FlowGraph => {
+        const liveIds = new Set(nodes.map((n) => n.id));
+        return {
+            version: FLOW_GRAPH_VERSION,
+            nodes: nodes.map((n) => ({
+                id: n.id,
+                type: n.data.nodeType,
+                position: { x: Math.round(n.position.x), y: Math.round(n.position.y) },
+                data: n.data.config,
+            })),
+            // Drop any edge whose endpoints no longer exist — the backend rejects
+            // dangling edges, and undo/redo can briefly leave them behind.
+            edges: edges
+                .filter((e) => liveIds.has(e.source) && liveIds.has(e.target))
+                .map((e) => {
+                    const edge: FlowEdge = { id: e.id, source: e.source, target: e.target };
+                    if (e.sourceHandle) edge.sourceHandle = e.sourceHandle;
+                    if (e.targetHandle) edge.targetHandle = e.targetHandle;
+                    return edge;
+                }),
+        };
+    }, [nodes, edges]);
+
+    /** What Save sends, and what the autosave keeps as this operator's draft. */
+    const canvasPayload = useMemo<FlowDraftPayload>(
+        () => ({ name: name.trim() || 'Untitled flow', graph: serialize() }),
+        [name, serialize]
+    );
+
+    /**
+     * Unsaved work, kept on the server as this operator's draft while they edit — so
+     * leaving the page, or losing the tab, costs a couple of seconds rather than the
+     * afternoon. Held while a save is in flight; the save decides what the draft holds.
+     */
+    const draftAutosave = useFlowDraftAutosave({
+        guildId: selected?.id,
+        flowId,
+        payload: canvasPayload,
+        baseUpdatedAt: canvasBase ?? undefined,
+        paused: saving,
+    });
+    const { rebase: rebaseDraft } = draftAutosave;
+
+    /**
+     * Put a graph on the canvas as a fresh start: nodes backfilled and styled, edges
+     * coloured, history emptied. Shared by the load and by the draft picker, so a draft
+     * lands on the canvas exactly as the saved flow would have.
+     *
+     * The catalogue and guild directory are passed in rather than read from state,
+     * because the load calls this in the same breath as it sets them.
+     */
+    const putGraphOnCanvas = useCallback(
+        (
+            graph: FlowGraph,
+            directory: {
+                readonly catalog: NodeDescriptor[];
+                readonly roles: GuildRole[];
+                readonly channels: GuildChannel[];
+            }
+        ) => {
+            const { catalog } = directory;
+            skipHistory.current = true;
+            setNodes(
+                graph.nodes.map((node) => {
+                    // Absent when a saved graph names a type this build has no
+                    // block for; the card and inspector render that as broken.
+                    const descriptor = catalog.find((entry) => entry.type === node.type);
+                    return {
+                        id: node.id,
+                        type: 'flowCard' as const,
+                        position: node.position,
+                        data: {
+                            nodeType: node.type,
+                            label: descriptor?.label ?? node.type,
+                            /*
+                             * Backfill any field whose default was declared after
+                             * this graph was written, so a control never displays
+                             * a value the graph does not actually contain. Done
+                             * here, once, inside the `skipHistory` window — a
+                             * control that repaired itself while rendering would
+                             * dirty the flow and clear the redo stack just for
+                             * selecting a node. Stored values always win.
+                             *
+                             * This leaves the in-memory graph ahead of the saved
+                             * one while the toolbar still reads "All changes
+                             * saved", which is deliberate: every value added here
+                             * is one the server's own schema would have defaulted
+                             * to anyway, so there is nothing worth prompting a
+                             * save for until the author actually edits something.
+                             * The draft autosave agrees: its baseline is taken
+                             * after this backfill, so it is not an edit to it either.
+                             */
+                            config: descriptor
+                                ? { ...defaultDataFor(descriptor), ...(node.data ?? {}) }
+                                : node.data ?? {},
+                            descriptor,
+                            roles: directory.roles,
+                            channels: directory.channels,
+                            // Filled from the flow's own `issues` by the effect
+                            // that carries `saveIssues` onto the cards.
+                            issueCount: 0,
+                            // The effect answers both as soon as the edges land.
+                            unreachable: false,
+                            convergingTriggers: 0,
+                        } satisfies FlowNodeCardData,
+                    };
+                })
+            );
+            setEdges(
+                graph.edges.map((edge) => {
+                    const sourceType = graph.nodes.find((node) => node.id === edge.source)?.type;
+                    return styleEdge(
+                        {
+                            id: edge.id,
+                            source: edge.source,
+                            target: edge.target,
+                            sourceHandle: edge.sourceHandle ?? null,
+                            targetHandle: edge.targetHandle ?? null,
+                        },
+                        catalog.find((entry) => entry.type === sourceType)
+                    );
+                })
+            );
+            past.current = [];
+            future.current = [];
+            setHistoryTick((t) => t + 1);
+            // Let the state flush before re-arming history capture.
+            requestAnimationFrame(() => {
+                skipHistory.current = false;
+            });
+        },
+        [setNodes, setEdges]
+    );
+
     /* ----------------------------- load ----------------------------- */
     useEffect(() => {
         if (!selected || !flowId) return;
@@ -538,88 +728,99 @@ function FlowBuilder() {
                 setDeclaredResources(flowResources);
                 setName(flow.name);
                 setEnabled(flow.enabled);
+                setSaveIssues(flow.issues);
+                setStoredIssueCount(flow.issues.length);
+                setSavedVersionAt(flow.updatedAt);
+                setCanvasBase(flow.updatedAt);
+                setSavedAsDraftOnly(false);
+                setDrafts([]);
+                setDraftPickerOpen(false);
 
-                const graph = flow.graph ?? emptyGraph();
-
-                skipHistory.current = true;
-                setNodes(
-                    graph.nodes.map((node) => {
-                        // Absent when a saved graph names a type this build has no
-                        // block for; the card and inspector render that as broken.
-                        const descriptor = catalog.find((entry) => entry.type === node.type);
-                        return {
-                            id: node.id,
-                            type: 'flowCard' as const,
-                            position: node.position,
-                            data: {
-                                nodeType: node.type,
-                                label: descriptor?.label ?? node.type,
-                                /*
-                                 * Backfill any field whose default was declared after
-                                 * this graph was written, so a control never displays
-                                 * a value the graph does not actually contain. Done
-                                 * here, once, inside the `skipHistory` window — a
-                                 * control that repaired itself while rendering would
-                                 * dirty the flow and clear the redo stack just for
-                                 * selecting a node. Stored values always win.
-                                 *
-                                 * This leaves the in-memory graph ahead of the saved
-                                 * one while the toolbar still reads "All changes
-                                 * saved", which is deliberate: every value added here
-                                 * is one the server's own schema would have defaulted
-                                 * to anyway, so there is nothing worth prompting a
-                                 * save for until the author actually edits something.
-                                 */
-                                config: descriptor
-                                    ? { ...defaultDataFor(descriptor), ...(node.data ?? {}) }
-                                    : node.data ?? {},
-                                descriptor,
-                                roles: guildRoles,
-                                channels: guildChannels,
-                                // A freshly loaded flow has not been saved in this
-                                // session, so nothing has been refused yet.
-                                issueCount: 0,
-                                // The effect answers both as soon as the edges land.
-                                unreachable: false,
-                                convergingTriggers: 0,
-                            } satisfies FlowNodeCardData,
-                        };
-                    })
-                );
-                setEdges(
-                    graph.edges.map((edge) => {
-                        const sourceType = graph.nodes.find((node) => node.id === edge.source)?.type;
-                        return styleEdge(
-                            {
-                                id: edge.id,
-                                source: edge.source,
-                                target: edge.target,
-                                sourceHandle: edge.sourceHandle ?? null,
-                                targetHandle: edge.targetHandle ?? null,
-                            },
-                            catalog.find((entry) => entry.type === sourceType)
-                        );
-                    })
-                );
-                past.current = [];
-                future.current = [];
-                setDirty(false);
-                setHistoryTick((t) => t + 1);
-                // Let the state flush before re-arming history capture.
-                requestAnimationFrame(() => {
-                    skipHistory.current = false;
+                rebaseDraft();
+                putGraphOnCanvas(flow.graph ?? emptyGraph(), {
+                    catalog,
+                    roles: guildRoles,
+                    channels: guildChannels,
                 });
+                setDirty(false);
             } catch (err) {
                 const message = err instanceof ApiError ? err.message : 'Failed to load flow';
                 if (!cancelled) setError(message);
+                return;
             } finally {
                 if (!cancelled) setLoading(false);
+            }
+
+            /*
+             * Then the drafts, after the flow is on screen and never instead of it: a
+             * builder that would not open because the drafts could not be listed would
+             * be the feature that protects work locking the operator out of it.
+             */
+            try {
+                const found = await listFlowDrafts(selected.id, flowId);
+                if (cancelled || found.length === 0) return;
+                setDrafts(orderDraftsForPicker(found));
+                setDraftPickerOpen(true);
+            } catch (err) {
+                if (cancelled) return;
+                notifications.show({
+                    color: 'orange',
+                    title: "Couldn't check for drafts",
+                    message:
+                        err instanceof ApiError
+                            ? err.message
+                            : 'This is the saved version. Any unfinished drafts are still on the server — reopen the flow to see them.',
+                });
             }
         })();
         return () => {
             cancelled = true;
         };
-    }, [selected, flowId, setNodes, setEdges]);
+    }, [selected, flowId, rebaseDraft, putGraphOnCanvas]);
+
+    /**
+     * Load a draft from the picker: onto the canvas the way the flow loads, with the
+     * draft's own issues on the cards and its name in the box.
+     *
+     * Dirty, because the canvas is no longer the saved flow — Save would store it. But
+     * not written to *my* draft until I change it: the autosave takes this as its
+     * baseline, so loading `@alice's draft` does not quietly make it mine. When I do,
+     * mine inherits her base: the canvas still descends from the flow she loaded.
+     */
+    const loadDraft = useCallback(
+        (draft: FlowDraft) => {
+            rebaseDraft({ mineSavedAt: draft.mine ? draft.updatedAt : undefined });
+            setCanvasBase(draft.baseUpdatedAt);
+            setName(draft.name);
+            putGraphOnCanvas(draft.graph, { catalog: nodeCatalog, roles, channels });
+            setSaveIssues(draft.issues);
+            setSelectedNodeId(null);
+            setSavedAsDraftOnly(false);
+            setDirty(true);
+            setDraftPickerOpen(false);
+        },
+        [rebaseDraft, putGraphOnCanvas, nodeCatalog, roles, channels]
+    );
+
+    /** Throw a draft away — anyone's. The picker closes itself once none are left. */
+    const discardDraft = useCallback(
+        async (draft: FlowDraft) => {
+            if (!selected || !flowId) return;
+            try {
+                await discardFlowDraft(selected.id, flowId, draft.draftId);
+                const left = drafts.filter((candidate) => candidate.draftId !== draft.draftId);
+                setDrafts(left);
+                if (left.length === 0) setDraftPickerOpen(false);
+            } catch (err) {
+                notifications.show({
+                    color: 'red',
+                    title: `Couldn't discard ${draftLabel(draft).toLowerCase()}`,
+                    message: err instanceof ApiError ? err.message : 'Try again in a second.',
+                });
+            }
+        },
+        [selected, flowId, drafts]
+    );
 
     /* --------------------------- mutations --------------------------- */
 
@@ -972,49 +1173,67 @@ function FlowBuilder() {
 
     /* ------------------------------ save ------------------------------ */
 
-    const serialize = useCallback((): FlowGraph => {
-        const liveIds = new Set(nodes.map((n) => n.id));
-        return {
-            version: FLOW_GRAPH_VERSION,
-            nodes: nodes.map((n) => ({
-                id: n.id,
-                type: n.data.nodeType,
-                position: { x: Math.round(n.position.x), y: Math.round(n.position.y) },
-                data: n.data.config,
-            })),
-            // Drop any edge whose endpoints no longer exist — the backend rejects
-            // dangling edges, and undo/redo can briefly leave them behind.
-            edges: edges
-                .filter((e) => liveIds.has(e.source) && liveIds.has(e.target))
-                .map((e) => {
-                    const edge: FlowEdge = { id: e.id, source: e.source, target: e.target };
-                    if (e.sourceHandle) edge.sourceHandle = e.sourceHandle;
-                    if (e.targetHandle) edge.targetHandle = e.targetHandle;
-                    return edge;
-                }),
-        };
-    }, [nodes, edges]);
-
     async function handleSave() {
         if (!selected || !flowId) return;
+        // What is sent, held on to: edits made while the request is in flight are not
+        // part of what the answer describes, and the autosave has to know the difference.
+        const sent = canvasPayload;
         setSaving(true);
         try {
+            // An autosave still on its way would land after this save and put back the
+            // draft it deletes. Settled first, and its outcome is not this save's concern.
+            await draftAutosave.settle();
             const updated = await updateFlow(selected.id, flowId, {
-                name: name.trim() || 'Untitled flow',
-                graph: serialize(),
+                ...sent,
+                baseUpdatedAt: canvasBase ?? undefined,
             });
-            setName(updated.name);
             setEnabled(updated.enabled);
             setDirty(false);
-            setSaveIssues([]);
-            notifications.show({
-                color: 'brand',
-                title: 'Saved',
-                message: `"${updated.name}" is locked in.`,
-            });
+            // The live flow's own count, either way: it is what the switch is locked on.
+            setStoredIssueCount(updated.issues.length);
+
+            if (updated.savedAs === 'draft') {
+                // Live, and incomplete or waiting on its install: kept as my draft, and
+                // the flow is as it was. The canvas is persisted — not dirty — and its
+                // cards show what the drafted graph lacks. The base does not move: the
+                // canvas still descends from the version it was loaded from.
+                setSaveIssues(updated.draft.issues);
+                setSavedAsDraftOnly(true);
+                draftAutosave.markDrafted(sent, updated.draft.updatedAt);
+                notifications.show({
+                    color: 'yellow',
+                    title: 'Draft only',
+                    message: draftOnlySaveMessage(updated.draft.issues.length, updated.uninstalled),
+                });
+                return;
+            }
+
+            setName(updated.name);
+            setSavedVersionAt(updated.updatedAt);
+            setCanvasBase(updated.updatedAt);
+            setSavedAsDraftOnly(false);
+            draftAutosave.markSavedToFlow(sent);
+            // Stored, finished or not: a switched-off flow may hold an incomplete
+            // graph, and its issues come back so the cards stay honest about it.
+            setSaveIssues(updated.issues);
+            notifications.show(
+                updated.issues.length > 0
+                    ? {
+                          color: 'yellow',
+                          title: 'Saved, half-baked',
+                          message: `Saved — ${problemCount(updated.issues.length)} to fix before this flow can go live.`,
+                      }
+                    : {
+                          color: 'brand',
+                          title: 'Saved',
+                          message: `"${updated.name}" is locked in.`,
+                      }
+            );
         } catch (err) {
-            // 400s carry the engine's validation message (bad node data, dangling
-            // edges). Cycles are allowed now — loops are guarded by the visit cap.
+            // A 400 is a graph too broken to store (dangling edges, duplicate ids). It
+            // stored nothing, so the canvas stays dirty — and the autosave keeps it as
+            // the operator's draft meanwhile. Cycles are allowed now — loops are
+            // guarded by the visit cap.
             const message =
                 err instanceof ApiError ? err.message : "Couldn't save. Try again in a second.";
             // Replaced wholesale, including with an empty list: a failure carrying no
@@ -1030,7 +1249,7 @@ function FlowBuilder() {
             notifications.show({
                 color: 'red',
                 title: "That graph won't fly",
-                message: issues.length > 0 ? summarizeIssues(issues) : message,
+                message: issues.length === 0 ? message : summarizeIssues(issues),
             });
         } finally {
             setSaving(false);
@@ -1042,10 +1261,29 @@ function FlowBuilder() {
         const previous = enabled;
         setEnabled(next);
         try {
-            await updateFlow(selected.id, flowId, { enabled: next });
+            const updated = await updateFlow(selected.id, flowId, { enabled: next });
+            setStoredIssueCount(updated.issues.length);
+            // The cards too, but only while the canvas *is* the stored graph. With
+            // unsaved edits on it — or a draft-only save, which is not the stored graph
+            // either — these issues describe something else, and the cards are marking
+            // the canvas's own answer instead.
+            if (!dirty && !savedAsDraftOnly) setSaveIssues(updated.issues);
         } catch (err) {
             setEnabled(previous);
             const message = err instanceof ApiError ? err.message : "Couldn't change that.";
+            const issues = err instanceof ApiError ? err.issues : [];
+            if (issues.length > 0) {
+                // Refused because the stored graph is incomplete — which the switch's
+                // own lock should have prevented, so the page's count was stale (a
+                // declaration removed elsewhere, say). These issues describe the stored
+                // graph, so both halves are brought up to date from them.
+                setSaveIssues(issues);
+                setStoredIssueCount(issues.length);
+                notifications.show({ color: 'red', title: message, message: summarizeIssues(issues) });
+                return;
+            }
+            // Includes the install refusal, which carries no issues because nothing on
+            // the canvas is wrong — its sentence names what to install.
             notifications.show({ color: 'red', title: "Couldn't update flow", message });
         }
     }
@@ -1143,6 +1381,12 @@ function FlowBuilder() {
     );
 
     const issuesForNode = useMemo(() => issuesByNode(saveIssues), [saveIssues]);
+
+    /** Whether the switch may not be turned on: the stored graph is not ready to go live. */
+    const enableLocked = !enabled && storedIssueCount > 0;
+
+    /** The toolbar's one line about where the work stands. See `builderStatusLine`. */
+    const status = builderStatusLine({ dirty, draft: draftAutosave.state, savedAsDraftOnly }, new Date());
 
     /**
      * Which nodes no trigger reaches, recomputed on every edit.
@@ -1388,7 +1632,9 @@ function FlowBuilder() {
                         leftSection={<IconDeviceFloppy size={15} />}
                         onClick={() => void handleSave()}
                         loading={saving}
-                        disabled={!dirty || saving}
+                        // Still offered after a draft-only save: switch the flow off, and
+                        // Save is how the drafted canvas gets onto it without a dummy edit.
+                        disabled={(!dirty && !savedAsDraftOnly) || saving}
                     >
                         Save
                     </Button>
@@ -1521,19 +1767,45 @@ function FlowBuilder() {
                         </Button>
                     </Tooltip>
 
-                    <Switch
-                        ml={4}
-                        size="sm"
-                        color="green"
-                        label="Enabled"
-                        checked={enabled}
-                        onChange={(e) => void handleToggleEnabled(e.currentTarget.checked)}
-                        styles={{ label: { fontSize: 12.5, fontWeight: 600 } }}
-                    />
+                    {/*
+                     * Locked only in the direction the server would refuse: an
+                     * incomplete flow cannot be switched on, but a live one can always
+                     * be switched off. The tooltip sits on a wrapper because a disabled
+                     * input fires no pointer events for it to hang off.
+                     *
+                     * Also held while a save is in flight, so this page cannot send a
+                     * switch-on judged against the graph that save is replacing.
+                     */}
+                    <Tooltip
+                        label={
+                            dirty
+                                ? `Save first — the saved version has ${problemCount(storedIssueCount)}`
+                                : `Fix ${problemCount(storedIssueCount)} first`
+                        }
+                        disabled={!enableLocked}
+                    >
+                        <div>
+                            <Switch
+                                ml={4}
+                                size="sm"
+                                color="green"
+                                label="Enabled"
+                                checked={enabled}
+                                disabled={enableLocked || saving}
+                                onChange={(e) => void handleToggleEnabled(e.currentTarget.checked)}
+                                styles={{ label: { fontSize: 12.5, fontWeight: 600 } }}
+                            />
+                        </div>
+                    </Tooltip>
                 </Group>
 
-                <Text size="12px" c={dirty ? 'yellow.5' : 'dark.2'} ml="auto" style={{ flexShrink: 0 }}>
-                    {dirty ? 'Unsaved changes' : 'All changes saved'}
+                <Text
+                    size="12px"
+                    c={STATUS_TONE_COLOUR[status.tone]}
+                    ml="auto"
+                    style={{ flexShrink: 0 }}
+                >
+                    {status.text}
                 </Text>
             </Group>
 
@@ -1888,6 +2160,91 @@ function FlowBuilder() {
                     }}
                 />
             )}
+
+            {/*
+             * Somebody left this flow unfinished — maybe you. Every draft is listed and the
+             * operator picks; there are no merge rules, by design. Closing it, or keeping
+             * the saved version, leaves every draft where it is.
+             *
+             * One row per item, each named, with its time and nothing else unless it
+             * matters: "flow saved since" is the one fact that changes whether loading a
+             * draft is safe, so it is the one note a row can carry.
+             */}
+            <Modal
+                opened={draftPickerOpen}
+                onClose={() => setDraftPickerOpen(false)}
+                title="Unfinished business"
+                size="md"
+            >
+                <Stack gap="sm">
+                    <Text size="12.5px" c="dimmed">
+                        Pick what goes on the canvas. Drafts you don&apos;t load stay put
+                        {/* One draft per operator, so the next edit is written over theirs. */}
+                        {drafts.some((draft) => draft.mine) ? ' — but your next edit replaces yours.' : '.'}
+                    </Text>
+                    <Group justify="space-between" wrap="nowrap" gap="sm">
+                        <div>
+                            <Text size="13px" fw={600}>
+                                Saved version
+                            </Text>
+                            <Text size="11.5px" c="dimmed">
+                                {savedVersionAt
+                                    ? `last saved ${formatWhen(savedVersionAt, new Date())}`
+                                    : 'what the flow holds now'}
+                            </Text>
+                        </div>
+                        <Button
+                            size="xs"
+                            variant="light"
+                            color="gray"
+                            onClick={() => setDraftPickerOpen(false)}
+                            aria-label="Keep the saved version"
+                        >
+                            Keep
+                        </Button>
+                    </Group>
+                    {drafts.map((draft) => {
+                        const label = draftLabel(draft);
+                        return (
+                            <Group key={draft.draftId} justify="space-between" wrap="nowrap" gap="sm">
+                                <div>
+                                    <Text size="13px" fw={600}>
+                                        {label}
+                                    </Text>
+                                    <Text size="11.5px" c="dimmed">
+                                        edited {formatWhen(draft.updatedAt, new Date())}
+                                        {draft.flowSavedSince && (
+                                            <Text span size="11.5px" c="orange.4">
+                                                {' '}
+                                                · flow saved since
+                                            </Text>
+                                        )}
+                                    </Text>
+                                </div>
+                                <Group gap={6} wrap="nowrap">
+                                    <Button
+                                        size="xs"
+                                        color="brand"
+                                        onClick={() => loadDraft(draft)}
+                                        aria-label={`Load ${label}`}
+                                    >
+                                        Load
+                                    </Button>
+                                    <Button
+                                        size="xs"
+                                        variant="subtle"
+                                        color="red"
+                                        onClick={() => void discardDraft(draft)}
+                                        aria-label={`Discard ${label}`}
+                                    >
+                                        Discard
+                                    </Button>
+                                </Group>
+                            </Group>
+                        );
+                    })}
+                </Stack>
+            </Modal>
 
             <Modal
                 opened={deployOpen}

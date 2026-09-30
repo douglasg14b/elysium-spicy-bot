@@ -69,16 +69,34 @@ export interface FlowJourneyMembership {
 }
 
 /**
+ * One flow's entry in the index: what its row shows, and what its readiness is judged
+ * against.
+ *
+ * Two members rather than `declaredKeys` folded into the membership, because the
+ * membership goes on the wire verbatim and the full key list is not something the row
+ * needs — the page shows a count. Kept here rather than re-resolved per flow so the
+ * list's `issueCount` costs no query beyond the three this index already makes.
+ */
+export interface FlowJourneyIndexEntry {
+    readonly membership: FlowJourneyMembership;
+    /** Every key the journey declares — the `declaredKeys` `flowReadinessIssues` takes. */
+    readonly declaredKeys: ReadonlySet<string>;
+}
+
+/**
  * Build a `flowId → journey` map for every flow in a guild that has one.
  *
  * `flowIds` is the guild's full flow list, needed because the fallback is keyed on a
  * flow's own id — without it, a journey named after a flow could not be told apart from
  * one an operator happened to name the same thing.
+ *
+ * All or nothing: `journeysRepo` throws on a malformed row, and that fails the whole
+ * index — the same way it failed the list before readiness was on it.
  */
 export async function loadFlowJourneyIndex(
     guildId: string,
     flowIds: readonly string[]
-): Promise<ReadonlyMap<string, FlowJourneyMembership>> {
+): Promise<ReadonlyMap<string, FlowJourneyIndexEntry>> {
     // Three queries for the whole page, not three per row. The bindings join the other two
     // for the same reason they do: every row needs an install state, so asking per journey
     // would be an N+1 paid on every visit to the flows list.
@@ -96,8 +114,10 @@ export async function loadFlowJourneyIndex(
     // set the map reports. Counting links alone would undercount any journey holding a
     // fallback-resolved flow, and a group of two could render as a plain row.
     const keyByFlowId = new Map<string, string>();
+    const linkedFlowIds = new Set<string>();
 
     for (const link of links) {
+        linkedFlowIds.add(link.flowId);
         if (journeyByKey.has(link.journeyKey)) {
             keyByFlowId.set(link.flowId, link.journeyKey);
         }
@@ -106,7 +126,11 @@ export async function loadFlowJourneyIndex(
     }
 
     for (const flowId of flowIds) {
-        if (keyByFlowId.has(flowId)) continue;
+        // Any link at all settles it, dangling or not — the fallback is only for a flow
+        // with no link row. Falling through for a dangling one would hand the list a
+        // journey the builder does not see, and judge the row's readiness against
+        // declarations the flow's own GET never uses.
+        if (linkedFlowIds.has(flowId)) continue;
         // The pre-link convention: the journey was keyed on the flow's own id.
         if (journeyByKey.has(flowId)) {
             keyByFlowId.set(flowId, flowId);
@@ -118,24 +142,28 @@ export async function loadFlowJourneyIndex(
         memberCounts.set(journeyKey, (memberCounts.get(journeyKey) ?? 0) + 1);
     }
 
-    const index = new Map<string, FlowJourneyMembership>();
+    const index = new Map<string, FlowJourneyIndexEntry>();
     for (const [flowId, journeyKey] of keyByFlowId) {
         const journey = journeyByKey.get(journeyKey);
         if (!journey) continue;
 
+        const declaredKeys = journey.resources.map((resource) => resource.key);
         const install = summariseJourneyInstall({
-            declaredKeys: journey.resources.map((resource) => resource.key),
+            declaredKeys,
             bindings: bindingsByJourney.get(journeyKey) ?? [],
         });
 
         index.set(flowId, {
-            journeyKey,
-            name: journey.name,
-            resourceCount: journey.resources.length,
-            memberCount: memberCounts.get(journeyKey) ?? 1,
-            installState: install.state,
-            installedCount: install.installedCount,
-            installedKeys: install.installedKeys,
+            membership: {
+                journeyKey,
+                name: journey.name,
+                resourceCount: journey.resources.length,
+                memberCount: memberCounts.get(journeyKey) ?? 1,
+                installState: install.state,
+                installedCount: install.installedCount,
+                installedKeys: install.installedKeys,
+            },
+            declaredKeys: new Set(declaredKeys),
         });
     }
 

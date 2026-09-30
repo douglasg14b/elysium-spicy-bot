@@ -97,9 +97,9 @@ export function pendingResourceFields(
         // this the single message about it.
         //
         // It only works because the caller concatenates both lists — see
-        // `validateGraphForSave` in `flowRoutes.ts`. A caller that took the issues
+        // `flowReadinessIssues` in `flowReadiness.ts`. A caller that took the issues
         // and dropped them would have suppressed the schema's complaint and put
-        // nothing in its place, saving a flow that cannot run.
+        // nothing in its place, calling a flow that cannot run ready.
         markPending(target.nodeId, target.configKey);
         issues.push({
             nodeId: target.nodeId,

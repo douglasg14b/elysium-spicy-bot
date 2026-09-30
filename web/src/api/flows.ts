@@ -4,7 +4,10 @@ import { api } from './client';
 import type {
     DeployResult,
     Flow,
+    FlowDraft,
+    FlowDraftSummary,
     FlowGraph,
+    FlowSaveResult,
     FlowSummary,
     GuildRole,
     InstallPlan,
@@ -41,13 +44,49 @@ export function createFlow(guildId: string, name: string, graph?: FlowGraph): Pr
     return api.post<Flow>(`/api/guilds/${guildId}/flows`, graph ? { name, graph } : { name });
 }
 
-/** Partial update — send only what changed. A bad graph comes back as a 400 `ApiError`. */
+/**
+ * Partial update — send only what changed.
+ *
+ * An incomplete graph on a switched-off flow is stored and comes back on the result's
+ * `issues`. On a **live** flow it — or a complete one still waiting on its install — is
+ * kept as the caller's draft instead and the flow is untouched: `savedAs: 'draft'`.
+ * `baseUpdatedAt` is the flow version the sent graph was edited from, which that draft
+ * records. What is refused arrives as an `ApiError`: a structurally broken graph (400,
+ * with `issues`), `enabled: true` on a flow whose graph is incomplete (400, with
+ * `issues`), and `enabled: true` on one still waiting on its install (400, a sentence
+ * and no `issues` — nothing on the canvas is wrong).
+ */
 export function updateFlow(
     guildId: string,
     flowId: string,
-    patch: { name?: string; enabled?: boolean; graph?: FlowGraph }
-): Promise<Flow> {
-    return api.put<Flow>(`/api/guilds/${guildId}/flows/${flowId}`, patch);
+    patch: { name?: string; enabled?: boolean; graph?: FlowGraph; baseUpdatedAt?: string }
+): Promise<FlowSaveResult> {
+    return api.put<FlowSaveResult>(`/api/guilds/${guildId}/flows/${flowId}`, patch);
+}
+
+/** Every operator's draft of a flow, most recently edited first, graphs included. */
+export function listFlowDrafts(guildId: string, flowId: string): Promise<FlowDraft[]> {
+    return api
+        .get<{ drafts: FlowDraft[] }>(`/api/guilds/${guildId}/flows/${flowId}/drafts`)
+        .then((res) => res.drafts);
+}
+
+/**
+ * Write the caller's own draft of a flow — the builder's autosave. `baseUpdatedAt` is the
+ * flow version the canvas was loaded from, so the picker can tell whether the flow has
+ * been saved since.
+ */
+export function saveMyFlowDraft(
+    guildId: string,
+    flowId: string,
+    draft: { name: string; graph: FlowGraph; baseUpdatedAt: string }
+): Promise<FlowDraftSummary> {
+    return api.put<FlowDraftSummary>(`/api/guilds/${guildId}/flows/${flowId}/drafts/mine`, draft);
+}
+
+/** Discard any operator's draft of a flow. */
+export function discardFlowDraft(guildId: string, flowId: string, draftId: number): Promise<void> {
+    return api.delete<void>(`/api/guilds/${guildId}/flows/${flowId}/drafts/${draftId}`);
 }
 
 export function deleteFlow(guildId: string, flowId: string): Promise<void> {

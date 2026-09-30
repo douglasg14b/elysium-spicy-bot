@@ -19,7 +19,7 @@ export {
 } from './resourceWriteBack';
 export type { ResourceWriteBack, ResourceWriteBackResult } from './resourceWriteBack';
 
-export { journeysRepo, JourneysRepo, DuplicateJourneyKeyError } from './data/journeysRepo';
+export { journeysRepo, JourneysRepo, DuplicateJourneyKeyError, MalformedJourneyError } from './data/journeysRepo';
 export type { JourneyEntity } from './data/journeysSchema';
 
 // Which journey a flow installs. An attachment is a row, not a naming convention, so

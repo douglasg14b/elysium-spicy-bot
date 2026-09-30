@@ -79,8 +79,8 @@ const PRINCIPAL_ORDER: readonly EligibilityPrincipal[] = [
  * Switching principal cannot carry the old one's extra across — a role list is
  * not a variable name — so each arm needs a starting value, and every arm with
  * an extra starts *empty*. An empty one is invalid, which is the honest state:
- * the author has chosen a gate and not yet said who, and the save refuses it
- * rather than silently storing a gate that admits nobody.
+ * the author has chosen a gate and not yet said who, and the flow is held back
+ * from going live over it rather than silently running a gate that admits nobody.
  */
 function gateFor(principal: EligibilityPrincipal, previous: Eligibility): Eligibility {
     switch (principal) {
@@ -218,16 +218,15 @@ export function EligibilityControl({ field, value, onChange, context }: ControlP
               *
               * Choosing a principal writes its arm immediately, with the extra
               * empty — and an empty extra is a rule the schema refuses, by
-              * design: the alternative was storing a rule that admits nobody. But
-              * the save-time refusal is a toast naming a generated node id, so
-              * without this the author's only warning is one they have to decode
-              * after the fact. Saying it at the field is what makes "fails in the
-              * builder rather than in front of a member" true.
+              * design: the alternative was running a rule that admits nobody. The
+              * flow saves anyway, as an unfinished one that cannot be switched on;
+              * saying it at the field is what tells the author why, where they are
+              * looking, rather than only on the card.
               */}
             {gate.principal === 'roles' && (
                 <MultiSelect
                     placeholder="Pick at least one role"
-                    error={gate.roleIds.length === 0 ? 'Pick at least one role, or this will not save.' : undefined}
+                    error={gate.roleIds.length === 0 ? "Pick at least one role, or this can't go live." : undefined}
                     data={roleOptions}
                     value={gate.roleIds}
                     onChange={(roleIds) => onChange({ principal: 'roles', roleIds })}
@@ -272,7 +271,7 @@ export function EligibilityControl({ field, value, onChange, context }: ControlP
                     placeholder="Pick at least one permission"
                     error={
                         gate.permissions.length === 0
-                            ? 'Pick at least one permission, or this will not save.'
+                            ? "Pick at least one permission, or this can't go live."
                             : undefined
                     }
                     data={ELIGIBILITY_PERMISSIONS.map((permission) => ({
@@ -294,7 +293,7 @@ export function EligibilityControl({ field, value, onChange, context }: ControlP
             {gate.principal === 'variable' && (
                 <TextInput
                     placeholder="e.g. nominatedMember"
-                    error={gate.variable ? undefined : 'Name a saved value, or this will not save.'}
+                    error={gate.variable ? undefined : "Name a saved value, or this can't go live."}
                     value={gate.variable}
                     onChange={(event) =>
                         onChange({ principal: 'variable', variable: event.currentTarget.value })

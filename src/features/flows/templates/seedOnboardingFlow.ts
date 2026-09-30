@@ -1,6 +1,8 @@
 import { database } from '../../../features-system/data-persistence/database';
 import { ensureBlocksDiscovered } from '../blocks/registry';
 import { flowsRepo } from '../data/flowsRepo';
+import { describeIssue } from '../engine/nodeDataValidation';
+import { flowReadinessIssues } from '../logic/flowReadiness';
 import { buildOnboardingFlowGraph } from './onboardingFlow';
 
 /**
@@ -34,10 +36,20 @@ async function main(): Promise<void> {
 
     const { graph } = buildOnboardingFlowGraph({ memberRoleId, channelId, welcomeMessage });
 
-    // Saving validates the graph against what each block declares, so the
+    // Readiness validates the graph against what each block declares, so the
     // registry has to be populated first. The bot does this in init; a script
     // has to say so itself.
     await ensureBlocksDiscovered();
+
+    // The repo stores anything structurally sound, and this seeds the flow switched
+    // on — so it asks the question the enable route asks. Nothing is declared: the
+    // flow is new, and this template picks real ids.
+    const issues = flowReadinessIssues(graph, new Set<string>());
+    if (issues.length > 0) {
+        throw new Error(
+            `The onboarding template is not ready to go live: ${issues.map(describeIssue).join('; ')}`
+        );
+    }
 
     const flow = await flowsRepo.create({
         guildId,

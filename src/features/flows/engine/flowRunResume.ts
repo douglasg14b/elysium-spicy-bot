@@ -359,6 +359,74 @@ async function resolveChannelForRelease(
     }
 }
 
+/**
+ * End a claimed run as failed, and take its controls down with it.
+ *
+ * The two steps every terminal guard needs, in one place: the release is the one an
+ * early `return` silently skips, which is how three of the four commonest endings first
+ * shipped leaving their buttons live.
+ *
+ * **The channel is resolved here rather than taken from a rebuilt context**, because the
+ * guards that end a run this way run *before* {@link rebuildResumeContext}, and two of
+ * them are the likeliest endings a real question has: a flow the author deleted, and a
+ * member who left. Only the channel is needed, and a run that parked nowhere simply has
+ * nothing to tidy — so a delay or a gateway wait failing costs no extra Discord call.
+ */
+async function failClaimedRun(
+    client: Client,
+    run: FlowRunEntity,
+    error: string,
+    flowRunsRepo: ResumeFlowRunDependencies['flowRunsRepo'],
+    log?: NodeRunLog[]
+): Promise<ResumeOutcome> {
+    await flowRunsRepo.fail(run.runId, error, log);
+    await releaseWaitMessageControls(await resolveChannelForRelease(client, run), run.waitMessageId);
+    return { status: 'failed', error };
+}
+
+/**
+ * Fail a parked run **without running anything**, because the node it is parked on can
+ * no longer be answered safely.
+ *
+ * For a caller that has found the park itself broken before resuming — today, a question
+ * whose eligibility gate the stored graph no longer lets anyone read. Resuming would run
+ * the question's block, which is what "accepting the press" means; a gate that cannot be
+ * evaluated must never admit, so the run is ended here instead, with `reason` recorded
+ * where an operator reads failed runs. Left parked, a question with no timeout on a flow
+ * that is off would wait forever for a fix nobody knows is needed.
+ *
+ * Claimed first, exactly as a resume is, so a timeout sweep or a second press arriving
+ * together cannot also advance it; losing the claim is `skipped`, not a failure. The
+ * claim is given back if the terminal write throws, for the reason `resumeFlowRun` gives.
+ *
+ * @param claimedWaitMessageId - The park the caller is holding a control for; see
+ * `resumeFlowRun`.
+ */
+export async function failParkedRun(
+    client: Client,
+    run: FlowRunEntity,
+    reason: string,
+    claimedWaitMessageId?: string,
+    dependencies: Pick<ResumeFlowRunDependencies, 'flowRunsRepo'> = defaultDependencies
+): Promise<ResumeOutcome> {
+    const claimed = await dependencies.flowRunsRepo.claimForResume(run.runId, claimedWaitMessageId);
+    if (!claimed) {
+        return {
+            status: 'skipped',
+            reason: `Run ${run.runId} could not be claimed — it is already claimed, finished, gone, or no longer on the park that was named`,
+        };
+    }
+
+    try {
+        return await failClaimedRun(client, claimed, reason, dependencies.flowRunsRepo, claimed.log);
+    } catch (error) {
+        await dependencies.flowRunsRepo.releaseClaim(claimed.runId).catch((releaseError: unknown) => {
+            console.error(`[flow-runs] Could not release the claim on run ${claimed.runId}:`, releaseError);
+        });
+        throw error;
+    }
+}
+
 /** Advance a run this process has already claimed. */
 async function advanceClaimedRun(
     client: Client,
@@ -377,28 +445,9 @@ async function advanceClaimedRun(
     // there is still entitled to look at what it posted.
     const currentWaitMessageId = run.waitMessageId;
 
-    /**
-     * End the run, and take its controls down with it.
-     *
-     * The terminal guards below each need the same two steps, and the release is
-     * the one an early `return` silently skips — which is how three of the four
-     * commonest endings first shipped leaving their buttons live.
-     *
-     * **The channel is resolved here rather than taken from the rebuilt context**,
-     * because these guards run *before* {@link rebuildResumeContext} and two of them
-     * are the likeliest endings a real question has: a flow the author deleted, and
-     * a member who left. Waiting for the full rebuild would mean tidying up only on
-     * the paths that were already fine. Only the channel is needed, and a run that
-     * parked nowhere simply has nothing to tidy.
-     *
-     * It resolves at most once, and never at all unless there is a message to act
-     * on — so a delay or a gateway wait failing costs no extra Discord call.
-     */
-    const failRun = async (error: string, log?: NodeRunLog[]): Promise<ResumeOutcome> => {
-        await dependencies.flowRunsRepo.fail(run.runId, error, log);
-        await releaseWaitMessageControls(await resolveChannelForRelease(client, run), currentWaitMessageId);
-        return { status: 'failed', error };
-    };
+    /** The terminal guards below; see {@link failClaimedRun} for why they share it. */
+    const failRun = (error: string, log?: NodeRunLog[]): Promise<ResumeOutcome> =>
+        failClaimedRun(client, run, error, dependencies.flowRunsRepo, log);
 
     if (!run.resumeNodeId) {
         return failRun(`Run ${run.runId} was parked but has no resumeNodeId`);

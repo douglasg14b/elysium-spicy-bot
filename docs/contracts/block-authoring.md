@@ -210,7 +210,7 @@ only renders** — never the other way round.
 | --- | --- | --- |
 | `rolePicker` | role id | any role. Never make someone type a snowflake. |
 | `channelPicker` | channel id | any channel. Same. |
-| `text` | string | one line. `maxLength`, `placeholder`, `rendersTokens`. Set `optional: true` when the schema is `.optional()` over a non-empty floor (`z.string().min(1).optional()`, a url) — clearing the box then removes the key instead of writing `''`, which such a schema rejects and `validateNodeData` refuses the whole save over. A field whose description says "leave empty for none" needs it. |
+| `text` | string | one line. `maxLength`, `placeholder`, `rendersTokens`. Set `optional: true` when the schema is `.optional()` over a non-empty floor (`z.string().min(1).optional()`, a url) — clearing the box then removes the key instead of writing `''`, which such a schema rejects and `validateNodeData` then holds the whole flow back from going live over. A field whose description says "leave empty for none" needs it. |
 | `longText` | string | a message body. `maxLength`, `placeholder`, `rendersTokens`. |
 | `duration` | milliseconds | any span. Shows a number plus a unit, so nobody hand-computes `604800000`. Set `optional: true` when absence is meaningful — clearing it removes the key rather than writing a zero. `placeholder` hints the empty number box — worth having chiefly on an `optional` field (e.g. `'No limit'`), where an empty box is a real setting rather than a blank. A field with a `defaultValue` is never empty, so a hint for it could never render. |
 | `segmented` | string | a few short choices, all visible at once. Needs `options`. Roughly two to four, but **label width decides**: segments split the inspector's width evenly, so one-word labels fit and full clauses do not. |
@@ -363,8 +363,8 @@ ends the path by connecting nothing to it, not by you declaring no way out.
   every resumed run**, because the token expires when the run parks.
 
 Declaring one of the three that can be absent lets a graph placing your block where it could
-never be satisfied be rejected at save time, naming the node and the requirement, instead of
-quietly taking the wrong branch.
+never be satisfied be flagged at save time — marked on your node, naming the requirement, and
+held back from going live — instead of quietly taking the wrong branch.
 
 **On a trigger, `requires` reads the other way round.** A trigger is never reached by an edge,
 so nothing upstream could fail to satisfy it — what it declares is what its own event
@@ -509,9 +509,10 @@ outage:
   runs on **read**, and the repo *throws* from it, so a rule added here makes every flow in a
   guild unloadable the moment one stored row stops satisfying it — not just the bad one.
 - **`validateAuthoredGraph`** — everything that makes a flow *wrong* rather than unreadable:
-  fan-out, handles a block does not declare, unsatisfiable context requirements. Write path
-  only, reached through `validateGraphForWrite` in the repo, so every writer is covered and no
-  stored graph is retroactively stranded.
+  fan-out, handles a block does not declare, unsatisfiable context requirements. It decides
+  whether a flow may go **live**, not whether it may be stored: a graph failing it saves as an
+  incomplete flow that cannot be enabled or deployed, reached through `flowReadinessIssues` in
+  `logic/flowReadiness.ts`. Never on read, so no stored graph is retroactively stranded.
 
 New rule? It is almost always the second one.
 
