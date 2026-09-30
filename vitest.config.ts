@@ -29,7 +29,7 @@ export default defineConfig({
                     name: 'dom',
                     include: ['web/src/**/*.test.tsx'],
                     environment: 'jsdom',
-                    setupFiles: ['./web/src/__tests__/support/setupDom.ts'],
+                    setupFiles: ['./vitest.jsdomRequest.setup.ts', './web/src/__tests__/support/setupDom.ts'],
                 },
             },
             /*
@@ -44,7 +44,7 @@ export default defineConfig({
                     name: 'e2e',
                     include: ['web/e2e/**/*.test.tsx'],
                     environment: 'jsdom',
-                    setupFiles: ['./web/src/__tests__/support/setupDom.ts'],
+                    setupFiles: ['./vitest.jsdomRequest.setup.ts', './web/src/__tests__/support/setupDom.ts'],
                 },
             },
         ],

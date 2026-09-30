@@ -71,6 +71,7 @@ import {
     getPublishedState,
     installFlow,
     listFlowDrafts,
+    saveMyFlowDraft,
     updateFlow,
 } from '../api/flows';
 // Only the initial read lives here now; the write moved into `useResourceAutosave`.
@@ -124,6 +125,8 @@ import {
     type FlowDraftPayload,
 } from '../flows/flowDraftAutosave';
 import { useFlowDraftAutosave } from '../flows/useFlowDraftAutosave';
+import { LeaveFlowDialog, type LeaveAction } from '../flows/LeaveFlowDialog';
+import { useLeaveGuard } from '../flows/useLeaveGuard';
 import {
     changeLabel,
     kindLabel,
@@ -378,6 +381,23 @@ function FlowBuilder() {
     const [error, setError] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
     const [dirty, setDirty] = useState(false);
+    /**
+     * Leaving with the canvas not the saved flow asks first — even when the autosave has
+     * the draft, because a draft is insurance and not the operator's answer. A draft-only
+     * save clears `dirty`, so that one does not ask. See `shouldConfirmLeave`.
+     */
+    const leaveGuard = useLeaveGuard(dirty);
+    /** The leave prompt's answer being carried out, if one is. */
+    const [leaving, setLeaving] = useState<LeaveAction | null>(null);
+    /*
+     * Leaving while the toolbar's Save is still on its way. The prompt's answers wait for
+     * it (see `pending` on the dialog) — each would race the save for the draft — and if it
+     * lands there is nothing left unsaved to ask about, so the navigation goes through.
+     * Only when no answer is running: an answer lets the navigation go itself.
+     */
+    useEffect(() => {
+        if (leaveGuard.prompting && !dirty && !saving && leaving === null) leaveGuard.leave();
+    }, [leaveGuard.prompting, leaveGuard.leave, dirty, saving, leaving]);
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
     /**
      * What the server last found wrong with the graph, kept until it next answers.
@@ -403,11 +423,14 @@ function FlowBuilder() {
      */
     const [storedIssueCount, setStoredIssueCount] = useState(0);
     /**
-     * The last save landed on the operator's draft, not the flow: the flow is live and
-     * the graph was incomplete. The canvas is persisted — so not dirty — but it is not
-     * what members get, and the status line and the switch must not pretend otherwise.
+     * What the last save kept, when it landed on the operator's draft and not the flow:
+     * the flow is live and the graph was incomplete. The canvas is persisted — so not
+     * dirty — but it is not what members get, and the status line and the switch must not
+     * pretend otherwise. The payload rather than a flag, because "discard changes" from the
+     * leave prompt goes back to it: it was saved, so it is not one of the changes.
      */
-    const [savedAsDraftOnly, setSavedAsDraftOnly] = useState(false);
+    const [draftOnlySave, setDraftOnlySave] = useState<FlowDraftPayload | null>(null);
+    const savedAsDraftOnly = draftOnlySave !== null;
     /** When the flow itself was last saved, for the picker's "Saved version" row. */
     const [savedVersionAt, setSavedVersionAt] = useState<string | null>(null);
     /**
@@ -604,13 +627,14 @@ function FlowBuilder() {
      * Unsaved work, kept on the server as this operator's draft while they edit — so
      * leaving the page, or losing the tab, costs a couple of seconds rather than the
      * afternoon. Held while a save is in flight; the save decides what the draft holds.
+     * Held too while a leave-prompt answer runs, which decides it the same way.
      */
     const draftAutosave = useFlowDraftAutosave({
         guildId: selected?.id,
         flowId,
         payload: canvasPayload,
         baseUpdatedAt: canvasBase ?? undefined,
-        paused: saving,
+        paused: saving || leaving !== null,
     });
     const { rebase: rebaseDraft } = draftAutosave;
 
@@ -732,7 +756,7 @@ function FlowBuilder() {
                 setStoredIssueCount(flow.issues.length);
                 setSavedVersionAt(flow.updatedAt);
                 setCanvasBase(flow.updatedAt);
-                setSavedAsDraftOnly(false);
+                setDraftOnlySave(null);
                 setDrafts([]);
                 setDraftPickerOpen(false);
 
@@ -795,7 +819,7 @@ function FlowBuilder() {
             putGraphOnCanvas(draft.graph, { catalog: nodeCatalog, roles, channels });
             setSaveIssues(draft.issues);
             setSelectedNodeId(null);
-            setSavedAsDraftOnly(false);
+            setDraftOnlySave(null);
             setDirty(true);
             setDraftPickerOpen(false);
         },
@@ -1173,8 +1197,9 @@ function FlowBuilder() {
 
     /* ------------------------------ save ------------------------------ */
 
-    async function handleSave() {
-        if (!selected || !flowId) return;
+    /** Save the canvas. Resolves `true` once it is persisted — to the flow or, draft-only, to the draft. */
+    async function handleSave(): Promise<boolean> {
+        if (!selected || !flowId) return false;
         // What is sent, held on to: edits made while the request is in flight are not
         // part of what the answer describes, and the autosave has to know the difference.
         const sent = canvasPayload;
@@ -1198,20 +1223,20 @@ function FlowBuilder() {
                 // cards show what the drafted graph lacks. The base does not move: the
                 // canvas still descends from the version it was loaded from.
                 setSaveIssues(updated.draft.issues);
-                setSavedAsDraftOnly(true);
+                setDraftOnlySave(sent);
                 draftAutosave.markDrafted(sent, updated.draft.updatedAt);
                 notifications.show({
                     color: 'yellow',
                     title: 'Draft only',
                     message: draftOnlySaveMessage(updated.draft.issues.length, updated.uninstalled),
                 });
-                return;
+                return true;
             }
 
             setName(updated.name);
             setSavedVersionAt(updated.updatedAt);
             setCanvasBase(updated.updatedAt);
-            setSavedAsDraftOnly(false);
+            setDraftOnlySave(null);
             draftAutosave.markSavedToFlow(sent);
             // Stored, finished or not: a switched-off flow may hold an incomplete
             // graph, and its issues come back so the cards stay honest about it.
@@ -1229,6 +1254,7 @@ function FlowBuilder() {
                           message: `"${updated.name}" is locked in.`,
                       }
             );
+            return true;
         } catch (err) {
             // A 400 is a graph too broken to store (dangling edges, duplicate ids). It
             // stored nothing, so the canvas stays dirty — and the autosave keeps it as
@@ -1251,8 +1277,86 @@ function FlowBuilder() {
                 title: "That graph won't fly",
                 message: issues.length === 0 ? message : summarizeIssues(issues),
             });
+            return false;
         } finally {
             setSaving(false);
+        }
+    }
+
+    /**
+     * Throw away the changes on the canvas, and my draft with them — only mine; anyone
+     * else's is theirs.
+     *
+     * The draft is found by asking rather than remembered: it may predate this visit, from
+     * a session whose draft the operator chose not to load, and "discard" means none of it
+     * is kept. The one exception is a draft-only save made here: that was saved, not a
+     * change, so the draft goes back to it rather than away. Any autosave already on its
+     * way is let land first, or it would put the draft back after the delete.
+     */
+    async function discardMyDraft(): Promise<boolean> {
+        if (!selected || !flowId) return false;
+        const discarded = canvasPayload;
+        try {
+            await draftAutosave.settle();
+            if (draftOnlySave) {
+                // Set by the load every save follows, so absent only if that stopped holding.
+                if (!canvasBase) throw new Error('A draft-only save with no flow version under it.');
+                await saveMyFlowDraft(selected.id, flowId, { ...draftOnlySave, baseUpdatedAt: canvasBase });
+            } else {
+                const mine = (await listFlowDrafts(selected.id, flowId)).find((draft) => draft.mine);
+                if (mine) await discardFlowDraft(selected.id, flowId, mine.draftId);
+            }
+            // Not left to the pause. A browser Back resolves the held navigation a tick
+            // later, so the page re-renders unpaused before it unmounts — and its flush on
+            // the way out would write the discarded canvas straight back.
+            draftAutosave.markDiscarded(discarded);
+            return true;
+        } catch (err) {
+            notifications.show({
+                color: 'red',
+                title: "Couldn't discard your draft",
+                message: err instanceof ApiError ? err.message : 'Still here, still unsaved. Try again in a second.',
+            });
+            return false;
+        }
+    }
+
+    /** Write the canvas to my draft now, and say so if it would not go. */
+    async function keepAsDraft(): Promise<boolean> {
+        const kept = await draftAutosave.flush();
+        if (!kept) {
+            notifications.show({
+                color: 'red',
+                title: "Couldn't keep your draft",
+                message: 'Your changes are still on the canvas. Try again, or save.',
+            });
+        }
+        return kept;
+    }
+
+    /**
+     * Carry out the leave prompt's answer, then let the navigation go — or, if it failed,
+     * keep the operator here with the work, and the reason on screen.
+     */
+    async function handleLeave(action: LeaveAction) {
+        setLeaving(action);
+        try {
+            let done: boolean;
+            switch (action) {
+                case 'save':
+                    done = await handleSave();
+                    break;
+                case 'keepDraft':
+                    done = await keepAsDraft();
+                    break;
+                case 'discard':
+                    done = await discardMyDraft();
+                    break;
+            }
+            if (done) leaveGuard.leave();
+            else leaveGuard.stay();
+        } finally {
+            setLeaving(null);
         }
     }
 
@@ -2245,6 +2349,14 @@ function FlowBuilder() {
                     })}
                 </Stack>
             </Modal>
+
+            <LeaveFlowDialog
+                opened={leaveGuard.prompting}
+                flowName={canvasPayload.name}
+                pending={leaving ?? (saving ? 'save' : null)}
+                onChoose={(action) => void handleLeave(action)}
+                onStay={leaveGuard.stay}
+            />
 
             <Modal
                 opened={deployOpen}

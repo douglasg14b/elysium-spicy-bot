@@ -102,10 +102,13 @@ describe('flow drafts', () => {
         // Nobody left anything unfinished, so nothing to pick from.
         expect(screen.queryByText('Unfinished business')).toBeNull();
 
-        // An edit, not saved — then straight out, well inside the autosave's pause.
+        // An edit, not saved — then straight out, well inside the autosave's pause, and
+        // kept as a draft when the page asks.
         await user.click(screen.getByTitle(ADD_SEND_DM));
         expect(screen.getByText('Unsaved changes')).toBeTruthy();
         await user.click(screen.getByRole('button', { name: 'Back to flows' }));
+        const prompt = await screen.findByRole('dialog', { name: `Leave "${FLOW_NAME}" with unsaved changes?` });
+        await user.click(within(prompt).getByRole('button', { name: 'Keep as draft' }));
 
         // Leaving flushed it to the operator's draft.
         await waitFor(() =>
@@ -157,8 +160,13 @@ describe('flow drafts', () => {
         await waitFor(() => expect(cardsOnCanvas()).toBe(3));
         expect((screen.getByRole('textbox', { name: 'Flow name' }) as HTMLInputElement).value).toBe('Doorman, but pushier');
 
-        // Leaving without touching it: the unmount flush has nothing of mine to send.
+        // Leaving without touching it: the canvas is not the saved flow, so the page asks —
+        // but keeping it as a draft has nothing of mine to send.
         await user.click(screen.getByRole('button', { name: 'Back to flows' }));
+        const prompt = await screen.findByRole('dialog', {
+            name: 'Leave "Doorman, but pushier" with unsaved changes?',
+        });
+        await user.click(within(prompt).getByRole('button', { name: 'Keep as draft' }));
         await flowRow(FLOW_NAME);
         expect(dashboard.requests).not.toContainEqual({ method: 'PUT', path: `${seeded.flowPath}/drafts/mine` });
         const drafts = await seeded.api.send<{ drafts: { authorName: string }[] }>('GET', `${seeded.flowPath}/drafts`);

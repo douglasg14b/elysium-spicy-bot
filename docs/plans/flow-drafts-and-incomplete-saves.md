@@ -1,6 +1,6 @@
 # Flow builder — save incomplete work, keep drafts, ask before leaving
 
-> **Status**: Slices A + B built 2026-09-29, merged onto `7147ab8` 2026-09-30 (node 2484 pass / 1 known fail, dom+e2e 36/36). C–D not started
+> **Status**: A + B committed (`4020596`); C built 2026-09-30 (node 2491 pass / 1 known fail, dom+e2e 51/51 ×3). D (live run) pending
 > **Owner**: Douglas
 > **Step**: Off-programme UX fix (not a PRD step)
 
@@ -231,3 +231,43 @@ Douglas chose to fold 2, 3 and 4 into slice B and to leave 1 open.
 - **One corrupt draft row 500s the drafts list.**
 - **A malformed journey read in `journeysRepo.create/update`** now returns 500 instead
   of `ResourceDeclarationError`'s 400.
+
+## Slice C — what landed
+
+**The router.** `main.tsx` mounts `App` on one catch-all data route, via
+`createBrowserRouter`. `App` keeps its `<Routes>`. A render error shows `CrashPage`,
+with no stack trace. `renderDashboard` uses `createMemoryRouter` the same way and
+returns `router`, so tests can drive the browser's back button.
+
+**Test harness fixes the router needed:**
+
+- **`vitest.jsdomRequest.setup.ts`**: a data router builds a `Request` with an abort
+  signal on every navigation. jsdom's `AbortSignal` doesn't fit Node's `Request`, so
+  this setup passes each signal through a Node one.
+- **`renderDashboard` sets a 5s `asyncUtilTimeout`**: a whole-app first paint through
+  the real stack outran testing-library's 1s under a full parallel run.
+
+**When to prompt:** whenever the canvas differs from the saved flow, even if the
+autosave already holds it. A draft-only Save counts as saved. Only navigation that
+changes the pathname is held. Logout doesn't navigate, so it isn't held, and the
+unmount writes the draft instead.
+
+**The prompt's four actions:**
+
+- **Save**: stays on the page if the save fails.
+- **Keep as draft**: flushes the autosave, and stays on the page if that write fails.
+- **Discard**: deletes your draft only. After a draft-only save, it restores the draft to
+  that save instead of deleting it.
+- **Stay**.
+
+`beforeunload` fires while the canvas is dirty.
+
+**Also closed:**
+
+- Autosave writes are now serialised, which closes a slice B open item.
+- Clicking Back while a Save is in flight waits for that save to finish.
+
+**Not caught by any test:** `markDiscarded` guards against a real browser settling a
+held Back a tick late, which would re-write the discarded draft on exit. A memory
+router settles synchronously, so no test can reproduce it. Slice D should check it by
+hand.

@@ -57,6 +57,22 @@ export function shouldAutosaveDraft({ current, baseline, lastSent, paused }: Dra
     return current !== lastSent;
 }
 
+export type DraftFlushDecisionInput = Omit<DraftAutosaveDecisionInput, 'paused'>;
+
+/**
+ * Whether "keep as draft" has to write — asked for, so never held for a pause.
+ *
+ * Stricter than {@link shouldAutosaveDraft} in one place: a canvas undone back to its
+ * baseline after a write is not "nothing to keep". The draft holds the undone edit, and
+ * the operator asked for what is on the canvas. Only a canvas never written from this page
+ * *and* still its baseline has nothing to send — which is also what keeps a loaded
+ * `@alice's draft` from becoming mine.
+ */
+export function shouldFlushDraft({ current, baseline, lastSent }: DraftFlushDecisionInput): boolean {
+    if (current === lastSent) return false;
+    return !(lastSent === undefined && current === baseline);
+}
+
 /** What the operator's draft is known to hold, as far as this page knows. */
 export type DraftAutosaveState =
     | { readonly kind: 'idle' }

@@ -6,6 +6,7 @@ import {
     formatWhen,
     orderDraftsForPicker,
     shouldAutosaveDraft,
+    shouldFlushDraft,
 } from '../flowDraftAutosave';
 
 /** A local-time instant, so these read the same in every timezone the suite runs in. */
@@ -45,6 +46,26 @@ describe('whether the canvas is written to the draft', () => {
         expect(shouldAutosaveDraft({ current: '{"graph":"mine"}', baseline: alices, lastSent: undefined, paused: false })).toBe(
             true
         );
+    });
+});
+
+describe('whether "keep as draft" has to write', () => {
+    it('writes what the draft does not hold yet', () => {
+        expect(shouldFlushDraft({ current: 'edited', baseline: 'loaded', lastSent: undefined })).toBe(true);
+        expect(shouldFlushDraft({ current: 'edited again', baseline: 'loaded', lastSent: 'edited' })).toBe(true);
+    });
+
+    it('does not write what was already sent', () => {
+        expect(shouldFlushDraft({ current: 'edited', baseline: 'loaded', lastSent: 'edited' })).toBe(false);
+    });
+
+    it('writes a canvas undone back to where it was loaded, over the edit the draft still holds', () => {
+        expect(shouldFlushDraft({ current: 'loaded', baseline: 'loaded', lastSent: 'edited' })).toBe(true);
+    });
+
+    it('does not claim a loaded draft as mine when nothing was written from here', () => {
+        const alices = '{"graph":"alice"}';
+        expect(shouldFlushDraft({ current: alices, baseline: alices, lastSent: undefined })).toBe(false);
     });
 });
 

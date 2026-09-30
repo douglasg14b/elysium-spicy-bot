@@ -19,6 +19,7 @@ import { shouldAcceptResponse } from './resourceSaveQueue';
 import {
     DRAFT_AUTOSAVE_DEBOUNCE_MS,
     shouldAutosaveDraft,
+    shouldFlushDraft,
     type DraftAutosaveState,
     type FlowDraftPayload,
 } from './flowDraftAutosave';
@@ -53,12 +54,23 @@ export interface FlowDraftAutosave {
     /** `payload` was just saved to the flow, which removed the operator's draft. */
     readonly markSavedToFlow: (payload: FlowDraftPayload) => void;
     /**
+     * The operator discarded `payload` and deleted their draft with it. Taken as the
+     * baseline, so leaving afterwards does not flush the discarded canvas straight back.
+     */
+    readonly markDiscarded: (payload: FlowDraftPayload) => void;
+    /**
      * Drop any write still waiting on the debounce, and resolve once one already sent has
      * answered. Save calls this first: a draft write reaching the server after the save
      * has deleted the draft would put it straight back, offering the operator their own
      * saved work as unfinished business on the next open.
      */
     readonly settle: () => Promise<void>;
+    /**
+     * Write the canvas to the draft now rather than after the debounce, and resolve with
+     * whether the draft holds it. `true` without a write when it already does, or when there
+     * is nothing to keep (see `shouldFlushDraft`), and `false` when the write failed.
+     */
+    readonly flush: () => Promise<boolean>;
 }
 
 export function useFlowDraftAutosave({
@@ -95,16 +107,20 @@ export function useFlowDraftAutosave({
     const issuedRef = useRef(0);
     /** The debounce waiting to write, so `settle` can drop it. */
     const timerRef = useRef<number | undefined>(undefined);
-    /** The write last sent, until it answers, so `settle` can wait for it. */
-    const inFlightRef = useRef<Promise<void> | null>(null);
+    /**
+     * The last write queued, until it answers. Resolves `true` if it landed. Writes queue
+     * behind each other, so waiting on this waits for every one of them.
+     */
+    const inFlightRef = useRef<Promise<boolean> | null>(null);
 
     const latestRef = useRef({ payload, serialised, baseUpdatedAt, paused });
     latestRef.current = { payload, serialised, baseUpdatedAt, paused };
 
+    /** Write `next` to the operator's draft. Resolves `true` if it landed; never rejects. */
     const send = useCallback(
-        (next: FlowDraftPayload, nextSerialised: string) => {
+        (next: FlowDraftPayload, nextSerialised: string): Promise<boolean> => {
             const base = latestRef.current.baseUpdatedAt;
-            if (!guildId || !flowId || !base) return;
+            if (!guildId || !flowId || !base) return Promise.resolve(false);
             const sentFor = identity;
             lastSentRef.current = nextSerialised;
             issuedRef.current += 1;
@@ -113,22 +129,31 @@ export function useFlowDraftAutosave({
             // it describes a draft that is no longer the one on screen.
             const stillCurrent = () => baselineIdentityRef.current === sentFor && shouldAcceptResponse(issued, issuedRef.current);
 
-            const request = saveMyFlowDraft(guildId, flowId, { ...next, baseUpdatedAt: base })
+            // One write on the wire at a time, behind the last. Side by side, a slow write
+            // could land after a newer one and leave the draft holding the older canvas —
+            // or land after a discard's delete and put the draft back. Queued, the server
+            // stores them in the order they were made, and `settle` waits for all of them.
+            const queue = inFlightRef.current ?? Promise.resolve(true);
+            const request = queue
+                .then(() => saveMyFlowDraft(guildId, flowId, { ...next, baseUpdatedAt: base }))
                 .then((stored) => {
                     if (stillCurrent()) setState({ kind: 'saved', at: stored.updatedAt });
+                    return true;
                 })
                 .catch(() => {
-                    if (!stillCurrent()) return;
+                    if (!stillCurrent()) return false;
                     // Forgotten, so the next edit is sent even if it lands back on what
                     // this one tried to send. Shown on the status line, and only there:
                     // a notification per failed autosave would be one per pause in typing.
                     lastSentRef.current = undefined;
                     setState({ kind: 'failed' });
+                    return false;
                 })
                 .finally(() => {
                     if (inFlightRef.current === request) inFlightRef.current = null;
                 });
             inFlightRef.current = request;
+            return request;
         },
         [guildId, flowId, identity]
     );
@@ -161,7 +186,7 @@ export function useFlowDraftAutosave({
         // and restarting the debounce on each would be a timer that never fires.
         const handle = window.setTimeout(() => {
             timerRef.current = undefined;
-            send(latestRef.current.payload, latestRef.current.serialised);
+            void send(latestRef.current.payload, latestRef.current.serialised);
         }, DRAFT_AUTOSAVE_DEBOUNCE_MS);
         timerRef.current = handle;
         return () => {
@@ -190,7 +215,7 @@ export function useFlowDraftAutosave({
             ) {
                 return;
             }
-            send(pending, pendingSerialised);
+            void send(pending, pendingSerialised);
         };
     }, [identity, send]);
 
@@ -209,21 +234,54 @@ export function useFlowDraftAutosave({
         setState({ kind: 'saved', at: savedAt });
     }, []);
 
-    const markSavedToFlow = useCallback((persisted: FlowDraftPayload) => {
+    /** Behind both `markSavedToFlow` and `markDiscarded`: the draft is gone, and `persisted` is the canvas it went with. */
+    const markDraftGone = useCallback((persisted: FlowDraftPayload) => {
         issuedRef.current += 1;
         baselineRef.current = JSON.stringify(persisted);
-        // The save deleted the draft, so nothing is stored there to match against.
+        // The draft was deleted, so nothing is stored there to match against.
         lastSentRef.current = undefined;
         setState({ kind: 'idle' });
     }, []);
 
-    const settle = useCallback((): Promise<void> => {
+    const dropPendingWrite = useCallback(() => {
         if (timerRef.current !== undefined) {
             window.clearTimeout(timerRef.current);
             timerRef.current = undefined;
         }
-        return inFlightRef.current ?? Promise.resolve();
     }, []);
 
-    return { state, rebase, markDrafted, markSavedToFlow, settle };
+    const settle = useCallback(async (): Promise<void> => {
+        dropPendingWrite();
+        await inFlightRef.current;
+    }, [dropPendingWrite]);
+
+    const flush = useCallback(async (): Promise<boolean> => {
+        dropPendingWrite();
+        // A write already on its way is waited for rather than raced: if it lands, the
+        // canvas may be exactly what it sent, and if it fails it has forgotten `lastSent`,
+        // so the check below sends again.
+        await inFlightRef.current;
+        const { payload: pending, serialised: pendingSerialised } = latestRef.current;
+        if (baselineIdentityRef.current !== identity) return false;
+        if (
+            !shouldFlushDraft({
+                current: pendingSerialised,
+                baseline: baselineRef.current,
+                lastSent: lastSentRef.current,
+            })
+        ) {
+            return true;
+        }
+        return send(pending, pendingSerialised);
+    }, [dropPendingWrite, identity, send]);
+
+    return {
+        state,
+        rebase,
+        markDrafted,
+        markSavedToFlow: markDraftGone,
+        markDiscarded: markDraftGone,
+        settle,
+        flush,
+    };
 }
