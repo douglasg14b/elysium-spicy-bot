@@ -9,6 +9,7 @@ import {
 import type { TicketEntity } from '../data/ticketsSchema';
 import { getTicketByChannel } from '../ticketService';
 import { memberHasModeratorPerms, memberHasModeratorRole } from './hasModeratorRole';
+import { TICKETING_NOT_CONFIGURED_MESSAGE } from './ticketErrorMessage';
 import { getTicketTypeDefinition } from './ticketTypes';
 import { roleIdsToNames } from '../../../utils';
 
@@ -64,7 +65,7 @@ export async function resolveTicketAction(
 
     const configEntity = await ticketingRepo.get(guild.id);
     if (!isTicketingConfigConfigured(configEntity)) {
-        return fail('❌ The ticket system is not configured yet. Please ask an administrator to configure it first.');
+        return fail(TICKETING_NOT_CONFIGURED_MESSAGE);
     }
     const config = configEntity.config;
 

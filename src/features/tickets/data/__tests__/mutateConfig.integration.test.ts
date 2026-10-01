@@ -59,9 +59,11 @@ function baseConfig(): TicketingConfig {
         modTicketsDeployed: true,
         modTicketsDeployedChannelId: 'panel-channel',
         modTicketsDeployedMessageId: 'panel-message',
-        supportTicketCategoryName: 'Tickets',
-        claimedTicketCategoryName: 'Claimed',
-        closedTicketCategoryName: 'Closed',
+        categories: {
+            open: { name: 'Tickets', discordId: '900000000000000001', provenance: 'adopted' },
+            claimed: { name: 'Claimed', discordId: '900000000000000002', provenance: 'adopted' },
+            closed: { name: 'Closed', discordId: '900000000000000003', provenance: 'adopted' },
+        },
         moderationRoles: ['mod-role'],
         ticketTypes: {
             support: {
@@ -117,11 +119,11 @@ describe('ticketingRepo.mutateConfig against real sqlite', () => {
         // production.
         const result = await ticketingRepo.mutateConfig(GUILD_ID, (current) => ({
             ...current.config,
-            supportTicketCategoryName: 'Renamed',
+            moderationRoles: ['other-role'],
         }));
 
         expect(result).not.toBeNull();
-        expect((await storedConfig())?.supportTicketCategoryName).toBe('Renamed');
+        expect((await storedConfig())?.moderationRoles).toEqual(['other-role']);
     });
 
     it('persists only the members the mutator changed, leaving the rest of the blob alone', async () => {

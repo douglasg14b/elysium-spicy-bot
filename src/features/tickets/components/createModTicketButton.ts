@@ -12,6 +12,7 @@ import { CreateModTicketModalComponent } from './createModTicketModal';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { ticketingRepo } from '../data/ticketingRepo';
 import { isTicketingConfigConfigured } from '../data/ticketingSchema';
+import { TICKETING_NOT_CONFIGURED_MESSAGE } from '../logic/ticketErrorMessage';
 
 export const MOD_TICKET_BUTTON_ID = 'mod_ticket_create_button';
 
@@ -41,8 +42,7 @@ export function CreateModTicketButtonComponent(enabled: boolean = true) {
             if (!isTicketingConfigConfigured(configEntity)) {
                 return {
                     status: 'error',
-                    message:
-                        '❌ The ticket system is not configured yet. Please ask an administrator to configure it first.',
+                    message: TICKETING_NOT_CONFIGURED_MESSAGE,
                 };
             }
             const ticketingConfig = configEntity.config;

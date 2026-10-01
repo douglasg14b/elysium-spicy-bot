@@ -102,8 +102,8 @@ afterEach(async () => {
 });
 
 /**
- * A guild with tickets deployed and configured: three categories by name, one moderation
- * role, and the aftercare type.
+ * A guild with tickets deployed and configured: three categories the settings route
+ * creates, one moderation role, and the aftercare type.
  *
  * The operator is a guild member holding the moderation role, as a real dashboard user
  * working tickets would be. That matters on Discord's side: a claim writes a member
@@ -133,9 +133,7 @@ async function guildWithTickets(): Promise<TicketGuild> {
             modTicketsDeployed: true,
             modTicketsDeployedChannelId: desk.id,
             modTicketsDeployedMessageId: panel.id,
-            supportTicketCategoryName: '',
-            claimedTicketCategoryName: '',
-            closedTicketCategoryName: '',
+            categories: { open: null, claimed: null, closed: null },
             moderationRoles: [],
             ticketTypes: defaultTicketTypes(),
         }),
@@ -146,10 +144,13 @@ async function guildWithTickets(): Promise<TicketGuild> {
     const faults: string[] = [];
     const api = createSeedApi(buildDashboardApp({ client, operator, onFault: (fault) => faults.push(fault) }), discord);
     const guildPath = `/api/guilds/${guild.id}`;
+    // Named, so the real route creates all three in Discord on save.
     await api.send('PUT', `${guildPath}/config/tickets`, {
-        supportTicketCategoryName: CATEGORIES.open,
-        claimedTicketCategoryName: CATEGORIES.claimed,
-        closedTicketCategoryName: CATEGORIES.closed,
+        categories: {
+            open: { name: CATEGORIES.open },
+            claimed: { name: CATEGORIES.claimed },
+            closed: { name: CATEGORIES.closed },
+        },
         moderationRoles: [moderators.id],
     });
     await api.send('PUT', `${guildPath}/config/tickets/types/${TYPE_KEY}`, {

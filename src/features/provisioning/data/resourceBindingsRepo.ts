@@ -5,9 +5,9 @@ import type { ResourceBindingEntity, ResourceBindingState } from './resourceBind
 /**
  * Persistence for resource bindings.
  *
- * Every resolve is by `discordId`, never by name. Matching on a display name is the
- * defect issue #22 records in the ticket feature: a rename in Discord silently
- * produces a duplicate rather than an error.
+ * Every resolve is by `discordId`, never by name. Matching on a display name was issue
+ * #22 in the ticket feature: a rename in Discord silently produced a duplicate rather
+ * than an error.
  */
 export class ResourceBindingsRepo {
     async listByJourney(guildId: string, journeyKey: string): Promise<ResourceBindingEntity[]> {

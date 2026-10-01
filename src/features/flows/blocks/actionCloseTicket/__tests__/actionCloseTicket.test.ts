@@ -34,9 +34,11 @@ const CONFIGURED = {
     modTicketsDeployed: true,
     modTicketsDeployedChannelId: 'panel-channel',
     modTicketsDeployedMessageId: 'panel-message',
-    supportTicketCategoryName: 'Tickets',
-    claimedTicketCategoryName: 'Claimed',
-    closedTicketCategoryName: 'Closed',
+    categories: {
+        open: { name: 'Tickets', discordId: '900000000000000001', provenance: 'adopted' },
+        claimed: { name: 'Claimed', discordId: '900000000000000002', provenance: 'adopted' },
+        closed: { name: 'Closed', discordId: '900000000000000003', provenance: 'adopted' },
+    },
     moderationRoles: ['mod-role'],
     ticketTypes: {
         support: {

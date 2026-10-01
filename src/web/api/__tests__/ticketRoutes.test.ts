@@ -33,6 +33,8 @@ const ticketingRepoMock = {
 const applyTicketTransition = vi.fn();
 const upsertTicketType = vi.fn();
 const deleteTicketType = vi.fn();
+const setTicketSettings = vi.fn();
+const updateDeployedTicketMessage = vi.fn();
 
 /*
  * `TICKET_LIST_CAP` is re-exported from the real module rather than re-declared here.
@@ -52,6 +54,10 @@ vi.mock('../../../features/tickets/data/ticketsRepo', async () => {
 vi.mock('../../../features/tickets/data/ticketingRepo', () => ({ ticketingRepo: ticketingRepoMock }));
 vi.mock('../../../features/tickets/logic/applyTicketTransition', () => ({ applyTicketTransition }));
 vi.mock('../../../features/tickets/logic/setTicketTypes', () => ({ upsertTicketType, deleteTicketType }));
+// Whether the save creates, adopts and keeps correctly is settled against TestDiscord in
+// `setTicketSettings.integration.test.ts`; here only the routing is under test.
+vi.mock('../../../features/tickets/logic/setTicketSettings', () => ({ setTicketSettings }));
+vi.mock('../../../features/tickets/utils/updateDeployedMessage', () => ({ updateDeployedTicketMessage }));
 
 const { ticketRoutes } = await import('../ticketRoutes');
 // The real bound, read through the mock's re-export, so the cap tests below cannot drift
@@ -61,6 +67,7 @@ const { TICKET_LIST_CAP } = await import('../../../features/tickets/data/tickets
 const GUILD_ID = 'guild-1';
 const OTHER_GUILD_ID = 'guild-2';
 const MOD_ROLE = '111111111111111111';
+const CATEGORY_ID = '222222222222222222';
 const SESSION_USER_ID = 'session-user';
 
 const supportDefinition = {
@@ -80,9 +87,11 @@ function storedConfig(overrides: Record<string, unknown> = {}) {
         modTicketsDeployed: true,
         modTicketsDeployedChannelId: 'panel-channel',
         modTicketsDeployedMessageId: 'panel-message',
-        supportTicketCategoryName: 'Tickets',
-        claimedTicketCategoryName: 'Claimed',
-        closedTicketCategoryName: 'Closed',
+        categories: {
+            open: { name: 'Tickets', discordId: CATEGORY_ID, provenance: 'created' },
+            claimed: { name: 'Claimed', discordId: '333333333333333333', provenance: 'adopted' },
+            closed: { name: 'Closed', discordId: '444444444444444444', provenance: 'adopted' },
+        },
         moderationRoles: [MOD_ROLE],
         ticketTypes: { support: supportDefinition },
         ...overrides,
@@ -122,7 +131,7 @@ function guildStub() {
     return {
         id: GUILD_ID,
         roles: { cache: new Map([[MOD_ROLE, { id: MOD_ROLE, name: 'Mods', managed: false }]]) },
-        channels: { cache: new Map() },
+        channels: { cache: new Map([[CATEGORY_ID, { id: CATEGORY_ID, name: 'Tickets' }]]) },
     };
 }
 
@@ -189,6 +198,8 @@ beforeEach(() => {
         async (_guildId: string, mutate: (current: unknown) => unknown) =>
             mutate({ id: 1, guildId: GUILD_ID, config: storedConfig(), ticketNumberInc: 42, entityVersion: 1 })
     );
+    setTicketSettings.mockResolvedValue({ ok: true, config: storedConfig() });
+    updateDeployedTicketMessage.mockResolvedValue(undefined);
     applyTicketTransition.mockResolvedValue({
         ok: true,
         outcome: { ticket: ticketRow({ claimerId: SESSION_USER_ID }), syncWarning: null },
@@ -477,72 +488,92 @@ describe('POST /:guildId/tickets/:ticketId/close', () => {
 });
 
 describe('PUT /:guildId/config/tickets', () => {
+    const settingsBody = {
+        categories: { open: { name: 'Tickets' }, claimed: { discordId: CATEGORY_ID }, closed: null },
+        moderationRoles: [MOD_ROLE],
+    };
+
     it('rejects an empty moderation-role list, in the product voice', async () => {
-        const response = await send('/config/tickets', 'PUT', {
-            supportTicketCategoryName: 'Tickets',
-            claimedTicketCategoryName: 'Claimed',
-            closedTicketCategoryName: 'Closed',
-            moderationRoles: [],
-        });
+        const response = await send('/config/tickets', 'PUT', { ...settingsBody, moderationRoles: [] });
 
         expect(response.status).toBe(400);
         // Saving none quietly narrows who can work a ticket to whoever holds
         // server-level permissions.
         expect(((await response.json()) as ErrorBody).error).toContain('at least one moderation role');
-        expect(ticketingRepoMock.mutateConfig).not.toHaveBeenCalled();
+        expect(setTicketSettings).not.toHaveBeenCalled();
     });
 
     it('rejects a role id the guild does not have', async () => {
-        const response = await send('/config/tickets', 'PUT', {
-            supportTicketCategoryName: 'Tickets',
-            claimedTicketCategoryName: 'Claimed',
-            closedTicketCategoryName: 'Closed',
-            moderationRoles: ['999999999999999999'],
-        });
+        const response = await send('/config/tickets', 'PUT', { ...settingsBody, moderationRoles: ['999999999999999999'] });
 
         expect(response.status).toBe(400);
         expect(((await response.json()) as ErrorBody).error).toContain('999999999999999999');
-        expect(ticketingRepoMock.mutateConfig).not.toHaveBeenCalled();
+        expect(setTicketSettings).not.toHaveBeenCalled();
     });
 
-    it('rejects a blank category name', async () => {
-        const response = await send('/config/tickets', 'PUT', {
-            supportTicketCategoryName: '   ',
-            claimedTicketCategoryName: 'Claimed',
-            closedTicketCategoryName: 'Closed',
-            moderationRoles: [MOD_ROLE],
+    it('rejects a blank new category name, and a slot that is both an id and a name', async () => {
+        const blank = await send('/config/tickets', 'PUT', {
+            ...settingsBody,
+            categories: { ...settingsBody.categories, open: { name: '   ' } },
+        });
+        const both = await send('/config/tickets', 'PUT', {
+            ...settingsBody,
+            categories: { ...settingsBody.categories, open: { name: 'Tickets', discordId: CATEGORY_ID } },
         });
 
-        expect(response.status).toBe(400);
+        expect(blank.status).toBe(400);
+        expect(both.status).toBe(400);
+        expect(setTicketSettings).not.toHaveBeenCalled();
     });
 
-    it('preserves the declared types through a category save', async () => {
-        const response = await send('/config/tickets', 'PUT', {
-            supportTicketCategoryName: 'Renamed',
-            claimedTicketCategoryName: 'Claimed',
-            closedTicketCategoryName: 'Closed',
-            moderationRoles: [MOD_ROLE],
-        });
-        const body = (await response.json()) as { types: { type: string }[]; supportTicketCategoryName: string };
+    it('hands the slots to the shared save, refreshes the panel, and returns the view', async () => {
+        const response = await send('/config/tickets', 'PUT', settingsBody);
+        const body = (await response.json()) as {
+            types: { type: string }[];
+            categories: { open: { name: string; discordId: string | null; liveName: string | null } };
+        };
 
-        // The config modal was a literal with no spread and silently dropped every
-        // member it did not name. This route spreads, and this is the test that says so.
         expect(response.status).toBe(200);
-        expect(body.supportTicketCategoryName).toBe('Renamed');
+        expect(setTicketSettings).toHaveBeenCalledWith(
+            expect.objectContaining({ categories: settingsBody.categories, moderationRoles: [MOD_ROLE] })
+        );
+        expect(updateDeployedTicketMessage).toHaveBeenCalledWith(GUILD_ID);
+        expect(body.categories.open).toEqual({
+            name: 'Tickets',
+            discordId: CATEGORY_ID,
+            provenance: 'created',
+            liveName: 'Tickets',
+        });
         expect(body.types.map((type) => type.type)).toEqual(['support']);
     });
 
-    it('409s a guild with no config row rather than inventing one', async () => {
-        ticketingRepoMock.mutateConfig.mockResolvedValue(null);
+    it.each([
+        ['no-config', 409],
+        ['invalid-input', 400],
+        ['busy', 423],
+        ['write-failed', 503],
+    ] as const)('maps a %s refusal to %i, with its own words', async (reason, status) => {
+        setTicketSettings.mockResolvedValue({ ok: false, reason, message: `refused: ${reason}` });
 
-        const response = await send('/config/tickets', 'PUT', {
-            supportTicketCategoryName: 'Tickets',
-            claimedTicketCategoryName: 'Claimed',
-            closedTicketCategoryName: 'Closed',
-            moderationRoles: [MOD_ROLE],
+        const response = await send('/config/tickets', 'PUT', settingsBody);
+
+        expect(response.status).toBe(status);
+        expect(((await response.json()) as ErrorBody).error).toBe(`refused: ${reason}`);
+        expect(updateDeployedTicketMessage).not.toHaveBeenCalled();
+    });
+
+    it('502s a failed create but still refreshes the panel for what was saved', async () => {
+        setTicketSettings.mockResolvedValue({
+            ok: false,
+            reason: 'create-failed',
+            message: 'Discord would not create "Claimed". Everything else was saved.',
+            config: storedConfig(),
         });
 
-        expect(response.status).toBe(409);
+        const response = await send('/config/tickets', 'PUT', settingsBody);
+
+        expect(response.status).toBe(502);
+        expect(updateDeployedTicketMessage).toHaveBeenCalledWith(GUILD_ID);
     });
 });
 

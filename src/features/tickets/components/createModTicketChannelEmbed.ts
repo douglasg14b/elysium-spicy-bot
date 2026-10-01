@@ -8,7 +8,17 @@ import {
 } from 'discord.js';
 import { CreateModTicketButtonComponent } from './createModTicketButton';
 import { TicketConfigButtonComponent } from './ticketConfigButton';
-import { isTicketingConfigConfigured, TicketingConfigEntity } from '../data/ticketingSchema';
+import { isTicketingConfigConfigured, TicketCategoryBinding, TicketingConfigEntity } from '../data/ticketingSchema';
+
+/**
+ * One category slot as the panel shows it: a mention when bound, so Discord renders the
+ * category's current name; otherwise what the operator still has to do.
+ */
+function describeCategory(binding: TicketCategoryBinding): string {
+    if (!binding) return 'Not chosen — pick it on the dashboard';
+    if (!binding.discordId) return `"${binding.name}", not linked yet — link it on the dashboard`;
+    return `<#${binding.discordId}>`;
+}
 
 /**
  * Creates the embed message that goes with the persistent button
@@ -30,9 +40,9 @@ export function CreateModTicketChannelEmbedComponent(configEntity?: TicketingCon
             const ticketConfig = configEntity.config;
             const declaredTypes = Object.keys(ticketConfig.ticketTypes ?? {}).length;
             const configValue = [
-                `**Support Category:** ${ticketConfig.supportTicketCategoryName || 'Not configured'}`,
-                `**Claimed Category:** ${ticketConfig.claimedTicketCategoryName || 'Not configured'}`,
-                `**Closed Category:** ${ticketConfig.closedTicketCategoryName || 'Not configured'}`,
+                `**Open Category:** ${describeCategory(ticketConfig.categories.open)}`,
+                `**Claimed Category:** ${describeCategory(ticketConfig.categories.claimed)}`,
+                `**Closed Category:** ${describeCategory(ticketConfig.categories.closed)}`,
                 // Was "Channel Template", showing a constant nothing rendered from.
                 // The templates are per type now, so the honest summary is how many
                 // types this guild declares.

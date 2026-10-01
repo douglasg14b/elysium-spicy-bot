@@ -1417,6 +1417,27 @@ export interface TicketTypeView {
     autoClaimOnOpen: boolean;
 }
 
+/** The three places a ticket channel can sit, in the order the page lists them. */
+export const TICKET_CATEGORY_SLOTS = ['open', 'claimed', 'closed'] as const;
+export type TicketCategorySlot = (typeof TICKET_CATEGORY_SLOTS)[number];
+
+/**
+ * One category slot.
+ *
+ * `name` is the expected name, the one a deleted category is remade as. `liveName` is what
+ * Discord calls the bound category now (null when nothing is bound, or it is gone). A slot
+ * with a name and no `discordId` is linked to nothing yet, and tickets stop until it is.
+ */
+export interface TicketCategoryView {
+    name: string;
+    discordId: string | null;
+    provenance: 'created' | 'adopted' | null;
+    liveName: string | null;
+}
+
+/** What the page sends for one slot: an existing category, a new name, or `null` to leave it. */
+export type TicketCategoryChoice = { discordId: string } | { name: string } | null;
+
 /**
  * The ticket config, for the config page.
  *
@@ -1427,9 +1448,8 @@ export interface TicketTypeView {
 export interface TicketingConfigView {
     configured: boolean;
     deployed: boolean;
-    supportTicketCategoryName: string;
-    claimedTicketCategoryName: string;
-    closedTicketCategoryName: string;
+    /** `null` per slot when nothing has been chosen. */
+    categories: Record<TicketCategorySlot, TicketCategoryView | null>;
     moderationRoleIds: string[];
     moderationRoles: { id: string; name: string }[];
     types: TicketTypeView[];
@@ -1514,12 +1534,19 @@ export const TICKET_PERMISSION_MODEL_KEYS = [
     'staff',
 ] as const satisfies readonly (keyof TicketPermissionModel)[];
 
+export const TICKET_CATEGORY_VIEW_KEYS = [
+    'name',
+    'discordId',
+    'provenance',
+    'liveName',
+] as const satisfies readonly (keyof TicketCategoryView)[];
+
+export const TICKET_CATEGORY_SLOT_KEYS = TICKET_CATEGORY_SLOTS;
+
 export const TICKETING_CONFIG_VIEW_KEYS = [
     'configured',
     'deployed',
-    'supportTicketCategoryName',
-    'claimedTicketCategoryName',
-    'closedTicketCategoryName',
+    'categories',
     'moderationRoleIds',
     'moderationRoles',
     'types',
@@ -1535,7 +1562,8 @@ type TicketKeyListsAreComplete =
     | Exclude<keyof TicketTypeView, (typeof TICKET_TYPE_VIEW_KEYS)[number]>
     | Exclude<keyof TicketRolePermissions, (typeof TICKET_ROLE_PERMISSIONS_KEYS)[number]>
     | Exclude<keyof TicketPermissionModel, (typeof TICKET_PERMISSION_MODEL_KEYS)[number]>
-    | Exclude<keyof TicketingConfigView, (typeof TICKETING_CONFIG_VIEW_KEYS)[number]>;
+    | Exclude<keyof TicketingConfigView, (typeof TICKETING_CONFIG_VIEW_KEYS)[number]>
+    | Exclude<keyof TicketCategoryView, (typeof TICKET_CATEGORY_VIEW_KEYS)[number]>;
 
 /** Do not delete as unused: removing it erases the guard above. */
 const ticketKeyListsAreComplete: [TicketKeyListsAreComplete] extends [never]

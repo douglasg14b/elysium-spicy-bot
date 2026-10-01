@@ -23,10 +23,11 @@ export type ResourceKind = (typeof RESOURCE_KINDS)[number];
  * thing on every guild, while the channel may be called `#welcome` on one and
  * `#say-hi` on another.
  *
- * This is the correction of the ticket feature's mistake, recorded in issue #22 —
- * ticket categories are keyed by display name and match on `channel.name`, so
- * renaming a category in Discord silently routes tickets into a freshly created
- * duplicate. Bindings here resolve to ids, and a rename is invisible.
+ * This is the correction of the ticket feature's old mistake, issue #22 — ticket
+ * categories were keyed by display name and matched on `channel.name`, so renaming one
+ * in Discord silently routed tickets into a freshly created duplicate (fixed 2026-10-01,
+ * `docs/plans/22-ticket-categories-bound-by-id.md`). Bindings here resolve to ids, and a
+ * rename is invisible.
  */
 export interface ResourceDeclaration {
     /** Stable across guilds and versions. Referenced by bindings and node configs. */

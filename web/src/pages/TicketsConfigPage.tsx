@@ -1,5 +1,9 @@
 /**
- * Ticket configuration: the three categories, who moderates, and the declared types.
+ * Ticket configuration: the three category slots, who moderates, and the declared types.
+ *
+ * Each category slot is an existing category picked by id, or a name the bot creates on
+ * save (`tickets/categorySlots.ts`). This is the only place categories are chosen; the
+ * Discord config modal sets moderation roles only.
  *
  * **Saved on a button, never on a keystroke.** Every input here is a text field an
  * operator types into, and a save-per-character both floods the API and — with a
@@ -44,6 +48,7 @@ import {
 } from '@tabler/icons-react';
 import { Link } from 'react-router-dom';
 import { ApiError } from '../api/client';
+import { getGuildChannels } from '../api/config';
 import { getGuildRoles } from '../api/flows';
 import {
     deleteTicketType,
@@ -51,13 +56,23 @@ import {
     saveTicketType,
     updateTicketsConfig,
 } from '../api/tickets';
-import type {
-    GuildRole,
-    TicketPermissionModel,
-    TicketRolePermissions,
-    TicketTypeView,
-    TicketingConfigView,
+import {
+    TICKET_CATEGORY_SLOTS,
+    type GuildChannel,
+    type GuildRole,
+    type TicketCategorySlot,
+    type TicketPermissionModel,
+    type TicketRolePermissions,
+    type TicketTypeView,
+    type TicketingConfigView,
 } from '../api/types';
+import {
+    categorySlotProblem,
+    choiceFromDraft,
+    draftFromView,
+    type CategorySlotDraft,
+} from '../tickets/categorySlots';
+import { TicketCategorySlotField } from '../tickets/TicketCategorySlotField';
 import {
     draftFromType,
     emptyTicketTypeDraft,
@@ -100,19 +115,19 @@ const permissionTablesAreComplete: [PermissionTablesAreComplete] extends [never]
 
 void permissionTablesAreComplete;
 
-/** The category names and moderation roles, as the form holds them before a save. */
+/** The category slots and moderation roles, as the form holds them before a save. */
 interface CategoriesDraft {
-    readonly supportTicketCategoryName: string;
-    readonly claimedTicketCategoryName: string;
-    readonly closedTicketCategoryName: string;
+    readonly slots: Readonly<Record<TicketCategorySlot, CategorySlotDraft>>;
     readonly moderationRoles: string[];
 }
 
 function categoriesFromConfig(config: TicketingConfigView): CategoriesDraft {
     return {
-        supportTicketCategoryName: config.supportTicketCategoryName,
-        claimedTicketCategoryName: config.claimedTicketCategoryName,
-        closedTicketCategoryName: config.closedTicketCategoryName,
+        slots: {
+            open: draftFromView(config.categories.open),
+            claimed: draftFromView(config.categories.claimed),
+            closed: draftFromView(config.categories.closed),
+        },
         moderationRoles: config.moderationRoleIds,
     };
 }
@@ -122,6 +137,7 @@ export function TicketsConfigPage() {
 
     const [config, setConfig] = useState<TicketingConfigView | null>(null);
     const [roles, setRoles] = useState<GuildRole[]>([]);
+    const [channels, setChannels] = useState<GuildChannel[]>([]);
     const [categories, setCategories] = useState<CategoriesDraft | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -146,8 +162,11 @@ export function TicketsConfigPage() {
         if (!guildId) return;
         setError(null);
         try {
-            const loaded = await getTicketsConfig(guildId);
+            // Channels too: a save may have just created a category, which the picker
+            // must now offer.
+            const [loaded, guildChannels] = await Promise.all([getTicketsConfig(guildId), getGuildChannels(guildId)]);
             setConfig(loaded);
+            setChannels(guildChannels);
             // The categories draft is reset from the server's answer on every reload. A
             // draft preserved across a refresh would quietly present stale text as the
             // operator's unsaved edit.
@@ -164,14 +183,16 @@ export function TicketsConfigPage() {
             setLoading(true);
             setError(null);
             try {
-                const [loadedConfig, guildRoles] = await Promise.all([
+                const [loadedConfig, guildRoles, guildChannels] = await Promise.all([
                     getTicketsConfig(guildId),
                     getGuildRoles(guildId),
+                    getGuildChannels(guildId),
                 ]);
                 if (cancelled) return;
                 setConfig(loadedConfig);
                 setCategories(categoriesFromConfig(loadedConfig));
                 setRoles(guildRoles);
+                setChannels(guildChannels);
             } catch (err) {
                 const message =
                     err instanceof ApiError ? err.message : 'Failed to load ticket settings';
@@ -211,16 +232,24 @@ export function TicketsConfigPage() {
 
     async function handleSaveCategories() {
         if (!guildId || !categories) return;
+        const problem = TICKET_CATEGORY_SLOTS.map((slot) => categorySlotProblem(categories.slots[slot])).find(Boolean);
+        if (problem) {
+            notifications.show({ color: 'red', title: "Couldn't save", message: problem });
+            return;
+        }
+
         setSavingCategories(true);
+        let reload = false;
         try {
-            const updated = await updateTicketsConfig(guildId, {
-                supportTicketCategoryName: categories.supportTicketCategoryName,
-                claimedTicketCategoryName: categories.claimedTicketCategoryName,
-                closedTicketCategoryName: categories.closedTicketCategoryName,
+            await updateTicketsConfig(guildId, {
+                categories: {
+                    open: choiceFromDraft(categories.slots.open, config?.categories.open ?? null),
+                    claimed: choiceFromDraft(categories.slots.claimed, config?.categories.claimed ?? null),
+                    closed: choiceFromDraft(categories.slots.closed, config?.categories.closed ?? null),
+                },
                 moderationRoles: categories.moderationRoles,
             });
-            setConfig(updated);
-            setCategories(categoriesFromConfig(updated));
+            reload = true;
             notifications.show({
                 color: 'brand',
                 title: 'Saved',
@@ -228,10 +257,18 @@ export function TicketsConfigPage() {
             });
         } catch (err) {
             const message = err instanceof ApiError ? err.message : "Couldn't save that.";
-            notifications.show({ color: 'red', title: "Couldn't save", message });
+            notifications.show({ color: 'red', title: "Couldn't save", message, autoClose: false });
+            // 502 (one create failed, the rest saved) and 503 (made in Discord, not
+            // recorded) both leave the draft describing something that is no longer true —
+            // and a draft still in "create" mode invites making the same category twice.
+            if (err instanceof ApiError && (err.status === 502 || err.status === 503)) reload = true;
         } finally {
             setSavingCategories(false);
         }
+        // Outside the `try`, so a failed re-read cannot report a save that went through as
+        // "Couldn't save". One reload for config, draft and the channel list — a save may
+        // have created categories the picker must now offer.
+        if (reload) await refresh();
     }
 
     function openNewType(): void {
@@ -367,9 +404,20 @@ export function TicketsConfigPage() {
                             icon={<IconAlertTriangle size={16} />}
                             title="Tickets aren't set up here yet"
                         >
-                            Run <Text span ff="monospace">/deploy-ticket-system</Text> in Discord
-                            first. That creates the categories and the panel members press; until it
-                            has run there is no config row for anything below to save into.
+                            {config.deployed ? (
+                                <>
+                                    Link all three categories and pick your moderation roles below.
+                                    Tickets stay paused until every category is linked to a real
+                                    one.
+                                </>
+                            ) : (
+                                <>
+                                    Run <Text span ff="monospace">/deploy-ticket-system</Text> in
+                                    Discord first. That posts the panel members press and creates
+                                    the config everything below saves into; then come back and
+                                    choose the categories here.
+                                </>
+                            )}
                         </Alert>
                     )}
 
@@ -382,44 +430,27 @@ export function TicketsConfigPage() {
                         </Group>
                         <Text c="dimmed" size="13px" mb="lg" maw={560}>
                             A ticket moves between these three categories as it is claimed and
-                            closed. Name them something you can actually find in a long channel
-                            list.
+                            closed. Pick ones you already have, or name new ones and the bot makes
+                            them. Renaming them in Discord later is fine; the bot follows the
+                            category, not its name.
                         </Text>
 
                         <Stack gap="md" maw={520}>
-                            <TextInput
-                                label="Open tickets"
-                                description="Where a fresh ticket lands."
-                                value={categories.supportTicketCategoryName}
-                                onChange={(event) =>
-                                    setCategories({
-                                        ...categories,
-                                        supportTicketCategoryName: event.currentTarget.value,
-                                    })
-                                }
-                            />
-                            <TextInput
-                                label="Claimed tickets"
-                                description="Where it goes once somebody owns it."
-                                value={categories.claimedTicketCategoryName}
-                                onChange={(event) =>
-                                    setCategories({
-                                        ...categories,
-                                        claimedTicketCategoryName: event.currentTarget.value,
-                                    })
-                                }
-                            />
-                            <TextInput
-                                label="Closed tickets"
-                                description="Where it rests. Closed is not deleted."
-                                value={categories.closedTicketCategoryName}
-                                onChange={(event) =>
-                                    setCategories({
-                                        ...categories,
-                                        closedTicketCategoryName: event.currentTarget.value,
-                                    })
-                                }
-                            />
+                            {TICKET_CATEGORY_SLOTS.map((slot) => (
+                                <TicketCategorySlotField
+                                    key={slot}
+                                    slot={slot}
+                                    view={config.categories[slot]}
+                                    channels={channels}
+                                    draft={categories.slots[slot]}
+                                    onChange={(draft) =>
+                                        setCategories({
+                                            ...categories,
+                                            slots: { ...categories.slots, [slot]: draft },
+                                        })
+                                    }
+                                />
+                            ))}
                             <MultiSelect
                                 label="Moderation roles"
                                 description="Who can claim, close and read every ticket. Separate from staff roles — mods and staff aren't the same crowd here."
@@ -454,7 +485,7 @@ export function TicketsConfigPage() {
                                         {orphanedRoleIds.join(', ')}
                                     </Text>{' '}
                                     any more, and the server refuses to save a config that
-                                    mentions it — even if all you changed was a category name.
+                                    mentions it — even if all you changed was a category.
                                     Remove it above first.
                                 </Alert>
                             )}

@@ -1,8 +1,8 @@
 import { ChannelType, Guild, PermissionsBitField, TextChannel, type OverwriteResolvable } from 'discord.js';
 import { fail, ok, type Result } from '../../../shared';
-import type { ConfiguredTicketingConfig, TicketTypeDefinition } from '../data/ticketingSchema';
+import type { ConfiguredTicketingConfig, TicketCategorySlot, TicketTypeDefinition } from '../data/ticketingSchema';
 import type { TicketEntity } from '../data/ticketsSchema';
-import { findOrCreateModeratorCategory } from './ticketChannelPermissions';
+import { resolveTicketCategory } from './ticketCategories';
 import { buildTicketChannelName, getTicketTypeDefinition, toPermissionOverwrite } from './ticketTypes';
 
 /**
@@ -133,12 +133,10 @@ export async function createTicketChannelForTicket({
     // Whether it *was* claimed, not whether its type auto-claims: a flow opening an
     // auto-claim type has no opener to claim it for, so it is genuinely unclaimed and
     // belongs in the open category. The same rule `syncTicketChannelToState` applies.
-    const categoryName = ticket.claimerId ? config.claimedTicketCategoryName : config.supportTicketCategoryName;
-
-    const categoryResult = await findOrCreateModeratorCategory({
+    const categoryResult = await resolveTicketCategory({
         guild,
-        categoryName,
-        moderationRoleIds: config.moderationRoles,
+        config,
+        slot: ticket.claimerId ? 'claimed' : 'open',
     });
     if (!categoryResult.ok) return categoryResult;
     const category = categoryResult.value;
@@ -206,14 +204,14 @@ export async function syncTicketChannelToState(
     // fall silently into the open arm and route a channel to the wrong category.
     // `status` is a deliberate design axis here, so it is the union most likely
     // to gain a member.
-    let categoryName: string;
+    let slot: TicketCategorySlot;
     switch (ticket.status) {
         case 'closed':
         case 'deleted':
-            categoryName = config.closedTicketCategoryName;
+            slot = 'closed';
             break;
         case 'open':
-            categoryName = ticket.claimerId ? config.claimedTicketCategoryName : config.supportTicketCategoryName;
+            slot = ticket.claimerId ? 'claimed' : 'open';
             break;
         default: {
             const unhandled: never = ticket.status;
@@ -221,11 +219,7 @@ export async function syncTicketChannelToState(
         }
     }
 
-    const categoryResult = await findOrCreateModeratorCategory({
-        guild,
-        categoryName,
-        moderationRoleIds: config.moderationRoles,
-    });
+    const categoryResult = await resolveTicketCategory({ guild, config, slot });
     if (!categoryResult.ok) return categoryResult;
 
     try {

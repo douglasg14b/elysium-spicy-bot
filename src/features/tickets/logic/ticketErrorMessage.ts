@@ -2,6 +2,16 @@ import type { ButtonInteraction } from 'discord.js';
 import type { InteractionHandlerResult } from '../../../features-system/commands/types';
 
 /**
+ * What a member is told when the ticket system is not set up enough to act on.
+ *
+ * One sentence for every entry point that checks `isTicketingConfigConfigured`, because
+ * the reason it fails changed (issue #22: categories are linked on the dashboard now) and
+ * three copies of the old sentence all pointed somewhere that no longer exists.
+ */
+export const TICKETING_NOT_CONFIGURED_MESSAGE =
+    '❌ The ticket system is not fully set up. An administrator needs to finish ticket settings on the dashboard — all three categories linked, and moderation roles picked.';
+
+/**
  * Renders a ticket failure as user-facing copy.
  *
  * `Result`'s error slot is typed `Error | string`, but `FailResult`'s

@@ -5,6 +5,9 @@ import { ticketingRepo } from '../../features/tickets/data/ticketingRepo';
 import { TICKET_LIST_CAP, ticketsRepo } from '../../features/tickets/data/ticketsRepo';
 import {
     isTicketingConfigConfigured,
+    TICKET_CATEGORY_SLOTS,
+    type TicketCategoryBinding,
+    type TicketCategorySlot,
     type TicketingConfig,
     // Named rather than reached through `TicketTypeDefinition['permissions']`, so `keyof`
     // has something to bite on in the drift gate below.
@@ -23,6 +26,8 @@ import {
     upsertTicketType,
     type SetTicketTypeRefusal,
 } from '../../features/tickets/logic/setTicketTypes';
+import { setTicketSettings, type SetTicketSettingsRefusal } from '../../features/tickets/logic/setTicketSettings';
+import { updateDeployedTicketMessage } from '../../features/tickets/utils/updateDeployedMessage';
 import type { AppEnv } from '../types';
 
 /**
@@ -94,30 +99,46 @@ const ticketTypeBody = z.object({
     autoClaimOnOpen: z.boolean(),
 });
 
+/** Discord's limit on a channel name, categories included. */
+const CATEGORY_NAME_MAX_LENGTH = 100;
+
+/**
+ * One category slot as the page sends it: an existing category by id, a new one by
+ * name, or `null` to leave the slot as it is.
+ *
+ * An id and a name are separate shapes, never one string that might be either — a
+ * display name that doubles as a binding is how two same-named categories get confused.
+ */
+const categoryChoice = z
+    .union([
+        z.strictObject({ discordId: z.string().regex(/^\d{17,20}$/, 'That is not a Discord category id.') }),
+        z.strictObject({
+            name: z
+                .string()
+                .trim()
+                .min(1, 'A new category needs a name. Discord insists on calling things something.')
+                .max(CATEGORY_NAME_MAX_LENGTH, 'Discord caps a category name at 100 characters.'),
+        }),
+    ])
+    .nullable();
+
 /**
  * The guild-wide ticket settings this page owns.
  *
- * Three category names and the moderation roles. **Not** the types — those have their
+ * The three category slots and the moderation roles. **Not** the types — those have their
  * own routes, because a type edit is a modal on one row and sending the whole record
- * back on every category rename is how one editor's save eats another's.
+ * back on every category change is how one editor's save eats another's.
  *
  * An empty moderation-role list is refused: `resolveTicketAction` gates every ticket
  * button on holding one of these roles *or* native moderation permissions, so saving
  * none quietly narrows who can work tickets to whoever has server-level perms.
  */
 const ticketConfigBody = z.object({
-    supportTicketCategoryName: z
-        .string()
-        .trim()
-        .min(1, 'Open tickets need a category to live in. Name it something you can find.'),
-    claimedTicketCategoryName: z
-        .string()
-        .trim()
-        .min(1, 'Claimed tickets need somewhere to go, or nobody can tell what is being handled.'),
-    closedTicketCategoryName: z
-        .string()
-        .trim()
-        .min(1, 'Closed tickets need a category too — they do not simply evaporate, much as we all wish.'),
+    categories: z.strictObject({
+        open: categoryChoice,
+        claimed: categoryChoice,
+        closed: categoryChoice,
+    }),
     moderationRoles: z
         .array(z.string().min(1).max(ROLE_ID_MAX_LENGTH))
         .min(1, 'Pick at least one moderation role, or nobody but admins can touch a ticket.')
@@ -146,6 +167,21 @@ const REFUSAL_STATUS: Readonly<Record<SetTicketTypeRefusal, 400 | 404 | 409 | 50
     'undeclared-type': 404,
     'type-in-use': 409,
     'invalid-input': 400,
+    'write-failed': 503,
+};
+
+/**
+ * The same table for the settings save.
+ *
+ * `busy` is a 423, as a busy journey install is: the page must not reload settings the
+ * other save is still changing. `create-failed` is a 502 because Discord refused, not the
+ * operator — and the body says what *was* saved, since the rest of the save went through.
+ */
+const SETTINGS_REFUSAL_STATUS: Readonly<Record<SetTicketSettingsRefusal, 400 | 409 | 423 | 502 | 503>> = {
+    'no-config': 409,
+    'invalid-input': 400,
+    busy: 423,
+    'create-failed': 502,
     'write-failed': 503,
 };
 
@@ -311,12 +347,16 @@ export function ticketRoutes(): Hono<AppEnv> {
     });
 
     /**
-     * Replace the categories and moderation roles.
+     * Set the category slots and moderation roles.
      *
-     * Spreads the stored config rather than rebuilding it, so the types — and anything
-     * added to `TicketingConfig` later — survive a save here. The config modal was a
-     * complete literal with no spread and became a silent destructor the moment
-     * `ticketTypes` joined the shape; this route is not repeating that.
+     * Through `setTicketSettings`, which may **create** categories — a slot given a name
+     * is made on save — so this route changes the guild, not just the config. It spreads
+     * the stored config rather than rebuilding it, so the types and anything added to
+     * `TicketingConfig` later survive a save here.
+     *
+     * The deployed panel is refreshed afterwards, because the dashboard is now the only
+     * place categories are chosen: without it the panel's Create button would stay
+     * disabled after setup until something else happened to redraw it.
      */
     app.put('/:guildId/config/tickets', async (c) => {
         const guild = c.get('guild');
@@ -342,47 +382,21 @@ export function ticketRoutes(): Hono<AppEnv> {
             );
         }
 
-        /*
-         * Wrapped, unlike most reads here, because this write is the one that can lose a
-         * race with another editor: on sqlite the losing transaction raises `SQLITE_BUSY`
-         * rather than clobbering, and letting that reach the error handler would answer
-         * 500 — "the server is broken" — to a save that simply needs pressing again. The
-         * two shared type routes already return retryable copy for the same reason; this
-         * route was the one calling `mutateConfig` bare.
-         */
-        let saved: TicketingConfig | null;
-        try {
-            saved = await ticketingRepo.mutateConfig(guild.id, (current) =>
-                current.config
-                    ? {
-                          ...current.config,
-                          supportTicketCategoryName: parsed.data.supportTicketCategoryName,
-                          claimedTicketCategoryName: parsed.data.claimedTicketCategoryName,
-                          closedTicketCategoryName: parsed.data.closedTicketCategoryName,
-                          moderationRoles: [...new Set(parsed.data.moderationRoles)],
-                      }
-                    : null
-            );
-        } catch (error) {
-            console.error('[tickets] Error saving ticket config:', error);
-            return c.json(
-                {
-                    error: 'Could not save that — something else was editing this server’s ticket config at the same moment. Try again in a second.',
-                },
-                503
-            );
+        const result = await setTicketSettings({
+            guild,
+            categories: parsed.data.categories,
+            moderationRoles: parsed.data.moderationRoles,
+        });
+
+        // A failed create still saved what it made, so the panel is redrawn for that too.
+        if (result.ok || result.reason === 'create-failed') {
+            await updateDeployedTicketMessage(guild.id).catch((error: unknown) => {
+                console.error('[tickets] Settings saved, but the deployed panel could not be refreshed:', error);
+            });
         }
 
-        if (!saved) {
-            return c.json(
-                {
-                    error: 'This server has no ticket config yet. Run /deploy-ticket-system in Discord first, then come back and tune it here.',
-                },
-                409
-            );
-        }
-
-        return c.json(ticketingConfigView(guild, saved));
+        if (!result.ok) return c.json({ error: result.message }, SETTINGS_REFUSAL_STATUS[result.reason]);
+        return c.json(ticketingConfigView(guild, result.config));
     });
 
     /**
@@ -513,6 +527,21 @@ interface TicketTypeView {
 }
 
 /**
+ * One category slot, for the settings page.
+ *
+ * `name` is the expected name — what a deleted category is remade as. `liveName` is what
+ * Discord calls the bound category now, or null when nothing is bound or the category is
+ * gone; the two differ after a rename, which is harmless and worth showing. A slot with a
+ * name and no `discordId` is the migration's "linked to nothing yet" state.
+ */
+interface TicketCategoryView {
+    name: string;
+    discordId: string | null;
+    provenance: 'created' | 'adopted' | null;
+    liveName: string | null;
+}
+
+/**
  * The ticket config for the config page.
  *
  * `deployed` rather than the three `modTicketsDeployed*` members: the page needs to
@@ -525,9 +554,8 @@ interface TicketTypeView {
 interface TicketingConfigView {
     configured: boolean;
     deployed: boolean;
-    supportTicketCategoryName: string;
-    claimedTicketCategoryName: string;
-    closedTicketCategoryName: string;
+    /** `null` per slot when nothing has been chosen. */
+    categories: Record<TicketCategorySlot, TicketCategoryView | null>;
     moderationRoleIds: string[];
     moderationRoles: { id: string; name: string }[];
     types: TicketTypeView[];
@@ -609,6 +637,17 @@ function ticketDetail(ticket: TicketEntity, config: TicketingConfig | null): Tic
     };
 }
 
+function categoryView(guild: Guild, binding: TicketCategoryBinding): TicketCategoryView | null {
+    if (!binding) return null;
+    if (!binding.discordId) return { name: binding.name, discordId: null, provenance: null, liveName: null };
+    return {
+        name: binding.name,
+        discordId: binding.discordId,
+        provenance: binding.provenance,
+        liveName: guild.channels.cache.get(binding.discordId)?.name ?? null,
+    };
+}
+
 function ticketingConfigView(guild: Guild, config: TicketingConfig | null): TicketingConfigView {
     const moderationRoleIds = config?.moderationRoles ?? [];
 
@@ -620,9 +659,9 @@ function ticketingConfigView(guild: Guild, config: TicketingConfig | null): Tick
             config ? { id: 0, guildId: guild.id, config, ticketNumberInc: 0, entityVersion: 1 } : null
         ),
         deployed: config?.modTicketsDeployed ?? false,
-        supportTicketCategoryName: config?.supportTicketCategoryName ?? '',
-        claimedTicketCategoryName: config?.claimedTicketCategoryName ?? '',
-        closedTicketCategoryName: config?.closedTicketCategoryName ?? '',
+        categories: Object.fromEntries(
+            TICKET_CATEGORY_SLOTS.map((slot) => [slot, categoryView(guild, config?.categories[slot] ?? null)])
+        ) as Record<TicketCategorySlot, TicketCategoryView | null>,
         moderationRoleIds: [...moderationRoleIds],
         moderationRoles: moderationRoleIds
             .map((roleId) => guild.roles.cache.get(roleId))
@@ -722,12 +761,20 @@ export const TICKET_PERMISSION_MODEL_KEYS = [
     'staff',
 ] as const satisfies readonly (keyof TicketPermissionModel)[];
 
+export const TICKET_CATEGORY_VIEW_KEYS = [
+    'name',
+    'discordId',
+    'provenance',
+    'liveName',
+] as const satisfies readonly (keyof TicketCategoryView)[];
+
+/** The slot names are a wire vocabulary too: a fourth slot unmirrored is one the page never draws. */
+export const TICKET_CATEGORY_SLOT_KEYS = TICKET_CATEGORY_SLOTS;
+
 export const TICKETING_CONFIG_VIEW_KEYS = [
     'configured',
     'deployed',
-    'supportTicketCategoryName',
-    'claimedTicketCategoryName',
-    'closedTicketCategoryName',
+    'categories',
     'moderationRoleIds',
     'moderationRoles',
     'types',
@@ -748,7 +795,8 @@ type KeyListsComplete =
     | Exclude<keyof TicketTypeView, (typeof TICKET_TYPE_VIEW_KEYS)[number]>
     | Exclude<keyof TicketRolePermissions, (typeof TICKET_ROLE_PERMISSIONS_KEYS)[number]>
     | Exclude<keyof TicketPermissionModel, (typeof TICKET_PERMISSION_MODEL_KEYS)[number]>
-    | Exclude<keyof TicketingConfigView, (typeof TICKETING_CONFIG_VIEW_KEYS)[number]>;
+    | Exclude<keyof TicketingConfigView, (typeof TICKETING_CONFIG_VIEW_KEYS)[number]>
+    | Exclude<keyof TicketCategoryView, (typeof TICKET_CATEGORY_VIEW_KEYS)[number]>;
 
 /**
  * Do not delete as unused: removing this erases the guards above.

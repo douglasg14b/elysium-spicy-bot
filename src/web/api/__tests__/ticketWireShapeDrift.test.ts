@@ -3,6 +3,8 @@ import { TICKET_STATUSES } from '../../../features/tickets/data/ticketsSchema';
 import {
     TICKETING_CONFIG_VIEW_KEYS,
     TICKET_ACTION_RESULT_KEYS,
+    TICKET_CATEGORY_SLOT_KEYS,
+    TICKET_CATEGORY_VIEW_KEYS,
     TICKET_COUNTS_KEYS,
     TICKET_DETAIL_KEYS,
     TICKET_PARTICIPANT_KEYS,
@@ -81,6 +83,17 @@ const SHAPES = [
         name: 'TicketingConfigView',
         server: TICKETING_CONFIG_VIEW_KEYS,
         browser: browserTypes.TICKETING_CONFIG_VIEW_KEYS,
+    },
+    {
+        name: 'TicketCategoryView',
+        server: TICKET_CATEGORY_VIEW_KEYS,
+        browser: browserTypes.TICKET_CATEGORY_VIEW_KEYS,
+    },
+    // The slot names: the page draws one control per slot and sends one choice per slot.
+    {
+        name: 'TicketCategorySlot',
+        server: TICKET_CATEGORY_SLOT_KEYS,
+        browser: browserTypes.TICKET_CATEGORY_SLOT_KEYS,
     },
 ] as const satisfies readonly { name: string; server: readonly string[]; browser: readonly string[] }[];
 

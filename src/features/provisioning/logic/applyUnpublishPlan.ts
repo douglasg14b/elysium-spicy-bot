@@ -1,5 +1,6 @@
 import type { Guild } from 'discord.js';
 import { resourceBindingsRepo, type ResourceBindingsRepo } from '../data/resourceBindingsRepo';
+import { describeDiscordError as describeError, isAlreadyGone, isPermissionProblem } from './discordErrors';
 import { existsInGuildAs } from './installPlan';
 import type { ResourceKind } from './resourceDeclaration';
 import { survivorsOf, type UnpublishItem, type UnpublishPlan } from './unpublishPlan';
@@ -243,36 +244,4 @@ async function deleteFromGuild(
         }
         return `Discord refused to delete it: ${describeError(error)}`;
     }
-}
-
-/** Discord's numeric API error code, when the thrown value carries one. */
-function errorCode(error: unknown): number | undefined {
-    if (typeof error === 'object' && error !== null && 'code' in error) {
-        const code = (error as { code: unknown }).code;
-        return typeof code === 'number' ? code : undefined;
-    }
-    return undefined;
-}
-
-/**
- * "It is not there", by code rather than by message text.
- *
- * 10003 `Unknown Channel`, 10004 `Unknown Guild`, 10011 `Unknown Role`. Matched
- * numerically so a reworded message cannot turn this into a failure, and so a genuine
- * permission error is never mistaken for a tidy-up. Mirrors `isUnknownMessage` in
- * `undeployFlowButtons.ts`, which does the same job for 10008.
- */
-function isAlreadyGone(error: unknown): boolean {
-    const code = errorCode(error);
-    return code === 10003 || code === 10004 || code === 10011;
-}
-
-/** 50013 `Missing Permissions`, 50001 `Missing Access`. Named so the advice is useful. */
-function isPermissionProblem(error: unknown): boolean {
-    const code = errorCode(error);
-    return code === 50013 || code === 50001;
-}
-
-function describeError(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
 }

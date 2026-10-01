@@ -49,7 +49,13 @@ export {
 } from './logic/declaredRoleReference';
 
 export type { InstallPlan, PlanItem, PlanAction, ResourceChoice } from './logic/installPlan';
-export { isPlanApplicable } from './logic/installPlan';
+export { isPlanApplicable, existsInGuildAs } from './logic/installPlan';
+
+// Binding by id, for features that hold their own bindings (tickets, until one
+// owner-keyed table holds every feature's). `lookupBoundChannel` reports `gone` only
+// when Discord says `Unknown Channel`, so a caller may safely recreate on it.
+export { lookupBoundChannel } from './logic/lookupBoundChannel';
+export { describeDiscordError } from './logic/discordErrors';
 
 // The whole install sequence — rebuild, re-check, apply, write back — as one call.
 // Every surface that offers an install goes through this, so the steps cannot be

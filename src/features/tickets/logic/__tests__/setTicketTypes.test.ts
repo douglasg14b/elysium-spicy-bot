@@ -21,9 +21,11 @@ function config(overrides: Partial<TicketingConfig> = {}): TicketingConfig {
         modTicketsDeployed: true,
         modTicketsDeployedChannelId: 'channel-1',
         modTicketsDeployedMessageId: 'message-1',
-        supportTicketCategoryName: 'Support',
-        claimedTicketCategoryName: 'Claimed',
-        closedTicketCategoryName: 'Closed',
+        categories: {
+            open: { name: 'Support', discordId: '900000000000000001', provenance: 'adopted' },
+            claimed: { name: 'Claimed', discordId: '900000000000000002', provenance: 'adopted' },
+            closed: { name: 'Closed', discordId: '900000000000000003', provenance: 'adopted' },
+        },
         moderationRoles: ['role-1'],
         ticketTypes: { ...DEFAULT_TICKET_TYPES },
         ...overrides,
@@ -233,7 +235,7 @@ describe('upsertTicketType persistence', () => {
         // The same discipline the config modal needed: a write that names one member
         // must not drop the rest.
         expect(written().moderationRoles).toEqual(['role-1']);
-        expect(written().supportTicketCategoryName).toBe('Support');
+        expect(written().categories.open?.name).toBe('Support');
     });
 
     it('refuses a guild with no config row', async () => {

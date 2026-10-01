@@ -3,6 +3,8 @@
 import { api } from './client';
 import type {
     TicketActionResult,
+    TicketCategoryChoice,
+    TicketCategorySlot,
     TicketCounts,
     TicketDetail,
     TicketSummary,
@@ -79,13 +81,16 @@ export function getTicketsConfig(guildId: string): Promise<TicketingConfigView> 
     return api.get<TicketingConfigView>(`/api/guilds/${guildId}/config/tickets`);
 }
 
-/** Replaces the categories and moderation roles. The declared types are left alone. */
+/**
+ * Sets the category slots and moderation roles. The declared types are left alone.
+ *
+ * A slot given a `name` is created in Discord on save. A 502 means one create failed and
+ * everything else was saved, so the page re-reads rather than trusting its draft.
+ */
 export function updateTicketsConfig(
     guildId: string,
     input: {
-        supportTicketCategoryName: string;
-        claimedTicketCategoryName: string;
-        closedTicketCategoryName: string;
+        categories: Record<TicketCategorySlot, TicketCategoryChoice>;
         moderationRoles: string[];
     }
 ): Promise<TicketingConfigView> {

@@ -1,5 +1,5 @@
 export * from './hasModeratorRole';
-export * from './ticketChannelPermissions';
+export * from './createTicketCategory';
 export * from './ticketButtonConfigs';
 export * from './ticketTypes';
 export * from './ticketChannelOps';

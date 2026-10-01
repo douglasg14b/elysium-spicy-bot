@@ -47,9 +47,9 @@ export interface ResourceBindingTable {
     /**
      * The name at bind time, kept for diagnostics only.
      *
-     * Explicitly *not* used for lookup — that is the defect issue #22 records in the
-     * ticket feature, where a category is found by matching `channel.name` and a
-     * rename silently produces a duplicate. Resolution here is always by `discordId`.
+     * Explicitly *not* used for lookup — that was issue #22 in the ticket feature, where
+     * a category was found by matching `channel.name` and a rename silently produced a
+     * duplicate. Resolution here is always by `discordId`.
      */
     name: string;
 

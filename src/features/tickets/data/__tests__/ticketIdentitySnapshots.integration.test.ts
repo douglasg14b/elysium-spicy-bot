@@ -214,7 +214,9 @@ describe('the type seed', () => {
 
         // And the members it had no business touching are still there. `json_remove`
         // takes keys, not paths into siblings.
-        expect(config.supportTicketCategoryName).toBe('Support');
+        // Read as the pre-2026-10-01 shape: this file stops at the 2026-09-23 migration,
+        // before the names became category slots.
+        expect((config as unknown as { supportTicketCategoryName: string }).supportTicketCategoryName).toBe('Support');
         expect(config.moderationRoles).toEqual(['role-1']);
     });
 

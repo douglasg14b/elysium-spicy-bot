@@ -21,9 +21,11 @@ function config(): TicketingConfig {
         modTicketsDeployed: true,
         modTicketsDeployedChannelId: 'channel-1',
         modTicketsDeployedMessageId: 'message-1',
-        supportTicketCategoryName: 'Support',
-        claimedTicketCategoryName: 'Claimed',
-        closedTicketCategoryName: 'Closed',
+        categories: {
+            open: { name: 'Support', discordId: '900000000000000001', provenance: 'adopted' },
+            claimed: { name: 'Claimed', discordId: '900000000000000002', provenance: 'adopted' },
+            closed: { name: 'Closed', discordId: '900000000000000003', provenance: 'adopted' },
+        },
         moderationRoles: ['role-1'],
         ticketTypes: { ...DEFAULT_TICKET_TYPES },
     };

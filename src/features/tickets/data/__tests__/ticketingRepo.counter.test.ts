@@ -92,7 +92,7 @@ describe('the ticket number counter', () => {
         await updateSettings({ ticketNumberInc: 3 });
 
         // The existing-config branch sets only `config`, never the counter.
-        await updateSettings({ config: JSON.stringify({ supportTicketCategoryName: 'changed' }) });
+        await updateSettings({ config: JSON.stringify({ moderationRoles: ['changed'] }) });
 
         const after = await get();
         expect(after.ticketNumberInc).toBe(3);

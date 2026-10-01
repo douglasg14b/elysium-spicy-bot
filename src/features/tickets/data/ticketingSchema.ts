@@ -55,10 +55,9 @@ export interface TicketPermissionModel {
  * One ticket type, as an operator declares it.
  *
  * Four members beyond the key, and the boundary is deliberate. **Not** the
- * category — all three categories stay guild-wide
- * (`supportTicketCategoryName`, `claimedTicketCategoryName`,
- * `closedTicketCategoryName`) and `syncTicketChannelToState` keeps routing by
- * *status*, not by type. **Not** the opening content and **not** the available
+ * category — all three categories stay guild-wide (`TicketingConfig.categories`)
+ * and `syncTicketChannelToState` keeps routing by *status*, not by type.
+ * **Not** the opening content and **not** the available
  * controls: both are carried-forward items and both would need a second editor
  * before they are worth having.
  *
@@ -90,14 +89,73 @@ export interface TicketTypeDefinition {
     readonly autoClaimOnOpen: boolean;
 }
 
+/**
+ * The three places a ticket channel can sit, by where the ticket is in its life.
+ *
+ * `open` is unclaimed, `claimed` is open and owned, `closed` covers closed and deleted.
+ * The order is the order the dashboard lists them in.
+ */
+export const TICKET_CATEGORY_SLOTS = ['open', 'claimed', 'closed'] as const;
+export type TicketCategorySlot = (typeof TICKET_CATEGORY_SLOTS)[number];
+
+/** How each slot is named to an operator, in every message that names one. */
+export const TICKET_CATEGORY_LABELS: Readonly<Record<TicketCategorySlot, string>> = {
+    open: 'open tickets',
+    claimed: 'claimed tickets',
+    closed: 'closed tickets',
+};
+
+/** Whether the bot made a bound category or was handed one that already existed. */
+export type TicketCategoryProvenance = 'created' | 'adopted';
+
+/**
+ * A slot with an expected name and no category behind it.
+ *
+ * What the 2026-10-01 migration leaves for every guild that had a name configured, and
+ * what a crash between creating a category and recording it leaves. **Never resolved by
+ * name at runtime** — finding a category by `channel.name` is issue #22 — so a slot in
+ * this state stops tickets until the operator links it on the dashboard.
+ */
+export interface UnboundTicketCategory {
+    readonly name: string;
+    readonly discordId: null;
+}
+
+/**
+ * A slot tied to a real category.
+ *
+ * `discordId` is what every lookup uses. `name` is the **expected** name: the one a
+ * deleted category is recreated under, and nothing else — a rename in Discord changes
+ * nothing here and breaks nothing. The same shape as a `resource_bindings` row (expected
+ * name, id, provenance), kept in this blob until one owner-keyed table holds both.
+ */
+export interface BoundTicketCategory {
+    readonly name: string;
+    readonly discordId: string;
+    readonly provenance: TicketCategoryProvenance;
+}
+
+/** One category slot. `null` is "nothing chosen yet". */
+export type TicketCategoryBinding = UnboundTicketCategory | BoundTicketCategory | null;
+
+export function isBoundTicketCategory(binding: TicketCategoryBinding): binding is BoundTicketCategory {
+    return !!binding?.discordId;
+}
+
 export interface TicketingConfig {
     modTicketsDeployed: boolean;
     modTicketsDeployedChannelId: string | null;
     modTicketsDeployedMessageId: string | null;
 
-    supportTicketCategoryName: string;
-    claimedTicketCategoryName: string;
-    closedTicketCategoryName: string;
+    /**
+     * Where ticket channels live, by id. Replaced three category *names* on
+     * 2026-10-01 (issue #22); see `docs/plans/22-ticket-categories-bound-by-id.md`.
+     *
+     * **Required on read**, unlike `ticketTypes`: the 2026-10-01 migration gave every
+     * existing row this member, and every writer that creates a row (deploy, the config
+     * modal) seeds it. A row without it was written by hand, and reading it fails loudly.
+     */
+    categories: Record<TicketCategorySlot, TicketCategoryBinding>;
 
     moderationRoles: string[];
 
@@ -124,6 +182,8 @@ export interface ConfiguredTicketingConfig extends TicketingConfig {
     modTicketsDeployed: true;
     modTicketsDeployedChannelId: string;
     modTicketsDeployedMessageId: string;
+    /** Narrowed by the guard, so nothing downstream re-checks a slot it already proved. */
+    categories: Record<TicketCategorySlot, BoundTicketCategory>;
 }
 
 export type ConfiguredTicketingConfigEntity = TicketingConfigEntity & {
@@ -138,6 +198,9 @@ export type ConfiguredTicketingConfigEntity = TicketingConfigEntity & {
  * requiring types to consider the system configured would brick the
  * `resolveTicketAction` gate for every guild between the migration and its first
  * config save. Stated here because it is the tempting wrong move.
+ *
+ * **Every category slot must be bound.** A slot holding only an expected name is not
+ * enough, because the only way to act on one would be to find a category by name.
  */
 export function isTicketingConfigConfigured(
     entity: TicketingConfigEntity | null | undefined
@@ -146,21 +209,12 @@ export function isTicketingConfigConfigured(
         return false;
     }
 
-    const {
-        modTicketsDeployed,
-        supportTicketCategoryName,
-        closedTicketCategoryName,
-        claimedTicketCategoryName,
-        moderationRoles,
-        modTicketsDeployedChannelId,
-        modTicketsDeployedMessageId,
-    } = entity.config;
+    const { modTicketsDeployed, categories, moderationRoles, modTicketsDeployedChannelId, modTicketsDeployedMessageId } =
+        entity.config;
 
     return (
         modTicketsDeployed &&
-        !!claimedTicketCategoryName &&
-        !!supportTicketCategoryName &&
-        !!closedTicketCategoryName &&
+        TICKET_CATEGORY_SLOTS.every((slot) => isBoundTicketCategory(categories[slot])) &&
         !!modTicketsDeployedChannelId &&
         !!modTicketsDeployedMessageId &&
         moderationRoles.length > 0

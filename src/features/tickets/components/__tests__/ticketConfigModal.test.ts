@@ -22,11 +22,29 @@ const mockGet = vi.fn();
 const mockUpdate = vi.fn();
 const mockUpsert = vi.fn();
 
+/*
+ * `mutateConfig` over whatever `mockGet` holds, recording what was written in `mockUpdate`
+ * the way the real one writes the blob: the modal hands it a mutator and must spread the
+ * row it is given, not one it read earlier. Returns null with no row, as the real one does.
+ */
+async function fakeMutateConfig(
+    guildId: string,
+    mutate: (current: TicketingConfigEntity) => TicketingConfig | null
+): Promise<TicketingConfig | null> {
+    const current = (await mockGet(guildId)) as TicketingConfigEntity | null;
+    if (!current) return null;
+    const next = mutate(current);
+    if (next) await mockUpdate({ guildId, config: JSON.stringify(next) });
+    return next;
+}
+
 vi.mock('../../data/ticketingRepo', () => ({
     ticketingRepo: {
         get: (...args: unknown[]) => mockGet(...args),
         update: (...args: unknown[]) => mockUpdate(...args),
         upsert: (...args: unknown[]) => mockUpsert(...args),
+        mutateConfig: (guildId: string, mutate: (current: TicketingConfigEntity) => TicketingConfig | null) =>
+            fakeMutateConfig(guildId, mutate),
     },
 }));
 
@@ -34,15 +52,13 @@ vi.mock('../../utils/updateDeployedMessage', () => ({
     updateDeployedTicketMessage: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../../logic/ticketChannelPermissions', () => ({
-    findOrCreateModeratorCategory: vi.fn().mockResolvedValue({ ok: true, value: { id: 'category-1' } }),
-}));
-
-vi.mock('../../utils', () => ({
-    validateTicketCategoryPermissions: () => ({ valid: true, missingPermissions: [] }),
-}));
-
 import { TicketConfigModalComponent } from '../ticketConfigModal';
+
+const BOUND_CATEGORIES: TicketingConfig['categories'] = {
+    open: { name: 'Old Support', discordId: '100000000000000001', provenance: 'adopted' },
+    claimed: { name: 'Old Claimed', discordId: '100000000000000002', provenance: 'created' },
+    closed: { name: 'Old Closed', discordId: null },
+};
 
 /** A guild that has authored a third type on top of the two seeded ones. */
 function storedConfig(overrides: Partial<TicketingConfig> = {}): TicketingConfig {
@@ -50,9 +66,7 @@ function storedConfig(overrides: Partial<TicketingConfig> = {}): TicketingConfig
         modTicketsDeployed: true,
         modTicketsDeployedChannelId: 'channel-1',
         modTicketsDeployedMessageId: 'message-1',
-        supportTicketCategoryName: 'Old Support',
-        claimedTicketCategoryName: 'Old Claimed',
-        closedTicketCategoryName: 'Old Closed',
+        categories: BOUND_CATEGORIES,
         moderationRoles: ['role-old'],
         ticketTypes: {
             ...DEFAULT_TICKET_TYPES,
@@ -69,17 +83,14 @@ function storedConfig(overrides: Partial<TicketingConfig> = {}): TicketingConfig
 }
 
 function interaction(): ModalSubmitInteraction {
-    const fields = new Map<string, string>([
-        ['support_category_input', 'Support Tickets'],
-        ['claimed_category_input', 'Claimed Tickets'],
-        ['closed_category_input', 'Closed Tickets'],
-    ]);
-
     return {
         guild: { id: 'guild-1' },
         memberPermissions: { has: () => true },
         fields: {
-            getTextInputValue: (id: string) => fields.get(id) ?? '',
+            // No text inputs any more: reading one is a mistake, and would throw here.
+            getTextInputValue: (id: string) => {
+                throw new Error(`The config modal read text input ${id}; it has none since categories moved to the dashboard.`);
+            },
             getSelectedRoles: () => new Map([['role-new', { id: 'role-new' }]]),
         },
         reply: vi.fn().mockResolvedValue(undefined),
@@ -115,10 +126,25 @@ describe('a config-modal save', () => {
         // button on every existing ticket starts refusing.
         expect(Object.keys(saved.ticketTypes ?? {}).sort()).toEqual(['appeals', 'support', 'verification']);
         expect(saved.ticketTypes?.appeals.nameTemplate).toBe('A{{####}}-{{subject}}');
-        // And the categories it *does* own were still updated, so the guard is not
-        // passing by making the handler a no-op.
-        expect(saved.supportTicketCategoryName).toBe('Support Tickets');
+        // And the roles it *does* own were still updated, so the guard is not passing by
+        // making the handler a no-op.
         expect(saved.moderationRoles).toEqual(['role-new']);
+    });
+
+    it('leaves the category slots exactly as the dashboard set them', async () => {
+        // Categories are chosen on the dashboard only (issue #22). A save here must not
+        // touch them — not reset them, and not resolve anything by name.
+        mockGet.mockResolvedValue({
+            id: 1,
+            guildId: 'guild-1',
+            config: storedConfig(),
+            ticketNumberInc: 12,
+            entityVersion: 1,
+        } as TicketingConfigEntity);
+
+        await TicketConfigModalComponent().handler(interaction());
+
+        expect(written(mockUpdate).categories).toEqual(BOUND_CATEGORIES);
     });
 
     it('preserves a config member this modal has never heard of', async () => {
@@ -152,6 +178,8 @@ describe('a config-modal save', () => {
         // allowed; claiming to be deployed because of it is not.
         expect(saved.modTicketsDeployed).toBe(false);
         expect(saved.modTicketsDeployedChannelId).toBeNull();
+        // Nothing chosen yet, rather than a guess.
+        expect(saved.categories).toEqual({ open: null, claimed: null, closed: null });
     });
 
     it('does not reset deployment state on a guild that is already deployed', async () => {

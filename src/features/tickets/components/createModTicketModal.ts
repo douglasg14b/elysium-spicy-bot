@@ -17,7 +17,7 @@ import { createTicketChannelForTicket } from '../logic/ticketChannelOps';
 import { buildTicketButtons, buildTicketEmbed } from '../logic/ticketPresentation';
 import { getTicketTypeDefinition } from '../logic/ticketTypes';
 import { resolveTicketIdentity } from '../logic/resolveTicketIdentity';
-import { ticketErrorMessage } from '../logic/ticketErrorMessage';
+import { TICKETING_NOT_CONFIGURED_MESSAGE, ticketErrorMessage } from '../logic/ticketErrorMessage';
 
 const MOD_TICKET_MODAL_ID = 'mod_ticket_create_modal';
 
@@ -100,8 +100,7 @@ export function CreateModTicketModalComponent() {
         if (!isTicketingConfigConfigured(configEntity)) {
             return {
                 status: 'error',
-                message:
-                    '❌ The ticket system is not configured yet. Please ask an administrator to configure it first.',
+                message: TICKETING_NOT_CONFIGURED_MESSAGE,
             };
         }
         const ticketsConfig = configEntity.config;

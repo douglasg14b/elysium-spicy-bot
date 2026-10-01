@@ -184,9 +184,7 @@ export async function seedTickets(context: SeedContext): Promise<PreviewPage[]> 
             modTicketsDeployed: true,
             modTicketsDeployedChannelId: guild.channels.modLog.id,
             modTicketsDeployedMessageId: '1100000000000000001',
-            supportTicketCategoryName: '',
-            claimedTicketCategoryName: '',
-            closedTicketCategoryName: '',
+            categories: { open: null, claimed: null, closed: null },
             moderationRoles: [],
             ticketTypes: defaultTicketTypes(),
         }),
@@ -195,11 +193,14 @@ export async function seedTickets(context: SeedContext): Promise<PreviewPage[]> 
     });
 
     // Categories and the one moderation role, through the real config route — staff and
-    // moderators are different crowds here, so this is `moderators`, not `staff`.
+    // moderators are different crowds here, so this is `moderators`, not `staff`. Named,
+    // so the route creates the three categories in Discord on save.
     await api.send('PUT', `${guildPath}/config/tickets`, {
-        supportTicketCategoryName: 'Tickets — Open',
-        claimedTicketCategoryName: 'Tickets — Claimed',
-        closedTicketCategoryName: 'Tickets — Closed',
+        categories: {
+            open: { name: 'Tickets — Open' },
+            claimed: { name: 'Tickets — Claimed' },
+            closed: { name: 'Tickets — Closed' },
+        },
         moderationRoles: [guild.roles.moderators.id],
     });
 

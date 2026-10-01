@@ -108,43 +108,34 @@ export async function handleDeployTicketSystem(
         // Deploy the message
         const deployedMessage = await targetChannel.send(messageData);
 
-        // Update or create config with new deployment info
-        let newConfig: TicketingConfig;
-        if (existingConfig?.config) {
-            // Update existing config - preserve all settings but update deployment details
-            newConfig = {
-                ...existingConfig.config,
+        // Write only the deployment members, onto the row as it is *now*. The read above
+        // happened before two Discord calls; writing back what it saw would undo any
+        // dashboard save or category recreate that landed in between, and category
+        // bindings cannot be re-derived once lost.
+        const deployed = await ticketingRepo.mutateConfig(interaction.guild.id, (row) => ({
+            ...row.config,
+            modTicketsDeployed: true,
+            modTicketsDeployedChannelId: targetChannel.id,
+            modTicketsDeployedMessageId: deployedMessage.id,
+            // Seeded here too, not only for a new row: a row can exist without types
+            // (written by a process older than the migration, or created after the
+            // migration's `UPDATE` had already run), and a guild in that state has a
+            // panel whose buttons would refuse.
+            ticketTypes: row.config.ticketTypes ?? defaultTicketTypes(),
+        }));
+
+        if (!deployed) {
+            // First-time deployment. This is one of the two paths that create a
+            // `ticketing_config` row, so it seeds the types — the migration is an
+            // `UPDATE` and never reaches a guild that had no row.
+            const newConfig: TicketingConfig = {
                 modTicketsDeployed: true,
                 modTicketsDeployedChannelId: targetChannel.id,
                 modTicketsDeployedMessageId: deployedMessage.id,
-                // Seeded here too, not only in the `else` arm: a row can exist
-                // without types (written by a process older than the migration, or
-                // created after the migration's `UPDATE` had already run), and a
-                // guild in that state has a panel whose buttons would refuse.
-                ticketTypes: existingConfig.config.ticketTypes ?? defaultTicketTypes(),
-            };
-        } else {
-            // Create minimal config for first-time deployment. This is one of the two
-            // paths that create a `ticketing_config` row, so it seeds the types — the
-            // migration is an `UPDATE` and never reaches a guild that had no row.
-            newConfig = {
-                modTicketsDeployed: true,
-                modTicketsDeployedChannelId: targetChannel.id,
-                modTicketsDeployedMessageId: deployedMessage.id,
-                supportTicketCategoryName: '',
-                closedTicketCategoryName: '',
-                claimedTicketCategoryName: '',
+                categories: { open: null, claimed: null, closed: null },
                 moderationRoles: [],
                 ticketTypes: defaultTicketTypes(),
             };
-        }
-
-        if (existingConfig) {
-            await ticketingRepo.update({
-                guildId: interaction.guild.id,
-                config: JSON.stringify(newConfig),
-            });
-        } else {
             await ticketingRepo.upsert({
                 guildId: interaction.guild.id,
                 config: JSON.stringify(newConfig),
@@ -161,8 +152,8 @@ export async function handleDeployTicketSystem(
                 `📝 **Next Steps:**\n` +
                 // Was `/tickets config`, a command that was never registered.
                 // The ⚙️ Configure button on the panel is the entry point.
-                `• Press **⚙️ Configure** on the posted message to set it up\n` +
-                `• Set up categories and moderation roles\n` +
+                `• Press **⚙️ Configure** on the posted message to pick moderation roles\n` +
+                `• Choose the three ticket categories on the dashboard's ticket settings page — pick existing ones or name new ones\n` +
                 `• The deployed message will update automatically when configured`,
             ephemeral: true,
         });
