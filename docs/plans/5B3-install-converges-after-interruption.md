@@ -139,8 +139,10 @@ reachable by install. Recorded so it is recognised if a repair ever appears to h
 
 ## Next: issue #22, decided but not yet planned
 
-Planned as its own step once this lands (one step at a time). Decisions already taken by
-the operator on 2026-09-27, recorded here so they are not re-asked:
+**Planned and built 2026-10-01** in [22-ticket-categories-bound-by-id.md](22-ticket-categories-bound-by-id.md),
+which supersedes decision 2 below (the expected name is now kept beside the id, and the
+dashboard can create a category as well as pick one). The original decisions, as taken on
+2026-09-27:
 
 1. **Ticket config stores three category ids**, replacing the three `*CategoryName`
    strings. Nothing finds a category by name any more.
