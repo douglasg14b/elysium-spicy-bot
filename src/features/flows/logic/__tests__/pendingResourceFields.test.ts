@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../data/flowGraph';
+import type { BlockConfigField } from '../../blocks/manifest';
 import { ensureBlocksDiscovered, listBlockDefinitions } from '../../blocks/registry';
 import { validateNodeData } from '../../engine/nodeDataValidation';
 import { pendingResourceFields } from '../pendingResourceFields';
@@ -58,6 +59,21 @@ function pickerFields(): PickerCase[] {
 }
 
 /**
+ * The picker fields a block cannot do without — those whose schema refuses them empty.
+ *
+ * Asked of the schema, like everything else here. An optional picker (where empty
+ * means "anywhere", say) saves empty with no sidecar by design, so the "still refuses"
+ * case says nothing about it.
+ */
+function requiredPickerFields(): PickerCase[] {
+    return pickerFields().filter(([, type, fieldKey, otherData]) => {
+        const block = listBlockDefinitions().find((candidate) => candidate.type === type);
+        const parsed = block?.configSchema.safeParse({ ...otherData, [fieldKey]: '' });
+        return parsed?.success === false && parsed.error.issues.some((issue) => issue.path[0] === fieldKey);
+    });
+}
+
+/**
  * The minimum the block needs beyond the field under test, so nothing else complains.
  *
  * Asked of the **schema** rather than of the field declarations, by parsing and
@@ -90,16 +106,24 @@ function otherRequiredData(
         if (missing.length === 0) break;
 
         for (const key of missing) {
-            data[key] = placeholderFor(block.configFields.find((field) => field.key === key)?.control);
+            data[key] = placeholderFor(block.configFields.find((field) => field.key === key));
         }
     }
 
     return data;
 }
 
-/** A value of the right shape for a required field this test is not exercising. */
-function placeholderFor(control: string | undefined): unknown {
-    switch (control) {
+/**
+ * A value of the right shape for a required field this test is not exercising: the
+ * field's own starting value when it declares one, which conformance already holds to
+ * the schema, and otherwise a guess by control.
+ */
+function placeholderFor(field: BlockConfigField | undefined): unknown {
+    if (field?.defaultValue !== undefined) {
+        return field.defaultValue;
+    }
+
+    switch (field?.control) {
         case 'rolePicker':
         case 'channelPicker':
             return '123456789012345678';
@@ -152,7 +176,7 @@ describe('a picker field left empty because a declared resource fills it', () =>
         }
     );
 
-    it.each(pickerFields())(
+    it.each(requiredPickerFields())(
         'still refuses %s when it is empty with no sidecar at all',
         (_label, type, fieldKey, otherData) => {
             // The original rule. Relaxing the schemas would have lost this, and an

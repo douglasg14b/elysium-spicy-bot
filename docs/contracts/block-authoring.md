@@ -75,7 +75,7 @@ marks it optional; arrays are declared empty rather than omitted, so a reader ca
 | `outputs` | Values your block writes for later blocks to read, via `context.setOutput`. Read by the builder to offer an author the variables in scope. Discriminated on `naming` — `fixed` carries the name, `authored` names the config field holding it. See [Run variables](#run-variables). |
 | `requires` | Run context you cannot work without. See [Context requirements](#context-requirements). |
 | `capabilities` | Discord permissions the bot needs for your block to work. Declared, not yet enforced. |
-| `startedBy` | **Optional. Triggers only.** What fires you: `buttonClick`, `memberJoin`, or `reactionAdd`. The gateway dispatchers select on this, so a new trigger for an existing source needs no dispatcher edit. Leave it off any condition or action. |
+| `startedBy` | **Optional. Triggers only.** What fires you: `buttonClick`, `levelUp`, `memberJoin`, `memberLeave`, or `reactionAdd`. The gateway dispatchers select on this, so a new trigger for an existing source needs no dispatcher edit. Leave it off any condition or action. |
 | `canSuspend` | Whether `run` may park the run. State it truthfully; conformance holds you to it. |
 | `run` | The entry point. See [The entry point](#the-entry-point). |
 
@@ -86,6 +86,26 @@ not a list: a member added to `BlockManifest` is public to every authenticated d
 the moment it exists. A server-only member must be named in `NON_WIRE_MEMBERS` in
 `src/web/api/nodeRoutes.ts`, which will not compile until that route withholds it as well —
 the list and the route cannot drift.
+
+### Your schema is checked in the browser — write nothing for it
+
+The builder checks a field as the author types — empty when required, too long, out of range,
+too few entries — and you declare none of it. The route reads your `configSchema` with zod's own
+JSON Schema export and serves the rules it can state as `fieldChecks` beside your descriptor
+(`src/features/flows/logic/fieldChecks.ts`); the server words its own complaints about the same
+rules identically, so a message does not change when Save answers. The rules come from the
+schema, so they cannot disagree with it: change `.max(2000)` and the browser follows.
+
+What the export cannot state stays on the server, and the builder hears about it when the author
+leaves the field: a `.refine()`, a `.regex()` with your own message, a rule about an entry inside
+a list. Write those as you would anyway — **your wording is what the author reads**, so give
+`.refine()` and `.regex()` a message in the product's voice.
+
+One gate can stop you: `src/features/flows/logic/__tests__/fieldChecks.test.ts` fails, naming
+your block and field, if your schema uses a JSON Schema keyword nobody has decided about yet
+(`multipleOf`, say). Decide it — teach the browser the rule, or add the keyword to
+`SERVER_ONLY_KEYWORDS` saying why the re-check is enough — rather than restructuring the schema
+to dodge it.
 
 ## The entry point
 
@@ -133,6 +153,23 @@ persists anything itself — the executor owns where to resume, the visit budget
 Include `wakeAt` to be woken by time, `waitKind`/`waitConfig` to be woken by a Discord event,
 or both when an event-wait also has a timeout. A parked run survives a restart, so assume
 nothing about what is still in memory when you wake.
+
+#### Counting a time limit from the last message — `quietWindow`
+
+Beside a `wakeAt`, a suspension may carry a `quietWindow` (`{ durationMs, who, channelId? }`):
+count the deadline from the last qualifying message rather than from now. **The scheduler
+does the counting, not you.** When the park comes due it looks up the latest message — the
+run's member's, or anyone's, optionally in one channel and the threads under it — and if
+that message plus `durationMs` is still ahead, it moves `wakeAt` there instead of waking
+you. You see `timeout` only once it has genuinely gone quiet, so nothing you posted on the
+parking leg is re-posted and no visit is spent per message.
+
+Do not build the window by hand. `blocks/quietTimeout.ts` is the shared fragment — spread
+`quietTimeoutShape` into your schema, append `quietTimeoutFields` to your form, refine with
+`checkQuietTimeout`, and park with `toQuietWindow(config, durationMs, context.guild)` — so every
+block words and validates the option the same way. Set `wakeAt` to now plus the same
+`durationMs`, and call `toQuietWindow` before posting anything: it throws for a channel the bot
+cannot read, which would otherwise never record a message.
 
 ### Parking on controls you posted — set `waitMessageId`
 
@@ -209,7 +246,7 @@ only renders** — never the other way round.
 | `control` | Stores | Use it for |
 | --- | --- | --- |
 | `rolePicker` | role id | any role. Never make someone type a snowflake. |
-| `channelPicker` | channel id | any channel. Same. |
+| `channelPicker` | channel id, or one `{{var.<name>}}` | any channel. Same. Also offers channels earlier blocks record — see [A picker holding a variable](#a-picker-holding-a-variable). Set `optional: true` when the block can do without one and empty means something (`quietChannelId` in `blocks/quietTimeout.ts`: anywhere) — the pick becomes clearable, and clearing removes the key. Without it a pick cannot be undone, and a required picker writes `''` on change. |
 | `text` | string | one line. `maxLength`, `placeholder`, `rendersTokens`. Set `optional: true` when the schema is `.optional()` over a non-empty floor (`z.string().min(1).optional()`, a url) — clearing the box then removes the key instead of writing `''`, which such a schema rejects and `validateNodeData` then holds the whole flow back from going live over. A field whose description says "leave empty for none" needs it. |
 | `longText` | string | a message body. `maxLength`, `placeholder`, `rendersTokens`. |
 | `duration` | milliseconds | any span. Shows a number plus a unit, so nobody hand-computes `604800000`. Set `optional: true` when absence is meaningful — clearing it removes the key rather than writing a zero. `placeholder` hints the empty number box — worth having chiefly on an `optional` field (e.g. `'No limit'`), where an empty box is a real setting rather than a blank. A field with a `defaultValue` is never empty, so a hint for it could never render. |
@@ -353,12 +390,16 @@ ends the path by connecting nothing to it, not by you declaring no way out.
 `requires` says what your block needs to be present on the run:
 
 - `subject` — the member the run is **about**. Always present, so declaring it is documentation
-  rather than a constraint anything can violate.
+  rather than a constraint anything can violate. **On a run started by a departure
+  (`memberLeave`) they have already left**, and are typed `GuildMember | PartialGuildMember`
+  for it: an uncached leaver arrives with an id and a user, no roles. Acting on them fails at
+  Discord — though a block may decide that "already gone" is success, as Kick Member does — and
+  reading their roles or boost answers from what the bot last knew, not from the guild.
 - `actor` — the member who caused the **current step**, which is not always the subject and is
   not always anybody. **Absent on a resumed run**: the clock woke it, so nobody acted.
-- `channel` — where the run is operating. **Absent on a run started by a member join**, which
-  happens nowhere in particular, and absent on a resumed run, because a parked run does not yet
-  remember where it was.
+- `channel` — where the run is operating. **Absent on a run started by a member joining or
+  leaving**, which happens nowhere in particular, and absent on a resumed run, because a parked
+  run does not yet remember where it was.
 - `interaction` — the interaction that started it. **Absent on any gateway-started run and on
   every resumed run**, because the token expires when the run parks.
 
@@ -399,6 +440,9 @@ Four things follow from how that is wired, and each of them has bitten somebody:
   `setOutput('ticketChannelId', …)` is read back as `{{var.ticketChannelId}}` and nothing else.
   A namespaced store and a flat token cannot both be true. Two nodes writing one key is
   last-writer-wins today; nothing rejects it yet, so pick names that say what they hold.
+  Sharing a name **on purpose** is fine when both blocks mean the same thing by it:
+  `action.openTicket` and `condition.hasOpenTicket` both write `ticketChannelId` (from
+  `TICKET_VARIABLES` in the tickets feature), so either branch can feed one later block.
 - **Your writes land after you return.** You cannot read back what you just wrote — you already
   have the value, and a bag that changed mid-`run` would make "what this node was handed" depend
   on where in the function you looked. A block that throws records nothing.
@@ -429,6 +473,37 @@ outputs: [{ naming: 'authored', fromField: 'outputKey', label: 'The picked optio
 typed into that field, resolved per node by `resolveOutputName`. Conformance rejects a
 `fromField` naming no declared field, so a renamed config key fails the suite rather than
 silently producing a node whose output nothing can resolve.
+
+Two optional members on either naming:
+
+- **`valueKind`** — what the value *is*, when a picker can use it (`'channel'` today, from
+  `BLOCK_OUTPUT_VALUE_KINDS`). Declare it and the matching picker offers your output; leave it
+  off and the value is readable in copy only. A channel id you record should say so.
+- **`handle`** — the exit a run leaves by when you wrote this, if only one does. A condition
+  that finds something writes it on the branch where it found it; declaring
+  `handle: 'true'` stops the builder offering it down No, where it is absent. Must name one of
+  your own `handles`.
+
+```ts
+// condition.hasOpenTicket: recorded on Yes only, and usable as a channel.
+outputs: [{ naming: 'fixed', key: 'ticketChannelId', label: 'Ticket channel', valueKind: 'channel', handle: 'true' }]
+```
+
+### A picker holding a variable
+
+A picker listed in `PICKER_VALUE_KINDS` (`channelPicker` today) may hold exactly one
+`{{var.<name>}}` instead of an id. The builder offers in-scope outputs of the picker's kind in a
+"From earlier blocks" group, and the executor swaps the token for the recorded id before `run` —
+so your block still receives a plain id and never knows. Nothing else may surround the token.
+
+Save refuses the token on a **trigger's** picker (its dispatcher reads the stored value before
+any run exists), and refuses a name that no block in the flow declares with the picker's kind.
+At run time a name that was never recorded, was recorded `null`, or is not a string fails the
+step naming the field. So when a block finds no id to record, write `null` rather than skipping
+the write: a value left by an earlier visit would otherwise survive and be used.
+
+A new picker joins by adding its kind to `BLOCK_OUTPUT_VALUE_KINDS` and a row to
+`PICKER_VALUE_KINDS`, then giving its builder control the same option group.
 
 Still unchecked: that what you declare is what you actually write. Nothing compares `outputs`
 against your `setOutput` calls — declaring one and writing another is a manifest bug found by
@@ -531,6 +606,8 @@ that has not caught up fails by name. It checks, from your declaration alone, th
   declared field the schema ignores, and a schema key no field lets an author set
 - every declared default is one the schema accepts, and agrees with any schema default
 - your handles are well formed: at least one, no duplicate ids, at most one default, all labelled
+- your outputs are well formed: labelled, named one of the two ways, any `handle` one of your
+  own, any `valueKind` one a picker takes
 - your `cardSummary`, if you declared one, only references fields that exist and is otherwise
   well formed — see [Card summary](#card-summary)
 
@@ -606,6 +683,7 @@ and each copy carries its own gate:
 | `web/src/api/types.ts` | `blocks/manifest.ts`, the block vocabularies | `src/web/api/__tests__/nodeDescriptorDrift.test.ts` |
 | `web/src/flows/builtinTokens.ts` | `RENDERABLE_TOKENS` in `engine/copyRendering.ts` | `src/web/api/__tests__/builtinTokenDrift.test.ts` |
 | `web/src/flows/ticketChannelName.ts` | `buildTicketChannelNameForType` in `tickets/logic/ticketTypes.ts` | `src/features/tickets/logic/__tests__/ticketChannelNamePreviewDrift.test.ts` |
+| `web/src/flows/fieldChecks.ts` (the evaluator) | `failedFieldCheck` in `flows/logic/fieldChecks.ts` | `src/features/flows/logic/__tests__/fieldChecks.test.ts` — runs both over every block's fields, and fails if the browser ever flags a value the server accepts |
 
 **A gate lives beside its authority, not beside the copy.** The first two answer to something
 under `src/web/api/`; the third answers to the ticketing feature, so it sits there. A gate placed

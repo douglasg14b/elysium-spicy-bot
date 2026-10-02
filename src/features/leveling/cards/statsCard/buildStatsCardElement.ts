@@ -1,4 +1,4 @@
-import type { DailyActivityBucket } from '../../data/levelingActivityEventSchema';
+import type { DailyActivityBucket } from '../../data/levelingXpGrantSchema';
 import type { UserLevelStats } from '../../logic/loadUserLevelStats';
 import { formatStatsPeriodChartLabel } from '../../logic/statsPeriod';
 import type { ActivityChartGranularity } from '../../logic/statsPeriod';

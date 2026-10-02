@@ -128,4 +128,47 @@ describe('an unfinished flow', () => {
         await user.click(screen.getByRole('button', { name: 'Fix it in the builder' }));
         await waitFor(() => expect(screen.getAllByText('Open it — one problem to fix.')).toHaveLength(2));
     });
+
+    it('checks a field as the operator types, and has the server agree as they leave it', async () => {
+        const authored = await guildWithUnfinishedFlow();
+        const dashboard = installDashboardApi(authored.client, OPERATOR);
+        const { user } = renderDashboard(`/flows/${authored.flowId}`);
+        expect(await screen.findByText('Open it — one problem to fix.')).toBeTruthy();
+
+        // A second DM with nothing to say, saved, so both are marked and the new one —
+        // selected as it was added — shows its field in red.
+        await user.click(screen.getByTitle('Send DM — drag onto the canvas, or click to add'));
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+        expect(
+            await screen.findByText('Saved — 2 problems to fix before this flow can go live.')
+        ).toBeTruthy();
+        const message = screen.getByRole('textbox', { name: 'Message' });
+        expect(message.getAttribute('aria-invalid')).toBe('true');
+        expect(screen.getByText('Fill this in.')).toBeTruthy();
+        const check = { method: 'POST', path: `${authored.flowPath}/check` };
+
+        // The first keystroke clears it, with nothing asked of the server — and only this
+        // field's mark goes: the other DM is still marked.
+        await user.type(message, 'W');
+        expect(message.getAttribute('aria-invalid')).not.toBe('true');
+        expect(screen.getAllByText('Open it — one problem to fix.')).toHaveLength(1);
+        expect(dashboard.requests).not.toContainEqual(check);
+
+        // Emptied again, it says so straight away, in the words the server used.
+        await user.clear(message);
+        expect(message.getAttribute('aria-invalid')).toBe('true');
+        expect(screen.getByText('Fill this in.')).toBeTruthy();
+
+        // Leaving the field asks the server, which agrees.
+        await user.type(message, 'Welcome in');
+        await user.tab();
+        await waitFor(() => expect(dashboard.requests).toContainEqual(check));
+        await waitFor(() => expect(screen.getAllByText('Open it — one problem to fix.')).toHaveLength(1));
+        expect(message.getAttribute('aria-invalid')).not.toBe('true');
+
+        // Asked, not saved: the stored graph still has both problems, so the switch
+        // stays locked.
+        expect((screen.getByRole('switch', { name: 'Enabled' }) as HTMLInputElement).disabled).toBe(true);
+        expect((await authored.api.send<StoredFlow>('GET', authored.flowPath)).issues).toHaveLength(2);
+    });
 });

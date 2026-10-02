@@ -47,6 +47,10 @@ export interface CopyPreview {
 const BUILTIN_STAND_INS: Readonly<Record<BuiltinTokenName, string>> = {
     'subject.mention': '@someone',
     'subject.username': 'someone',
+    'subject.displayName': 'their nickname',
+    'subject.id': 'their user id',
+    'subject.accountAge': 'a few days',
+    'subject.avatarUrl': 'their avatar link',
     // Distinguished from the subject on purpose: the two are the same person on
     // most runs, and an author who has not noticed they are different concepts is
     // exactly who this preview is for.

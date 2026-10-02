@@ -24,6 +24,21 @@ export interface GraphOf<TNode extends Identified, TEdge extends Identified> {
 }
 
 /**
+ * The config keys whose values differ between two versions of one node — what an undo
+ * or redo edited, since it replaces configs wholesale rather than through a control.
+ *
+ * Compared by value: a snapshot holds a deep copy, so a list field it did not touch is
+ * still a different array, and comparing by reference would call every one edited.
+ */
+export function changedConfigKeys(
+    before: Readonly<Record<string, unknown>>,
+    after: Readonly<Record<string, unknown>>
+): string[] {
+    const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+    return [...keys].filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]));
+}
+
+/**
  * The graph as it was before `removed` was taken out of `current`.
  *
  * Removed elements are appended rather than spliced back at their original index.

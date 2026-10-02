@@ -1,6 +1,7 @@
 import type { FlowGraph } from '../data/flowGraph';
 import { authoredGraphIssues } from '../engine/graphValidation';
 import { validateNodeData, type FlowValidationIssue } from '../engine/nodeDataValidation';
+import { fieldCheckIssueMessage } from './fieldChecks';
 import { pendingResourceFields } from './pendingResourceFields';
 import { collectResourceTargets } from './resourceTargets';
 
@@ -65,7 +66,11 @@ export function flowReadinessIssues(
     declaredKeys: ReadonlySet<string>
 ): readonly FlowValidationIssue[] {
     const pending = pendingResourceFields(graph, declaredKeys);
-    const nodeData = validateNodeData(graph, { pendingFields: pending.pendingFields });
+    const nodeData = validateNodeData(graph, {
+        pendingFields: pending.pendingFields,
+        // Worded as the builder words the same rule while the author types.
+        issueMessage: fieldCheckIssueMessage,
+    });
 
     return [
         // Together: a sidecar naming nothing and a field the schema refuses are the

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
-import { attachTicketChannel, openTicket, recordTicketStateMessage } from '../../../tickets';
+import { attachTicketChannel, openTicket, recordTicketStateMessage, TICKET_VARIABLES } from '../../../tickets';
 import { ticketingRepo } from '../../../tickets/data/ticketingRepo';
 import { isTicketingConfigConfigured } from '../../../tickets/data/ticketingSchema';
 import { createTicketChannelForTicket } from '../../../tickets/logic/ticketChannelOps';
@@ -84,15 +84,16 @@ export const block: BlockManifest<OpenTicketConfig> = {
     outputs: [
         {
             naming: 'fixed',
-            key: 'ticketId',
+            key: TICKET_VARIABLES.ticketId,
             label: 'Ticket ID',
             description: 'The opened ticket, so a later block can close or post to it.',
         },
         {
             naming: 'fixed',
-            key: 'ticketChannelId',
+            key: TICKET_VARIABLES.ticketChannelId,
             label: 'Ticket channel',
             description: 'The channel that was created for the ticket.',
+            valueKind: 'channel',
         },
     ],
     requires: ['subject'],
@@ -174,8 +175,8 @@ export const block: BlockManifest<OpenTicketConfig> = {
         // put it one unpin away from being unresolvable.
         await message.pin().catch(() => undefined);
 
-        context.setOutput('ticketId', ticket.id);
-        context.setOutput('ticketChannelId', channel.id);
+        context.setOutput(TICKET_VARIABLES.ticketId, ticket.id);
+        context.setOutput(TICKET_VARIABLES.ticketChannelId, channel.id);
 
         return { kind: 'continue' };
     },

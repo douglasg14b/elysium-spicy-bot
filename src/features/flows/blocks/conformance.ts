@@ -7,6 +7,7 @@ import {
     BLOCK_CONTROL_TYPES,
     BLOCK_HANDLE_TONES,
     BLOCK_KINDS,
+    BLOCK_OUTPUT_VALUE_KINDS,
     BLOCK_PALETTE_GROUPS,
     FLOW_CONTEXT_REQUIREMENTS,
     type BlockConfigColumn,
@@ -99,7 +100,7 @@ export function checkBlockConformance(candidate: unknown): readonly string[] {
     issues.push(...checkOptionalProse(label, 'note', block.note));
     issues.push(...checkVocabulary(label, block));
     issues.push(...checkHandles(label, block.handles));
-    issues.push(...checkOutputs(label, block.outputs, block.configFields));
+    issues.push(...checkOutputs(label, block.outputs, block.configFields, block.handles));
     issues.push(...checkConfigFields(label, block.configFields, block.configSchema));
     issues.push(...checkCardSummary(label, block.cardSummary, block.configFields));
     issues.push(...checkEligibilityEnforced(label, block));
@@ -261,7 +262,12 @@ function checkHandles(label: string, handles: unknown): readonly string[] {
  * agreeing here and disagreeing there is still possible; this rules out the case
  * a rename causes, which is the one that happens.
  */
-function checkOutputs(label: string, outputs: unknown, configFields: unknown): readonly string[] {
+function checkOutputs(
+    label: string,
+    outputs: unknown,
+    configFields: unknown,
+    handles: unknown
+): readonly string[] {
     if (!Array.isArray(outputs)) {
         return [];
     }
@@ -271,6 +277,12 @@ function checkOutputs(label: string, outputs: unknown, configFields: unknown): r
             .map((field) => readProperty(field, 'key'))
             .filter((key): key is string => typeof key === 'string')
     );
+    const handleIds = new Set(
+        asArray(handles)
+            .map((handle) => readProperty(handle, 'id'))
+            .filter((id): id is string => typeof id === 'string')
+    );
+    const valueKinds: readonly unknown[] = BLOCK_OUTPUT_VALUE_KINDS;
 
     const issues: string[] = [];
     for (const output of outputs) {
@@ -280,6 +292,24 @@ function checkOutputs(label: string, outputs: unknown, configFields: unknown): r
 
         if (typeof name !== 'string' || !name) {
             issues.push(`${label}: output ${outputLabel} needs a label the builder can show an author.`);
+        }
+
+        // A handle the block does not declare would scope the output to an exit no
+        // edge can leave by, so the builder would never offer it anywhere.
+        const handle = readProperty(output, 'handle');
+        if (handle !== undefined && (typeof handle !== 'string' || !handleIds.has(handle))) {
+            issues.push(
+                `${label}: output ${outputLabel} is written on the handle ${JSON.stringify(handle)}, ` +
+                    `which is not one of this block's handles (${[...handleIds].join(', ') || 'none named'}).`
+            );
+        }
+
+        const valueKind = readProperty(output, 'valueKind');
+        if (valueKind !== undefined && !valueKinds.includes(valueKind)) {
+            issues.push(
+                `${label}: output ${outputLabel} declares the value kind ${JSON.stringify(valueKind)}, ` +
+                    `which no picker takes (${BLOCK_OUTPUT_VALUE_KINDS.join(', ')}).`
+            );
         }
 
         if (naming === 'fixed') {

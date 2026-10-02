@@ -1,4 +1,4 @@
-import type { FlowRunWaitConfig, FlowWaitKind } from '../data/flowRunsSchema';
+import type { FlowQuietWindow, FlowRunWaitConfig, FlowWaitKind } from '../data/flowRunsSchema';
 
 /**
  * The interpreter's step outcome — the second and last state machine the flow
@@ -55,6 +55,15 @@ export interface FlowStepSuspension {
      * `FlowRunTable.waitMessageId`.
      */
     waitMessageId?: string;
+    /**
+     * Count `wakeAt` from the last qualifying message rather than from now.
+     *
+     * Only meaningful beside a `wakeAt`, which the block sets to now plus the same
+     * span. The scheduler — not the block — pushes that deadline back while someone
+     * is still talking, so the block only ever wakes on a timeout that is genuinely
+     * quiet. See `FlowQuietWindow`.
+     */
+    quietWindow?: FlowQuietWindow;
     /** Present only when parking to retry a transient failure. */
     retry?: FlowRetryMarker;
 }

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { FLOW_MAX_DELAY_MS } from '../../constants';
 import type { BlockManifest } from '../manifest';
+import { checkQuietTimeout, quietTimeoutFields, quietTimeoutShape, toQuietWindow } from '../quietTimeout';
 
 export const ACTION_DELAY = 'action.delay';
 
@@ -9,10 +10,15 @@ export const ACTION_DELAY = 'action.delay';
  *
  * Capped at {@link FLOW_MAX_DELAY_MS} (30 days) so a typo cannot park a run
  * effectively forever.
+ *
+ * Counting from a last message turns this into "wait until it goes quiet", which
+ * is why there is no separate block for that. A delay always has a duration, so
+ * the only refusal that can apply is "anyone's messages" without a channel.
  */
 export const delayConfigSchema = z.object({
     durationMs: z.number().int().positive().max(FLOW_MAX_DELAY_MS),
-});
+    ...quietTimeoutShape,
+}).superRefine((config, context) => checkQuietTimeout(config, context, config.durationMs));
 
 export type DelayConfig = z.infer<typeof delayConfigSchema>;
 
@@ -49,6 +55,7 @@ export const block: BlockManifest<DelayConfig> = {
             // hint for the empty box could never be shown.
             defaultValue: 300_000,
         },
+        ...quietTimeoutFields,
     ],
     cardSummary: [{ key: 'durationMs', prefix: 'Wait ', emptyText: 'no duration set' }],
     note: 'Max 30 days. Put one of these inside a loop and the run will keep cycling — the visit cap still stops it running away.',
@@ -65,7 +72,10 @@ export const block: BlockManifest<DelayConfig> = {
 
         return {
             kind: 'suspend',
-            suspension: { wakeAt: new Date(Date.now() + config.durationMs) },
+            suspension: {
+                wakeAt: new Date(Date.now() + config.durationMs),
+                quietWindow: toQuietWindow(config, config.durationMs, context.guild),
+            },
         };
     },
 };

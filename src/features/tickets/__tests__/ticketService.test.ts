@@ -6,7 +6,7 @@ const mockCreate = vi.fn();
 const mockGetById = vi.fn();
 const mockUpdate = vi.fn();
 const mockFindOpenBySubject = vi.fn();
-const mockHasOpenBySubject = vi.fn();
+const mockNewestOpenBySubject = vi.fn();
 const mockIncrementTicketNumber = vi.fn();
 const mockClaimIfUnclaimed = vi.fn();
 const mockTransitionStatus = vi.fn();
@@ -17,7 +17,7 @@ vi.mock('../data/ticketsRepo', () => ({
         getById: (...args: unknown[]) => mockGetById(...args),
         update: (...args: unknown[]) => mockUpdate(...args),
         findOpenBySubject: (...args: unknown[]) => mockFindOpenBySubject(...args),
-        hasOpenBySubject: (...args: unknown[]) => mockHasOpenBySubject(...args),
+        newestOpenBySubject: (...args: unknown[]) => mockNewestOpenBySubject(...args),
         claimIfUnclaimed: (...args: unknown[]) => mockClaimIfUnclaimed(...args),
         transitionStatus: (...args: unknown[]) => mockTransitionStatus(...args),
     },
@@ -33,7 +33,7 @@ import {
     claimTicket,
     closeTicket,
     deleteTicket,
-    hasOpenTicket,
+    findOpenTicket,
     openTicket,
     reopenTicket,
     unclaimTicket,
@@ -366,26 +366,29 @@ describe('close, reopen and delete', () => {
     });
 });
 
-describe('hasOpenTicket', () => {
+describe('findOpenTicket', () => {
     it('answers from the record without a Discord call', async () => {
-        mockHasOpenBySubject.mockResolvedValue(true);
+        mockNewestOpenBySubject.mockResolvedValue({ id: 7, channelId: 'channel-7' });
 
-        expect(await hasOpenTicket('guild-1', 'subject-1', 'verification')).toBe(true);
-        expect(mockHasOpenBySubject).toHaveBeenCalledWith('guild-1', 'subject-1', 'verification');
+        expect(await findOpenTicket('guild-1', 'subject-1', 'verification')).toEqual({
+            id: 7,
+            channelId: 'channel-7',
+        });
+        expect(mockNewestOpenBySubject).toHaveBeenCalledWith('guild-1', 'subject-1', 'verification');
     });
 
-    it('is false when the subject has none of that type', async () => {
-        mockHasOpenBySubject.mockResolvedValue(false);
+    it('is null when the subject has none of that type', async () => {
+        mockNewestOpenBySubject.mockResolvedValue(null);
 
-        expect(await hasOpenTicket('guild-1', 'subject-1', 'verification')).toBe(false);
+        expect(await findOpenTicket('guild-1', 'subject-1', 'verification')).toBeNull();
     });
 
-    it('does not fetch rows to answer a yes/no on the hot path', async () => {
+    it('does not fetch whole rows on the hot path', async () => {
         // Runs per member on join, so selecting every column — `reason` is
-        // unbounded text — to check `length > 0` would defeat the covering index.
-        mockHasOpenBySubject.mockResolvedValue(true);
+        // unbounded text — would defeat the covering index.
+        mockNewestOpenBySubject.mockResolvedValue(null);
 
-        await hasOpenTicket('guild-1', 'subject-1');
+        await findOpenTicket('guild-1', 'subject-1');
 
         expect(mockFindOpenBySubject).not.toHaveBeenCalled();
     });

@@ -17,3 +17,4 @@ Related documents that are not PRDs:
 
 - [Flow Engine v2: Composable Blocks, Member Journeys, and Server Provisioning](flow-engine-v2-journeys-and-provisioning.md) — a block contract that makes flow capabilities cheap to add, plus the tickets, custom events, and Discord provisioning needed to run our onboarding and verification journey entirely from the builder. *(Approved)*
   - [Execution Strategy](flow-engine-v2-execution-strategy.md) — wave structure, what parallelizes, the contract amendment protocol, and the state-machine taxonomy. *(Approved)*
+- [Flow primitives for time and messages](flow-time-and-message-primitives.md) — Set Variable (including times), Time Since, a message event on Wait for Event, and a Message Sent trigger; general primitives, with the step that built activity events, quiet timeouts, Kick Member and Member Leaves recorded as done. *(Approved)*

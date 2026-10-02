@@ -5,7 +5,7 @@ import {
     DEFAULT_VOICE_XP_PER_MINUTE,
     VOICE_ELIGIBILITY_RULE,
 } from '../constants';
-import type { LevelingActivityEvent } from '../data/levelingActivityEventSchema';
+import type { LevelingXpGrant } from '../data/levelingXpGrantSchema';
 
 export type VoiceXpSettings = {
     voiceXpPerMinute: number;
@@ -45,7 +45,7 @@ export function calculateVoiceXpFromEligibleMs(
 }
 
 export function recalculateVoiceXpFromEvent(
-    event: Pick<LevelingActivityEvent, 'activityType' | 'voiceEligibleSeconds'>,
+    event: Pick<LevelingXpGrant, 'activityType' | 'voiceEligibleSeconds'>,
     settings: VoiceXpSettings = getVoiceXpSettings()
 ): number {
     if (event.activityType !== 'voice') {

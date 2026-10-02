@@ -197,6 +197,65 @@ describe('TestDiscord refuses message behaviour it does not know', () => {
     });
 });
 
+describe('TestDiscord answers history reads the way Discord does', () => {
+    const HOUR = 3_600_000;
+
+    it('lists a page newest first: the messages right after the cursor, or the newest without one', async () => {
+        const discord = new TestDiscord();
+        started.push(discord);
+        const guild = discord.createGuild();
+        const channel = guild.createTextChannel({ name: 'archives' });
+        const member = guild.createMember({ username: 'pet' });
+        const base = Date.now() - 5 * HOUR;
+        // Received out of order: Discord's history is in send order regardless.
+        const [third, first, second, fourth] = [2, 0, 1, 3].map((hour) =>
+            channel.receiveMessage({ from: member, content: `hour ${hour}`, sentAt: new Date(base + hour * HOUR) })
+        );
+        await discord.start();
+        const liveChannel = discord.clientGuild(guild).channels.cache.get(channel.id);
+        if (liveChannel?.type !== ChannelType.GuildText) throw new Error('The client holds no text channel for the fixture.');
+
+        const afterFirst = await liveChannel.messages.fetch({ after: first, limit: 2, cache: false });
+        const newest = await liveChannel.messages.fetch({ limit: 2, cache: false });
+
+        expect([...afterFirst.keys()]).toEqual([third, second]);
+        expect([...newest.keys()]).toEqual([fourth, third]);
+        expect(liveChannel.lastMessageId).toBe(fourth);
+        expect(afterFirst.get(second)?.createdTimestamp).toBe(base + HOUR);
+    });
+
+    it('marks a webhook message and a join notice the way discord.js tells them apart', async () => {
+        const discord = new TestDiscord();
+        started.push(discord);
+        const guild = discord.createGuild();
+        const channel = guild.createTextChannel();
+        const member = guild.createMember({ username: 'newbie' });
+        const fromWebhook = channel.receiveMessage({ from: 'webhook', content: 'relayed' });
+        const joinNotice = channel.receiveMessage({ from: member, kind: 'joinNotice' });
+        await discord.start();
+        const liveChannel = discord.clientGuild(guild).channels.cache.get(channel.id);
+        if (liveChannel?.type !== ChannelType.GuildText) throw new Error('The client holds no text channel for the fixture.');
+
+        const page = await liveChannel.messages.fetch({ limit: 10 });
+
+        expect(page.get(fromWebhook)).toMatchObject({ webhookId: expect.any(String), system: false });
+        expect(page.get(joinNotice)).toMatchObject({ webhookId: null, system: true, type: MessageType.UserJoin });
+        expect(page.get(joinNotice)?.author.id).toBe(member.id);
+    });
+
+    it('answers a refused history read with 50001, and refuses a cursor it does not model', async () => {
+        const { discord, channel, liveChannel } = await startedChannel();
+        channel.refuseHistory();
+
+        const refused = await liveChannel.messages.fetch({ limit: 10 }).catch((caught: unknown) => caught);
+        expect(refused).toMatchObject({ code: RESTJSONErrorCodes.MissingAccess, status: 403 });
+        expect(discord.faults).toEqual([]);
+
+        await expect(liveChannel.messages.fetch({ before: channel.id })).rejects.toThrow(/does not model this query/);
+        await expect(discord.destroy()).rejects.toThrow(/faulted 1 time/);
+    });
+});
+
 type HeardUpdate = readonly [before: Message | PartialMessage, after: Message];
 
 interface HeardChannel extends StartedChannel {
@@ -237,6 +296,19 @@ describe('TestDiscord dispatches message events to a client that asked for them'
         expect(created.map((message) => message.id)).toEqual([sent.id]);
         expect(liveChannel.messages.cache.get(sent.id)?.content).toBe('Watching is a kink too.');
         expect(liveChannel.lastMessageId).toBe(sent.id);
+    });
+
+    it("announces a member's message at once, and a webhook's with no member", async () => {
+        const { channel, member, created } = await channelHeardBy(MESSAGE_EVENT_INTENTS);
+
+        const fromMember = channel.receiveMessage({ from: member, content: 'Present, Sir.' });
+        const fromWebhook = channel.receiveMessage({ from: 'webhook', content: 'Relayed.' });
+
+        expect(created.map((message) => message.id)).toEqual([fromMember, fromWebhook]);
+        expect(created[0]).toMatchObject({ webhookId: null, content: 'Present, Sir.' });
+        expect(created[0]?.member?.id).toBe(member.id);
+        expect(created[1]?.webhookId).toEqual(expect.any(String));
+        expect(created[1]?.member).toBeNull();
     });
 
     it('carries the author and each mentioned user as guild members, which discord.js caches from the event', async () => {

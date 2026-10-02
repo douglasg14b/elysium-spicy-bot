@@ -1,15 +1,23 @@
 import type { Client } from 'discord.js';
+import { type ActivityEventsRepo, activityEventsRepo, isBackfillPending } from '../../../features-system/activity';
 import { FLOW_RUN_POLL_INTERVAL_MS } from '../constants';
 import { FlowRunsRepo, flowRunsRepo } from '../data/flowRunsRepo';
+import type { FlowRunEntity } from '../data/flowRunsSchema';
 import { RESUME_TIMEOUT } from '../blocks/types';
 import { resumeFlowRun } from './flowRunResume';
 
 export type FlowRunSchedulerDependencies = {
-    flowRunsRepo: Pick<FlowRunsRepo, 'findDue' | 'reclaimAbandonedClaims'>;
+    flowRunsRepo: Pick<FlowRunsRepo, 'findDue' | 'reclaimAbandonedClaims' | 'deferWake'>;
+    /** Where a quiet-window park asks when the last qualifying message was sent. */
+    activityEventsRepo: Pick<ActivityEventsRepo, 'findLastMessageAt'>;
+    /** True while activity is still restoring messages missed during an outage; quiet-window runs wait. */
+    isBackfillPending: () => boolean;
 };
 
 const defaultDependencies: FlowRunSchedulerDependencies = {
     flowRunsRepo,
+    activityEventsRepo,
+    isBackfillPending,
 };
 
 let flowRunInterval: ReturnType<typeof setInterval> | null = null;
@@ -64,7 +72,7 @@ async function runStartupSweep(client: Client, dependencies: FlowRunSchedulerDep
  * have to change first before this could run on a timer.
  */
 export async function reclaimStrandedFlowRuns(
-    dependencies: FlowRunSchedulerDependencies = defaultDependencies
+    dependencies: Pick<FlowRunSchedulerDependencies, 'flowRunsRepo'> = defaultDependencies
 ): Promise<number> {
     try {
         const reclaimed = await dependencies.flowRunsRepo.reclaimAbandonedClaims();
@@ -106,6 +114,9 @@ export function stopFlowRunScheduler(): void {
  *
  * A due run parked on a wait node has hit its timeout, hence the 'timeout' exit;
  * a due run parked on a delay ignores the exit entirely.
+ *
+ * A due run carrying a quiet window may not be due after all: see
+ * {@link deferIfMessaged}, which runs first and can push its deadline back instead.
  */
 export async function runFlowRunTick(
     client: Client,
@@ -124,21 +135,36 @@ export async function runFlowRunTick(
     isTickRunning = true;
 
     try {
-        const dueRuns = await dependencies.flowRunsRepo.findDue(new Date());
+        const now = new Date();
+        // While activity is still backfilling messages missed during an outage, "when did
+        // they last speak" is not answerable yet, so runs with a quiet window are held:
+        // not even fetched, so not resumed, their `wakeAt` untouched, and the next tick
+        // asks again. The startup sweep runs the moment the bot is ready, which is exactly
+        // when that history is missing. Runs without a quiet window are unaffected.
+        const dueRuns = await dependencies.flowRunsRepo.findDue(now, {
+            withoutQuietWindows: dependencies.isBackfillPending(),
+        });
         if (dueRuns.length === 0) {
             return;
         }
 
-        console.info(`[flow-runs] Resuming ${dueRuns.length} due run(s)`);
+        console.info(`[flow-runs] Found ${dueRuns.length} due run(s)`);
 
         for (const run of dueRuns) {
             try {
+                // A failed lookup throws into the catch below and leaves the run
+                // parked for the next tick. Timing out on a guess would end a run
+                // whose member may well still be talking.
+                if (await deferIfMessaged(run, now, dependencies)) {
+                    continue;
+                }
+
                 const outcome = await resumeFlowRun(client, run, RESUME_TIMEOUT);
                 if (outcome.status === 'failed') {
                     console.warn(`[flow-runs] Run ${run.runId} failed on resume: ${outcome.error}`);
                 }
             } catch (error) {
-                console.error(`[flow-runs] Unexpected error resuming run ${run.runId}:`, error);
+                console.error(`[flow-runs] Unexpected error handling due run ${run.runId}:`, error);
             }
         }
     } catch (error) {
@@ -156,6 +182,61 @@ export async function runFlowRunTick(
     } finally {
         isTickRunning = false;
     }
+}
+
+/**
+ * Push a quiet-window park's deadline back while qualifying messages keep landing.
+ * Returns true when the run must not be resumed on this tick.
+ *
+ * The deadline is `max(wakeAt, lastMessageAt + durationMs)`: the first `wakeAt` is
+ * the park plus the same span, so only a message *after* the park can move it. If
+ * that later deadline is still ahead, `wakeAt` moves there and the run sleeps on.
+ * Otherwise it is genuinely quiet, and the caller resumes it with `timeout` as for
+ * any other due run.
+ *
+ * The scheduler does this, not the block, for three reasons: a block that woke to
+ * check would re-post whatever its parking leg posts (a question's buttons), every
+ * wake would spend a visit (a member posting just inside each window would drain
+ * the budget and fail the run), and the block would have to know about messages at
+ * all. This way a block sees `timeout` only when it is true.
+ *
+ * Losing the race to a claim or a re-park also returns true: `deferWake` matched
+ * nothing because something else moved the run, and that something now owns it. A
+ * resume here would time out a park nobody asked to end.
+ *
+ * Never reached while activity is backfilling: the tick does not fetch quiet-window
+ * runs then (see {@link runFlowRunTick}).
+ */
+async function deferIfMessaged(
+    run: FlowRunEntity,
+    now: Date,
+    dependencies: FlowRunSchedulerDependencies
+): Promise<boolean> {
+    const quiet = run.quietWindow;
+    if (!quiet || !run.wakeAt) {
+        return false;
+    }
+
+    const lastMessageAt = await dependencies.activityEventsRepo.findLastMessageAt(
+        quiet.who === 'member'
+            ? {
+                  guildId: run.guildId,
+                  userId: run.contextSnapshot.userId,
+                  ...(quiet.channelId ? { channelId: quiet.channelId } : {}),
+              }
+            : { guildId: run.guildId, channelId: quiet.channelId }
+    );
+    if (!lastMessageAt) {
+        return false;
+    }
+
+    const nextWakeAt = new Date(lastMessageAt.getTime() + quiet.durationMs);
+    if (nextWakeAt <= now) {
+        return false;
+    }
+
+    await dependencies.flowRunsRepo.deferWake(run.runId, run.wakeAt, nextWakeAt);
+    return true;
 }
 
 /**

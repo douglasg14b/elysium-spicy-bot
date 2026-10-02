@@ -1,5 +1,11 @@
-import type { BlockConfigColumn, BlockConfigField } from '../blocks/manifest';
+import {
+    PICKER_VALUE_KINDS,
+    type BlockConfigColumn,
+    type BlockConfigField,
+    type VariablePickerControl,
+} from '../blocks/manifest';
 import type { FlowRunSeed, FlowVariableValue } from '../blocks/types';
+import { formatElapsed } from '../../../utils/formatElapsed';
 
 /**
  * Expanding `{{…}}` tokens in authored copy, in one place.
@@ -54,6 +60,10 @@ type TokenResolver = (context: FlowRunSeed) => string | undefined;
 export const RENDERABLE_TOKENS = [
     'subject.mention',
     'subject.username',
+    'subject.displayName',
+    'subject.id',
+    'subject.accountAge',
+    'subject.avatarUrl',
     'actor.mention',
     'guild.name',
 ] as const;
@@ -72,6 +82,16 @@ export type RenderableToken = (typeof RENDERABLE_TOKENS)[number];
 const RESOLVERS: Readonly<Record<RenderableToken, TokenResolver>> = {
     'subject.mention': (context) => context.subject.toString(),
     'subject.username': (context) => context.subject.user.username,
+    // discord.js's own fallback chain: server nickname, then global display
+    // name, then username. What the member list shows them as.
+    'subject.displayName': (context) => context.subject.displayName,
+    'subject.id': (context) => context.subject.id,
+    // Read at render time, not when the run started: after a three-day wait the
+    // account is three days older, and the copy should say so.
+    'subject.accountAge': (context) => formatElapsed(Date.now() - context.subject.user.createdTimestamp),
+    // Their server avatar if they set one, else their account avatar, else
+    // Discord's default. Never empty, so it is always safe to send as an image.
+    'subject.avatarUrl': (context) => context.subject.displayAvatarURL(),
     'actor.mention': (context) => context.actor?.toString(),
     'guild.name': (context) => context.guild.name,
 };
@@ -266,6 +286,87 @@ export function copyColumnsOf(field: BlockConfigField): readonly BlockConfigColu
         return [];
     }
     return field.columns.filter((column) => column.rendersTokens === true);
+}
+
+/**
+ * Whether a field is a picker that may name a value an earlier block recorded in
+ * place of a fixed choice.
+ *
+ * A picker is not copy: it takes **one** `{{var.<name>}}` and nothing around it,
+ * because a channel id with a word in front of it is not a channel. Kept beside
+ * {@link isCopyField} so the executor and save-time validation ask the same
+ * question about the same fields.
+ */
+export function isVariablePickerField(
+    field: BlockConfigField
+): field is Extract<BlockConfigField, { control: VariablePickerControl }> {
+    return Object.hasOwn(PICKER_VALUE_KINDS, field.control);
+}
+
+/**
+ * The `<name>` when a picker's value is exactly `{{var.<name>}}`, else undefined.
+ *
+ * Anchored at both ends, so `#{{var.x}}` or two tokens side by side are refused
+ * rather than half-read.
+ */
+export function pickerVariableOf(value: string): string | undefined {
+    const tokens = tokensIn(value);
+    // Exactly one token, and nothing but that token once whitespace is set aside.
+    if (tokens.length !== 1 || value.replace(TOKEN_PATTERN, '').trim() !== '') {
+        return undefined;
+    }
+    return variableNameOf(tokens[0] ?? '');
+}
+
+/**
+ * Resolve a picker's `{{var.<name>}}` to the id it stands for.
+ *
+ * Stricter than {@link renderCopy} in one way that matters: an empty value fails.
+ * Copy may render a `null` variable as nothing; a picker handed nothing would ask
+ * Discord for channel `''` and fail with an error naming neither the field nor the
+ * block that was meant to supply it.
+ */
+export function resolvePickerVariable(
+    value: string,
+    options: Pick<RenderCopyOptions, 'context' | 'fieldLabel'>
+): CopyRenderResult {
+    const { context, fieldLabel } = options;
+    const name = pickerVariableOf(value);
+    if (name === undefined) {
+        return {
+            ok: false,
+            error: `${fieldLabel} holds "${value}". A picker takes a choice, or one {{var.name}} from an earlier block and nothing else.`,
+        };
+    }
+
+    // `hasOwn` for the reason `renderCopy` gives: the prototype is not a value.
+    // Three failures, told apart because each sends the author somewhere different.
+    if (!Object.hasOwn(context.variables, name)) {
+        return {
+            ok: false,
+            error:
+                `${fieldLabel} uses {{var.${name}}}, but nothing has recorded it by the time this block runs. ` +
+                'Check the block that produces it runs first on this path — a condition only records what it found on the branch where it found it.',
+        };
+    }
+
+    const variableValue = context.variables[name];
+    if (variableValue === null || variableValue === '') {
+        return {
+            ok: false,
+            error:
+                `${fieldLabel} uses {{var.${name}}}, which was recorded empty this run — ` +
+                'the block that sets it found nothing to point at, such as a ticket whose channel has been deleted.',
+        };
+    }
+    if (typeof variableValue !== 'string') {
+        return {
+            ok: false,
+            error: `${fieldLabel} uses {{var.${name}}}, which holds ${String(variableValue)} — not something this picker can use.`,
+        };
+    }
+
+    return { ok: true, text: variableValue };
 }
 
 /**

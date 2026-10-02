@@ -26,6 +26,10 @@
 export const BUILTIN_TOKEN_NAMES = [
     'subject.mention',
     'subject.username',
+    'subject.displayName',
+    'subject.id',
+    'subject.accountAge',
+    'subject.avatarUrl',
     'actor.mention',
     'guild.name',
 ] as const;
@@ -58,6 +62,26 @@ export const BUILTIN_TOKENS = [
     {
         name: 'subject.username',
         description: 'Their username as plain text — no ping.',
+        lostAfterSuspend: false,
+    },
+    {
+        name: 'subject.displayName',
+        description: 'What the member list calls them: their server nickname, else their display name, else their username.',
+        lostAfterSuspend: false,
+    },
+    {
+        name: 'subject.id',
+        description: 'Their Discord user ID. Handy in mod logs, where names change and IDs do not.',
+        lostAfterSuspend: false,
+    },
+    {
+        name: 'subject.accountAge',
+        description: 'How old their Discord account is, like "3 days" or "2 years". Fresh accounts are often alts.',
+        lostAfterSuspend: false,
+    },
+    {
+        name: 'subject.avatarUrl',
+        description: 'A link to their avatar. Drop it in an embed image or thumbnail to show their face.',
         lostAfterSuspend: false,
     },
     {

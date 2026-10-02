@@ -1,4 +1,11 @@
-import type { ButtonInteraction, Client, Guild, GuildMember, GuildTextBasedChannel } from 'discord.js';
+import type {
+    ButtonInteraction,
+    Client,
+    Guild,
+    GuildMember,
+    GuildTextBasedChannel,
+    PartialGuildMember,
+} from 'discord.js';
 
 /**
  * Why a parked run is being woken, as seen by the block that parked it.
@@ -103,8 +110,17 @@ export interface FlowRunSeed {
      * Distinct from {@link actor} because the two genuinely diverge: a moderator
      * advancing someone else's run acts on a subject who is not themselves. Every
      * block that asks "whose roles, whose DM, whose boost status" means this one.
+     *
+     * **May be a member who has already left**, on a run started by a departure
+     * (`memberLeave`). discord.js hands that event a partial member when the leaver
+     * was not cached, which is most of them on a large server: an id and a user, no
+     * join date, and no roles beyond `@everyone`. Hence the partial in the type —
+     * it nulls only `joinedAt`, `joinedTimestamp` and `pending`, which no block
+     * reads. A cached leaver is a full member holding what discord.js last knew.
+     * Either way, acting on them fails at Discord and reading their roles or boost
+     * answers from that last-known state, not from the guild.
      */
-    subject: GuildMember;
+    subject: GuildMember | PartialGuildMember;
     /**
      * The member who caused the *current step*, when a member caused it at all.
      *

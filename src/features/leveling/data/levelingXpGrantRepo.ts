@@ -1,11 +1,11 @@
 import type { Transaction } from 'kysely';
-import { database, Database } from '../../../features-system/data-persistence/database';
-import type { LevelingActivityEvent, LevelingActivityTotals } from './levelingActivityEventSchema';
+import { database, type Database } from '../../../features-system/data-persistence/database';
+import type { LevelingXpGrant, LevelingActivityTotals } from './levelingXpGrantSchema';
 import type { LevelingActivityEventType } from '../constants/activityEventTypes';
 import { aggregateActivityTotals } from '../logic/activityEventAggregation';
 import { toTimestampValue } from '../logic/xpGrant';
 
-export type RecordActivityEventInput = {
+export type RecordXpGrantInput = {
     guildId: string;
     userId: string;
     activityType: LevelingActivityEventType;
@@ -18,6 +18,8 @@ export type RecordActivityEventInput = {
     voiceSessionEndedAt?: Date | null;
     voiceChannelId?: string | null;
     voiceEligibilityRule?: string | null;
+    /** The activity event this grant was earned from; omitted for voice and flow grants. */
+    activityEventId?: number | null;
 };
 
 /** The three columns guild-wide analytics reads, and nothing more. */
@@ -27,14 +29,14 @@ export type GuildTimelineEvent = {
     xpAmount: number;
 };
 
-export class LevelingActivityEventRepo {
+export class LevelingXpGrantRepo {
     async getUserEvents(
         guildId: string,
         userId: string,
         options?: { since?: Date; limit?: number }
-    ): Promise<LevelingActivityEvent[]> {
+    ): Promise<LevelingXpGrant[]> {
         let query = database
-            .selectFrom('leveling_activity_events')
+            .selectFrom('leveling_xp_grants')
             .selectAll()
             .where('guildId', '=', guildId)
             .where('userId', '=', userId)
@@ -70,7 +72,8 @@ export class LevelingActivityEventRepo {
      * the marshalling cost is time the whole bot spends unable to answer anything.
      *
      * Ordered by `(userId, occurredAt)`, which is the tail of
-     * `leveling_activity_events_guild_user_occurred_idx` — so with `guildId` fixed the index
+     * `leveling_activity_events_guild_user_occurred_idx` (the index kept its name when the
+     * table was renamed to `leveling_xp_grants`) — so with `guildId` fixed the index
      * supplies this order directly and no sort step is needed. The index does **not** include
      * `id`, so no `id` tiebreaker is applied here: adding one would force the sort this
      * ordering exists to avoid, and it would buy nothing, because the consumer groups by
@@ -88,7 +91,7 @@ export class LevelingActivityEventRepo {
      */
     async getGuildEventTimeline(guildId: string, limit: number): Promise<GuildTimelineEvent[]> {
         return database
-            .selectFrom('leveling_activity_events')
+            .selectFrom('leveling_xp_grants')
             .select(['userId', 'occurredAt', 'xpAmount'])
             .where('guildId', '=', guildId)
             .orderBy('userId', 'asc')
@@ -108,7 +111,7 @@ export class LevelingActivityEventRepo {
      */
     async countGuildEvents(guildId: string): Promise<number> {
         const row = await database
-            .selectFrom('leveling_activity_events')
+            .selectFrom('leveling_xp_grants')
             .select((eb) => eb.fn.countAll<string | number>().as('count'))
             .where('guildId', '=', guildId)
             .executeTakeFirst();
@@ -116,10 +119,11 @@ export class LevelingActivityEventRepo {
         return Number(row?.count ?? 0);
     }
 
-    async recordActivityEvent(
-        transaction: Transaction<Database>,
-        input: RecordActivityEventInput
-    ): Promise<void> {
+    /**
+     * Append one ledger row inside the caller's transaction. `activityEventId` links a
+     * message or reaction grant to the activity event it was earned from.
+     */
+    async recordXpGrant(transaction: Transaction<Database>, input: RecordXpGrantInput): Promise<void> {
         const occurredAt = (input.occurredAt ?? new Date()).toISOString();
         const values = {
             guildId: input.guildId,
@@ -129,6 +133,7 @@ export class LevelingActivityEventRepo {
             messageLength: input.messageLength ?? null,
             photoBonus: input.photoBonusApplied ?? false,
             occurredAt,
+            activityEventId: input.activityEventId ?? null,
             ...(input.activityType === 'voice'
                 ? {
                       voiceEligibleSeconds: input.voiceEligibleSeconds ?? null,
@@ -140,8 +145,8 @@ export class LevelingActivityEventRepo {
                 : {}),
         };
 
-        await transaction.insertInto('leveling_activity_events').values(values).execute();
+        await transaction.insertInto('leveling_xp_grants').values(values).execute();
     }
 }
 
-export const levelingActivityEventRepo = new LevelingActivityEventRepo();
+export const levelingXpGrantRepo = new LevelingXpGrantRepo();

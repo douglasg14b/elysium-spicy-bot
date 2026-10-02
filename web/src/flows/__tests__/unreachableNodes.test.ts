@@ -25,6 +25,7 @@ function descriptor(kind: NodeDescriptor['kind']): NodeDescriptor {
         group: kind === 'trigger' ? 'triggers' : 'actions',
         icon: '🎲',
         configFields: [],
+        fieldChecks: {},
         handles: [{ label: 'Next', tone: 'neutral' }],
         outputs: [],
         requires: [],

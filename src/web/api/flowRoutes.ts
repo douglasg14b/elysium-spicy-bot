@@ -68,6 +68,10 @@ const updateFlowBody = z.object({
     baseUpdatedAt: flowDraftBaseSchema.optional(),
 });
 
+const checkFlowBody = z.object({
+    graph: flowGraphSchema,
+});
+
 /** Why a PUT was refused before it could go live: the `{ error, issues }` body of a 400. */
 interface ReadinessRefusal {
     readonly error: string;
@@ -397,6 +401,40 @@ export function flowRoutes(): Hono<AppEnv> {
         }
 
         return c.json(flowDetail(flow, flowReadinessIssues(flow.graph, declared.keys)));
+    });
+
+    /*
+     * What a save of this graph would say is wrong with it. Changes nothing.
+     *
+     * The builder asks as an author leaves a field, so a fixed problem stops being
+     * marked without a save. Judged exactly as the PUT judges — the same structural 400,
+     * the same declarations, the same readiness — so the answer here cannot disagree
+     * with the one Save gives a moment later.
+     */
+    app.post('/:guildId/flows/:flowId/check', async (c) => {
+        const guildId = c.get('guild').id;
+        const flowId = c.req.param('flowId');
+        const flow = await flowsRepo.getByFlowId(flowId);
+        if (!flow || flow.guildId !== guildId) {
+            return c.json({ error: 'Flow not found.' }, 404);
+        }
+
+        const parsed = checkFlowBody.safeParse(await c.req.json().catch(() => null));
+        if (!parsed.success) {
+            return c.json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body.' }, 400);
+        }
+
+        const structural = validateFlowGraph(parsed.data.graph);
+        if (!structural.valid) {
+            return c.json(invalidGraphBody(structural.errors), 400);
+        }
+
+        const declared = await readDeclaredKeys(guildId, flow.flowId);
+        if (!declared.ok) {
+            return c.json({ error: declared.error }, 500);
+        }
+
+        return c.json({ issues: flowReadinessIssues(structural.graph, declared.keys) });
     });
 
     // Create a flow. Starts empty + disabled unless a graph is supplied.

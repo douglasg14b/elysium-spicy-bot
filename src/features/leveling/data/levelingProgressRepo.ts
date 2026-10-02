@@ -7,7 +7,7 @@ import {
     type XpActivityType,
     type XpGrantComputation,
 } from '../logic/xpGrant';
-import { levelingActivityEventRepo } from './levelingActivityEventRepo';
+import { levelingXpGrantRepo } from './levelingXpGrantRepo';
 import { LevelingProgress } from './levelingProgressSchema';
 
 export type GrantXpResult = {
@@ -36,6 +36,8 @@ export type GrantXpInput = {
     voiceSessionEndedAt?: Date | null;
     voiceChannelId?: string | null;
     voiceEligibilityRule?: string | null;
+    /** The activity event a message or reaction grant was earned from; voice and flow grants have none. */
+    activityEventId?: number | null;
 };
 
 export class LevelingProgressRepo {
@@ -113,7 +115,7 @@ export class LevelingProgressRepo {
                     addVoiceSeconds: input.addVoiceSeconds,
                 });
 
-                await levelingActivityEventRepo.recordActivityEvent(transaction, {
+                await levelingXpGrantRepo.recordXpGrant(transaction, {
                     guildId: input.guildId,
                     userId: input.userId,
                     activityType: input.activityType,
@@ -126,6 +128,7 @@ export class LevelingProgressRepo {
                     voiceSessionEndedAt: input.voiceSessionEndedAt,
                     voiceChannelId: input.voiceChannelId,
                     voiceEligibilityRule: input.voiceEligibilityRule,
+                    activityEventId: input.activityEventId,
                 });
 
                 if (!computation) {

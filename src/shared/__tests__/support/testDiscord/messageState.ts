@@ -29,6 +29,13 @@ import { TestDiscordError } from './testDiscordError';
  *  - **Send, fetch, edit and pin** of messages the bot writes. Discord's replies are
  *    built from what was sent, with the members Discord adds on the way back:
  *    `type: 'rich'` on every embed, the mentioned users, `edited_timestamp` on an edit.
+ *  - **Messages from others** — a member, the bot from elsewhere, a webhook, a join notice
+ *    — arrive through `receive`, plain text only, into a text channel or a thread, and may
+ *    be backdated so a test can build the history an outage left behind. Their content is
+ *    stored as given whether or not a client could read it: nothing models the
+ *    `MessageContent` intent, so nothing may rely on content being withheld.
+ *  - **History pages** (`GET /channels/:id/messages`) newest first, as Discord lists them,
+ *    with `after` and `limit` only.
  *  - **Embeds and components are stored as sent** otherwise. Discord re-serialises an
  *    embed's timestamp (`+00:00` and microseconds) and gives each component a numeric
  *    `id`; neither is modelled, so nothing may assert on either.
@@ -48,9 +55,10 @@ import { TestDiscordError } from './testDiscordError';
  *    adds for a guild message: `guild_id`, and the author's and each mentioned user's
  *    `member` without its `user`. Those are what discord.js reads off one — `guild_id` to
  *    place the message, the members to patch its member cache. MESSAGE_UPDATE carries the
- *    full message too, as Discord now sends it. Content is always present: every message
- *    here is the bot's own, which Discord delivers whether or not the client holds
- *    `MessageContent`.
+ *    full message too, as Discord now sends it. Content is always present: for the bot's
+ *    own messages Discord delivers it whether or not the client holds `MessageContent`,
+ *    and for anyone else's see the received-messages caveat above. A webhook's message
+ *    carries no `member`.
  *  - **Message events are held like any other event a REST write causes**, until the
  *    gateway is flushed. A pin's three arrive as MESSAGE_UPDATE, MESSAGE_CREATE, then
  *    CHANNEL_PINS_UPDATE; Discord promises no order among them, so nothing may rely on it.
@@ -64,6 +72,27 @@ import { TestDiscordError } from './testDiscordError';
 
 /** What the router has already checked a message write to be. */
 export type MessageDraft = CreateMessageBody;
+
+/**
+ * A message somebody other than the bot's REST calls sent — a member, the bot from
+ * elsewhere, or a webhook — as `ServerChannel.receiveMessage` describes it.
+ *
+ * `sentAt` becomes the message's snowflake as well as its timestamp, exactly as Discord
+ * derives one from the other, so a test can place history inside an outage.
+ */
+export interface IncomingMessage {
+    readonly from: { readonly kind: 'member'; readonly userId: string } | { readonly kind: 'webhook' };
+    /** `UserJoin` is the join notice Discord posts as the member who joined: a system message. */
+    readonly type: MessageType.Default | MessageType.UserJoin;
+    readonly content: string;
+    readonly sentAt: Date;
+}
+
+/** One page of `GET /channels/:id/messages`, as the router has checked it. */
+export interface HistoryPage {
+    readonly after?: string;
+    readonly limit: number;
+}
 
 /** A message as a test reads it: the parts an assertion is about, in plain names. */
 export interface ServerMessageView {
@@ -81,7 +110,7 @@ export interface ServerMessageView {
 }
 
 /** The slice of `ServerState` messages lean on. */
-type MessageHost = Pick<ServerState, 'botUser' | 'channel' | 'member' | 'noteChannelActivity'>;
+type MessageHost = Pick<ServerState, 'botUser' | 'channel' | 'member' | 'noteChannelActivity' | 'messageChannel'>;
 
 /** Global, for `matchAll`. Never call `.test` on it: a global regex keeps its place between calls. */
 const USER_MENTIONS = /<@!?(\d{17,20})>/g;
@@ -161,6 +190,53 @@ export class ServerMessages {
         this.store(channelId, message);
         this.announceCreate(message);
         return structuredClone(message);
+    }
+
+    /**
+     * A message arriving from somebody other than the bot's REST calls, into a text
+     * channel or a thread. Announced like any other once a client asked for message events.
+     *
+     * A webhook's message carries `webhook_id`, and its author is the webhook itself —
+     * not a member, and marked `bot` as Discord marks every webhook author.
+     */
+    receive(channelId: string, incoming: IncomingMessage): APIMessage {
+        const { guildId, holdsMessages } = this.host.messageChannel(channelId);
+        if (!holdsMessages) {
+            throw new TestDiscordError(
+                `TestDiscord was asked to deliver a message into ${channelId}, which holds no messages.`
+            );
+        }
+        if (incoming.from.kind === 'webhook' && incoming.type !== MessageType.Default) {
+            throw new TestDiscordError('A webhook cannot post a join notice; only Discord does, as the member who joined.');
+        }
+
+        const author = incoming.from.kind === 'member' ? this.memberUser(guildId, incoming.from.userId) : webhookAuthor();
+        const message: APIMessage = {
+            ...this.newMessage(channelId, incoming.type, incoming.sentAt),
+            author,
+            content: incoming.content,
+            mentions: this.mentionedUsers(guildId, { content: incoming.content }),
+            ...(incoming.from.kind === 'webhook' ? { webhook_id: author.id } : {}),
+        };
+        this.store(channelId, message);
+        this.announceCreate(message);
+        return structuredClone(message);
+    }
+
+    /**
+     * A page of history as Discord answers `GET /channels/:id/messages`: **newest first**.
+     *
+     * With `after`, the `limit` messages immediately following it, so paging forward means
+     * taking the highest id of each page as the next cursor. Without, the newest `limit`.
+     */
+    history(channelId: string, page: HistoryPage): APIMessage[] {
+        const held = this.byChannel.get(channelId) ?? [];
+        const { after } = page;
+        const selected =
+            after === undefined
+                ? held.slice(-page.limit)
+                : held.filter((message) => BigInt(message.id) > BigInt(after)).slice(0, page.limit);
+        return structuredClone(selected).reverse();
     }
 
     /** Refuse an edit the harness cannot model. Reads only; the message must exist. */
@@ -251,11 +327,12 @@ export class ServerMessages {
      * message on both, so the two discord-api-types shapes are the same.
      */
     private gatewayMessage(message: APIMessage): GatewayMessageCreateDispatchData {
-        const guildId = this.host.channel(message.channel_id).guild_id;
+        const { guildId } = this.host.messageChannel(message.channel_id);
         return {
             ...structuredClone(message),
             guild_id: guildId,
-            member: this.memberWithoutUser(guildId, message.author.id),
+            // A webhook is not a member, so its message carries none.
+            ...(message.webhook_id ? {} : { member: this.memberWithoutUser(guildId, message.author.id) }),
             mentions: message.mentions.map((user) => ({
                 ...structuredClone(user),
                 member: this.memberWithoutUser(guildId, user.id),
@@ -280,7 +357,7 @@ export class ServerMessages {
     }
 
     /** The users `content` mentions, as Discord lists them. Throws on any mention it cannot model. */
-    private mentionedUsers(guildId: string, draft: MessageDraft): APIUser[] {
+    private mentionedUsers(guildId: string, draft: Pick<MessageDraft, 'content' | 'allowed_mentions'>): APIUser[] {
         const content = draft.content ?? '';
         if (UNMODELLED_MENTION.test(content)) {
             throw new TestDiscordError(
@@ -309,13 +386,18 @@ export class ServerMessages {
         });
     }
 
-    private newMessage(channelId: string, type: MessageType.Default | MessageType.ChannelPinnedMessage): APIMessage {
+    private newMessage(
+        channelId: string,
+        type: MessageType.Default | MessageType.ChannelPinnedMessage | MessageType.UserJoin,
+        sentAt: Date = new Date()
+    ): APIMessage {
         return {
-            id: SnowflakeUtil.generate().toString(),
+            // Discord's ids carry their own send time, which is what discord.js reads `createdAt` from.
+            id: SnowflakeUtil.generate({ timestamp: sentAt }).toString(),
             channel_id: channelId,
             author: structuredClone(this.host.botUser),
             content: '',
-            timestamp: new Date().toISOString(),
+            timestamp: sentAt.toISOString(),
             edited_timestamp: null,
             tts: false,
             mention_everyone: false,
@@ -329,11 +411,26 @@ export class ServerMessages {
         };
     }
 
+    /**
+     * Keep a channel's messages in id order, which is send order. A received message may be
+     * backdated before ones already held, so it is inserted rather than appended, and the
+     * channel's last message is the newest held, not the one just stored.
+     */
     private store(channelId: string, message: APIMessage): void {
         const messages = this.byChannel.get(channelId) ?? [];
-        messages.push(message);
+        const later = messages.findIndex((held) => BigInt(held.id) > BigInt(message.id));
+        messages.splice(later === -1 ? messages.length : later, 0, message);
         this.byChannel.set(channelId, messages);
-        this.host.noteChannelActivity(channelId, { lastMessageId: message.id });
+        this.host.noteChannelActivity(channelId, { lastMessageId: messages.at(-1)?.id ?? message.id });
+    }
+
+    /** A member's user, as a message they wrote carries it. Throws for somebody outside the guild. */
+    private memberUser(guildId: string, userId: string): APIUser {
+        const member = this.host.member(guildId, userId);
+        if (!member) {
+            throw new TestDiscordError(`TestDiscord was asked to deliver a message from ${userId}, who is not a member of guild ${guildId}.`);
+        }
+        return structuredClone(member.user);
     }
 
     private locate(channelId: string, messageId: string): APIMessage {
@@ -343,6 +440,18 @@ export class ServerMessages {
         }
         return found;
     }
+}
+
+/** A webhook as the author of its own message: its id and name, flagged `bot`. */
+function webhookAuthor(): APIUser {
+    return {
+        id: SnowflakeUtil.generate().toString(),
+        username: 'test-webhook',
+        discriminator: '0000',
+        global_name: null,
+        avatar: null,
+        bot: true,
+    };
 }
 
 /** Discord stamps every embed a bot sends as `rich`. */

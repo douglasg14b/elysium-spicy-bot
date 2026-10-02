@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { DailyActivityBucket } from '../data/levelingActivityEventSchema';
-import type { LevelingActivityTotals } from '../data/levelingActivityEventSchema';
+import type { DailyActivityBucket } from '../data/levelingXpGrantSchema';
+import type { LevelingActivityTotals } from '../data/levelingXpGrantSchema';
 import { buildStatsCardElement } from '../cards/statsCard/buildStatsCardElement';
 import { buildStatsCardMetrics } from '../cards/statsCard/statsCardMetrics';
 import { buildUserLevelProfile } from '../logic/userLevelProfile';

@@ -21,7 +21,13 @@ import { Select, Text } from '@mantine/core';
 import { roleColorHex } from '../nodeMeta';
 import { channelOptionLabel, postableChannels } from '../resourceAdoption';
 import { asText, resourceKeyFieldFor, type ControlProps } from './types';
-import type { BlockConfigField, ResourceDeclaration, ResourceKind } from '../../api/types';
+import type {
+    BlockConfigField,
+    BlockOutputValueKind,
+    ResourceDeclaration,
+    ResourceKind,
+} from '../../api/types';
+import { pickerVariableOf, variableToken, type AvailableVariable } from '../variables';
 
 type RolePickerField = Extract<BlockConfigField, { control: 'rolePicker' }>;
 type ChannelPickerField = Extract<BlockConfigField, { control: 'channelPicker' }>;
@@ -163,6 +169,10 @@ export function ChannelPickerControl({
 }: ControlProps<ChannelPickerField>) {
     const resourceKeyField = resourceKeyFieldFor(field.key);
     const current = currentValue(value, config?.[resourceKeyField]);
+    const pickedVariable = pickerVariableOf(asText(value));
+    const pickedMissing =
+        pickedVariable !== undefined &&
+        !context.variables.some((variable) => variable.name === pickedVariable && variable.valueKind === 'channel');
 
     const options = useMemo(() => {
         /*
@@ -189,10 +199,13 @@ export function ChannelPickerControl({
             prefix: '# ',
         });
 
-        return declared
-            ? [declared, { group: 'Channels in this server', items: existing }]
+        const fromBlocks = variableGroup(context.variables, 'channel', pickedVariable);
+
+        const groups = [fromBlocks, declared].filter((group) => group !== undefined);
+        return groups.length > 0
+            ? [...groups, { group: 'Channels in this server', items: existing }]
             : existing;
-    }, [context.channels, context.declaredResources]);
+    }, [context.channels, context.declaredResources, context.variables, pickedVariable]);
 
     const declaredKey = asText(config?.[resourceKeyField]);
 
@@ -213,15 +226,56 @@ export function ChannelPickerControl({
                         return;
                     }
                     context.setConfigKey(resourceKeyField, undefined);
-                    onChange(next ?? '');
+                    // A cleared optional pick removes the key, as an emptied optional
+                    // text box does; a required one keeps writing `''`.
+                    onChange(next ?? (field.optional ? undefined : ''));
                 }}
                 searchable
                 nothingFoundMessage="No channels found"
                 allowDeselect={false}
+                clearable={field.optional ?? false}
             />
             {declaredKey && <PendingHint />}
+            {pickedMissing && pickedVariable && (
+                <Text size="11px" c="yellow" mt={4}>
+                    {context.variables.some((variable) => variable.name === pickedVariable)
+                        ? `${variableToken(pickedVariable)} is recorded above, but it is not a channel. Pick another.`
+                        : `Nothing above this block records ${variableToken(pickedVariable)} on this path — ` +
+                          'the run will stop here. Wire in the block that finds it, or pick another channel.'}
+                </Text>
+            )}
         </>
     );
+}
+
+/**
+ * In-scope variables of one kind, as a labelled option group.
+ *
+ * The option's value is the token itself, so picking one stores `{{var.<name>}}`
+ * in the field — the same spelling copy uses, resolved by the engine just before
+ * the block runs. A name already picked but no longer in scope is kept as an
+ * option, so the field shows what it holds rather than going blank while the
+ * config still says otherwise.
+ */
+function variableGroup(
+    variables: readonly AvailableVariable[],
+    kind: BlockOutputValueKind,
+    picked: string | undefined
+) {
+    const items = variables
+        .filter((variable) => variable.valueKind === kind)
+        .map((variable) => ({
+            value: variableToken(variable.name),
+            // The name as `{{var.…}}` spells it, then which block finds it — the
+            // same two facts the variable chips under a copy field show.
+            label: `${variable.producerIcon} ${variable.name} · from ${variable.producerLabel}`,
+        }));
+
+    if (picked !== undefined && !items.some((item) => item.value === variableToken(picked))) {
+        items.push({ value: variableToken(picked), label: `${variableToken(picked)} — not found above` });
+    }
+
+    return items.length > 0 ? { group: 'From earlier blocks', items } : undefined;
 }
 
 /**

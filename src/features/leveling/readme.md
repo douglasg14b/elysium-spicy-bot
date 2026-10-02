@@ -36,31 +36,40 @@ Multi-level jumps announce once per level reached (e.g. a large XP grant from le
 Voice XP uses a small state machine reconciled against live Discord voice state:
 
 - **Transient** `leveling_voice_sessions` rows exist only while a member is in VC. They are deleted when the session ends. Eligibility accrues while the channel has ≥2 non-bots.
-- **Permanent** `leveling_activity_events` rows record each completed session (`voice_eligible_seconds`, start/end, channel, eligibility rule) so XP can be recalculated later if the formula changes.
+- **Permanent** `leveling_xp_grants` rows record each completed session (`voice_eligible_seconds`, start/end, channel, eligibility rule) so XP can be recalculated later if the formula changes.
 - `leveling_progress` counters (`voice_session_count`, `total_voice_seconds`) are derived and can be rebuilt from events.
 
 A `VoiceStateUpdate` handler is the primary input. On ready, and every 5 minutes, the bot reconciles open rows against the gateway voice-state cache (`GuildVoiceStates` intent) and confirms each open-session user with a per-user fetch. discord.js cannot bulk-fetch guild voice states; a no-arg `voiceStates.fetch()` would call `/voice-states/null` and Discord would reject it. Missed leave events cannot leave a session stuck accruing forever.
 
 Bot restarts preserve in-flight eligible time via the transient table; Discord remains the source of truth for who is actually connected.
 
-Voice XP is isolated from the rest of leveling. A failure in the voice coordinator, session table, sweep, or voice grant is logged and contained — message and reaction XP keep writing. Voice session rows are only deleted after a successful session-end grant so a failed grant can retry on the next leave/reconcile. While `DEFAULT_VOICE_XP_ENABLED` is false, session-end skips the grant (no XP, progress, or activity event) and still deletes the transient row so tracking can keep running.
+Voice XP is isolated from the rest of leveling. A failure in the voice coordinator, session table, sweep, or voice grant is logged and contained — message and reaction XP keep writing. Voice session rows are only deleted after a successful session-end grant so a failed grant can retry on the next leave/reconcile. While `DEFAULT_VOICE_XP_ENABLED` is false, session-end skips the grant (no XP, progress, or ledger row) and still deletes the transient row so tracking can keep running.
 
-## Activity history
+## Where messages and reactions come from
 
-Each successful XP grant appends one row to `leveling_activity_events`:
+Leveling has no `MessageCreate` or `MessageReactionAdd` listener of its own. The **activity** capability (`src/features-system/activity/`) records every eligible guild message and reaction in `activity_events` — whether or not leveling is enabled — and then notifies the subscriber `initLeveling` registers. `LevelingService.handleActivity` applies leveling's own XP rules from there.
 
-- `activityType` — `message`, `reaction`, or `voice`
+The two filters are independent. Activity skips system messages, DMs, bots and webhooks; leveling additionally skips `/`-prefixed messages, which are still recorded as activity. An XP rule must never be implemented by changing what activity records.
+
+Reactions are no longer fetched: a reaction on a message the bot cannot fetch (deleted, or no Read Message History) is recorded as activity and earns reaction XP, where leveling's old listener silently dropped it. The reaction cooldown still applies.
+
+## XP ledger
+
+Each eligible XP attempt appends one row to `leveling_xp_grants` (renamed from `leveling_activity_events` on 2026-10-01; its indexes — and on postgres its primary key and id sequence — keep the old `leveling_activity_events_*` names):
+
+- `activityType` — `message`, `reaction`, `voice`, or `flow`
+- `activityEventId` — the `activity_events` row a message or reaction grant was earned from; null for voice and flow grants, which have none. A plain column, not a foreign key: anything that deletes activity events must null this link itself, and never cost anyone their XP
 - `xpAmount` — XP granted for that event (`0` when cooldown blocked the grant, or when a voice session was under the minimum eligible time)
 - `messageLength` — stored for messages (supports retroactive formula changes)
 - `photoBonus` — whether an image bonus was included
 - `voiceEligibleSeconds` / `voiceSessionStartedAt` / `voiceSessionEndedAt` / `voiceChannelId` / `voiceEligibilityRule` — stored for voice sessions (supports retroactive formula changes)
 - `occurredAt` — full timestamp
 
-Eligible messages, reactions, and completed voice sessions are **always** logged, even on cooldown. Cooldown only gates XP, level progress, and (for messages/reactions) lifetime counters — not activity history. Voice session count still increments when cooldown blocks XP.
+Eligible messages, reactions, and completed voice sessions are **always** logged, even on cooldown. Cooldown only gates XP, level progress, and (for messages/reactions) lifetime counters — not the ledger row. Voice session count still increments when cooldown blocks XP.
 
-Query via `levelingActivityEventRepo.getUserEvents()` or `getUserActivityTotals()`. Use `aggregateEventsByDate()` or `fillActivityDateRange()` when you need day-level histograms.
+Query via `levelingXpGrantRepo.getUserEvents()` or `getUserActivityTotals()`. Use `aggregateEventsByDate()` or `fillActivityDateRange()` when you need day-level histograms. Leveling's readers (stats, insights, `/level`) read only the ledger, so they mean "activity while leveling was on"; for "when did this member last post here", read `activity_events` instead.
 
-Members can inspect progress with `/level` (optional `user` target). Shows level, XP progress, recent activity (last 7 days), and lifetime activity counts from `leveling_activity_events`.
+Members can inspect progress with `/level` (optional `user` target). Shows level, XP progress, recent activity (last 7 days), and lifetime activity counts from `leveling_xp_grants`.
 
 Staff with Manage Server can run `/level-report` with a `level` and/or `xp` bar. Default scope is current members (people with no XP count as level 1 / 0 XP); `tracked` limits the list to members who already have a progress row. The reply is an ephemeral card of the 10 closest plus a CSV of the full list. Current-member reports are capped at 5,000 members — use tracked scope on larger servers.
 

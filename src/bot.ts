@@ -8,6 +8,7 @@ import { flagBotReady } from './healthcheck/botHearthbeat';
 import { deployTicketSystemCommand, handleDeployTicketSystem, initTicketsFeature } from './features/tickets';
 import { initAIReply } from './features/ai-reply';
 import { initBirthdayFeature, startBirthdayAnnouncementScheduler, stopBirthdayAnnouncementScheduler } from './features/birthday-tracker';
+import { initActivityTracking } from './features-system/activity';
 import { initLeveling, stopLeveling } from './features/leveling';
 import { initWarnings } from './features/warnings';
 import { initFlows, stopFlowRunScheduler } from './features/flows';
@@ -24,6 +25,10 @@ initTicketsFeature();
 
 // Initialize birthday tracker handlers
 initBirthdayFeature();
+
+// Record member activity (messages, reactions). Leveling consumes it through a
+// subscriber, so it records whether or not leveling is enabled in a guild.
+initActivityTracking();
 
 // Initialize leveling system handlers
 initLeveling();

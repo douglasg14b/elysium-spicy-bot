@@ -15,6 +15,7 @@ import type {
     NodeDescriptor,
 } from '../api/types';
 import { formatDuration } from './nodeMeta';
+import { pickerVariableOf } from './variables';
 
 /** Shown when a block declares no `cardSummary` at all. */
 const NO_SUMMARY = 'Click to configure';
@@ -68,6 +69,9 @@ function resolveValue(
         }
         case 'channelPicker': {
             if (typeof raw !== 'string' || !raw) return '';
+            // A channel an earlier block finds at run time. Shown as written, the
+            // way a copy field's template is: there is no name to look up yet.
+            if (pickerVariableOf(raw)) return raw;
             const channel = context.channels.find((candidate) => candidate.id === raw);
             if (!channel) return '';
             /*

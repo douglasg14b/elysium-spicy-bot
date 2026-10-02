@@ -37,6 +37,27 @@ import {
     DEFAULT_VOICE_XP_PER_MINUTE,
 } from '../constants';
 
+const GUILD = { id: 'guild-1' };
+
+/** A message as the activity recorder hands it on: already recorded, with its event id. */
+function messageActivity(content: string) {
+    return {
+        kind: 'message',
+        activityEventId: 7,
+        guild: GUILD,
+        userId: 'user-1',
+        channelId: 'channel-1',
+        message: {
+            system: false,
+            guildId: 'guild-1',
+            guild: GUILD,
+            author: { id: 'user-1', bot: false },
+            content,
+            attachments: { values: () => [] },
+        },
+    } as never;
+}
+
 function voiceXpSettings(overrides?: { voiceXpEnabled?: boolean }) {
     return {
         voiceXpPerMinute: DEFAULT_VOICE_XP_PER_MINUTE,
@@ -71,14 +92,7 @@ describe('LevelingService', () => {
         mockGetByGuildId.mockResolvedValue(null);
         const service = new LevelingService({} as never);
 
-        await service.handleMessageCreate({
-            system: false,
-            guildId: 'guild-1',
-            guild: { id: 'guild-1' },
-            author: { id: 'user-1', bot: false },
-            content: 'hello',
-            attachments: { values: () => [] },
-        } as never);
+        await service.handleActivity(messageActivity('hello'));
 
         expect(mockGrantXp).not.toHaveBeenCalled();
     });
@@ -94,14 +108,7 @@ describe('LevelingService', () => {
 
         const service = new LevelingService({} as never);
 
-        await service.handleMessageCreate({
-            system: false,
-            guildId: 'guild-1',
-            guild: { id: 'guild-1' },
-            author: { id: 'user-1', bot: false },
-            content: 'hello',
-            attachments: { values: () => [] },
-        } as never);
+        await service.handleActivity(messageActivity('hello'));
 
         expect(mockGrantXp).toHaveBeenCalledOnce();
         expect(mockAnnounceLevelUp).toHaveBeenCalledTimes(2);
@@ -113,25 +120,11 @@ describe('LevelingService', () => {
         mockGrantXp.mockResolvedValue(null);
         const service = new LevelingService({} as never);
 
-        await service.handleMessageCreate({
-            system: false,
-            guildId: 'guild-1',
-            guild: { id: 'guild-1' },
-            author: { id: 'user-1', bot: false },
-            content: 'hello',
-            attachments: { values: () => [] },
-        } as never);
+        await service.handleActivity(messageActivity('hello'));
 
         expect(mockGrantXp.mock.calls[0]?.[0]?.xpAmount).toBe(8);
 
-        await service.handleMessageCreate({
-            system: false,
-            guildId: 'guild-1',
-            guild: { id: 'guild-1' },
-            author: { id: 'user-1', bot: false },
-            content: 'x'.repeat(300),
-            attachments: { values: () => [] },
-        } as never);
+        await service.handleActivity(messageActivity('x'.repeat(300)));
 
         expect(mockGrantXp.mock.calls[1]?.[0]?.xpAmount).toBe(25);
     });
@@ -140,13 +133,13 @@ describe('LevelingService', () => {
         mockGrantXp.mockResolvedValue(null);
         const service = new LevelingService({} as never);
 
-        await service.handleReactionAdd(
-            {
-                partial: false,
-                message: { partial: false, guildId: 'guild-1', guild: { id: 'guild-1' } },
-            } as never,
-            { bot: false, partial: false, id: 'user-1' } as never
-        );
+        await service.handleActivity({
+            kind: 'reaction',
+            activityEventId: 8,
+            guild: GUILD,
+            userId: 'user-1',
+            channelId: 'channel-1',
+        } as never);
 
         const xpAmount = mockGrantXp.mock.calls[0]?.[0]?.xpAmount;
         expect(xpAmount).toBeGreaterThanOrEqual(1);
@@ -158,14 +151,7 @@ describe('LevelingService', () => {
         mockGrantXp.mockResolvedValue(null);
         const service = new LevelingService({} as never);
 
-        await service.handleMessageCreate({
-            system: false,
-            guildId: 'guild-1',
-            guild: { id: 'guild-1' },
-            author: { id: 'user-1', bot: false },
-            content: 'hello',
-            attachments: { values: () => [] },
-        } as never);
+        await service.handleActivity(messageActivity('hello'));
 
         expect(mockAnnounceLevelUp).not.toHaveBeenCalled();
     });
@@ -279,14 +265,7 @@ describe('LevelingService', () => {
             )
         ).resolves.toBeUndefined();
 
-        await service.handleMessageCreate({
-            system: false,
-            guildId: 'guild-1',
-            guild: { id: 'guild-1' },
-            author: { id: 'user-1', bot: false },
-            content: 'hello',
-            attachments: { values: () => [] },
-        } as never);
+        await service.handleActivity(messageActivity('hello'));
 
         expect(mockGrantXp).toHaveBeenCalledWith(
             expect.objectContaining({

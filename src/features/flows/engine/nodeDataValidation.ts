@@ -45,6 +45,14 @@ export interface NodeDataValidationOptions {
      * separator to collide on.
      */
     readonly pendingFields?: ReadonlyMap<string, ReadonlySet<string>>;
+    /**
+     * A sentence for one complaint, or `undefined` to keep the schema's own.
+     *
+     * The caller owns the wording for the same reason it owns `pendingFields`: this file
+     * reports what the schema refused and has no opinion about how an author should
+     * read it.
+     */
+    readonly issueMessage?: (issue: z.core.$ZodIssue, node: FlowGraph['nodes'][number]) => string | undefined;
 }
 
 /**
@@ -96,7 +104,8 @@ export function validateNodeData(
             if (pending && isPending(pending, issue, node.data)) {
                 continue;
             }
-            issues.push({ nodeId: node.id, field: field || undefined, message: issue.message });
+            const message = options.issueMessage?.(issue, node) ?? issue.message;
+            issues.push({ nodeId: node.id, field: field || undefined, message });
         }
     }
 

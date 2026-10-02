@@ -9,6 +9,7 @@ import type {
     FlowGraph,
     FlowSaveResult,
     FlowSummary,
+    FlowValidationIssue,
     GuildRole,
     InstallPlan,
     InstallResult,
@@ -62,6 +63,22 @@ export function updateFlow(
     patch: { name?: string; enabled?: boolean; graph?: FlowGraph; baseUpdatedAt?: string }
 ): Promise<FlowSaveResult> {
     return api.put<FlowSaveResult>(`/api/guilds/${guildId}/flows/${flowId}`, patch);
+}
+
+/**
+ * What a save of `graph` would say is wrong with it. Changes nothing.
+ *
+ * Refused the way {@link updateFlow} refuses: a structurally broken graph is a 400
+ * `ApiError` carrying its `issues`.
+ */
+export function checkFlow(
+    guildId: string,
+    flowId: string,
+    graph: FlowGraph
+): Promise<FlowValidationIssue[]> {
+    return api
+        .post<{ issues: FlowValidationIssue[] }>(`/api/guilds/${guildId}/flows/${flowId}/check`, { graph })
+        .then((res) => res.issues);
 }
 
 /** Every operator's draft of a flow, most recently edited first, graphs included. */

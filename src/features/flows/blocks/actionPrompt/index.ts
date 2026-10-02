@@ -9,6 +9,7 @@ import {
 import type { FlowStepOutcome } from '../../engine/stepOutcome';
 import { buildFlowChoiceCustomId } from '../../utils/customId';
 import type { BlockManifest } from '../manifest';
+import { checkQuietTimeout, quietTimeoutFields, quietTimeoutShape, toQuietWindow } from '../quietTimeout';
 import type { FlowResumeReason } from '../types';
 
 export const ACTION_PROMPT = 'action.prompt';
@@ -30,6 +31,11 @@ export function promptChoiceHandle(index: number): string {
     return `choice-${index}`;
 }
 
+/**
+ * The question's config. Its time limit may count from a last message, so a question
+ * nobody answers only gives up once the conversation around it has gone quiet — which
+ * needs a `timeoutMs` to count, and is refused without one.
+ */
 export const promptConfigSchema = z.object({
     question: z.string().min(1).max(2000),
     choices: z
@@ -37,6 +43,7 @@ export const promptConfigSchema = z.object({
         .min(1)
         .max(FLOW_MAX_CHOICES),
     timeoutMs: z.number().int().positive().max(FLOW_MAX_DELAY_MS).optional(),
+    ...quietTimeoutShape,
     /*
      * Who may answer, **narrowing** the dispatcher's own rule that a question is
      * answerable only by the member whose run it is.
@@ -53,7 +60,7 @@ export const promptConfigSchema = z.object({
      * and is not in this slice.
      */
     [ELIGIBILITY_CONFIG_KEY]: eligibilityConfigSchema,
-});
+}).superRefine((config, context) => checkQuietTimeout(config, context, config.timeoutMs));
 
 export type PromptConfig = z.infer<typeof promptConfigSchema>;
 
@@ -115,6 +122,7 @@ export const block: BlockManifest<PromptConfig> = {
             optional: true,
             placeholder: 'No limit',
         },
+        ...quietTimeoutFields,
         {
             key: ELIGIBILITY_CONFIG_KEY,
             label: 'Who can answer',
@@ -187,6 +195,10 @@ export const block: BlockManifest<PromptConfig> = {
             };
         }
 
+        // Before posting: it refuses a channel the bot cannot read, and a refusal
+        // after the question is up would leave live buttons naming no run.
+        const quietWindow = toQuietWindow(config, config.timeoutMs, context.guild);
+
         const posted = await channel.send({
             embeds: [new EmbedBuilder().setDescription(config.question)],
             components: [new ActionRowBuilder<ButtonBuilder>().addComponents(buttons)],
@@ -200,6 +212,9 @@ export const block: BlockManifest<PromptConfig> = {
             kind: 'suspend',
             suspension: {
                 wakeAt: config.timeoutMs === undefined ? undefined : new Date(Date.now() + config.timeoutMs),
+                // The scheduler pushes `wakeAt` back while people keep talking, so
+                // the buttons are posted once and never re-posted per message.
+                quietWindow,
                 // No `waitKind`. See the block doc — this is what keeps a prompt
                 // out of `findWaiting`'s result set.
                 //

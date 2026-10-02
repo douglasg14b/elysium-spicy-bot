@@ -11,7 +11,13 @@ import type {
     FlowRunSeed,
     FlowVariableValue,
 } from '../blocks/types';
-import { copyColumnsOf, isCopyField, renderCopy } from './copyRendering';
+import {
+    copyColumnsOf,
+    isCopyField,
+    isVariablePickerField,
+    renderCopy,
+    resolvePickerVariable,
+} from './copyRendering';
 import type { FlowStepOutcome, FlowStepSuspension } from './stepOutcome';
 import { releaseWaitMessageControls } from './waitMessageControls';
 
@@ -490,6 +496,7 @@ async function persistNewSuspendedRun(
         waitKind: suspension.waitKind ?? null,
         waitConfig: suspension.waitConfig ?? null,
         waitMessageId: suspension.waitMessageId ?? null,
+        quietWindow: suspension.quietWindow ?? null,
         visitsUsed: suspension.visitsUsed,
         log: suspension.log,
         variables: suspension.variables,
@@ -588,8 +595,9 @@ type RenderedConfig = { ok: true; config: unknown } | { ok: false; error: string
 function renderNodeCopy(block: BlockManifest, config: unknown, context: FlowRunSeed): RenderedConfig {
     const copyFields = block.configFields.filter(isCopyField);
     const listFields = block.configFields.filter((field) => copyColumnsOf(field).length > 0);
+    const pickerFields = block.configFields.filter(isVariablePickerField);
     if (
-        (copyFields.length === 0 && listFields.length === 0) ||
+        (copyFields.length === 0 && listFields.length === 0 && pickerFields.length === 0) ||
         config === null ||
         typeof config !== 'object'
     ) {
@@ -598,6 +606,23 @@ function renderNodeCopy(block: BlockManifest, config: unknown, context: FlowRunS
 
     const source = config as Record<string, unknown>;
     let expanded: Record<string, unknown> | undefined;
+
+    // A picker naming a value an earlier block recorded, rather than a fixed
+    // choice. A plain snowflake has no braces and passes through untouched.
+    for (const field of pickerFields) {
+        const value = source[field.key];
+        if (typeof value !== 'string' || !value.includes('{{')) {
+            continue;
+        }
+
+        const result = resolvePickerVariable(value, { context, fieldLabel: `"${field.label}"` });
+        if (!result.ok) {
+            return { ok: false, error: result.error };
+        }
+
+        expanded ??= { ...source };
+        expanded[field.key] = result.text;
+    }
 
     for (const field of copyFields) {
         const value = source[field.key];

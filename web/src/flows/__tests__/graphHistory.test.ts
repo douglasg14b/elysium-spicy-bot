@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { graphIncluding } from '../graphHistory';
+import { changedConfigKeys, graphIncluding } from '../graphHistory';
 
 const node = (id: string) => ({ id });
 const edge = (id: string) => ({ id });
@@ -58,5 +58,15 @@ describe('graphIncluding', () => {
         const current = { nodes: [node('a')], edges: [edge('e1')] };
 
         expect(graphIncluding(current, {})).toEqual(current);
+    });
+});
+
+describe('what an undo edited', () => {
+    it('names changed, added and removed keys, and not a list that was only copied', () => {
+        const before = { message: 'Hi', options: ['a', 'b'], timeoutMs: 1000 };
+        // A snapshot's deep copy: the same list, a different array.
+        const after = { message: '', options: ['a', 'b'], channelId: '123' };
+
+        expect(changedConfigKeys(before, after).sort()).toEqual(['channelId', 'message', 'timeoutMs']);
     });
 });

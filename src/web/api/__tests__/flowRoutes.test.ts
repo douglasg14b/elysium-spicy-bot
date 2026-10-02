@@ -512,6 +512,73 @@ describe('reading a flow', () => {
     });
 });
 
+/*
+ * The builder's re-check as a field loses focus. Every case asserts nothing was written:
+ * that, not the answer, is what separates this route from a save.
+ */
+describe('checking a graph without saving it', () => {
+    function check(body: unknown) {
+        return app().request(`/${GUILD_ID}/flows/${FLOW_ID}/check`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+    }
+
+    function expectNothingWritten(): void {
+        expect(flowsRepoMock.mutate).not.toHaveBeenCalled();
+        expect(flowsRepoMock.update).not.toHaveBeenCalled();
+    }
+
+    it('answers with the issues a save of the graph would report', async () => {
+        const response = await check({ graph: INCOMPLETE_GRAPH });
+
+        expect(response.status).toBe(200);
+        expect(((await response.json()) as { issues: IssuesBody['issues'] }).issues).toEqual([
+            expect.objectContaining({ nodeId: 'send', field: 'channelId' }),
+        ]);
+        expectNothingWritten();
+    });
+
+    it('judges the sent graph, not the stored one', async () => {
+        // Stored incomplete, sent finished: the answer is about what the author has now.
+        flowsRepoMock.getByFlowId.mockResolvedValue(storedFlow({ graph: INCOMPLETE_GRAPH }));
+        declareQaChannel();
+
+        const response = await check({ graph: graphPicking('qa-channel') });
+
+        expect(response.status).toBe(200);
+        expect(((await response.json()) as { issues: unknown[] }).issues).toEqual([]);
+        expectNothingWritten();
+    });
+
+    it('refuses a structurally broken graph with its issues, as a save would', async () => {
+        const response = await check({ graph: BROKEN_GRAPH });
+
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as IssuesBody).issues.length).toBeGreaterThan(0);
+        expectNothingWritten();
+    });
+
+    it('does not confirm another guild’s flow exists', async () => {
+        flowsRepoMock.getByFlowId.mockResolvedValue({ ...storedFlow(), guildId: 'other-guild' });
+
+        const response = await check({ graph: INCOMPLETE_GRAPH });
+
+        expect(response.status).toBe(404);
+        expectNothingWritten();
+    });
+
+    it('names the cause when the declarations cannot be read', async () => {
+        journeysRepoMock.getByKey.mockRejectedValue(malformedJourney());
+
+        const response = await check({ graph: graphPicking('qa-channel') });
+
+        expect(response.status).toBe(500);
+        expect(((await response.json()) as { error: string }).error).toContain('not an array');
+    });
+});
+
 describe('what an incomplete save puts on the wire', () => {
     it('carries issues addressed to the node and field', async () => {
         const response = await put({ graph: INCOMPLETE_GRAPH });

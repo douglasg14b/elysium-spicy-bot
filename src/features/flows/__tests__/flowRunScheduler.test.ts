@@ -32,6 +32,7 @@ function makeRun(runId: string): FlowRunEntity {
         waitKind: null,
         waitConfig: null,
         waitMessageId: null,
+        quietWindow: null,
         contextSnapshot: { guildId: GUILD_ID, userId: 'user-1' },
         variables: {},
         visitsUsed: 1,
@@ -45,9 +46,17 @@ function makeRun(runId: string): FlowRunEntity {
 
 const READY_CLIENT = { user: { id: 'bot-1' } } as unknown as Client;
 
-/** Scheduler dependencies with the reclaim sweep stubbed to "nothing stranded". */
+/**
+ * Scheduler dependencies with the reclaim sweep stubbed to "nothing stranded". None of
+ * these runs carries a quiet window, so the deferral seams are never reached here; the
+ * quiet-window cases run against a real database in `quietTimeouts.test.ts`.
+ */
 function makeDeps(findDue: ReturnType<typeof vi.fn>, reclaimAbandonedClaims = vi.fn().mockResolvedValue(0)) {
-    return { flowRunsRepo: { findDue, reclaimAbandonedClaims } };
+    return {
+        flowRunsRepo: { findDue, reclaimAbandonedClaims, deferWake: vi.fn() },
+        activityEventsRepo: { findLastMessageAt: vi.fn() },
+        isBackfillPending: () => false,
+    };
 }
 
 describe('flow run scheduler', () => {

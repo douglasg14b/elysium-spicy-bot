@@ -120,11 +120,21 @@ function describeMismatch(client: Client, event: HarnessEvent): string | undefin
                 ? undefined
                 : `the client holds no member ${event.d.user.id}`;
 
+        // Holds whether or not discord.js emitted anything: an uncached member with no
+        // GuildMember partial is dropped without touching the cache, and that is the
+        // case a consumer's own assertion has to catch, not this one.
+        case GatewayDispatchEvents.GuildMemberRemove:
+            return client.guilds.cache.get(event.d.guild_id)?.members.cache.has(event.d.user.id)
+                ? `the client still holds member ${event.d.user.id}`
+                : undefined;
+
         case GatewayDispatchEvents.GuildCreate: {
             const guild = client.guilds.cache.get(event.d.id);
             if (!guild?.available) return `guild ${event.d.id} is not available in the client`;
-            if (guild.channels.cache.size !== event.d.channels.length) {
-                return `guild ${event.d.id} has ${guild.channels.cache.size} channels cached, Discord holds ${event.d.channels.length}`;
+            // discord.js caches active threads in `guild.channels` beside the channels.
+            const held = event.d.channels.length + event.d.threads.length;
+            if (guild.channels.cache.size !== held) {
+                return `guild ${event.d.id} has ${guild.channels.cache.size} channels and threads cached, Discord holds ${held}`;
             }
             return guild.members.me ? undefined : `guild ${event.d.id} has no cached member for the bot`;
         }

@@ -8,9 +8,9 @@ import {
     sumDailyActivity,
     sumEventXp,
 } from '../logic/activityEventAggregation';
-import type { LevelingActivityEvent } from '../data/levelingActivityEventSchema';
+import type { LevelingXpGrant } from '../data/levelingXpGrantSchema';
 
-function makeEvent(overrides: Partial<LevelingActivityEvent> & Pick<LevelingActivityEvent, 'occurredAt'>): LevelingActivityEvent {
+function makeEvent(overrides: Partial<LevelingXpGrant> & Pick<LevelingXpGrant, 'occurredAt'>): LevelingXpGrant {
     return {
         id: 1,
         guildId: 'guild-1',
@@ -24,6 +24,7 @@ function makeEvent(overrides: Partial<LevelingActivityEvent> & Pick<LevelingActi
         voiceSessionEndedAt: null,
         voiceChannelId: null,
         voiceEligibilityRule: null,
+        activityEventId: null,
         ...overrides,
     };
 }

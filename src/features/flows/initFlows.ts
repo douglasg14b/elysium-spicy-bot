@@ -12,6 +12,7 @@ import { startFlowRunScheduler } from './engine/flowRunScheduler';
 import { handleFlowButtonInteraction } from './engine/flowTriggerDispatch';
 import { handleLevelUp } from './engine/levelUpDispatch';
 import { handleMemberJoin } from './engine/memberJoinDispatch';
+import { handleMemberLeave } from './engine/memberLeaveDispatch';
 import { handleReactionAdd } from './engine/reactionAddDispatch';
 
 let initialization: Promise<void> | undefined;
@@ -21,7 +22,7 @@ let initialization: Promise<void> | undefined;
  *
  * Awaited, and awaited early, because blocks are discovered from the filesystem:
  * nothing that can start or resume a run — the deploy command, the `flow:` button
- * dispatcher, the two gateway listeners, the durable-run scheduler — is
+ * dispatcher, the gateway listeners, the durable-run scheduler — is
  * registered until the registry is populated. The in-process web server starts
  * after this returns, so the builder's palette and graph validation cannot race
  * the scan either.
@@ -93,6 +94,15 @@ async function initializeFlows(): Promise<void> {
     DISCORD_CLIENT.on(Events.GuildMemberAdd, (member) => {
         void handleMemberJoin(member).catch((error) => {
             console.error('[flows] Error handling member join:', error);
+        });
+    });
+
+    // Gateway trigger: member leaves, by any route. Requires the GuildMembers intent
+    // and the GuildMember partial — without the partial, discord.js drops the event
+    // for any member it had not cached.
+    DISCORD_CLIENT.on(Events.GuildMemberRemove, (member) => {
+        void handleMemberLeave(member).catch((error) => {
+            console.error('[flows] Error handling member leave:', error);
         });
     });
 

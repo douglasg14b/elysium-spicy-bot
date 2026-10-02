@@ -14,6 +14,7 @@ import {
     type FlowRunEvent,
 } from './flowRunLifecycle';
 import type {
+    FlowQuietWindow,
     FlowRunContextSnapshot,
     FlowRunEntity,
     FlowRunUpdateEntity,
@@ -31,6 +32,8 @@ export interface CreateFlowRunInput {
     waitConfig?: FlowRunWaitConfig | null;
     /** The message whose controls are holding this park, when it posted one. */
     waitMessageId?: string | null;
+    /** Set when this park's deadline counts from the last qualifying message. */
+    quietWindow?: FlowQuietWindow | null;
     visitsUsed?: number;
     log?: NodeRunLog[];
     /** Values blocks recorded before this run parked. Empty when none did. */
@@ -50,6 +53,7 @@ export interface FlowRunFieldsPatch {
     waitKind?: FlowWaitKind | null;
     waitConfig?: FlowRunWaitConfig | null;
     waitMessageId?: string | null;
+    quietWindow?: FlowQuietWindow | null;
     visitsUsed?: number;
     log?: NodeRunLog[];
     variables?: Record<string, FlowVariableValue>;
@@ -72,6 +76,12 @@ export interface FindWaitingFilter {
     guildId?: string;
     flowId?: string;
     waitKind?: FlowWaitKind;
+}
+
+export interface FindDueOptions {
+    /** Leave out runs parked with a quiet window. */
+    readonly withoutQuietWindows?: boolean;
+    readonly limit?: number;
 }
 
 const nodeRunLogSchema = z.object({
@@ -171,6 +181,36 @@ const waitConfigSchema = z.object({
     timeoutMs: z.number().int().positive().optional(),
 });
 
+/**
+ * The stored quiet window, re-validated on read like every other JSON column. A
+ * row claiming "anyone" with no channel is refused here rather than handed to the
+ * scheduler, which would otherwise wait on a server that is never quiet.
+ */
+const quietWindowSchema = z.discriminatedUnion('who', [
+    z.object({
+        durationMs: z.number().int().positive(),
+        who: z.literal('member'),
+        channelId: z.string().min(1).optional(),
+    }),
+    z.object({
+        durationMs: z.number().int().positive(),
+        who: z.literal('anyone'),
+        channelId: z.string().min(1),
+    }),
+]);
+
+/**
+ * The same two-declaration guard as {@link SnapshotShapesAgree}, for the same reason:
+ * `z.object` strips what it does not declare, so a key added to
+ * {@link FlowQuietWindow} alone would be written and silently dropped on read.
+ */
+type QuietWindowShapesAgree = AssertTrue<Equals<FlowQuietWindow, z.infer<typeof quietWindowSchema>>>;
+
+/** Do not delete as unused; see {@link snapshotShapesAgree}. */
+const quietWindowShapesAgree: QuietWindowShapesAgree = true;
+
+void quietWindowShapesAgree;
+
 const logSchema = z.array(nodeRunLogSchema);
 
 /**
@@ -208,6 +248,7 @@ export class FlowRunsRepo {
                 waitKind: input.waitKind ?? null,
                 waitConfig: input.waitConfig ? JSON.stringify(input.waitConfig) : null,
                 waitMessageId: input.waitMessageId ?? null,
+                quietWindow: input.quietWindow ? JSON.stringify(input.quietWindow) : null,
                 contextSnapshot: JSON.stringify(input.contextSnapshot),
                 visitsUsed: input.visitsUsed ?? 0,
                 log: JSON.stringify(input.log ?? []),
@@ -237,18 +278,29 @@ export class FlowRunsRepo {
         return row ? this.assertValidJsonColumns(row) : null;
     }
 
-    /** Suspended runs whose `wakeAt` has passed — the poller's work queue. */
-    async findDue(now: Date, limit: number = FLOW_RUN_POLL_BATCH_SIZE): Promise<FlowRunEntity[]> {
-        const rows = await this.db
+    /**
+     * Suspended runs whose `wakeAt` has passed — the poller's work queue.
+     *
+     * `withoutQuietWindows` leaves out runs parked with a quiet window, in the query
+     * rather than after it: the scheduler holds those while activity is backfilling, and
+     * a batch filled with held runs would starve every plain delay queued behind them.
+     */
+    async findDue(
+        now: Date,
+        { withoutQuietWindows = false, limit = FLOW_RUN_POLL_BATCH_SIZE }: FindDueOptions = {}
+    ): Promise<FlowRunEntity[]> {
+        let query = this.db
             .selectFrom('flow_runs')
             .selectAll()
             .where('status', '=', 'suspended')
             .where('wakeAt', 'is not', null)
-            .where('wakeAt', '<=', now)
-            .orderBy('wakeAt', 'asc')
-            .limit(limit)
-            .execute();
+            .where('wakeAt', '<=', now);
 
+        if (withoutQuietWindows) {
+            query = query.where('quietWindow', 'is', null);
+        }
+
+        const rows = await query.orderBy('wakeAt', 'asc').limit(limit).execute();
         return rows.map((row) => this.assertValidJsonColumns(row));
     }
 
@@ -362,6 +414,9 @@ export class FlowRunsRepo {
             // without posting anything must not inherit the previous park's
             // message, or a button from that park would still name a live park.
             waitMessageId: input.waitMessageId ?? null,
+            // `?? null` like `wakeAt`: a run re-parking on a plain timeout must not
+            // inherit the previous park's window and have its deadline pushed back.
+            quietWindow: input.quietWindow ?? null,
             visitsUsed: input.visitsUsed,
             log: input.log,
             // Rewritten on every park, not merged: the executor carries the whole
@@ -372,6 +427,38 @@ export class FlowRunsRepo {
             error: null,
             claimedAt: null,
         });
+    }
+
+    /**
+     * Push a parked run's `wakeAt` back without waking it. Returns whether it moved.
+     *
+     * For a quiet-window park the scheduler found due while someone was still
+     * talking. **Not a claim and not a transition**: the run stays `suspended`, no
+     * visit is spent and nothing is logged, so a member who posts just inside every
+     * window cannot drain the visit budget by being chatty.
+     *
+     * The guard is the whole UPDATE: it applies only while the row is still
+     * `suspended` with exactly the `wakeAt` the caller read. A press that claimed the
+     * run in between, or a re-park with a new deadline, makes this match nothing,
+     * and `false` is the ordinary answer to losing that race rather than an error.
+     *
+     * The equality only holds if `wakeAt` round-trips exactly: text-to-text on
+     * SQLite, and on postgres only because `timestamptz` keeps the milliseconds
+     * `toISOString` wrote. If it ever did not, every deferral would quietly miss:
+     * the run would stay due, be looked up again every tick instead of sleeping,
+     * and hold a slot at the front of `findDue`'s batch until it went quiet. So the
+     * postgres arm is proven live, not assumed.
+     */
+    async deferWake(runId: string, readWakeAt: Date, nextWakeAt: Date): Promise<boolean> {
+        const result = await this.db
+            .updateTable('flow_runs')
+            .set({ wakeAt: nextWakeAt.toISOString(), updatedAt: new Date().toISOString() })
+            .where('runId', '=', runId)
+            .where('status', '=', 'suspended')
+            .where('wakeAt', '=', readWakeAt)
+            .executeTakeFirst();
+
+        return Number(result?.numUpdatedRows ?? 0) > 0;
     }
 
     /** Mark a run finished; clears the wake/wait fields so it is never re-picked. */
@@ -483,6 +570,7 @@ export class FlowRunsRepo {
             // Cleared with the rest: a finished run is not waiting on anybody's
             // button, so a press naming this message must find nothing to match.
             waitMessageId: null,
+            quietWindow: null,
             claimedAt: null,
         };
     }
@@ -515,6 +603,9 @@ export class FlowRunsRepo {
         }
         if (patch.waitMessageId !== undefined) {
             columns.waitMessageId = patch.waitMessageId;
+        }
+        if (patch.quietWindow !== undefined) {
+            columns.quietWindow = patch.quietWindow ? JSON.stringify(patch.quietWindow) : null;
         }
         if (patch.visitsUsed !== undefined) {
             columns.visitsUsed = patch.visitsUsed;
@@ -581,7 +672,27 @@ export class FlowRunsRepo {
             waitConfig = parsed.data;
         }
 
-        return { ...row, contextSnapshot: snapshot.data, log: log.data, waitConfig, variables: variables.data };
+        let quietWindow: FlowQuietWindow | null = null;
+        if (row.quietWindow !== null && row.quietWindow !== undefined) {
+            const parsed = quietWindowSchema.safeParse(row.quietWindow);
+            if (!parsed.success) {
+                throw new Error(
+                    `Flow run ${row.runId} has an invalid stored quietWindow: ${parsed.error.issues
+                        .map((issue) => issue.message)
+                        .join('; ')}`
+                );
+            }
+            quietWindow = parsed.data;
+        }
+
+        return {
+            ...row,
+            contextSnapshot: snapshot.data,
+            log: log.data,
+            waitConfig,
+            quietWindow,
+            variables: variables.data,
+        };
     }
 }
 

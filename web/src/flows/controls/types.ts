@@ -115,7 +115,8 @@ export interface ControlProps<TField extends BlockConfigField = BlockConfigField
      */
     config?: Record<string, unknown>;
     /**
-     * Why the last save refused this field, if it did.
+     * What the server last found wrong with this field, if anything — at the last save,
+     * or the last re-check as focus left a field.
      *
      * On {@link ControlProps} rather than on each control that wants it, so every
      * control — present and future — gets field-level errors without its own

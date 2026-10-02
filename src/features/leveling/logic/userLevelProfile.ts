@@ -1,5 +1,5 @@
 import { LEVELING_RECENT_ACTIVITY_DAYS } from '../constants';
-import type { LevelingActivityTotals } from '../data/levelingActivityEventSchema';
+import type { LevelingActivityTotals } from '../data/levelingXpGrantSchema';
 import type { LevelingProgress } from '../data/levelingProgressSchema';
 import { subtractActivityDays } from './activityEventAggregation';
 import {

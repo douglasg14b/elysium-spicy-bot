@@ -42,6 +42,23 @@ export interface FlowRunWaitConfig {
 }
 
 /**
+ * A timed park whose deadline counts from the last qualifying message rather than
+ * from when it parked.
+ *
+ * The scheduler reads this when the park comes due: if a qualifying message landed
+ * within `durationMs`, it moves `wakeAt` to that message plus `durationMs` instead
+ * of waking the run. The first `wakeAt` is park time plus the same span, so a
+ * message from before the park can never bring the deadline forward.
+ *
+ * Discriminated on `who` so that "anyone, anywhere" is unrepresentable rather than
+ * merely refused: in a live server it is never quiet, so a park asking for it would
+ * wait forever. `channelId` matches the channel itself and any thread under it.
+ */
+export type FlowQuietWindow =
+    | { durationMs: number; who: 'member'; channelId?: string }
+    | { durationMs: number; who: 'anyone'; channelId: string };
+
+/**
  * One row per durable flow run. A run only reaches this table when it suspends
  * (a delay or a wait-for-event); purely inline runs never touch the database.
  */
@@ -93,6 +110,16 @@ export interface FlowRunTable {
      * message is holding this run", so none of them needs rewriting.
      */
     waitMessageId: string | null;
+
+    /**
+     * Set when this park's deadline counts from the last qualifying message — see
+     * {@link FlowQuietWindow}. Null for every other park and every row written
+     * before the column existed, which all mean the same thing: `wakeAt` stands.
+     *
+     * Its own column rather than a member of `waitConfig`, which describes an
+     * *event* wait and which a plain delay never sets.
+     */
+    quietWindow: JSONColumnType<FlowQuietWindow> | null;
 
     /** Who the run is about and where it was — see {@link FlowRunContextSnapshot}. */
     contextSnapshot: JSONColumnType<FlowRunContextSnapshot>;

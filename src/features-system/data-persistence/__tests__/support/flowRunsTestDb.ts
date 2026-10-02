@@ -10,6 +10,7 @@ import { up as settleFlowRunLifecycle } from '../../migrations/2026-09-13-Settle
 import { up as addFlowRunVariables } from '../../migrations/2026-09-14-Add_Flow_Run_Variables';
 import { up as widenContextSnapshot } from '../../migrations/2026-09-15-Widen_Flow_Run_Context_Snapshot';
 import { up as addWaitMessage } from '../../migrations/2026-09-16-Add_Flow_Run_Wait_Message';
+import { up as addQuietWindow } from '../../migrations/2026-10-01-Quiet_Timeouts';
 
 export interface FlowRunsTestDb {
     db: DatabaseClient;
@@ -47,7 +48,7 @@ export function createFlowRunsTestClient(): FlowRunsTestDb {
         plugins: [
             new SqliteBindingPlugin<Database>({}),
             new SqliteJsonPlugin<Database>({
-                flow_runs: ['waitConfig', 'contextSnapshot', 'log', 'variables'],
+                flow_runs: ['waitConfig', 'contextSnapshot', 'log', 'variables', 'quietWindow'],
             }),
             new CamelCasePlugin(),
             new SqlDatePlugin<Database>({ flow_runs: ['wakeAt', 'claimedAt', 'createdAt', 'updatedAt'] }),
@@ -73,6 +74,7 @@ export async function createFlowRunsTestDb(): Promise<FlowRunsTestDb> {
     await addFlowRunVariables(testDb.db);
     await widenContextSnapshot(testDb.db);
     await addWaitMessage(testDb.db);
+    await addQuietWindow(testDb.db);
 
     return testDb;
 }

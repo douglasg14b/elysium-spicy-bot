@@ -50,8 +50,11 @@ export type BlockPaletteGroup = (typeof BLOCK_PALETTE_GROUPS)[number];
  * nothing on the gateway announces a level. The name still describes something that
  * happened in the world rather than a use case, which is the bar this vocabulary
  * holds — see `__tests__/engineVocabulary.test.ts`.
+ *
+ * `memberLeave` is a departure however it happened — left, kicked or banned — since
+ * the gateway event does not say which.
  */
-export const BLOCK_TRIGGER_SOURCES = ['buttonClick', 'levelUp', 'memberJoin', 'reactionAdd'] as const;
+export const BLOCK_TRIGGER_SOURCES = ['buttonClick', 'levelUp', 'memberJoin', 'memberLeave', 'reactionAdd'] as const;
 
 export type BlockTriggerSource = (typeof BLOCK_TRIGGER_SOURCES)[number];
 
@@ -218,7 +221,17 @@ interface BlockConfigFieldBase {
  */
 export type BlockConfigField =
     | (BlockConfigFieldBase & { readonly control: 'rolePicker'; readonly defaultValue?: string })
-    | (BlockConfigFieldBase & { readonly control: 'channelPicker'; readonly defaultValue?: string })
+    | (BlockConfigFieldBase & {
+          readonly control: 'channelPicker';
+          /**
+           * The author may clear the pick, which removes the key — for a channel the
+           * block can do without, where empty means something (`quietChannelId`:
+           * anywhere in the server). Same meaning as the `text` and `duration` arms'
+           * member of this name. Without it a pick, once made, cannot be undone.
+           */
+          readonly optional?: boolean;
+          readonly defaultValue?: string;
+      })
     | (BlockConfigFieldBase & {
           readonly control: 'text';
           /**
@@ -477,27 +490,74 @@ export interface BlockOutputHandle {
  * though it were a variable name is exactly the bug the discriminator exists to
  * prevent: it would offer an author `outputKey`, a token nothing ever writes.
  */
-export type BlockOutputDeclaration =
-    | {
-          readonly naming: 'fixed';
-          /** The reference name this block always writes, e.g. `ticketId`. */
-          readonly key: string;
-          readonly label: string;
-          readonly description?: string;
-      }
-    | {
-          readonly naming: 'authored';
-          /**
-           * The `configFields` key whose **value** is the variable name.
-           *
-           * Held to a real field by `checkOutputs` in `conformance.ts`, so a
-           * renamed config field breaks the build rather than silently producing
-           * a node whose output nothing can resolve.
-           */
-          readonly fromField: string;
-          readonly label: string;
-          readonly description?: string;
-      };
+export type BlockOutputDeclaration = BlockOutputDeclarationBase &
+    (
+        | {
+              readonly naming: 'fixed';
+              /** The reference name this block always writes, e.g. `ticketId`. */
+              readonly key: string;
+          }
+        | {
+              readonly naming: 'authored';
+              /**
+               * The `configFields` key whose **value** is the variable name.
+               *
+               * Held to a real field by `checkOutputs` in `conformance.ts`, so a
+               * renamed config field breaks the build rather than silently producing
+               * a node whose output nothing can resolve.
+               */
+              readonly fromField: string;
+          }
+    );
+
+/**
+ * What a value *is*, for the pickers that can take one in place of a choice.
+ *
+ * A picker asks "which channel"; a variable holding a channel id is an answer to
+ * that, and one holding a ticket number is not. Declaring the kind is what lets
+ * the channel picker offer the first and never the second. Absent means a plain
+ * value, readable in copy and nowhere else.
+ *
+ * One member because one picker can take a variable today. `role` joins this when
+ * some block produces a role.
+ */
+export const BLOCK_OUTPUT_VALUE_KINDS = ['channel'] as const;
+
+export type BlockOutputValueKind = (typeof BLOCK_OUTPUT_VALUE_KINDS)[number];
+
+/**
+ * Which picker takes which kind of value, in place of a fixed choice.
+ *
+ * The one place the pairing is stated: the executor resolves a variable in exactly
+ * these controls, and save-time validation checks the variable named there is one
+ * some block declares with this kind. A role picker joins by adding a row here and
+ * `role` to {@link BLOCK_OUTPUT_VALUE_KINDS}.
+ */
+export const PICKER_VALUE_KINDS = {
+    channelPicker: 'channel',
+} as const satisfies Partial<Record<BlockControlType, BlockOutputValueKind>>;
+
+export type VariablePickerControl = keyof typeof PICKER_VALUE_KINDS;
+
+/** The members both naming arms of {@link BlockOutputDeclaration} carry. */
+interface BlockOutputDeclarationBase {
+    readonly label: string;
+    readonly description?: string;
+    /** What the value is, when a picker can use it. See {@link BLOCK_OUTPUT_VALUE_KINDS}. */
+    readonly valueKind?: BlockOutputValueKind;
+    /**
+     * The handle a run leaves by when this output was written, if only one does.
+     *
+     * A condition that finds something writes it on the branch where it found it.
+     * Offering that value on the *other* branch is not an over-approximation, it is
+     * the one place it is absent — so the builder scopes it to paths leaving by this
+     * handle. "Absent" holds for a graph without loops: round a loop, an earlier
+     * visit's Yes may have written it, and the builder offers it on No too. Must name
+     * one of the block's own `handles`; checked by `checkOutputs` in
+     * `conformance.ts`. Absent means every exit carries it.
+     */
+    readonly handle?: string;
+}
 
 /**
  * The variable name one declared output actually writes on one node.
@@ -553,7 +613,7 @@ export type FlowContextRequirement = (typeof FLOW_CONTEXT_REQUIREMENTS)[number];
  * lies about them is a manifest bug found there rather than a silent failure
  * here.
  */
-export const BLOCK_CAPABILITIES = ['manageRoles', 'sendMessages', 'embedLinks', 'manageChannels'] as const;
+export const BLOCK_CAPABILITIES = ['manageRoles', 'sendMessages', 'embedLinks', 'manageChannels', 'kickMembers'] as const;
 
 export type BlockCapability = (typeof BLOCK_CAPABILITIES)[number];
 

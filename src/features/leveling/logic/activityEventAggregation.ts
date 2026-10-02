@@ -3,9 +3,9 @@ import { LEVELING_TIMEZONE } from '../../../environment';
 import type {
     DailyActivityBucket,
     DailyXpBucket,
-    LevelingActivityEvent,
     LevelingActivityTotals,
-} from '../data/levelingActivityEventSchema';
+    LevelingXpGrant,
+} from '../data/levelingXpGrantSchema';
 
 export function getActivityDateKey(date: Date): string {
     return getLocalDateKey(date, LEVELING_TIMEZONE);
@@ -21,7 +21,7 @@ export function emptyDailyActivityBucket(activityDate: string): DailyActivityBuc
     };
 }
 
-export function aggregateEventsByDate(events: ReadonlyArray<LevelingActivityEvent>): DailyXpBucket[] {
+export function aggregateEventsByDate(events: ReadonlyArray<LevelingXpGrant>): DailyXpBucket[] {
     const buckets = new Map<string, DailyXpBucket>();
 
     for (const event of events) {
@@ -83,11 +83,11 @@ export function sumDailyActivity(buckets: ReadonlyArray<DailyActivityBucket>): D
     );
 }
 
-export function sumEventXp(events: ReadonlyArray<LevelingActivityEvent>): number {
+export function sumEventXp(events: ReadonlyArray<LevelingXpGrant>): number {
     return events.reduce((total, event) => total + event.xpAmount, 0);
 }
 
-export function aggregateActivityTotals(events: ReadonlyArray<LevelingActivityEvent>): LevelingActivityTotals {
+export function aggregateActivityTotals(events: ReadonlyArray<LevelingXpGrant>): LevelingActivityTotals {
     return events.reduce<LevelingActivityTotals>(
         (totals, event) => {
             totals.eventCount += 1;
@@ -130,10 +130,10 @@ export function getActivityDateStart(dateKey: string): Date {
 }
 
 export function filterEventsByActivityDateRange(
-    events: ReadonlyArray<LevelingActivityEvent>,
+    events: ReadonlyArray<LevelingXpGrant>,
     startDate: string,
     endDate: string
-): LevelingActivityEvent[] {
+): LevelingXpGrant[] {
     return events.filter((event) => {
         const activityDate = getActivityDateKey(toDate(event.occurredAt));
         return activityDate >= startDate && activityDate <= endDate;

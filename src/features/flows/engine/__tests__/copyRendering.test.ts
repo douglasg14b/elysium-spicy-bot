@@ -200,7 +200,16 @@ describe('the copy renderer', () => {
 });
 
 describe('the vocabulary shared with save-time validation', () => {
-    it.each(['subject.mention', 'subject.username', 'actor.mention', 'guild.name'])(
+    it.each([
+        'subject.mention',
+        'subject.username',
+        'subject.displayName',
+        'subject.id',
+        'subject.accountAge',
+        'subject.avatarUrl',
+        'actor.mention',
+        'guild.name',
+    ])(
         'recognises {{%s}}',
         (token) => {
             expect(isRenderableToken(token)).toBe(true);

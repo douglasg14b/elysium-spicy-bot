@@ -1,6 +1,7 @@
 import { EmbedBuilder } from 'discord.js';
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
+import { tokensIn } from '../../engine/copyRendering';
 
 export const ACTION_POST_EMBED = 'action.postEmbed';
 
@@ -61,6 +62,22 @@ const embedUrlSchema = z
     .refine((value) => /^https?:\/\//i.test(value), 'Only http:// and https:// links work in an embed');
 
 /**
+ * An image link that may be a token, like `{{subject.avatarUrl}}`.
+ *
+ * The schema runs on the authored text, before tokens expand, so a field whose
+ * whole value is a token could never pass `embedUrlSchema`. Anything holding a
+ * token is let through here and judged as a URL in `run`, once it is one —
+ * see {@link renderedUrlProblem}. Literal links are still checked at save, so
+ * an author who pastes half a URL hears about it while looking at the field.
+ */
+const embedImageUrlSchema = z
+    .string()
+    .refine(
+        (value) => tokensIn(value).length > 0 || embedUrlSchema.safeParse(value).success,
+        'Must be a full URL starting http:// or https://, or a token like {{subject.avatarUrl}}'
+    );
+
+/**
  * One `{ name, value, inline }` row.
  *
  * `inline` carries a `.default(false)` rather than being optional, so the stored
@@ -95,8 +112,8 @@ export const postEmbedConfigSchema = z.object({
     url: embedUrlSchema.optional(),
     authorName: z.string().min(1).max(EMBED_LIMITS.authorName).optional(),
     fields: z.array(embedFieldSchema).max(EMBED_LIMITS.fields).default([]),
-    imageUrl: embedUrlSchema.optional(),
-    thumbnailUrl: embedUrlSchema.optional(),
+    imageUrl: embedImageUrlSchema.optional(),
+    thumbnailUrl: embedImageUrlSchema.optional(),
     footerText: z.string().min(1).max(EMBED_LIMITS.footer).optional(),
     /*
      * Stored as the string the `segmented` control writes, and left as one.
@@ -118,6 +135,24 @@ export const postEmbedConfigSchema = z.object({
 });
 
 export type PostEmbedConfig = z.infer<typeof postEmbedConfigSchema>;
+
+/**
+ * Why an image link is unusable once its tokens have expanded, or undefined when
+ * it is fine.
+ *
+ * The second half of {@link embedImageUrlSchema}. A token can expand to anything —
+ * `{{var.pick}}` might hold a word — and discord.js throws out of the builder on a
+ * malformed URL, which would surface as a run failing for no reason it names.
+ */
+function renderedUrlProblem(fieldLabel: string, url: string | undefined): string | undefined {
+    if (url === undefined || embedUrlSchema.safeParse(url).success) {
+        return undefined;
+    }
+    return (
+        `${fieldLabel} came out as "${url}" once its tokens were filled in, which is not a link ` +
+        'Discord can show. Use a token that holds a full http:// or https:// URL, like {{subject.avatarUrl}}.'
+    );
+}
 
 /** `#00A2FF` -> 0x00A2FF, the integer form discord.js embeds want. */
 export function hexColorToInt(hex: string): number {
@@ -255,14 +290,16 @@ export const block: BlockManifest<PostEmbedConfig> = {
             control: 'text',
             optional: true,
             placeholder: 'https://example.com/pic.png',
+            rendersTokens: true,
         },
         {
             key: 'thumbnailUrl',
             label: 'Thumbnail',
-            description: 'A small picture in the top corner.',
+            description: 'A small picture in the top corner. {{subject.avatarUrl}} puts their face here.',
             control: 'text',
             optional: true,
             placeholder: 'https://example.com/icon.png',
+            rendersTokens: true,
         },
         {
             key: 'footerText',
@@ -344,6 +381,13 @@ export const block: BlockManifest<PostEmbedConfig> = {
                     `limit across the whole embed is ${EMBED_LIMITS.total}. Trim the body or drop a field — ` +
                     'each part is within its own limit, it is the total that is over.',
             };
+        }
+
+        const urlProblem =
+            renderedUrlProblem('Image', config.imageUrl) ??
+            renderedUrlProblem('Thumbnail', config.thumbnailUrl);
+        if (urlProblem) {
+            return { kind: 'fail', error: urlProblem };
         }
 
         const channel = await context.client.channels.fetch(config.channelId);

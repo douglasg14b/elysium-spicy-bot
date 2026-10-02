@@ -1,18 +1,14 @@
+import type { Client, Guild, VoiceState } from 'discord.js';
 import type {
-    Client,
-    Guild,
-    Message,
-    MessageReaction,
-    PartialMessageReaction,
-    PartialUser,
-    User,
-    VoiceState,
-} from 'discord.js';
+    MessageActivityEvent,
+    ReactionActivityEvent,
+    RecordedActivityEvent,
+} from '../../features-system/activity';
 import { levelingConfigRepo } from './data/levelingConfigRepo';
 import { levelingProgressRepo } from './data/levelingProgressRepo';
 import { levelingVoiceSessionRepo } from './data/levelingVoiceSessionRepo';
 import { LevelingConfig } from './data/levelingConfigSchema';
-import { shouldSkipMessageForXp, shouldSkipReactionUser } from './logic/activityFilters';
+import { isSlashCommandMessage } from './logic/activityFilters';
 import { getReactionXpGrant } from './logic/levelingConfigDefaults';
 import { calculateMessageXp } from './logic/messageXp';
 import { getLevelFromTotalXp, messageHasImageAttachment, rollRandomXp } from './logic/xpCalculator';
@@ -47,12 +43,35 @@ export class LevelingService {
         }
     }
 
-    async handleMessageCreate(message: Message): Promise<void> {
-        if (shouldSkipMessageForXp(message)) {
+    /**
+     * Award XP for a message or reaction the activity recorder has already written.
+     *
+     * Registered as the activity subscriber in `initLeveling`; leveling has no gateway
+     * listener of its own for either. The grant links back to `event.activityEventId`.
+     */
+    async handleActivity(event: RecordedActivityEvent): Promise<void> {
+        switch (event.kind) {
+            case 'message':
+                return this.handleMessageActivity(event);
+            case 'reaction':
+                return this.handleReactionActivity(event);
+            default: {
+                const unhandled: never = event;
+                return unhandled;
+            }
+        }
+    }
+
+    /** The recorder has already excluded DMs, system messages, bots and webhooks. */
+    private async handleMessageActivity(event: MessageActivityEvent): Promise<void> {
+        const { message } = event;
+
+        // Leveling's own rule: a `/`-prefixed message is activity, but never XP.
+        if (isSlashCommandMessage(message)) {
             return;
         }
 
-        const config = await levelingConfigRepo.getByGuildId(message.guildId!);
+        const config = await levelingConfigRepo.getByGuildId(event.guild.id);
         if (!isActiveConfig(config)) {
             return;
         }
@@ -70,9 +89,9 @@ export class LevelingService {
         }
 
         await this.processXpGrant({
-            guild: message.guild!,
-            guildId: message.guildId!,
-            userId: message.author.id,
+            guild: event.guild,
+            guildId: event.guild.id,
+            userId: event.userId,
             config,
             activityType: 'message',
             xpAmount,
@@ -80,24 +99,13 @@ export class LevelingService {
             incrementPhotoUploadCount,
             messageLength: message.content.length,
             photoBonusApplied: incrementPhotoUploadCount,
+            activityEventId: event.activityEventId,
         });
     }
 
-    async handleReactionAdd(
-        reaction: MessageReaction | PartialMessageReaction,
-        user: User | PartialUser
-    ): Promise<void> {
-        const resolvedUser = await resolveReactionUser(user);
-        if (!resolvedUser || shouldSkipReactionUser(resolvedUser)) {
-            return;
-        }
-
-        const message = await resolveReactionMessage(reaction);
-        if (!message?.guildId || !message.guild) {
-            return;
-        }
-
-        const config = await levelingConfigRepo.getByGuildId(message.guildId);
+    /** The recorder has already resolved the reactor and excluded bots. */
+    private async handleReactionActivity(event: ReactionActivityEvent): Promise<void> {
+        const config = await levelingConfigRepo.getByGuildId(event.guild.id);
         if (!isActiveConfig(config) || !config.reactionXpEnabled) {
             return;
         }
@@ -105,13 +113,14 @@ export class LevelingService {
         const xpAmount = getReactionXpGrant(config);
 
         await this.processXpGrant({
-            guild: message.guild,
-            guildId: message.guildId,
-            userId: resolvedUser.id,
+            guild: event.guild,
+            guildId: event.guild.id,
+            userId: event.userId,
             config,
             activityType: 'reaction',
             xpAmount,
             incrementReactionCount: true,
+            activityEventId: event.activityEventId,
         });
     }
 
@@ -225,6 +234,7 @@ export class LevelingService {
         voiceSessionEndedAt?: Date | null;
         voiceChannelId?: string | null;
         voiceEligibilityRule?: string | null;
+        activityEventId?: number;
     }): Promise<void> {
         const cooldownMs = getCooldownMs(input.activityType, input.config);
         const grantedAt = input.voiceSessionEndedAt ?? new Date();
@@ -248,6 +258,7 @@ export class LevelingService {
             voiceSessionEndedAt: input.voiceSessionEndedAt,
             voiceChannelId: input.voiceChannelId,
             voiceEligibilityRule: input.voiceEligibilityRule,
+            activityEventId: input.activityEventId,
         });
 
         if (!grantResult) {
@@ -343,43 +354,5 @@ function getCooldownMs(activityType: XpActivityType, config: LevelingConfig): nu
              * a silent fallthrough would be a cooldown of `undefined`.
              */
             return 0;
-    }
-}
-
-async function resolveReactionUser(user: User | PartialUser): Promise<User | null> {
-    if (!user.partial) {
-        return user;
-    }
-
-    try {
-        return await user.fetch();
-    } catch (error) {
-        console.warn('[leveling] Failed to fetch partial reaction user:', error);
-        return null;
-    }
-}
-
-async function resolveReactionMessage(
-    reaction: MessageReaction | PartialMessageReaction
-): Promise<Message | null> {
-    if (reaction.partial) {
-        try {
-            await reaction.fetch();
-        } catch (error) {
-            console.warn('[leveling] Failed to fetch partial reaction:', error);
-            return null;
-        }
-    }
-
-    const message = reaction.message;
-    if (!message.partial) {
-        return message;
-    }
-
-    try {
-        return await message.fetch();
-    } catch (error) {
-        console.warn('[leveling] Failed to fetch partial reaction message:', error);
-        return null;
     }
 }

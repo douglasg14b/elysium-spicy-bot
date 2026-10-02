@@ -350,16 +350,21 @@ export async function deleteTicket(ticketId: number): Promise<Result<TicketEntit
 }
 
 /**
- * Answers "does this member have an open ticket of type X?" with one indexed
- * query and no Discord call.
+ * Answers "does this member have an open ticket of type X, and which?" with one
+ * indexed query and no Discord call. Null when they have none; their newest
+ * when they have several.
  *
  * The question this whole table exists for. The old answer was: list channels,
  * filter by a name regex, fetch pinned messages, decode a base64 blob — several
  * rate-limited calls, per member, with an unpredictable cost because the state
  * message lookup had a three-tier fallback.
  */
-export async function hasOpenTicket(guildId: string, subjectId: string, type?: TicketType): Promise<boolean> {
-    return ticketsRepo.hasOpenBySubject(guildId, subjectId, type);
+export async function findOpenTicket(
+    guildId: string,
+    subjectId: string,
+    type?: TicketType
+): Promise<Pick<TicketEntity, 'id' | 'channelId'> | null> {
+    return ticketsRepo.newestOpenBySubject(guildId, subjectId, type);
 }
 
 export async function getTicketByChannel(channelId: string): Promise<TicketEntity | null> {

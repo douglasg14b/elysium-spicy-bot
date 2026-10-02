@@ -12,8 +12,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const countGuildEvents = vi.fn();
 const getGuildEventTimeline = vi.fn();
 
-vi.mock('../../data/levelingActivityEventRepo', () => ({
-    levelingActivityEventRepo: {
+vi.mock('../../data/levelingXpGrantRepo', () => ({
+    levelingXpGrantRepo: {
         countGuildEvents: (...args: unknown[]) => countGuildEvents(...args),
         getGuildEventTimeline: (...args: unknown[]) => getGuildEventTimeline(...args),
     },

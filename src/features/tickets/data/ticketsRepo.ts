@@ -94,33 +94,37 @@ export class TicketsRepo {
     }
 
     /**
-     * The hot query: does this member have an open ticket of this type?
+     * The hot query: the subject's newest open ticket of this type, as its id and
+     * channel only, or null when they have none.
      *
-     * Runs per member on join, which is why the covering index exists.
-     */
-    /**
-     * Whether the subject has any open ticket, without fetching one.
+     * Runs per member on join, which is why the covering index exists. Separate
+     * from {@link findOpenBySubject} because selecting every column — including
+     * `reason`, which is unbounded text — forces a table lookup per row. Here the
+     * common answer, "none", is decided by the index alone; only a member who does
+     * have a ticket costs the one row read that fetches its channel.
      *
-     * Separate from {@link findOpenBySubject} because this runs per member on
-     * join and only needs a yes/no. Selecting every column — including `reason`,
-     * which is unbounded text — to check `length > 0` forces a table lookup per
-     * row and defeats the covering index the migration declares for exactly this
-     * question.
+     * Newest by id, because a member holding two open tickets of one type is
+     * possible and the one they opened last is the one a flow means.
      */
-    async hasOpenBySubject(guildId: string, subjectId: string, type?: TicketType): Promise<boolean> {
+    async newestOpenBySubject(
+        guildId: string,
+        subjectId: string,
+        type?: TicketType
+    ): Promise<Pick<TicketEntity, 'id' | 'channelId'> | null> {
         let query = database
             .selectFrom('tickets')
-            .select('id')
+            .select(['id', 'channelId'])
             .where('guildId', '=', guildId)
             .where('subjectId', '=', subjectId)
             .where('status', '=', 'open')
+            .orderBy('id', 'desc')
             .limit(1);
 
         if (type) {
             query = query.where('type', '=', type);
         }
 
-        return !!(await query.executeTakeFirst());
+        return (await query.executeTakeFirst()) ?? null;
     }
 
     async findOpenBySubject(guildId: string, subjectId: string, type?: TicketType): Promise<TicketEntity[]> {

@@ -6,7 +6,7 @@ import {
     formatXpProgressBar,
     getRecentActivitySince,
 } from '../logic/userLevelProfile';
-import type { LevelingActivityTotals } from '../data/levelingActivityEventSchema';
+import type { LevelingActivityTotals } from '../data/levelingXpGrantSchema';
 
 function emptyTotals(): LevelingActivityTotals {
     return {

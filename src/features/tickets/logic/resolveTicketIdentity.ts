@@ -36,7 +36,10 @@ export async function resolveTicketIdentity(guild: Guild, user: User): Promise<T
  * overload because the flow path has a `GuildMember` in hand and paying for a
  * fetch to reach data it is already holding is the cost this whole table exists
  * to avoid.
+ *
+ * Takes only the two members it reads, so a flow's subject — which may be a partial
+ * member on a run started by a departure — passes as it is.
  */
-export function ticketIdentityFromMember(member: GuildMember): TicketIdentity {
+export function ticketIdentityFromMember(member: Pick<GuildMember, 'user' | 'nickname'>): TicketIdentity {
     return { username: member.user.username, nickname: member.nickname };
 }

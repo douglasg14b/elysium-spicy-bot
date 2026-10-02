@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
-import { hasOpenTicket } from '../../../tickets';
+import { findOpenTicket, TICKET_VARIABLES } from '../../../tickets';
 
 export const CONDITION_HAS_OPEN_TICKET = 'condition.hasOpenTicket';
 
@@ -57,13 +57,47 @@ export const block: BlockManifest<HasOpenTicketConfig> = {
         { id: 'true', label: 'Yes', tone: 'positive' },
         { id: 'false', label: 'No', tone: 'negative' },
     ],
-    outputs: [],
+    /*
+     * The ticket it found, under the names Open Ticket also uses (see
+     * `TICKET_VARIABLES`), and only on Yes: on No there is no ticket, and the
+     * builder must not offer one there.
+     */
+    outputs: [
+        {
+            naming: 'fixed',
+            key: TICKET_VARIABLES.ticketId,
+            label: 'Ticket ID',
+            description: 'The open ticket it found. Their newest, if they have several.',
+            handle: 'true',
+        },
+        {
+            naming: 'fixed',
+            key: TICKET_VARIABLES.ticketChannelId,
+            label: 'Ticket channel',
+            description: "The open ticket's channel, so a later block can post in it.",
+            valueKind: 'channel',
+            handle: 'true',
+        },
+    ],
     requires: ['subject'],
     capabilities: [],
     canSuspend: false,
     async run(config, context) {
-        const open = await hasOpenTicket(context.guild.id, context.subject.id, config.ticketType);
+        const ticket = await findOpenTicket(context.guild.id, context.subject.id, config.ticketType);
+        if (!ticket) {
+            return { kind: 'continue', handle: 'false' };
+        }
 
-        return { kind: 'continue', handle: open ? 'true' : 'false' };
+        context.setOutput(TICKET_VARIABLES.ticketId, ticket.id);
+        /*
+         * A ticket is a record first and its channel second: one whose channel was
+         * deleted is still open, and still a Yes. `null` is written rather than
+         * skipping the write, so a channel recorded by an earlier visit or an
+         * earlier block cannot survive to pair with this ticket — and a picker
+         * reading it fails saying the channel is gone, not that the wiring is wrong.
+         */
+        context.setOutput(TICKET_VARIABLES.ticketChannelId, ticket.channelId ?? null);
+
+        return { kind: 'continue', handle: 'true' };
     },
 };

@@ -5,6 +5,7 @@ import {
     BLOCK_CONTROL_TYPES,
     BLOCK_HANDLE_TONES,
     BLOCK_KINDS,
+    BLOCK_OUTPUT_VALUE_KINDS,
     BLOCK_PALETTE_GROUPS,
     BLOCK_TRIGGER_SOURCES,
     FLOW_CONTEXT_REQUIREMENTS,
@@ -20,7 +21,8 @@ import {
 } from '../../../features/flows/engine/eligibility';
 import { ensureBlocksDiscovered, listBlockDefinitions } from '../../../features/flows/blocks/registry';
 import { FLOW_GRAPH_VERSION } from '../../../features/flows/data/flowGraph';
-import { NON_WIRE_MEMBERS } from '../nodeRoutes';
+import { FIELD_CHECK_RULES } from '../../../features/flows/logic/fieldChecks';
+import { toDescriptor } from '../nodeRoutes';
 import * as browserTypes from '../../../../web/src/api/types';
 
 /**
@@ -82,8 +84,18 @@ const VOCABULARIES = [
         browser: browserTypes.BLOCK_COLUMN_CONTROLS,
     },
     { name: 'BlockHandleTone', server: BLOCK_HANDLE_TONES, browser: browserTypes.BLOCK_HANDLE_TONES },
+    // The picker offers a variable by its kind, so a kind on one side alone is a
+    // value the browser either never offers or offers to the wrong picker.
+    {
+        name: 'BlockOutputValueKind',
+        server: BLOCK_OUTPUT_VALUE_KINDS,
+        browser: browserTypes.BLOCK_OUTPUT_VALUE_KINDS,
+    },
     { name: 'FlowContextRequirement', server: FLOW_CONTEXT_REQUIREMENTS, browser: browserTypes.FLOW_CONTEXT_REQUIREMENTS },
     { name: 'BlockCapability', server: BLOCK_CAPABILITIES, browser: browserTypes.BLOCK_CAPABILITIES },
+    // Derived from each block's schema and evaluated in the browser by a switch over
+    // this union, so a rule the server starts serving alone is one the builder skips.
+    { name: 'FieldCheckRule', server: FIELD_CHECK_RULES, browser: browserTypes.FIELD_CHECK_RULES },
     // Not served on a descriptor, and here anyway. The eligibility control
     // renders its principal list from these rather than from what the server sends,
     // so the two copies can drift without a single descriptor key changing —
@@ -115,7 +127,7 @@ const VOCABULARIES = [
  */
 const CONFIG_FIELD_FIXTURES = {
     rolePicker: { key: 'k', label: 'l', description: 'd', control: 'rolePicker', defaultValue: '' },
-    channelPicker: { key: 'k', label: 'l', description: 'd', control: 'channelPicker', defaultValue: '' },
+    channelPicker: { key: 'k', label: 'l', description: 'd', control: 'channelPicker', optional: true, defaultValue: '' },
     text: { key: 'k', label: 'l', description: 'd', control: 'text', optional: true, placeholder: '', maxLength: 1, defaultValue: '', rendersTokens: true },
     longText: { key: 'k', label: 'l', description: 'd', control: 'longText', placeholder: '', maxLength: 1, defaultValue: '', rendersTokens: true },
     duration: { key: 'k', label: 'l', description: 'd', control: 'duration', optional: true, placeholder: 'p', defaultValue: 1 },
@@ -194,12 +206,13 @@ describe('node descriptor drift between server and browser', () => {
         // `startedBy` are absent from the key list of any block that does not set
         // them, and a single-block sample would call that a server field the browser
         // must not declare.
+        //
+        // Read off what the route builds, not the manifest: a derived member such as
+        // `fieldChecks` is served without any manifest declaring it.
         const keys = new Set<string>();
         for (const definition of definitions) {
-            for (const key of Object.keys(definition)) {
-                if (!NON_WIRE_MEMBERS.some((member) => member === key)) {
-                    keys.add(key);
-                }
+            for (const [key, value] of Object.entries(toDescriptor(definition))) {
+                if (value !== undefined) keys.add(key);
             }
         }
         servedFields = [...keys].sort();

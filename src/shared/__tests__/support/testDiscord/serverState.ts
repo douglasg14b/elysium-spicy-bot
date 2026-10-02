@@ -14,15 +14,18 @@ import {
     PermissionsBitField,
     RoleFlags,
     SnowflakeUtil,
+    ThreadAutoArchiveDuration,
     type APIGuildCategoryChannel,
     type APIGuildMember,
     type APIOverwrite,
+    type APIPublicThreadChannel,
     type APIRole,
     type APITextChannel,
     type APIUser,
     type GatewayChannelPinsUpdateDispatchData,
     type GatewayGuildCreateDispatchData,
     type GatewayGuildMemberAddDispatchData,
+    type GatewayGuildMemberRemoveDispatchData,
     type GatewayGuildRoleModifyDispatchData,
     type GatewayMessageCreateDispatchData,
     type GatewayMessageUpdateDispatchData,
@@ -44,6 +47,17 @@ export type ServerChannelPayload = (APITextChannel | APIGuildCategoryChannel) & 
 export type ModelledChannelType = ServerChannelPayload['type'];
 
 /**
+ * An active public thread under a text channel.
+ *
+ * Kept apart from {@link ServerChannelPayload} rather than added to it: a thread is not a
+ * `GuildChannel` in discord.js, takes no part in the channel writes the router models,
+ * and has no stored-name rule — so it would be a gap in every exhaustive switch over
+ * channel types. What the harness does with one is narrow: GUILD_CREATE carries it, and
+ * it holds messages.
+ */
+export type ServerThreadPayload = APIPublicThreadChannel & { guild_id: string };
+
+/**
  * A gateway dispatch, minus the envelope the gateway adds.
  *
  * Narrower than `GatewayDispatchPayload` on purpose: this is the closed set of events the
@@ -57,6 +71,7 @@ export type HarnessEvent =
     | { readonly t: GatewayDispatchEvents.ChannelPinsUpdate; readonly d: GatewayChannelPinsUpdateDispatchData }
     | { readonly t: GatewayDispatchEvents.GuildRoleCreate; readonly d: GatewayGuildRoleModifyDispatchData }
     | { readonly t: GatewayDispatchEvents.GuildMemberAdd; readonly d: GatewayGuildMemberAddDispatchData }
+    | { readonly t: GatewayDispatchEvents.GuildMemberRemove; readonly d: GatewayGuildMemberRemoveDispatchData }
     | { readonly t: GatewayDispatchEvents.GuildCreate; readonly d: GatewayGuildCreateDispatchData }
     | { readonly t: GatewayDispatchEvents.MessageCreate; readonly d: GatewayMessageCreateDispatchData }
     | { readonly t: GatewayDispatchEvents.MessageUpdate; readonly d: GatewayMessageUpdateDispatchData };
@@ -101,6 +116,7 @@ interface GuildRecord {
     readonly roles: Map<string, APIRole>;
     readonly members: Map<string, APIGuildMember>;
     readonly channels: Map<string, ServerChannelPayload>;
+    readonly threads: Map<string, ServerThreadPayload>;
 }
 
 /*
@@ -307,6 +323,7 @@ export class ServerState {
                 [this.botUser.id, this.newMember(this.botUser, [botRole.id])],
             ]),
             channels: new Map(),
+            threads: new Map(),
         };
         this.guilds.set(id, record);
 
@@ -380,6 +397,50 @@ export class ServerState {
         return structuredClone(channel);
     }
 
+    /**
+     * Start an active public thread under a text channel, before the client connects.
+     *
+     * Only before: GUILD_CREATE then carries it in `threads`, as Discord sends every active
+     * thread the bot can see. A thread started while connected would be a THREAD_CREATE,
+     * which the harness does not dispatch, so it is refused rather than left out of the
+     * client's cache unannounced.
+     */
+    addThread(parentId: string, input: { readonly name: string }): ServerThreadPayload {
+        if (this.sink) {
+            throw new TestDiscordError(
+                'TestDiscord cannot start a thread after the client connected: THREAD_CREATE is not modelled. Create threads before start().'
+            );
+        }
+        const { guild, channel: parent } = this.locateChannel(parentId);
+        if (parent.type !== ChannelType.GuildText) {
+            throw new TestDiscordError(`${parentId} is not a text channel, so the harness cannot start a thread under it.`);
+        }
+
+        const now = new Date().toISOString();
+        const thread: ServerThreadPayload = {
+            id: newSnowflake(),
+            guild_id: guild.id,
+            type: ChannelType.PublicThread,
+            name: input.name,
+            parent_id: parentId,
+            owner_id: guild.ownerId,
+            last_message_id: null,
+            rate_limit_per_user: 0,
+            message_count: 0,
+            member_count: 1,
+            total_message_sent: 0,
+            thread_metadata: {
+                archived: false,
+                auto_archive_duration: ThreadAutoArchiveDuration.OneDay,
+                archive_timestamp: now,
+                locked: false,
+                create_timestamp: now,
+            },
+        };
+        guild.threads.set(thread.id, thread);
+        return structuredClone(thread);
+    }
+
     editChannel(channelId: string, edit: ChannelEdit): ServerChannelPayload {
         this.checkEdit(channelId, edit);
         const { channel } = this.locateChannel(channelId);
@@ -432,6 +493,13 @@ export class ServerState {
         if (hasChildren) {
             throw new TestDiscordError(
                 `Deleting category ${channelId} would orphan its channels, which the harness does not model. Move or delete them first.`
+            );
+        }
+
+        // Discord deletes a channel's threads with it, announcing each; also unmodelled.
+        if ([...guild.threads.values()].some((thread) => thread.parent_id === channelId)) {
+            throw new TestDiscordError(
+                `Deleting channel ${channelId} would delete its threads with it, which the harness does not model.`
             );
         }
     }
@@ -487,12 +555,39 @@ export class ServerState {
         return structuredClone(member);
     }
 
+    /**
+     * Take a member out of a guild: they left, or were kicked or banned. Discord announces
+     * all three with the same GUILD_MEMBER_REMOVE, carrying only the guild and the user.
+     *
+     * The bot and the owner are refused. The bot leaving is a GUILD_DELETE, not a member
+     * removal; the owner cannot leave without transferring the server first. Neither is
+     * modelled.
+     */
+    removeMember(guildId: string, userId: string): void {
+        const guild = this.guild(guildId);
+        if (userId === this.botUser.id || userId === guild.ownerId) {
+            throw new TestDiscordError(
+                `Removing ${userId === this.botUser.id ? 'the bot' : 'the owner'} from guild ${guildId} is not a member removal Discord would send, so it is not modelled.`
+            );
+        }
+        const member = guild.members.get(userId);
+        if (!member) {
+            throw new TestDiscordError(`Guild ${guildId} holds no member ${userId}, so there is nobody to remove.`);
+        }
+        guild.members.delete(userId);
+
+        this.sink?.publish({
+            t: GatewayDispatchEvents.GuildMemberRemove,
+            d: { guild_id: guildId, user: structuredClone(member.user) },
+        });
+    }
+
     channel(channelId: string): Readonly<ServerChannelPayload> {
         return this.locateChannel(channelId).channel;
     }
 
     /**
-     * Record a text channel's newest message, or its newest pin, as Discord does on each.
+     * Record a text channel's or thread's newest message, or its newest pin, as Discord does on each.
      *
      * No CHANNEL_UPDATE: Discord announces these as MESSAGE_CREATE and CHANNEL_PINS_UPDATE,
      * never as a change to the channel, so this updates what a fetch returns and nothing
@@ -502,10 +597,26 @@ export class ServerState {
         channelId: string,
         activity: { readonly lastMessageId?: string; readonly lastPinTimestamp?: string }
     ): void {
-        const { channel } = this.locateChannel(channelId);
-        if (channel.type !== ChannelType.GuildText) return;
+        const channel = this.findThread(channelId) ?? this.locateChannel(channelId).channel;
+        if (channel.type === ChannelType.GuildCategory) return;
         if (activity.lastMessageId !== undefined) channel.last_message_id = activity.lastMessageId;
         if (activity.lastPinTimestamp !== undefined) channel.last_pin_timestamp = activity.lastPinTimestamp;
+    }
+
+    /**
+     * Where a message can live, as `ServerMessages` needs it: the guild, and whether the
+     * channel holds messages at all. Covers threads, which {@link channel} does not.
+     */
+    messageChannel(channelId: string): { readonly guildId: string; readonly holdsMessages: boolean } {
+        const thread = this.findThread(channelId);
+        if (thread) return { guildId: thread.guild_id, holdsMessages: true };
+        const { channel } = this.locateChannel(channelId);
+        return { guildId: channel.guild_id, holdsMessages: channel.type === ChannelType.GuildText };
+    }
+
+    /** Whether Discord holds this channel or thread. */
+    hasMessageChannel(channelId: string): boolean {
+        return this.hasChannel(channelId) || this.findThread(channelId) !== undefined;
     }
 
     /** A member of a guild, or undefined when the user is not in it. */
@@ -605,7 +716,7 @@ export class ServerState {
             voice_states: [],
             members: [...guild.members.values()],
             channels: [...guild.channels.values()],
-            threads: [],
+            threads: [...guild.threads.values()],
             presences: [],
             stage_instances: [],
             guild_scheduled_events: [],
@@ -635,6 +746,14 @@ export class ServerState {
         for (const guild of this.guilds.values()) {
             const channel = guild.channels.get(channelId);
             if (channel) return { guild, channel };
+        }
+        return undefined;
+    }
+
+    private findThread(threadId: string): ServerThreadPayload | undefined {
+        for (const guild of this.guilds.values()) {
+            const thread = guild.threads.get(threadId);
+            if (thread) return thread;
         }
         return undefined;
     }

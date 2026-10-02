@@ -1,8 +1,8 @@
 import { LEVELING_RECENT_ACTIVITY_DAYS } from '../../constants';
-import type { DailyActivityBucket } from '../../data/levelingActivityEventSchema';
+import type { DailyActivityBucket } from '../../data/levelingXpGrantSchema';
 import type { LevelingProgress } from '../../data/levelingProgressSchema';
-import type { LevelingActivityTotals } from '../../data/levelingActivityEventSchema';
-import type { LevelingActivityEvent } from '../../data/levelingActivityEventSchema';
+import type { LevelingActivityTotals } from '../../data/levelingXpGrantSchema';
+import type { LevelingXpGrant } from '../../data/levelingXpGrantSchema';
 
 export type ActivityStatus = 'active' | 'quiet' | 'dormant' | 'none';
 
@@ -57,7 +57,7 @@ export type BuildStatsCardMetricsInput = {
     progress: LevelingProgress | null;
     recentActivity: LevelingActivityTotals;
     totalActivity: LevelingActivityTotals;
-    recentEvents: ReadonlyArray<LevelingActivityEvent>;
+    recentEvents: ReadonlyArray<LevelingXpGrant>;
     chartBuckets: ReadonlyArray<DailyActivityBucket>;
     recentPeriodDays?: number;
     now?: Date;
@@ -208,7 +208,7 @@ function computeTenureDays(progress: LevelingProgress | null, now: Date): number
     return Math.max(1, Math.ceil(diffMs / 86_400_000));
 }
 
-function computeAvgMessageLength(events: ReadonlyArray<LevelingActivityEvent>): number | null {
+function computeAvgMessageLength(events: ReadonlyArray<LevelingXpGrant>): number | null {
     const messageEvents = events.filter(
         (event) => event.activityType === 'message' && event.messageLength != null
     );

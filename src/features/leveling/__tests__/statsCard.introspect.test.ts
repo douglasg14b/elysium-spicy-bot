@@ -10,9 +10,9 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { DailyActivityBucket } from '../data/levelingActivityEventSchema';
-import type { LevelingActivityEvent } from '../data/levelingActivityEventSchema';
-import type { LevelingActivityTotals } from '../data/levelingActivityEventSchema';
+import type { DailyActivityBucket } from '../data/levelingXpGrantSchema';
+import type { LevelingXpGrant } from '../data/levelingXpGrantSchema';
+import type { LevelingActivityTotals } from '../data/levelingXpGrantSchema';
 import type { LevelingProgress } from '../data/levelingProgressSchema';
 import { renderStatsCard } from '../cards/statsCard/renderStatsCard';
 import { buildStatsCardMetrics } from '../cards/statsCard/statsCardMetrics';
@@ -91,6 +91,7 @@ const PREVIEW_SCENARIO = {
             voiceSessionEndedAt: null,
             voiceChannelId: null,
             voiceEligibilityRule: null,
+            activityEventId: null,
             occurredAt: new Date('2026-05-26T09:15:00Z'),
         },
         {
@@ -106,9 +107,10 @@ const PREVIEW_SCENARIO = {
             voiceSessionEndedAt: null,
             voiceChannelId: null,
             voiceEligibilityRule: null,
+            activityEventId: null,
             occurredAt: new Date('2026-05-25T14:00:00Z'),
         },
-    ] satisfies LevelingActivityEvent[],
+    ] satisfies LevelingXpGrant[],
 };
 
 function formatUtcDateKey(date: Date): string {
@@ -186,7 +188,7 @@ async function writeStatsCardPreview(
         totalActivity: LevelingActivityTotals;
         chartBuckets: DailyActivityBucket[];
         statsPeriod: StatsPeriod;
-        recentEvents: LevelingActivityEvent[];
+        recentEvents: LevelingXpGrant[];
         now: Date;
     }
 ): Promise<Buffer> {
@@ -275,6 +277,7 @@ describe('stats card introspection', () => {
                     voiceSessionEndedAt: null,
                     voiceChannelId: null,
                     voiceEligibilityRule: null,
+                    activityEventId: null,
                     occurredAt: new Date('2026-05-26T09:15:00Z'),
                 },
                 {
@@ -290,6 +293,7 @@ describe('stats card introspection', () => {
                     voiceSessionEndedAt: null,
                     voiceChannelId: null,
                     voiceEligibilityRule: null,
+                    activityEventId: null,
                     occurredAt: new Date('2026-05-18T14:00:00Z'),
                 },
                 {
@@ -305,6 +309,7 @@ describe('stats card introspection', () => {
                     voiceSessionEndedAt: null,
                     voiceChannelId: null,
                     voiceEligibilityRule: null,
+                    activityEventId: null,
                     occurredAt: new Date('2026-05-04T11:30:00Z'),
                 },
             ],

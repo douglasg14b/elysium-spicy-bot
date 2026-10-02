@@ -12,7 +12,7 @@
  */
 
 import type { Edge } from '@xyflow/react';
-import type { BlockOutputDeclaration, NodeDescriptor } from '../api/types';
+import type { BlockOutputDeclaration, BlockOutputValueKind, NodeDescriptor } from '../api/types';
 
 /** One variable an author can reference, and the block that produces it. */
 export interface AvailableVariable {
@@ -24,6 +24,8 @@ export interface AvailableVariable {
     readonly producerIcon: string;
     /** What the producer says this value is. */
     readonly description?: string;
+    /** What kind of thing it holds, when a picker can take it. */
+    readonly valueKind?: BlockOutputValueKind;
 }
 
 /** The fields this module needs off a canvas node. React Flow's own type is wider. */
@@ -137,6 +139,22 @@ export function availableVariablesAt(
     const ancestors = ancestorsOf(nodeId, nodes, edges);
 
     /*
+     * Where a handle-scoped output counts as written: on a path into this node
+     * that left its producer by that handle. An edge from the producer, on that
+     * handle, into this node or anything that reaches it. The No branch of a
+     * condition is the one place the Yes branch's finding is absent, so this is the
+     * exception to over-approximating rather than a tightening of it. In a loop the
+     * Yes edge's target can lead back round to No, and then the value is offered
+     * there too — correctly, since an earlier visit may have written it.
+     */
+    const onPath = new Set([nodeId, ...ancestors.map((node) => node.id)]);
+    const writtenOnPath = (producerId: string, handle: string | undefined): boolean =>
+        handle === undefined ||
+        edges.some(
+            (edge) => edge.source === producerId && edge.sourceHandle === handle && onPath.has(edge.target)
+        );
+
+    /*
      * Nearest producer wins on a duplicate name. Two blocks writing the same
      * variable is a real graph — the run's bag holds whichever wrote last — and
      * the breadth-first walk above visits nearer ancestors first, so the first
@@ -151,7 +169,7 @@ export function availableVariablesAt(
 
         for (const output of descriptor.outputs) {
             const name = resolveOutputName(output, node.data.config);
-            if (!name || found.has(name)) {
+            if (!name || found.has(name) || !writtenOnPath(node.id, output.handle)) {
                 continue;
             }
 
@@ -160,6 +178,7 @@ export function availableVariablesAt(
                 producerLabel: node.data.label,
                 producerIcon: descriptor.icon,
                 description: output.description,
+                valueKind: output.valueKind,
             });
         }
     }
@@ -249,4 +268,19 @@ export function referencedVariables(copy: string): string[] {
     }
 
     return [...names];
+}
+
+/**
+ * The name when a picker's value is exactly one `{{var.<name>}}`, else undefined.
+ *
+ * Mirrors `pickerVariableOf` in `src/features/flows/engine/copyRendering.ts`: one
+ * token and nothing around it, because a channel id with a word in front of it is
+ * not a channel.
+ */
+export function pickerVariableOf(value: string): string | undefined {
+    const tokens = tokensIn(value);
+    if (tokens.length !== 1 || value.replace(TOKEN_PATTERN, '').trim() !== '') {
+        return undefined;
+    }
+    return variableNameOf(tokens[0] ?? '');
 }

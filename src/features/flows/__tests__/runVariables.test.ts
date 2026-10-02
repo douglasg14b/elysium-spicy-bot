@@ -16,6 +16,7 @@ import { RESUME_TIMEOUT, type FlowRunSeed } from '../blocks/types';
 import { executeFlow, executeFlowSegment } from '../engine/executor';
 import { rebuildResumeContext, resumeFlowRun } from '../engine/flowRunResume';
 import { validateAuthoredGraph } from '../engine/graphValidation';
+import { validateNodeData } from '../engine/nodeDataValidation';
 import { ACTION_RECORD_VALUE } from './fixtures/blocks/producer/actionRecordValue';
 import { sentCopy } from './support/sentCopy';
 
@@ -38,6 +39,8 @@ import { sentCopy } from './support/sentCopy';
 const GUILD_ID = 'guild-1';
 const USER_ID = 'user-1';
 const SUBJECT_MENTION = `<@${USER_ID}>`;
+const AVATAR_URL = 'https://cdn.discordapp.com/avatars/user-1/abc.webp';
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const FIXTURE_ROOT = join(
     dirname(fileURLToPath(import.meta.url)),
@@ -73,8 +76,16 @@ function makeSeed(): { context: FlowRunSeed; userSend: ReturnType<typeof vi.fn> 
     const userSend = vi.fn().mockResolvedValue(undefined);
     const subject = {
         id: USER_ID,
+        displayName: 'Pepper',
         toString: () => SUBJECT_MENTION,
-        user: { id: USER_ID, username: 'spicypete', send: userSend },
+        displayAvatarURL: () => AVATAR_URL,
+        user: {
+            id: USER_ID,
+            username: 'spicypete',
+            // Three days and an hour old: the hour is there to prove it floors.
+            createdTimestamp: Date.now() - 3 * DAY_MS - 60 * 60 * 1000,
+            send: userSend,
+        },
         roles: { add: vi.fn(), cache: { has: () => false } },
     } as unknown as FlowRunSeed['subject'];
 
@@ -162,6 +173,20 @@ describe('a block consumes a value another block produced', () => {
         await executeFlow('flow-1', graph, 'trigger', context);
 
         expect(sentCopy(userSend)).toEqual([`Welcome ${SUBJECT_MENTION} — spicypete to Afterdark.`]);
+    });
+
+    it('fills in who the subject is beyond their name', async () => {
+        const { context, userSend } = makeSeed();
+        const graph = producerThenDm({
+            outputKey: 'unused',
+            value: 'x',
+            message: '{{subject.displayName}} ({{subject.id}}), account {{subject.accountAge}} old. {{subject.avatarUrl}}',
+        });
+
+        const result = await executeFlow('flow-1', graph, 'trigger', context);
+
+        expect(result.status).toBe('success');
+        expect(sentCopy(userSend)).toEqual([`Pepper (${USER_ID}), account 3 days old. ${AVATAR_URL}`]);
     });
 
     it('does not let one node see another node’s write channel', async () => {
@@ -293,6 +318,72 @@ describe('a block consumes a value another block produced', () => {
         expect((payload.embeds[0] as { data: { fields?: unknown } }).data.fields).toEqual([
             { name: 'Who', value: 'It is spicypete, in Afterdark.', inline: false },
         ]);
+    });
+
+    describe('an embed image that is a token', () => {
+        function embedSeed(): { seed: FlowRunSeed; channelSend: ReturnType<typeof vi.fn> } {
+            const { context } = makeSeed();
+            const channelSend = vi.fn().mockResolvedValue({ id: 'message-1' });
+            return {
+                channelSend,
+                seed: {
+                    ...context,
+                    client: {
+                        channels: {
+                            fetch: vi.fn().mockResolvedValue({ isTextBased: () => true, send: channelSend }),
+                        },
+                    } as unknown as FlowRunSeed['client'],
+                },
+            };
+        }
+
+        function embedGraph(extra: Record<string, unknown>): FlowGraph {
+            return {
+                version: FLOW_GRAPH_VERSION,
+                nodes: [
+                    { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
+                    { id: 'p', type: ACTION_RECORD_VALUE, position: { x: 1, y: 0 }, data: { outputKey: 'pic', value: 'banana' } },
+                    {
+                        id: 'embed',
+                        type: 'action.postEmbed',
+                        position: { x: 2, y: 0 },
+                        data: { channelId: 'channel-1', title: 'Welcome', description: 'Say hello.', ...extra },
+                    },
+                ],
+                edges: [
+                    { id: 'e1', source: 'trigger', target: 'p' },
+                    { id: 'e2', source: 'p', target: 'embed' },
+                ],
+            } as FlowGraph;
+        }
+
+        it('puts the subject’s avatar in the thumbnail', async () => {
+            const { seed, channelSend } = embedSeed();
+
+            const result = await executeFlow('flow-1', embedGraph({ thumbnailUrl: '{{subject.avatarUrl}}' }), 'trigger', seed);
+
+            expect(result.status).toBe('success');
+            const payload = channelSend.mock.calls[0]?.[0] as { embeds: { data: { thumbnail?: { url: string } } }[] };
+            expect(payload.embeds[0]?.data.thumbnail?.url).toBe(AVATAR_URL);
+        });
+
+        it('fails naming the field when the token fills in something that is not a link', async () => {
+            // Without the post-render check this throws out of discord.js's builder
+            // with a validation error that names neither the block nor the field.
+            const { seed, channelSend } = embedSeed();
+
+            const result = await executeFlow('flow-1', embedGraph({ thumbnailUrl: '{{var.pic}}' }), 'trigger', seed);
+
+            expect(result.status).toBe('error');
+            expect(result.error).toContain('Thumbnail');
+            expect(result.error).toContain('banana');
+            expect(channelSend).not.toHaveBeenCalled();
+        });
+
+        it('saves a token in an image field, and still refuses a literal that is not a link', () => {
+            expect(validateNodeData(embedGraph({ imageUrl: '{{subject.avatarUrl}}' })).valid).toBe(true);
+            expect(validateNodeData(embedGraph({ imageUrl: 'not a link' })).valid).toBe(false);
+        });
     });
 
     it('stops the run when the bag outgrows its cap, rather than dropping a value', async () => {

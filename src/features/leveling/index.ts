@@ -51,4 +51,4 @@ export type { ActivityStatus, StatsCardMetrics } from './cards/statsCard/statsCa
 export { levelingConfigRepo } from './data/levelingConfigRepo';
 export type { LevelingConfig } from './data/levelingConfigSchema';
 export type { LevelingProgress } from './data/levelingProgressSchema';
-export type { LevelingActivityTotals, DailyActivityBucket } from './data/levelingActivityEventSchema';
+export type { LevelingActivityTotals, DailyActivityBucket } from './data/levelingXpGrantSchema';

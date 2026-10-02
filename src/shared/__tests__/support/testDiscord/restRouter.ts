@@ -11,8 +11,8 @@ import { TestDiscordError } from './testDiscordError';
  * touches no global dispatcher — so suites run in parallel without sharing an intercept,
  * and nothing here can reach the network.
  *
- * **Only the routes provisioning and the ticket lifecycle actually call are modelled**, and every request body is
- * parsed strictly. An unmatched route, or a body carrying a field no handler models,
+ * **Only the routes provisioning, the ticket lifecycle and activity's backfill actually call are modelled**, and
+ * every request body and query string is parsed strictly. An unmatched route, or a body carrying a field no handler models,
  * throws a {@link TestDiscordError} naming it. The alternative — a quiet 404 or an empty
  * success — would turn a new API call in product code into a passing test, which is the
  * exact failure this harness exists to prevent. Add a route when a test needs one.
@@ -28,6 +28,8 @@ export interface RecordedRequest {
     readonly method: string;
     /** The API path without the version prefix, e.g. `/channels/123`. */
     readonly path: string;
+    /** The query string's parameters. Absent when the request carried none. */
+    readonly query?: Readonly<Record<string, string>>;
     /** The parsed JSON body, or undefined when none was sent. */
     readonly body: unknown;
     /** What the harness answered with. Absent when the request hit a harness gap. */
@@ -70,20 +72,25 @@ export interface EventDeferral {
  */
 const INJECTABLE_REJECTIONS = {
     [RESTJSONErrorCodes.MissingPermissions]: { status: 403, message: 'Missing Permissions' },
+    // What Discord answers a read of a channel the bot can no longer see.
+    [RESTJSONErrorCodes.MissingAccess]: { status: 403, message: 'Missing Access' },
 } as const;
 
 /** The routes that write to one channel, and so the ones a channel's rejection can scope to. */
 export type ChannelWriteRoute = 'PATCH /channels/:channelId' | 'PUT /channels/:channelId/permissions/:overwriteId';
 
+/** The one channel read a rejection can refuse, and only by naming it. */
+export type ChannelReadRoute = 'GET /channels/:channelId/messages';
+
 export interface InjectedRejection {
     readonly code: keyof typeof INJECTABLE_REJECTIONS;
     /**
-     * Refuse only this route. Absent refuses every write to the channel.
+     * Refuse only this route. Absent refuses every write to the channel, and no read.
      *
      * Scoping is what makes a *partial* failure expressible: a rename that lands followed
-     * by a permission write that does not.
+     * by a permission write that does not. A read is refused only when named here.
      */
-    readonly route?: ChannelWriteRoute;
+    readonly route?: ChannelWriteRoute | ChannelReadRoute;
 }
 
 /** The guild-scoped creates a test may make Discord rate-limit once. */
@@ -155,15 +162,20 @@ interface Route {
      * Parse and check the request without changing anything, and return the write it
      * describes. Throws on anything the harness does not model.
      */
-    prepare(state: ServerState, params: RouteParams, rawBody: unknown): PreparedWrite;
+    prepare(state: ServerState, params: RouteParams, rawBody: unknown, rawQuery: URLSearchParams): PreparedWrite;
 }
 
-interface RouteDefinition<Body> {
+interface RouteDefinition<Body, Query> {
     readonly key: RouteKey;
     readonly schema: z.ZodType<Body>;
+    /**
+     * The query string the route models, parsed from its string values. Absent means
+     * none: any query parameter at all faults, like an unmodelled body field.
+     */
+    readonly query?: z.ZodType<Query>;
     /** Every refusal beyond the schema. Reads state only; throws to refuse. */
-    validate?(state: ServerState, params: RouteParams, body: Body): void;
-    apply(state: ServerState, params: RouteParams, body: Body): RouteResponse;
+    validate?(state: ServerState, params: RouteParams, body: Body, query: Query): void;
+    apply(state: ServerState, params: RouteParams, body: Body, query: Query): RouteResponse;
 }
 
 /**
@@ -175,10 +187,10 @@ interface RouteDefinition<Body> {
  * silently — precisely in the test that injected the failure. That is why every refusal
  * lives in `validate` rather than inside `apply`.
  */
-function defineRoute<Body>(definition: RouteDefinition<Body>): Route {
+function defineRoute<Body, Query = undefined>(definition: RouteDefinition<Body, Query>): Route {
     return {
         key: definition.key,
-        prepare(state, params, rawBody) {
+        prepare(state, params, rawBody, rawQuery) {
             const parsed = definition.schema.safeParse(rawBody);
             if (!parsed.success) {
                 throw new TestDiscordError(
@@ -186,10 +198,32 @@ function defineRoute<Body>(definition: RouteDefinition<Body>): Route {
                 );
             }
             const body = parsed.data;
-            definition.validate?.(state, params, body);
-            return () => definition.apply(state, params, body);
+            const query = parseQuery(definition, rawQuery);
+            definition.validate?.(state, params, body, query);
+            return () => definition.apply(state, params, body, query);
         },
     };
+}
+
+/** The route's query, or a fault naming what it does not model. */
+function parseQuery<Body, Query>(definition: RouteDefinition<Body, Query>, rawQuery: URLSearchParams): Query {
+    const entries = Object.fromEntries(rawQuery);
+    if (!definition.query) {
+        if (Object.keys(entries).length > 0) {
+            throw new TestDiscordError(
+                `TestDiscord's handler for ${definition.key} does not model a query string, and received ?${rawQuery.toString()}.`
+            );
+        }
+        // No schema means the definition's `Query` is its `undefined` default.
+        return undefined as Query;
+    }
+    const parsed = definition.query.safeParse(entries);
+    if (!parsed.success) {
+        throw new TestDiscordError(
+            `TestDiscord's handler for ${definition.key} does not model this query: ${z.prettifyError(parsed.error)}`
+        );
+    }
+    return parsed.data;
 }
 
 const snowflake = z.string().regex(/^\d{17,20}$/);
@@ -218,6 +252,22 @@ const editChannelSchema = z.strictObject({
 const createRoleSchema = z.strictObject({
     name: z.string().min(1),
 });
+
+/**
+ * `GET /channels/:id/messages?after=&limit=` as discord.js 14 sends it. Query values are
+ * strings on the wire. `limit` is Discord's 1–100, defaulting to 50.
+ *
+ * `cache` is not a Discord parameter: discord.js serialises its own `fetch({ cache })`
+ * option onto the query along with the real ones, and Discord ignores it. Mirrored
+ * because it is on the wire, not because it means anything here.
+ */
+const messageHistoryQuerySchema = z
+    .strictObject({
+        after: snowflake.optional(),
+        limit: z.coerce.number().int().min(1).max(100).optional(),
+        cache: z.enum(['true', 'false']).optional(),
+    })
+    .transform(({ after, limit }) => ({ ...(after === undefined ? {} : { after }), limit: limit ?? 50 }));
 
 const ROUTES: readonly Route[] = [
     defineRoute({
@@ -366,6 +416,21 @@ const ROUTES: readonly Route[] = [
         },
     }),
     defineRoute({
+        /*
+         * A page of history, newest first — see `ServerMessages.history`. Answers for a
+         * thread as well as a text channel. `before` and `around` are not modelled, so
+         * the strict query refuses them.
+         */
+        key: 'GET /channels/:channelId/messages',
+        schema: z.undefined(),
+        query: messageHistoryQuerySchema,
+        apply(state, params, _body, query) {
+            const channelId = params.channelId ?? '';
+            if (!state.hasMessageChannel(channelId)) return unknownChannel();
+            return { status: 200, body: state.messages.history(channelId, query) };
+        },
+    }),
+    defineRoute({
         /* Like the channel read: discord.js asks only when the message is not cached. */
         key: 'GET /channels/:channelId/messages/:messageId',
         schema: z.undefined(),
@@ -490,21 +555,28 @@ function jsonResponse(status: number, payload: unknown): Response {
 
 /** The injected rejection that applies to this request, if any. */
 function rejectionFor(state: ServerState, route: Route, params: RouteParams): InjectedRejection | undefined {
-    // A rejection refuses writes. A read of a refused channel still answers, as it would
-    // for a bot that may view a channel but not manage it.
-    if (route.key.startsWith('GET ')) return undefined;
     const rejection = params.channelId ? state.rejectionFor(params.channelId) : undefined;
     if (!rejection) return undefined;
+    // A rejection refuses writes. A read of a refused channel still answers, as it would
+    // for a bot that may view a channel but not manage it — unless the rejection names
+    // that read, as for a bot that lost access to the channel altogether.
+    if (route.key.startsWith('GET ')) return rejection.route === route.key ? rejection : undefined;
     return !rejection.route || rejection.route === route.key ? rejection : undefined;
 }
 
-function answer(state: ServerState, method: string, path: string, rawBody: unknown): { status: number; response: Response } {
+function answer(
+    state: ServerState,
+    method: string,
+    path: string,
+    rawBody: unknown,
+    rawQuery: URLSearchParams
+): { status: number; response: Response } {
     for (const route of ROUTES) {
         const params = matchRoute(route, method, path);
         if (!params) continue;
 
         // Checked first, so an unmodelled request is loud even on a channel told to refuse.
-        const write = route.prepare(state, params, rawBody);
+        const write = route.prepare(state, params, rawBody, rawQuery);
 
         const rateLimit = params.guildId ? state.takeRateLimit(params.guildId, route.key) : undefined;
         if (rateLimit) {
@@ -556,17 +628,19 @@ export function createRestTransport(
     return async (url, init) => {
         const method = (init.method ?? 'GET').toUpperCase();
         const path = apiPath(url);
+        const searchParams = new URL(url).searchParams;
+        const query = searchParams.size > 0 ? { query: Object.fromEntries(searchParams) } : {};
         let body: unknown;
 
         try {
             body = parseBody(init.body, method, path);
-            const { status, response } = deferral.deferDuring(() => answer(state, method, path, body));
-            log.requests.push({ method, path, body, status });
+            const { status, response } = deferral.deferDuring(() => answer(state, method, path, body, searchParams));
+            log.requests.push({ method, path, ...query, body, status });
             return asRestResponse(response);
         } catch (error) {
             // Every throw here is the harness's own — a gap in what it models, or a request
             // it refuses to guess at — never a Discord answer, which is always a response.
-            log.requests.push({ method, path, body });
+            log.requests.push({ method, path, ...query, body });
             log.faults.push(error instanceof Error ? error : new TestDiscordError(String(error)));
             throw error;
         }

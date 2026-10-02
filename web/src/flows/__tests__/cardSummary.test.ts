@@ -32,6 +32,7 @@ function descriptorWith(
         group: 'actions',
         icon: '🧪',
         configFields,
+        fieldChecks: {},
         cardSummary,
         handles: [{ label: 'Then', tone: 'neutral' }],
         outputs: [],

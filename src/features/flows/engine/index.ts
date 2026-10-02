@@ -6,6 +6,7 @@ export * from './nodeDataValidation';
 export * from './flowChoiceDispatch';
 export * from './flowTriggerDispatch';
 export * from './memberJoinDispatch';
+export * from './memberLeaveDispatch';
 export * from './reactionAddDispatch';
 export * from './flowRunResume';
 export * from './flowRunScheduler';

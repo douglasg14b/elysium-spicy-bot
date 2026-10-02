@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { LevelingActivityTotals } from '../data/levelingActivityEventSchema';
+import type { LevelingActivityTotals } from '../data/levelingXpGrantSchema';
 import type { LevelingProgress } from '../data/levelingProgressSchema';
 import { buildLevelCardElement } from '../cards/levelCard/buildLevelCardElement';
 import { getLevelCardProgressPercent, getLevelCardProgressRatio } from '../cards/levelCard/levelCardProgress';

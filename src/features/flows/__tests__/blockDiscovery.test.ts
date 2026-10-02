@@ -31,6 +31,7 @@ const SHIPPED_BLOCK_TYPES = [
     'action.awardXp',
     'action.closeTicket',
     'action.delay',
+    'action.kickMember',
     'action.openTicket',
     'action.pickRandom',
     'action.postEmbed',
@@ -47,6 +48,7 @@ const SHIPPED_BLOCK_TYPES = [
     'trigger.buttonClick',
     'trigger.levelReached',
     'trigger.memberJoin',
+    'trigger.memberLeave',
     'trigger.reactionAdd',
 ] as const;
 

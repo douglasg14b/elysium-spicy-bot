@@ -1,4 +1,9 @@
-import type { FlowContextRequirement } from '../blocks/manifest';
+import {
+    PICKER_VALUE_KINDS,
+    resolveOutputName,
+    type BlockOutputValueKind,
+    type FlowContextRequirement,
+} from '../blocks/manifest';
 import { getBlockDefinition } from '../blocks/registry';
 import { flowGraphSchema, type FlowGraph } from '../data/flowGraph';
 import {
@@ -6,6 +11,8 @@ import {
     describeVocabulary,
     isCopyField,
     isRenderableToken,
+    isVariablePickerField,
+    pickerVariableOf,
     tokensIn,
 } from './copyRendering';
 import type { FlowValidationIssue } from './nodeDataValidation';
@@ -287,8 +294,28 @@ function rejectedTokenErrors(
         }));
 }
 
+/**
+ * Every variable name some node in the graph declares, with the kinds it is
+ * declared as. Built only when a picker holds a variable, which most graphs never do.
+ */
+function outputValueKinds(graph: FlowGraph): ReadonlyMap<string, ReadonlySet<BlockOutputValueKind>> {
+    const kindsByName = new Map<string, Set<BlockOutputValueKind>>();
+    for (const node of graph.nodes) {
+        for (const output of getBlockDefinition(node.type)?.outputs ?? []) {
+            const name = resolveOutputName(output, node.data);
+            if (name && output.valueKind) {
+                const kinds = kindsByName.get(name) ?? new Set<BlockOutputValueKind>();
+                kinds.add(output.valueKind);
+                kindsByName.set(name, kinds);
+            }
+        }
+    }
+    return kindsByName;
+}
+
 function checkCopyTokens(graph: FlowGraph): readonly FlowValidationIssue[] {
     const errors: FlowValidationIssue[] = [];
+    let outputKinds: ReadonlyMap<string, ReadonlySet<BlockOutputValueKind>> | undefined;
 
     for (const node of graph.nodes) {
         const block = getBlockDefinition(node.type);
@@ -303,6 +330,46 @@ function checkCopyTokens(graph: FlowGraph): readonly FlowValidationIssue[] {
                 const value = node.data[field.key];
                 if (typeof value === 'string') {
                     errors.push(...rejectedTokenErrors(node.id, node.type, `"${field.label}"`, value));
+                }
+                continue;
+            }
+
+            if (isVariablePickerField(field)) {
+                const value = node.data[field.key];
+                if (typeof value !== 'string' || !value.includes('{{')) {
+                    continue;
+                }
+                /*
+                 * A trigger's picker is read by its dispatcher straight off the
+                 * stored config, to decide whether an event matches — before any
+                 * run exists to hold a variable. A token there would match nothing,
+                 * silently, forever. The builder never offers one (a trigger has
+                 * nothing upstream), so this only catches a graph written another way.
+                 */
+                const variableName = pickerVariableOf(value);
+                const kind = PICKER_VALUE_KINDS[field.control];
+                if (block.kind === 'trigger') {
+                    errors.push({
+                        nodeId: node.id,
+                        message: `Node ${node.id} (${node.type}) has "${field.label}" set to ${value}. A trigger has nothing before it to read a value from — pick one from the list.`,
+                    });
+                } else if (variableName === undefined) {
+                    errors.push({
+                        nodeId: node.id,
+                        message: `Node ${node.id} (${node.type}) has "${field.label}" set to "${value}". A picker takes a choice, or one {{var.name}} from an earlier block and nothing else.`,
+                    });
+                } else if (!(outputKinds ??= outputValueKinds(graph)).get(variableName)?.has(kind)) {
+                    /*
+                     * By kind, across the whole graph, and not by path: whether the
+                     * producer runs first is the reachability question copy leaves open
+                     * too (see the note above). What this does settle is that the name
+                     * is the right kind at all — `{{var.ticketId}}` in a channel picker would
+                     * otherwise save, publish, and fail on every run.
+                     */
+                    errors.push({
+                        nodeId: node.id,
+                        message: `Node ${node.id} (${node.type}) has "${field.label}" set to {{var.${variableName}}}, but no block in this flow records a ${kind} by that name.`,
+                    });
                 }
                 continue;
             }

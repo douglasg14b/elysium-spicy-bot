@@ -16,7 +16,7 @@ import { BirthdayTable } from '../../features/birthday-tracker/data/birthdaySche
 import { BirthdayConfigTable } from '../../features/birthday-tracker/data/birthdayConfigSchema';
 import { LevelingConfigTable } from '../../features/leveling/data/levelingConfigSchema';
 import { LevelingProgressTable } from '../../features/leveling/data/levelingProgressSchema';
-import { LevelingActivityEventTable } from '../../features/leveling/data/levelingActivityEventSchema';
+import { LevelingXpGrantTable } from '../../features/leveling/data/levelingXpGrantSchema';
 import { LevelingVoiceSessionTable } from '../../features/leveling/data/levelingVoiceSessionSchema';
 import { WarningTable } from '../../features/warnings/data/warningsSchema';
 import { WarningsConfigTable } from '../../features/warnings/data/warningsConfigSchema';
@@ -28,6 +28,8 @@ import { ResourceBindingTable } from '../../features/provisioning/data/resourceB
 import { JourneyTable } from '../../features/provisioning/data/journeysSchema';
 import { FlowJourneyLinkTable } from '../../features/provisioning/data/flowJourneyLinksSchema';
 import { GuildSettingsTable } from '../guild-settings/data/guildSettingsSchema';
+import { ActivityEventsTable } from '../activity/data/activityEventsSchema';
+import { ActivityRecorderSessionsTable } from '../activity/data/activityRecorderSessionsSchema';
 
 export interface Database {
     flash_chat_config: FlashChatConfigTable;
@@ -38,7 +40,7 @@ export interface Database {
     birthday_config: BirthdayConfigTable;
     leveling_config: LevelingConfigTable;
     leveling_progress: LevelingProgressTable;
-    leveling_activity_events: LevelingActivityEventTable;
+    leveling_xp_grants: LevelingXpGrantTable;
     leveling_voice_sessions: LevelingVoiceSessionTable;
     warnings: WarningTable;
     warnings_config: WarningsConfigTable;
@@ -50,6 +52,8 @@ export interface Database {
     journeys: JourneyTable;
     flow_journey_links: FlowJourneyLinkTable;
     guild_settings: GuildSettingsTable;
+    activity_events: ActivityEventsTable;
+    activity_recorder_sessions: ActivityRecorderSessionsTable;
 }
 
 function getDbDialect() {
@@ -91,7 +95,7 @@ function getDatabaseClient() {
                     'lastReactionXpAt',
                     'lastVoiceXpAt',
                 ],
-                leveling_activity_events: ['occurredAt', 'voiceSessionStartedAt', 'voiceSessionEndedAt'],
+                leveling_xp_grants: ['occurredAt', 'voiceSessionStartedAt', 'voiceSessionEndedAt'],
                 leveling_voice_sessions: ['sessionStartedAt', 'eligibleSince', 'updatedAt'],
                 warnings: ['issuedAt', 'expiresAt', 'clearedAt', 'createdAt'],
                 warnings_config: ['createdAt', 'updatedAt'],
@@ -106,6 +110,10 @@ function getDatabaseClient() {
                 // neither. Its dates still need parsing on both dialects, hence this.
                 flow_journey_links: ['createdAt', 'updatedAt'],
                 guild_settings: ['createdAt', 'updatedAt'],
+                // No boolean or JSON columns, so absent from both sqlite-only plugins below.
+                activity_events: ['occurredAt'],
+                // Likewise absent from both sqlite-only plugins: dates only.
+                activity_recorder_sessions: ['startedAt', 'lastSeenAt', 'gapFilledAt'],
         }),
     ];
 
@@ -116,7 +124,7 @@ function getDatabaseClient() {
                 new SqliteBindingPlugin<Database>({
                     flash_chat_config: ['enabled', 'removed', 'preserveHistory', 'preservePinned'],
                     leveling_config: ['enabled', 'reactionXpEnabled', 'photoBonusEnabled'],
-                    leveling_activity_events: ['photoBonus'],
+                    leveling_xp_grants: ['photoBonus'],
                     flows: ['enabled'],
                 }),
                 new SqliteJsonPlugin<Database>({
@@ -124,7 +132,7 @@ function getDatabaseClient() {
                     flows: ['graph'],
                     // `flow_runs` has no boolean columns, so it is absent from
                     // SqliteBindingPlugin above — only its JSON blobs need parsing.
-                    flow_runs: ['waitConfig', 'contextSnapshot', 'log', 'variables'],
+                    flow_runs: ['waitConfig', 'contextSnapshot', 'log', 'variables', 'quietWindow'],
                     // Without this the column comes back as a JSON *string* on sqlite
                     // and as an array on postgres — a divergence that typechecks and
                     // only shows up at run time, on one dialect.

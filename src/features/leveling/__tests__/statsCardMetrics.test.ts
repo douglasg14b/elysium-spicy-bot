@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { LevelingActivityEvent } from '../data/levelingActivityEventSchema';
-import type { LevelingActivityTotals } from '../data/levelingActivityEventSchema';
+import type { LevelingXpGrant } from '../data/levelingXpGrantSchema';
+import type { LevelingActivityTotals } from '../data/levelingXpGrantSchema';
 import type { LevelingProgress } from '../data/levelingProgressSchema';
 import {
     buildStatsCardMetrics,
@@ -42,7 +42,7 @@ function makeProgress(overrides: Partial<LevelingProgress> = {}): LevelingProgre
     };
 }
 
-function makeMessageEvent(occurredAt: string, messageLength: number): LevelingActivityEvent {
+function makeMessageEvent(occurredAt: string, messageLength: number): LevelingXpGrant {
     return {
         id: 1,
         guildId: 'guild-1',
@@ -56,6 +56,7 @@ function makeMessageEvent(occurredAt: string, messageLength: number): LevelingAc
         voiceSessionEndedAt: null,
         voiceChannelId: null,
         voiceEligibilityRule: null,
+        activityEventId: null,
         occurredAt: new Date(occurredAt),
     };
 }

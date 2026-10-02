@@ -152,7 +152,7 @@ export const BLOCK_PALETTE_GROUPS = ['triggers', 'conditions', 'actions'] as con
 export type BlockPaletteGroup = (typeof BLOCK_PALETTE_GROUPS)[number];
 
 /** What makes a trigger fire. Set by triggers and by nothing else. */
-export const BLOCK_TRIGGER_SOURCES = ['buttonClick', 'levelUp', 'memberJoin', 'reactionAdd'] as const;
+export const BLOCK_TRIGGER_SOURCES = ['buttonClick', 'levelUp', 'memberJoin', 'memberLeave', 'reactionAdd'] as const;
 
 export type BlockTriggerSource = (typeof BLOCK_TRIGGER_SOURCES)[number];
 
@@ -275,7 +275,12 @@ interface BlockConfigFieldBase {
  */
 export type BlockConfigField =
     | (BlockConfigFieldBase & { control: 'rolePicker'; defaultValue?: string })
-    | (BlockConfigFieldBase & { control: 'channelPicker'; defaultValue?: string })
+    | (BlockConfigFieldBase & {
+          control: 'channelPicker';
+          /** The pick can be cleared, which removes the key; empty means something to the block. */
+          optional?: boolean;
+          defaultValue?: string;
+      })
     | (BlockConfigFieldBase & {
           control: 'text';
           /** Clearing the box removes the key entirely rather than writing `''`. */
@@ -428,21 +433,36 @@ export interface BlockOutputHandle {
  * Reading `fromField` as a variable name would offer an author a token nothing
  * writes.
  */
-export type BlockOutputDeclaration =
-    | {
-          naming: 'fixed';
-          /** The reference name this block always writes. */
-          key: string;
-          label: string;
-          description?: string;
-      }
-    | {
-          naming: 'authored';
-          /** The `configFields` key whose **value** is the variable name. */
-          fromField: string;
-          label: string;
-          description?: string;
-      };
+export type BlockOutputDeclaration = BlockOutputDeclarationBase &
+    (
+        | {
+              naming: 'fixed';
+              /** The reference name this block always writes. */
+              key: string;
+          }
+        | {
+              naming: 'authored';
+              /** The `configFields` key whose **value** is the variable name. */
+              fromField: string;
+          }
+    );
+
+/** What a value is, for the pickers that can take one. Absent means copy only. */
+export const BLOCK_OUTPUT_VALUE_KINDS = ['channel'] as const;
+
+export type BlockOutputValueKind = (typeof BLOCK_OUTPUT_VALUE_KINDS)[number];
+
+interface BlockOutputDeclarationBase {
+    label: string;
+    description?: string;
+    /** What the value is, when a picker can use it. */
+    valueKind?: BlockOutputValueKind;
+    /**
+     * The handle a run leaves by when this was written, if only one does. A
+     * condition records what it found on the branch where it found it.
+     */
+    handle?: string;
+}
 
 /** What a block needs to be present in the run context. */
 export const FLOW_CONTEXT_REQUIREMENTS = ['subject', 'actor', 'channel', 'interaction'] as const;
@@ -450,9 +470,34 @@ export const FLOW_CONTEXT_REQUIREMENTS = ['subject', 'actor', 'channel', 'intera
 export type FlowContextRequirement = (typeof FLOW_CONTEXT_REQUIREMENTS)[number];
 
 /** A Discord permission the bot must hold for a block to work. */
-export const BLOCK_CAPABILITIES = ['manageRoles', 'sendMessages', 'embedLinks', 'manageChannels'] as const;
+export const BLOCK_CAPABILITIES = ['manageRoles', 'sendMessages', 'embedLinks', 'manageChannels', 'kickMembers'] as const;
 
 export type BlockCapability = (typeof BLOCK_CAPABILITIES)[number];
+
+/**
+ * The rules a field can be checked against as an author types, mirroring
+ * `src/features/flows/logic/fieldChecks.ts`. Each is named for the JSON Schema keyword
+ * the server derives it from; `web/src/flows/fieldChecks.ts` evaluates them.
+ */
+export const FIELD_CHECK_RULES = [
+    'required',
+    'integer',
+    'minLength',
+    'maxLength',
+    'minimum',
+    'maximum',
+    'exclusiveMinimum',
+    'exclusiveMaximum',
+    'minItems',
+    'maxItems',
+] as const;
+
+export type FieldCheckRule = (typeof FIELD_CHECK_RULES)[number];
+
+/** One rule a field's value must meet, already worded by the server. */
+export type FieldCheck =
+    | { rule: 'required' | 'integer'; message: string }
+    | { rule: Exclude<FieldCheckRule, 'required' | 'integer'>; limit: number; message: string };
 
 /**
  * An available block from the engine's registry (`GET /api/nodes`) — everything
@@ -482,6 +527,14 @@ export interface NodeDescriptor {
     note?: string;
     /** Config fields in the order the inspector should show them. */
     configFields: BlockConfigField[];
+    /**
+     * The rules each field can be checked against as the author types, keyed by field.
+     *
+     * Not declared by the block: the server derives them from its schema, so every
+     * block has them without anyone writing them down. A subset of what the server
+     * enforces — what it cannot state here, it reports when asked.
+     */
+    fieldChecks: Record<string, FieldCheck[]>;
     /** The one-line config summary on the canvas card. Absent when nothing is worth summarising. */
     cardSummary?: BlockCardSummaryPart[];
     /** Every way a run can leave this block. */
@@ -529,6 +582,7 @@ export const NODE_DESCRIPTOR_KEYS = [
     'icon',
     'note',
     'configFields',
+    'fieldChecks',
     'cardSummary',
     'handles',
     'outputs',
@@ -555,7 +609,7 @@ export const NODE_DESCRIPTOR_KEYS = [
  */
 export const BLOCK_CONFIG_FIELD_KEYS = {
     rolePicker: ['key', 'label', 'description', 'control', 'defaultValue'],
-    channelPicker: ['key', 'label', 'description', 'control', 'defaultValue'],
+    channelPicker: ['key', 'label', 'description', 'control', 'optional', 'defaultValue'],
     text: ['key', 'label', 'description', 'control', 'optional', 'placeholder', 'maxLength', 'defaultValue', 'rendersTokens'],
     longText: ['key', 'label', 'description', 'control', 'placeholder', 'maxLength', 'defaultValue', 'rendersTokens'],
     duration: ['key', 'label', 'description', 'control', 'optional', 'placeholder', 'defaultValue'],

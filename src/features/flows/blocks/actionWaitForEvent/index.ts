@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { FLOW_MAX_DELAY_MS } from '../../constants';
 import type { BlockManifest } from '../manifest';
+import { checkQuietTimeout, quietTimeoutFields, quietTimeoutShape, toQuietWindow } from '../quietTimeout';
 
 export const ACTION_WAIT_FOR_EVENT = 'action.waitForEvent';
 
@@ -15,12 +16,14 @@ export const flowWaitKindSchema = z.enum(['memberJoin', 'reactionAdd', 'buttonCl
  * not a trigger, so it sits mid-graph.
  *
  * `timeoutMs` is optional: with it, the run also gets a `wakeAt` and, on expiry,
- * follows a `timeout` output handle if the graph has one (else fails).
+ * follows a `timeout` output handle if the graph has one (else fails). Counting
+ * that limit from a last message needs a limit to count, so it is refused without.
  */
 export const waitForEventConfigSchema = z.object({
     eventKind: flowWaitKindSchema,
     timeoutMs: z.number().int().positive().max(FLOW_MAX_DELAY_MS).optional(),
-});
+    ...quietTimeoutShape,
+}).superRefine((config, context) => checkQuietTimeout(config, context, config.timeoutMs));
 
 export type WaitForEventConfig = z.infer<typeof waitForEventConfigSchema>;
 
@@ -69,6 +72,7 @@ export const block: BlockManifest<WaitForEventConfig> = {
             optional: true,
             placeholder: 'No limit',
         },
+        ...quietTimeoutFields,
     ],
     cardSummary: [
         { key: 'eventKind', prefix: 'Await ' },
@@ -91,12 +95,16 @@ export const block: BlockManifest<WaitForEventConfig> = {
                 : { kind: 'continue' };
         }
 
+        const { eventKind, timeoutMs } = config;
         return {
             kind: 'suspend',
             suspension: {
-                wakeAt: config.timeoutMs === undefined ? undefined : new Date(Date.now() + config.timeoutMs),
-                waitKind: config.eventKind,
-                waitConfig: config,
+                wakeAt: timeoutMs === undefined ? undefined : new Date(Date.now() + timeoutMs),
+                waitKind: eventKind,
+                // Named rather than the whole config: the time-limit keys belong to
+                // `quietWindow`, and `waitConfig` describes only the event awaited.
+                waitConfig: timeoutMs === undefined ? { eventKind } : { eventKind, timeoutMs },
+                quietWindow: toQuietWindow(config, timeoutMs, context.guild),
             },
         };
     },

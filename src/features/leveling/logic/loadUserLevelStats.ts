@@ -1,4 +1,4 @@
-import { levelingActivityEventRepo } from '../data/levelingActivityEventRepo';
+import { levelingXpGrantRepo } from '../data/levelingXpGrantRepo';
 import { levelingProgressRepo } from '../data/levelingProgressRepo';
 import {
     aggregateActivityTotals,
@@ -19,7 +19,7 @@ import {
     type StatsPeriod,
 } from './statsPeriod';
 import { buildStatsCardMetrics, type StatsCardMetrics } from '../cards/statsCard/statsCardMetrics';
-import type { DailyActivityBucket } from '../data/levelingActivityEventSchema';
+import type { DailyActivityBucket } from '../data/levelingXpGrantSchema';
 import type { LevelingProgress } from '../data/levelingProgressSchema';
 
 export type ActivityChart = {
@@ -78,8 +78,8 @@ export async function loadUserLevelStats(
 
     const [progress, recentEventsRaw, totalActivity] = await Promise.all([
         levelingProgressRepo.get(guildId, userId),
-        levelingActivityEventRepo.getUserEvents(guildId, userId, { since }),
-        levelingActivityEventRepo.getUserActivityTotals(guildId, userId),
+        levelingXpGrantRepo.getUserEvents(guildId, userId, { since }),
+        levelingXpGrantRepo.getUserActivityTotals(guildId, userId),
     ]);
 
     const recentEvents = filterEventsByActivityDateRange(recentEventsRaw, startDate, endDate);

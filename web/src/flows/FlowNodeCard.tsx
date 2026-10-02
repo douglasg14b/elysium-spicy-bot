@@ -42,7 +42,7 @@ export interface FlowNodeCardData extends Record<string, unknown> {
      * Legal, and not a save failure — which is why it is a separate field rather than
      * another thing folded into `issueCount`. The two are different claims with
      * different lifetimes: `issueCount` is what the server *last* found and is replaced
-     * on the next save, while this is recomputed from the live graph on every edit.
+     * on the next save or re-check, while this is recomputed from the live graph on every edit.
      *
      * A boolean rather than a reason: there is only one way to be unreachable, and the
      * card has room to say it once.

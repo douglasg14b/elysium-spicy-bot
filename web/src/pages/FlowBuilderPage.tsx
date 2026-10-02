@@ -87,7 +87,6 @@ import type {
     FlowDraft,
     FlowEdge,
     FlowGraph,
-    FlowValidationIssue,
     GuildChannel,
     GuildRole,
     InstallPlan,
@@ -114,7 +113,7 @@ import {
     readStoredWidth,
     type ResizeBounds,
 } from '../flows/resizableColumn';
-import { graphIncluding } from '../flows/graphHistory';
+import { changedConfigKeys, graphIncluding } from '../flows/graphHistory';
 import {
     builderStatusLine,
     draftLabel,
@@ -125,6 +124,7 @@ import {
     type FlowDraftPayload,
 } from '../flows/flowDraftAutosave';
 import { useFlowDraftAutosave } from '../flows/useFlowDraftAutosave';
+import { useFlowIssues } from '../flows/useFlowIssues';
 import { LeaveFlowDialog, type LeaveAction } from '../flows/LeaveFlowDialog';
 import { useLeaveGuard } from '../flows/useLeaveGuard';
 import {
@@ -400,23 +400,10 @@ function FlowBuilder() {
     }, [leaveGuard.prompting, leaveGuard.leave, dirty, saving, leaving]);
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
     /**
-     * What the server last found wrong with the graph, kept until it next answers.
-     *
-     * Filled on open from the flow's `issues`, so an incomplete flow opens with its
-     * cards already red, and replaced by every save — the issues of a graph it stored,
-     * or of one it refused.
-     *
-     * Not cleared on edit. An author fixing one of three problems would otherwise
-     * watch the other two vanish with it, and have to save again to find out what
-     * they were. They go stale instead — which is honest, because they describe the
-     * graph as the server last saw it — and a save replaces the whole set.
-     */
-    const [saveIssues, setSaveIssues] = useState<readonly FlowValidationIssue[]>([]);
-    /**
      * How many problems the **stored** graph has — what decides whether it may be
      * switched on.
      *
-     * Separate from `saveIssues` because the two part company on a refused save: those
+     * Separate from `graphIssues` (below) because the two part company on a refused save: those
      * issues describe the graph the author just tried to send, while the stored one is
      * untouched. A structurally broken save of a flow whose stored graph is ready would
      * otherwise lock the switch on a graph the server never received.
@@ -624,6 +611,21 @@ function FlowBuilder() {
     );
 
     /**
+     * What is wrong with the canvas — on the cards and under the inspector's fields: the
+     * server's last answer, with fields edited since checked live as the author types.
+     * The server is re-asked as focus leaves the inspector. Never touches
+     * `storedIssueCount`, which is about the stored graph and only an open or a save may
+     * move.
+     */
+    const {
+        issues: graphIssues,
+        setIssues: setGraphIssues,
+        editMark: graphEditMark,
+        markEdited: markGraphEdited,
+        recheck: recheckGraphIssues,
+    } = useFlowIssues({ guildId: selected?.id, flowId, graph: canvasPayload.graph, catalog: nodeCatalog });
+
+    /**
      * Unsaved work, kept on the server as this operator's draft while they edit — so
      * leaving the page, or losing the tab, costs a couple of seconds rather than the
      * afternoon. Held while a save is in flight; the save decides what the draft holds.
@@ -694,7 +696,7 @@ function FlowBuilder() {
                             roles: directory.roles,
                             channels: directory.channels,
                             // Filled from the flow's own `issues` by the effect
-                            // that carries `saveIssues` onto the cards.
+                            // that carries `graphIssues` onto the cards.
                             issueCount: 0,
                             // The effect answers both as soon as the edges land.
                             unreachable: false,
@@ -752,7 +754,7 @@ function FlowBuilder() {
                 setDeclaredResources(flowResources);
                 setName(flow.name);
                 setEnabled(flow.enabled);
-                setSaveIssues(flow.issues);
+                setGraphIssues(flow.issues);
                 setStoredIssueCount(flow.issues.length);
                 setSavedVersionAt(flow.updatedAt);
                 setCanvasBase(flow.updatedAt);
@@ -800,7 +802,7 @@ function FlowBuilder() {
         return () => {
             cancelled = true;
         };
-    }, [selected, flowId, rebaseDraft, putGraphOnCanvas]);
+    }, [selected, flowId, rebaseDraft, putGraphOnCanvas, setGraphIssues]);
 
     /**
      * Load a draft from the picker: onto the canvas the way the flow loads, with the
@@ -817,13 +819,13 @@ function FlowBuilder() {
             setCanvasBase(draft.baseUpdatedAt);
             setName(draft.name);
             putGraphOnCanvas(draft.graph, { catalog: nodeCatalog, roles, channels });
-            setSaveIssues(draft.issues);
+            setGraphIssues(draft.issues);
             setSelectedNodeId(null);
             setDraftOnlySave(null);
             setDirty(true);
             setDraftPickerOpen(false);
         },
-        [rebaseDraft, putGraphOnCanvas, nodeCatalog, roles, channels]
+        [rebaseDraft, putGraphOnCanvas, setGraphIssues, nodeCatalog, roles, channels]
     );
 
     /** Throw a draft away — anyone's. The picker closes itself once none are left. */
@@ -1115,6 +1117,7 @@ function FlowBuilder() {
         (patch: Record<string, unknown>) => {
             if (!selectedNodeId) return;
             pushHistory();
+            markGraphEdited(selectedNodeId, Object.keys(patch));
             setNodes((prev) =>
                 prev.map((node) => {
                     if (node.id !== selectedNodeId) return node;
@@ -1126,7 +1129,7 @@ function FlowBuilder() {
                 })
             );
         },
-        [selectedNodeId, pushHistory, setNodes]
+        [selectedNodeId, pushHistory, markGraphEdited, setNodes]
     );
 
     /**
@@ -1169,14 +1172,24 @@ function FlowBuilder() {
     const restore = useCallback(
         (target: Snapshot) => {
             skipHistory.current = true;
+            // An undo edits fields too, just not through a control: what it changed is
+            // checked live like any edit, and the server is asked about the canvas it
+            // put back, or the marks would still describe the one it replaced.
+            for (const node of target.nodes) {
+                const before = latest.current.nodes.find((candidate) => candidate.id === node.id);
+                if (!before) continue;
+                const changed = changedConfigKeys(before.data.config, node.data.config);
+                if (changed.length > 0) markGraphEdited(node.id, changed);
+            }
             setNodes(target.nodes);
             setEdges(target.edges);
             setDirty(true);
+            recheckGraphIssues();
             requestAnimationFrame(() => {
                 skipHistory.current = false;
             });
         },
-        [setNodes, setEdges]
+        [setNodes, setEdges, markGraphEdited, recheckGraphIssues]
     );
 
     const undo = useCallback(() => {
@@ -1202,7 +1215,9 @@ function FlowBuilder() {
         if (!selected || !flowId) return false;
         // What is sent, held on to: edits made while the request is in flight are not
         // part of what the answer describes, and the autosave has to know the difference.
+        // The issues have to know it too: a field typed into meanwhile stays checked live.
         const sent = canvasPayload;
+        const sentAsOf = graphEditMark();
         setSaving(true);
         try {
             // An autosave still on its way would land after this save and put back the
@@ -1222,7 +1237,7 @@ function FlowBuilder() {
                 // the flow is as it was. The canvas is persisted — not dirty — and its
                 // cards show what the drafted graph lacks. The base does not move: the
                 // canvas still descends from the version it was loaded from.
-                setSaveIssues(updated.draft.issues);
+                setGraphIssues(updated.draft.issues, sentAsOf);
                 setDraftOnlySave(sent);
                 draftAutosave.markDrafted(sent, updated.draft.updatedAt);
                 notifications.show({
@@ -1240,7 +1255,7 @@ function FlowBuilder() {
             draftAutosave.markSavedToFlow(sent);
             // Stored, finished or not: a switched-off flow may hold an incomplete
             // graph, and its issues come back so the cards stay honest about it.
-            setSaveIssues(updated.issues);
+            setGraphIssues(updated.issues, sentAsOf);
             notifications.show(
                 updated.issues.length > 0
                     ? {
@@ -1262,12 +1277,12 @@ function FlowBuilder() {
             // guarded by the visit cap.
             const message =
                 err instanceof ApiError ? err.message : "Couldn't save. Try again in a second.";
-            // Replaced wholesale, including with an empty list: a failure carrying no
-            // issues (a 500, a dropped connection) says nothing about which nodes are
-            // wrong, and leaving the previous set up would attribute the last
-            // rejection's blame to this one.
+            // Only a refusal with issues is an answer about the canvas. A failure
+            // carrying none (a 500, a dropped connection) says nothing about it, so the
+            // marks stay as the last answer and the live checks left them — the same
+            // rule as a re-check that fails. Clearing them would claim the canvas fixed.
             const issues = err instanceof ApiError ? err.issues : [];
-            setSaveIssues(issues);
+            if (issues.length > 0) setGraphIssues(issues, sentAsOf);
             // Selecting the first errored node is the whole difference between a
             // sentence about a field and knowing which of a dozen blocks it is on.
             const firstBlamed = issues.find((issue) => issue.nodeId)?.nodeId;
@@ -1371,7 +1386,7 @@ function FlowBuilder() {
             // unsaved edits on it — or a draft-only save, which is not the stored graph
             // either — these issues describe something else, and the cards are marking
             // the canvas's own answer instead.
-            if (!dirty && !savedAsDraftOnly) setSaveIssues(updated.issues);
+            if (!dirty && !savedAsDraftOnly) setGraphIssues(updated.issues);
         } catch (err) {
             setEnabled(previous);
             const message = err instanceof ApiError ? err.message : "Couldn't change that.";
@@ -1380,8 +1395,9 @@ function FlowBuilder() {
                 // Refused because the stored graph is incomplete — which the switch's
                 // own lock should have prevented, so the page's count was stale (a
                 // declaration removed elsewhere, say). These issues describe the stored
-                // graph, so both halves are brought up to date from them.
-                setSaveIssues(issues);
+                // graph, so the count is brought up to date from them — and the cards
+                // too, under the same rule as the success path above.
+                if (!dirty && !savedAsDraftOnly) setGraphIssues(issues);
                 setStoredIssueCount(issues.length);
                 notifications.show({ color: 'red', title: message, message: summarizeIssues(issues) });
                 return;
@@ -1484,7 +1500,7 @@ function FlowBuilder() {
         [nodes, selectedNodeId]
     );
 
-    const issuesForNode = useMemo(() => issuesByNode(saveIssues), [saveIssues]);
+    const issuesForNode = useMemo(() => issuesByNode(graphIssues), [graphIssues]);
 
     /** Whether the switch may not be turned on: the stored graph is not ready to go live. */
     const enableLocked = !enabled && storedIssueCount > 0;
@@ -2029,7 +2045,12 @@ function FlowBuilder() {
                         width: inspectorWidth,
                         flexShrink: 0,
                         background: 'var(--mantine-color-dark-8)',
-                        overflow: 'hidden',
+                        // This column is the scroller. The inspector inside is `min-height:
+                        // 100%`, not `height: 100%`: a fixed-height flex column shrinks its
+                        // children instead of overflowing, which crushed the Delete button
+                        // to 2px on tall blocks.
+                        overflowX: 'hidden',
+                        overflowY: 'auto',
                     }}
                 >
                     {/*
@@ -2039,22 +2060,31 @@ function FlowBuilder() {
                      * block details at all — a flow-wide concern occupying a
                      * per-node space. It is a toolbar modal now.
                      */}
+                    {/*
+                     * Leaving any field re-asks what is wrong, so a fixed one stops
+                     * being marked without a save. On this wrapper rather than on each
+                     * control, so every control — present and future — gets it: React's
+                     * `onBlur` is `focusout` and bubbles, through the pickers' portalled
+                     * dropdowns too.
+                     */}
                     {selectedNode ? (
-                        <NodeInspector
-                            key={selectedNode.id}
-                            descriptor={selectedNode.data.descriptor}
-                            nodeType={selectedNode.data.nodeType}
-                            label={selectedNode.data.label}
-                            config={selectedNode.data.config}
-                            roles={roles}
-                            channels={channels}
-                            variables={availableVariables}
-                            actorAvailable={actorAvailable}
-                            declaredResources={declaredResources}
-                            issues={issuesForNode.get(selectedNode.id) ?? []}
-                            onChange={updateNodeConfig}
-                            onDelete={deleteSelectedNode}
-                        />
+                        <div onBlur={recheckGraphIssues} style={{ height: '100%' }}>
+                            <NodeInspector
+                                key={selectedNode.id}
+                                descriptor={selectedNode.data.descriptor}
+                                nodeType={selectedNode.data.nodeType}
+                                label={selectedNode.data.label}
+                                config={selectedNode.data.config}
+                                roles={roles}
+                                channels={channels}
+                                variables={availableVariables}
+                                actorAvailable={actorAvailable}
+                                declaredResources={declaredResources}
+                                issues={issuesForNode.get(selectedNode.id) ?? []}
+                                onChange={updateNodeConfig}
+                                onDelete={deleteSelectedNode}
+                            />
+                        </div>
                     ) : (
                         <Stack align="center" justify="center" h="100%" gap={6} px="lg">
                             <Text fw={700} size="14px">

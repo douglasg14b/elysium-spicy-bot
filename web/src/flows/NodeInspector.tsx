@@ -47,7 +47,8 @@ interface NodeInspectorProps {
     /** What this flow declares but has not installed yet, for the pickers to offer. */
     declaredResources: ResourceDeclaration[];
     /**
-     * Why the last save refused this node, if it did.
+     * What the server last found wrong with this node — at the last save, or the last
+     * re-check as focus left a field.
      *
      * Only this node's — the page holds the whole list and hands each inspector its
      * slice, so the inspector never has to know which node it is drawing twice.
@@ -92,7 +93,7 @@ export function NodeInspector({
     };
 
     return (
-        <Stack gap="md" p="md" h="100%" style={{ overflowY: 'auto' }}>
+        <Stack gap="md" p="md" mih="100%">
             <Group gap={10} wrap="nowrap">
                 <span
                     style={{
@@ -336,7 +337,7 @@ function UnknownNodeInspector({
     onDelete: () => void;
 }) {
     return (
-        <Stack gap="md" p="md" h="100%" style={{ overflowY: 'auto' }}>
+        <Stack gap="md" p="md" mih="100%">
             <Group gap={10} wrap="nowrap">
                 <span
                     style={{

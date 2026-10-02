@@ -113,6 +113,10 @@ const DOMAIN_VOCABULARY = [
     // Block taxonomy
     'trigger', 'condition', 'action', 'kind', 'group', 'output', 'capability',
     'capabilities', 'requirement', 'control', 'tone',
+    // A picker is a kind of control the contract names (`channelPicker`,
+    // `rolePicker`), and the engine resolves a picker holding `{{var.<name>}}` the
+    // way it renders copy. The word says how a field is filled in, not what for.
+    'picker',
     // How a block presents itself: the manifest's own presentation members. These
     // are engine vocabulary because the *contract* names them — a block declares an
     // `icon` and a `placeholder`, and the interpreter carries them to the browser
@@ -144,6 +148,19 @@ const DOMAIN_VOCABULARY = [
     // and the executor never reads one — it runs `flows.graph` and nothing else. It
     // names no use case, and folds onto none of the proven rejections.
     'draft',
+    // A timed park whose deadline counts from the last message rather than from the
+    // park — a *quiet window* — and the departure trigger's event. `quiet` and `window`
+    // describe time passing without messages, on the footing of `delay` and `timeout`;
+    // `leave` is the gateway event, on the footing of `join` and `reaction`. `activity`
+    // is the base capability (`features-system/activity`) the scheduler asks when the
+    // last message was, named as the dependency the way `flowRunsRepo` is. None says
+    // what a flow is *for*, and none folds onto a proven rejection.
+    'quiet', 'window', 'leave', 'activity',
+    // Activity's startup recovery of messages missed during an outage. The scheduler asks
+    // `isBackfillPending` and holds quiet-window runs while it is, named after the
+    // dependency the way `activity` is. A property of the history the engine reads, not
+    // of any flow's purpose.
+    'backfill',
 ];
 
 /**
@@ -298,6 +315,12 @@ const GENERIC_VOCABULARY = [
     // `reset`. One word was renamed rather than admitted: the repo's input type was
     // `UpsertFlowDraftInput` and is `FlowDraftInput`, since `input` was already here.
     'author', 'discard',
+    // Quiet windows. `duration` is a span of time, `last` the newest of something,
+    // and `defer` what the scheduler does to a deadline instead of waking a run —
+    // mechanism, on the footing of `delay` and `reset`. Two were renamed rather than
+    // admitted: `deadline` and `deferredWakeAt` both became `nextWakeAt`, since `next`
+    // and `wake` were already here.
+    'duration', 'last', 'defer',
 ];
 
 /**

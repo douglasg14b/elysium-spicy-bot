@@ -1,11 +1,13 @@
 import {
     ChannelType,
+    MessageType,
     OverwriteType,
     PermissionsBitField,
+    RESTJSONErrorCodes,
     type APIOverwrite,
     type PermissionsString,
 } from 'discord.js';
-import { toMessageView, type ServerMessageView } from './messageState';
+import { toMessageView, type IncomingMessage, type ServerMessageView } from './messageState';
 import type { GuildCreateRoute, InjectedRejection } from './restRouter';
 import type { ModelledChannelType, ServerState } from './serverState';
 import { TestDiscordError } from './testDiscordError';
@@ -26,6 +28,36 @@ export interface OverwriteGrant {
 }
 
 export type OverwriteTarget = ServerRole | ServerMember;
+
+/**
+ * A message somebody sends in Discord, for a test to build history with.
+ *
+ * `from` a member (`guild.bot` for the bot posting from elsewhere) or a webhook. A
+ * member's message may instead be the join notice Discord posts as them, a system
+ * message. `sentAt` backdates it — id and timestamp both — so a test can put messages
+ * inside an outage; absent means now.
+ */
+export type IncomingMessageOptions = {
+    readonly content?: string;
+    readonly sentAt?: Date;
+} & (
+    | { readonly from: ServerMember; readonly kind?: 'message' | 'joinNotice' }
+    | { readonly from: 'webhook' }
+);
+
+function toIncoming(options: IncomingMessageOptions): IncomingMessage {
+    const content = options.content ?? '';
+    const sentAt = options.sentAt ?? new Date();
+    if (options.from === 'webhook') {
+        return { from: { kind: 'webhook' }, type: MessageType.Default, content, sentAt };
+    }
+    return {
+        from: { kind: 'member', userId: options.from.id },
+        type: options.kind === 'joinNotice' ? MessageType.UserJoin : MessageType.Default,
+        content,
+        sentAt,
+    };
+}
 
 function toNames(bits: string): PermissionsString[] {
     return new PermissionsBitField(BigInt(bits)).toArray().sort();
@@ -170,6 +202,46 @@ export class ServerChannel {
     rejectWrites(rejection: InjectedRejection): void {
         this.state.rejectWrites(this.id, rejection);
     }
+
+    /**
+     * Make Discord refuse the bot's reads of this channel's history from now on, with the
+     * 50001 it sends a bot that lost access. Injected for the reason `rejectWrites` is, and
+     * kept in the same slot: a channel refuses one way at a time.
+     */
+    refuseHistory(): void {
+        this.state.rejectWrites(this.id, {
+            code: RESTJSONErrorCodes.MissingAccess,
+            route: 'GET /channels/:channelId/messages',
+        });
+    }
+
+    /** Somebody sending a message here — see {@link IncomingMessageOptions}. Returns its id. */
+    receiveMessage(options: IncomingMessageOptions): string {
+        return this.state.messages.receive(this.id, toIncoming(options)).id;
+    }
+}
+
+/**
+ * An active thread as Discord holds it. Narrower than a channel handle on purpose: the
+ * harness models a thread only as a place messages live — see `ServerThreadPayload`.
+ */
+export class ServerThread {
+    constructor(
+        private readonly state: ServerState,
+        readonly guildId: string,
+        readonly id: string,
+        readonly parentId: string
+    ) {}
+
+    /** Every message Discord holds here, oldest first. */
+    get messages(): readonly ServerMessageView[] {
+        return this.state.messages.inChannel(this.id).map(toMessageView);
+    }
+
+    /** Somebody sending a message here — see {@link IncomingMessageOptions}. Returns its id. */
+    receiveMessage(options: IncomingMessageOptions): string {
+        return this.state.messages.receive(this.id, toIncoming(options)).id;
+    }
 }
 
 /**
@@ -241,6 +313,12 @@ export class ServerGuild {
         return new ServerChannel(this.state, this.id, channel.id);
     }
 
+    /** An active public thread under a text channel. Before `TestDiscord.start()` only — see `ServerState.addThread`. */
+    createThread(options: { readonly parent: ServerChannel; readonly name?: string }): ServerThread {
+        const thread = this.state.addThread(options.parent.id, { name: options.name ?? this.state.nextName('thread') });
+        return new ServerThread(this.state, this.id, thread.id, options.parent.id);
+    }
+
     createRole(options: { readonly name?: string; readonly permissions?: readonly PermissionsString[] } = {}): ServerRole {
         const role = this.state.addRole(this.id, {
             name: options.name ?? this.state.nextName('role'),
@@ -255,5 +333,10 @@ export class ServerGuild {
             roleIds: (options.roles ?? []).map((role) => role.id),
         });
         return new ServerMember(this.id, member.user.id);
+    }
+
+    /** A member leaving, or an operator kicking or banning them — Discord sends the same event for all three. */
+    removeMember(member: ServerMember): void {
+        this.state.removeMember(this.id, member.id);
     }
 }

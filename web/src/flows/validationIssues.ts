@@ -29,6 +29,38 @@ export function issuesByNode(
     return byNode;
 }
 
+/**
+ * What is wrong with the canvas as the author sees it now: the server's last answer,
+ * with the fields edited since replaced by what the browser can tell about them live.
+ *
+ * The one rule both the cards and the inspector read, so the two cannot disagree. An
+ * edited field's server complaint describes a value that is gone, so it is dropped —
+ * that is what lets a mark clear on the first keystroke — and the live check speaks for
+ * the field instead, until the server is next asked. Every field not edited keeps the
+ * server's word, so fixing one problem never hides another.
+ *
+ * Editing a list field drops its entries' complaints too (`options.0`): they are
+ * addressed below the field, and describe the list as it was.
+ *
+ * @param edited - Field keys per node id, edited since the server last answered.
+ * @param live - Complaints about exactly those fields, from `liveFieldIssues`.
+ */
+export function visibleIssues(
+    server: readonly FlowValidationIssue[],
+    edited: ReadonlyMap<string, ReadonlySet<string>>,
+    live: readonly FlowValidationIssue[]
+): readonly FlowValidationIssue[] {
+    if (edited.size === 0) return server;
+
+    const stillStanding = server.filter((issue) => {
+        const fields = issue.nodeId ? edited.get(issue.nodeId) : undefined;
+        if (!fields || !issue.field) return true;
+        const topLevel = issue.field.split('.')[0] ?? issue.field;
+        return !fields.has(topLevel);
+    });
+    return [...stillStanding, ...live];
+}
+
 export interface PlacedIssues {
     /** One message per field key, ready to hand a control as its `error`. */
     readonly byField: ReadonlyMap<string, string>;

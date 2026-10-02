@@ -8,7 +8,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { LevelingActivityTotals } from '../data/levelingActivityEventSchema';
+import type { LevelingActivityTotals } from '../data/levelingXpGrantSchema';
 import type { LevelingProgress } from '../data/levelingProgressSchema';
 import { renderLevelCard } from '../cards/levelCard/renderLevelCard';
 import { buildUserLevelProfile } from '../logic/userLevelProfile';

@@ -1,43 +1,14 @@
-import type { Message, PartialMessage, User } from 'discord.js';
+import type { Message } from 'discord.js';
 
-export function isEligibleMessageAuthor(user: User): boolean {
-    return !user.bot;
-}
-
-export function isGuildMessage(message: Message | PartialMessage): message is Message {
-    return !!message.guildId && !!message.guild;
-}
-
+/**
+ * Leveling's one message rule of its own: a `/`-prefixed message earns no XP.
+ *
+ * Guild, system-message and bot/webhook exclusions belong to the activity recorder, which
+ * never notifies leveling about such messages. A `/`-prefixed message *is* recorded as
+ * activity — it only earns nothing here.
+ */
 export function isSlashCommandMessage(message: Message): boolean {
     return message.content.startsWith('/');
-}
-
-export function getMessageXpSkipReason(message: Message): string | null {
-    if (message.system) {
-        return 'system message';
-    }
-
-    if (!isGuildMessage(message)) {
-        return 'not a guild message';
-    }
-
-    if (!isEligibleMessageAuthor(message.author)) {
-        return 'bot author';
-    }
-
-    if (isSlashCommandMessage(message)) {
-        return 'slash command message';
-    }
-
-    return null;
-}
-
-export function shouldSkipMessageForXp(message: Message): boolean {
-    return getMessageXpSkipReason(message) !== null;
-}
-
-export function shouldSkipReactionUser(user: Pick<User, 'bot'>): boolean {
-    return !isEligibleMessageAuthor(user as User);
 }
 
 export function isCooldownActive(

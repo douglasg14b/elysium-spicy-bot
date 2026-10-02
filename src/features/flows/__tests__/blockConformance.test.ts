@@ -910,6 +910,29 @@ describe('a declared output nothing could ever resolve', () => {
         expect(issues.join('\n')).toMatch(/must declare naming as "fixed" or "authored"/);
     });
 
+    it('catches an output scoped to a handle the block does not have', () => {
+        // Scoped to an exit no edge can leave by, so the builder would never offer it.
+        const issues = checkBlockConformance(
+            manifestWith({
+                handles: [
+                    { id: 'true', label: 'Yes', tone: 'positive' },
+                    { id: 'false', label: 'No', tone: 'negative' },
+                ],
+                outputs: [{ naming: 'fixed', key: 'found', label: 'Found', handle: 'yes' }],
+            })
+        );
+
+        expect(issues.join('\n')).toMatch(/written on the handle "yes", which is not one of this block's handles/);
+    });
+
+    it('catches a value kind no picker takes', () => {
+        const issues = checkBlockConformance(
+            manifestWith({ outputs: [{ naming: 'fixed', key: 'thing', label: 'Thing', valueKind: 'banana' }] })
+        );
+
+        expect(issues.join('\n')).toMatch(/declares the value kind "banana", which no picker takes/);
+    });
+
     it('catches an output with no label for the builder to show', () => {
         const issues = checkBlockConformance(
             manifestWith({ outputs: [{ naming: 'fixed', key: 'thing', label: '' }] })
@@ -1102,7 +1125,12 @@ describe('every block that ships', () => {
             // posts its question on the parking leg. Given to every block rather
             // than to that one by name: a probe that knows which block needs a
             // channel is a probe that stops being a census.
-            expect(await checkBlockOutcome(block, config, { ...context, channel: sink() })).toEqual([]);
+            //
+            // Parsed first, because `run` is only ever handed validated config: a
+            // block reading a key its schema defaults must see the default, as it
+            // would from the executor, not the absence of the raw probe.
+            const parsed = block.configSchema.parse(config);
+            expect(await checkBlockOutcome(block, parsed, { ...context, channel: sink() })).toEqual([]);
         }
     });
 

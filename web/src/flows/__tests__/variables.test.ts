@@ -13,6 +13,7 @@ import {
     actorAvailableAt,
     ancestorsOf,
     availableVariablesAt,
+    pickerVariableOf,
     referencedVariables,
     resolveOutputName,
     tokensIn,
@@ -29,6 +30,7 @@ function descriptorWith(outputs: BlockOutputDeclaration[], canSuspend = false): 
         group: 'actions',
         icon: '🎲',
         configFields: [],
+        fieldChecks: {},
         handles: [{ label: 'Next', tone: 'neutral' }],
         outputs,
         requires: [],
@@ -294,5 +296,71 @@ describe('whether the actor survives to a node', () => {
         const nodes = [unknownNode('mystery'), node('end', [])];
 
         expect(actorAvailableAt('end', nodes, [edge('mystery', 'end')])).toBe(true);
+    });
+});
+
+describe('an output written on one branch only', () => {
+    const FOUND: BlockOutputDeclaration = {
+        naming: 'fixed',
+        key: 'ticketChannelId',
+        label: 'Ticket channel',
+        valueKind: 'channel',
+        handle: 'true',
+    };
+
+    function branchEdge(source: string, target: string, sourceHandle: string): Edge {
+        return { id: `${source}:${sourceHandle}->${target}`, source, target, sourceHandle };
+    }
+
+    it('is offered down the branch that writes it, with its kind', () => {
+        const nodes = [node('check', [FOUND]), node('post', [])];
+
+        expect(availableVariablesAt('post', nodes, [branchEdge('check', 'post', 'true')])).toEqual([
+            expect.objectContaining({ name: 'ticketChannelId', valueKind: 'channel' }),
+        ]);
+    });
+
+    it('is not offered down the other branch, where it is guaranteed absent', () => {
+        const nodes = [node('check', [FOUND]), node('post', [])];
+
+        expect(availableVariablesAt('post', nodes, [branchEdge('check', 'post', 'false')])).toEqual([]);
+    });
+
+    it('is offered several blocks further down the branch that writes it', () => {
+        const nodes = [node('check', [FOUND]), node('between', []), node('post', [])];
+        const edges = [branchEdge('check', 'between', 'true'), edge('between', 'post')];
+
+        expect(availableVariablesAt('post', nodes, edges).map((variable) => variable.name)).toEqual([
+            'ticketChannelId',
+        ]);
+    });
+
+    it('is offered where both branches converge, because one of them writes it', () => {
+        // Over-approximating at a merge, as everything else here does: the author
+        // may well have the other branch write the same name.
+        const nodes = [node('check', [FOUND]), node('a', []), node('b', []), node('post', [])];
+        const edges = [
+            branchEdge('check', 'a', 'true'),
+            branchEdge('check', 'b', 'false'),
+            edge('a', 'post'),
+            edge('b', 'post'),
+        ];
+
+        expect(availableVariablesAt('post', nodes, edges).map((variable) => variable.name)).toEqual([
+            'ticketChannelId',
+        ]);
+    });
+});
+
+describe('a picker holding one variable', () => {
+    it.each([
+        ['{{var.ticketChannelId}}', 'ticketChannelId'],
+        ['  {{ var.ticketChannelId }} ', 'ticketChannelId'],
+        ['#{{var.ticketChannelId}}', undefined],
+        ['{{var.a}}{{var.b}}', undefined],
+        ['{{subject.id}}', undefined],
+        ['123456789012345678', undefined],
+    ])('reads %j as %s', (value, expected) => {
+        expect(pickerVariableOf(value)).toBe(expected);
     });
 });

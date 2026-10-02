@@ -1,6 +1,7 @@
 import { Events } from 'discord.js';
 import { interactionsRegistry } from '../../features-system/commands';
 import { DISCORD_CLIENT } from '../../discordClient';
+import { registerActivitySubscriber } from '../../features-system/activity';
 import { levelingConfigCommand, handleLevelingConfigCommand } from './commands/levelingConfigCommand';
 import { handleLevelCommand, levelCommand } from './commands/levelCommand';
 import { handleLevelRankingsCommand, levelRankingsCommand } from './commands/levelRankingsCommand';
@@ -14,7 +15,6 @@ import {
 import { logIsolatedVoiceXpError } from './logic/voiceXp';
 
 let levelingInitialized = false;
-let levelingService: LevelingService | null = null;
 
 export function initLeveling(): void {
     if (levelingInitialized) {
@@ -29,21 +29,13 @@ export function initLeveling(): void {
     interactionsRegistry.register(levelRankingsCommand, handleLevelRankingsCommand);
     interactionsRegistry.register(levelReportCommand, handleLevelReportCommand);
 
-    levelingService = new LevelingService(DISCORD_CLIENT);
+    const service = new LevelingService(DISCORD_CLIENT);
 
-    DISCORD_CLIENT.on(Events.MessageCreate, (message) => {
-        void levelingService?.handleMessageCreate(message).catch((error) => {
-            console.error('[leveling] Error handling message create:', error);
-        });
-    });
+    // Messages and reactions arrive from the activity recorder, already written as
+    // activity events; `notifyActivity` logs a failure here without unwinding the event.
+    registerActivitySubscriber((event) => service.handleActivity(event));
 
-    DISCORD_CLIENT.on(Events.MessageReactionAdd, (reaction, user) => {
-        void levelingService?.handleReactionAdd(reaction, user).catch((error) => {
-            console.error('[leveling] Error handling reaction add:', error);
-        });
-    });
-
-    startVoiceXpTracking(levelingService);
+    startVoiceXpTracking(service);
 }
 
 function startVoiceXpTracking(service: LevelingService): void {
@@ -86,5 +78,4 @@ export function stopLeveling(): void {
 export function resetLevelingInitializationForTests(): void {
     stopVoiceSessionReconcileScheduler();
     levelingInitialized = false;
-    levelingService = null;
 }

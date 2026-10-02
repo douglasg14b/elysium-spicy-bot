@@ -22,6 +22,7 @@ import { up as settleFlowRunLifecycle } from '../../../features-system/data-pers
 import { up as addFlowRunVariables } from '../../../features-system/data-persistence/migrations/2026-09-14-Add_Flow_Run_Variables';
 import { up as widenContextSnapshot } from '../../../features-system/data-persistence/migrations/2026-09-15-Widen_Flow_Run_Context_Snapshot';
 import { up as addWaitMessage } from '../../../features-system/data-persistence/migrations/2026-09-16-Add_Flow_Run_Wait_Message';
+import { up as addQuietWindow } from '../../../features-system/data-persistence/migrations/2026-10-01-Quiet_Timeouts';
 import { sentCopy } from './support/sentCopy';
 import preM1GraphJson from './fixtures/preM1Graph.json';
 import preM1ParkedRunsJson from './fixtures/preM1ParkedRuns.json';
@@ -120,6 +121,7 @@ describe('runs parked before M1', () => {
         await addFlowRunVariables(testDb.db);
         await widenContextSnapshot(testDb.db);
         await addWaitMessage(testDb.db);
+        await addQuietWindow(testDb.db);
 
         repo = new FlowRunsRepo(testDb.db);
         // The committed graph must still satisfy the current schema untouched.

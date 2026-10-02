@@ -1,7 +1,7 @@
 import type { ColumnType, Generated, Insertable, Selectable, Updateable } from 'kysely';
 import type { LevelingActivityEventType } from '../constants/activityEventTypes';
 
-export interface LevelingActivityEventTable {
+export interface LevelingXpGrantTable {
     id: Generated<number>;
     guildId: string;
     userId: string;
@@ -16,11 +16,16 @@ export interface LevelingActivityEventTable {
     voiceSessionEndedAt: ColumnType<Date | null, string | null | undefined, string | null | undefined>;
     voiceChannelId: ColumnType<string | null, string | null | undefined, string | null | undefined>;
     voiceEligibilityRule: ColumnType<string | null, string | null | undefined, string | null | undefined>;
+    /**
+     * The `activity_events` row this grant was earned from; null for voice and flow grants,
+     * which have none. A plain column rather than a foreign key until retention exists.
+     */
+    activityEventId: number | null;
 }
 
-export type LevelingActivityEvent = Selectable<LevelingActivityEventTable>;
-export type NewLevelingActivityEvent = Insertable<LevelingActivityEventTable>;
-export type LevelingActivityEventUpdate = Updateable<LevelingActivityEventTable>;
+export type LevelingXpGrant = Selectable<LevelingXpGrantTable>;
+export type NewLevelingXpGrant = Insertable<LevelingXpGrantTable>;
+export type LevelingXpGrantUpdate = Updateable<LevelingXpGrantTable>;
 
 export type DailyActivityBucket = {
     activityDate: string;
