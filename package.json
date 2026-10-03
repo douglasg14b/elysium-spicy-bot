@@ -7,6 +7,9 @@
     "scripts": {
         "build": "tsc --noEmit",
         "typecheck:e2e": "tsc -p web/e2e/tsconfig.json",
+        "openapi:emit": "tsx scripts/emitOpenApi.ts",
+        "sdk:generate": "pnpm openapi:emit && pnpm --filter @brattybot/web-sdk generate",
+        "sdk:check": "pnpm sdk:generate && tsx scripts/checkSdk.ts",
         "preview:dashboard": "tsx web/e2e/preview/previewServer.ts",
         "preview:shoot": "tsx web/e2e/preview/shoot.ts",
         "start": "tsx src/bot.ts",
@@ -32,6 +35,7 @@
         "@cacheable/node-cache": "^2.0.0",
         "@eicode/result-pattern": "^2.3.2",
         "@hono/node-server": "^2.1.1",
+        "@hono/zod-openapi": "^1.6.3",
         "@octokit/rest": "^22.0.1",
         "@openai/agents": "^0.3.7",
         "@openai/guardrails": "^0.2.1",

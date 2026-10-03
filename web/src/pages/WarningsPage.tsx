@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
     Alert,
     Button,
@@ -13,9 +13,15 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconAlertTriangle, IconShieldHalf, IconBolt } from '@tabler/icons-react';
-import { ApiError } from '../api/client';
-import { getGuildChannels, getWarningsConfig, updateWarningsConfig } from '../api/config';
-import type { GuildChannel, WarningsConfig } from '../api/types';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+    ApiError,
+    getGuildChannelsOptions,
+    getWarningsConfigOptions,
+    getWarningsConfigQueryKey,
+    updateWarningsConfigMutation,
+    zUpdateWarningsConfigBody,
+} from '@brattybot/web-sdk';
 import { channelOptionLabel, postableChannels } from '../flows/resourceAdoption';
 import { useGuilds } from '../guilds/GuildContext';
 import { PAGE_MAX_WIDTH } from '../theme';
@@ -27,87 +33,6 @@ import { PAGE_MAX_WIDTH } from '../theme';
  */
 export function WarningsPage() {
     const { selected, loading: guildsLoading } = useGuilds();
-
-    const [config, setConfig] = useState<WarningsConfig | null>(null);
-    const [channels, setChannels] = useState<GuildChannel[]>([]);
-    const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [saving, setSaving] = useState(false);
-    const [lastSaved, setLastSaved] = useState<Date | null>(null);
-
-    useEffect(() => {
-        if (!selected) return;
-        let cancelled = false;
-        void (async () => {
-            setLoading(true);
-            setError(null);
-            try {
-                const [cfg, chans] = await Promise.all([
-                    getWarningsConfig(selected.id),
-                    getGuildChannels(selected.id),
-                ]);
-                if (cancelled) return;
-                setConfig(cfg);
-                setChannels(chans);
-                setSelectedChannelId(cfg.modChannelId);
-                setLastSaved(null);
-            } catch (err) {
-                const message =
-                    err instanceof ApiError ? err.message : 'Failed to load warnings config';
-                if (!cancelled) setError(message);
-            } finally {
-                if (!cancelled) setLoading(false);
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [selected]);
-
-    /*
-     * Postable channels only. The directory now carries categories so they can be
-     * adopted in the flow builder, and a mod-log notice posted to a category id fails
-     * at send time — the same filter every other channel picker applies, through the
-     * same predicate so they cannot drift apart.
-     */
-    const channelOptions = useMemo(
-        () =>
-            postableChannels(channels).map((ch) => ({
-                value: ch.id,
-                label: channelOptionLabel(ch),
-            })),
-        [channels]
-    );
-
-    const pristine = selectedChannelId === (config?.modChannelId ?? null);
-    const canSave = !pristine && !saving && !!selectedChannelId;
-
-    async function handleSave() {
-        if (!selected || !selectedChannelId) return;
-        setSaving(true);
-        try {
-            const updated = await updateWarningsConfig(selected.id, selectedChannelId);
-            setConfig(updated);
-            setSelectedChannelId(updated.modChannelId);
-            setLastSaved(new Date());
-            notifications.show({
-                color: 'brand',
-                title: 'Saved',
-                message: `Warning notices now land in # ${updated.modChannelName ?? 'your channel'}.`,
-            });
-        } catch (err) {
-            const message =
-                err instanceof ApiError ? err.message : "Couldn't save. Try again in a second.";
-            notifications.show({ color: 'red', title: "Couldn't save", message });
-        } finally {
-            setSaving(false);
-        }
-    }
-
-    function handleCancel() {
-        setSelectedChannelId(config?.modChannelId ?? null);
-    }
 
     if (guildsLoading) {
         return (
@@ -156,58 +81,8 @@ export function WarningsPage() {
                         channel — no more &quot;he said / she said.&quot;
                     </Text>
 
-                    {loading ? (
-                        <Center py="xl">
-                            <Loader color="brand" size="sm" />
-                        </Center>
-                    ) : error ? (
-                        <Alert
-                            color="red"
-                            icon={<IconAlertTriangle size={16} />}
-                            title="Couldn't load config"
-                        >
-                            {error}
-                        </Alert>
-                    ) : (
-                        <Stack gap="lg">
-                            <Select
-                                label="Mod Log Channel"
-                                description="All warnings, mutes and bans get posted here. Keep it staff-only, obviously."
-                                placeholder="Pick a channel"
-                                data={channelOptions}
-                                value={selectedChannelId}
-                                onChange={setSelectedChannelId}
-                                searchable
-                                nothingFoundMessage="No text channels found"
-                                allowDeselect={false}
-                                disabled={saving}
-                            />
-
-                            <Group gap="sm" mt="xs">
-                                <Button
-                                    color="brand"
-                                    onClick={handleSave}
-                                    loading={saving}
-                                    disabled={!canSave}
-                                >
-                                    Save changes
-                                </Button>
-                                <Button
-                                    variant="subtle"
-                                    color="gray"
-                                    onClick={handleCancel}
-                                    disabled={pristine || saving}
-                                >
-                                    Cancel
-                                </Button>
-                                {lastSaved && (
-                                    <Text size="12px" c="dark.2" ml="auto">
-                                        Last saved {lastSaved.toLocaleTimeString()}
-                                    </Text>
-                                )}
-                            </Group>
-                        </Stack>
-                    )}
+                    {/* Keyed by server, so switching servers drops the draft and "last saved". */}
+                    <WarningsSettingsForm key={selected.id} guildId={selected.id} />
                 </Card>
 
                 <Card
@@ -230,6 +105,138 @@ export function WarningsPage() {
                         soon.
                     </Text>
                 </Card>
+            </Group>
+        </Stack>
+    );
+}
+
+interface WarningsSettingsFormProps {
+    readonly guildId: string;
+}
+
+/** The mod-log channel picker for one server: loads its config, edits it, saves it. */
+function WarningsSettingsForm({ guildId }: WarningsSettingsFormProps) {
+    const queryClient = useQueryClient();
+    const config = useQuery(getWarningsConfigOptions({ path: { guildId } }));
+    const channels = useQuery(getGuildChannelsOptions({ path: { guildId } }));
+
+    // `undefined` until the operator picks something: the picker shows what is saved.
+    const [draftChannelId, setDraftChannelId] = useState<string | null>();
+    const [lastSaved, setLastSaved] = useState<Date | null>(null);
+
+    const save = useMutation({
+        ...updateWarningsConfigMutation(),
+        // A GET still in flight would land after the save and put the old value back.
+        onMutate: ({ path }) => queryClient.cancelQueries({ queryKey: getWarningsConfigQueryKey({ path }) }),
+        onSuccess: (updated, { path }) => {
+            queryClient.setQueryData(getWarningsConfigQueryKey({ path }), updated);
+            setDraftChannelId(undefined);
+            setLastSaved(new Date());
+            notifications.show({
+                color: 'brand',
+                title: 'Saved',
+                message: `Warning notices now land in # ${updated.modChannelName ?? 'your channel'}.`,
+            });
+        },
+        onError: (err) => {
+            const message =
+                err instanceof ApiError ? err.message : "Couldn't save. Try again in a second.";
+            notifications.show({ color: 'red', title: "Couldn't save", message });
+        },
+    });
+
+    /*
+     * Postable channels only. The directory now carries categories so they can be
+     * adopted in the flow builder, and a mod-log notice posted to a category id fails
+     * at send time — the same filter every other channel picker applies, through the
+     * same predicate so they cannot drift apart.
+     */
+    const channelOptions = useMemo(
+        () =>
+            postableChannels(channels.data?.channels ?? []).map((ch) => ({
+                value: ch.id,
+                label: channelOptionLabel(ch),
+            })),
+        [channels.data]
+    );
+
+    const savedChannelId = config.data?.modChannelId ?? null;
+    const selectedChannelId = draftChannelId === undefined ? savedChannelId : draftChannelId;
+    const saving = save.isPending;
+    const pristine = selectedChannelId === savedChannelId;
+
+    /*
+     * Whether the body is sendable is the server's rule, asked of the zod the SDK
+     * generates from its route rather than restated here. Only the verdict crosses: the
+     * wording stays the server's, and arrives as the error if a save is refused anyway.
+     */
+    const body = zUpdateWarningsConfigBody.safeParse({ modChannelId: selectedChannelId });
+    const canSave = !pristine && !saving && body.success;
+
+    function handleSave() {
+        if (!body.success) return;
+        save.mutate({ path: { guildId }, body: body.data });
+    }
+
+    function handleCancel() {
+        setDraftChannelId(undefined);
+    }
+
+    /*
+     * An error wins over the spinner, so one refused load is shown at once rather than
+     * after the other settles — but only while something is still missing. A failed
+     * background refetch keeps the form, and the operator's draft, on screen.
+     */
+    const loaded = !!config.data && !!channels.data;
+    const loadError = config.error ?? channels.error;
+    if (loadError && !loaded) {
+        return (
+            <Alert color="red" icon={<IconAlertTriangle size={16} />} title="Couldn't load config">
+                {loadError instanceof ApiError ? loadError.message : 'Failed to load warnings config'}
+            </Alert>
+        );
+    }
+
+    if (!loaded) {
+        return (
+            <Center py="xl">
+                <Loader color="brand" size="sm" />
+            </Center>
+        );
+    }
+
+    return (
+        <Stack gap="lg">
+            <Select
+                label="Mod Log Channel"
+                description="All warnings, mutes and bans get posted here. Keep it staff-only, obviously."
+                placeholder="Pick a channel"
+                data={channelOptions}
+                value={selectedChannelId}
+                onChange={setDraftChannelId}
+                searchable
+                nothingFoundMessage="No text channels found"
+                allowDeselect={false}
+                disabled={saving}
+            />
+
+            <Group gap="sm" mt="xs">
+                <Button color="brand" onClick={handleSave} loading={saving} disabled={!canSave}>
+                    Save changes
+                </Button>
+                <Button
+                    variant="subtle"
+                    color="gray"
+                    onClick={handleCancel}
+                    disabled={pristine || saving}
+                >
+                    Cancel
+                </Button>
+                {lastSaved && (
+                    <Text size="12px" c="dark.2" ml="auto">
+                        Last saved {lastSaved.toLocaleTimeString()}
+                    </Text>
+                )}
             </Group>
         </Stack>
     );

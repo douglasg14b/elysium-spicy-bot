@@ -1,10 +1,12 @@
 import type { ReactElement } from 'react';
 import { MantineProvider } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react';
 import type { RenderResult } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { UserEvent } from '@testing-library/user-event';
+import { createDashboardQueryClient } from '../../api/queryClient';
 import { theme } from '../../theme';
 
 export interface RenderedWithProviders extends RenderResult {
@@ -28,14 +30,19 @@ export interface RenderedWithProviders extends RenderResult {
  * `notifications.show` — without the host the call is accepted and nothing appears, so a
  * test asserting what the operator was told would fail for a reason unrelated to the
  * component.
+ *
+ * A fresh query cache per render, from the factory `main.tsx` uses, so pages on the
+ * generated SDK cache and retry as they do in the browser and no answer outlives its test.
  */
 export function renderWithProviders(ui: ReactElement): RenderedWithProviders {
     const user = userEvent.setup();
     const rendered = render(
-        <MantineProvider theme={theme} forceColorScheme="dark" env="test">
-            <Notifications />
-            {ui}
-        </MantineProvider>
+        <QueryClientProvider client={createDashboardQueryClient()}>
+            <MantineProvider theme={theme} forceColorScheme="dark" env="test">
+                <Notifications />
+                {ui}
+            </MantineProvider>
+        </QueryClientProvider>
     );
     return { ...rendered, user };
 }

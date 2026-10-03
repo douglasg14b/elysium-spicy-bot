@@ -51,10 +51,14 @@ export function installFakeApi(): FakeApi {
     const faults: string[] = [];
 
     const fakeFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-        const url = new URL(typeof input === 'string' ? input : input.toString(), 'http://dashboard.test');
-        const method = (init?.method ?? 'GET').toUpperCase() as FakeApiMethod;
+        // Read through a `Request` so both clients are heard the same way: the hand-written
+        // one calls `fetch(path, init)`, the generated SDK `fetch(request)` with no init.
+        const sent = new Request(input, init);
+        const url = new URL(sent.url);
+        const method = sent.method.toUpperCase() as FakeApiMethod;
         const path = `${url.pathname}${url.search}`;
-        const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : undefined;
+        const text = await sent.text();
+        const body = text ? (JSON.parse(text) as unknown) : undefined;
         const request: RecordedApiRequest = { method, path, body };
         requests.push(request);
 

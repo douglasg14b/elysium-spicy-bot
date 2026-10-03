@@ -24,7 +24,11 @@ export function getNodeTypes(): Promise<NodeDescriptor[]> {
     return api.get<{ nodes: NodeDescriptor[] }>('/api/nodes').then((res) => res.nodes);
 }
 
-/** Guild roles, for the role pickers. */
+/**
+ * Guild roles, for the role pickers. Stays on the hand-written client until its remaining
+ * callers (the flow builder, the resources dialog, the tickets config) move to the
+ * generated SDK's `getGuildRolesOptions`, as the server settings page has.
+ */
 export function getGuildRoles(guildId: string): Promise<GuildRole[]> {
     return api
         .get<{ roles: GuildRole[] }>(`/api/guilds/${guildId}/roles`)

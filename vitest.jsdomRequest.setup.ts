@@ -1,5 +1,5 @@
 /**
- * Node's `Request`, taught to take jsdom's `AbortSignal`.
+ * Node's `Request`, taught to take jsdom's `AbortSignal` and a relative URL.
  *
  * Vitest's jsdom environment replaces `AbortController` and `AbortSignal` with jsdom's,
  * but leaves `Request` as Node's — and Node's refuses any signal that is not its own
@@ -8,6 +8,11 @@
  * dashboard's first link click threw. The two implementations are the environment's
  * disagreement, not the dashboard's, so this is where it is settled: every signal handed
  * to a `Request` is followed by a Node one, abort for abort.
+ *
+ * The URL is the same disagreement. A browser resolves `new Request('/api/…')` against
+ * the page; Node has no page and throws "Failed to parse URL". The generated API client
+ * builds exactly that `Request` (its base URL is `''`, same origin), so a relative URL is
+ * resolved against jsdom's `location` here, as the browser would.
  *
  * Here rather than in `web/src/__tests__/support/setupDom.ts` because it needs
  * `node:util`, and the dashboard's type-check has no Node types.
@@ -28,10 +33,24 @@ function followedByNodeSignal(signal: AbortSignal): AbortSignal {
     return follower.signal;
 }
 
-class JsdomSignalRequest extends NodeRequest {
+/*
+ * jsdom's page URL. Declared here because this file is type-checked by the root
+ * tsconfig, which has Node's types and not the DOM's.
+ */
+declare const location: { readonly href: string };
+
+/** `input`, with a relative URL string resolved against the page as a browser would. */
+function resolvedAgainstPage(input: ConstructorParameters<typeof NodeRequest>[0]): ConstructorParameters<typeof NodeRequest>[0] {
+    return typeof input === 'string' ? new URL(input, location.href).href : input;
+}
+
+class JsdomRequest extends NodeRequest {
     constructor(input: ConstructorParameters<typeof NodeRequest>[0], init?: RequestInit) {
-        super(input, init?.signal ? { ...init, signal: followedByNodeSignal(init.signal) } : init);
+        super(
+            resolvedAgainstPage(input),
+            init?.signal ? { ...init, signal: followedByNodeSignal(init.signal) } : init
+        );
     }
 }
 
-globalThis.Request = JsdomSignalRequest;
+globalThis.Request = JsdomRequest;

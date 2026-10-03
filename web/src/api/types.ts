@@ -9,6 +9,9 @@
  * `src/` inside this workspace drags the whole bot tree into `tsc -b` — the first
  * half of `pnpm build:web` — and the build fails. This is the one file where that
  * trade is made, and the drift test is the price of making it.
+ *
+ * Shapes for routes already in the OpenAPI spec come from `@brattybot/web-sdk`, generated
+ * from the server's own schemas, and this file shrinks as each router converts.
  */
 
 export interface AuthUser {
@@ -99,28 +102,6 @@ const guildKeyListsAreComplete: [GuildKeyListsAreComplete] extends [never]
     : ['A guild wire-shape key list is missing', GuildKeyListsAreComplete] = true;
 
 void guildKeyListsAreComplete;
-
-export interface WarningsConfig {
-    modChannelId: string | null;
-    modChannelName: string | null;
-}
-
-/**
- * Server-wide settings owned by no single feature, from
- * `GET /api/guilds/:guildId/settings`.
- *
- * `staffRoles` resolves the saved ids to names for display and can be **shorter**
- * than `staffRoleIds`: a role deleted since it was saved has no name to show but is
- * still stored, so the saved list is reported as saved rather than rewritten by a
- * read. Render from `staffRoleIds`, label from `staffRoles`.
- *
- * Staff roles are their own concept on this server, deliberately distinct from
- * tickets' moderation roles. The two lists coexist; neither supersedes the other.
- */
-export interface GuildSettings {
-    staffRoleIds: string[];
-    staffRoles: { id: string; name: string }[];
-}
 
 /** A role as returned by `GET /api/guilds/:guildId/roles`. */
 export interface GuildRole {
@@ -1223,6 +1204,10 @@ export interface ForgottenOrphan {
  * `fields` — so an issue inside a list entry can be told from one about the list.
  * A control keyed on the whole path therefore matches nothing for those; see
  * `placeIssues` in `web/src/flows/validationIssues.ts` for where they end up.
+ *
+ * The SDK's `ApiIssue`, which types `ApiError.issues`, is the same shape. It is not
+ * aliased here because the root type-check reads this file and cannot resolve the SDK
+ * package; `flowRoutes.test.ts` holds all three copies to each other instead.
  */
 export interface FlowValidationIssue {
     nodeId?: string;

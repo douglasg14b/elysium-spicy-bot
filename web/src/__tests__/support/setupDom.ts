@@ -11,9 +11,17 @@
  * geometry is out of reach of these tests and belongs in a live check.
  */
 
+import { setupClient } from '@brattybot/web-sdk';
 import { notifications } from '@mantine/notifications';
 import { cleanup } from '@testing-library/react';
 import { afterEach } from 'vitest';
+
+/*
+ * What `main.tsx` does before its first render, done before every test file's: a page on
+ * the generated SDK refuses to send anything until the client is set up. Same base URL
+ * as the app — `vitest.jsdomRequest.setup.ts` resolves it against the page.
+ */
+setupClient({ baseUrl: '' });
 
 /*
  * Testing Library unmounts after each test by itself only when the runner exposes a

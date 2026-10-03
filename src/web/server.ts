@@ -1,6 +1,6 @@
 import { serve, type ServerType } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
-import { Hono } from 'hono';
+import { OpenAPIHono } from '@hono/zod-openapi';
 import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
@@ -44,8 +44,9 @@ function resolveClientDir(): string | null {
 
 let server: ServerType | null = null;
 
-export function buildApp(): Hono<AppEnv> {
-    const app = new Hono<AppEnv>();
+export function buildApp(): OpenAPIHono<AppEnv> {
+    // Serves exactly as a plain Hono would; see `registerApiRoutes` for why it is not one.
+    const app = new OpenAPIHono<AppEnv>();
 
     // JSON API (auth, guilds, config, flows) lives under /api.
     registerApiRoutes(app);

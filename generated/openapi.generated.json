@@ -1,0 +1,720 @@
+{
+    "components": {
+        "parameters": {},
+        "schemas": {
+            "ErrorBody": {
+                "properties": {
+                    "error": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "error"
+                ],
+                "type": "object"
+            },
+            "Guild": {
+                "properties": {
+                    "iconURL": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "memberCount": {
+                        "type": "number"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name",
+                    "iconURL",
+                    "memberCount"
+                ],
+                "type": "object"
+            },
+            "GuildChannel": {
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "parentId": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "parentName": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "type": {
+                        "enum": [
+                            "text",
+                            "category"
+                        ],
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name",
+                    "type",
+                    "parentId",
+                    "parentName"
+                ],
+                "type": "object"
+            },
+            "GuildRole": {
+                "properties": {
+                    "color": {
+                        "type": "number"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "position": {
+                        "type": "number"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name",
+                    "color",
+                    "position"
+                ],
+                "type": "object"
+            },
+            "GuildSettings": {
+                "description": "Staff roles, as saved. `staffRoles` names the ids that still resolve to a role and can be shorter than `staffRoleIds`, since a deleted role stays saved: render from `staffRoleIds`, label from `staffRoles`.",
+                "properties": {
+                    "staffRoleIds": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    },
+                    "staffRoles": {
+                        "items": {
+                            "properties": {
+                                "id": {
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "id",
+                                "name"
+                            ],
+                            "type": "object"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "staffRoleIds",
+                    "staffRoles"
+                ],
+                "type": "object"
+            },
+            "GuildSettingsUpdate": {
+                "properties": {
+                    "staffRoleIds": {
+                        "items": {
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "staffRoleIds"
+                ],
+                "type": "object"
+            },
+            "WarningsConfig": {
+                "properties": {
+                    "modChannelId": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "modChannelName": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                },
+                "required": [
+                    "modChannelId",
+                    "modChannelName"
+                ],
+                "type": "object"
+            },
+            "WarningsConfigUpdate": {
+                "properties": {
+                    "modChannelId": {
+                        "minLength": 1,
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "modChannelId"
+                ],
+                "type": "object"
+            }
+        }
+    },
+    "info": {
+        "title": "BrattyBot dashboard API",
+        "version": "1.0.0"
+    },
+    "openapi": "3.1.0",
+    "paths": {
+        "/api/guilds": {
+            "get": {
+                "operationId": "listGuilds",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "guilds": {
+                                            "items": {
+                                                "$ref": "#/components/schemas/Guild"
+                                            },
+                                            "type": "array"
+                                        }
+                                    },
+                                    "required": [
+                                        "guilds"
+                                    ],
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "The manageable guilds."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    }
+                },
+                "summary": "Guilds the bot is in that the signed-in user may manage",
+                "tags": [
+                    "guilds"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/channels": {
+            "get": {
+                "operationId": "getGuildChannels",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "channels": {
+                                            "items": {
+                                                "$ref": "#/components/schemas/GuildChannel"
+                                            },
+                                            "type": "array"
+                                        }
+                                    },
+                                    "required": [
+                                        "channels"
+                                    ],
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "The channel directory."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    }
+                },
+                "summary": "The guild's text channels and categories",
+                "tags": [
+                    "guilds"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/config/warnings": {
+            "get": {
+                "operationId": "getWarningsConfig",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WarningsConfig"
+                                }
+                            }
+                        },
+                        "description": "The warnings config."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    }
+                },
+                "summary": "The warnings mod-log channel",
+                "tags": [
+                    "guilds"
+                ]
+            },
+            "put": {
+                "operationId": "updateWarningsConfig",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WarningsConfigUpdate"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WarningsConfig"
+                                }
+                            }
+                        },
+                        "description": "The warnings config as saved."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was refused, or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    },
+                    "415": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was not sent as JSON."
+                    }
+                },
+                "summary": "Set the warnings mod-log channel",
+                "tags": [
+                    "guilds"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/roles": {
+            "get": {
+                "operationId": "getGuildRoles",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "roles": {
+                                            "items": {
+                                                "$ref": "#/components/schemas/GuildRole"
+                                            },
+                                            "type": "array"
+                                        }
+                                    },
+                                    "required": [
+                                        "roles"
+                                    ],
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "Assignable roles, highest first."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    }
+                },
+                "summary": "The guild's assignable roles",
+                "tags": [
+                    "guilds"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/settings": {
+            "get": {
+                "operationId": "getGuildSettings",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/GuildSettings"
+                                }
+                            }
+                        },
+                        "description": "The guild settings."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    }
+                },
+                "summary": "Server-wide settings: staff roles",
+                "tags": [
+                    "guilds"
+                ]
+            },
+            "put": {
+                "operationId": "updateGuildSettings",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/GuildSettingsUpdate"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/GuildSettings"
+                                }
+                            }
+                        },
+                        "description": "The guild settings as saved."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was refused, or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    },
+                    "415": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was not sent as JSON."
+                    }
+                },
+                "summary": "Replace the guild's staff roles",
+                "tags": [
+                    "guilds"
+                ]
+            }
+        }
+    },
+    "webhooks": {}
+}

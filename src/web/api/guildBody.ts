@@ -1,12 +1,19 @@
+import { z } from '@hono/zod-openapi';
 import { ChannelType, type Guild, type GuildBasedChannel } from 'discord.js';
 
 /**
- * The guild directory shapes the browser receives.
+ * The guild shapes the browser receives.
  *
  * Extracted from `guildRoutes.ts`'s inline `.map()` callbacks so the wire shape is a
  * named contract rather than something you discover by reading a request — the same
- * reason `driftBody.ts` and `publishedBody.ts` exist, and a precondition for the drift
- * gate, which needs an exported key list to compare against.
+ * reason `driftBody.ts` and `publishedBody.ts` exist.
+ *
+ * Each shape is a zod schema, and the schema **is** the contract: `guildRoutes` declares
+ * it as the route's response, `app.openapi` type-checks every `c.json(...)` against it,
+ * and the OpenAPI spec the dashboard SDK is generated from names it as a component. The
+ * types below are inferred from the schemas rather than written beside them, so there is
+ * no second copy to drift. The `.openapi('Name')` ids are component names the browser
+ * imports by, so renaming one renames a generated type.
  *
  * ## Why `type` had to be added
  *
@@ -63,58 +70,85 @@ import { ChannelType, type Guild, type GuildBasedChannel } from 'discord.js';
 export const GUILD_CHANNEL_TYPES = ['text', 'category'] as const;
 export type GuildChannelType = (typeof GUILD_CHANNEL_TYPES)[number];
 
-export interface GuildChannelBody {
-    readonly id: string;
-    readonly name: string;
-    readonly type: GuildChannelType;
-    /** The category this sits in, or null at the top level. Always null for a category. */
-    readonly parentId: string | null;
-    /**
-     * The category's name, resolved here rather than in the browser.
-     *
-     * The browser holds the same list and could look it up, but only after the whole
-     * list has loaded and only if the parent is in it — and the parent is filtered out
-     * of nothing today, which is exactly the kind of "true for now" the endpoint should
-     * not make a caller depend on. Sending the name makes a row self-describing.
-     */
-    readonly parentName: string | null;
-}
+/** A guild the bot is in that the signed-in user may manage. */
+export const GuildSchema = z
+    .object({
+        id: z.string(),
+        name: z.string(),
+        iconURL: z.string().nullable(),
+        memberCount: z.number(),
+    })
+    .openapi('Guild');
 
-export const GUILD_CHANNEL_KEYS = [
-    'id',
-    'name',
-    'type',
-    'parentId',
-    'parentName',
-] as const satisfies readonly (keyof GuildChannelBody)[];
+export const GuildChannelSchema = z
+    .object({
+        id: z.string(),
+        name: z.string(),
+        type: z.enum(GUILD_CHANNEL_TYPES),
+        /** The category this sits in, or null at the top level. Always null for a category. */
+        parentId: z.string().nullable(),
+        /**
+         * The category's name, resolved here rather than in the browser.
+         *
+         * The browser holds the same list and could look it up, but only after the whole
+         * list has loaded and only if the parent is in it — and the parent is filtered out
+         * of nothing today, which is exactly the kind of "true for now" the endpoint should
+         * not make a caller depend on. Sending the name makes a row self-describing.
+         */
+        parentName: z.string().nullable(),
+    })
+    .openapi('GuildChannel');
 
-export interface GuildRoleBody {
-    readonly id: string;
-    readonly name: string;
-    readonly color: number;
-    readonly position: number;
-}
+export type GuildChannelBody = z.infer<typeof GuildChannelSchema>;
 
-export const GUILD_ROLE_KEYS = [
-    'id',
-    'name',
-    'color',
-    'position',
-] as const satisfies readonly (keyof GuildRoleBody)[];
+/** A role a flow may grant: neither `@everyone` nor bot-managed. */
+export const GuildRoleSchema = z
+    .object({
+        id: z.string(),
+        name: z.string(),
+        /** Discord role colour as a 24-bit int. `0` means "no colour" (inherit). */
+        color: z.number(),
+        position: z.number(),
+    })
+    .openapi('GuildRole');
 
-type KeyListsComplete =
-    | Exclude<keyof GuildChannelBody, (typeof GUILD_CHANNEL_KEYS)[number]>
-    | Exclude<keyof GuildRoleBody, (typeof GUILD_ROLE_KEYS)[number]>;
+/** The warnings mod-log channel, with its name resolved for display. */
+export const WarningsConfigSchema = z
+    .object({
+        modChannelId: z.string().nullable(),
+        modChannelName: z.string().nullable(),
+    })
+    .openapi('WarningsConfig');
+
+export type WarningsConfigBody = z.infer<typeof WarningsConfigSchema>;
 
 /**
- * Do not delete as unused: removing this erases the guards above.
+ * Server-wide settings owned by no single feature. Today: staff roles.
  *
- * The tuple wrapper is load-bearing — a bare `extends never` distributes over the union
- * and is vacuously true for an empty one. See `ticketRoutes.ts` for the full reasoning.
+ * `staffRoles` resolves the saved ids to names for display and can be **shorter** than
+ * `staffRoleIds`: a role deleted since it was saved has no name to show but is still
+ * stored, so the saved list is reported as saved rather than rewritten by a read. Render
+ * from `staffRoleIds`, label from `staffRoles`.
+ *
+ * Staff roles are their own concept on this server, deliberately distinct from tickets'
+ * moderation roles. The two lists coexist; neither supersedes the other.
+ *
+ * The rendering rule is also the spec's description, so it reaches the generated type
+ * the dashboard reads rather than staying on this side.
  */
-type _KeyListsAreComplete = [KeyListsComplete] extends [never] ? true : never;
-const _keyListsAreComplete: _KeyListsAreComplete = true;
-void _keyListsAreComplete;
+export const GuildSettingsSchema = z
+    .object({
+        staffRoleIds: z.array(z.string()),
+        staffRoles: z.array(z.object({ id: z.string(), name: z.string() })),
+    })
+    .openapi('GuildSettings', {
+        description:
+            'Staff roles, as saved. `staffRoles` names the ids that still resolve to a role and can be ' +
+            'shorter than `staffRoleIds`, since a deleted role stays saved: render from `staffRoleIds`, ' +
+            'label from `staffRoles`.',
+    });
+
+export type GuildSettingsBody = z.infer<typeof GuildSettingsSchema>;
 
 /**
  * Which of a channel's types the browser is told about, or `undefined` to omit it.

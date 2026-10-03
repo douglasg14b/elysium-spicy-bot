@@ -1,0 +1,17 @@
+{
+    // Type-checks the SDK on its own (`pnpm --filter @brattybot/web-sdk typecheck`). The
+    // dashboard compiles these same sources through the workspace link, under its own
+    // settings, so anything the generator emits must pass both.
+    "compilerOptions": {
+        "target": "ES2022",
+        "lib": ["ES2022", "DOM", "DOM.Iterable"],
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "strict": true,
+        "noEmit": true,
+        "skipLibCheck": true,
+        "isolatedModules": true,
+        "types": []
+    },
+    "include": ["src"]
+}

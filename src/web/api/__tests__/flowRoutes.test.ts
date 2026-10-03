@@ -4,6 +4,7 @@ import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../../features/flows/data
 import { ensureBlocksDiscovered } from '../../../features/flows/blocks/registry';
 import type { FlowValidationIssue } from '../../../features/flows/engine/nodeDataValidation';
 import type { FlowValidationIssue as BrowserFlowValidationIssue } from '../../../../web/src/api/types';
+import type { ApiIssue } from '../../../../packages/web-sdk/src/apiError';
 import type { FlowWriteDecision } from '../../../features/flows/data/flowsRepo';
 import type { AppEnv } from '../../types';
 
@@ -18,11 +19,19 @@ import type { AppEnv } from '../../types';
  *
  * A compile-time check rather than a runtime one, so it fails in `pnpm build`
  * rather than waiting for this file to be run.
+ *
+ * The dashboard SDK's `ApiIssue` — what `ApiError.issues` is typed with, for both API
+ * clients — is a third copy, held here the same way. Imported by path from the one
+ * file that declares it, because this type-check cannot resolve the SDK package itself.
  */
 const serverIssueFitsBrowser: BrowserFlowValidationIssue = {} as FlowValidationIssue;
 const browserIssueFitsServer: FlowValidationIssue = {} as BrowserFlowValidationIssue;
+const serverIssueFitsSdk: ApiIssue = {} as FlowValidationIssue;
+const sdkIssueFitsServer: FlowValidationIssue = {} as ApiIssue;
 void serverIssueFitsBrowser;
 void browserIssueFitsServer;
+void serverIssueFitsSdk;
+void sdkIssueFitsServer;
 
 /**
  * What the save endpoint stores, refuses, and says about a graph's readiness.

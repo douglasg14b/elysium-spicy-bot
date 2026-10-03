@@ -1,28 +1,16 @@
 /**
  * Thin fetch wrapper for the BrattyBot JSON API. Same-origin — cookies (the session)
  * are sent automatically. Throws {@link ApiError} on non-2xx so callers can surface it.
+ *
+ * Being replaced, route by route, by the SDK generated in `packages/web-sdk`. Until the
+ * last page moves, both clients throw the same `ApiError`, read from the error body by the
+ * same function — it lives in the SDK and is re-exported here — so every
+ * `instanceof ApiError` holds whichever client a page uses.
  */
 
-import type { FlowValidationIssue } from './types';
+import { ApiError, apiErrorFromBody } from '@brattybot/web-sdk';
 
-export class ApiError extends Error {
-    constructor(
-        public readonly status: number,
-        message: string,
-        /**
-         * Per-node, per-field detail, when the endpoint sends any.
-         *
-         * Empty for every endpoint that does not — the graph save is the only one
-         * today — so a caller can read it without asking which endpoint it came
-         * from. `message` always says the same thing in one sentence, so a caller
-         * with nowhere to put a list loses placement rather than the error.
-         */
-        public readonly issues: readonly FlowValidationIssue[] = []
-    ) {
-        super(message);
-        this.name = 'ApiError';
-    }
-}
+export { ApiError };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await fetch(path, {
@@ -32,19 +20,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     });
 
     if (!res.ok) {
-        let message = `Request failed (${res.status})`;
-        let issues: readonly FlowValidationIssue[] = [];
-        try {
-            const body = (await res.json()) as { error?: string; issues?: FlowValidationIssue[] };
-            if (body?.error) message = body.error;
-            // Guarded rather than trusted: this is a parsed response body, and a
-            // proxy or an older server can put anything here. A non-array would
-            // otherwise reach `.map` in the builder as a render-time crash.
-            if (Array.isArray(body?.issues)) issues = body.issues;
-        } catch {
-            // Non-JSON error body — keep the generic message.
-        }
-        throw new ApiError(res.status, message, issues);
+        // A body that is not JSON keeps the generic "Request failed (status)" message.
+        const body: unknown = await res.json().catch(() => undefined);
+        throw apiErrorFromBody(res.status, body);
     }
 
     // 204 / empty bodies.

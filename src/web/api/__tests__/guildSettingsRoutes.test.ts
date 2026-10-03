@@ -241,3 +241,54 @@ describe('PUT /:guildId/settings', () => {
         expect(guildSettingsRepoMock.setStaffRoleIds).not.toHaveBeenCalled();
     });
 });
+
+/*
+ * The validator in front of the handler throws these itself, before any hook, and Hono
+ * would answer them as plain text. The dashboard reads `error` off every refusal, so a
+ * text body would surface as a bare "Request failed (400)".
+ */
+describe('refusals the request validator raises', () => {
+    it('answers malformed JSON in the { error } envelope', async () => {
+        const response = await app().request(`/${GUILD_ID}/settings`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: '{"staffRoleIds": [',
+        });
+
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as ErrorBody).error).toBeTruthy();
+        expect(guildSettingsRepoMock.setStaffRoleIds).not.toHaveBeenCalled();
+    });
+
+    it('answers a body that is not JSON in the { error } envelope', async () => {
+        const response = await app().request(`/${GUILD_ID}/settings`, {
+            method: 'PUT',
+            headers: { 'content-type': 'text/plain' },
+            body: 'staff please',
+        });
+
+        expect(response.status).toBe(415);
+        expect(((await response.json()) as ErrorBody).error).toBeTruthy();
+        expect(guildSettingsRepoMock.setStaffRoleIds).not.toHaveBeenCalled();
+    });
+
+    it('leaves a real crash to the parent app rather than dressing it as a refusal', async () => {
+        /*
+         * The router translates HTTP refusals only. A repo failure has to reach whoever
+         * mounted the router — the e2e app records it as a fault — not come back as a
+         * 4xx the dashboard would show as an ordinary "couldn't save".
+         */
+        guildSettingsRepoMock.getStaffRoleIds.mockRejectedValue(new Error('database fell over'));
+        const parentSaw: string[] = [];
+        const parent = app();
+        parent.onError((error, c) => {
+            parentSaw.push(error.message);
+            return c.json({ error: 'Internal error.' }, 500);
+        });
+
+        const response = await parent.request(`/${GUILD_ID}/settings`);
+
+        expect(response.status).toBe(500);
+        expect(parentSaw).toEqual(['database fell over']);
+    });
+});

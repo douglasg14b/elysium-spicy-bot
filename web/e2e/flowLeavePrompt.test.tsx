@@ -109,9 +109,13 @@ function interceptRequest(
 ): void {
     const served = globalThis.fetch;
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-        const url = new URL(typeof input === 'string' ? input : input.toString(), 'http://dashboard.test');
-        const serve = (): Promise<Response> => served(input, init);
-        return (init?.method ?? 'GET').toUpperCase() === method && url.pathname === path ? answer(serve) : serve();
+        // Read through a `Request`, as `installDashboardApi` does, so a call from the
+        // generated SDK — `fetch(request)`, no init — is matched as well as the hand
+        // client's `fetch(path, init)`. Served as that `Request`: building it from one
+        // with a body takes the body, so the original is no longer sendable.
+        const sent = new Request(input, init);
+        const serve = (): Promise<Response> => served(sent);
+        return sent.method.toUpperCase() === method && new URL(sent.url).pathname === path ? answer(serve) : serve();
     });
 }
 

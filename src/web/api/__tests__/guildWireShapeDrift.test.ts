@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GUILD_CHANNEL_KEYS, GUILD_CHANNEL_TYPES, GUILD_ROLE_KEYS } from '../guildBody';
+import { GUILD_CHANNEL_TYPES, GuildChannelSchema, GuildRoleSchema } from '../guildBody';
 import * as browserTypes from '../../../../web/src/api/types';
 
 /**
@@ -15,20 +15,24 @@ import * as browserTypes from '../../../../web/src/api/types';
  * The vocabulary row is the one that earns its place. Comparing field *names* would not
  * have caught the repair-outcome incident these gates exist because of, and it would not
  * catch a fourth channel type added on one side here either.
+ *
+ * The server side is now the zod schema the route declares as its response, so its
+ * member list is read off the schema. The browser side stays a hand mirror until the
+ * pages still on `getGuildChannels` / `getGuildRoles` move to the generated SDK, whose
+ * types come from the same schema; this gate retires with that mirror.
  */
 
 const REMEDY =
     'Reconcile the guild interfaces and their *_KEYS arrays in `web/src/api/types.ts` with ' +
-    'the wire shapes in `src/web/api/guildBody.ts`. Both sides export member lists their own ' +
-    'compiler holds to the interface, so the fix is to add the member in both places.';
+    'the response schemas in `src/web/api/guildBody.ts`: add the member on the side that lacks it.';
 
 const SHAPES = [
     {
         name: 'GuildChannel',
-        server: GUILD_CHANNEL_KEYS,
+        server: Object.keys(GuildChannelSchema.shape),
         browser: browserTypes.GUILD_CHANNEL_KEYS,
     },
-    { name: 'GuildRole', server: GUILD_ROLE_KEYS, browser: browserTypes.GUILD_ROLE_KEYS },
+    { name: 'GuildRole', server: Object.keys(GuildRoleSchema.shape), browser: browserTypes.GUILD_ROLE_KEYS },
 ] as const satisfies readonly { name: string; server: readonly string[]; browser: readonly string[] }[];
 
 describe('guild wire shape drift between server and browser', () => {

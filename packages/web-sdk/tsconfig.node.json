@@ -1,0 +1,17 @@
+{
+    // Type-checks the package's Node-side files: the generator config and the stale-SDK
+    // test that runs it. Kept apart from `tsconfig.json` so the SDK's browser sources stay
+    // compiled with `types: []` — Node types here would apply to every file in one program.
+    "compilerOptions": {
+        "target": "ES2022",
+        "lib": ["ES2022"],
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "strict": true,
+        "noEmit": true,
+        "skipLibCheck": true,
+        "isolatedModules": true,
+        "types": ["node"]
+    },
+    "include": ["openapi-ts.config.ts", "__tests__"]
+}
