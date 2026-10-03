@@ -1,6 +1,5 @@
-import { Hono } from 'hono';
-import { z } from 'zod';
-import { flowGraphSchema, FLOW_GRAPH_VERSION, type FlowGraph } from '../../features/flows/data/flowGraph';
+import { createRoute, z, type OpenAPIHono } from '@hono/zod-openapi';
+import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../features/flows/data/flowGraph';
 import { flowsRepo, type FlowWriteDecision } from '../../features/flows/data/flowsRepo';
 import type { FlowEntity } from '../../features/flows/data/flowsSchema';
 import { validateFlowGraph } from '../../features/flows/engine/graphValidation';
@@ -17,15 +16,26 @@ import { getPublishedFlowState } from '../../features/flows/logic/publishedFlowS
 import { undeployFlowButtons } from '../../features/flows/logic/undeployFlowButtons';
 import { guildSettingsRepo } from '../../features-system/guild-settings';
 import {
+    DECLARATIONS_UNREADABLE,
     flowDetail,
     flowDraft,
     flowDraftBaseSchema,
+    FLOW_ERRORS,
+    FLOW_GRAPH_BODY_ERRORS,
+    FlowGraphSchema,
     flowNameSchema,
+    FlowPathSchema,
+    FlowRefusalSchema,
+    FlowSaveResultSchema,
+    FlowSchema,
     flowSummary,
+    FlowSummarySchema,
+    FlowValidationIssuesSchema,
+    GRAPH_REFUSED,
     invalidGraphBody,
     type FlowSaveBody,
 } from './flowBody';
-import { flowDraftRoutes } from './flowDraftRoutes';
+import { defineFlowDraftRoutes } from './flowDraftRoutes';
 import { loadFlowJourneyIndex } from './flowJourneyIndex';
 import { toDeclarationFromRow } from '../../features/provisioning/data/journeysRepo';
 import { resolveFlowJourney } from '../../features/provisioning/logic/resolveFlowJourney';
@@ -34,7 +44,6 @@ import {
     sharedJourneyRefusal,
 } from '../../features/provisioning/logic/sharedJourneyGuard';
 import {
-    isPlanApplicable,
     journeyBusyMessage,
     journeyNeedsStaffRoles,
     journeyNeedsSubject,
@@ -42,34 +51,267 @@ import {
     previewUnpublish,
     runInstall,
     unpublishJourney,
-    type InstallPlan,
     type JourneyDeclaration,
 } from '../../features/provisioning';
 import type { AppEnv } from '../types';
 import { flowNameInGuild } from './flowNameInGuild';
-import { publishedBody } from './publishedBody';
+import {
+    DeployResultSchema,
+    installPlanBody,
+    InstallPlanSchema,
+    InstallRefusalSchema,
+    installResultBody,
+    InstallResultSchema,
+    UndeployResultSchema,
+    UnpublishResultSchema,
+} from './installBody';
+import {
+    apiRouter,
+    errorBodyResponse,
+    GUILD_SCOPED_BODY_ERRORS,
+    GUILD_SCOPED_ERRORS,
+    GuildPathSchema,
+    jsonBody,
+    jsonResponse,
+    type ApiRouteRegistrar,
+} from './openApi';
+import { publishedBody, PublishedFlowStateSchema } from './publishedBody';
 
 /**
  * Flow CRUD + deploy for the Phase 4 builder. Mounted under the `/api/guilds` route
  * group, which applies `requireAuth` and then `requireGuildAccess` — so by the time a
  * handler runs, the caller is authorized for the guild and `c.get('guild')` is the
  * resolved, bot-present guild. See design doc §5.3 / §5.5.
+ *
+ * Described by the OpenAPI spec: each route's `createRoute` definition is its contract,
+ * and the dashboard's SDK is generated from it. Request bodies are validated before a
+ * handler runs — before the flow is even looked up — and a refusal answers with the first
+ * issue's message (see `apiRouter`).
  */
 
-const createFlowBody = z.object({
-    name: flowNameSchema,
-    graph: flowGraphSchema.optional(),
+const FlowCreateSchema = z
+    .object({
+        name: flowNameSchema,
+        graph: FlowGraphSchema.optional(),
+    })
+    .openapi('FlowCreate');
+
+const FlowUpdateSchema = z
+    .object({
+        name: flowNameSchema.optional(),
+        enabled: z.boolean().optional(),
+        graph: FlowGraphSchema.optional(),
+        baseUpdatedAt: flowDraftBaseSchema.optional(),
+    })
+    .openapi('FlowUpdate', {
+        description:
+            'A partial update: send only what changed. `baseUpdatedAt` is the flow version the sent ' +
+            'graph was edited from, recorded if the save lands as a draft.',
+    });
+
+const FlowCheckSchema = z
+    .object({
+        graph: FlowGraphSchema,
+    })
+    .openapi('FlowCheck');
+
+const listFlowsRoute = createRoute({
+    method: 'get',
+    path: '/{guildId}/flows',
+    operationId: 'listFlows',
+    tags: ['flows'],
+    summary: "The guild's flows, as list rows",
+    request: { params: GuildPathSchema },
+    responses: {
+        200: jsonResponse('Every flow in the guild, without graphs.', z.object({ flows: z.array(FlowSummarySchema) })),
+        ...GUILD_SCOPED_ERRORS,
+    },
 });
 
-const updateFlowBody = z.object({
-    name: flowNameSchema.optional(),
-    enabled: z.boolean().optional(),
-    graph: flowGraphSchema.optional(),
-    baseUpdatedAt: flowDraftBaseSchema.optional(),
+const getFlowRoute = createRoute({
+    method: 'get',
+    path: '/{guildId}/flows/{flowId}',
+    operationId: 'getFlow',
+    tags: ['flows'],
+    summary: 'One flow with its graph, and what stands between it and going live',
+    request: { params: FlowPathSchema },
+    responses: {
+        200: jsonResponse('The flow.', FlowSchema),
+        ...FLOW_ERRORS,
+        500: DECLARATIONS_UNREADABLE,
+    },
 });
 
-const checkFlowBody = z.object({
-    graph: flowGraphSchema,
+const checkFlowRoute = createRoute({
+    method: 'post',
+    path: '/{guildId}/flows/{flowId}/check',
+    operationId: 'checkFlow',
+    tags: ['flows'],
+    summary: 'What a save of this graph would say is wrong with it. Changes nothing.',
+    request: { params: FlowPathSchema, body: jsonBody(FlowCheckSchema) },
+    responses: {
+        200: jsonResponse(
+            'The issues a save would report. Empty means ready.',
+            z.object({ issues: FlowValidationIssuesSchema })
+        ),
+        ...FLOW_GRAPH_BODY_ERRORS,
+        500: DECLARATIONS_UNREADABLE,
+    },
+});
+
+const createFlowRoute = createRoute({
+    method: 'post',
+    path: '/{guildId}/flows',
+    operationId: 'createFlow',
+    tags: ['flows'],
+    summary: 'Create a flow, switched off',
+    request: { params: GuildPathSchema, body: jsonBody(FlowCreateSchema) },
+    responses: {
+        201: jsonResponse('The new flow. An incomplete graph is stored, with its issues.', FlowSchema),
+        ...GUILD_SCOPED_BODY_ERRORS,
+        400: GRAPH_REFUSED,
+    },
+});
+
+const updateFlowRoute = createRoute({
+    method: 'put',
+    path: '/{guildId}/flows/{flowId}',
+    operationId: 'updateFlow',
+    tags: ['flows'],
+    summary: "Update a flow's name, switch or graph",
+    request: { params: FlowPathSchema, body: jsonBody(FlowUpdateSchema) },
+    responses: {
+        200: jsonResponse(
+            "Where the save landed: on the flow, or — for a live flow's incomplete graph — on the saver's draft.",
+            FlowSaveResultSchema
+        ),
+        ...FLOW_GRAPH_BODY_ERRORS,
+        400: jsonResponse(
+            'The body was refused; the graph is too broken to store; the flow cannot be switched on ' +
+                'because its graph is incomplete (`issues` lists why) or waits on its install (`issues` ' +
+                'empty); or the server id is missing.',
+            FlowRefusalSchema
+        ),
+        500: errorBodyResponse(
+            "The flow's journey could not be read. A request that could have been refused wrote " +
+                "nothing; a switch-off or rename was still written, and its sentence starts with 'Saved.'"
+        ),
+    },
+});
+
+const deleteFlowRoute = createRoute({
+    method: 'delete',
+    path: '/{guildId}/flows/{flowId}',
+    operationId: 'deleteFlow',
+    tags: ['flows'],
+    summary: 'Delete a flow and its drafts. Touches nothing in the guild.',
+    request: { params: FlowPathSchema },
+    responses: {
+        204: { description: 'Deleted.' },
+        ...FLOW_ERRORS,
+    },
+});
+
+const deployFlowRoute = createRoute({
+    method: 'post',
+    path: '/{guildId}/flows/{flowId}/deploy',
+    operationId: 'deployFlow',
+    tags: ['flows'],
+    summary: "Post the flow's trigger buttons into the channels their nodes name",
+    request: { params: FlowPathSchema },
+    responses: {
+        200: jsonResponse('Posted: one message per destination channel.', DeployResultSchema),
+        ...FLOW_ERRORS,
+        400: errorBodyResponse('Nothing was posted, and the sentence says why — or the server id is missing.'),
+    },
+});
+
+/** The 404 of the two install routes, which also refuse a flow that declares nothing. */
+const NOTHING_TO_INSTALL = errorBodyResponse(
+    'The bot is not in this server, the flow is not in it, or the flow declares nothing to install.'
+);
+
+const getInstallPlanRoute = createRoute({
+    method: 'get',
+    path: '/{guildId}/flows/{flowId}/install-plan',
+    operationId: 'getInstallPlan',
+    tags: ['flows'],
+    summary: "What installing the flow's declared resources would do. Changes nothing.",
+    request: { params: FlowPathSchema },
+    responses: {
+        200: jsonResponse('The plan, blocked items included.', InstallPlanSchema),
+        ...FLOW_ERRORS,
+        404: NOTHING_TO_INSTALL,
+        409: errorBodyResponse(
+            "The journey is not this flow's to install, or declares something that cannot be installed " +
+                'as shared server structure.'
+        ),
+    },
+});
+
+const installFlowRoute = createRoute({
+    method: 'post',
+    path: '/{guildId}/flows/{flowId}/install',
+    operationId: 'installFlow',
+    tags: ['flows'],
+    summary: 'Create the channels and roles the flow declares, and wire their ids into its nodes',
+    request: { params: FlowPathSchema },
+    responses: {
+        200: jsonResponse('What the install did. A partial install is a 200 with `failure` set.', InstallResultSchema),
+        ...FLOW_ERRORS,
+        404: NOTHING_TO_INSTALL,
+        409: jsonResponse(
+            'Nothing was installed. With `plan`: the server changed since the preview, and this is the ' +
+                "plan as it stands now. Without: the journey is not this flow's to install, or cannot be " +
+                'installed as shared server structure.',
+            InstallRefusalSchema
+        ),
+        423: errorBodyResponse('Another operation on this journey is running. Nothing was touched.'),
+    },
+});
+
+const getPublishedStateRoute = createRoute({
+    method: 'get',
+    path: '/{guildId}/flows/{flowId}/published',
+    operationId: 'getPublishedState',
+    tags: ['flows'],
+    summary: 'What the flow has live in the guild',
+    request: { params: FlowPathSchema },
+    responses: {
+        200: jsonResponse('Its button messages and the resources its journey put in the guild.', PublishedFlowStateSchema),
+        ...FLOW_ERRORS,
+    },
+});
+
+const undeployFlowRoute = createRoute({
+    method: 'post',
+    path: '/{guildId}/flows/{flowId}/undeploy',
+    operationId: 'undeployFlow',
+    tags: ['flows'],
+    summary: "Delete the messages carrying the flow's buttons. Works after the flow is gone.",
+    request: { params: FlowPathSchema },
+    responses: {
+        200: jsonResponse('What became of each recorded message.', UndeployResultSchema),
+        ...GUILD_SCOPED_ERRORS,
+    },
+});
+
+const unpublishFlowRoute = createRoute({
+    method: 'post',
+    path: '/{guildId}/flows/{flowId}/unpublish',
+    operationId: 'unpublishFlow',
+    tags: ['flows'],
+    summary: "Destroy the channels and roles the flow's journey created. Irreversible.",
+    request: { params: FlowPathSchema },
+    responses: {
+        200: jsonResponse('What became of each resource.', UnpublishResultSchema),
+        ...GUILD_SCOPED_ERRORS,
+        404: errorBodyResponse('The bot is not in this server, or the flow has installed nothing to unpublish.'),
+        409: errorBodyResponse(
+            "Nothing was deleted: the journey belongs to another flow, other flows share it, or the " +
+                'teardown was refused before it started.'
+        ),
+    },
 });
 
 /** Why a PUT was refused before it could go live: the `{ error, issues }` body of a 400. */
@@ -329,40 +571,19 @@ function journeyInstallRefusal(
     return undefined;
 }
 
-/**
- * The wire shape for an install plan.
- *
- * Every item, including the ones needing no work: "what will this do to my server" is
- * only answerable if the unchanged things are visible too. `reason` carries both the
- * blocker's explanation and the note on a create that replaces something deleted, so a
- * client shows it without asking which kind it is.
- */
-function installPlanBody(plan: InstallPlan) {
-    return {
-        journeyKey: plan.journeyKey,
-        applicable: isPlanApplicable(plan),
-        blockers: plan.blockers,
-        items: plan.items.map((item) => ({
-            resourceKey: item.resourceKey,
-            kind: item.kind,
-            action: item.action,
-            name: item.name,
-            discordId: item.discordId,
-            reason: item.reason,
-        })),
-    };
+export function flowRoutes(): OpenAPIHono<AppEnv> {
+    return apiRouter(defineFlowRoutes);
 }
 
-export function flowRoutes(): Hono<AppEnv> {
-    const app = new Hono<AppEnv>();
-
+/** Every flow route, drafts included, on one router: one registration, one spec surface. */
+function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
     // Drafts live under each flow's URL, and every surface that mounts the flow routes
-    // — the API, the e2e harness, the preview server — must get them too. Mounted here
-    // rather than beside this router, so there is no second registration to forget.
-    app.route('/', flowDraftRoutes());
+    // — the API, the e2e harness, the preview server — must get them too. Declared here
+    // rather than on a router of their own, so there is no second registration to forget.
+    defineFlowDraftRoutes(router);
 
     // List a guild's flows (summaries — the builder fetches the graph on open).
-    app.get('/:guildId/flows', async (c) => {
+    router.openapi(listFlowsRoute, async (c) => {
         const guildId = c.get('guild').id;
         const flows = await flowsRepo.getByGuildId(guildId);
 
@@ -378,15 +599,18 @@ export function flowRoutes(): Hono<AppEnv> {
         // journey's, so `issueCount` costs no query beyond the three above. A malformed
         // journey row fails the index — and so the list — exactly as it did before
         // readiness was on it; no row is judged against a guess.
-        return c.json({
-            flows: flows.map((flow) => flowSummary(flow, journeys.get(flow.flowId))),
-        });
+        return c.json(
+            {
+                flows: flows.map((flow) => flowSummary(flow, journeys.get(flow.flowId))),
+            },
+            200
+        );
     });
 
     // One flow with its full graph, and what stands between it and going live.
-    app.get('/:guildId/flows/:flowId', async (c) => {
+    router.openapi(getFlowRoute, async (c) => {
         const guildId = c.get('guild').id;
-        const flow = await flowsRepo.getByFlowId(c.req.param('flowId'));
+        const flow = await flowsRepo.getByFlowId(c.req.valid('param').flowId);
         // Guild mismatch is a 404, not a 403 — never confirm another guild's flow exists.
         if (!flow || flow.guildId !== guildId) {
             return c.json({ error: 'Flow not found.' }, 404);
@@ -400,7 +624,7 @@ export function flowRoutes(): Hono<AppEnv> {
             return c.json({ error: declared.error }, 500);
         }
 
-        return c.json(flowDetail(flow, flowReadinessIssues(flow.graph, declared.keys)));
+        return c.json(flowDetail(flow, flowReadinessIssues(flow.graph, declared.keys)), 200);
     });
 
     /*
@@ -411,20 +635,16 @@ export function flowRoutes(): Hono<AppEnv> {
      * the same declarations, the same readiness — so the answer here cannot disagree
      * with the one Save gives a moment later.
      */
-    app.post('/:guildId/flows/:flowId/check', async (c) => {
+    router.openapi(checkFlowRoute, async (c) => {
         const guildId = c.get('guild').id;
-        const flowId = c.req.param('flowId');
+        const { flowId } = c.req.valid('param');
+        const { graph } = c.req.valid('json');
         const flow = await flowsRepo.getByFlowId(flowId);
         if (!flow || flow.guildId !== guildId) {
             return c.json({ error: 'Flow not found.' }, 404);
         }
 
-        const parsed = checkFlowBody.safeParse(await c.req.json().catch(() => null));
-        if (!parsed.success) {
-            return c.json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body.' }, 400);
-        }
-
-        const structural = validateFlowGraph(parsed.data.graph);
+        const structural = validateFlowGraph(graph);
         if (!structural.valid) {
             return c.json(invalidGraphBody(structural.errors), 400);
         }
@@ -434,19 +654,16 @@ export function flowRoutes(): Hono<AppEnv> {
             return c.json({ error: declared.error }, 500);
         }
 
-        return c.json({ issues: flowReadinessIssues(structural.graph, declared.keys) });
+        return c.json({ issues: flowReadinessIssues(structural.graph, declared.keys) }, 200);
     });
 
     // Create a flow. Starts empty + disabled unless a graph is supplied.
-    app.post('/:guildId/flows', async (c) => {
+    router.openapi(createFlowRoute, async (c) => {
         const guildId = c.get('guild').id;
-        const parsed = createFlowBody.safeParse(await c.req.json().catch(() => null));
-        if (!parsed.success) {
-            return c.json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body.' }, 400);
-        }
+        const body = c.req.valid('json');
 
         const structural = validateFlowGraph(
-            parsed.data.graph ?? { version: FLOW_GRAPH_VERSION, nodes: [], edges: [] }
+            body.graph ?? { version: FLOW_GRAPH_VERSION, nodes: [], edges: [] }
         );
         if (!structural.valid) {
             return c.json(invalidGraphBody(structural.errors), 400);
@@ -459,7 +676,7 @@ export function flowRoutes(): Hono<AppEnv> {
 
         const flow = await flowsRepo.create({
             guildId,
-            name: parsed.data.name,
+            name: body.name,
             graph: structural.graph,
             enabled: false,
         });
@@ -477,9 +694,10 @@ export function flowRoutes(): Hono<AppEnv> {
      * when the graph it would run is incomplete or still waiting on its install.
      * Switching off, or renaming, is never refused for readiness.
      */
-    app.put('/:guildId/flows/:flowId', async (c) => {
+    router.openapi(updateFlowRoute, async (c) => {
         const guildId = c.get('guild').id;
-        const flowId = c.req.param('flowId');
+        const { flowId } = c.req.valid('param');
+        const body = c.req.valid('json');
         const user = c.get('user');
         const saver: FlowSaver = { id: user.id, name: user.username };
         const existing = await flowsRepo.getByFlowId(flowId);
@@ -487,24 +705,19 @@ export function flowRoutes(): Hono<AppEnv> {
             return c.json({ error: 'Flow not found.' }, 404);
         }
 
-        const parsed = updateFlowBody.safeParse(await c.req.json().catch(() => null));
-        if (!parsed.success) {
-            return c.json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body.' }, 400);
-        }
-
         let graph: FlowGraph | undefined;
-        if (parsed.data.graph !== undefined) {
-            const structural = validateFlowGraph(parsed.data.graph);
+        if (body.graph !== undefined) {
+            const structural = validateFlowGraph(body.graph);
             if (!structural.valid) {
                 return c.json(invalidGraphBody(structural.errors), 400);
             }
             graph = structural.graph;
         }
         const request: FlowPutRequest = {
-            name: parsed.data.name,
-            enabled: parsed.data.enabled,
+            name: body.name,
+            enabled: body.enabled,
             graph,
-            baseUpdatedAt: parsed.data.baseUpdatedAt,
+            baseUpdatedAt: body.baseUpdatedAt,
         };
 
         /*
@@ -544,27 +757,30 @@ export function flowRoutes(): Hono<AppEnv> {
         const flow = flowDetail(outcome.flow, flowReadinessIssues(outcome.flow.graph, declared.keys));
         switch (outcome.kind) {
             case 'written':
-                return c.json<FlowSaveBody>({ ...flow, savedAs: 'flow' });
+                return c.json({ ...flow, savedAs: 'flow' } satisfies FlowSaveBody, 200);
             case 'drafted':
-                return c.json<FlowSaveBody>({
-                    ...flow,
-                    savedAs: 'draft',
-                    draft: flowDraft(
-                        outcome.draft,
-                        saver.id,
-                        outcome.flow.updatedAt,
-                        flowReadinessIssues(outcome.draft.graph, declared.keys)
-                    ),
-                    uninstalled: uninstalledResourceKeys(outcome.draft.graph, declared.keys),
-                });
+                return c.json(
+                    {
+                        ...flow,
+                        savedAs: 'draft',
+                        draft: flowDraft(
+                            outcome.draft,
+                            saver.id,
+                            outcome.flow.updatedAt,
+                            flowReadinessIssues(outcome.draft.graph, declared.keys)
+                        ),
+                        uninstalled: uninstalledResourceKeys(outcome.draft.graph, declared.keys),
+                    } satisfies FlowSaveBody,
+                    200
+                );
         }
     });
 
     // Deletes the flow and its drafts — unsaved work in this database, not anything in
     // the guild; see `flowsRepo.deleteByFlowId` for what is deliberately left alone.
-    app.delete('/:guildId/flows/:flowId', async (c) => {
+    router.openapi(deleteFlowRoute, async (c) => {
         const guildId = c.get('guild').id;
-        const flowId = c.req.param('flowId');
+        const { flowId } = c.req.valid('param');
         const existing = await flowsRepo.getByFlowId(flowId);
         if (!existing || existing.guildId !== guildId) {
             return c.json({ error: 'Flow not found.' }, 404);
@@ -583,9 +799,9 @@ export function flowRoutes(): Hono<AppEnv> {
      * to express the case this route exists to serve — several buttons on one canvas
      * going to several channels.
      */
-    app.post('/:guildId/flows/:flowId/deploy', async (c) => {
+    router.openapi(deployFlowRoute, async (c) => {
         const guildId = c.get('guild').id;
-        const flowId = c.req.param('flowId');
+        const { flowId } = c.req.valid('param');
         const existing = await flowsRepo.getByFlowId(flowId);
         if (!existing || existing.guildId !== guildId) {
             return c.json({ error: 'Flow not found.' }, 404);
@@ -596,7 +812,7 @@ export function flowRoutes(): Hono<AppEnv> {
             return c.json({ error: result.message }, 400);
         }
 
-        return c.json({ ok: true, posted: result.posted });
+        return c.json({ ok: true, posted: result.posted } satisfies z.infer<typeof DeployResultSchema>, 200);
     });
 
     /*
@@ -610,9 +826,9 @@ export function flowRoutes(): Hono<AppEnv> {
      *
      * The plan is **not** handed to `/install` afterwards. See that route.
      */
-    app.get('/:guildId/flows/:flowId/install-plan', async (c) => {
+    router.openapi(getInstallPlanRoute, async (c) => {
         const guild = c.get('guild');
-        const flowId = c.req.param('flowId');
+        const { flowId } = c.req.valid('param');
         const existing = await flowsRepo.getByFlowId(flowId);
         if (!existing || existing.guildId !== guild.id) {
             return c.json({ error: 'Flow not found.' }, 404);
@@ -638,7 +854,7 @@ export function flowRoutes(): Hono<AppEnv> {
             staffRoleIds,
         });
 
-        return c.json(installPlanBody(plan));
+        return c.json(installPlanBody(plan), 200);
     });
 
     /*
@@ -663,9 +879,9 @@ export function flowRoutes(): Hono<AppEnv> {
      * write-back has already wired it into the flows that picked it, and re-running
      * install converges rather than duplicating. `failure` says where it stopped.
      */
-    app.post('/:guildId/flows/:flowId/install', async (c) => {
+    router.openapi(installFlowRoute, async (c) => {
         const guild = c.get('guild');
-        const flowId = c.req.param('flowId');
+        const { flowId } = c.req.valid('param');
         const existing = await flowsRepo.getByFlowId(flowId);
         if (!existing || existing.guildId !== guild.id) {
             return c.json({ error: 'Flow not found.' }, 404);
@@ -709,22 +925,7 @@ export function flowRoutes(): Hono<AppEnv> {
             );
         }
 
-        return c.json({
-            applied: outcome.applied,
-            failure: outcome.failure,
-            writtenCount: outcome.writeBack.writtenCount,
-            updatedFlowIds: outcome.writeBack.updatedFlowIds,
-            // On the wire rather than inferred from a zero count: a write-back that
-            // threw and a journey nothing references both write zero settings, and
-            // only one of them means the operator's flows are now broken.
-            writeBackFailed: outcome.writeBack.failed === true,
-            // Named individually rather than counted: "3 unresolved" tells an operator
-            // nothing they can act on, whereas the resource key is the thing they
-            // declared. Deduplicated because one key can be picked by several nodes.
-            unresolved: [
-                ...new Set(outcome.writeBack.unresolved.map((target) => target.resourceKey)),
-            ],
-        });
+        return c.json(installResultBody(outcome), 200);
     });
 
     /*
@@ -734,15 +935,15 @@ export function flowRoutes(): Hono<AppEnv> {
      * clean any of it up — "offer, never assume" — so the dialog's job is to say what
      * would be left behind and offer the cleanup as its own confirmed action.
      */
-    app.get('/:guildId/flows/:flowId/published', async (c) => {
+    router.openapi(getPublishedStateRoute, async (c) => {
         const guild = c.get('guild');
-        const flowId = c.req.param('flowId');
+        const { flowId } = c.req.valid('param');
         const existing = await flowsRepo.getByFlowId(flowId);
         if (!existing || existing.guildId !== guild.id) {
             return c.json({ error: 'Flow not found.' }, 404);
         }
 
-        return c.json(publishedBody(await getPublishedFlowState(guild, flowId)));
+        return c.json(publishedBody(await getPublishedFlowState(guild, flowId)), 200);
     });
 
     /*
@@ -754,10 +955,10 @@ export function flowRoutes(): Hono<AppEnv> {
      * `flowsRepo` lookup here — the guild-scoped row lookup inside `undeployFlowButtons`
      * is the authorization boundary, and `requireGuildAccess` has already run.
      */
-    app.post('/:guildId/flows/:flowId/undeploy', async (c) => {
+    router.openapi(undeployFlowRoute, async (c) => {
         const guildId = c.get('guild').id;
-        const result = await undeployFlowButtons(guildId, c.req.param('flowId'));
-        return c.json({ results: result.results });
+        const result = await undeployFlowButtons(guildId, c.req.valid('param').flowId);
+        return c.json({ results: result.results }, 200);
     });
 
     /*
@@ -794,9 +995,9 @@ export function flowRoutes(): Hono<AppEnv> {
      * ownership check getting stricter; it is a different question, about damage to a
      * third party rather than about who owns the journey.
      */
-    app.post('/:guildId/flows/:flowId/unpublish', async (c) => {
+    router.openapi(unpublishFlowRoute, async (c) => {
         const guild = c.get('guild');
-        const flowId = c.req.param('flowId');
+        const { flowId } = c.req.valid('param');
 
         const resolved = await resolveFlowJourney(guild.id, flowId);
         if (!resolved) {
@@ -844,8 +1045,8 @@ export function flowRoutes(): Hono<AppEnv> {
             return c.json({ error: result.refusal }, 409);
         }
 
-        return c.json({ results: result.results });
+        return c.json({ results: result.results }, 200);
     });
 
-    return app;
+    return undefined;
 }

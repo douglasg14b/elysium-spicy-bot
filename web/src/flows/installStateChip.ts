@@ -32,7 +32,7 @@
  * — it fails by being noisy or by being absent, and neither throws.
  */
 
-import type { FlowJourneyMembership } from '../api/types';
+import type { FlowJourneyMembership } from '@brattybot/web-sdk';
 
 /** What a row's install chip says, and how loudly. */
 export interface InstallChip {

@@ -849,67 +849,11 @@ export interface FlowGraph {
     edges: FlowEdge[];
 }
 
-/**
- * The journey a flow sits in, as the flows list reports it.
- *
- * Present for every flow that resolves to a journey — including the implicit one a lone
- * flow gets, whose `memberCount` is 1. **The page must key its grouping on
- * `memberCount > 1`, not on this being non-null**: a journey of one is the state almost
- * every flow with resources is in, and rendering it as a group would put the concept in
- * front of operators who have no use for it.
+/*
+ * The flows list's row (`FlowSummary`) and its journey (`FlowJourneyMembership`) are not
+ * mirrored here any more: the list and its helpers read the SDK's generated types,
+ * which come from the server's schemas in `src/web/api/flowBody.ts`.
  */
-export interface FlowJourneyMembership {
-    journeyKey: string;
-    name: string;
-    resourceCount: number;
-    memberCount: number;
-    /**
-     * Whether what the journey declares is in the guild, as the list route reports it.
-     *
-     * Mirrors `JourneyInstallState` in
-     * `src/features/provisioning/logic/journeyInstallState.ts`. `partial` is a real state
-     * and not a rounding error: a half-finished install, or a resource added to a journey
-     * that was already installed.
-     *
-     * It is derived from the **binding table**, so it says install has run rather than that
-     * every channel still exists. The inventory dialog is what checks the latter, and it
-     * costs a live Discord plan to do so — which is exactly why this cheaper answer is on
-     * the row instead.
-     */
-    installState: JourneyInstallState;
-    /** How many declared resources have a live binding. */
-    installedCount: number;
-    /**
-     * *Which* declared keys have a live binding.
-     *
-     * Read by the declarations editor, not by the chip: a key with a binding behind it is
-     * identity rather than a label, so it must stop following its resource's name — see
-     * `web/src/flows/resourceKeyFollowsName.ts`. Carried on the row so the group header and
-     * the builder cannot give different answers about the same resource.
-     */
-    installedKeys: string[];
-}
-
-/** See {@link FlowJourneyMembership.installState}. */
-export type JourneyInstallState = 'none' | 'partial' | 'all';
-
-/** Row shape in the flows list (no graph — just the summary). */
-export interface FlowSummary {
-    flowId: string;
-    name: string;
-    enabled: boolean;
-    nodeCount: number;
-    /**
-     * How many problems stand between the stored graph and going live. `0` is ready.
-     *
-     * Anything above it means the flow is **incomplete**: saved, but refused if switched
-     * on. A count because the row has room for a chip; the list itself is in the builder.
-     */
-    issueCount: number;
-    journey: FlowJourneyMembership | null;
-    createdAt: string;
-    updatedAt: string;
-}
 
 /**
  * A single flow, graph included — the body of GET, POST and a successful PUT.
@@ -938,18 +882,6 @@ export const FLOW_DETAIL_KEYS = [
     'createdAt',
     'updatedAt',
 ] as const satisfies readonly (keyof Flow)[];
-
-/** Mirrors `FLOW_SUMMARY_KEYS` in `src/web/api/flowBody.ts`. */
-export const FLOW_SUMMARY_KEYS = [
-    'flowId',
-    'name',
-    'enabled',
-    'nodeCount',
-    'issueCount',
-    'journey',
-    'createdAt',
-    'updatedAt',
-] as const satisfies readonly (keyof FlowSummary)[];
 
 /**
  * One operator's draft of a flow, without its graph — what the autosave gets back.
@@ -1029,7 +961,6 @@ export const FLOW_SAVED_AS_DRAFT_KEYS = [
 /** Fails to compile if a flow wire shape gains a member absent from its list above. */
 type FlowKeyListsAreComplete =
     | Exclude<keyof Flow, (typeof FLOW_DETAIL_KEYS)[number]>
-    | Exclude<keyof FlowSummary, (typeof FLOW_SUMMARY_KEYS)[number]>
     | Exclude<keyof FlowDraftSummary, (typeof FLOW_DRAFT_SUMMARY_KEYS)[number]>
     | Exclude<keyof FlowDraft, (typeof FLOW_DRAFT_KEYS)[number]>
     | Exclude<keyof Extract<FlowSaveResult, { savedAs: 'flow' }>, (typeof FLOW_SAVED_TO_FLOW_KEYS)[number]>
@@ -1355,9 +1286,10 @@ export interface ForgottenOrphan {
  * A control keyed on the whole path therefore matches nothing for those; see
  * `placeIssues` in `web/src/flows/validationIssues.ts` for where they end up.
  *
- * The SDK's `ApiIssue`, which types `ApiError.issues`, is the same shape. It is not
- * aliased here because the root type-check reads this file and cannot resolve the SDK
- * package; `flowRoutes.test.ts` holds all three copies to each other instead.
+ * The SDK's generated `FlowValidationIssue`, which types `ApiError.issues`, is the same
+ * shape. It is not aliased here because the root type-check reads this file and cannot
+ * resolve the SDK package; `flowRoutes.test.ts` holds the copies to the server's instead.
+ * This one goes when the flow builder moves to the SDK.
  */
 export interface FlowValidationIssue {
     nodeId?: string;

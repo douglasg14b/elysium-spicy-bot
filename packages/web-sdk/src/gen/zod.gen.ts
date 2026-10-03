@@ -2,9 +2,177 @@
 
 import * as z from 'zod';
 
+export const zDeployedButtonMessage = z.object({
+    buttonCount: z.number(),
+    channelId: z.string(),
+    messageId: z.string()
+});
+
+export const zDeployResult = z.object({
+    ok: z.literal(true),
+    posted: z.array(zDeployedButtonMessage)
+});
+
 export const zErrorBody = z.object({
     error: z.string()
 });
+
+/**
+ * One operator's draft of a flow, without its graph. `mine` is the caller's own; `flowSavedSince` means the flow was saved after the draft was started.
+ */
+export const zFlowDraftSummary = z.object({
+    authorId: z.string(),
+    authorName: z.string(),
+    baseUpdatedAt: z.string(),
+    createdAt: z.string(),
+    draftId: z.number(),
+    flowSavedSince: z.boolean(),
+    mine: z.boolean(),
+    name: z.string(),
+    updatedAt: z.string()
+});
+
+export const zFlowEdge = z.object({
+    id: z.string().min(1),
+    source: z.string().min(1),
+    sourceHandle: z.string().min(1).optional(),
+    target: z.string().min(1),
+    targetHandle: z.string().min(1).optional()
+});
+
+/**
+ * The journey a flow sits in, present for every flow that resolves to one. Group rows on `memberCount > 1`, not on this being present: 1 is the implicit journey a lone flow gets. `installState` says install has run over the declared resources, read from the binding table — not that every channel still exists. `installedKeys` are the keys with a live binding, which must stop following their resource name.
+ */
+export const zFlowJourneyMembership = z.object({
+    installState: z.enum([
+        'none',
+        'partial',
+        'all'
+    ]),
+    installedCount: z.number(),
+    installedKeys: z.array(z.string()),
+    journeyKey: z.string(),
+    memberCount: z.number(),
+    name: z.string(),
+    resourceCount: z.number()
+});
+
+export const zFlowNode = z.object({
+    data: z.record(z.string(), z.unknown()),
+    id: z.string().min(1),
+    position: z.object({
+        x: z.number(),
+        y: z.number()
+    }),
+    type: z.string().min(1)
+});
+
+export const zFlowGraph = z.object({
+    edges: z.array(zFlowEdge),
+    nodes: z.array(zFlowNode),
+    version: z.literal(1)
+});
+
+export const zFlowCheck = z.object({
+    graph: zFlowGraph
+});
+
+export const zFlowCreate = z.object({
+    graph: zFlowGraph.optional(),
+    name: z.string().min(1).max(100)
+});
+
+/**
+ * The caller's canvas. `baseUpdatedAt` is the flow version it was loaded from.
+ */
+export const zFlowDraftSave = z.object({
+    baseUpdatedAt: z.iso.datetime(),
+    graph: zFlowGraph,
+    name: z.string().min(1).max(100)
+});
+
+/**
+ * One row of the flows list, without the graph. `issueCount` above 0 means the flow is incomplete: saved, but refused if switched on.
+ */
+export const zFlowSummary = z.object({
+    createdAt: z.string(),
+    enabled: z.boolean(),
+    flowId: z.string(),
+    issueCount: z.number(),
+    journey: zFlowJourneyMembership.nullable(),
+    name: z.string(),
+    nodeCount: z.number(),
+    updatedAt: z.string()
+});
+
+/**
+ * A partial update: send only what changed. `baseUpdatedAt` is the flow version the sent graph was edited from, recorded if the save lands as a draft.
+ */
+export const zFlowUpdate = z.object({
+    baseUpdatedAt: z.iso.datetime().optional(),
+    enabled: z.boolean().optional(),
+    graph: zFlowGraph.optional(),
+    name: z.string().min(1).max(100).optional()
+});
+
+/**
+ * One problem with a graph. `nodeId` names the node it is on and `field` the dotted path into its config (e.g. `fields.0.name`); a problem with the graph as a whole has neither.
+ */
+export const zFlowValidationIssue = z.object({
+    field: z.string().optional(),
+    message: z.string(),
+    nodeId: z.string().optional()
+});
+
+/**
+ * A flow with its graph. `issues` describes the stored graph: empty means it is ready to go live, and a switched-off flow may hold an unfinished one.
+ */
+export const zFlow = z.object({
+    createdAt: z.string(),
+    enabled: z.boolean(),
+    flowId: z.string(),
+    graph: zFlowGraph,
+    issues: z.array(zFlowValidationIssue),
+    name: z.string(),
+    updatedAt: z.string()
+});
+
+/**
+ * One operator's draft of a flow, with its graph and that graph's readiness issues.
+ */
+export const zFlowDraft = zFlowDraftSummary.and(z.object({
+    graph: zFlowGraph,
+    issues: z.array(zFlowValidationIssue)
+}));
+
+export const zFlowRefusal = zErrorBody.and(z.object({
+    issues: z.array(zFlowValidationIssue).optional()
+}));
+
+/**
+ * The flow is live and the graph was incomplete or waits on its install, so it went to the saver's draft and the flow is untouched. `draft.issues` are what the canvas shows; `uninstalled` names the declared resources the graph picks that are not in the server yet.
+ */
+export const zFlowSavedAsDraft = zFlow.and(z.object({
+    draft: zFlowDraft,
+    savedAs: z.enum(['draft']),
+    uninstalled: z.array(z.string())
+}));
+
+/**
+ * The save landed on the flow. The saver's own draft, if they had one, is gone.
+ */
+export const zFlowSavedToFlow = zFlow.and(z.object({
+    savedAs: z.enum(['flow'])
+}));
+
+export const zFlowSaveResult = z.union([
+    z.object({
+        savedAs: z.literal('flow')
+    }).and(zFlowSavedToFlow),
+    z.object({
+        savedAs: z.literal('draft')
+    }).and(zFlowSavedAsDraft)
+]);
 
 export const zGuild = z.object({
     iconURL: z.string().nullable(),
@@ -41,6 +209,128 @@ export const zGuildSettings = z.object({
 
 export const zGuildSettingsUpdate = z.object({
     staffRoleIds: z.array(z.string().min(1))
+});
+
+export const zInstallPlanItem = z.object({
+    action: z.enum([
+        'create',
+        'adopt',
+        'recover',
+        'reuse',
+        'blocked'
+    ]),
+    discordId: z.string().optional(),
+    kind: z.enum([
+        'category',
+        'textChannel',
+        'role'
+    ]),
+    name: z.string(),
+    reason: z.string().optional(),
+    resourceKey: z.string()
+});
+
+/**
+ * What installing would do, item by item, unchanged items included. `applicable` is false when any blocker or blocked item stands in the way; the install re-checks it regardless.
+ */
+export const zInstallPlan = z.object({
+    applicable: z.boolean(),
+    blockers: z.array(z.string()),
+    items: z.array(zInstallPlanItem),
+    journeyKey: z.string()
+});
+
+export const zInstallRefusal = zErrorBody.and(z.object({
+    plan: zInstallPlan.optional()
+}));
+
+export const zInstalledResource = z.object({
+    action: z.enum([
+        'created',
+        'adopted',
+        'reused'
+    ]),
+    discordId: z.string(),
+    name: z.string(),
+    resourceKey: z.string()
+});
+
+export const zInstallResult = z.object({
+    applied: z.array(zInstalledResource),
+    failure: z.string().optional(),
+    unresolved: z.array(z.string()),
+    updatedFlowIds: z.array(z.string()),
+    writeBackFailed: z.boolean(),
+    writtenCount: z.number()
+});
+
+export const zPublishedButtonMessage = z.object({
+    channelId: z.string(),
+    messageId: z.string(),
+    nodeIds: z.array(z.string())
+});
+
+export const zPublishedResource = z.object({
+    discordId: z.string().optional(),
+    explanation: z.string().optional(),
+    kind: z.string(),
+    name: z.string(),
+    refusalReason: z.enum([
+        'adopted',
+        'category-has-survivors',
+        'missing-permission',
+        'unrecognised-state',
+        'interrupted-create'
+    ]).optional(),
+    refused: z.boolean(),
+    resourceKey: z.string(),
+    survivors: z.array(z.string()).optional()
+});
+
+/**
+ * What a flow or a journey has live in the guild. An empty `buttonMessages` does not mean nothing is posted while `mayHaveUnrecordedButtons` is true: buttons posted before they were recorded cannot be found.
+ */
+export const zPublishedFlowState = z.object({
+    buttonMessages: z.array(zPublishedButtonMessage),
+    deletableResources: z.array(zPublishedResource),
+    mayHaveUnrecordedButtons: z.boolean(),
+    refusedResources: z.array(zPublishedResource)
+});
+
+export const zUndeployedButtonMessage = z.object({
+    channelId: z.string(),
+    explanation: z.string().optional(),
+    messageId: z.string(),
+    outcome: z.enum([
+        'removed',
+        'alreadyGone',
+        'failed'
+    ])
+});
+
+export const zUndeployResult = z.object({
+    results: z.array(zUndeployedButtonMessage)
+});
+
+export const zUnpublishedResource = z.object({
+    explanation: z.string().optional(),
+    kind: z.enum([
+        'category',
+        'textChannel',
+        'role'
+    ]),
+    name: z.string(),
+    outcome: z.enum([
+        'deleted',
+        'forgotten',
+        'refused',
+        'failed'
+    ]),
+    resourceKey: z.string()
+});
+
+export const zUnpublishResult = z.object({
+    results: z.array(zUnpublishedResource)
 });
 
 export const zWarningsConfig = z.object({
@@ -89,6 +379,169 @@ export const zUpdateWarningsConfigPath = z.object({
  * The warnings config as saved.
  */
 export const zUpdateWarningsConfigResponse = zWarningsConfig;
+
+export const zListFlowsPath = z.object({
+    guildId: z.string()
+});
+
+/**
+ * Every flow in the guild, without graphs.
+ */
+export const zListFlowsResponse = z.object({
+    flows: z.array(zFlowSummary)
+});
+
+export const zCreateFlowBody = zFlowCreate;
+
+export const zCreateFlowPath = z.object({
+    guildId: z.string()
+});
+
+/**
+ * The new flow. An incomplete graph is stored, with its issues.
+ */
+export const zCreateFlowResponse = zFlow;
+
+export const zDeleteFlowPath = z.object({
+    guildId: z.string(),
+    flowId: z.string()
+});
+
+/**
+ * Deleted.
+ */
+export const zDeleteFlowResponse = z.void();
+
+export const zGetFlowPath = z.object({
+    guildId: z.string(),
+    flowId: z.string()
+});
+
+/**
+ * The flow.
+ */
+export const zGetFlowResponse = zFlow;
+
+export const zUpdateFlowBody = zFlowUpdate;
+
+export const zUpdateFlowPath = z.object({
+    guildId: z.string(),
+    flowId: z.string()
+});
+
+/**
+ * Where the save landed: on the flow, or — for a live flow's incomplete graph — on the saver's draft.
+ */
+export const zUpdateFlowResponse = zFlowSaveResult;
+
+export const zCheckFlowBody = zFlowCheck;
+
+export const zCheckFlowPath = z.object({
+    guildId: z.string(),
+    flowId: z.string()
+});
+
+/**
+ * The issues a save would report. Empty means ready.
+ */
+export const zCheckFlowResponse = z.object({
+    issues: z.array(zFlowValidationIssue)
+});
+
+export const zDeployFlowPath = z.object({
+    guildId: z.string(),
+    flowId: z.string()
+});
+
+/**
+ * Posted: one message per destination channel.
+ */
+export const zDeployFlowResponse = zDeployResult;
+
+export const zListFlowDraftsPath = z.object({
+    guildId: z.string(),
+    flowId: z.string()
+});
+
+/**
+ * The drafts, most recently edited first, each with its readiness issues.
+ */
+export const zListFlowDraftsResponse = z.object({
+    drafts: z.array(zFlowDraft)
+});
+
+export const zSaveMyFlowDraftBody = zFlowDraftSave;
+
+export const zSaveMyFlowDraftPath = z.object({
+    guildId: z.string(),
+    flowId: z.string()
+});
+
+/**
+ * The draft as saved, without its graph.
+ */
+export const zSaveMyFlowDraftResponse = zFlowDraftSummary;
+
+export const zDiscardFlowDraftPath = z.object({
+    guildId: z.string(),
+    flowId: z.string(),
+    draftId: z.string()
+});
+
+/**
+ * Discarded.
+ */
+export const zDiscardFlowDraftResponse = z.void();
+
+export const zInstallFlowPath = z.object({
+    guildId: z.string(),
+    flowId: z.string()
+});
+
+/**
+ * What the install did. A partial install is a 200 with `failure` set.
+ */
+export const zInstallFlowResponse = zInstallResult;
+
+export const zGetInstallPlanPath = z.object({
+    guildId: z.string(),
+    flowId: z.string()
+});
+
+/**
+ * The plan, blocked items included.
+ */
+export const zGetInstallPlanResponse = zInstallPlan;
+
+export const zGetPublishedStatePath = z.object({
+    guildId: z.string(),
+    flowId: z.string()
+});
+
+/**
+ * Its button messages and the resources its journey put in the guild.
+ */
+export const zGetPublishedStateResponse = zPublishedFlowState;
+
+export const zUndeployFlowPath = z.object({
+    guildId: z.string(),
+    flowId: z.string()
+});
+
+/**
+ * What became of each recorded message.
+ */
+export const zUndeployFlowResponse = zUndeployResult;
+
+export const zUnpublishFlowPath = z.object({
+    guildId: z.string(),
+    flowId: z.string()
+});
+
+/**
+ * What became of each resource.
+ */
+export const zUnpublishFlowResponse = zUnpublishResult;
 
 export const zGetGuildRolesPath = z.object({
     guildId: z.string()

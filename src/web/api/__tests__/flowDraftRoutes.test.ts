@@ -300,6 +300,17 @@ describe('listing drafts', () => {
         expect(broken.status).toBe(400);
         expect(await draftsOf(mine.flowId)).toEqual([]);
     });
+
+    it('refuses a draft body the schema rejects before looking the flow up', async () => {
+        // No such flow, so a lookup first would say 404. The body is checked first.
+        const refused = await send<{ error: string }>(ALICE, 'PUT', '/flows/no-such-flow/drafts/mine', {
+            name: '',
+            graph: READY,
+            baseUpdatedAt: new Date().toISOString(),
+        });
+
+        expect(refused).toEqual({ status: 400, body: { error: 'Give the flow a name.' } });
+    });
 });
 
 describe('discarding a draft', () => {
@@ -318,6 +329,19 @@ describe('discarding a draft', () => {
         const discarded = await send(ALICE, 'DELETE', `/flows/${second.flowId}/drafts/${bobs!.draftId}`);
         expect(discarded.status).toBe(204);
         expect(await draftsOf(second.flowId)).toEqual([]);
+    });
+
+    it('is the same 404 for an id that is not a draft id at all, not a 400', async () => {
+        // The id is read by the route, not the validator: from the caller's side a
+        // malformed id and an unknown one are both "no such draft".
+        const flow = await flowWith(READY);
+        await saveDraft(ALICE, flow, { graph: INCOMPLETE });
+
+        for (const draftId of ['abc', '0', '1.5']) {
+            const refused = await send(ALICE, 'DELETE', `/flows/${flow.flowId}/drafts/${draftId}`);
+            expect(refused, `draft id ${draftId}`).toEqual({ status: 404, body: { error: 'Draft not found.' } });
+        }
+        expect(await draftsOf(flow.flowId)).toHaveLength(1);
     });
 
     it('goes with the flow when the flow is deleted', async () => {

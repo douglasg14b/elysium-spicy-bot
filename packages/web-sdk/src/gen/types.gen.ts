@@ -4,8 +4,171 @@ export type ClientOptions = {
     baseUrl: `${string}://${string}` | (string & {});
 };
 
+export type DeployResult = {
+    ok: true;
+    posted: Array<DeployedButtonMessage>;
+};
+
+export type DeployedButtonMessage = {
+    buttonCount: number;
+    channelId: string;
+    messageId: string;
+};
+
 export type ErrorBody = {
     error: string;
+};
+
+/**
+ * A flow with its graph. `issues` describes the stored graph: empty means it is ready to go live, and a switched-off flow may hold an unfinished one.
+ */
+export type Flow = {
+    createdAt: string;
+    enabled: boolean;
+    flowId: string;
+    graph: FlowGraph;
+    issues: Array<FlowValidationIssue>;
+    name: string;
+    updatedAt: string;
+};
+
+export type FlowCheck = {
+    graph: FlowGraph;
+};
+
+export type FlowCreate = {
+    graph?: FlowGraph;
+    name: string;
+};
+
+/**
+ * One operator's draft of a flow, with its graph and that graph's readiness issues.
+ */
+export type FlowDraft = FlowDraftSummary & {
+    graph: FlowGraph;
+    issues: Array<FlowValidationIssue>;
+};
+
+/**
+ * The caller's canvas. `baseUpdatedAt` is the flow version it was loaded from.
+ */
+export type FlowDraftSave = {
+    baseUpdatedAt: string;
+    graph: FlowGraph;
+    name: string;
+};
+
+/**
+ * One operator's draft of a flow, without its graph. `mine` is the caller's own; `flowSavedSince` means the flow was saved after the draft was started.
+ */
+export type FlowDraftSummary = {
+    authorId: string;
+    authorName: string;
+    baseUpdatedAt: string;
+    createdAt: string;
+    draftId: number;
+    flowSavedSince: boolean;
+    mine: boolean;
+    name: string;
+    updatedAt: string;
+};
+
+export type FlowEdge = {
+    id: string;
+    source: string;
+    sourceHandle?: string;
+    target: string;
+    targetHandle?: string;
+};
+
+export type FlowGraph = {
+    edges: Array<FlowEdge>;
+    nodes: Array<FlowNode>;
+    version: 1;
+};
+
+/**
+ * The journey a flow sits in, present for every flow that resolves to one. Group rows on `memberCount > 1`, not on this being present: 1 is the implicit journey a lone flow gets. `installState` says install has run over the declared resources, read from the binding table — not that every channel still exists. `installedKeys` are the keys with a live binding, which must stop following their resource name.
+ */
+export type FlowJourneyMembership = {
+    installState: 'none' | 'partial' | 'all';
+    installedCount: number;
+    installedKeys: Array<string>;
+    journeyKey: string;
+    memberCount: number;
+    name: string;
+    resourceCount: number;
+};
+
+export type FlowNode = {
+    data: {
+        [key: string]: unknown;
+    };
+    id: string;
+    position: {
+        x: number;
+        y: number;
+    };
+    type: string;
+};
+
+export type FlowRefusal = ErrorBody & {
+    issues?: Array<FlowValidationIssue>;
+};
+
+export type FlowSaveResult = ({
+    savedAs: 'flow';
+} & FlowSavedToFlow) | ({
+    savedAs: 'draft';
+} & FlowSavedAsDraft);
+
+/**
+ * The flow is live and the graph was incomplete or waits on its install, so it went to the saver's draft and the flow is untouched. `draft.issues` are what the canvas shows; `uninstalled` names the declared resources the graph picks that are not in the server yet.
+ */
+export type FlowSavedAsDraft = Flow & {
+    draft: FlowDraft;
+    savedAs: 'draft';
+    uninstalled: Array<string>;
+};
+
+/**
+ * The save landed on the flow. The saver's own draft, if they had one, is gone.
+ */
+export type FlowSavedToFlow = Flow & {
+    savedAs: 'flow';
+};
+
+/**
+ * One row of the flows list, without the graph. `issueCount` above 0 means the flow is incomplete: saved, but refused if switched on.
+ */
+export type FlowSummary = {
+    createdAt: string;
+    enabled: boolean;
+    flowId: string;
+    issueCount: number;
+    journey: FlowJourneyMembership | null;
+    name: string;
+    nodeCount: number;
+    updatedAt: string;
+};
+
+/**
+ * A partial update: send only what changed. `baseUpdatedAt` is the flow version the sent graph was edited from, recorded if the save lands as a draft.
+ */
+export type FlowUpdate = {
+    baseUpdatedAt?: string;
+    enabled?: boolean;
+    graph?: FlowGraph;
+    name?: string;
+};
+
+/**
+ * One problem with a graph. `nodeId` names the node it is on and `field` the dotted path into its config (e.g. `fields.0.name`); a problem with the graph as a whole has neither.
+ */
+export type FlowValidationIssue = {
+    field?: string;
+    message: string;
+    nodeId?: string;
 };
 
 export type Guild = {
@@ -43,6 +206,95 @@ export type GuildSettings = {
 
 export type GuildSettingsUpdate = {
     staffRoleIds: Array<string>;
+};
+
+/**
+ * What installing would do, item by item, unchanged items included. `applicable` is false when any blocker or blocked item stands in the way; the install re-checks it regardless.
+ */
+export type InstallPlan = {
+    applicable: boolean;
+    blockers: Array<string>;
+    items: Array<InstallPlanItem>;
+    journeyKey: string;
+};
+
+export type InstallPlanItem = {
+    action: 'create' | 'adopt' | 'recover' | 'reuse' | 'blocked';
+    discordId?: string;
+    kind: 'category' | 'textChannel' | 'role';
+    name: string;
+    reason?: string;
+    resourceKey: string;
+};
+
+export type InstallRefusal = ErrorBody & {
+    plan?: InstallPlan;
+};
+
+export type InstallResult = {
+    applied: Array<InstalledResource>;
+    failure?: string;
+    unresolved: Array<string>;
+    updatedFlowIds: Array<string>;
+    writeBackFailed: boolean;
+    writtenCount: number;
+};
+
+export type InstalledResource = {
+    action: 'created' | 'adopted' | 'reused';
+    discordId: string;
+    name: string;
+    resourceKey: string;
+};
+
+export type PublishedButtonMessage = {
+    channelId: string;
+    messageId: string;
+    nodeIds: Array<string>;
+};
+
+/**
+ * What a flow or a journey has live in the guild. An empty `buttonMessages` does not mean nothing is posted while `mayHaveUnrecordedButtons` is true: buttons posted before they were recorded cannot be found.
+ */
+export type PublishedFlowState = {
+    buttonMessages: Array<PublishedButtonMessage>;
+    deletableResources: Array<PublishedResource>;
+    mayHaveUnrecordedButtons: boolean;
+    refusedResources: Array<PublishedResource>;
+};
+
+export type PublishedResource = {
+    discordId?: string;
+    explanation?: string;
+    kind: string;
+    name: string;
+    refusalReason?: 'adopted' | 'category-has-survivors' | 'missing-permission' | 'unrecognised-state' | 'interrupted-create';
+    refused: boolean;
+    resourceKey: string;
+    survivors?: Array<string>;
+};
+
+export type UndeployResult = {
+    results: Array<UndeployedButtonMessage>;
+};
+
+export type UndeployedButtonMessage = {
+    channelId: string;
+    explanation?: string;
+    messageId: string;
+    outcome: 'removed' | 'alreadyGone' | 'failed';
+};
+
+export type UnpublishResult = {
+    results: Array<UnpublishedResource>;
+};
+
+export type UnpublishedResource = {
+    explanation?: string;
+    kind: 'category' | 'textChannel' | 'role';
+    name: string;
+    outcome: 'deleted' | 'forgotten' | 'refused' | 'failed';
+    resourceKey: string;
 };
 
 export type WarningsConfig = {
@@ -203,6 +455,659 @@ export type UpdateWarningsConfigResponses = {
 };
 
 export type UpdateWarningsConfigResponse = UpdateWarningsConfigResponses[keyof UpdateWarningsConfigResponses];
+
+export type ListFlowsData = {
+    body?: never;
+    path: {
+        guildId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flows';
+};
+
+export type ListFlowsErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+};
+
+export type ListFlowsError = ListFlowsErrors[keyof ListFlowsErrors];
+
+export type ListFlowsResponses = {
+    /**
+     * Every flow in the guild, without graphs.
+     */
+    200: {
+        flows: Array<FlowSummary>;
+    };
+};
+
+export type ListFlowsResponse = ListFlowsResponses[keyof ListFlowsResponses];
+
+export type CreateFlowData = {
+    body: FlowCreate;
+    path: {
+        guildId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flows';
+};
+
+export type CreateFlowErrors = {
+    /**
+     * The body was refused, the graph is too broken to store (`issues` says where), or the server id is missing.
+     */
+    400: FlowRefusal;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+    /**
+     * The body was not sent as JSON.
+     */
+    415: ErrorBody;
+};
+
+export type CreateFlowError = CreateFlowErrors[keyof CreateFlowErrors];
+
+export type CreateFlowResponses = {
+    /**
+     * The new flow. An incomplete graph is stored, with its issues.
+     */
+    201: Flow;
+};
+
+export type CreateFlowResponse = CreateFlowResponses[keyof CreateFlowResponses];
+
+export type DeleteFlowData = {
+    body?: never;
+    path: {
+        guildId: string;
+        flowId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flows/{flowId}';
+};
+
+export type DeleteFlowErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the flow is not in it.
+     */
+    404: ErrorBody;
+};
+
+export type DeleteFlowError = DeleteFlowErrors[keyof DeleteFlowErrors];
+
+export type DeleteFlowResponses = {
+    /**
+     * Deleted.
+     */
+    204: void;
+};
+
+export type DeleteFlowResponse = DeleteFlowResponses[keyof DeleteFlowResponses];
+
+export type GetFlowData = {
+    body?: never;
+    path: {
+        guildId: string;
+        flowId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flows/{flowId}';
+};
+
+export type GetFlowErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the flow is not in it.
+     */
+    404: ErrorBody;
+    /**
+     * The flow's journey could not be read, so its readiness cannot be judged. The sentence names the cause.
+     */
+    500: ErrorBody;
+};
+
+export type GetFlowError = GetFlowErrors[keyof GetFlowErrors];
+
+export type GetFlowResponses = {
+    /**
+     * The flow.
+     */
+    200: Flow;
+};
+
+export type GetFlowResponse = GetFlowResponses[keyof GetFlowResponses];
+
+export type UpdateFlowData = {
+    body: FlowUpdate;
+    path: {
+        guildId: string;
+        flowId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flows/{flowId}';
+};
+
+export type UpdateFlowErrors = {
+    /**
+     * The body was refused; the graph is too broken to store; the flow cannot be switched on because its graph is incomplete (`issues` lists why) or waits on its install (`issues` empty); or the server id is missing.
+     */
+    400: FlowRefusal;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the flow is not in it.
+     */
+    404: ErrorBody;
+    /**
+     * The body was not sent as JSON.
+     */
+    415: ErrorBody;
+    /**
+     * The flow's journey could not be read. A request that could have been refused wrote nothing; a switch-off or rename was still written, and its sentence starts with 'Saved.'
+     */
+    500: ErrorBody;
+};
+
+export type UpdateFlowError = UpdateFlowErrors[keyof UpdateFlowErrors];
+
+export type UpdateFlowResponses = {
+    /**
+     * Where the save landed: on the flow, or — for a live flow's incomplete graph — on the saver's draft.
+     */
+    200: FlowSaveResult;
+};
+
+export type UpdateFlowResponse = UpdateFlowResponses[keyof UpdateFlowResponses];
+
+export type CheckFlowData = {
+    body: FlowCheck;
+    path: {
+        guildId: string;
+        flowId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flows/{flowId}/check';
+};
+
+export type CheckFlowErrors = {
+    /**
+     * The body was refused, the graph is too broken to store (`issues` says where), or the server id is missing.
+     */
+    400: FlowRefusal;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the flow is not in it.
+     */
+    404: ErrorBody;
+    /**
+     * The body was not sent as JSON.
+     */
+    415: ErrorBody;
+    /**
+     * The flow's journey could not be read, so its readiness cannot be judged. The sentence names the cause.
+     */
+    500: ErrorBody;
+};
+
+export type CheckFlowError = CheckFlowErrors[keyof CheckFlowErrors];
+
+export type CheckFlowResponses = {
+    /**
+     * The issues a save would report. Empty means ready.
+     */
+    200: {
+        issues: Array<FlowValidationIssue>;
+    };
+};
+
+export type CheckFlowResponse = CheckFlowResponses[keyof CheckFlowResponses];
+
+export type DeployFlowData = {
+    body?: never;
+    path: {
+        guildId: string;
+        flowId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flows/{flowId}/deploy';
+};
+
+export type DeployFlowErrors = {
+    /**
+     * Nothing was posted, and the sentence says why — or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the flow is not in it.
+     */
+    404: ErrorBody;
+};
+
+export type DeployFlowError = DeployFlowErrors[keyof DeployFlowErrors];
+
+export type DeployFlowResponses = {
+    /**
+     * Posted: one message per destination channel.
+     */
+    200: DeployResult;
+};
+
+export type DeployFlowResponse = DeployFlowResponses[keyof DeployFlowResponses];
+
+export type ListFlowDraftsData = {
+    body?: never;
+    path: {
+        guildId: string;
+        flowId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flows/{flowId}/drafts';
+};
+
+export type ListFlowDraftsErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the flow is not in it.
+     */
+    404: ErrorBody;
+    /**
+     * The flow's journey could not be read, so its readiness cannot be judged. The sentence names the cause.
+     */
+    500: ErrorBody;
+};
+
+export type ListFlowDraftsError = ListFlowDraftsErrors[keyof ListFlowDraftsErrors];
+
+export type ListFlowDraftsResponses = {
+    /**
+     * The drafts, most recently edited first, each with its readiness issues.
+     */
+    200: {
+        drafts: Array<FlowDraft>;
+    };
+};
+
+export type ListFlowDraftsResponse = ListFlowDraftsResponses[keyof ListFlowDraftsResponses];
+
+export type SaveMyFlowDraftData = {
+    body: FlowDraftSave;
+    path: {
+        guildId: string;
+        flowId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flows/{flowId}/drafts/mine';
+};
+
+export type SaveMyFlowDraftErrors = {
+    /**
+     * The body was refused, the graph is too broken to store (`issues` says where), or the server id is missing.
+     */
+    400: FlowRefusal;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the flow is not in it.
+     */
+    404: ErrorBody;
+    /**
+     * The body was not sent as JSON.
+     */
+    415: ErrorBody;
+};
+
+export type SaveMyFlowDraftError = SaveMyFlowDraftErrors[keyof SaveMyFlowDraftErrors];
+
+export type SaveMyFlowDraftResponses = {
+    /**
+     * The draft as saved, without its graph.
+     */
+    200: FlowDraftSummary;
+};
+
+export type SaveMyFlowDraftResponse = SaveMyFlowDraftResponses[keyof SaveMyFlowDraftResponses];
+
+export type DiscardFlowDraftData = {
+    body?: never;
+    path: {
+        guildId: string;
+        flowId: string;
+        draftId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flows/{flowId}/drafts/{draftId}';
+};
+
+export type DiscardFlowDraftErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, the flow is not in it, or the flow has no draft with that id.
+     */
+    404: ErrorBody;
+};
+
+export type DiscardFlowDraftError = DiscardFlowDraftErrors[keyof DiscardFlowDraftErrors];
+
+export type DiscardFlowDraftResponses = {
+    /**
+     * Discarded.
+     */
+    204: void;
+};
+
+export type DiscardFlowDraftResponse = DiscardFlowDraftResponses[keyof DiscardFlowDraftResponses];
+
+export type InstallFlowData = {
+    body?: never;
+    path: {
+        guildId: string;
+        flowId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flows/{flowId}/install';
+};
+
+export type InstallFlowErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, the flow is not in it, or the flow declares nothing to install.
+     */
+    404: ErrorBody;
+    /**
+     * Nothing was installed. With `plan`: the server changed since the preview, and this is the plan as it stands now. Without: the journey is not this flow's to install, or cannot be installed as shared server structure.
+     */
+    409: InstallRefusal;
+    /**
+     * Another operation on this journey is running. Nothing was touched.
+     */
+    423: ErrorBody;
+};
+
+export type InstallFlowError = InstallFlowErrors[keyof InstallFlowErrors];
+
+export type InstallFlowResponses = {
+    /**
+     * What the install did. A partial install is a 200 with `failure` set.
+     */
+    200: InstallResult;
+};
+
+export type InstallFlowResponse = InstallFlowResponses[keyof InstallFlowResponses];
+
+export type GetInstallPlanData = {
+    body?: never;
+    path: {
+        guildId: string;
+        flowId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flows/{flowId}/install-plan';
+};
+
+export type GetInstallPlanErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, the flow is not in it, or the flow declares nothing to install.
+     */
+    404: ErrorBody;
+    /**
+     * The journey is not this flow's to install, or declares something that cannot be installed as shared server structure.
+     */
+    409: ErrorBody;
+};
+
+export type GetInstallPlanError = GetInstallPlanErrors[keyof GetInstallPlanErrors];
+
+export type GetInstallPlanResponses = {
+    /**
+     * The plan, blocked items included.
+     */
+    200: InstallPlan;
+};
+
+export type GetInstallPlanResponse = GetInstallPlanResponses[keyof GetInstallPlanResponses];
+
+export type GetPublishedStateData = {
+    body?: never;
+    path: {
+        guildId: string;
+        flowId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flows/{flowId}/published';
+};
+
+export type GetPublishedStateErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the flow is not in it.
+     */
+    404: ErrorBody;
+};
+
+export type GetPublishedStateError = GetPublishedStateErrors[keyof GetPublishedStateErrors];
+
+export type GetPublishedStateResponses = {
+    /**
+     * Its button messages and the resources its journey put in the guild.
+     */
+    200: PublishedFlowState;
+};
+
+export type GetPublishedStateResponse = GetPublishedStateResponses[keyof GetPublishedStateResponses];
+
+export type UndeployFlowData = {
+    body?: never;
+    path: {
+        guildId: string;
+        flowId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flows/{flowId}/undeploy';
+};
+
+export type UndeployFlowErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+};
+
+export type UndeployFlowError = UndeployFlowErrors[keyof UndeployFlowErrors];
+
+export type UndeployFlowResponses = {
+    /**
+     * What became of each recorded message.
+     */
+    200: UndeployResult;
+};
+
+export type UndeployFlowResponse = UndeployFlowResponses[keyof UndeployFlowResponses];
+
+export type UnpublishFlowData = {
+    body?: never;
+    path: {
+        guildId: string;
+        flowId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flows/{flowId}/unpublish';
+};
+
+export type UnpublishFlowErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the flow has installed nothing to unpublish.
+     */
+    404: ErrorBody;
+    /**
+     * Nothing was deleted: the journey belongs to another flow, other flows share it, or the teardown was refused before it started.
+     */
+    409: ErrorBody;
+};
+
+export type UnpublishFlowError = UnpublishFlowErrors[keyof UnpublishFlowErrors];
+
+export type UnpublishFlowResponses = {
+    /**
+     * What became of each resource.
+     */
+    200: UnpublishResult;
+};
+
+export type UnpublishFlowResponse = UnpublishFlowResponses[keyof UnpublishFlowResponses];
 
 export type GetGuildRolesData = {
     body?: never;

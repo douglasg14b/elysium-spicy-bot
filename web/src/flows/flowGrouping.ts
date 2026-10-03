@@ -1,4 +1,4 @@
-import type { FlowJourneyMembership, FlowSummary } from '../api/types';
+import type { FlowJourneyMembership, FlowSummary } from '@brattybot/web-sdk';
 
 /**
  * Turning a flat flow list into the rows the flows page draws.

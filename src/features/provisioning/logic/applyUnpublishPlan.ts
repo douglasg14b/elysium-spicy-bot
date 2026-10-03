@@ -12,7 +12,7 @@ import { survivorsOf, type UnpublishItem, type UnpublishPlan } from './unpublish
  * operator was already shown why. `failed` is the new outcome: the delete was
  * attempted and Discord said no.
  */
-const UNPUBLISH_OUTCOMES = ['deleted', 'forgotten', 'refused', 'failed'] as const;
+export const UNPUBLISH_OUTCOMES = ['deleted', 'forgotten', 'refused', 'failed'] as const;
 export type UnpublishOutcome = (typeof UNPUBLISH_OUTCOMES)[number];
 
 export interface UnpublishedResource {

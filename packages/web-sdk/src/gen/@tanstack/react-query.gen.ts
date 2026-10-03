@@ -3,8 +3,8 @@
 import { queryOptions, type UseMutationOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { getGuildChannels, getGuildRoles, getGuildSettings, getWarningsConfig, listGuilds, type Options, updateGuildSettings, updateWarningsConfig } from '../sdk.gen';
-import type { GetGuildChannelsData, GetGuildChannelsError, GetGuildChannelsResponse, GetGuildRolesData, GetGuildRolesError, GetGuildRolesResponse, GetGuildSettingsData, GetGuildSettingsError, GetGuildSettingsResponse, GetWarningsConfigData, GetWarningsConfigError, GetWarningsConfigResponse, ListGuildsData, ListGuildsError, ListGuildsResponse, UpdateGuildSettingsData, UpdateGuildSettingsError, UpdateGuildSettingsResponse, UpdateWarningsConfigData, UpdateWarningsConfigError, UpdateWarningsConfigResponse } from '../types.gen';
+import { checkFlow, createFlow, deleteFlow, deployFlow, discardFlowDraft, getFlow, getGuildChannels, getGuildRoles, getGuildSettings, getInstallPlan, getPublishedState, getWarningsConfig, installFlow, listFlowDrafts, listFlows, listGuilds, type Options, saveMyFlowDraft, undeployFlow, unpublishFlow, updateFlow, updateGuildSettings, updateWarningsConfig } from '../sdk.gen';
+import type { CheckFlowData, CheckFlowError, CheckFlowResponse, CreateFlowData, CreateFlowError, CreateFlowResponse, DeleteFlowData, DeleteFlowError, DeleteFlowResponse, DeployFlowData, DeployFlowError, DeployFlowResponse, DiscardFlowDraftData, DiscardFlowDraftError, DiscardFlowDraftResponse, GetFlowData, GetFlowError, GetFlowResponse, GetGuildChannelsData, GetGuildChannelsError, GetGuildChannelsResponse, GetGuildRolesData, GetGuildRolesError, GetGuildRolesResponse, GetGuildSettingsData, GetGuildSettingsError, GetGuildSettingsResponse, GetInstallPlanData, GetInstallPlanError, GetInstallPlanResponse, GetPublishedStateData, GetPublishedStateError, GetPublishedStateResponse, GetWarningsConfigData, GetWarningsConfigError, GetWarningsConfigResponse, InstallFlowData, InstallFlowError, InstallFlowResponse, ListFlowDraftsData, ListFlowDraftsError, ListFlowDraftsResponse, ListFlowsData, ListFlowsError, ListFlowsResponse, ListGuildsData, ListGuildsError, ListGuildsResponse, SaveMyFlowDraftData, SaveMyFlowDraftError, SaveMyFlowDraftResponse, UndeployFlowData, UndeployFlowError, UndeployFlowResponse, UnpublishFlowData, UnpublishFlowError, UnpublishFlowResponse, UpdateFlowData, UpdateFlowError, UpdateFlowResponse, UpdateGuildSettingsData, UpdateGuildSettingsError, UpdateGuildSettingsResponse, UpdateWarningsConfigData, UpdateWarningsConfigError, UpdateWarningsConfigResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -100,6 +100,266 @@ export const updateWarningsConfigMutation = (options?: Partial<Options<UpdateWar
     const mutationOptions: UseMutationOptions<UpdateWarningsConfigResponse, UpdateWarningsConfigError, Options<UpdateWarningsConfigData>> = {
         mutationFn: async (fnOptions) => {
             const { data } = await updateWarningsConfig({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const listFlowsQueryKey = (options: Options<ListFlowsData>) => createQueryKey('listFlows', options);
+
+/**
+ * The guild's flows, as list rows
+ */
+export const listFlowsOptions = (options: Options<ListFlowsData>) => queryOptions<ListFlowsResponse, ListFlowsError, ListFlowsResponse, ReturnType<typeof listFlowsQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await listFlows({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: listFlowsQueryKey(options)
+});
+
+/**
+ * Create a flow, switched off
+ */
+export const createFlowMutation = (options?: Partial<Options<CreateFlowData>>): UseMutationOptions<CreateFlowResponse, CreateFlowError, Options<CreateFlowData>> => {
+    const mutationOptions: UseMutationOptions<CreateFlowResponse, CreateFlowError, Options<CreateFlowData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await createFlow({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Delete a flow and its drafts. Touches nothing in the guild.
+ */
+export const deleteFlowMutation = (options?: Partial<Options<DeleteFlowData>>): UseMutationOptions<DeleteFlowResponse, DeleteFlowError, Options<DeleteFlowData>> => {
+    const mutationOptions: UseMutationOptions<DeleteFlowResponse, DeleteFlowError, Options<DeleteFlowData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await deleteFlow({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const getFlowQueryKey = (options: Options<GetFlowData>) => createQueryKey('getFlow', options);
+
+/**
+ * One flow with its graph, and what stands between it and going live
+ */
+export const getFlowOptions = (options: Options<GetFlowData>) => queryOptions<GetFlowResponse, GetFlowError, GetFlowResponse, ReturnType<typeof getFlowQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getFlow({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getFlowQueryKey(options)
+});
+
+/**
+ * Update a flow's name, switch or graph
+ */
+export const updateFlowMutation = (options?: Partial<Options<UpdateFlowData>>): UseMutationOptions<UpdateFlowResponse, UpdateFlowError, Options<UpdateFlowData>> => {
+    const mutationOptions: UseMutationOptions<UpdateFlowResponse, UpdateFlowError, Options<UpdateFlowData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await updateFlow({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * What a save of this graph would say is wrong with it. Changes nothing.
+ */
+export const checkFlowMutation = (options?: Partial<Options<CheckFlowData>>): UseMutationOptions<CheckFlowResponse, CheckFlowError, Options<CheckFlowData>> => {
+    const mutationOptions: UseMutationOptions<CheckFlowResponse, CheckFlowError, Options<CheckFlowData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await checkFlow({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Post the flow's trigger buttons into the channels their nodes name
+ */
+export const deployFlowMutation = (options?: Partial<Options<DeployFlowData>>): UseMutationOptions<DeployFlowResponse, DeployFlowError, Options<DeployFlowData>> => {
+    const mutationOptions: UseMutationOptions<DeployFlowResponse, DeployFlowError, Options<DeployFlowData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await deployFlow({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const listFlowDraftsQueryKey = (options: Options<ListFlowDraftsData>) => createQueryKey('listFlowDrafts', options);
+
+/**
+ * Every operator's draft of a flow, graphs included
+ */
+export const listFlowDraftsOptions = (options: Options<ListFlowDraftsData>) => queryOptions<ListFlowDraftsResponse, ListFlowDraftsError, ListFlowDraftsResponse, ReturnType<typeof listFlowDraftsQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await listFlowDrafts({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: listFlowDraftsQueryKey(options)
+});
+
+/**
+ * Write the caller's own draft of a flow
+ */
+export const saveMyFlowDraftMutation = (options?: Partial<Options<SaveMyFlowDraftData>>): UseMutationOptions<SaveMyFlowDraftResponse, SaveMyFlowDraftError, Options<SaveMyFlowDraftData>> => {
+    const mutationOptions: UseMutationOptions<SaveMyFlowDraftResponse, SaveMyFlowDraftError, Options<SaveMyFlowDraftData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await saveMyFlowDraft({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Discard any operator's draft of a flow
+ */
+export const discardFlowDraftMutation = (options?: Partial<Options<DiscardFlowDraftData>>): UseMutationOptions<DiscardFlowDraftResponse, DiscardFlowDraftError, Options<DiscardFlowDraftData>> => {
+    const mutationOptions: UseMutationOptions<DiscardFlowDraftResponse, DiscardFlowDraftError, Options<DiscardFlowDraftData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await discardFlowDraft({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Create the channels and roles the flow declares, and wire their ids into its nodes
+ */
+export const installFlowMutation = (options?: Partial<Options<InstallFlowData>>): UseMutationOptions<InstallFlowResponse, InstallFlowError, Options<InstallFlowData>> => {
+    const mutationOptions: UseMutationOptions<InstallFlowResponse, InstallFlowError, Options<InstallFlowData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await installFlow({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const getInstallPlanQueryKey = (options: Options<GetInstallPlanData>) => createQueryKey('getInstallPlan', options);
+
+/**
+ * What installing the flow's declared resources would do. Changes nothing.
+ */
+export const getInstallPlanOptions = (options: Options<GetInstallPlanData>) => queryOptions<GetInstallPlanResponse, GetInstallPlanError, GetInstallPlanResponse, ReturnType<typeof getInstallPlanQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getInstallPlan({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getInstallPlanQueryKey(options)
+});
+
+export const getPublishedStateQueryKey = (options: Options<GetPublishedStateData>) => createQueryKey('getPublishedState', options);
+
+/**
+ * What the flow has live in the guild
+ */
+export const getPublishedStateOptions = (options: Options<GetPublishedStateData>) => queryOptions<GetPublishedStateResponse, GetPublishedStateError, GetPublishedStateResponse, ReturnType<typeof getPublishedStateQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getPublishedState({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getPublishedStateQueryKey(options)
+});
+
+/**
+ * Delete the messages carrying the flow's buttons. Works after the flow is gone.
+ */
+export const undeployFlowMutation = (options?: Partial<Options<UndeployFlowData>>): UseMutationOptions<UndeployFlowResponse, UndeployFlowError, Options<UndeployFlowData>> => {
+    const mutationOptions: UseMutationOptions<UndeployFlowResponse, UndeployFlowError, Options<UndeployFlowData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await undeployFlow({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Destroy the channels and roles the flow's journey created. Irreversible.
+ */
+export const unpublishFlowMutation = (options?: Partial<Options<UnpublishFlowData>>): UseMutationOptions<UnpublishFlowResponse, UnpublishFlowError, Options<UnpublishFlowData>> => {
+    const mutationOptions: UseMutationOptions<UnpublishFlowResponse, UnpublishFlowError, Options<UnpublishFlowData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await unpublishFlow({
                 ...options,
                 ...fnOptions,
                 throwOnError: true

@@ -1,4 +1,10 @@
-/** Flow-builder API helpers. Same style as `config.ts` — pages stay URL-free. */
+/**
+ * Flow-builder API helpers. Same style as `config.ts` — pages stay URL-free.
+ *
+ * The flow routes are in the spec now, and the flows list and the installed-resources
+ * dialog call the generated SDK (`@brattybot/web-sdk`) instead. What is left here is
+ * what the flow builder and its hooks still call; it goes when the builder moves.
+ */
 
 import { api } from './client';
 import type {
@@ -8,15 +14,12 @@ import type {
     FlowDraftSummary,
     FlowGraph,
     FlowSaveResult,
-    FlowSummary,
     FlowValidationIssue,
     GuildRole,
     InstallPlan,
     InstallResult,
     NodeDescriptor,
     PublishedFlowState,
-    UndeployedButtonMessage,
-    UnpublishedResource,
 } from './types';
 
 /** The node registry — what the palette can offer. Not guild-scoped. */
@@ -35,18 +38,8 @@ export function getGuildRoles(guildId: string): Promise<GuildRole[]> {
         .then((res) => res.roles);
 }
 
-export function listFlows(guildId: string): Promise<FlowSummary[]> {
-    return api
-        .get<{ flows: FlowSummary[] }>(`/api/guilds/${guildId}/flows`)
-        .then((res) => res.flows);
-}
-
 export function getFlow(guildId: string, flowId: string): Promise<Flow> {
     return api.get<Flow>(`/api/guilds/${guildId}/flows/${flowId}`);
-}
-
-export function createFlow(guildId: string, name: string, graph?: FlowGraph): Promise<Flow> {
-    return api.post<Flow>(`/api/guilds/${guildId}/flows`, graph ? { name, graph } : { name });
 }
 
 /**
@@ -110,10 +103,6 @@ export function discardFlowDraft(guildId: string, flowId: string, draftId: numbe
     return api.delete<void>(`/api/guilds/${guildId}/flows/${flowId}/drafts/${draftId}`);
 }
 
-export function deleteFlow(guildId: string, flowId: string): Promise<void> {
-    return api.delete<void>(`/api/guilds/${guildId}/flows/${flowId}`);
-}
-
 /**
  * Posts the flow's trigger buttons into the channels their nodes name.
  *
@@ -148,33 +137,9 @@ export function installFlow(guildId: string, flowId: string): Promise<InstallRes
 }
 
 /**
- * What this flow has live in the guild right now.
- *
- * The delete dialog asks before it offers to delete anything, because deleting a flow
- * deliberately leaves all of it behind.
+ * What this flow has live in the guild right now — for the builder's installed count.
+ * The installed-resources dialog asks through the SDK's `getPublishedStateOptions`.
  */
 export function getPublishedState(guildId: string, flowId: string): Promise<PublishedFlowState> {
     return api.get<PublishedFlowState>(`/api/guilds/${guildId}/flows/${flowId}/published`);
-}
-
-/** Deletes the messages carrying this flow's buttons. Safe after the flow is gone. */
-export function undeployFlow(
-    guildId: string,
-    flowId: string
-): Promise<{ results: UndeployedButtonMessage[] }> {
-    return api.post<{ results: UndeployedButtonMessage[] }>(
-        `/api/guilds/${guildId}/flows/${flowId}/undeploy`,
-        {}
-    );
-}
-
-/** Destroys the channels and roles this flow's journey created. Irreversible. */
-export function unpublishFlow(
-    guildId: string,
-    flowId: string
-): Promise<{ results: UnpublishedResource[] }> {
-    return api.post<{ results: UnpublishedResource[] }>(
-        `/api/guilds/${guildId}/flows/${flowId}/unpublish`,
-        {}
-    );
 }

@@ -2,6 +2,46 @@
     "components": {
         "parameters": {},
         "schemas": {
+            "DeployResult": {
+                "properties": {
+                    "ok": {
+                        "enum": [
+                            true
+                        ],
+                        "type": "boolean"
+                    },
+                    "posted": {
+                        "items": {
+                            "$ref": "#/components/schemas/DeployedButtonMessage"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "ok",
+                    "posted"
+                ],
+                "type": "object"
+            },
+            "DeployedButtonMessage": {
+                "properties": {
+                    "buttonCount": {
+                        "type": "number"
+                    },
+                    "channelId": {
+                        "type": "string"
+                    },
+                    "messageId": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "channelId",
+                    "messageId",
+                    "buttonCount"
+                ],
+                "type": "object"
+            },
             "ErrorBody": {
                 "properties": {
                     "error": {
@@ -10,6 +50,481 @@
                 },
                 "required": [
                     "error"
+                ],
+                "type": "object"
+            },
+            "Flow": {
+                "description": "A flow with its graph. `issues` describes the stored graph: empty means it is ready to go live, and a switched-off flow may hold an unfinished one.",
+                "properties": {
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "flowId": {
+                        "type": "string"
+                    },
+                    "graph": {
+                        "$ref": "#/components/schemas/FlowGraph"
+                    },
+                    "issues": {
+                        "items": {
+                            "$ref": "#/components/schemas/FlowValidationIssue"
+                        },
+                        "type": "array"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "updatedAt": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "flowId",
+                    "name",
+                    "enabled",
+                    "graph",
+                    "issues",
+                    "createdAt",
+                    "updatedAt"
+                ],
+                "type": "object"
+            },
+            "FlowCheck": {
+                "properties": {
+                    "graph": {
+                        "$ref": "#/components/schemas/FlowGraph"
+                    }
+                },
+                "required": [
+                    "graph"
+                ],
+                "type": "object"
+            },
+            "FlowCreate": {
+                "properties": {
+                    "graph": {
+                        "$ref": "#/components/schemas/FlowGraph"
+                    },
+                    "name": {
+                        "maxLength": 100,
+                        "minLength": 1,
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "name"
+                ],
+                "type": "object"
+            },
+            "FlowDraft": {
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/FlowDraftSummary"
+                    },
+                    {
+                        "properties": {
+                            "graph": {
+                                "$ref": "#/components/schemas/FlowGraph"
+                            },
+                            "issues": {
+                                "items": {
+                                    "$ref": "#/components/schemas/FlowValidationIssue"
+                                },
+                                "type": "array"
+                            }
+                        },
+                        "required": [
+                            "graph",
+                            "issues"
+                        ],
+                        "type": "object"
+                    }
+                ],
+                "description": "One operator's draft of a flow, with its graph and that graph's readiness issues."
+            },
+            "FlowDraftSave": {
+                "description": "The caller's canvas. `baseUpdatedAt` is the flow version it was loaded from.",
+                "properties": {
+                    "baseUpdatedAt": {
+                        "format": "date-time",
+                        "type": "string"
+                    },
+                    "graph": {
+                        "$ref": "#/components/schemas/FlowGraph"
+                    },
+                    "name": {
+                        "maxLength": 100,
+                        "minLength": 1,
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "name",
+                    "graph",
+                    "baseUpdatedAt"
+                ],
+                "type": "object"
+            },
+            "FlowDraftSummary": {
+                "description": "One operator's draft of a flow, without its graph. `mine` is the caller's own; `flowSavedSince` means the flow was saved after the draft was started.",
+                "properties": {
+                    "authorId": {
+                        "type": "string"
+                    },
+                    "authorName": {
+                        "type": "string"
+                    },
+                    "baseUpdatedAt": {
+                        "type": "string"
+                    },
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "draftId": {
+                        "type": "number"
+                    },
+                    "flowSavedSince": {
+                        "type": "boolean"
+                    },
+                    "mine": {
+                        "type": "boolean"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "updatedAt": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "draftId",
+                    "authorId",
+                    "authorName",
+                    "mine",
+                    "name",
+                    "baseUpdatedAt",
+                    "flowSavedSince",
+                    "createdAt",
+                    "updatedAt"
+                ],
+                "type": "object"
+            },
+            "FlowEdge": {
+                "properties": {
+                    "id": {
+                        "minLength": 1,
+                        "type": "string"
+                    },
+                    "source": {
+                        "minLength": 1,
+                        "type": "string"
+                    },
+                    "sourceHandle": {
+                        "minLength": 1,
+                        "type": "string"
+                    },
+                    "target": {
+                        "minLength": 1,
+                        "type": "string"
+                    },
+                    "targetHandle": {
+                        "minLength": 1,
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "source",
+                    "target"
+                ],
+                "type": "object"
+            },
+            "FlowGraph": {
+                "properties": {
+                    "edges": {
+                        "items": {
+                            "$ref": "#/components/schemas/FlowEdge"
+                        },
+                        "type": "array"
+                    },
+                    "nodes": {
+                        "items": {
+                            "$ref": "#/components/schemas/FlowNode"
+                        },
+                        "type": "array"
+                    },
+                    "version": {
+                        "enum": [
+                            1
+                        ],
+                        "type": "number"
+                    }
+                },
+                "required": [
+                    "version",
+                    "nodes",
+                    "edges"
+                ],
+                "type": "object"
+            },
+            "FlowJourneyMembership": {
+                "description": "The journey a flow sits in, present for every flow that resolves to one. Group rows on `memberCount > 1`, not on this being present: 1 is the implicit journey a lone flow gets. `installState` says install has run over the declared resources, read from the binding table — not that every channel still exists. `installedKeys` are the keys with a live binding, which must stop following their resource name.",
+                "properties": {
+                    "installState": {
+                        "enum": [
+                            "none",
+                            "partial",
+                            "all"
+                        ],
+                        "type": "string"
+                    },
+                    "installedCount": {
+                        "type": "number"
+                    },
+                    "installedKeys": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    },
+                    "journeyKey": {
+                        "type": "string"
+                    },
+                    "memberCount": {
+                        "type": "number"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "resourceCount": {
+                        "type": "number"
+                    }
+                },
+                "required": [
+                    "journeyKey",
+                    "name",
+                    "resourceCount",
+                    "memberCount",
+                    "installState",
+                    "installedCount",
+                    "installedKeys"
+                ],
+                "type": "object"
+            },
+            "FlowNode": {
+                "properties": {
+                    "data": {
+                        "additionalProperties": {},
+                        "type": "object"
+                    },
+                    "id": {
+                        "minLength": 1,
+                        "type": "string"
+                    },
+                    "position": {
+                        "properties": {
+                            "x": {
+                                "type": "number"
+                            },
+                            "y": {
+                                "type": "number"
+                            }
+                        },
+                        "required": [
+                            "x",
+                            "y"
+                        ],
+                        "type": "object"
+                    },
+                    "type": {
+                        "minLength": 1,
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "type",
+                    "position",
+                    "data"
+                ],
+                "type": "object"
+            },
+            "FlowRefusal": {
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/ErrorBody"
+                    },
+                    {
+                        "properties": {
+                            "issues": {
+                                "items": {
+                                    "$ref": "#/components/schemas/FlowValidationIssue"
+                                },
+                                "type": "array"
+                            }
+                        },
+                        "type": "object"
+                    }
+                ]
+            },
+            "FlowSaveResult": {
+                "discriminator": {
+                    "mapping": {
+                        "draft": "#/components/schemas/FlowSavedAsDraft",
+                        "flow": "#/components/schemas/FlowSavedToFlow"
+                    },
+                    "propertyName": "savedAs"
+                },
+                "oneOf": [
+                    {
+                        "$ref": "#/components/schemas/FlowSavedToFlow"
+                    },
+                    {
+                        "$ref": "#/components/schemas/FlowSavedAsDraft"
+                    }
+                ]
+            },
+            "FlowSavedAsDraft": {
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/Flow"
+                    },
+                    {
+                        "properties": {
+                            "draft": {
+                                "$ref": "#/components/schemas/FlowDraft"
+                            },
+                            "savedAs": {
+                                "enum": [
+                                    "draft"
+                                ],
+                                "type": "string"
+                            },
+                            "uninstalled": {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            }
+                        },
+                        "required": [
+                            "savedAs",
+                            "draft",
+                            "uninstalled"
+                        ],
+                        "type": "object"
+                    }
+                ],
+                "description": "The flow is live and the graph was incomplete or waits on its install, so it went to the saver's draft and the flow is untouched. `draft.issues` are what the canvas shows; `uninstalled` names the declared resources the graph picks that are not in the server yet."
+            },
+            "FlowSavedToFlow": {
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/Flow"
+                    },
+                    {
+                        "properties": {
+                            "savedAs": {
+                                "enum": [
+                                    "flow"
+                                ],
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "savedAs"
+                        ],
+                        "type": "object"
+                    }
+                ],
+                "description": "The save landed on the flow. The saver's own draft, if they had one, is gone."
+            },
+            "FlowSummary": {
+                "description": "One row of the flows list, without the graph. `issueCount` above 0 means the flow is incomplete: saved, but refused if switched on.",
+                "properties": {
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "flowId": {
+                        "type": "string"
+                    },
+                    "issueCount": {
+                        "type": "number"
+                    },
+                    "journey": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/FlowJourneyMembership"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "nodeCount": {
+                        "type": "number"
+                    },
+                    "updatedAt": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "flowId",
+                    "name",
+                    "enabled",
+                    "nodeCount",
+                    "issueCount",
+                    "journey",
+                    "createdAt",
+                    "updatedAt"
+                ],
+                "type": "object"
+            },
+            "FlowUpdate": {
+                "description": "A partial update: send only what changed. `baseUpdatedAt` is the flow version the sent graph was edited from, recorded if the save lands as a draft.",
+                "properties": {
+                    "baseUpdatedAt": {
+                        "format": "date-time",
+                        "type": "string"
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "graph": {
+                        "$ref": "#/components/schemas/FlowGraph"
+                    },
+                    "name": {
+                        "maxLength": 100,
+                        "minLength": 1,
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "FlowValidationIssue": {
+                "description": "One problem with a graph. `nodeId` names the node it is on and `field` the dotted path into its config (e.g. `fields.0.name`); a problem with the graph as a whole has neither.",
+                "properties": {
+                    "field": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "nodeId": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "message"
                 ],
                 "type": "object"
             },
@@ -145,6 +660,351 @@
                 },
                 "required": [
                     "staffRoleIds"
+                ],
+                "type": "object"
+            },
+            "InstallPlan": {
+                "description": "What installing would do, item by item, unchanged items included. `applicable` is false when any blocker or blocked item stands in the way; the install re-checks it regardless.",
+                "properties": {
+                    "applicable": {
+                        "type": "boolean"
+                    },
+                    "blockers": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    },
+                    "items": {
+                        "items": {
+                            "$ref": "#/components/schemas/InstallPlanItem"
+                        },
+                        "type": "array"
+                    },
+                    "journeyKey": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "journeyKey",
+                    "applicable",
+                    "blockers",
+                    "items"
+                ],
+                "type": "object"
+            },
+            "InstallPlanItem": {
+                "properties": {
+                    "action": {
+                        "enum": [
+                            "create",
+                            "adopt",
+                            "recover",
+                            "reuse",
+                            "blocked"
+                        ],
+                        "type": "string"
+                    },
+                    "discordId": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "enum": [
+                            "category",
+                            "textChannel",
+                            "role"
+                        ],
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "reason": {
+                        "type": "string"
+                    },
+                    "resourceKey": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "resourceKey",
+                    "kind",
+                    "action",
+                    "name"
+                ],
+                "type": "object"
+            },
+            "InstallRefusal": {
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/ErrorBody"
+                    },
+                    {
+                        "properties": {
+                            "plan": {
+                                "$ref": "#/components/schemas/InstallPlan"
+                            }
+                        },
+                        "type": "object"
+                    }
+                ]
+            },
+            "InstallResult": {
+                "properties": {
+                    "applied": {
+                        "items": {
+                            "$ref": "#/components/schemas/InstalledResource"
+                        },
+                        "type": "array"
+                    },
+                    "failure": {
+                        "type": "string"
+                    },
+                    "unresolved": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    },
+                    "updatedFlowIds": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    },
+                    "writeBackFailed": {
+                        "type": "boolean"
+                    },
+                    "writtenCount": {
+                        "type": "number"
+                    }
+                },
+                "required": [
+                    "applied",
+                    "writtenCount",
+                    "updatedFlowIds",
+                    "writeBackFailed",
+                    "unresolved"
+                ],
+                "type": "object"
+            },
+            "InstalledResource": {
+                "properties": {
+                    "action": {
+                        "enum": [
+                            "created",
+                            "adopted",
+                            "reused"
+                        ],
+                        "type": "string"
+                    },
+                    "discordId": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "resourceKey": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "resourceKey",
+                    "discordId",
+                    "action",
+                    "name"
+                ],
+                "type": "object"
+            },
+            "PublishedButtonMessage": {
+                "properties": {
+                    "channelId": {
+                        "type": "string"
+                    },
+                    "messageId": {
+                        "type": "string"
+                    },
+                    "nodeIds": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "channelId",
+                    "messageId",
+                    "nodeIds"
+                ],
+                "type": "object"
+            },
+            "PublishedFlowState": {
+                "description": "What a flow or a journey has live in the guild. An empty `buttonMessages` does not mean nothing is posted while `mayHaveUnrecordedButtons` is true: buttons posted before they were recorded cannot be found.",
+                "properties": {
+                    "buttonMessages": {
+                        "items": {
+                            "$ref": "#/components/schemas/PublishedButtonMessage"
+                        },
+                        "type": "array"
+                    },
+                    "deletableResources": {
+                        "items": {
+                            "$ref": "#/components/schemas/PublishedResource"
+                        },
+                        "type": "array"
+                    },
+                    "mayHaveUnrecordedButtons": {
+                        "type": "boolean"
+                    },
+                    "refusedResources": {
+                        "items": {
+                            "$ref": "#/components/schemas/PublishedResource"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "buttonMessages",
+                    "deletableResources",
+                    "refusedResources",
+                    "mayHaveUnrecordedButtons"
+                ],
+                "type": "object"
+            },
+            "PublishedResource": {
+                "properties": {
+                    "discordId": {
+                        "type": "string"
+                    },
+                    "explanation": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "refusalReason": {
+                        "enum": [
+                            "adopted",
+                            "category-has-survivors",
+                            "missing-permission",
+                            "unrecognised-state",
+                            "interrupted-create"
+                        ],
+                        "type": "string"
+                    },
+                    "refused": {
+                        "type": "boolean"
+                    },
+                    "resourceKey": {
+                        "type": "string"
+                    },
+                    "survivors": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "resourceKey",
+                    "kind",
+                    "name",
+                    "refused"
+                ],
+                "type": "object"
+            },
+            "UndeployResult": {
+                "properties": {
+                    "results": {
+                        "items": {
+                            "$ref": "#/components/schemas/UndeployedButtonMessage"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "results"
+                ],
+                "type": "object"
+            },
+            "UndeployedButtonMessage": {
+                "properties": {
+                    "channelId": {
+                        "type": "string"
+                    },
+                    "explanation": {
+                        "type": "string"
+                    },
+                    "messageId": {
+                        "type": "string"
+                    },
+                    "outcome": {
+                        "enum": [
+                            "removed",
+                            "alreadyGone",
+                            "failed"
+                        ],
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "channelId",
+                    "messageId",
+                    "outcome"
+                ],
+                "type": "object"
+            },
+            "UnpublishResult": {
+                "properties": {
+                    "results": {
+                        "items": {
+                            "$ref": "#/components/schemas/UnpublishedResource"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "results"
+                ],
+                "type": "object"
+            },
+            "UnpublishedResource": {
+                "properties": {
+                    "explanation": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "enum": [
+                            "category",
+                            "textChannel",
+                            "role"
+                        ],
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "outcome": {
+                        "enum": [
+                            "deleted",
+                            "forgotten",
+                            "refused",
+                            "failed"
+                        ],
+                        "type": "string"
+                    },
+                    "resourceKey": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "resourceKey",
+                    "kind",
+                    "name",
+                    "outcome"
                 ],
                 "type": "object"
             },
@@ -470,6 +1330,1356 @@
                 "summary": "Set the warnings mod-log channel",
                 "tags": [
                     "guilds"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/flows": {
+            "get": {
+                "operationId": "listFlows",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "flows": {
+                                            "items": {
+                                                "$ref": "#/components/schemas/FlowSummary"
+                                            },
+                                            "type": "array"
+                                        }
+                                    },
+                                    "required": [
+                                        "flows"
+                                    ],
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "Every flow in the guild, without graphs."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    }
+                },
+                "summary": "The guild's flows, as list rows",
+                "tags": [
+                    "flows"
+                ]
+            },
+            "post": {
+                "operationId": "createFlow",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FlowCreate"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Flow"
+                                }
+                            }
+                        },
+                        "description": "The new flow. An incomplete graph is stored, with its issues."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FlowRefusal"
+                                }
+                            }
+                        },
+                        "description": "The body was refused, the graph is too broken to store (`issues` says where), or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    },
+                    "415": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was not sent as JSON."
+                    }
+                },
+                "summary": "Create a flow, switched off",
+                "tags": [
+                    "flows"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/flows/{flowId}": {
+            "delete": {
+                "operationId": "deleteFlow",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "flowId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Deleted."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, or the flow is not in it."
+                    }
+                },
+                "summary": "Delete a flow and its drafts. Touches nothing in the guild.",
+                "tags": [
+                    "flows"
+                ]
+            },
+            "get": {
+                "operationId": "getFlow",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "flowId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Flow"
+                                }
+                            }
+                        },
+                        "description": "The flow."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, or the flow is not in it."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The flow's journey could not be read, so its readiness cannot be judged. The sentence names the cause."
+                    }
+                },
+                "summary": "One flow with its graph, and what stands between it and going live",
+                "tags": [
+                    "flows"
+                ]
+            },
+            "put": {
+                "operationId": "updateFlow",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "flowId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FlowUpdate"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FlowSaveResult"
+                                }
+                            }
+                        },
+                        "description": "Where the save landed: on the flow, or — for a live flow's incomplete graph — on the saver's draft."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FlowRefusal"
+                                }
+                            }
+                        },
+                        "description": "The body was refused; the graph is too broken to store; the flow cannot be switched on because its graph is incomplete (`issues` lists why) or waits on its install (`issues` empty); or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, or the flow is not in it."
+                    },
+                    "415": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was not sent as JSON."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The flow's journey could not be read. A request that could have been refused wrote nothing; a switch-off or rename was still written, and its sentence starts with 'Saved.'"
+                    }
+                },
+                "summary": "Update a flow's name, switch or graph",
+                "tags": [
+                    "flows"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/flows/{flowId}/check": {
+            "post": {
+                "operationId": "checkFlow",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "flowId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FlowCheck"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "issues": {
+                                            "items": {
+                                                "$ref": "#/components/schemas/FlowValidationIssue"
+                                            },
+                                            "type": "array"
+                                        }
+                                    },
+                                    "required": [
+                                        "issues"
+                                    ],
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "The issues a save would report. Empty means ready."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FlowRefusal"
+                                }
+                            }
+                        },
+                        "description": "The body was refused, the graph is too broken to store (`issues` says where), or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, or the flow is not in it."
+                    },
+                    "415": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was not sent as JSON."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The flow's journey could not be read, so its readiness cannot be judged. The sentence names the cause."
+                    }
+                },
+                "summary": "What a save of this graph would say is wrong with it. Changes nothing.",
+                "tags": [
+                    "flows"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/flows/{flowId}/deploy": {
+            "post": {
+                "operationId": "deployFlow",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "flowId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DeployResult"
+                                }
+                            }
+                        },
+                        "description": "Posted: one message per destination channel."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Nothing was posted, and the sentence says why — or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, or the flow is not in it."
+                    }
+                },
+                "summary": "Post the flow's trigger buttons into the channels their nodes name",
+                "tags": [
+                    "flows"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/flows/{flowId}/drafts": {
+            "get": {
+                "operationId": "listFlowDrafts",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "flowId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "drafts": {
+                                            "items": {
+                                                "$ref": "#/components/schemas/FlowDraft"
+                                            },
+                                            "type": "array"
+                                        }
+                                    },
+                                    "required": [
+                                        "drafts"
+                                    ],
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "The drafts, most recently edited first, each with its readiness issues."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, or the flow is not in it."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The flow's journey could not be read, so its readiness cannot be judged. The sentence names the cause."
+                    }
+                },
+                "summary": "Every operator's draft of a flow, graphs included",
+                "tags": [
+                    "flows"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/flows/{flowId}/drafts/mine": {
+            "put": {
+                "operationId": "saveMyFlowDraft",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "flowId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FlowDraftSave"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FlowDraftSummary"
+                                }
+                            }
+                        },
+                        "description": "The draft as saved, without its graph."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FlowRefusal"
+                                }
+                            }
+                        },
+                        "description": "The body was refused, the graph is too broken to store (`issues` says where), or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, or the flow is not in it."
+                    },
+                    "415": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was not sent as JSON."
+                    }
+                },
+                "summary": "Write the caller's own draft of a flow",
+                "tags": [
+                    "flows"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/flows/{flowId}/drafts/{draftId}": {
+            "delete": {
+                "operationId": "discardFlowDraft",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "flowId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "draftId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Discarded."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, the flow is not in it, or the flow has no draft with that id."
+                    }
+                },
+                "summary": "Discard any operator's draft of a flow",
+                "tags": [
+                    "flows"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/flows/{flowId}/install": {
+            "post": {
+                "operationId": "installFlow",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "flowId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/InstallResult"
+                                }
+                            }
+                        },
+                        "description": "What the install did. A partial install is a 200 with `failure` set."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, the flow is not in it, or the flow declares nothing to install."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/InstallRefusal"
+                                }
+                            }
+                        },
+                        "description": "Nothing was installed. With `plan`: the server changed since the preview, and this is the plan as it stands now. Without: the journey is not this flow's to install, or cannot be installed as shared server structure."
+                    },
+                    "423": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Another operation on this journey is running. Nothing was touched."
+                    }
+                },
+                "summary": "Create the channels and roles the flow declares, and wire their ids into its nodes",
+                "tags": [
+                    "flows"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/flows/{flowId}/install-plan": {
+            "get": {
+                "operationId": "getInstallPlan",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "flowId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/InstallPlan"
+                                }
+                            }
+                        },
+                        "description": "The plan, blocked items included."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, the flow is not in it, or the flow declares nothing to install."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The journey is not this flow's to install, or declares something that cannot be installed as shared server structure."
+                    }
+                },
+                "summary": "What installing the flow's declared resources would do. Changes nothing.",
+                "tags": [
+                    "flows"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/flows/{flowId}/published": {
+            "get": {
+                "operationId": "getPublishedState",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "flowId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PublishedFlowState"
+                                }
+                            }
+                        },
+                        "description": "Its button messages and the resources its journey put in the guild."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, or the flow is not in it."
+                    }
+                },
+                "summary": "What the flow has live in the guild",
+                "tags": [
+                    "flows"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/flows/{flowId}/undeploy": {
+            "post": {
+                "operationId": "undeployFlow",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "flowId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UndeployResult"
+                                }
+                            }
+                        },
+                        "description": "What became of each recorded message."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    }
+                },
+                "summary": "Delete the messages carrying the flow's buttons. Works after the flow is gone.",
+                "tags": [
+                    "flows"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/flows/{flowId}/unpublish": {
+            "post": {
+                "operationId": "unpublishFlow",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "flowId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UnpublishResult"
+                                }
+                            }
+                        },
+                        "description": "What became of each resource."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, or the flow has installed nothing to unpublish."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Nothing was deleted: the journey belongs to another flow, other flows share it, or the teardown was refused before it started."
+                    }
+                },
+                "summary": "Destroy the channels and roles the flow's journey created. Irreversible.",
+                "tags": [
+                    "flows"
                 ]
             }
         },

@@ -44,22 +44,6 @@ const NOT_YET_IN_SPEC: readonly string[] = [
     'GET /api/auth/callback',
     'GET /api/auth/me',
     'POST /api/auth/logout',
-    // flowRoutes.ts (drafts via flowDraftRoutes.ts)
-    'GET /api/guilds/{guildId}/flows/{flowId}/drafts',
-    'PUT /api/guilds/{guildId}/flows/{flowId}/drafts/mine',
-    'DELETE /api/guilds/{guildId}/flows/{flowId}/drafts/{draftId}',
-    'GET /api/guilds/{guildId}/flows',
-    'GET /api/guilds/{guildId}/flows/{flowId}',
-    'POST /api/guilds/{guildId}/flows/{flowId}/check',
-    'POST /api/guilds/{guildId}/flows',
-    'PUT /api/guilds/{guildId}/flows/{flowId}',
-    'DELETE /api/guilds/{guildId}/flows/{flowId}',
-    'POST /api/guilds/{guildId}/flows/{flowId}/deploy',
-    'GET /api/guilds/{guildId}/flows/{flowId}/install-plan',
-    'POST /api/guilds/{guildId}/flows/{flowId}/install',
-    'GET /api/guilds/{guildId}/flows/{flowId}/published',
-    'POST /api/guilds/{guildId}/flows/{flowId}/undeploy',
-    'POST /api/guilds/{guildId}/flows/{flowId}/unpublish',
     // journeyRoutes.ts
     'GET /api/guilds/{guildId}/journeys',
     'GET /api/guilds/{guildId}/journeys/{journeyKey}',
@@ -103,7 +87,7 @@ const NOT_YET_IN_SPEC: readonly string[] = [
  * raise it.** The other checks only see entries already on the list, so without this a
  * new, undeclared route plus one line here would pass every gate.
  */
-const NOT_YET_IN_SPEC_CEILING = 53;
+const NOT_YET_IN_SPEC_CEILING = 38;
 
 /**
  * The middleware `registerApiRoutes` mounts with `use`, by identity.

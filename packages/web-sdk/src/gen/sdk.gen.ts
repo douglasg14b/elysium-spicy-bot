@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { GetGuildChannelsData, GetGuildChannelsErrors, GetGuildChannelsResponses, GetGuildRolesData, GetGuildRolesErrors, GetGuildRolesResponses, GetGuildSettingsData, GetGuildSettingsErrors, GetGuildSettingsResponses, GetWarningsConfigData, GetWarningsConfigErrors, GetWarningsConfigResponses, ListGuildsData, ListGuildsErrors, ListGuildsResponses, UpdateGuildSettingsData, UpdateGuildSettingsErrors, UpdateGuildSettingsResponses, UpdateWarningsConfigData, UpdateWarningsConfigErrors, UpdateWarningsConfigResponses } from './types.gen';
+import type { CheckFlowData, CheckFlowErrors, CheckFlowResponses, CreateFlowData, CreateFlowErrors, CreateFlowResponses, DeleteFlowData, DeleteFlowErrors, DeleteFlowResponses, DeployFlowData, DeployFlowErrors, DeployFlowResponses, DiscardFlowDraftData, DiscardFlowDraftErrors, DiscardFlowDraftResponses, GetFlowData, GetFlowErrors, GetFlowResponses, GetGuildChannelsData, GetGuildChannelsErrors, GetGuildChannelsResponses, GetGuildRolesData, GetGuildRolesErrors, GetGuildRolesResponses, GetGuildSettingsData, GetGuildSettingsErrors, GetGuildSettingsResponses, GetInstallPlanData, GetInstallPlanErrors, GetInstallPlanResponses, GetPublishedStateData, GetPublishedStateErrors, GetPublishedStateResponses, GetWarningsConfigData, GetWarningsConfigErrors, GetWarningsConfigResponses, InstallFlowData, InstallFlowErrors, InstallFlowResponses, ListFlowDraftsData, ListFlowDraftsErrors, ListFlowDraftsResponses, ListFlowsData, ListFlowsErrors, ListFlowsResponses, ListGuildsData, ListGuildsErrors, ListGuildsResponses, SaveMyFlowDraftData, SaveMyFlowDraftErrors, SaveMyFlowDraftResponses, UndeployFlowData, UndeployFlowErrors, UndeployFlowResponses, UnpublishFlowData, UnpublishFlowErrors, UnpublishFlowResponses, UpdateFlowData, UpdateFlowErrors, UpdateFlowResponses, UpdateGuildSettingsData, UpdateGuildSettingsErrors, UpdateGuildSettingsResponses, UpdateWarningsConfigData, UpdateWarningsConfigErrors, UpdateWarningsConfigResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -44,6 +44,109 @@ export const updateWarningsConfig = <ThrowOnError extends boolean = true>(option
         ...options.headers
     }
 });
+
+/**
+ * The guild's flows, as list rows
+ */
+export const listFlows = <ThrowOnError extends boolean = true>(options: Options<ListFlowsData, ThrowOnError>): RequestResult<ListFlowsResponses, ListFlowsErrors, ThrowOnError> => (options.client ?? client).get<ListFlowsResponses, ListFlowsErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/flows', ...options });
+
+/**
+ * Create a flow, switched off
+ */
+export const createFlow = <ThrowOnError extends boolean = true>(options: Options<CreateFlowData, ThrowOnError>): RequestResult<CreateFlowResponses, CreateFlowErrors, ThrowOnError> => (options.client ?? client).post<CreateFlowResponses, CreateFlowErrors, ThrowOnError>({
+    url: '/api/guilds/{guildId}/flows',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Delete a flow and its drafts. Touches nothing in the guild.
+ */
+export const deleteFlow = <ThrowOnError extends boolean = true>(options: Options<DeleteFlowData, ThrowOnError>): RequestResult<DeleteFlowResponses, DeleteFlowErrors, ThrowOnError> => (options.client ?? client).delete<DeleteFlowResponses, DeleteFlowErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/flows/{flowId}', ...options });
+
+/**
+ * One flow with its graph, and what stands between it and going live
+ */
+export const getFlow = <ThrowOnError extends boolean = true>(options: Options<GetFlowData, ThrowOnError>): RequestResult<GetFlowResponses, GetFlowErrors, ThrowOnError> => (options.client ?? client).get<GetFlowResponses, GetFlowErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/flows/{flowId}', ...options });
+
+/**
+ * Update a flow's name, switch or graph
+ */
+export const updateFlow = <ThrowOnError extends boolean = true>(options: Options<UpdateFlowData, ThrowOnError>): RequestResult<UpdateFlowResponses, UpdateFlowErrors, ThrowOnError> => (options.client ?? client).put<UpdateFlowResponses, UpdateFlowErrors, ThrowOnError>({
+    url: '/api/guilds/{guildId}/flows/{flowId}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * What a save of this graph would say is wrong with it. Changes nothing.
+ */
+export const checkFlow = <ThrowOnError extends boolean = true>(options: Options<CheckFlowData, ThrowOnError>): RequestResult<CheckFlowResponses, CheckFlowErrors, ThrowOnError> => (options.client ?? client).post<CheckFlowResponses, CheckFlowErrors, ThrowOnError>({
+    url: '/api/guilds/{guildId}/flows/{flowId}/check',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Post the flow's trigger buttons into the channels their nodes name
+ */
+export const deployFlow = <ThrowOnError extends boolean = true>(options: Options<DeployFlowData, ThrowOnError>): RequestResult<DeployFlowResponses, DeployFlowErrors, ThrowOnError> => (options.client ?? client).post<DeployFlowResponses, DeployFlowErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/flows/{flowId}/deploy', ...options });
+
+/**
+ * Every operator's draft of a flow, graphs included
+ */
+export const listFlowDrafts = <ThrowOnError extends boolean = true>(options: Options<ListFlowDraftsData, ThrowOnError>): RequestResult<ListFlowDraftsResponses, ListFlowDraftsErrors, ThrowOnError> => (options.client ?? client).get<ListFlowDraftsResponses, ListFlowDraftsErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/flows/{flowId}/drafts', ...options });
+
+/**
+ * Write the caller's own draft of a flow
+ */
+export const saveMyFlowDraft = <ThrowOnError extends boolean = true>(options: Options<SaveMyFlowDraftData, ThrowOnError>): RequestResult<SaveMyFlowDraftResponses, SaveMyFlowDraftErrors, ThrowOnError> => (options.client ?? client).put<SaveMyFlowDraftResponses, SaveMyFlowDraftErrors, ThrowOnError>({
+    url: '/api/guilds/{guildId}/flows/{flowId}/drafts/mine',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Discard any operator's draft of a flow
+ */
+export const discardFlowDraft = <ThrowOnError extends boolean = true>(options: Options<DiscardFlowDraftData, ThrowOnError>): RequestResult<DiscardFlowDraftResponses, DiscardFlowDraftErrors, ThrowOnError> => (options.client ?? client).delete<DiscardFlowDraftResponses, DiscardFlowDraftErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/flows/{flowId}/drafts/{draftId}', ...options });
+
+/**
+ * Create the channels and roles the flow declares, and wire their ids into its nodes
+ */
+export const installFlow = <ThrowOnError extends boolean = true>(options: Options<InstallFlowData, ThrowOnError>): RequestResult<InstallFlowResponses, InstallFlowErrors, ThrowOnError> => (options.client ?? client).post<InstallFlowResponses, InstallFlowErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/flows/{flowId}/install', ...options });
+
+/**
+ * What installing the flow's declared resources would do. Changes nothing.
+ */
+export const getInstallPlan = <ThrowOnError extends boolean = true>(options: Options<GetInstallPlanData, ThrowOnError>): RequestResult<GetInstallPlanResponses, GetInstallPlanErrors, ThrowOnError> => (options.client ?? client).get<GetInstallPlanResponses, GetInstallPlanErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/flows/{flowId}/install-plan', ...options });
+
+/**
+ * What the flow has live in the guild
+ */
+export const getPublishedState = <ThrowOnError extends boolean = true>(options: Options<GetPublishedStateData, ThrowOnError>): RequestResult<GetPublishedStateResponses, GetPublishedStateErrors, ThrowOnError> => (options.client ?? client).get<GetPublishedStateResponses, GetPublishedStateErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/flows/{flowId}/published', ...options });
+
+/**
+ * Delete the messages carrying the flow's buttons. Works after the flow is gone.
+ */
+export const undeployFlow = <ThrowOnError extends boolean = true>(options: Options<UndeployFlowData, ThrowOnError>): RequestResult<UndeployFlowResponses, UndeployFlowErrors, ThrowOnError> => (options.client ?? client).post<UndeployFlowResponses, UndeployFlowErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/flows/{flowId}/undeploy', ...options });
+
+/**
+ * Destroy the channels and roles the flow's journey created. Irreversible.
+ */
+export const unpublishFlow = <ThrowOnError extends boolean = true>(options: Options<UnpublishFlowData, ThrowOnError>): RequestResult<UnpublishFlowResponses, UnpublishFlowErrors, ThrowOnError> => (options.client ?? client).post<UnpublishFlowResponses, UnpublishFlowErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/flows/{flowId}/unpublish', ...options });
 
 /**
  * The guild's assignable roles

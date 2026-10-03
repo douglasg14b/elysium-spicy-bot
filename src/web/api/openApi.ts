@@ -22,6 +22,26 @@ export const ErrorBodySchema = z
     })
     .openapi('ErrorBody');
 
+/**
+ * `true` when a wire schema describes exactly a domain type the routes send as it is —
+ * each assignable to the other — and `false` otherwise.
+ *
+ * For a domain type that stays where it lives rather than becoming `z.infer` of its
+ * schema: `const matches: SchemaMatches<typeof XSchema, X> = true` fails to compile as
+ * soon as either side gains, loses or retypes a member. Both directions, because one
+ * alone lets the other side grow a member the spec never mentions — and the top-level
+ * member names as well, because an *optional* member added on one side alone passes both.
+ * Nested objects get only the assignability half, so a nested type sent as it is wants a
+ * check of its own.
+ */
+export type SchemaMatches<Schema extends z.ZodType, Domain> = [z.infer<Schema>] extends [Domain]
+    ? [Domain] extends [z.infer<Schema>]
+        ? [Exclude<keyof z.infer<Schema>, keyof Domain> | Exclude<keyof Domain, keyof z.infer<Schema>>] extends [never]
+            ? true
+            : false
+        : false
+    : false;
+
 /** A JSON response entry for `schema`. */
 export function jsonResponse<Schema extends z.ZodType>(description: string, schema: Schema) {
     return { description, content: { 'application/json': { schema } } } as const;
@@ -139,7 +159,8 @@ type DeclaredRoute = RouteConfig & { hide?: false; middleware?: never };
  *
  *  - **`defaultHook`**: a request that fails its schema — body, path or query — answers
  *    with the first issue's message, the same sentence the hand-rolled `safeParse` used
- *    to send. When the flow routes convert, this is where their `issues` list goes.
+ *    to send, and no `issues`. A flow route's `issues` come from its own handler's 400s
+ *    (`FlowRefusal` in `flowBody.ts`), about a graph the schema accepted.
  *  - **`onError`**: malformed JSON (400) and a body without a JSON content type (415)
  *    are thrown by the validator as `HTTPException`s *before* any hook runs, and Hono
  *    would answer them as plain text. Anything else is rethrown untouched, so a real

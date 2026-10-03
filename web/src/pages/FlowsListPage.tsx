@@ -20,7 +20,7 @@
  * box, destroying the drag registration and the focus along with it.
  */
 
-import { Fragment, useEffect, useMemo, useRef, useState, type HTMLAttributes } from 'react';
+import { Fragment, useMemo, useState, type HTMLAttributes } from 'react';
 import {
     Alert,
     Badge,
@@ -72,21 +72,26 @@ import {
     IconX,
 } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
-import { ApiError } from '../api/client';
-import { createFlow, deleteFlow, listFlows, updateFlow } from '../api/flows';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+    ApiError,
+    createFlowMutation,
+    deleteFlowMutation,
+    listFlowsOptions,
+    listFlowsQueryKey,
+    updateFlow,
+    type FlowJourneyMembership,
+    type FlowSummary,
+    type ListFlowsResponse,
+} from '@brattybot/web-sdk';
+// Journey calls stay on the hand-written client until the journey routes are in the spec.
 import {
     detachFlowFromJourney,
     groupFlowWith,
     previewFlowGrouping,
     updateJourney,
 } from '../api/journeys';
-import type {
-    FlowJourneyMembership,
-    FlowSummary,
-    FlowValidationIssue,
-    GroupPreview,
-    GroupResolution,
-} from '../api/types';
+import type { FlowValidationIssue, GroupPreview, GroupResolution } from '../api/types';
 import {
     buildFlowsListRows,
     decideDropOutcome,
@@ -905,21 +910,40 @@ function UngroupedZoneRow({
     );
 }
 
+/** The list before it has loaded: one value, so it is the same array on every render. */
+const NO_FLOWS: readonly FlowSummary[] = [];
+
 export function FlowsListPage() {
     const { selected, loading: guildsLoading } = useGuilds();
     const navigate = useNavigate();
+    const queryClient = useQueryClient();
 
-    const [flows, setFlows] = useState<FlowSummary[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    /*
+     * The list, cached per guild. A guild switch reads the new guild's entry, so a
+     * response for the previous guild can never be painted into this one, and a later
+     * read always replaces an earlier one — what the hand-rolled load generation used to
+     * guard by hand.
+     */
+    const flowsKey = listFlowsQueryKey({ path: { guildId: selected?.id ?? '' } });
+    const flowsQuery = useQuery({
+        ...listFlowsOptions({ path: { guildId: selected?.id ?? '' } }),
+        enabled: !!selected,
+    });
+    const flows: readonly FlowSummary[] = flowsQuery.data?.flows ?? NO_FLOWS;
+    // The error panel is for a list that never loaded. A failed refresh of a loaded one
+    // keeps it on screen — the cache holds the last good answer.
+    const loadError = flowsQuery.data ? null : flowsQuery.error;
+    const loading = !flowsQuery.data && !loadError;
     const [togglingId, setTogglingId] = useState<string | null>(null);
 
     const [createOpen, setCreateOpen] = useState(false);
     const [newName, setNewName] = useState('');
-    const [creating, setCreating] = useState(false);
+    const createFlowRequest = useMutation(createFlowMutation());
+    const creating = createFlowRequest.isPending;
 
     const [pendingDelete, setPendingDelete] = useState<FlowSummary | null>(null);
-    const [deleting, setDeleting] = useState(false);
+    const deleteFlowRequest = useMutation(deleteFlowMutation());
+    const deleting = deleteFlowRequest.isPending;
 
     /**
      * The flow whose published structure is being inspected.
@@ -1020,39 +1044,6 @@ export function FlowsListPage() {
     const journeyResources = useLoadedResources(selected?.id, editingTarget);
 
     /**
-     * Which load is the current one.
-     *
-     * Four call sites re-read the list and any of them can be in flight when another
-     * starts or when the operator switches guild. Without a generation to compare
-     * against, whichever response happens to land last wins — which can be an older
-     * list, or worse, the previous guild's flows painted into this guild's page.
-     */
-    const loadGeneration = useRef(0);
-
-    useEffect(() => {
-        if (!selected) return;
-        const generation = ++loadGeneration.current;
-        void (async () => {
-            setLoading(true);
-            setError(null);
-            try {
-                const rows = await listFlows(selected.id);
-                if (loadGeneration.current === generation) setFlows(rows);
-            } catch (err) {
-                const message = err instanceof ApiError ? err.message : 'Failed to load flows';
-                if (loadGeneration.current === generation) setError(message);
-            } finally {
-                if (loadGeneration.current === generation) setLoading(false);
-            }
-        })();
-        return () => {
-            // Retires this load, so a response arriving after the guild changed — or
-            // after unmount — cannot write into state that has moved on.
-            loadGeneration.current += 1;
-        };
-    }, [selected]);
-
-    /**
      * Re-read the whole list.
      *
      * A patch would go stale: grouping changes `memberCount` on rows the operator never
@@ -1062,19 +1053,32 @@ export function FlowsListPage() {
      * write. That refusal is already on screen and pinned open — a 409 names the flows
      * blocking it and is the one thing the operator has to read — so a second red toast
      * stacked over it would bury the message that matters behind one about the retry.
-     * The list simply stays as it was until the next successful read.
+     * Either way a failed read keeps the list as it was — the cache holds the last good
+     * one, and the error panel is only for a list that never loaded — until the next
+     * successful read.
      */
     async function refreshFlows(options?: { readonly quiet?: boolean }): Promise<void> {
         if (!selected) return;
-        const generation = ++loadGeneration.current;
+        if (options?.quiet) {
+            await queryClient.invalidateQueries({ queryKey: flowsKey });
+            return;
+        }
         try {
-            const rows = await listFlows(selected.id);
-            if (loadGeneration.current === generation) setFlows(rows);
+            await queryClient.invalidateQueries({ queryKey: flowsKey }, { throwOnError: true });
         } catch (err) {
-            if (options?.quiet) return;
             const message = err instanceof ApiError ? err.message : 'Failed to reload flows';
             notifications.show({ color: 'red', title: "Couldn't refresh", message });
         }
+    }
+
+    /** Rewrite one row of the cached list in place — the toggle's optimistic half. */
+    function patchFlowRow(flowId: string, patch: (row: FlowSummary) => FlowSummary): void {
+        // Typed by hand: the generated query keys carry no data type for the cache to read.
+        queryClient.setQueryData<ListFlowsResponse>(flowsKey, (current) =>
+            current
+                ? { ...current, flows: current.flows.map((row) => (row.flowId === flowId ? patch(row) : row)) }
+                : current
+        );
     }
 
     /**
@@ -1122,39 +1126,36 @@ export function FlowsListPage() {
     async function handleToggle(flow: FlowSummary, enabled: boolean) {
         if (!selected) return;
         setTogglingId(flow.flowId);
+        /*
+         * A read still in flight would land after the switch and put the old state back,
+         * so it is cancelled — and re-issued once the PUT has settled, below. A cancelled
+         * read resolves quietly with the old list, so without the re-read a refresh that
+         * was carrying a delete, a regroup or an uninstall would simply never arrive.
+         */
+        const cancelledARead = queryClient.isFetching({ queryKey: flowsKey }) > 0;
+        await queryClient.cancelQueries({ queryKey: flowsKey });
         // Optimistic — revert if the PUT fails.
-        setFlows((prev) =>
-            prev.map((row) => (row.flowId === flow.flowId ? { ...row, enabled } : row))
-        );
+        patchFlowRow(flow.flowId, (row) => ({ ...row, enabled }));
         try {
-            const updated = await updateFlow(selected.id, flow.flowId, { enabled });
-            setFlows((prev) =>
-                prev.map((row) =>
-                    row.flowId === flow.flowId
-                        ? {
-                              ...row,
-                              enabled: updated.enabled,
-                              issueCount: updated.issues.length,
-                              updatedAt: updated.updatedAt,
-                          }
-                        : row
-                )
-            );
+            const { data: updated } = await updateFlow({
+                path: { guildId: selected.id, flowId: flow.flowId },
+                body: { enabled },
+            });
+            patchFlowRow(flow.flowId, (row) => ({
+                ...row,
+                enabled: updated.enabled,
+                issueCount: updated.issues.length,
+                updatedAt: updated.updatedAt,
+            }));
         } catch (err) {
             // A refusal carrying issues is the stored graph's own list — fresher than the
             // count this row was drawn with, so the chip is corrected from it too.
             const issues = err instanceof ApiError ? err.issues : [];
-            setFlows((prev) =>
-                prev.map((row) =>
-                    row.flowId === flow.flowId
-                        ? {
-                              ...row,
-                              enabled: flow.enabled,
-                              issueCount: issues.length > 0 ? issues.length : row.issueCount,
-                          }
-                        : row
-                )
-            );
+            patchFlowRow(flow.flowId, (row) => ({
+                ...row,
+                enabled: flow.enabled,
+                issueCount: issues.length > 0 ? issues.length : row.issueCount,
+            }));
             const message =
                 err instanceof ApiError ? err.message : "Couldn't change that. Try again.";
             if (issues.length > 0) {
@@ -1164,16 +1165,19 @@ export function FlowsListPage() {
             notifications.show({ color: 'red', title: "Couldn't update flow", message });
         } finally {
             setTogglingId(null);
+            // After the PUT, so the re-read cannot undo the switch it just wrote.
+            if (cancelledARead) void refreshFlows({ quiet: true });
         }
     }
 
     async function handleCreate() {
         if (!selected) return;
         const name = newName.trim();
-        if (!name) return;
-        setCreating(true);
+        // Enter reaches here without passing the button's state, so a second press while
+        // the first create is in flight is refused here rather than making a second flow.
+        if (!name || creating) return;
         try {
-            const flow = await createFlow(selected.id, name);
+            const flow = await createFlowRequest.mutateAsync({ path: { guildId: selected.id }, body: { name } });
             setCreateOpen(false);
             setNewName('');
             navigate(`/flows/${flow.flowId}`);
@@ -1181,8 +1185,6 @@ export function FlowsListPage() {
             const message =
                 err instanceof ApiError ? err.message : "Couldn't create that flow.";
             notifications.show({ color: 'red', title: 'No dice', message });
-        } finally {
-            setCreating(false);
         }
     }
 
@@ -1223,9 +1225,8 @@ export function FlowsListPage() {
 
     async function handleDelete() {
         if (!selected || !pendingDelete) return;
-        setDeleting(true);
         try {
-            await deleteFlow(selected.id, pendingDelete.flowId);
+            await deleteFlowRequest.mutateAsync({ path: { guildId: selected.id, flowId: pendingDelete.flowId } });
             notifications.show({
                 color: 'brand',
                 title: 'Gone',
@@ -1240,8 +1241,6 @@ export function FlowsListPage() {
         } catch (err) {
             const message = err instanceof ApiError ? err.message : "Couldn't delete that flow.";
             notifications.show({ color: 'red', title: "Couldn't delete", message });
-        } finally {
-            setDeleting(false);
         }
     }
 
@@ -1697,14 +1696,14 @@ export function FlowsListPage() {
                     <Center py="xl">
                         <Loader color="brand" size="sm" />
                     </Center>
-                ) : error ? (
+                ) : loadError ? (
                     <Alert
                         color="red"
                         icon={<IconAlertTriangle size={16} />}
                         title="Couldn't load flows"
                         m="md"
                     >
-                        {error}
+                        {loadError instanceof ApiError ? loadError.message : 'Failed to load flows'}
                     </Alert>
                 ) : flows.length === 0 ? (
                     <Stack align="center" gap={6} py={48} px="md">
