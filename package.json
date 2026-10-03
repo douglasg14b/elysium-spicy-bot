@@ -5,7 +5,7 @@
     "main": "src/bot.ts",
     "type": "module",
     "scripts": {
-        "build": "tsc --noEmit",
+        "build": "pnpm sdk:generate && tsc --noEmit",
         "typecheck:e2e": "tsc -p web/e2e/tsconfig.json",
         "openapi:emit": "tsx scripts/emitOpenApi.ts",
         "sdk:generate": "pnpm openapi:emit && pnpm --filter @brattybot/web-sdk generate",
@@ -13,7 +13,7 @@
         "preview:dashboard": "tsx web/e2e/preview/previewServer.ts",
         "preview:shoot": "tsx web/e2e/preview/shoot.ts",
         "start": "tsx src/bot.ts",
-        "dev": "pnpm migrate:latest:dev && concurrently --raw --kill-others \"pnpm dev:bot\" \"pnpm dev:web\"",
+        "dev": "pnpm sdk:generate && pnpm migrate:latest:dev && concurrently --raw --kill-others \"pnpm dev:bot\" \"pnpm dev:web\"",
         "dev:bot": "cross-env TSX=true dotenvx run --env-file=.env.local -- tsx watch src/bot.ts",
         "dev:web": "pnpm --filter brattybot-web dev",
         "build:web": "pnpm --filter brattybot-web build",

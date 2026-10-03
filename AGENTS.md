@@ -32,6 +32,8 @@ The bot is aimed at an **adults-only** Discord: **kinky**, **sex-positive**, **N
 - `src/features/<name>/` — product features (see **Feature folder conventions** below).
 - `src/shared/` — cross-cutting types/utilities (`resultPattern`, etc.).
 - `src/utils/`, `src/healthcheck/` — helpers and heartbeat.
+- `generated/openapi.generated.json` — the dashboard API's OpenAPI spec, emitted from the real `/api` mount (`src/web/api/openApiDocument.ts`) and committed. Only routers built with `apiRouter()` (`src/web/api/openApi.ts`) appear in it.
+- `packages/web-sdk/` (`@brattybot/web-sdk`) — the dashboard's API client, generated from that spec by `@hey-api/openapi-ts`: types, fetch functions, TanStack Query helpers, zod request schemas. `src/gen/` is generated **and committed**; `setupClient.ts` and `apiError.ts` are hand-written. Consumed as source (no build step).
 - `github-plan-cli/` — GitHub “Jarvis” plan + implement automation (`pnpm github-plan`, workflows `jarvis-plan.yml` / `jarvis-implement.yml`). **Local** implement: Cursor agent + `implementer-generic.md` → `pr-draft.json`. **CI** (`GITHUB_ACTIONS` is the string `true`): Node orchestrates Cursor agents via prompts in `github-plan-cli/prompts/` (no separate CI implementer under `.cursor/agents/`); structured reports under gitignored `.jarvis/ci/` (`implement-report.json`, `review-aggregate.json`, `review-feedback.md`); schemas and helpers in `github-plan-cli/src/plan/ciImplementArtifacts.ts`. Tests under `github-plan-cli/__tests__/`.
 
 **Features (code):** `ai-reply`, `birthday-tracker`, `flash-chat`, `tickets`. **`voice-chat-engager`** is placeholder (`readme.md` only).
@@ -70,14 +72,18 @@ Each feature lives under `src/features/<kebab-name>/`. Expect this shape; add su
 
 ## Commands
 
-- `pnpm dev` — apply pending migrations, then watch `src/bot.ts` with env from `.env.local`. (`pnpm dev:bot` skips the migration step.)
-- `pnpm build` — `tsc` → `dist/`. A local typecheck convenience, not wired into CI, and it currently reports pre-existing errors unrelated to any one change. Nothing runs the compiled output.
+- `pnpm dev` — `sdk:generate`, apply pending migrations, then watch `src/bot.ts` with env from `.env.local`. (`pnpm dev:bot` skips both.) A route edited while `tsx watch` runs is not regenerated until `pnpm sdk:generate`, a restart, or the next build — the drift tests catch a missed one.
+- `pnpm build` — `sdk:generate`, then `tsc --noEmit`. A typecheck convenience that currently reports pre-existing errors unrelated to any one change. No test workflow runs it, but the Jarvis implement runner does (Node 22), and it commits the spec and SDK that `build` rewrites. Needs Node ≥ 22.18 for the generation step. Docker never runs it: the image (Node 20) runs `pnpm build:web` and the committed spec and SDK.
 - `pnpm start` — run the bot from source with `tsx`. `src/scripts/dockerEntrypoint.sh` is the real container entrypoint: it applies migrations first, then `exec pnpm start`. Block discovery scans `src/features/flows/blocks/` for `index.ts` files, so the source tree is the one that runs — which is why `tsx` is a runtime dependency.
 - `pnpm migrate:latest` / `migrate:latest:dev` — DB migrations.
 - `pnpm github-plan` — CLI for the Jarvis issue/PR plan workflow (see `github-plan-cli/src/cli.ts`).
+- `pnpm sdk:generate` — re-emit the OpenAPI spec and regenerate `packages/web-sdk/src/gen` from it. `build` and `dev` run it; run it yourself after changing a route mid-session. `openApiSpec.test.ts` (spec vs routes) and `generatedSdkIsCurrent.test.ts` (SDK vs spec) fail until you do. (`pnpm openapi:emit` writes the spec alone — not enough on its own.) Needs Node ≥ 22.18.
+- `pnpm sdk:check` — `sdk:generate`, then fail if the spec or the SDK differs from what is committed (untracked files included).
 
 ## Conventions for edits
 
 - Strict TypeScript; avoid `any` (see `.github/copilot-instructions.md`).
 - Register new slash/modal/component: `interactionsRegistry.register(builder, handler)` and ensure slash builders included in `registerCommandsWithDiscord` path (via `getSlashCommandBuilders()`).
 - Match existing patterns in the target feature folder (naming, Result usage, repo/schema split).
+- Dashboard API routes: the only way to add one is `apiRouter((router) => { router.openapi(route, handler); })` (`src/web/api/openApi.ts`, see `guildRoutes.ts`) — the callback's surface has no `get`/`post`/…, refuses `hide: true` and an `async` callback, and `apiRouter.test-d.ts` holds those guards in `pnpm test` (Vitest typecheck mode). Define each with `createRoute`, an explicit `operationId`, named components (`.openapi('Name')` on request and response schemas), and the shared error maps from `openApi.ts`. `everyRouteInSpec.test.ts` fails on any route served under `/api` that the spec lacks; its `NOT_YET_IN_SPEC` list is a migration bridge for the routes not yet converted — it only shrinks (`NOT_YET_IN_SPEC_CEILING` fails the suite if it grows; lower the ceiling as routes convert), and a new route never goes on it. A new route beside unconverted ones gets its own `apiRouter`, mounted at the same prefix (as `guildRoutes` and `flowRoutes` share `/api/guilds`). `pnpm build`/`pnpm dev` regenerate the spec and SDK. A request schema states only what the server enforces — the browser checks forms against the generated zod.
+- Dashboard pages move to `@brattybot/web-sdk` (`useQuery(xOptions(...))` / `useMutation(xMutation())`) one at a time. The hand-written client and types in `web/src/api/` stay until their last caller moves; both clients throw the same `ApiError`.
