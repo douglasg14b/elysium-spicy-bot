@@ -4,7 +4,7 @@ import { BUTTON_STYLE_MAP, buttonClickConfigSchema } from '../blocks/triggerButt
 import type { FlowEntity } from '../data/flowsSchema';
 import type { FlowGraph, FlowNode } from '../data/flowGraph';
 import { buildFlowCustomId } from '../utils/customId';
-import { collectResourceTargets } from './resourceTargets';
+import { collectApplicableResourceTargets } from './resourceTargets';
 
 /** Discord's limits on one message's components. Both are hard API errors, not advice. */
 const BUTTONS_PER_ROW = 5;
@@ -154,7 +154,7 @@ function pendingDestinations(
     const nodesById = new Map(buttonNodes.map((node) => [node.id, node]));
     const keys = new Set<string>();
 
-    for (const target of collectResourceTargets(graph)) {
+    for (const target of collectApplicableResourceTargets(graph)) {
         const node = nodesById.get(target.nodeId);
         if (!node) continue;
 

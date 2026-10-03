@@ -112,11 +112,17 @@ const nodeRunLogSchema = z.object({
  * is what lets a pre-change row resume without a tolerant union or a v1 arm
  * nobody could ever prove dead: the old and new keys are disjoint, so no
  * discriminator is needed to tell the shapes apart.
+ *
+ * `startedAt` follows the same rule for the same reason: a row parked before the key
+ * existed reads back with no start time, which the resume path reports as absent.
+ * Strict ISO only, so a value that is not a real instant fails the read loudly rather
+ * than reaching a block as `Invalid Date`.
  */
 const contextSnapshotSchema = z.object({
     guildId: z.string().min(1),
     userId: z.string().min(1),
     channelId: z.string().min(1).optional(),
+    startedAt: z.iso.datetime().optional(),
 });
 
 /**

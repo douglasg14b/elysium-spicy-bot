@@ -12,7 +12,7 @@
  */
 
 import type { Edge } from '@xyflow/react';
-import type { BlockOutputDeclaration, BlockOutputValueKind, NodeDescriptor } from '../api/types';
+import type { BlockConfigField, BlockOutputDeclaration, BlockOutputValueKind, NodeDescriptor } from '../api/types';
 
 /** One variable an author can reference, and the block that produces it. */
 export interface AvailableVariable {
@@ -24,7 +24,10 @@ export interface AvailableVariable {
     readonly producerIcon: string;
     /** What the producer says this value is. */
     readonly description?: string;
-    /** What kind of thing it holds, when a picker can take it. */
+    /**
+     * What kind of thing it holds, when it has a kind — resolved for this node, since
+     * a block may derive it from one of its own fields (`resolveOutputValueKind`).
+     */
     readonly valueKind?: BlockOutputValueKind;
 }
 
@@ -57,6 +60,60 @@ export function resolveOutputName(
 
     const authored = config[output.fromField];
     return typeof authored === 'string' && authored ? authored : undefined;
+}
+
+/**
+ * The value a field currently holds: what is stored, or its declared default when
+ * nothing (or `''`) is. Mirrors `effectiveFieldValue` in
+ * `src/features/flows/blocks/manifest.ts` — the one reading of "current value" that
+ * visibility and derived value kinds share on both sides.
+ */
+export function effectiveFieldValue(field: BlockConfigField, config: Record<string, unknown>): unknown {
+    const value = config[field.key];
+    return value === undefined || value === '' ? field.defaultValue : value;
+}
+
+/**
+ * Whether a field applies on this node, per its `visibleWhen`. Mirrors `isFieldVisible`
+ * on the server, including treating a sibling it cannot find as "applies".
+ *
+ * Every reader of config fields asks this — the inspector, the live checks, the card
+ * summary — because a hidden field usually still *holds* a value: `defaultDataFor`
+ * seeds every default on drop, and switching the sibling clears nothing.
+ */
+export function isFieldVisible(
+    field: BlockConfigField,
+    fields: readonly BlockConfigField[],
+    config: Record<string, unknown>
+): boolean {
+    const when = field.visibleWhen;
+    if (!when) return true;
+
+    const source = fields.find((candidate) => candidate.key === when.field);
+    if (!source) return true;
+
+    const value = effectiveFieldValue(source, config);
+    return typeof value === 'string' && when.equals.includes(value);
+}
+
+/**
+ * What kind of value one output writes on one node. Mirrors `resolveOutputValueKind`
+ * on the server: a static `valueKind`, or the kind `valueKindFrom` maps the named
+ * field's current value to.
+ */
+export function resolveOutputValueKind(
+    output: BlockOutputDeclaration,
+    fields: readonly BlockConfigField[],
+    config: Record<string, unknown>
+): BlockOutputValueKind | undefined {
+    if (output.valueKind) return output.valueKind;
+
+    const from = output.valueKindFrom;
+    if (!from) return undefined;
+
+    const field = fields.find((candidate) => candidate.key === from.field);
+    const value = field ? effectiveFieldValue(field, config) : undefined;
+    return typeof value === 'string' && Object.hasOwn(from.kinds, value) ? from.kinds[value] : undefined;
 }
 
 /**
@@ -178,7 +235,7 @@ export function availableVariablesAt(
                 producerLabel: node.data.label,
                 producerIcon: descriptor.icon,
                 description: output.description,
-                valueKind: output.valueKind,
+                valueKind: resolveOutputValueKind(output, descriptor.configFields, node.data.config),
             });
         }
     }

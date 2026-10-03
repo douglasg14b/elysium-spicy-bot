@@ -222,3 +222,42 @@ describe('summarizeFromDescriptor', () => {
         expect(summarize(descriptor, { fields: [] })).toBe('no fields');
     });
 });
+
+describe('a summary part for a field that is hidden', () => {
+    const descriptor = descriptorWith(
+        [
+            {
+                key: 'mode',
+                label: 'Mode',
+                control: 'segmented',
+                defaultValue: 'plain',
+                options: [
+                    { value: 'plain', label: 'Plain' },
+                    { value: 'copy', label: 'Copy' },
+                ],
+            },
+            { key: 'message', label: 'Message', control: 'longText', visibleWhen: { field: 'mode', equals: ['copy'] } },
+            { key: 'seenAt', label: 'Saved time', control: 'variableSelect', valueKind: 'time' },
+        ],
+        [
+            { key: 'mode' },
+            { key: 'message', prefix: ' · ', quote: true, emptyText: 'no message', stopIfEmpty: true },
+            { key: 'seenAt', prefix: ' since ', emptyText: 'nothing' },
+        ]
+    );
+
+    it('renders nothing — no value, no emptyText, and no cut-short line', () => {
+        // The node still holds a message; hidden, it must not reach the card, and its
+        // `stopIfEmpty` must not swallow the parts after it either.
+        expect(summarize(descriptor, { mode: 'plain', message: 'held anyway', seenAt: 'joinedAt' })).toBe(
+            'Plain since joinedAt'
+        );
+    });
+
+    it('renders as usual once the field is shown', () => {
+        expect(summarize(descriptor, { mode: 'copy', message: 'Hi', seenAt: 'joinedAt' })).toBe(
+            'Copy · "Hi" since joinedAt'
+        );
+        expect(summarize(descriptor, { mode: 'copy' })).toBe('no message');
+    });
+});

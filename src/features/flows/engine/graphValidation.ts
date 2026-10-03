@@ -1,6 +1,8 @@
 import {
     PICKER_VALUE_KINDS,
+    isFieldVisible,
     resolveOutputName,
+    resolveOutputValueKind,
     type BlockOutputValueKind,
     type FlowContextRequirement,
 } from '../blocks/manifest';
@@ -294,28 +296,146 @@ function rejectedTokenErrors(
         }));
 }
 
+/** One node that records a variable, as save-time validation sees it. */
+interface VariableSource {
+    readonly nodeId: string;
+    /** The recording block's label, for a message an author can act on. */
+    readonly label: string;
+    /** What it records the value as on this node; undefined for a plain value. */
+    readonly kind: BlockOutputValueKind | undefined;
+    /** The one exit the value is written on, when the block declares one. */
+    readonly handle: string | undefined;
+}
+
 /**
- * Every variable name some node in the graph declares, with the kinds it is
- * declared as. Built only when a picker holds a variable, which most graphs never do.
+ * Every variable name some node in the graph records, with every node recording it.
+ *
+ * **Kindless sources are kept.** A Pick Random or a level output records a plain value,
+ * and dropping it would let a channel picker or a time read accept a name that some
+ * other node fills with text — which is the whole question the kind rule exists to
+ * answer. Built only when a field reads a variable, which most graphs never do.
  */
-function outputValueKinds(graph: FlowGraph): ReadonlyMap<string, ReadonlySet<BlockOutputValueKind>> {
-    const kindsByName = new Map<string, Set<BlockOutputValueKind>>();
+function variableSources(graph: FlowGraph): ReadonlyMap<string, readonly VariableSource[]> {
+    const sourcesByName = new Map<string, VariableSource[]>();
     for (const node of graph.nodes) {
-        for (const output of getBlockDefinition(node.type)?.outputs ?? []) {
+        const block = getBlockDefinition(node.type);
+        for (const output of block?.outputs ?? []) {
             const name = resolveOutputName(output, node.data);
-            if (name && output.valueKind) {
-                const kinds = kindsByName.get(name) ?? new Set<BlockOutputValueKind>();
-                kinds.add(output.valueKind);
-                kindsByName.set(name, kinds);
+            if (!block || !name) {
+                continue;
             }
+            const sources = sourcesByName.get(name) ?? [];
+            sources.push({
+                nodeId: node.id,
+                label: block.label,
+                kind: resolveOutputValueKind(output, block.configFields, node.data),
+                handle: output.handle,
+            });
+            sourcesByName.set(name, sources);
         }
     }
-    return kindsByName;
+    return sourcesByName;
+}
+
+/** A kind as it reads in a sentence. */
+function describeKind(kind: BlockOutputValueKind | undefined): string {
+    switch (kind) {
+        case 'channel':
+            return 'a channel';
+        case 'time':
+            return 'a time';
+        case undefined:
+            return 'a plain value';
+    }
+}
+
+/**
+ * Why a field reading `name` as `kind` cannot have it, judged across every recording
+ * node in the graph, or undefined when every one records that kind.
+ *
+ * **Every source must agree, not just one.** The bag carries no types, so a run reads
+ * whatever the last writer left: a text value sharing a channel's name would reach
+ * Discord as a channel id. Mixed kinds are refused naming both nodes, so the author can
+ * see which one to rename. By kind across the whole graph and not by path, for the
+ * reason `checkCopyTokens` leaves reachability open on copy.
+ */
+function kindIssue(
+    sources: readonly VariableSource[],
+    name: string,
+    kind: BlockOutputValueKind
+): string | undefined {
+    const matching = sources.find((source) => source.kind === kind);
+    const offKind = sources.find((source) => source.kind !== kind);
+    if (!matching) {
+        return `no block in this flow records ${describeKind(kind)} by that name.`;
+    }
+    if (offKind) {
+        return (
+            `node ${matching.nodeId} (${matching.label}) records "${name}" as ${describeKind(kind)}, but node ` +
+            `${offKind.nodeId} (${offKind.label}) records it as ${describeKind(offKind.kind)}. The run keeps ` +
+            'whichever wrote last, so rename one of them.'
+        );
+    }
+    return undefined;
+}
+
+/**
+ * Whether `source` writes its value on some path into `nodeId` — the builder's
+ * `availableVariablesAt` over-approximation, mirrored: the source can run before the
+ * node, and a value scoped to one exit counts only when that exit leads there.
+ *
+ * Walked forwards from the source rather than back from the node, which reaches the
+ * same answer: the node is reachable from where the value is written. A node never
+ * counts as running before itself, even round a loop, matching the browser.
+ */
+function writesOnPath(
+    source: VariableSource,
+    nodeId: string,
+    graph: FlowGraph,
+    outgoing: ReadonlyMap<string, readonly string[]>
+): boolean {
+    if (source.nodeId === nodeId) {
+        return false;
+    }
+    const starts = graph.edges
+        .filter(
+            (edge) =>
+                edge.source === source.nodeId &&
+                (source.handle === undefined || (edge.sourceHandle ?? undefined) === source.handle)
+        )
+        .map((edge) => edge.target);
+    return walkFrom(outgoing, starts).has(nodeId);
+}
+
+/** Each node's outgoing targets, for {@link walkFrom}. */
+function outgoingTargets(graph: FlowGraph): ReadonlyMap<string, readonly string[]> {
+    const outgoing = new Map<string, string[]>();
+    for (const edge of graph.edges) {
+        outgoing.set(edge.source, [...(outgoing.get(edge.source) ?? []), edge.target]);
+    }
+    return outgoing;
+}
+
+/** Every node reachable from `starts`, the starts included. Cycles end on `seen`. */
+function walkFrom(outgoing: ReadonlyMap<string, readonly string[]>, starts: readonly string[]): Set<string> {
+    const seen = new Set<string>();
+    const queue = [...starts];
+    while (queue.length > 0) {
+        const id = queue.shift();
+        if (id === undefined || seen.has(id)) {
+            continue;
+        }
+        seen.add(id);
+        queue.push(...(outgoing.get(id) ?? []));
+    }
+    return seen;
 }
 
 function checkCopyTokens(graph: FlowGraph): readonly FlowValidationIssue[] {
     const errors: FlowValidationIssue[] = [];
-    let outputKinds: ReadonlyMap<string, ReadonlySet<BlockOutputValueKind>> | undefined;
+    // Built on first need: most graphs read no variable through a field at all.
+    let sourcesByName: ReadonlyMap<string, readonly VariableSource[]> | undefined;
+    let outgoing: ReadonlyMap<string, readonly string[]> | undefined;
 
     for (const node of graph.nodes) {
         const block = getBlockDefinition(node.type);
@@ -324,6 +444,49 @@ function checkCopyTokens(graph: FlowGraph): readonly FlowValidationIssue[] {
         }
 
         for (const field of block.configFields) {
+            // A hidden field does not apply, so nothing it holds can fail a save —
+            // matching the executor, which neither renders nor hands it to `run`.
+            if (!isFieldVisible(field, block.configFields, node.data)) {
+                continue;
+            }
+
+            /*
+             * A variable read by name. It must be recorded by some node that can run
+             * first on a path here, and every node recording it must record this kind.
+             *
+             * The path rule is stricter than copy's, deliberately: a name only ever
+             * recorded after this block, or on a branch that cannot lead here, is a
+             * wiring mistake the block would otherwise answer as "no record" on every
+             * run. "On some path" is the builder's own over-approximation, so the path
+             * rule never refuses a name the builder offers. The kind rule can: it asks
+             * every recording node in the flow, where the builder offers the nearest
+             * producer's kind — a deliberate gap, named in the message, since a second
+             * writer of another kind anywhere is the mistake it exists to catch.
+             */
+            if (field.control === 'variableSelect') {
+                const name = node.data[field.key];
+                if (typeof name !== 'string' || !name) {
+                    continue;
+                }
+                const sources = (sourcesByName ??= variableSources(graph)).get(name) ?? [];
+                const where = `Node ${node.id} (${node.type}) has "${field.label}" set to "${name}", but`;
+                const failure = kindIssue(sources, name, field.valueKind);
+                const onPath = (source: VariableSource): boolean =>
+                    writesOnPath(source, node.id, graph, (outgoing ??= outgoingTargets(graph)));
+                if (failure) {
+                    errors.push({ nodeId: node.id, field: field.key, message: `${where} ${failure}` });
+                } else if (!sources.some(onPath)) {
+                    errors.push({
+                        nodeId: node.id,
+                        field: field.key,
+                        message:
+                            `${where} only blocks after it or on another branch record it, so it is never set ` +
+                            'by the time this block runs. Wire the block that records it in ahead of this one.',
+                    });
+                }
+                continue;
+            }
+
             // The same predicates the executor renders by, so a string the engine
             // would expand cannot be one this check quietly skips.
             if (isCopyField(field)) {
@@ -358,18 +521,23 @@ function checkCopyTokens(graph: FlowGraph): readonly FlowValidationIssue[] {
                         nodeId: node.id,
                         message: `Node ${node.id} (${node.type}) has "${field.label}" set to "${value}". A picker takes a choice, or one {{var.name}} from an earlier block and nothing else.`,
                     });
-                } else if (!(outputKinds ??= outputValueKinds(graph)).get(variableName)?.has(kind)) {
+                } else {
                     /*
                      * By kind, across the whole graph, and not by path: whether the
                      * producer runs first is the reachability question copy leaves open
                      * too (see the note above). What this does settle is that the name
-                     * is the right kind at all — `{{var.ticketId}}` in a channel picker would
-                     * otherwise save, publish, and fail on every run.
+                     * is the right kind at all, from every node recording it —
+                     * `{{var.ticketId}}` in a channel picker would otherwise save,
+                     * publish, and fail on every run.
                      */
-                    errors.push({
-                        nodeId: node.id,
-                        message: `Node ${node.id} (${node.type}) has "${field.label}" set to {{var.${variableName}}}, but no block in this flow records a ${kind} by that name.`,
-                    });
+                    const sources = (sourcesByName ??= variableSources(graph)).get(variableName) ?? [];
+                    const failure = kindIssue(sources, variableName, kind);
+                    if (failure) {
+                        errors.push({
+                            nodeId: node.id,
+                            message: `Node ${node.id} (${node.type}) has "${field.label}" set to {{var.${variableName}}}, but ${failure}`,
+                        });
+                    }
                 }
                 continue;
             }
@@ -496,25 +664,7 @@ const CHECKED_REQUIREMENTS: Readonly<Record<CheckedRequirement, RequirementCheck
  * it never runs, and blaming its requirements would bury the real problem.
  */
 function checkContextRequirements(graph: FlowGraph): readonly FlowValidationIssue[] {
-    const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
-    const outgoing = new Map<string, string[]>();
-    for (const edge of graph.edges) {
-        outgoing.set(edge.source, [...(outgoing.get(edge.source) ?? []), edge.target]);
-    }
-
-    const walkFrom = (starts: readonly string[]): Set<string> => {
-        const seen = new Set<string>();
-        const queue = [...starts];
-        while (queue.length > 0) {
-            const id = queue.shift();
-            if (id === undefined || seen.has(id)) {
-                continue;
-            }
-            seen.add(id);
-            queue.push(...(outgoing.get(id) ?? []));
-        }
-        return seen;
-    };
+    const outgoing = outgoingTargets(graph);
 
     // Everything downstream of a block that parks. The question is deliberately
     // "can this node EVER be entered after a resume", not "does some good path
@@ -524,14 +674,14 @@ function checkContextRequirements(graph: FlowGraph): readonly FlowValidationIssu
     const parkedStarts = graph.nodes
         .filter((node) => getBlockDefinition(node.type)?.canSuspend)
         .flatMap((node) => outgoing.get(node.id) ?? []);
-    const afterParking = walkFrom(parkedStarts);
+    const afterParking = walkFrom(outgoing, parkedStarts);
 
     // Nodes some trigger can reach at all. An unreachable node never runs, so
     // blaming its requirements would bury whatever actually made it unreachable.
     const triggerIds = graph.nodes
         .filter((node) => getBlockDefinition(node.type)?.kind === 'trigger')
         .map((node) => node.id);
-    const reachableAtAll = walkFrom(triggerIds);
+    const reachableAtAll = walkFrom(outgoing, triggerIds);
 
     // A trigger that does not itself declare the requirement cannot supply it, so
     // everything it reaches is suspect for the same reason a resumed path is.
@@ -539,6 +689,7 @@ function checkContextRequirements(graph: FlowGraph): readonly FlowValidationIssu
     // member join supplies an actor but no channel, and a reaction supplies both.
     const reachableFromTriggersWithout = (requirement: FlowContextRequirement): Set<string> =>
         walkFrom(
+            outgoing,
             graph.nodes
                 .filter((node) => {
                     const block = getBlockDefinition(node.type);

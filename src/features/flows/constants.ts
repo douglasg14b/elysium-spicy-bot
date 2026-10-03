@@ -113,5 +113,10 @@ export const FLOW_RUN_POLL_BATCH_SIZE = 50;
  * the old and new keys are disjoint, so there is no shape to disambiguate, and a
  * version check at read time would be a second mechanism for a fact the schema
  * already states — one that could disagree with it.
+ *
+ * **3** since the snapshot gained `startedAt`, for exactly the reason 2 was taken: a
+ * rolled-back binary would strip the key on read — its schema is a non-strict
+ * `z.object` — and the runs it resumed would lose their start time silently. A v2
+ * row reads forwards cleanly as a run that recorded none.
  */
-export const FLOW_RUN_ENTITY_VERSION = 2;
+export const FLOW_RUN_ENTITY_VERSION = 3;

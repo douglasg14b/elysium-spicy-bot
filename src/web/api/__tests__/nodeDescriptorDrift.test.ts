@@ -14,6 +14,11 @@ import type {
     BlockConfigColumn,
     BlockConfigField,
     BlockControlType,
+    BlockOutputDeclaration,
+    BlockOutputHandle,
+    ExitWarningCondition,
+    ExitWarningWhenFieldEquals,
+    ExitWarningWhenFieldSet,
 } from '../../../features/flows/blocks/manifest';
 import {
     ELIGIBILITY_PERMISSIONS,
@@ -84,8 +89,8 @@ const VOCABULARIES = [
         browser: browserTypes.BLOCK_COLUMN_CONTROLS,
     },
     { name: 'BlockHandleTone', server: BLOCK_HANDLE_TONES, browser: browserTypes.BLOCK_HANDLE_TONES },
-    // The picker offers a variable by its kind, so a kind on one side alone is a
-    // value the browser either never offers or offers to the wrong picker.
+    // The pickers and `variableSelect` offer a variable by its kind, so a kind on one
+    // side alone is a value the browser either never offers or offers to the wrong control.
     {
         name: 'BlockOutputValueKind',
         server: BLOCK_OUTPUT_VALUE_KINDS,
@@ -125,18 +130,21 @@ const VOCABULARIES = [
  * an arm grows, naming the member — so the copy is maintained under duress rather
  * than by anybody remembering it exists.
  */
+const SHOWN = { field: 'f', equals: ['v'] } as const;
+
 const CONFIG_FIELD_FIXTURES = {
-    rolePicker: { key: 'k', label: 'l', description: 'd', control: 'rolePicker', defaultValue: '' },
-    channelPicker: { key: 'k', label: 'l', description: 'd', control: 'channelPicker', optional: true, defaultValue: '' },
-    text: { key: 'k', label: 'l', description: 'd', control: 'text', optional: true, placeholder: '', maxLength: 1, defaultValue: '', rendersTokens: true },
-    longText: { key: 'k', label: 'l', description: 'd', control: 'longText', placeholder: '', maxLength: 1, defaultValue: '', rendersTokens: true },
-    duration: { key: 'k', label: 'l', description: 'd', control: 'duration', optional: true, placeholder: 'p', defaultValue: 1 },
-    segmented: { key: 'k', label: 'l', description: 'd', control: 'segmented', options: [], defaultValue: '' },
-    select: { key: 'k', label: 'l', description: 'd', control: 'select', options: [], defaultValue: '' },
-    colour: { key: 'k', label: 'l', description: 'd', control: 'colour', swatches: [], defaultValue: '' },
-    textList: { key: 'k', label: 'l', description: 'd', control: 'textList', placeholder: 'p', maxLength: 1, minEntries: 1, maxEntries: 1, addLabel: 'a', defaultValue: [] },
-    objectList: { key: 'k', label: 'l', description: 'd', control: 'objectList', columns: [], minEntries: 1, maxEntries: 1, addLabel: 'a', defaultValue: [] },
-    eligibility: { key: 'k', label: 'l', description: 'd', control: 'eligibility', defaultValue: { principal: 'anyone' } },
+    rolePicker: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'rolePicker', defaultValue: '' },
+    channelPicker: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'channelPicker', optional: true, defaultValue: '' },
+    text: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'text', optional: true, placeholder: '', maxLength: 1, defaultValue: '', rendersTokens: true },
+    longText: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'longText', placeholder: '', maxLength: 1, defaultValue: '', rendersTokens: true },
+    duration: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'duration', optional: true, placeholder: 'p', defaultValue: 1 },
+    segmented: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'segmented', options: [], defaultValue: '' },
+    select: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'select', options: [], defaultValue: '' },
+    colour: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'colour', swatches: [], defaultValue: '' },
+    textList: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'textList', placeholder: 'p', maxLength: 1, minEntries: 1, maxEntries: 1, addLabel: 'a', defaultValue: [] },
+    objectList: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'objectList', columns: [], minEntries: 1, maxEntries: 1, addLabel: 'a', defaultValue: [] },
+    eligibility: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'eligibility', defaultValue: { principal: 'anyone' } },
+    variableSelect: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'variableSelect', valueKind: 'time', defaultValue: '' },
 } as const satisfies { [TControl in BlockControlType]: Extract<BlockConfigField, { control: TControl }> };
 
 /** Fails to compile if an arm gains a member {@link CONFIG_FIELD_FIXTURES} omits. */
@@ -184,6 +192,126 @@ const columnFixtureIsExhaustive: [ColumnFixtureIsExhaustive] extends [never]
     : ['CONFIG_COLUMN_FIXTURE is missing', ColumnFixtureIsExhaustive] = true;
 
 void columnFixtureIsExhaustive;
+
+/**
+ * One exit with every optional populated, for the reason the field fixtures exist:
+ * no shipped block need set `warnIfUnconnected`, and a live sample would then report
+ * it as nothing the server sends.
+ */
+const OUTPUT_HANDLE_FIXTURE = {
+    id: 'i',
+    label: 'l',
+    tone: 'neutral',
+    warnIfUnconnected: true,
+} as const satisfies BlockOutputHandle;
+
+/** Fails to compile if {@link BlockOutputHandle} gains a member the fixture omits. */
+type HandleFixtureIsExhaustive = Exclude<keyof BlockOutputHandle, keyof typeof OUTPUT_HANDLE_FIXTURE>;
+
+/** Do not delete as unused: removing it erases the guard above. */
+const handleFixtureIsExhaustive: [HandleFixtureIsExhaustive] extends [never]
+    ? true
+    : ['OUTPUT_HANDLE_FIXTURE is missing', HandleFixtureIsExhaustive] = true;
+
+void handleFixtureIsExhaustive;
+
+/** Each {@link ExitWarningCondition} arm, by the name the browser's key table uses. */
+interface ExitWarningConditionArms {
+    whenFieldSet: ExitWarningWhenFieldSet;
+    whenFieldEquals: ExitWarningWhenFieldEquals;
+}
+
+type ExitWarningArm = keyof ExitWarningConditionArms;
+
+/**
+ * The object arms of `warnIfUnconnected`, every member populated.
+ *
+ * The handle fixture above sets the flag to `true`, so it records that the member
+ * exists and nothing about what the condition holds; comparing handle keys alone
+ * would let a member added to a condition go unmirrored. One fixture per arm, because
+ * the arms carry no tag and the union's own `keyof` is empty.
+ */
+const EXIT_WARNING_CONDITION_FIXTURES = {
+    whenFieldSet: { whenFieldSet: 'f' },
+    whenFieldEquals: { whenField: 'f', equals: ['v'] },
+} as const satisfies { [TArm in ExitWarningArm]: ExitWarningConditionArms[TArm] };
+
+/**
+ * Fails to compile if an arm gains a member its fixture omits, or
+ * {@link ExitWarningCondition} gains an arm {@link ExitWarningConditionArms} does not name.
+ */
+type ConditionFixturesAreExhaustive =
+    | {
+          [TArm in ExitWarningArm]: Exclude<
+              keyof ExitWarningConditionArms[TArm],
+              keyof (typeof EXIT_WARNING_CONDITION_FIXTURES)[TArm]
+          >;
+      }[ExitWarningArm]
+    | Exclude<ExitWarningCondition, ExitWarningConditionArms[ExitWarningArm]>;
+
+/** Do not delete as unused: removing it erases the guard above. */
+const conditionFixturesAreExhaustive: [ConditionFixturesAreExhaustive] extends [never]
+    ? true
+    : ['EXIT_WARNING_CONDITION_FIXTURES is missing', ConditionFixturesAreExhaustive] = true;
+
+void conditionFixturesAreExhaustive;
+
+/** Each condition arm paired with the members the server declares on it. */
+const EXIT_WARNING_CONDITION_ARMS = (Object.keys(EXIT_WARNING_CONDITION_FIXTURES) as ExitWarningArm[]).map((arm) => ({
+    arm,
+    members: Object.keys(EXIT_WARNING_CONDITION_FIXTURES[arm]),
+}));
+
+/**
+ * One output per naming arm, every optional populated.
+ *
+ * Both arms rather than one, because the arms differ in what names the variable and a
+ * member could be added to either alone; and fixtures rather than live blocks, because
+ * `valueKindFrom` may have no shipped block setting it at all.
+ */
+const OUTPUT_DECLARATION_FIXTURES = {
+    fixed: {
+        naming: 'fixed',
+        key: 'k',
+        label: 'l',
+        description: 'd',
+        valueKind: 'channel',
+        valueKindFrom: { field: 'f', kinds: { v: 'time' } },
+        handle: 'h',
+    },
+    authored: {
+        naming: 'authored',
+        fromField: 'f',
+        label: 'l',
+        description: 'd',
+        valueKind: 'channel',
+        valueKindFrom: { field: 'f', kinds: { v: 'time' } },
+        handle: 'h',
+    },
+} as const satisfies { [TNaming in OutputNaming]: Extract<BlockOutputDeclaration, { naming: TNaming }> };
+
+type OutputNaming = BlockOutputDeclaration['naming'];
+
+/** Fails to compile if either output arm gains a member its fixture omits. */
+type OutputFixturesAreExhaustive = {
+    [TNaming in OutputNaming]: Exclude<
+        keyof Extract<BlockOutputDeclaration, { naming: TNaming }>,
+        keyof (typeof OUTPUT_DECLARATION_FIXTURES)[TNaming]
+    >;
+}[OutputNaming];
+
+/** Do not delete as unused: removing it erases the guard above. */
+const outputFixturesAreExhaustive: [OutputFixturesAreExhaustive] extends [never]
+    ? true
+    : ['OUTPUT_DECLARATION_FIXTURES is missing', OutputFixturesAreExhaustive] = true;
+
+void outputFixturesAreExhaustive;
+
+/** Each naming arm paired with the members the server declares on it. */
+const OUTPUT_DECLARATION_ARMS = (Object.keys(OUTPUT_DECLARATION_FIXTURES) as OutputNaming[]).map((naming) => ({
+    naming,
+    members: Object.keys(OUTPUT_DECLARATION_FIXTURES[naming]),
+}));
 
 /** Each arm's control paired with the members the server declares on it. */
 const CONFIG_FIELD_ARMS = BLOCK_CONTROL_TYPES.map((control) => ({
@@ -309,6 +437,65 @@ describe('node descriptor drift between server and browser', () => {
                 'one that bites: the engine would expand tokens the control renders as literal braces.'
         ).toEqual(serverMembers);
     });
+
+    it('keeps the output handle shape identical on both sides', () => {
+        const serverMembers = Object.keys(OUTPUT_HANDLE_FIXTURE).sort();
+        const browserMembers = [...browserTypes.BLOCK_OUTPUT_HANDLE_KEYS].sort();
+
+        expect(
+            browserMembers,
+            `BlockOutputHandle has drifted. Server: [${serverMembers.join(', ')}]; browser ` +
+                `(web/src/api/types.ts): [${browserMembers.join(', ')}]. An exit is served inside ` +
+                '`handles`, so the descriptor-level check cannot see its members — one missing here ' +
+                'is sent to a builder that never reads it. Reconcile BlockOutputHandle and ' +
+                'BLOCK_OUTPUT_HANDLE_KEYS.'
+        ).toEqual(serverMembers);
+    });
+
+    it('names the same exit-warning condition arms on both sides', () => {
+        const serverArms = Object.keys(EXIT_WARNING_CONDITION_FIXTURES).sort();
+        const browserArms = Object.keys(browserTypes.EXIT_WARNING_CONDITION_KEYS).sort();
+
+        expect(
+            browserArms,
+            `ExitWarningCondition's arms have drifted. Server: [${serverArms.join(', ')}]; browser ` +
+                `(web/src/api/types.ts): [${browserArms.join(', ')}]. An arm the browser does not know is a ` +
+                'condition the builder never evaluates, so the exit is silently never warned about. Reconcile ' +
+                'ExitWarningCondition and EXIT_WARNING_CONDITION_KEYS.'
+        ).toEqual(serverArms);
+    });
+
+    it.each(EXIT_WARNING_CONDITION_ARMS)('keeps the $arm exit-warning condition identical on both sides', ({ arm, members }) => {
+        const serverMembers = [...members].sort();
+        const browserArm = browserTypes.EXIT_WARNING_CONDITION_KEYS[arm] as readonly string[] | undefined;
+        const browserMembers = [...(browserArm ?? [])].sort();
+
+        expect(
+            browserMembers,
+            `The \`${arm}\` arm of ExitWarningCondition has drifted. Server: [${serverMembers.join(', ')}]; ` +
+                `browser (web/src/api/types.ts): [${browserMembers.join(', ')}]. It is the value of an exit's ` +
+                '`warnIfUnconnected`, below what the handle check compares, so a member missing here is ' +
+                'one the builder never reads when deciding whether to warn. Reconcile ExitWarningCondition ' +
+                'and EXIT_WARNING_CONDITION_KEYS.'
+        ).toEqual(serverMembers);
+    });
+
+    it.each(OUTPUT_DECLARATION_ARMS)(
+        'keeps the $naming output-declaration arm identical on both sides',
+        ({ naming, members }) => {
+            const serverMembers = [...members].sort();
+            const browserArm = browserTypes.BLOCK_OUTPUT_DECLARATION_KEYS[naming] as readonly string[] | undefined;
+
+            expect(
+                [...(browserArm ?? [])].sort(),
+                `The \`${naming}\` arm of BlockOutputDeclaration has drifted. Server: ` +
+                    `[${serverMembers.join(', ')}]; browser (web/src/api/types.ts): ` +
+                    `[${[...(browserArm ?? [])].sort().join(', ')}]. The builder offers a variable ` +
+                    'from these members, so one it does not declare is a name or a kind it cannot ' +
+                    'see. Reconcile BlockOutputDeclaration and BLOCK_OUTPUT_DECLARATION_KEYS.'
+            ).toEqual(serverMembers);
+        }
+    );
 
     /**
      * The graph-shape version, which is declared on both sides for the same reason

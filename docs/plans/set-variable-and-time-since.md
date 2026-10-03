@@ -205,6 +205,19 @@ record" can't use them. Time Since takes the variable **by name**:
   Not on a plain No/false exit.
 - Conformance (the flag only sits on a declared exit) and drift (exit-declaration members)
   both cover it.
+- **As built, widened from `true` alone** to `true | { whenFieldSet } | { whenField, equals }`,
+  because a plain `true` over-warned in two places, marking normal cards amber:
+  - **`{ whenFieldSet: 'timeoutMs' }`** on the two timeout exits. Both waits default to no
+    time limit, and with none the timeout can never fire — `true` would have warned on nearly
+    every default wait node. Conformance requires the field to be optional in the schema.
+  - **`{ whenField: 'source', equals: ['memberMessage', 'channelMessage', 'variable'] }`** on
+    Time Since's `noRecord`. From "When this run started" No record is only reachable by a run
+    parked before this deploy, and from "When the member joined" only for an uncached leaver
+    on a Member Leaves run, so `true` warned on nodes where an ordinary run never lands there.
+    Same reading as `visibleWhen`; conformance requires a defaulted choice offering each value.
+  - Conformance also refuses a warned default exit on a `canSuspend` block, since the builder
+    says a run landing on a parking block's warned exit *fails*, which only holds for a named
+    exit taken on waking. The "taken on waking" half is stated in `block-authoring.md`.
 
 ## Blocks
 

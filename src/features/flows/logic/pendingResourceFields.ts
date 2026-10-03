@@ -1,6 +1,6 @@
 import type { FlowGraph } from '../data/flowGraph';
 import type { FlowValidationIssue } from '../engine/nodeDataValidation';
-import { collectResourceTargets } from './resourceTargets';
+import { collectApplicableResourceTargets } from './resourceTargets';
 
 export interface PendingResourceFields {
     /**
@@ -76,7 +76,8 @@ export function pendingResourceFields(
         else pendingFields.set(nodeId, new Set([configKey]));
     };
 
-    for (const target of collectResourceTargets(graph)) {
+    // Only fields that apply: a hidden picker's sidecar is neither waited on nor blamed.
+    for (const target of collectApplicableResourceTargets(graph)) {
         if (declaredKeys.has(target.resourceKey)) {
             markPending(target.nodeId, target.configKey);
             continue;

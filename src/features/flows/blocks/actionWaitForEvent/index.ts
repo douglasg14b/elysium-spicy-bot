@@ -80,7 +80,14 @@ export const block: BlockManifest<WaitForEventConfig> = {
     ],
     handles: [
         { label: 'It happened', tone: 'positive' },
-        { id: WAIT_TIMEOUT_HANDLE, label: 'Timed out', tone: 'caution' },
+        // Warned about only while there is a time limit: without one this exit can
+        // never be taken, and most waits have none.
+        {
+            id: WAIT_TIMEOUT_HANDLE,
+            label: 'Timed out',
+            tone: 'caution',
+            warnIfUnconnected: { whenFieldSet: 'timeoutMs' },
+        },
     ],
     outputs: [],
     requires: [],

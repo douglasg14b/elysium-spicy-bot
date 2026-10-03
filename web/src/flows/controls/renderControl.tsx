@@ -18,6 +18,7 @@ import { SegmentedChoiceControl, SelectChoiceControl } from './ChoiceControls';
 import { LongTextControl, TextControl } from './TextControls';
 import { ObjectListControl } from './ObjectListControl';
 import { TextListControl } from './TextListControl';
+import { VariableSelectControl } from './VariableSelectControl';
 import type { ControlChange, ControlContext } from './types';
 
 /**
@@ -65,6 +66,8 @@ export function renderControl(
             return <ObjectListControl field={field} {...props} />;
         case 'eligibility':
             return <EligibilityControl field={field} {...props} />;
+        case 'variableSelect':
+            return <VariableSelectControl field={field} {...props} />;
         default: {
             // Adding a member to `BLOCK_CONTROL_TYPES` without implementing it here
             // is a compile error, by design.

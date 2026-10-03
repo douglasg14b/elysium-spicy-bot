@@ -150,7 +150,14 @@ export const block: BlockManifest<PromptConfig> = {
         { id: promptChoiceHandle(2), label: 'Answer 3', tone: 'neutral' },
         { id: promptChoiceHandle(3), label: 'Answer 4', tone: 'neutral' },
         { id: promptChoiceHandle(4), label: 'Answer 5', tone: 'neutral' },
-        { id: PROMPT_TIMEOUT_HANDLE, label: 'Timed out', tone: 'caution' },
+        // Warned about only while there is a time limit: without one nobody can time
+        // out, and most questions wait forever.
+        {
+            id: PROMPT_TIMEOUT_HANDLE,
+            label: 'Timed out',
+            tone: 'caution',
+            warnIfUnconnected: { whenFieldSet: 'timeoutMs' },
+        },
     ],
     outputs: [],
     // The question is posted where the run is operating, so a run that is nowhere

@@ -925,12 +925,12 @@ describe('a declared output nothing could ever resolve', () => {
         expect(issues.join('\n')).toMatch(/written on the handle "yes", which is not one of this block's handles/);
     });
 
-    it('catches a value kind no picker takes', () => {
+    it('catches a value kind outside the vocabulary', () => {
         const issues = checkBlockConformance(
             manifestWith({ outputs: [{ naming: 'fixed', key: 'thing', label: 'Thing', valueKind: 'banana' }] })
         );
 
-        expect(issues.join('\n')).toMatch(/declares the value kind "banana", which no picker takes/);
+        expect(issues.join('\n')).toMatch(/declares the value kind "banana", which is not a value kind/);
     });
 
     it('catches an output with no label for the builder to show', () => {
@@ -939,6 +939,294 @@ describe('a declared output nothing could ever resolve', () => {
         );
 
         expect(issues.join('\n')).toMatch(/needs a label the builder can show/);
+    });
+});
+
+/** A `select` the cases below hang visibility and value kinds off. */
+const VALUE_TYPE_FIELD = {
+    key: 'valueType',
+    label: 'Value',
+    control: 'select',
+    defaultValue: 'text',
+    options: [
+        { value: 'text', label: 'Text' },
+        { value: 'time', label: 'Current time' },
+    ],
+};
+
+/** A manifest with a `valueType` choice and an optional `note` field it can hide. */
+function choiceManifest(overrides: {
+    valueType?: Record<string, unknown>;
+    note?: Record<string, unknown>;
+    schema?: z.ZodObject;
+    outputs?: readonly Record<string, unknown>[];
+}): Record<string, unknown> {
+    return manifestWith({
+        configSchema:
+            overrides.schema ??
+            z.object({ valueType: z.enum(['text', 'time']).default('text'), note: z.string().optional() }),
+        configFields: [
+            { ...VALUE_TYPE_FIELD, ...overrides.valueType },
+            { key: 'note', label: 'Note', control: 'text', visibleWhen: { field: 'valueType', equals: ['text'] }, ...overrides.note },
+        ],
+        outputs: overrides.outputs ?? [],
+    });
+}
+
+describe('a field shown only while a sibling holds a value', () => {
+    it('accepts a field shown by a defaulted choice, under an optional schema key', () => {
+        expect(checkBlockConformance(choiceManifest({}))).toEqual([]);
+    });
+
+    it('catches a visibleWhen naming a field that is not a choice', () => {
+        const issues = checkBlockConformance(
+            choiceManifest({ note: { visibleWhen: { field: 'note', equals: ['x'] } } })
+        ).join('\n');
+
+        expect(issues).toMatch(/"note" is shown by "note", which is not a select or segmented field/);
+    });
+
+    it('catches a sibling with no default, or one that disagrees with its schema', () => {
+        const noDefault = checkBlockConformance(
+            choiceManifest({
+                valueType: { defaultValue: undefined },
+                schema: z.object({ valueType: z.enum(['text', 'time']), note: z.string().optional() }),
+            })
+        ).join('\n');
+        expect(noDefault).toMatch(/needs a declared default matching a schema \.default\(\)/);
+
+        const disagrees = checkBlockConformance(
+            choiceManifest({
+                schema: z.object({ valueType: z.enum(['text', 'time']), note: z.string().optional() }),
+            })
+        ).join('\n');
+        expect(disagrees).toMatch(/field says "text", schema says undefined/);
+    });
+
+    it('catches a chain, where the sibling is conditional itself', () => {
+        const issues = checkBlockConformance(
+            choiceManifest({ valueType: { visibleWhen: { field: 'valueType', equals: ['text'] } } })
+        ).join('\n');
+
+        expect(issues).toMatch(/is shown by "valueType", which is itself conditional/);
+    });
+
+    it('catches a value the sibling never offers', () => {
+        const issues = checkBlockConformance(
+            choiceManifest({ note: { visibleWhen: { field: 'valueType', equals: ['text', 'number'] } } })
+        ).join('\n');
+
+        expect(issues).toMatch(/is shown when "valueType" is "number", which it never offers/);
+    });
+
+    it('catches a field that can be hidden but that its schema requires', () => {
+        const issues = checkBlockConformance(
+            choiceManifest({ schema: z.object({ valueType: z.enum(['text', 'time']).default('text'), note: z.string() }) })
+        ).join('\n');
+
+        expect(issues).toMatch(/"note" can be hidden, but its configSchema requires it/);
+    });
+
+    it('catches a malformed visibleWhen', () => {
+        const issues = checkBlockConformance(choiceManifest({ note: { visibleWhen: { field: 'valueType', equals: [] } } }));
+
+        expect(issues.join('\n')).toMatch(/visibleWhen without a field name and a non-empty list/);
+    });
+});
+
+describe('an output whose kind a field decides', () => {
+    const derived = (valueKindFrom: Record<string, unknown>, extra: Record<string, unknown> = {}) => [
+        { naming: 'authored', fromField: 'note', label: 'The value', valueKindFrom, ...extra },
+    ];
+
+    it('accepts a defaulted choice whose options map to real kinds', () => {
+        expect(
+            checkBlockConformance(choiceManifest({ outputs: derived({ field: 'valueType', kinds: { time: 'time' } }) }))
+        ).toEqual([]);
+    });
+
+    it('catches a static kind declared beside it', () => {
+        const issues = checkBlockConformance(
+            choiceManifest({ outputs: derived({ field: 'valueType', kinds: { time: 'time' } }, { valueKind: 'time' }) })
+        ).join('\n');
+
+        expect(issues).toMatch(/declares both valueKind and valueKindFrom/);
+    });
+
+    it('catches a field that is not a choice, and one with no default', () => {
+        expect(
+            checkBlockConformance(choiceManifest({ outputs: derived({ field: 'note', kinds: {} }) })).join('\n')
+        ).toMatch(/takes its kind from "note", which is not a select or segmented field/);
+
+        expect(
+            checkBlockConformance(
+                choiceManifest({
+                    valueType: { defaultValue: undefined },
+                    schema: z.object({ valueType: z.enum(['text', 'time']), note: z.string().optional() }),
+                    outputs: derived({ field: 'valueType', kinds: { time: 'time' } }),
+                })
+            ).join('\n')
+        ).toMatch(/takes its kind from "valueType", which declares no default/);
+    });
+
+    it('catches an option the field never offers, and a kind outside the vocabulary', () => {
+        const issues = checkBlockConformance(
+            choiceManifest({ outputs: derived({ field: 'valueType', kinds: { number: 'time', time: 'banana' } }) })
+        ).join('\n');
+
+        expect(issues).toMatch(/maps "number" to a kind, but "valueType" offers no such option/);
+        expect(issues).toMatch(/maps "time" to "banana", which is not a value kind/);
+    });
+});
+
+describe('a field reading a variable by name', () => {
+    const variableManifest = (field: Record<string, unknown>, schema: z.ZodType) =>
+        manifestWith({
+            configSchema: z.object({ seenAt: schema }),
+            configFields: [{ key: 'seenAt', label: 'Saved time', control: 'variableSelect', valueKind: 'time', ...field }],
+        });
+
+    it('accepts a real kind over a schema in the shared spelling', () => {
+        expect(checkBlockConformance(variableManifest({}, z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/).optional()))).toEqual([]);
+    });
+
+    it('accepts one that can be hidden — the shape Time Since needs', () => {
+        const manifest = choiceManifest({
+            schema: z.object({
+                valueType: z.enum(['text', 'time']).default('text'),
+                note: z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/).optional(),
+            }),
+            note: { control: 'variableSelect', valueKind: 'time', visibleWhen: { field: 'valueType', equals: ['time'] } },
+        });
+
+        expect(checkBlockConformance(manifest)).toEqual([]);
+    });
+
+    it('catches a kind outside the vocabulary', () => {
+        const issues = checkBlockConformance(
+            variableManifest({ valueKind: 'banana' }, z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/).optional())
+        ).join('\n');
+
+        expect(issues).toMatch(/offers variables of the kind "banana", which is not a value kind/);
+    });
+
+    it('catches a schema that would store a name no token can address', () => {
+        const issues = checkBlockConformance(variableManifest({}, z.string().optional())).join('\n');
+
+        expect(issues).toMatch(/must take one in the shared spelling/);
+    });
+});
+
+describe('an exit marked worth a warning', () => {
+    const handles = (warnIfUnconnected: unknown) => [
+        { id: 'true', label: 'Yes', tone: 'positive' },
+        { id: 'noRecord', label: 'No record', tone: 'caution', warnIfUnconnected },
+    ];
+
+    it('accepts true, and catches anything else', () => {
+        expect(checkBlockConformance(manifestWith({ handles: handles(true) }))).toEqual([]);
+        expect(checkBlockConformance(manifestWith({ handles: handles(false) })).join('\n')).toMatch(
+            /output handle noRecord sets warnIfUnconnected to false/
+        );
+    });
+
+    /** `choiceManifest`'s block — a defaulted `valueType` choice and an optional `note` — with these exits. */
+    const withExits = (warnIfUnconnected: unknown): Record<string, unknown> => ({
+        ...choiceManifest({}),
+        handles: handles(warnIfUnconnected),
+    });
+
+    it('accepts a field-set condition naming its own optional field, and catches one naming none or malformed', () => {
+        expect(checkBlockConformance(withExits({ whenFieldSet: 'note' }))).toEqual([]);
+        expect(checkBlockConformance(withExits({ whenFieldSet: 'timeoutMs' })).join('\n')).toMatch(
+            /warns only when the field "timeoutMs" is set, but declares no such field/
+        );
+        expect(checkBlockConformance(withExits({ whenFieldSet: 3 })).join('\n')).toMatch(
+            /sets warnIfUnconnected to \{"whenFieldSet":3\}/
+        );
+        expect(checkBlockConformance(withExits({ whenFieldSet: 'note', extra: true })).join('\n')).toMatch(
+            /sets warnIfUnconnected to/
+        );
+    });
+
+    it('catches a field-set condition over a field its schema requires, which is set on every node', () => {
+        // `roleId` is the one field `manifestWith`'s base block declares, and its schema requires it.
+        expect(checkBlockConformance(manifestWith({ handles: handles({ whenFieldSet: 'roleId' }) })).join('\n')).toMatch(
+            /warns only when the field "roleId" is set, but its configSchema requires it/
+        );
+    });
+
+    it('accepts a choice condition over a defaulted choice offering every value', () => {
+        expect(checkBlockConformance(withExits({ whenField: 'valueType', equals: ['time'] }))).toEqual([]);
+    });
+
+    it('catches a choice condition naming a field that is not a choice, or none', () => {
+        expect(checkBlockConformance(withExits({ whenField: 'note', equals: ['x'] })).join('\n')).toMatch(
+            /warns only while "note" holds certain values, but that is not a select or segmented field/
+        );
+        expect(checkBlockConformance(withExits({ whenField: 'mood', equals: ['x'] })).join('\n')).toMatch(
+            /warns only while "mood" holds certain values, but that is not a select or segmented field/
+        );
+    });
+
+    it('catches a choice condition over a choice with no default, or a value it never offers', () => {
+        const noDefault = {
+            ...choiceManifest({
+                valueType: { defaultValue: undefined },
+                schema: z.object({ valueType: z.enum(['text', 'time']), note: z.string().optional() }),
+            }),
+            handles: handles({ whenField: 'valueType', equals: ['time'] }),
+        };
+        expect(checkBlockConformance(noDefault).join('\n')).toMatch(/"valueType" declares no default/);
+
+        expect(checkBlockConformance(withExits({ whenField: 'valueType', equals: ['time', 'number'] })).join('\n')).toMatch(
+            /warns while "valueType" is "number", which it never offers/
+        );
+    });
+
+    it('catches a malformed choice condition, and one mixing both shapes', () => {
+        for (const malformed of [
+            { whenField: 'valueType', equals: [] },
+            { whenField: 'valueType', equals: 'time' },
+            { whenField: 'valueType' },
+            { whenField: 'valueType', equals: ['time'], whenFieldSet: 'note' },
+        ]) {
+            expect(checkBlockConformance(withExits(malformed)).join('\n')).toMatch(/sets warnIfUnconnected to/);
+        }
+    });
+
+    it('catches a warned default exit on a block that can park, whose run would only stop', () => {
+        const parking = (exits: readonly Record<string, unknown>[]) =>
+            manifestWith({ canSuspend: true, handles: exits });
+
+        expect(
+            checkBlockConformance(parking([{ label: 'Then', tone: 'neutral', warnIfUnconnected: true }])).join('\n')
+        ).toMatch(/output handle <default> is warned about on a block that can park, but has no id/);
+        expect(
+            checkBlockConformance(
+                parking([
+                    { label: 'Then', tone: 'neutral' },
+                    { id: 'timeout', label: 'Timed out', tone: 'caution', warnIfUnconnected: true },
+                ])
+            )
+        ).toEqual([]);
+        // Not a parking block, so a default exit simply stops — which is what the builder says.
+        expect(
+            checkBlockConformance(manifestWith({ handles: [{ label: 'Then', tone: 'neutral', warnIfUnconnected: true }] }))
+        ).toEqual([]);
+    });
+});
+
+describe('the contract fixture blocks', () => {
+    it('each conform, so what they prove is the contract and not a stub of it', async () => {
+        const discovered = await discoverBlocks<BlockManifest>(
+            path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'blocks', 'contract')
+        );
+
+        expect(discovered.size).toBeGreaterThan(0);
+        for (const block of discovered.values()) {
+            expect(checkBlockConformance(block), block.type).toEqual([]);
+        }
     });
 });
 

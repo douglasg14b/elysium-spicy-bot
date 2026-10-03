@@ -106,6 +106,16 @@ export const BLOCK_CONTROL_TYPES = [
     'objectList',
     /** Who is allowed: a principal picker, plus whatever that principal needs. */
     'eligibility',
+    /**
+     * One variable an earlier block records, picked by name and filtered by kind.
+     *
+     * Stores the **bare name**, never a `{{var.…}}` token, so the executor passes it
+     * through untouched and the block reads `context.variables[name]` itself. That is
+     * the difference from a picker holding a variable: a token the run never recorded
+     * fails the step before `run`, while a name lets the block decide what "unset"
+     * means. Deliberately not in {@link PICKER_VALUE_KINDS} for exactly that reason.
+     */
+    'variableSelect',
 ] as const;
 
 export type BlockControlType = (typeof BLOCK_CONTROL_TYPES)[number];
@@ -187,6 +197,25 @@ interface BlockConfigFieldBase {
     readonly label: string;
     /** Helper text under the control. */
     readonly description?: string;
+    /**
+     * Show this field only while a sibling `select` or `segmented` field holds one of
+     * `equals`, read through {@link isFieldVisible}.
+     *
+     * **Hidden means absent to every reader**, not merely undrawn: save-time validation
+     * and the executor parse the node through {@link visibleNodeData}, so neither the
+     * schema nor `run` sees a hidden field, and the builder neither checks nor summarises
+     * it. A node usually still *holds* a value for one — the builder seeds every default
+     * on drop, and switching the sibling does not clear anything — so presence never
+     * decides; only this does.
+     *
+     * So a field carrying this must be optional in the schema (absent is what it is while
+     * hidden), and may keep per-key limits such as `.max()`, which only ever judge it
+     * while shown. A rule that also depends on the sibling belongs in the block's own
+     * `superRefine`, as `checkQuietTimeout` does. Conformance holds the rest: the sibling
+     * exists, offers every value named here, declares a default, and is not itself
+     * conditional — one level, no chains.
+     */
+    readonly visibleWhen?: { readonly field: string; readonly equals: readonly string[] };
     /*
      * `defaultValue` is deliberately **not** here, though every arm declares one.
      *
@@ -371,11 +400,11 @@ export type BlockConfigField =
            * needs, as **one** control over one object-valued key.
            *
            * One control rather than a principal `select` beside a role list and a
-           * variable name, because those extras are mutually exclusive and this
-           * field vocabulary has no way to say "show this field only when that
-           * one is set". Three always-visible fields, two of which are dead for
-           * any given choice, is the form that produces graphs holding a role
-           * list under a `subject` gate.
+           * variable name, because those extras are mutually exclusive and live
+           * inside one object-valued key. `visibleWhen` can now hide a field
+           * while a sibling holds a value, but it hides whole keys: splitting this
+           * into three would change the stored shape every saved graph holds, for
+           * a form that already shows only the extra its principal needs.
            *
            * Deliberately declares **no options**: the principals and the offered
            * Discord permissions are closed vocabularies the control reads from
@@ -390,6 +419,21 @@ export type BlockConfigField =
            * default, so `checkFieldDefault` holds it to the schema's `.default()`.
            */
           readonly defaultValue?: Eligibility;
+      })
+    | (BlockConfigFieldBase & {
+          /**
+           * A variable some earlier block records, by name. The value stored is the
+           * bare name — never a token — and the schema reuses `VARIABLE_NAME_SHAPE`.
+           */
+          readonly control: 'variableSelect';
+          /**
+           * Which kind of variable the block can use. The builder offers only
+           * variables of this kind, and save refuses a name no block before this one
+           * records, or that any block records as another kind — see
+           * `checkCopyTokens` in `engine/graphValidation.ts`.
+           */
+          readonly valueKind: BlockOutputValueKind;
+          readonly defaultValue?: string;
       });
 
 /**
@@ -471,6 +515,64 @@ export interface BlockOutputHandle {
     readonly id?: string;
     readonly label: string;
     readonly tone: BlockHandleTone;
+    /**
+     * Warn in the builder while this exit is left unconnected, for an exit whose
+     * silent dead end is rarely what the author meant — a "No record" an author
+     * forgot exists, say.
+     *
+     * Advice, never a refusal: the flow still saves and goes live, because a dead end
+     * is how an author ends a path on purpose. That is also why it is opt-in per exit
+     * rather than true of every one. An unconnected "No" is usually deliberate
+     * ("No → end"), and a warning on it would fire on most ordinary flows — a marker
+     * on the normal case says nothing and teaches the author to stop reading it.
+     *
+     * `true` warns whenever the exit is unconnected. The two conditions narrow that to
+     * the nodes where an ordinary run can actually take the exit — warning anywhere
+     * else would be the over-warning above:
+     *
+     *  - `{ whenFieldSet }` warns only while the named config field holds a value — for
+     *    an exit that can only fire when an optional field is filled in, such as a
+     *    "Timed out" on a wait whose time limit defaults to none.
+     *  - `{ whenField, equals }` warns only while a `select` or `segmented` field holds
+     *    one of `equals` — for an exit only some choices make reachable, such as a "No
+     *    record" a source can only produce in a rare edge case.
+     *
+     * Absent means never; there is no `false` to declare.
+     *
+     * On a block that can park (`canSuspend`), a warned exit must be one the block only
+     * takes **on waking**, and must be named (conformance holds the second). The builder
+     * says a run landing there *fails*, because the executor fails a run that woke and
+     * leaves by a named exit wired to nothing — a default exit, or one taken before the
+     * park, would only stop, and the warning would be wrong.
+     */
+    readonly warnIfUnconnected?: true | ExitWarningCondition;
+}
+
+/**
+ * When an exit's {@link BlockOutputHandle.warnIfUnconnected} applies, if not always.
+ * One of two shapes, told apart by their keys; conformance refuses any other key set.
+ */
+export type ExitWarningCondition = ExitWarningWhenFieldSet | ExitWarningWhenFieldEquals;
+
+/**
+ * Warn while `whenFieldSet` — one of the block's own config fields, optional in its
+ * schema — holds a value on the node: stored, or its declared default, and not hidden by
+ * its `visibleWhen`.
+ */
+export interface ExitWarningWhenFieldSet {
+    readonly whenFieldSet: string;
+}
+
+/**
+ * Warn while `whenField` — one of the block's own `select` or `segmented` fields, with a
+ * declared default — holds one of `equals`, read exactly as `visibleWhen` reads its
+ * sibling: the stored value or the default, through {@link effectiveFieldValue}, and
+ * never while the field itself is hidden. Conformance holds that every `equals` value is
+ * one of the field's options.
+ */
+export interface ExitWarningWhenFieldEquals {
+    readonly whenField: string;
+    readonly equals: readonly string[];
 }
 
 /**
@@ -511,17 +613,20 @@ export type BlockOutputDeclaration = BlockOutputDeclarationBase &
     );
 
 /**
- * What a value *is*, for the pickers that can take one in place of a choice.
+ * What a value *is*, for the controls that take a variable of one kind.
  *
  * A picker asks "which channel"; a variable holding a channel id is an answer to
  * that, and one holding a ticket number is not. Declaring the kind is what lets
  * the channel picker offer the first and never the second. Absent means a plain
  * value, readable in copy and nowhere else.
  *
- * One member because one picker can take a variable today. `role` joins this when
- * some block produces a role.
+ * Not every kind has a picker. `channel` is taken by the channel picker, through
+ * {@link PICKER_VALUE_KINDS}; `time` — an ISO-8601 UTC string, as
+ * `new Date().toISOString()` writes it — is taken by a `variableSelect` field,
+ * which reads the variable by name. `role` joins this when some block produces a
+ * role.
  */
-export const BLOCK_OUTPUT_VALUE_KINDS = ['channel'] as const;
+export const BLOCK_OUTPUT_VALUE_KINDS = ['channel', 'time'] as const;
 
 export type BlockOutputValueKind = (typeof BLOCK_OUTPUT_VALUE_KINDS)[number];
 
@@ -529,9 +634,12 @@ export type BlockOutputValueKind = (typeof BLOCK_OUTPUT_VALUE_KINDS)[number];
  * Which picker takes which kind of value, in place of a fixed choice.
  *
  * The one place the pairing is stated: the executor resolves a variable in exactly
- * these controls, and save-time validation checks the variable named there is one
- * some block declares with this kind. A role picker joins by adding a row here and
- * `role` to {@link BLOCK_OUTPUT_VALUE_KINDS}.
+ * these controls, and save-time validation checks that some block records the name
+ * and that every block recording it records this kind. A role picker joins by adding
+ * a row here and `role` to {@link BLOCK_OUTPUT_VALUE_KINDS}.
+ *
+ * Not every kind has a row: `time` is read by name through a `variableSelect` field,
+ * which the executor deliberately leaves alone.
  */
 export const PICKER_VALUE_KINDS = {
     channelPicker: 'channel',
@@ -543,8 +651,26 @@ export type VariablePickerControl = keyof typeof PICKER_VALUE_KINDS;
 interface BlockOutputDeclarationBase {
     readonly label: string;
     readonly description?: string;
-    /** What the value is, when a picker can use it. See {@link BLOCK_OUTPUT_VALUE_KINDS}. */
+    /**
+     * What the value is, when the block always writes the same kind. See
+     * {@link BLOCK_OUTPUT_VALUE_KINDS}. Read it through {@link resolveOutputValueKind},
+     * never directly, since {@link valueKindFrom} may be what declares it instead.
+     */
     readonly valueKind?: BlockOutputValueKind;
+    /**
+     * What the value is, when it depends on a choice the author makes — a block that
+     * can write text or a time, say, depending on its own `select`.
+     *
+     * `field` names a `select` or `segmented` config field with a default; `kinds`
+     * maps that field's option values to a kind, and an option it leaves out means
+     * "no kind". Mutually exclusive with {@link valueKind}: two declarations of one
+     * fact would disagree the first time somebody edited one. Conformance holds all
+     * of that.
+     */
+    readonly valueKindFrom?: {
+        readonly field: string;
+        readonly kinds: Readonly<Record<string, BlockOutputValueKind>>;
+    };
     /**
      * The handle a run leaves by when this output was written, if only one does.
      *
@@ -580,6 +706,107 @@ export function resolveOutputName(
 
     const authored = nodeData[output.fromField];
     return typeof authored === 'string' && authored ? authored : undefined;
+}
+
+/**
+ * The value a field currently holds on one node: what is stored, or the field's
+ * declared default when nothing (or `''`) is.
+ *
+ * The one reading of "current value" that {@link isFieldVisible} and
+ * {@link resolveOutputValueKind} share, mirrored once in the browser. Three readers
+ * each deciding for themselves whether an unset `select` means its default would be
+ * three answers to one question the first time a graph saved before a field existed
+ * is opened.
+ */
+export function effectiveFieldValue(
+    field: BlockConfigField,
+    nodeData: Readonly<Record<string, unknown>>
+): unknown {
+    const value = nodeData[field.key];
+    return value === undefined || value === '' ? field.defaultValue : value;
+}
+
+/**
+ * Whether a field applies on this node, per its `visibleWhen`.
+ *
+ * A field with no `visibleWhen` always applies. One whose sibling cannot be found is
+ * treated as applying too — conformance makes that unreachable for a shipped block,
+ * and hiding a field nobody can explain hiding is the worse way to be wrong.
+ */
+export function isFieldVisible(
+    field: BlockConfigField,
+    fields: readonly BlockConfigField[],
+    nodeData: Readonly<Record<string, unknown>>
+): boolean {
+    const when = field.visibleWhen;
+    if (!when) {
+        return true;
+    }
+
+    const source = fields.find((candidate) => candidate.key === when.field);
+    if (!source) {
+        return true;
+    }
+
+    const value = effectiveFieldValue(source, nodeData);
+    return typeof value === 'string' && when.equals.includes(value);
+}
+
+/**
+ * A node's data with every field its `visibleWhen` currently hides left out.
+ *
+ * Where "hidden means absent" is made true for the engine: save-time validation and
+ * the executor both parse what this returns, so neither the schema, nor a block's
+ * `superRefine`, nor `run` ever sees a value the author cannot. That is what lets a
+ * hidden field keep per-key limits (`.max()`) without a stale value refusing a save
+ * or failing a run. Hands back the same object when nothing hidden is held, so the
+ * common case allocates nothing.
+ *
+ * Visibility is read off this same data, through each sibling's declared default when
+ * unset; conformance holds that default equal to the schema's, so reading before the
+ * parse agrees with reading after it.
+ */
+export function visibleNodeData(
+    fields: readonly BlockConfigField[],
+    nodeData: Readonly<Record<string, unknown>>
+): Readonly<Record<string, unknown>> {
+    const absentKeys = new Set(
+        fields
+            .filter((field) => Object.hasOwn(nodeData, field.key) && !isFieldVisible(field, fields, nodeData))
+            .map((field) => field.key)
+    );
+    return absentKeys.size === 0
+        ? nodeData
+        : Object.fromEntries(Object.entries(nodeData).filter(([key]) => !absentKeys.has(key)));
+}
+
+/**
+ * What kind of value one declared output writes on one node, or undefined for a
+ * plain value.
+ *
+ * A static `valueKind` answers directly; a `valueKindFrom` reads the named field's
+ * current value through {@link effectiveFieldValue}, so a node dropped before its
+ * author touched the choice reports the default's kind. Beside
+ * {@link resolveOutputName} for the reason that function gives: the builder and the
+ * validator both ask, and a second copy is how the two would come to disagree.
+ */
+export function resolveOutputValueKind(
+    output: BlockOutputDeclaration,
+    fields: readonly BlockConfigField[],
+    nodeData: Readonly<Record<string, unknown>>
+): BlockOutputValueKind | undefined {
+    if (output.valueKind) {
+        return output.valueKind;
+    }
+
+    const from = output.valueKindFrom;
+    if (!from) {
+        return undefined;
+    }
+
+    const field = fields.find((candidate) => candidate.key === from.field);
+    const value = field ? effectiveFieldValue(field, nodeData) : undefined;
+    return typeof value === 'string' && Object.hasOwn(from.kinds, value) ? from.kinds[value] : undefined;
 }
 
 /**

@@ -53,9 +53,20 @@ function pickerFields(): PickerCase[] {
                 `${block.type}.${field.key}`,
                 block.type,
                 field.key,
-                otherRequiredData(block, field.key),
+                otherRequiredData(block, field.key, shownBy(field)),
             ])
     );
+}
+
+/**
+ * The sibling value that shows a field carrying `visibleWhen`, as starting data.
+ *
+ * A hidden picker's sidecar is neither waited on nor blamed (`collectResourceTargets`
+ * skips it), so the cases here are only meaningful for a picker that is shown.
+ */
+function shownBy(field: BlockConfigField): Record<string, unknown> {
+    const when = field.visibleWhen;
+    return when?.equals[0] === undefined ? {} : { [when.field]: when.equals[0] };
 }
 
 /**
@@ -89,9 +100,10 @@ function requiredPickerFields(): PickerCase[] {
  */
 function otherRequiredData(
     block: ReturnType<typeof listBlockDefinitions>[number],
-    skipKey: string
+    skipKey: string,
+    start: Record<string, unknown> = {}
 ): Record<string, unknown> {
-    const data: Record<string, unknown> = {};
+    const data: Record<string, unknown> = { ...start };
 
     // Bounded: each pass fills at least one key or stops, and a block has finitely
     // many fields. The cap is a guard against a schema that objects to a value this
@@ -100,13 +112,27 @@ function otherRequiredData(
         const parsed = block.configSchema.safeParse(data);
         if (parsed.success) break;
 
-        const missing = parsed.error.issues
+        const objected = parsed.error.issues
             .map((issue) => String(issue.path[0] ?? ''))
-            .filter((key) => key && key !== skipKey && !(key in data));
-        if (missing.length === 0) break;
+            .filter((key) => key && key !== skipKey);
+        // Only the field under test is objected to, which is what the cases set.
+        if (objected.length === 0) break;
 
-        for (const key of missing) {
-            data[key] = placeholderFor(block.configFields.find((field) => field.key === key));
+        const missing = objected.filter((key) => !(key in data));
+        if (missing.length > 0) {
+            for (const key of missing) {
+                data[key] = placeholderFor(block.configFields.find((field) => field.key === key));
+            }
+            continue;
+        }
+
+        // A refinement objecting to a key already filled in — the starting sibling,
+        // say: counting a time limit from a last message needs the limit, which is
+        // optional on its own. Fill each field still unset once, then stop.
+        const unset = block.configFields.filter((field) => field.key !== skipKey && !(field.key in data));
+        if (unset.length === 0) break;
+        for (const field of unset) {
+            data[field.key] = placeholderFor(field);
         }
     }
 

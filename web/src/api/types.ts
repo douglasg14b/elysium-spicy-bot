@@ -150,6 +150,7 @@ export const BLOCK_CONTROL_TYPES = [
     'textList',
     'objectList',
     'eligibility',
+    'variableSelect',
 ] as const;
 
 export type BlockControlType = (typeof BLOCK_CONTROL_TYPES)[number];
@@ -240,6 +241,13 @@ interface BlockConfigFieldBase {
     label: string;
     /** Helper text under the control. */
     description?: string;
+    /**
+     * Show this field only while a sibling `select`/`segmented` holds one of `equals`.
+     * Read through `isFieldVisible` in `flows/variables.ts` — a hidden field usually
+     * still holds a value, so presence never decides — and every reader skips a hidden
+     * field: the inspector, the live checks, the card summary.
+     */
+    visibleWhen?: { field: string; equals: string[] };
     /*
      * No `defaultValue` here, matching the server: a base member intersects with
      * the arm's, so one typed `string | number` would make `textList`'s
@@ -353,6 +361,15 @@ export type BlockConfigField =
            */
           control: 'eligibility';
           defaultValue?: Eligibility;
+      })
+    | (BlockConfigFieldBase & {
+          /**
+           * A variable an earlier block records, picked by name. Stores the bare name,
+           * never a `{{var.…}}` token, and offers only variables of `valueKind`.
+           */
+          control: 'variableSelect';
+          valueKind: BlockOutputValueKind;
+          defaultValue?: string;
       });
 
 /**
@@ -402,6 +419,31 @@ export interface BlockOutputHandle {
     id?: string;
     label: string;
     tone: BlockHandleTone;
+    /**
+     * Warn while this exit is unconnected — advice, never a save refusal. Opt-in per
+     * exit, for the ones whose silent dead end is rarely meant (a forgotten "No record").
+     * `{ whenFieldSet }` warns only while that config field holds a value — a "Timed
+     * out" on a wait with no time limit cannot fire, so it is not worth a warning.
+     * `{ whenField, equals }` warns only while a choice holds one of `equals` — a "No
+     * record" some sources only produce in a rare edge case.
+     */
+    warnIfUnconnected?: true | ExitWarningCondition;
+}
+
+/** When an exit's `warnIfUnconnected` applies, if not always. Told apart by their keys. */
+export type ExitWarningCondition = ExitWarningWhenFieldSet | ExitWarningWhenFieldEquals;
+
+/** Warn while this config field holds a value: stored or its default, and not hidden. */
+export interface ExitWarningWhenFieldSet {
+    whenFieldSet: string;
+}
+
+/** Warn while this `select`/`segmented` field holds one of `equals`, read as `visibleWhen` reads. */
+export interface ExitWarningWhenFieldEquals {
+    whenField: string;
+    // Readonly, as the server declares it: shared code hands a served manifest's handles
+    // straight to browser helpers, and a mutable array here would refuse them.
+    equals: readonly string[];
 }
 
 /**
@@ -428,16 +470,26 @@ export type BlockOutputDeclaration = BlockOutputDeclarationBase &
           }
     );
 
-/** What a value is, for the pickers that can take one. Absent means copy only. */
-export const BLOCK_OUTPUT_VALUE_KINDS = ['channel'] as const;
+/**
+ * What a value is, for the controls that take a variable of one kind. Absent means
+ * copy only. Not every kind has a picker: `channel` is taken by the channel picker,
+ * `time` (an ISO-8601 UTC string) by a `variableSelect` field.
+ */
+export const BLOCK_OUTPUT_VALUE_KINDS = ['channel', 'time'] as const;
 
 export type BlockOutputValueKind = (typeof BLOCK_OUTPUT_VALUE_KINDS)[number];
 
 interface BlockOutputDeclarationBase {
     label: string;
     description?: string;
-    /** What the value is, when a picker can use it. */
+    /** What the value is, when it is always the same kind. Read via `resolveOutputValueKind`. */
     valueKind?: BlockOutputValueKind;
+    /**
+     * What the value is, when it depends on a `select`/`segmented` field: `kinds` maps
+     * that field's option values to a kind, and an option left out means no kind.
+     * Never set alongside `valueKind`.
+     */
+    valueKindFrom?: { field: string; kinds: Record<string, BlockOutputValueKind> };
     /**
      * The handle a run leaves by when this was written, if only one does. A
      * condition records what it found on the branch where it found it.
@@ -589,18 +641,116 @@ export const NODE_DESCRIPTOR_KEYS = [
  * the server's own union.
  */
 export const BLOCK_CONFIG_FIELD_KEYS = {
-    rolePicker: ['key', 'label', 'description', 'control', 'defaultValue'],
-    channelPicker: ['key', 'label', 'description', 'control', 'optional', 'defaultValue'],
-    text: ['key', 'label', 'description', 'control', 'optional', 'placeholder', 'maxLength', 'defaultValue', 'rendersTokens'],
-    longText: ['key', 'label', 'description', 'control', 'placeholder', 'maxLength', 'defaultValue', 'rendersTokens'],
-    duration: ['key', 'label', 'description', 'control', 'optional', 'placeholder', 'defaultValue'],
-    segmented: ['key', 'label', 'description', 'control', 'options', 'defaultValue'],
-    select: ['key', 'label', 'description', 'control', 'options', 'defaultValue'],
-    colour: ['key', 'label', 'description', 'control', 'swatches', 'defaultValue'],
-    textList: ['key', 'label', 'description', 'control', 'placeholder', 'maxLength', 'minEntries', 'maxEntries', 'addLabel', 'defaultValue'],
-    objectList: ['key', 'label', 'description', 'control', 'columns', 'minEntries', 'maxEntries', 'addLabel', 'defaultValue'],
-    eligibility: ['key', 'label', 'description', 'control', 'defaultValue'],
+    rolePicker: ['key', 'label', 'description', 'visibleWhen', 'control', 'defaultValue'],
+    channelPicker: ['key', 'label', 'description', 'visibleWhen', 'control', 'optional', 'defaultValue'],
+    text: ['key', 'label', 'description', 'visibleWhen', 'control', 'optional', 'placeholder', 'maxLength', 'defaultValue', 'rendersTokens'],
+    longText: ['key', 'label', 'description', 'visibleWhen', 'control', 'placeholder', 'maxLength', 'defaultValue', 'rendersTokens'],
+    duration: ['key', 'label', 'description', 'visibleWhen', 'control', 'optional', 'placeholder', 'defaultValue'],
+    segmented: ['key', 'label', 'description', 'visibleWhen', 'control', 'options', 'defaultValue'],
+    select: ['key', 'label', 'description', 'visibleWhen', 'control', 'options', 'defaultValue'],
+    colour: ['key', 'label', 'description', 'visibleWhen', 'control', 'swatches', 'defaultValue'],
+    textList: ['key', 'label', 'description', 'visibleWhen', 'control', 'placeholder', 'maxLength', 'minEntries', 'maxEntries', 'addLabel', 'defaultValue'],
+    objectList: ['key', 'label', 'description', 'visibleWhen', 'control', 'columns', 'minEntries', 'maxEntries', 'addLabel', 'defaultValue'],
+    eligibility: ['key', 'label', 'description', 'visibleWhen', 'control', 'defaultValue'],
+    variableSelect: ['key', 'label', 'description', 'visibleWhen', 'control', 'valueKind', 'defaultValue'],
 } as const satisfies { [TControl in BlockControlType]: readonly (keyof Extract<BlockConfigField, { control: TControl }>)[] };
+
+/**
+ * Every member of {@link BlockOutputHandle}, for the drift gate.
+ *
+ * An exit is served inside `handles`, so the descriptor-level list only records that
+ * a block has handles, not what one handle holds. A member added on the server alone
+ * — `warnIfUnconnected` is the one that bites — would be sent and never read, so the
+ * builder would stay quiet about exactly the exits a block asked it to watch.
+ */
+export const BLOCK_OUTPUT_HANDLE_KEYS = [
+    'id',
+    'label',
+    'tone',
+    'warnIfUnconnected',
+] as const satisfies readonly (keyof BlockOutputHandle)[];
+
+/** Fails to compile if {@link BlockOutputHandle} gains a member absent above. */
+type OutputHandleKeysAreComplete = Exclude<keyof BlockOutputHandle, (typeof BLOCK_OUTPUT_HANDLE_KEYS)[number]>;
+
+/** Do not delete as unused: removing it erases the guard above. */
+const outputHandleKeysAreComplete: [OutputHandleKeysAreComplete] extends [never]
+    ? true
+    : ['BLOCK_OUTPUT_HANDLE_KEYS is missing', OutputHandleKeysAreComplete] = true;
+
+void outputHandleKeysAreComplete;
+
+/** Each {@link ExitWarningCondition} arm, by the name the drift gate knows it by. */
+interface ExitWarningConditionArms {
+    whenFieldSet: ExitWarningWhenFieldSet;
+    whenFieldEquals: ExitWarningWhenFieldEquals;
+}
+
+/**
+ * Every member of each {@link ExitWarningCondition} arm, for the drift gate.
+ *
+ * Held apart from {@link BLOCK_OUTPUT_HANDLE_KEYS} because it sits one level down, as
+ * the *value* of `warnIfUnconnected`: a member or an arm added to the condition on the
+ * server alone would move no handle key, and the builder would warn on a rule it only
+ * half reads. One list per arm, like {@link BLOCK_OUTPUT_DECLARATION_KEYS}: the arms
+ * carry no tag, so the union's own `keyof` is empty and says nothing.
+ */
+export const EXIT_WARNING_CONDITION_KEYS = {
+    whenFieldSet: ['whenFieldSet'],
+    whenFieldEquals: ['whenField', 'equals'],
+} as const satisfies {
+    [TArm in keyof ExitWarningConditionArms]: readonly (keyof ExitWarningConditionArms[TArm])[];
+};
+
+/**
+ * Fails to compile if an {@link ExitWarningCondition} arm gains a member absent above, or
+ * the union gains an arm {@link ExitWarningConditionArms} does not name.
+ */
+type ExitWarningConditionKeysAreComplete =
+    | {
+          [TArm in keyof ExitWarningConditionArms]: Exclude<
+              keyof ExitWarningConditionArms[TArm],
+              (typeof EXIT_WARNING_CONDITION_KEYS)[TArm][number]
+          >;
+      }[keyof ExitWarningConditionArms]
+    | Exclude<ExitWarningCondition, ExitWarningConditionArms[keyof ExitWarningConditionArms]>;
+
+/** Do not delete as unused: removing it erases the guard above. */
+const exitWarningConditionKeysAreComplete: [ExitWarningConditionKeysAreComplete] extends [never]
+    ? true
+    : ['EXIT_WARNING_CONDITION_KEYS is missing', ExitWarningConditionKeysAreComplete] = true;
+
+void exitWarningConditionKeysAreComplete;
+
+/**
+ * Every member of each {@link BlockOutputDeclaration} arm, keyed by its `naming`.
+ *
+ * Same reason as {@link BLOCK_OUTPUT_HANDLE_KEYS}, one member over: an output's
+ * members are what the builder offers a variable from, so one missing here is a kind
+ * the builder cannot see — `valueKindFrom` unread would offer a time variable to
+ * nothing, and its absence would be silent.
+ */
+export const BLOCK_OUTPUT_DECLARATION_KEYS = {
+    fixed: ['naming', 'key', 'label', 'description', 'valueKind', 'valueKindFrom', 'handle'],
+    authored: ['naming', 'fromField', 'label', 'description', 'valueKind', 'valueKindFrom', 'handle'],
+} as const satisfies {
+    [TNaming in BlockOutputDeclaration['naming']]: readonly (keyof Extract<BlockOutputDeclaration, { naming: TNaming }>)[];
+};
+
+/** Fails to compile if either {@link BlockOutputDeclaration} arm gains a member absent above. */
+type OutputDeclarationKeysAreComplete = {
+    [TNaming in BlockOutputDeclaration['naming']]: Exclude<
+        keyof Extract<BlockOutputDeclaration, { naming: TNaming }>,
+        (typeof BLOCK_OUTPUT_DECLARATION_KEYS)[TNaming][number]
+    >;
+}[BlockOutputDeclaration['naming']];
+
+/** Do not delete as unused: removing it erases the guard above. */
+const outputDeclarationKeysAreComplete: [OutputDeclarationKeysAreComplete] extends [never]
+    ? true
+    : ['BLOCK_OUTPUT_DECLARATION_KEYS is missing', OutputDeclarationKeysAreComplete] = true;
+
+void outputDeclarationKeysAreComplete;
 
 /**
  * Every member of {@link BlockConfigColumn}, for the drift gate.
