@@ -29,10 +29,14 @@ const defaultDependencies: WaitingRunDependencies = {
  *
  * Called by the dispatchers *in addition to* starting new flow runs, so an event
  * both fires matching triggers and wakes matching waits.
+ *
+ * Never for a message: this reads the database per event, and messages are far too
+ * frequent for that. Message waits wake through `wakeMessageWaits` and its in-memory
+ * index instead, which is why the type refuses the kind.
  */
 export async function resumeWaitingRunsForEvent(
     client: Client,
-    event: { guildId: string; userId: string; eventKind: FlowWaitKind },
+    event: { guildId: string; userId: string; eventKind: Exclude<FlowWaitKind, 'message'> },
     dependencies: WaitingRunDependencies = defaultDependencies
 ): Promise<number> {
     let resumedCount = 0;

@@ -53,8 +53,20 @@ export type BlockPaletteGroup = (typeof BLOCK_PALETTE_GROUPS)[number];
  *
  * `memberLeave` is a departure however it happened — left, kicked or banned — since
  * the gateway event does not say which.
+ *
+ * `messageSent` is a member posting a message activity recorded live — never a bot, a
+ * webhook or a system message, and never one the startup backfill recovered. Its
+ * dispatcher is an activity subscriber rather than a gateway listener, so the activity
+ * row is written before a run started by it reads the record.
  */
-export const BLOCK_TRIGGER_SOURCES = ['buttonClick', 'levelUp', 'memberJoin', 'memberLeave', 'reactionAdd'] as const;
+export const BLOCK_TRIGGER_SOURCES = [
+    'buttonClick',
+    'levelUp',
+    'memberJoin',
+    'memberLeave',
+    'messageSent',
+    'reactionAdd',
+] as const;
 
 export type BlockTriggerSource = (typeof BLOCK_TRIGGER_SOURCES)[number];
 
@@ -88,6 +100,15 @@ export const BLOCK_CONTROL_TYPES = [
     'rolePicker',
     /** Searchable channel picker. */
     'channelPicker',
+    /**
+     * Searchable category picker: the guild's categories, plus categories the flow
+     * declares through the same `<field>Key` sidecar the other two pickers use.
+     *
+     * Deliberately not in {@link PICKER_VALUE_KINDS}: no block records a category, and
+     * the one block that asks for one is a trigger, which refuses a `{{var}}` anyway —
+     * its dispatcher reads the stored value before any run exists.
+     */
+    'categoryPicker',
     /** Single-line text. */
     'text',
     /** Autosizing multi-line text. */
@@ -261,6 +282,7 @@ export type BlockConfigField =
           readonly optional?: boolean;
           readonly defaultValue?: string;
       })
+    | (BlockConfigFieldBase & { readonly control: 'categoryPicker'; readonly defaultValue?: string })
     | (BlockConfigFieldBase & {
           readonly control: 'text';
           /**

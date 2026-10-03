@@ -176,7 +176,11 @@ describe('field checks derived from every block', () => {
                     const browser = browserChecks.fieldIssue(descriptor, field, data);
                     if (browser) flagged.push(`${definition.type} › ${field.key} = ${JSON.stringify(value)}: "${browser}"`);
 
-                    if (field.control === 'rolePicker' || field.control === 'channelPicker') {
+                    if (
+                        field.control === 'rolePicker' ||
+                        field.control === 'channelPicker' ||
+                        field.control === 'categoryPicker'
+                    ) {
                         pickers += 1;
                         expect(serverMessages(definition.type, data, field.key, new Set(['declared-thing']))).toEqual([]);
                     }

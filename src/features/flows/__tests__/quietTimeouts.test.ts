@@ -36,7 +36,12 @@ const CHANNEL_ID = 'channel-1';
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
 const READY_CLIENT = { user: { id: 'bot-1' } } as unknown as Client;
-const DEPENDENCIES = { flowRunsRepo, activityEventsRepo, isBackfillPending: () => false };
+const DEPENDENCIES = {
+    flowRunsRepo,
+    activityEventsRepo,
+    isBackfillPending: () => false,
+    afterBackfill: (callback: () => void) => callback(),
+};
 
 /** A run that parked an hour ago on a one-hour window, so it is due now. */
 async function parkDueRun(quietWindow: FlowQuietWindow | null) {
@@ -141,9 +146,11 @@ describe('the scheduler on a park with a quiet window', () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const run = await parkDueRun(memberWindow);
         const failing = {
-            flowRunsRepo,
-            activityEventsRepo: { findLastMessageAt: vi.fn().mockRejectedValue(new Error('database down')) },
-            isBackfillPending: () => false,
+            ...DEPENDENCIES,
+            activityEventsRepo: {
+                findLastMessageAt: vi.fn().mockRejectedValue(new Error('database down')),
+                findLastMessageBetween: vi.fn(),
+            },
         };
 
         await runFlowRunTick(READY_CLIENT, failing);

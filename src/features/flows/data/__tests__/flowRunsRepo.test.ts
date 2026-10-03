@@ -156,6 +156,109 @@ describe('FlowRunsRepo (sqlite)', () => {
         expect(found[0]?.waitConfig).toEqual({ eventKind: 'memberJoin', timeoutMs: 60_000 });
     });
 
+    describe('a message wait', () => {
+        const PARKED_AT = '2026-10-03T09:00:00.000Z';
+
+        function parkOnMessage(flowId: string, wakeAt: Date | null) {
+            return repo.create({
+                flowId,
+                guildId: GUILD_ID,
+                contextSnapshot: { guildId: GUILD_ID, userId: USER_ID },
+                resumeNodeId: 'wait',
+                wakeAt,
+                waitKind: 'message',
+                waitConfig: { eventKind: 'message', timeoutMs: 60_000, channelId: 'channel-1', parkedAt: PARKED_AT },
+            });
+        }
+
+        it('round-trips its channel and the time it parked', async () => {
+            const parked = await parkOnMessage('flow-message', null);
+
+            const [found] = await repo.findWaiting({ waitKind: 'message' });
+
+            expect(found?.runId).toBe(parked.runId);
+            expect(found?.waitConfig).toEqual({
+                eventKind: 'message',
+                timeoutMs: 60_000,
+                channelId: 'channel-1',
+                parkedAt: PARKED_AT,
+            });
+        });
+
+        it('fails the read by name when the time it parked is not an instant', async () => {
+            const parked = await parkOnMessage('flow-message', null);
+            await sql`UPDATE flow_runs SET wait_config = ${JSON.stringify({ eventKind: 'message', parkedAt: 'soon' })}`.execute(db);
+
+            await expect(repo.getByRunId(parked.runId)).rejects.toThrow(/invalid stored waitConfig/);
+        });
+
+        it('is held out of findDue while every other due run, plain delays included, still comes back', async () => {
+            const overdue = new Date(Date.now() - 60_000);
+            const delay = await repo.create({
+                flowId: 'flow-delay',
+                guildId: GUILD_ID,
+                contextSnapshot: { guildId: GUILD_ID, userId: USER_ID },
+                resumeNodeId: 'dm',
+                wakeAt: overdue,
+            });
+            const join = await repo.create({
+                flowId: 'flow-join',
+                guildId: GUILD_ID,
+                contextSnapshot: { guildId: GUILD_ID, userId: USER_ID },
+                resumeNodeId: 'wait',
+                wakeAt: overdue,
+                waitKind: 'memberJoin',
+                waitConfig: { eventKind: 'memberJoin', timeoutMs: 60_000 },
+            });
+            const message = await parkOnMessage('flow-message', overdue);
+
+            const held = await repo.findDue(new Date(), { withoutMessageWaits: true });
+            const all = await repo.findDue(new Date());
+
+            expect(held.map((run) => run.runId).sort()).toEqual([delay.runId, join.runId].sort());
+            expect(all.map((run) => run.runId)).toContain(message.runId);
+        });
+
+        it('is the only park a claim narrowed to message waits will take', async () => {
+            const delay = await repo.create({
+                flowId: 'flow-delay',
+                guildId: GUILD_ID,
+                contextSnapshot: { guildId: GUILD_ID, userId: USER_ID },
+                resumeNodeId: 'delay',
+                wakeAt: new Date(Date.now() + 60_000),
+            });
+            const message = await parkOnMessage('flow-message', null);
+
+            expect(await repo.claimForResume(delay.runId, { waitKind: 'message' })).toBeNull();
+            expect((await repo.getByRunId(delay.runId))?.status).toBe('suspended');
+            expect((await repo.claimForResume(message.runId, { waitKind: 'message' }))?.status).toBe('running');
+        });
+
+        it('is not claimed for an event sent after its deadline, unless that deadline is a quiet window', async () => {
+            const deadline = new Date(Date.now() - 60_000);
+            const late = await parkOnMessage('flow-late', deadline);
+            const inTime = await parkOnMessage('flow-in-time', deadline);
+            const quiet = await repo.create({
+                flowId: 'flow-quiet',
+                guildId: GUILD_ID,
+                contextSnapshot: { guildId: GUILD_ID, userId: USER_ID },
+                resumeNodeId: 'wait',
+                wakeAt: deadline,
+                waitKind: 'message',
+                waitConfig: { eventKind: 'message', timeoutMs: 60_000, parkedAt: PARKED_AT },
+                quietWindow: { durationMs: 60_000, who: 'member' },
+            });
+            const afterDeadline = new Date();
+
+            expect(await repo.claimForResume(late.runId, { waitKind: 'message', eventAt: afterDeadline })).toBeNull();
+            expect((await repo.getByRunId(late.runId))?.status).toBe('suspended');
+            expect(
+                (await repo.claimForResume(inTime.runId, { eventAt: new Date(deadline.getTime() - 1) }))?.status
+            ).toBe('running');
+            expect((await repo.claimForResume(quiet.runId, { eventAt: afterDeadline }))?.status).toBe('running');
+        });
+    });
+
     it('complete, fail and cancel clear the wake/wait fields so a run is never re-picked', async () => {
         const base = {
             guildId: GUILD_ID,

@@ -11,7 +11,7 @@ import type { ReactElement } from 'react';
 import { Text } from '@mantine/core';
 import type { BlockConfigField } from '../../api/types';
 import { EligibilityControl } from './EligibilityControl';
-import { ChannelPickerControl, RolePickerControl } from './PickerControls';
+import { CategoryPickerControl, ChannelPickerControl, RolePickerControl } from './PickerControls';
 import { ColourControl } from './ColourControl';
 import { DurationControl } from './DurationControl';
 import { SegmentedChoiceControl, SelectChoiceControl } from './ChoiceControls';
@@ -48,6 +48,8 @@ export function renderControl(
             return <RolePickerControl field={field} {...props} />;
         case 'channelPicker':
             return <ChannelPickerControl field={field} {...props} />;
+        case 'categoryPicker':
+            return <CategoryPickerControl field={field} {...props} />;
         case 'text':
             return <TextControl field={field} {...props} />;
         case 'longText':

@@ -51,6 +51,7 @@ const SHIPPED_BLOCK_TYPES = [
     'trigger.levelReached',
     'trigger.memberJoin',
     'trigger.memberLeave',
+    'trigger.messageSent',
     'trigger.reactionAdd',
 ] as const;
 

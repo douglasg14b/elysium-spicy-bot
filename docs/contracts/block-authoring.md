@@ -75,7 +75,7 @@ marks it optional; arrays are declared empty rather than omitted, so a reader ca
 | `outputs` | Values your block writes for later blocks to read, via `context.setOutput`. Read by the builder to offer an author the variables in scope. Discriminated on `naming` — `fixed` carries the name, `authored` names the config field holding it. See [Run variables](#run-variables). |
 | `requires` | Run context you cannot work without. See [Context requirements](#context-requirements). |
 | `capabilities` | Discord permissions the bot needs for your block to work. Declared, not yet enforced. |
-| `startedBy` | **Optional. Triggers only.** What fires you: `buttonClick`, `levelUp`, `memberJoin`, `memberLeave`, or `reactionAdd`. The gateway dispatchers select on this, so a new trigger for an existing source needs no dispatcher edit. Leave it off any condition or action. |
+| `startedBy` | **Optional. Triggers only.** What fires you: `buttonClick`, `levelUp`, `memberJoin`, `memberLeave`, `messageSent`, or `reactionAdd`. The gateway dispatchers select on this, so a new trigger for an existing source needs no dispatcher edit. Every dispatcher but the button's starts each run through one function, `startTriggeredRun` in `engine/triggeredRun.ts`, which isolates and logs a failure per run and is the only place a run start can be limited — only `messageSent` passes the flood limit. Leave it off any condition or action. |
 | `canSuspend` | Whether `run` may park the run. State it truthfully; conformance holds you to it. |
 | `run` | The entry point. See [The entry point](#the-entry-point). |
 
@@ -147,12 +147,28 @@ persists anything itself — the executor owns where to resume, the visit budget
 
 ```ts
 { kind: 'suspend', suspension: { wakeAt: new Date(Date.now() + config.durationMs) } }
-{ kind: 'suspend', suspension: { waitKind: 'reactionAdd', waitConfig: config } }
+{ kind: 'suspend', suspension: { waitKind: 'reactionAdd', waitConfig: { eventKind: 'reactionAdd' } } }
 ```
 
 Include `wakeAt` to be woken by time, `waitKind`/`waitConfig` to be woken by a Discord event,
 or both when an event-wait also has a timeout. A parked run survives a restart, so assume
 nothing about what is still in memory when you wake.
+
+The wait kinds are `memberJoin`, `reactionAdd`, `buttonClick` and `message`, always for the
+run's own member. They live in three copies kept together — `flowWaitKindSchema` in
+`actionWaitForEvent`, `FlowWaitKind` in `data/flowRunsSchema.ts` and `waitConfigSchema` in
+`data/flowRunsRepo.ts` — and a new kind goes into all three, with a `FLOW_RUN_ENTITY_VERSION`
+bump. `message` is woken differently from the others: not by a query per event, but from the
+engine's in-memory index of parked message waits, which every park, claim and release keeps
+current. Its `waitConfig` carries the resolved `channelId` (threads under it count; absent is
+anywhere) and a required `parkedAt`, where the catch-up for replies sent while the bot was down
+starts looking. The scheduler holds due message waits until that catch-up has run. A reply in a
+private thread the bot has not been added to never reaches it — Discord does not send the bot
+those messages — so it is never heard, live or by the catch-up. `parkedAt` is now or just after
+`context.eventAt`, whichever is later: `eventAt` is Discord's timestamp for the message that
+started or woke this leg, and starting after it keeps that message from counting as a reply to
+the wait it caused when Discord's clock runs ahead of the bot's. Live wake-ups draw from the
+message flood limit (`engine/messageActivityLimit.ts`); a refused one stays parked.
 
 #### Counting a time limit from the last message — `quietWindow`
 
@@ -252,6 +268,7 @@ only renders** — never the other way round.
 | --- | --- | --- |
 | `rolePicker` | role id | any role. Never make someone type a snowflake. |
 | `channelPicker` | channel id, or one `{{var.<name>}}` | any channel. Same. Also offers channels earlier blocks record — see [A picker holding a variable](#a-picker-holding-a-variable). Set `optional: true` when the block can do without one and empty means something (`quietChannelId` in `blocks/quietTimeout.ts`: anywhere) — the pick becomes clearable, and clearing removes the key. Without it a pick cannot be undone, and a required picker writes `''` on change. |
+| `categoryPicker` | category id | a category: the guild's own, plus categories the flow declares, through the same `<field>Key` sidecar install fills in. No `{{var}}` — nothing records a category. A required pick writes `''` on change, so a schema that needs one while shown takes `z.string().min(1).optional()` and refuses only an absent id in its refinement: an empty pick naming a declared, uninstalled category is the *too short* complaint save forgives (`trigger.messageSent`). |
 | `text` | string | one line. `maxLength`, `placeholder`, `rendersTokens`. Set `optional: true` when the schema is `.optional()` over a non-empty floor (`z.string().min(1).optional()`, a url) — clearing the box then removes the key instead of writing `''`, which such a schema rejects and `validateNodeData` then holds the whole flow back from going live over. A field whose description says "leave empty for none" needs it. |
 | `longText` | string | a message body. `maxLength`, `placeholder`, `rendersTokens`. |
 | `duration` | milliseconds | any span. Shows a number plus a unit, so nobody hand-computes `604800000`. Set `optional: true` when absence is meaningful — clearing it removes the key rather than writing a zero. `placeholder` hints the empty number box — worth having chiefly on an `optional` field (e.g. `'No limit'`), where an empty box is a real setting rather than a blank. A field with a `defaultValue` is never empty, so a hint for it could never render. |
@@ -399,6 +416,7 @@ way that field's own `control` already implies:
 | --- | --- |
 | `rolePicker` | `@name` |
 | `channelPicker` | `#name` |
+| `categoryPicker` | the category's bare name — no `#`, since nobody posts in one |
 | `duration` | `5m` (via the same formatter the inspector uses) |
 | `segmented` / `select` | the matching option's `label`, not the raw stored value — `action.waitForEvent`'s `eventKind: 'buttonClick'` renders as "They click a flow button", never `buttonClick` |
 | `text` / `longText` / `colour` | the raw string value |

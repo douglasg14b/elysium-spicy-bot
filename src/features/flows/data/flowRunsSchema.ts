@@ -3,8 +3,18 @@ import type { FlowVariableValue } from '../blocks/types';
 import type { NodeRunLog } from '../engine/executor';
 import type { FlowRunStatus } from './flowRunLifecycle';
 
-/** The gateway events a parked `action.waitForEvent` node can wake on. */
-export type FlowWaitKind = 'memberJoin' | 'reactionAdd' | 'buttonClick';
+/**
+ * The events a parked `action.waitForEvent` node can wake on.
+ *
+ * One of three copies kept together: the block's `flowWaitKindSchema` and the repo's
+ * `waitConfigSchema` name the same members, and a member missing from either is a
+ * park the block can write and the repo refuses to read back.
+ *
+ * `message` is the odd one out in how it is woken: not by a database fan-out per
+ * event like the other three, but through the engine's in-memory index of parked
+ * message waits, so a message nobody is waiting on costs no read.
+ */
+export type FlowWaitKind = 'memberJoin' | 'reactionAdd' | 'buttonClick' | 'message';
 
 /**
  * The minimal context persisted with a suspended run. Discord handles (guild,
@@ -45,11 +55,25 @@ export interface FlowRunContextSnapshot {
     startedAt?: string;
 }
 
-/** Extra matching data for a parked wait, mirroring the wait node's config. */
-export interface FlowRunWaitConfig {
-    eventKind: FlowWaitKind;
-    timeoutMs?: number;
-}
+/**
+ * Extra matching data for a parked wait, mirroring the wait node's config.
+ *
+ * Discriminated on `eventKind` so that what only a message wait carries is required
+ * there and absent everywhere else: every row parked on another kind before the
+ * message arm existed still reads back unchanged.
+ *
+ * A message wait records:
+ *
+ * - `channelId` — the resolved channel it listens in, when the author picked one.
+ *   Absent means anywhere in the server. A message in a thread under the channel
+ *   counts.
+ * - `parkedAt` — when it parked, as an ISO-8601 UTC string. It is where the outage
+ *   catch-up starts looking for a reply. Its own key rather than the row's
+ *   `updatedAt`, which every claim, release, reclaim and deferral bumps.
+ */
+export type FlowRunWaitConfig =
+    | { eventKind: Exclude<FlowWaitKind, 'message'>; timeoutMs?: number }
+    | { eventKind: 'message'; timeoutMs?: number; channelId?: string; parkedAt: string };
 
 /**
  * A timed park whose deadline counts from the last qualifying message rather than

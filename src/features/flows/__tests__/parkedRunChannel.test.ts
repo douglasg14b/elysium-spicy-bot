@@ -56,6 +56,7 @@ function makeGuild(options: { channelIds: readonly string[]; send?: ReturnType<t
                 id,
                 isDMBased: () => false,
                 isTextBased: () => true,
+                isThread: () => false,
             } as unknown as GuildTextBasedChannel,
         ])
     );
@@ -213,7 +214,7 @@ describe('the channel a run parked in', () => {
 
         const parked = await repo.getByRunId('run-1');
 
-        expect(parked?.entityVersion).toBe(3);
+        expect(parked?.entityVersion).toBe(4);
         // Pinned to the constant as well, so a future bump cannot leave this
         // asserting a number the writer no longer uses.
         expect(parked?.entityVersion).toBe(FLOW_RUN_ENTITY_VERSION);

@@ -169,6 +169,10 @@ const DECLARED_BLOCK_DEPENDENTS: Readonly<Record<string, string>> = {
         'Residual: reads triggerReactionAdd\'s schema to match an incoming reaction.',
     'src/features/flows/engine/levelUpDispatch.ts':
         'Residual: reads triggerLevelReached\'s schema to match the level that was reached.',
+    'src/features/flows/engine/messageTriggerIndex.ts':
+        'Residual: reads triggerMessageSent\'s schema to index each trigger by where it listens and what text it wants.',
+    'src/features/flows/engine/messageTriggerDispatch.ts':
+        'Residual: fills in triggerMessageSent\'s output keys, the Level Reached precedent — only the dispatcher sees the message.',
     'src/features/flows/logic/planButtonDeployment.ts':
         'Residual: reads triggerButtonClick\'s schema to render its button and read its destination.',
 };

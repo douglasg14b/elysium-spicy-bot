@@ -407,11 +407,12 @@ const ROUTES: readonly Route[] = [
          */
         key: 'POST /channels/:channelId/messages',
         schema: createMessageSchema,
+        // A thread takes a message exactly as a text channel does.
         validate(state, params, body) {
-            if (state.hasChannel(params.channelId)) state.messages.checkSend(params.channelId, body);
+            if (state.hasMessageChannel(params.channelId)) state.messages.checkSend(params.channelId, body);
         },
         apply(state, params, body) {
-            if (!state.hasChannel(params.channelId)) return unknownChannel();
+            if (!state.hasMessageChannel(params.channelId)) return unknownChannel();
             return { status: 200, body: state.messages.send(params.channelId, body) };
         },
     }),

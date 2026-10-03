@@ -160,6 +160,17 @@ export interface FlowRunSeed {
     /** The originating interaction, when the trigger was an interaction. */
     interaction?: ButtonInteraction;
     /**
+     * When the event that started or woke this leg happened, **by Discord's clock** —
+     * set only where the event carries its own timestamp, which today is a message.
+     *
+     * For a block that records "look for events from now on", as a message wait records
+     * where its catch-up starts: the bot's clock and Discord's can disagree by a little,
+     * and starting from the bot's alone could put the very message that caused this leg
+     * inside the range, counting it as a reply to itself. Such a block starts after the
+     * later of the two. Absent on every other run, where there is nothing to be after.
+     */
+    eventAt?: Date;
+    /**
      * Why you are waking, set only on the node that actually parked this run.
      *
      * Absent on a fresh run, and absent for every other node in a resumed

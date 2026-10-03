@@ -86,6 +86,11 @@ function resolveValue(
              */
             return channel.type === 'category' ? channel.name : `#${channel.name}`;
         }
+        // The category's bare name — a category is not somewhere to post, so no `#`.
+        case 'categoryPicker': {
+            if (typeof raw !== 'string' || !raw) return '';
+            return context.channels.find((candidate) => candidate.id === raw)?.name ?? '';
+        }
         case 'duration': {
             if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) return '';
             return formatDuration(raw);

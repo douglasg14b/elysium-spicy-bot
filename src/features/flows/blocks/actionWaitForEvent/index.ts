@@ -1,14 +1,23 @@
 import { z } from 'zod';
 import { FLOW_MAX_DELAY_MS } from '../../constants';
+import type { FlowRunWaitConfig } from '../../data/flowRunsSchema';
 import type { BlockManifest } from '../manifest';
-import { checkQuietTimeout, quietTimeoutFields, quietTimeoutShape, toQuietWindow } from '../quietTimeout';
+import type { FlowRunContext } from '../types';
+import { checkChannelUsable, checkQuietTimeout, quietTimeoutFields, quietTimeoutShape, toQuietWindow } from '../quietTimeout';
 
 export const ACTION_WAIT_FOR_EVENT = 'action.waitForEvent';
 
 /** Output handle followed when a wait's `timeoutMs` elapses first. */
 export const WAIT_TIMEOUT_HANDLE = 'timeout';
 
-export const flowWaitKindSchema = z.enum(['memberJoin', 'reactionAdd', 'buttonClick']);
+/** The message channel field's label, as the form shows it and as a refusal names it. */
+const MESSAGE_CHANNEL_LABEL = 'In channel';
+
+/**
+ * The events this block can wait for. One of three copies kept together — see
+ * `FlowWaitKind` in `data/flowRunsSchema.ts`, and `waitConfigSchema` in the repo.
+ */
+export const flowWaitKindSchema = z.enum(['memberJoin', 'reactionAdd', 'buttonClick', 'message']);
 
 /**
  * Park the run until `eventKind` next fires in this guild **for this run's own
@@ -18,10 +27,18 @@ export const flowWaitKindSchema = z.enum(['memberJoin', 'reactionAdd', 'buttonCl
  * `timeoutMs` is optional: with it, the run also gets a `wakeAt` and, on expiry,
  * follows a `timeout` output handle if the graph has one (else fails). Counting
  * that limit from a last message needs a limit to count, so it is refused without.
+ *
+ * `messageChannelId` narrows a message wait to one channel and the threads under it;
+ * absent means anywhere in the server. It may hold a `{{var}}`, which the executor
+ * resolves to an id before `run` sees it.
  */
 export const waitForEventConfigSchema = z.object({
-    eventKind: flowWaitKindSchema,
+    // Defaulted to the form's own default because `messageChannelId` is shown by it: the
+    // conformance gate requires a field that drives a `visibleWhen` to carry a matching
+    // schema default, so every reader agrees what an untouched node shows.
+    eventKind: flowWaitKindSchema.default('buttonClick'),
     timeoutMs: z.number().int().positive().max(FLOW_MAX_DELAY_MS).optional(),
+    messageChannelId: z.string().optional(),
     ...quietTimeoutShape,
 }).superRefine((config, context) => checkQuietTimeout(config, context, config.timeoutMs));
 
@@ -61,7 +78,18 @@ export const block: BlockManifest<WaitForEventConfig> = {
                 { value: 'buttonClick', label: 'a flow button click' },
                 { value: 'reactionAdd', label: 'a reaction' },
                 { value: 'memberJoin', label: 'a rejoin' },
+                { value: 'message', label: 'a message' },
             ],
+        },
+        {
+            key: 'messageChannelId',
+            label: MESSAGE_CHANNEL_LABEL,
+            description:
+                'Only a message from them in this channel — or a thread under it — counts. Leave empty for anywhere in the server. ' +
+                "A reply in a private thread the bot hasn't been added to is never heard.",
+            control: 'channelPicker',
+            optional: true,
+            visibleWhen: { field: 'eventKind', equals: ['message'] },
         },
         {
             key: 'timeoutMs',
@@ -108,11 +136,54 @@ export const block: BlockManifest<WaitForEventConfig> = {
             suspension: {
                 wakeAt: timeoutMs === undefined ? undefined : new Date(Date.now() + timeoutMs),
                 waitKind: eventKind,
-                // Named rather than the whole config: the time-limit keys belong to
-                // `quietWindow`, and `waitConfig` describes only the event awaited.
-                waitConfig: timeoutMs === undefined ? { eventKind } : { eventKind, timeoutMs },
+                waitConfig: toWaitConfig(config, context),
                 quietWindow: toQuietWindow(config, timeoutMs, context.guild),
             },
         };
     },
 };
+
+/**
+ * What the park records about the event awaited.
+ *
+ * Named keys rather than the whole config: the time-limit keys belong to `quietWindow`,
+ * and `waitConfig` describes only the event. A message wait also records the channel it
+ * listens in and when it parked — where the outage catch-up starts looking for a reply.
+ *
+ * Throws, which the executor records against the node, for a message channel the bot
+ * cannot read: no message there would ever reach the activity record, so the run would
+ * wait for a reply it can never hear.
+ */
+function toWaitConfig(config: WaitForEventConfig, context: FlowRunContext): FlowRunWaitConfig {
+    const { eventKind, timeoutMs } = config;
+    const limit = timeoutMs === undefined ? {} : { timeoutMs };
+
+    if (eventKind !== 'message') {
+        return { eventKind, ...limit };
+    }
+
+    // Empty reads as unset, as for the quiet-window channel: a cleared picker may write ''.
+    const channelId = config.messageChannelId || undefined;
+    if (channelId) {
+        checkChannelUsable(context.guild, channelId, {
+            fieldLabel: MESSAGE_CHANNEL_LABEL,
+            reason: "so the member's reply there would never be heard and the run would wait for nothing",
+        });
+    }
+
+    return { eventKind, ...limit, ...(channelId ? { channelId } : {}), parkedAt: parkedAt(context).toISOString() };
+}
+
+/**
+ * When a message wait starts listening — where the catch-up for replies sent while the
+ * bot was down starts looking.
+ *
+ * Now, or just after the message that started or woke this leg, whichever is later.
+ * The catch-up compares Discord's timestamps, and with Discord's clock a little ahead
+ * of the bot's, "now" could fall before that message — which would then be found as a
+ * reply to the wait it caused. A message cannot answer a wait it started.
+ */
+function parkedAt(context: FlowRunContext): Date {
+    const afterEvent = context.eventAt ? context.eventAt.getTime() + 1 : 0;
+    return new Date(Math.max(Date.now(), afterEvent));
+}

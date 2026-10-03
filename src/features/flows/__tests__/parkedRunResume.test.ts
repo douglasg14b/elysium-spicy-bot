@@ -460,12 +460,12 @@ describe('a control from a closed park', () => {
 
         // Somebody presses a button on the *first* message, which is still sitting
         // in the channel. It names a run that is parked, at the node it expects.
-        const stale = await repo.claimForResume(run.runId, FIRST_ASKING);
+        const stale = await repo.claimForResume(run.runId, { waitMessageId: FIRST_ASKING });
         expect(stale).toBeNull();
 
         // And the live one still works, so this refuses the stale press rather
         // than wedging the question.
-        const live = await repo.claimForResume(run.runId, SECOND_ASKING);
+        const live = await repo.claimForResume(run.runId, { waitMessageId: SECOND_ASKING });
         expect(live?.status).toBe('running');
     });
 
@@ -584,6 +584,6 @@ describe('a control from a closed park', () => {
         // fields, so a press naming it matches nothing — the run is not merely
         // unclaimable, it is no longer waiting on anybody's button.
         expect((await repo.getByRunId(run.runId))?.waitMessageId).toBeNull();
-        expect(await repo.claimForResume(run.runId, FIRST_ASKING)).toBeNull();
+        expect(await repo.claimForResume(run.runId, { waitMessageId: FIRST_ASKING })).toBeNull();
     });
 });

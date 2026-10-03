@@ -1,5 +1,4 @@
 import {
-    ChannelType,
     EmbedType,
     GatewayDispatchEvents,
     MessageType,
@@ -162,10 +161,11 @@ export class ServerMessages {
 
     /** Refuse a send the harness cannot model. Reads only, so the router can run it before a rejection. */
     checkSend(channelId: string, draft: MessageDraft): void {
-        const channel = this.host.channel(channelId);
-        if (channel.type !== ChannelType.GuildText) {
+        // A text channel or a thread: the two places the harness keeps messages.
+        const { guildId, holdsMessages } = this.host.messageChannel(channelId);
+        if (!holdsMessages) {
             throw new TestDiscordError(
-                `TestDiscord received a message for ${channelId}, which is not a text channel. What Discord answers is not modelled.`
+                `TestDiscord received a message for ${channelId}, which is not a text channel or a thread. What Discord answers is not modelled.`
             );
         }
         if (!draft.content && !draft.embeds?.length && !draft.components?.length) {
@@ -173,12 +173,12 @@ export class ServerMessages {
                 `TestDiscord received an empty message for ${channelId}. Discord refuses one with a 400 the harness does not model.`
             );
         }
-        this.mentionedUsers(channel.guild_id, draft);
+        this.mentionedUsers(guildId, draft);
     }
 
     send(channelId: string, draft: MessageDraft): APIMessage {
         this.checkSend(channelId, draft);
-        const guildId = this.host.channel(channelId).guild_id;
+        const { guildId } = this.host.messageChannel(channelId);
 
         const message: APIMessage = {
             ...this.newMessage(channelId, MessageType.Default),

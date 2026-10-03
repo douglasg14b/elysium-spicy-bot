@@ -47,15 +47,21 @@ function makeRun(runId: string): FlowRunEntity {
 const READY_CLIENT = { user: { id: 'bot-1' } } as unknown as Client;
 
 /**
- * Scheduler dependencies with the reclaim sweep stubbed to "nothing stranded". None of
- * these runs carries a quiet window, so the deferral seams are never reached here; the
- * quiet-window cases run against a real database in `quietTimeouts.test.ts`.
+ * Scheduler dependencies with the reclaim sweep stubbed to "nothing stranded", no run
+ * waiting on a message, and the backfill already over. None of these runs carries a
+ * quiet window, so the deferral seams are never reached here; the quiet-window cases run
+ * against a real database in `quietTimeouts.test.ts`.
  */
-function makeDeps(findDue: ReturnType<typeof vi.fn>, reclaimAbandonedClaims = vi.fn().mockResolvedValue(0)) {
+function makeDeps(
+    findDue: ReturnType<typeof vi.fn>,
+    reclaimAbandonedClaims = vi.fn().mockResolvedValue(0),
+    afterBackfill: (callback: () => void) => void = (callback) => callback()
+) {
     return {
-        flowRunsRepo: { findDue, reclaimAbandonedClaims, deferWake: vi.fn() },
-        activityEventsRepo: { findLastMessageAt: vi.fn() },
+        flowRunsRepo: { findDue, reclaimAbandonedClaims, deferWake: vi.fn(), findWaiting: vi.fn().mockResolvedValue([]) },
+        activityEventsRepo: { findLastMessageAt: vi.fn(), findLastMessageBetween: vi.fn() },
         isBackfillPending: () => false,
+        afterBackfill,
     };
 }
 
@@ -135,6 +141,34 @@ describe('flow run scheduler', () => {
         });
 
         expect(callOrder).toEqual(['reclaim', 'findDue']);
+        stopFlowRunScheduler();
+    });
+
+    it('holds due message waits from start until the catch-up after the backfill has run', async () => {
+        const findDue = vi.fn().mockResolvedValue([]);
+        let backfillFinished: () => void = () => undefined;
+        const deps = makeDeps(findDue, undefined, (callback) => {
+            backfillFinished = callback;
+        });
+
+        startFlowRunScheduler(READY_CLIENT, 60 * 60_000, deps);
+        await vi.waitFor(() => expect(findDue).toHaveBeenCalledTimes(1));
+
+        // Backfill over, so quiet windows go; message waits stay held until the catch-up is done.
+        expect(findDue).toHaveBeenLastCalledWith(expect.any(Date), {
+            withoutQuietWindows: false,
+            withoutMessageWaits: true,
+        });
+
+        backfillFinished();
+        await vi.waitFor(async () => {
+            await runFlowRunTick(READY_CLIENT, deps);
+            expect(findDue).toHaveBeenLastCalledWith(expect.any(Date), {
+                withoutQuietWindows: false,
+                withoutMessageWaits: false,
+            });
+        });
+
         stopFlowRunScheduler();
     });
 

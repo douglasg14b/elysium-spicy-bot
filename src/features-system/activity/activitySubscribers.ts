@@ -4,9 +4,9 @@ import type { Guild, Message } from 'discord.js';
  * What a recorded activity event notifies.
  *
  * Activity is a base capability: it records who was active where whether or not any
- * feature cares. Leveling consumes it to award XP, but activity never imports leveling —
- * the consumer registers itself at wiring time, the same single-registration shape as
- * `levelUpSubscribers`. With nothing registered, activity is still recorded.
+ * feature cares. Leveling consumes it to award XP, and flows to wake runs waiting on a
+ * message and start Message Sent runs, but activity imports neither — each consumer registers itself at wiring
+ * time. With nothing registered, activity is still recorded.
  *
  * Every event carries the id of the row already written, so a subscriber can link its own
  * record to it. A failed write notifies nobody: there is no event to link to, and the
@@ -27,6 +27,8 @@ interface ActivityEventBase {
 export interface MessageActivityEvent extends ActivityEventBase {
     readonly kind: 'message';
     readonly message: Message<true>;
+    /** The channel the thread sits under, when the message was posted in a thread; otherwise null. */
+    readonly parentChannelId: string | null;
 }
 
 /** The member is the reactor, not the author of the message reacted to. */
@@ -38,38 +40,43 @@ export type RecordedActivityEvent = MessageActivityEvent | ReactionActivityEvent
 
 export type ActivitySubscriber = (event: RecordedActivityEvent) => Promise<void>;
 
-let registered: ActivitySubscriber | undefined;
+const registered: ActivitySubscriber[] = [];
 
 /**
- * Register the subscriber a recorded activity event should notify.
+ * Add a subscriber every recorded activity event should notify.
  *
- * Called once during feature init. Replacing an existing registration is allowed and is
- * what tests do; production registers exactly one.
+ * Called once per consumer during feature init. Appends: a second consumer never evicts
+ * the first, which a single slot would do silently — leveling would stop awarding XP the
+ * moment flows registered.
  */
 export function registerActivitySubscriber(subscriber: ActivitySubscriber): void {
-    registered = subscriber;
+    registered.push(subscriber);
 }
 
-/** Test seam. Not used in production code. */
+/** Remove every subscriber. Test seam; not used in production code. */
 export function clearActivitySubscriber(): void {
-    registered = undefined;
+    registered.length = 0;
 }
 
 /**
- * Notify whatever is registered.
+ * Notify every subscriber, in parallel, and wait for all of them.
  *
- * A subscriber failure is logged and never unwinds the recorded event: the activity row is
- * already written, and whether the member earned XP for it is not activity's concern.
+ * Each is isolated from the others: one that throws is logged on its own line and
+ * neither stops the rest nor unwinds the recorded event — the activity row is already
+ * written, and what a consumer made of it is not activity's concern.
  */
 export async function notifyActivity(event: RecordedActivityEvent): Promise<void> {
-    if (!registered) return;
+    // Copied, so a registration made while subscribers are running joins the next event
+    // rather than this one.
+    const subscribers = [...registered];
+    const settled = await Promise.allSettled(subscribers.map(async (subscriber) => subscriber(event)));
 
-    try {
-        await registered(event);
-    } catch (error) {
-        console.error(
-            `[activity] Subscriber failed for ${event.kind} event ${event.activityEventId} (user ${event.userId}):`,
-            error
-        );
+    for (const outcome of settled) {
+        if (outcome.status === 'rejected') {
+            console.error(
+                `[activity] Subscriber failed for ${event.kind} event ${event.activityEventId} (user ${event.userId}):`,
+                outcome.reason
+            );
+        }
     }
 }

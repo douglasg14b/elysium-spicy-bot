@@ -18,6 +18,7 @@ import {
     renderCopy,
     resolvePickerVariable,
 } from './copyRendering';
+import { messageWaitIndex } from './messageWaitIndex';
 import type { FlowStepOutcome, FlowStepSuspension } from './stepOutcome';
 import { releaseWaitMessageControls } from './waitMessageControls';
 
@@ -454,6 +455,10 @@ export async function executeFlow(
         startedAt,
         startNodeId: triggerNodeId,
         requireTrigger: true,
+        // What the dispatcher seeded — the values only it can know, such as the level a
+        // Level Reached run was started by. Without this the segment starts from an empty
+        // bag and every seeded output resolves to nothing.
+        variables: context.variables,
     });
 
     if (outcome.kind === 'completed') {
@@ -498,6 +503,9 @@ export async function executeFlow(
  * `startedAt` is written here, at the first park, and never again: a re-park goes
  * through `flowRunsRepo.park`, which leaves the snapshot alone, so the start time
  * survives every later wait unchanged.
+ *
+ * A first park on a message wait also enters the message-wait index, right after the
+ * row exists, so the member's next message can find it.
  */
 async function persistNewSuspendedRun(
     flowId: string,
@@ -536,6 +544,14 @@ async function persistNewSuspendedRun(
         visitsUsed: suspension.visitsUsed,
         log: suspension.log,
         variables: suspension.variables,
+    });
+
+    messageWaitIndex.record({
+        runId,
+        guildId: context.guild.id,
+        userId: context.subject.id,
+        waitConfig: suspension.waitConfig,
+        wakeAt: suspension.wakeAt,
     });
 }
 

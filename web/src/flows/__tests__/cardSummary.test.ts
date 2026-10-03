@@ -70,6 +70,15 @@ describe('summarizeFromDescriptor', () => {
         );
     });
 
+    it('names a category bare, with no #, and reads an unknown one as unset', () => {
+        const descriptor = descriptorWith(
+            [{ key: 'categoryId', label: 'Category', control: 'categoryPicker' }],
+            [{ key: 'categoryId', prefix: 'In ', emptyText: 'no category picked' }]
+        );
+        expect(summarize(descriptor, { categoryId: 'cat1' })).toBe('In Support');
+        expect(summarize(descriptor, { categoryId: 'deleted-category' })).toBe('In no category picked');
+    });
+
     it('keeps prefix and suffix around emptyText when a field is unset', () => {
         // `action.assignRole` pairs `prefix: 'Assign '` with a lowercase
         // `'no role picked'`, which only reads as a sentence when the prefix

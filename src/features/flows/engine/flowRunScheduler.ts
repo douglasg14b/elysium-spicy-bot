@@ -1,27 +1,50 @@
 import type { Client } from 'discord.js';
-import { type ActivityEventsRepo, activityEventsRepo, isBackfillPending } from '../../../features-system/activity';
+import {
+    type ActivityEventsRepo,
+    activityEventsRepo,
+    isBackfillPending,
+    whenBackfillFinished,
+} from '../../../features-system/activity';
 import { FLOW_RUN_POLL_INTERVAL_MS } from '../constants';
 import { FlowRunsRepo, flowRunsRepo } from '../data/flowRunsRepo';
 import type { FlowRunEntity } from '../data/flowRunsSchema';
 import { RESUME_TIMEOUT } from '../blocks/types';
 import { resumeFlowRun } from './flowRunResume';
+import { rebuildMessageWaitIndex, resumeMessageWaitsAfterBackfill } from './messageWaitDispatch';
 
 export type FlowRunSchedulerDependencies = {
-    flowRunsRepo: Pick<FlowRunsRepo, 'findDue' | 'reclaimAbandonedClaims' | 'deferWake'>;
-    /** Where a quiet-window park asks when the last qualifying message was sent. */
-    activityEventsRepo: Pick<ActivityEventsRepo, 'findLastMessageAt'>;
+    flowRunsRepo: Pick<FlowRunsRepo, 'findDue' | 'reclaimAbandonedClaims' | 'deferWake' | 'findWaiting'>;
+    /**
+     * Where a quiet-window park asks when the last qualifying message was sent, and a
+     * message wait whether its member replied while the bot was down.
+     */
+    activityEventsRepo: Pick<ActivityEventsRepo, 'findLastMessageAt' | 'findLastMessageBetween'>;
     /** True while activity is still restoring messages missed during an outage; quiet-window runs wait. */
     isBackfillPending: () => boolean;
+    /** Call back once activity's startup backfill is over, however it ended — straight away if it already is. */
+    afterBackfill: (callback: () => void) => void;
 };
 
 const defaultDependencies: FlowRunSchedulerDependencies = {
     flowRunsRepo,
     activityEventsRepo,
     isBackfillPending,
+    afterBackfill: whenBackfillFinished,
 };
 
 let flowRunInterval: ReturnType<typeof setInterval> | null = null;
 let isTickRunning = false;
+
+/**
+ * True from the moment the scheduler starts until the outage catch-up has looked for
+ * every message wait's reply. While it is, due message waits are held — not fetched,
+ * not timed out — because a reply the catch-up has yet to find would have woken them
+ * by their event exit.
+ *
+ * Raised by {@link startFlowRunScheduler} itself rather than by the sweep, so no tick
+ * can ever run ahead of it.
+ */
+let messageWaitsHeld = false;
 
 /**
  * Start polling for durable flow runs whose `wakeAt` has passed.
@@ -41,6 +64,7 @@ export function startFlowRunScheduler(
         return;
     }
 
+    messageWaitsHeld = true;
     flowRunInterval = setInterval(() => {
         void runFlowRunTick(client, dependencies);
     }, intervalMs);
@@ -53,15 +77,45 @@ export function startFlowRunScheduler(
 }
 
 /**
- * Reclaim abandoned claims, then resume anything already due.
+ * Reclaim abandoned claims, load the message-wait index, arrange the outage catch-up,
+ * then resume anything already due.
  *
- * The order is load-bearing: a run stranded at `running` by a killed process
- * matches neither parked-run query, so it only becomes visible to `findDue` once
- * its claim has been handed back.
+ * The order is load-bearing. A run stranded at `running` by a killed process matches
+ * neither parked-run query, so it only becomes visible to `findDue` — and to the index
+ * rebuild — once its claim has been handed back. And the catch-up is arranged only once
+ * the index is loaded, because it reads its runs from there; it starts looking from each
+ * run's park, so a message that arrived live before the index existed is found too.
  */
 async function runStartupSweep(client: Client, dependencies: FlowRunSchedulerDependencies): Promise<void> {
-    await reclaimStrandedFlowRuns(dependencies);
+    try {
+        await reclaimStrandedFlowRuns(dependencies);
+        await rebuildMessageWaitIndex(dependencies.flowRunsRepo);
+    } finally {
+        // Arranged however the steps above went: the catch-up is what lifts the hold on
+        // message waits, and without it they would never time out in this process.
+        dependencies.afterBackfill(() => {
+            void resumeMessageWaitsAndRelease(client, dependencies);
+        });
+    }
     await runFlowRunTick(client, dependencies);
+}
+
+/**
+ * Run the outage catch-up for message waits, then lift the hold on them however it
+ * went. The catch-up logs each run's failure itself; the `catch` is for one that fails
+ * outright, whose runs are then left to their time limits rather than held forever.
+ */
+async function resumeMessageWaitsAndRelease(
+    client: Client,
+    dependencies: FlowRunSchedulerDependencies
+): Promise<void> {
+    try {
+        await resumeMessageWaitsAfterBackfill(client, dependencies.activityEventsRepo);
+    } catch (error) {
+        console.error('[flow-runs] Looking for replies sent while the bot was down failed:', error);
+    } finally {
+        messageWaitsHeld = false;
+    }
 }
 
 /**
@@ -140,9 +194,13 @@ export async function runFlowRunTick(
         // they last speak" is not answerable yet, so runs with a quiet window are held:
         // not even fetched, so not resumed, their `wakeAt` untouched, and the next tick
         // asks again. The startup sweep runs the moment the bot is ready, which is exactly
-        // when that history is missing. Runs without a quiet window are unaffected.
+        // when that history is missing. Message waits are held for longer — until the
+        // catch-up has looked for their replies too — because timing one out now would
+        // end a wait whose member answered in time. Every other run is unaffected.
+        const backfillPending = dependencies.isBackfillPending();
         const dueRuns = await dependencies.flowRunsRepo.findDue(now, {
-            withoutQuietWindows: dependencies.isBackfillPending(),
+            withoutQuietWindows: backfillPending,
+            withoutMessageWaits: backfillPending || messageWaitsHeld,
         });
         if (dueRuns.length === 0) {
             return;
@@ -260,4 +318,5 @@ export function resetFlowRunSchedulerForTests(): void {
     }
     flowRunInterval = null;
     isTickRunning = false;
+    messageWaitsHeld = false;
 }

@@ -167,6 +167,18 @@ const DOMAIN_VOCABULARY = [
     // dependency the way `activity` is. A property of the history the engine reads, not
     // of any flow's purpose.
     'backfill',
+    // A Discord thread and the channel it sits under, which activity records as the
+    // event's `parentChannelId`. The message wait counts a reply in a thread toward its
+    // channel, so the engine's index matches on the parent. Discord nouns on the footing
+    // of `channel` and `message`; neither says what a flow is for, and neither folds onto
+    // a proven rejection.
+    'thread', 'parent',
+    // A Discord category, the third place a channel picker's siblings can name. Message
+    // Sent can listen in every channel of one, and its in-memory index keys triggers by
+    // the category a message's channel sits in. A Discord noun on the footing of `channel`
+    // and `thread`; it says where a message landed, not what a flow is for, and folds
+    // onto no proven rejection.
+    'category',
 ];
 
 /**

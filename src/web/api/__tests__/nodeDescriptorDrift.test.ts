@@ -135,6 +135,7 @@ const SHOWN = { field: 'f', equals: ['v'] } as const;
 const CONFIG_FIELD_FIXTURES = {
     rolePicker: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'rolePicker', defaultValue: '' },
     channelPicker: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'channelPicker', optional: true, defaultValue: '' },
+    categoryPicker: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'categoryPicker', defaultValue: '' },
     text: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'text', optional: true, placeholder: '', maxLength: 1, defaultValue: '', rendersTokens: true },
     longText: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'longText', placeholder: '', maxLength: 1, defaultValue: '', rendersTokens: true },
     duration: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'duration', optional: true, placeholder: 'p', defaultValue: 1 },

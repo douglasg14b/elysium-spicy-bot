@@ -81,7 +81,27 @@ export interface FindWaitingFilter {
 export interface FindDueOptions {
     /** Leave out runs parked with a quiet window. */
     readonly withoutQuietWindows?: boolean;
+    /** Leave out runs parked on a message wait. */
+    readonly withoutMessageWaits?: boolean;
     readonly limit?: number;
+}
+
+/**
+ * Which park a claim believes it is resuming. Every member given must still hold, in
+ * the same conditional write as the status guard; an empty object claims whichever
+ * park the run is on.
+ */
+export interface ClaimedPark {
+    /** The message the park posted, for a caller holding one of its controls. */
+    readonly waitMessageId?: string;
+    /** The kind of wait the park is on, for a caller woken by that kind of event. */
+    readonly waitKind?: FlowWaitKind;
+    /**
+     * When the waking event happened. The claim then refuses a park whose deadline had
+     * already passed by that instant — it is the clock's to end, by its timeout exit —
+     * unless the park has a quiet window, whose stored deadline is provisional.
+     */
+    readonly eventAt?: Date;
 }
 
 const nodeRunLogSchema = z.object({
@@ -182,10 +202,35 @@ void snapshotShapesAgree;
  */
 const variablesSchema = z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]));
 
-const waitConfigSchema = z.object({
-    eventKind: z.enum(['memberJoin', 'reactionAdd', 'buttonClick']),
-    timeoutMs: z.number().int().positive().optional(),
-});
+/**
+ * The stored wait config, one arm per shape {@link FlowRunWaitConfig} declares.
+ *
+ * `parkedAt` is strict ISO for the reason `startedAt` is: a value that is not a real
+ * instant fails the read by name rather than reaching the catch-up as `Invalid Date`.
+ */
+const waitConfigSchema = z.discriminatedUnion('eventKind', [
+    z.object({
+        eventKind: z.enum(['memberJoin', 'reactionAdd', 'buttonClick']),
+        timeoutMs: z.number().int().positive().optional(),
+    }),
+    z.object({
+        eventKind: z.literal('message'),
+        timeoutMs: z.number().int().positive().optional(),
+        channelId: z.string().min(1).optional(),
+        parkedAt: z.iso.datetime(),
+    }),
+]);
+
+/**
+ * The same two-declaration guard as {@link SnapshotShapesAgree}: a key added to one arm
+ * of {@link FlowRunWaitConfig} alone would be written and silently stripped on read.
+ */
+type WaitConfigShapesAgree = AssertTrue<Equals<FlowRunWaitConfig, z.infer<typeof waitConfigSchema>>>;
+
+/** Do not delete as unused; see {@link snapshotShapesAgree}. */
+const waitConfigShapesAgree: WaitConfigShapesAgree = true;
+
+void waitConfigShapesAgree;
 
 /**
  * The stored quiet window, re-validated on read like every other JSON column. A
@@ -290,10 +335,16 @@ export class FlowRunsRepo {
      * `withoutQuietWindows` leaves out runs parked with a quiet window, in the query
      * rather than after it: the scheduler holds those while activity is backfilling, and
      * a batch filled with held runs would starve every plain delay queued behind them.
+     * `withoutMessageWaits` does the same for message waits, which the scheduler holds
+     * until the outage catch-up has looked for their replies.
      */
     async findDue(
         now: Date,
-        { withoutQuietWindows = false, limit = FLOW_RUN_POLL_BATCH_SIZE }: FindDueOptions = {}
+        {
+            withoutQuietWindows = false,
+            withoutMessageWaits = false,
+            limit = FLOW_RUN_POLL_BATCH_SIZE,
+        }: FindDueOptions = {}
     ): Promise<FlowRunEntity[]> {
         let query = this.db
             .selectFrom('flow_runs')
@@ -304,6 +355,13 @@ export class FlowRunsRepo {
 
         if (withoutQuietWindows) {
             query = query.where('quietWindow', 'is', null);
+        }
+        if (withoutMessageWaits) {
+            // `IS NULL OR` because a bare `<>` is unknown for NULL, and would hold every
+            // plain delay — which has no wait kind at all — along with the message waits.
+            query = query.where((where) =>
+                where.or([where('waitKind', 'is', null), where('waitKind', '!=', 'message')])
+            );
         }
 
         const rows = await query.orderBy('wakeAt', 'asc').limit(limit).execute();
@@ -347,26 +405,52 @@ export class FlowRunsRepo {
      * works from what is persisted rather than from whatever it selected a moment
      * earlier.
      *
-     * **`claimedWaitMessageId` narrows the claim from a run to a park.** Without
-     * it the guard is `status = 'suspended'` and nothing else, which cannot tell
-     * one park from the next: a run that advances and parks again at the same node
-     * is `suspended` with the same `resumeNodeId` it had before, so a press from
+     * **`claimedPark.waitMessageId` narrows the claim from a run to a park.**
+     * Without it the guard is `status = 'suspended'` and nothing else, which cannot
+     * tell one park from the next: a run that advances and parks again at the same
+     * node is `suspended` with the same `resumeNodeId` it had before, so a press from
      * the *first* park satisfies every condition the second one does and advances
      * the run a second time. A caller holding a control from a particular park
      * passes the message that park posted; the claim then misses unless the run is
      * still waiting on precisely that one.
      *
-     * Optional because the callers that are not holding a control genuinely have
-     * no park to name — the poller claims whatever is due, and the event fan-out
+     * **`claimedPark.waitKind` narrows it to a kind of wait.** The message wake
+     * finds runs through an in-memory index rather than a query, so what it holds is
+     * only as current as the index: it passes `message`, and a run that has since
+     * parked on a Delay or a question is not claimed — a member's message cannot end
+     * a Delay early.
+     *
+     * **`claimedPark.eventAt` narrows it to a park still open when the event happened.**
+     * A message wait's due run can sit unclaimed for a long while — the scheduler holds
+     * message waits through a restart's backfill — and a reply sent after the deadline
+     * must not take the event exit just because the timeout has not been processed yet.
+     *
+     * All optional because the callers that are not holding a control genuinely
+     * have no park to name — the poller claims whatever is due, and the event fan-out
      * claims whatever the gateway matched. Neither can be duplicated the way a
      * press can, because neither is something a member can repeat at will.
      */
-    async claimForResume(runId: string, claimedWaitMessageId?: string): Promise<FlowRunEntity | null> {
-        return this.tryTransition(runId, 'claim', { claimedAt: new Date() }, (query) =>
-            claimedWaitMessageId === undefined
-                ? query
-                : query.where('waitMessageId', '=', claimedWaitMessageId)
-        );
+    async claimForResume(runId: string, claimedPark: ClaimedPark = {}): Promise<FlowRunEntity | null> {
+        const { waitMessageId, waitKind, eventAt } = claimedPark;
+        return this.tryTransition(runId, 'claim', { claimedAt: new Date() }, (query) => {
+            let narrowed = query;
+            if (waitMessageId !== undefined) {
+                narrowed = narrowed.where('waitMessageId', '=', waitMessageId);
+            }
+            if (waitKind !== undefined) {
+                narrowed = narrowed.where('waitKind', '=', waitKind);
+            }
+            if (eventAt !== undefined) {
+                narrowed = narrowed.where((where) =>
+                    where.or([
+                        where('wakeAt', 'is', null),
+                        where('wakeAt', '>', eventAt),
+                        where('quietWindow', 'is not', null),
+                    ])
+                );
+            }
+            return narrowed;
+        });
     }
 
     /**

@@ -31,7 +31,7 @@ export function toMessageActivity(message: Message): RecordActivityEventInput | 
 }
 
 /**
- * Record a guild message as activity, then notify the subscriber.
+ * Record a guild message as activity, then notify the subscribers.
  *
  * What counts is {@link toMessageActivity}'s rule. A message the startup backfill already
  * recorded inserts nothing and notifies nobody: it is not a new event, and the
@@ -54,6 +54,7 @@ export async function recordMessageActivity(message: Message): Promise<void> {
         guild: message.guild,
         userId: input.userId,
         channelId: input.channelId,
+        parentChannelId: input.parentChannelId,
     });
 }
 

@@ -1,7 +1,7 @@
 import type { GuildMember, PartialGuildMember } from 'discord.js';
 import { flowsRepo } from '../data/flowsRepo';
 import { isTriggerStartedBy } from '../blocks/registry';
-import { executeFlow } from './executor';
+import { startTriggeredRun } from './triggeredRun';
 import type { FlowRunSeed } from '../blocks/types';
 
 /**
@@ -28,7 +28,7 @@ export async function handleMemberLeave(member: GuildMember | PartialGuildMember
 
         for (const triggerNode of triggerNodes) {
             // A fresh seed per trigger, for the reason `handleMemberJoin` gives.
-            const context: FlowRunSeed = {
+            const seed: FlowRunSeed = {
                 client: member.client,
                 guild: member.guild,
                 subject: member,
@@ -38,14 +38,13 @@ export async function handleMemberLeave(member: GuildMember | PartialGuildMember
                 variables: {},
             };
 
-            try {
-                await executeFlow(flow.flowId, flow.graph, triggerNode.id, context);
-            } catch (error) {
-                console.error(
-                    `[flows] Unexpected error running memberLeave flow ${flow.flowId} from ${triggerNode.id}:`,
-                    error
-                );
-            }
+            await startTriggeredRun({
+                flowId: flow.flowId,
+                graph: flow.graph,
+                triggerNodeId: triggerNode.id,
+                source: 'memberLeave',
+                seed,
+            });
         }
     }
 }

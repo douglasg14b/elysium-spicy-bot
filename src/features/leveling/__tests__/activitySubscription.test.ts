@@ -15,6 +15,7 @@ const { migrateTestDatabase } = await import(
     '../../../features-system/data-persistence/__tests__/support/migrateTestDatabase'
 );
 const { recordMessageActivity } = await import('../../../features-system/activity/activityRecorder');
+const { registerActivitySubscriber } = await import('../../../features-system/activity');
 const { levelingConfigRepo } = await import('../data/levelingConfigRepo');
 const { initLeveling } = await import('../initLeveling');
 
@@ -77,6 +78,40 @@ describe('leveling consuming activity events', () => {
         expect(grant.activityEventId).toBe(event.id);
         // The date plugin's map follows the rename: a stale key would leave this a string.
         expect(grant.occurredAt).toBeInstanceOf(Date);
+    });
+
+    /*
+     * The two cases below add consumers beside leveling's and leave them registered —
+     * `initLeveling` wires once per process, so leveling's own cannot be put back after a
+     * clear. Both are inert by the time they return: one only records its calls, the other
+     * throws once.
+     */
+    it('still grants message XP with a second consumer subscribed after it', async () => {
+        const second = vi.fn().mockResolvedValue(undefined);
+        registerActivitySubscriber(second);
+
+        await recordMessageActivity(aMessage('two of us listening now'));
+
+        const event = await database.selectFrom('activity_events').selectAll().executeTakeFirstOrThrow();
+        const grant = await database.selectFrom('leveling_xp_grants').selectAll().executeTakeFirstOrThrow();
+        expect(grant.activityEventId).toBe(event.id);
+        expect(second).toHaveBeenCalledWith(expect.objectContaining({ kind: 'message', activityEventId: event.id }));
+    });
+
+    it('still grants message XP when another consumer throws, and logs that one alone', async () => {
+        const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        registerActivitySubscriber(vi.fn().mockRejectedValueOnce(new Error('the other consumer exploded')));
+
+        try {
+            await recordMessageActivity(aMessage('carry on without them'));
+
+            const grants = await database.selectFrom('leveling_xp_grants').selectAll().execute();
+            expect(grants).toHaveLength(1);
+            expect(error).toHaveBeenCalledTimes(1);
+            expect(error).toHaveBeenCalledWith(expect.stringContaining('Subscriber failed'), expect.any(Error));
+        } finally {
+            error.mockRestore();
+        }
     });
 
     it('records a /-prefixed message as activity and grants no XP for it', async () => {

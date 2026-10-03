@@ -185,6 +185,22 @@ describe('TestDiscord keeps the client in step with the server', () => {
         expect(client.guilds.cache.get(secondGuild.id)?.members.me?.id).toBe(client.user.id);
     });
 
+    it('takes a message the bot posts into a thread, as Discord does', async () => {
+        const discord = new TestDiscord();
+        started.push(discord);
+        const guild = discord.createGuild();
+        const channel = guild.createTextChannel({ name: 'general' });
+        const thread = guild.createThread({ parent: channel, name: 'aside' });
+        const client = await discord.start();
+
+        const liveThread = await client.channels.fetch(thread.id);
+        if (!liveThread?.isThread()) throw new Error('The client holds no thread.');
+        await liveThread.send({ content: 'psst', allowedMentions: { parse: [] } });
+
+        expect(thread.messages.map((message) => [message.authorId, message.content])).toEqual([[client.user.id, 'psst']]);
+        expect(channel.messages).toEqual([]);
+    });
+
     it('holds back the event for a 204 permission write until the gateway is flushed', async () => {
         const { discord, guild, channel, liveGuild } = await startedGuild();
         const role = guild.createRole({ name: 'Staff' });

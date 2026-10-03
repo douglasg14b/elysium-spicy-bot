@@ -48,7 +48,10 @@ type PickerCase = [label: string, type: string, fieldKey: string, otherData: Rec
 function pickerFields(): PickerCase[] {
     return listBlockDefinitions().flatMap((block) =>
         block.configFields
-            .filter((field) => field.control === 'rolePicker' || field.control === 'channelPicker')
+            .filter(
+                (field) =>
+                    field.control === 'rolePicker' || field.control === 'channelPicker' || field.control === 'categoryPicker'
+            )
             .map((field): PickerCase => [
                 `${block.type}.${field.key}`,
                 block.type,
@@ -152,6 +155,7 @@ function placeholderFor(field: BlockConfigField | undefined): unknown {
     switch (field?.control) {
         case 'rolePicker':
         case 'channelPicker':
+        case 'categoryPicker':
             return '123456789012345678';
         case 'duration':
             return 1000;

@@ -96,6 +96,50 @@ export const FLOW_MAX_DELAY_MS = 30 * 24 * 60 * 60 * 1000;
 /** Most due runs the poller will resume in a single tick. */
 export const FLOW_RUN_POLL_BATCH_SIZE = 50;
 
+/*
+ * The flood limit on message activity — Message Sent run starts and live wake-ups of
+ * runs waiting on a message. Each draws one token from its guild and one from its
+ * member; with either empty, a start is dropped and a wake-up skipped (the run stays
+ * parked for the member's next message or its time limit). Joins, leaves, reactions,
+ * level-ups and button clicks never draw: each is a one-off event, and dropping one
+ * loses it for good.
+ *
+ * Fixed, not operator-set. The numbers are about what the bot can afford, not about
+ * any flow: they stop "Message Sent → reply → wait for a message → reply" from waking
+ * every earlier copy on every message, and keep a busy guild under Discord's rate
+ * limits on the sends those runs make.
+ */
+
+/**
+ * Message activity one guild may spend at once: thirty run starts or wake-ups, enough
+ * for a lively channel's bursts — a raid or a bot loop drains it in moments.
+ */
+export const FLOW_MESSAGE_LIMIT_PER_GUILD = 30;
+
+/** One guild token back per second: a sustained sixty a minute, about what Discord lets the bot send into one channel. */
+export const FLOW_MESSAGE_LIMIT_PER_GUILD_INTERVAL_MS = 1000;
+
+/**
+ * Message activity one member may spend at once: five — a short exchange with a flow,
+ * never a wall of spam answered line by line.
+ */
+export const FLOW_MESSAGE_LIMIT_PER_MEMBER = 5;
+
+/** One member token back every ten seconds: a conversation's pace, not a flood's. */
+export const FLOW_MESSAGE_LIMIT_PER_MEMBER_INTERVAL_MS = 10_000;
+
+/** How often a guild's skipped message activity is summed into one log line, at most. */
+export const FLOW_MESSAGE_LIMIT_SUMMARY_INTERVAL_MS = 60_000;
+
+/**
+ * How long a guild whose Message Sent triggers could not be read is left alone before a
+ * message reads them again. Inside the window its messages start nothing, with no read and
+ * no log line — one unreadable graph would otherwise cost a full flows read and a stack
+ * trace on every message. A flow write ends the window at once, so a fix takes effect on
+ * the next message.
+ */
+export const FLOW_MESSAGE_TRIGGER_READ_FAILURE_WINDOW_MS = 60_000;
+
 /**
  * Bumped when a persisted flow-run row can no longer be read by the current repo.
  *
@@ -118,5 +162,11 @@ export const FLOW_RUN_POLL_BATCH_SIZE = 50;
  * rolled-back binary would strip the key on read — its schema is a non-strict
  * `z.object` — and the runs it resumed would lose their start time silently. A v2
  * row reads forwards cleanly as a run that recorded none.
+ *
+ * **4** since a wait can park on a message, with `waitConfig` carrying `channelId` and
+ * `parkedAt`. This direction is worse than a stripped key: an older build's wait-kind
+ * enum refuses a `message` row outright, and since every JSON column is validated on
+ * read, one such row fails the whole `findWaiting`/`findDue` batch it is read in. A v3
+ * row reads forwards cleanly — the other wait kinds are unchanged.
  */
-export const FLOW_RUN_ENTITY_VERSION = 3;
+export const FLOW_RUN_ENTITY_VERSION = 4;

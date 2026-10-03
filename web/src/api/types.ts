@@ -152,7 +152,14 @@ export const BLOCK_PALETTE_GROUPS = ['triggers', 'conditions', 'actions'] as con
 export type BlockPaletteGroup = (typeof BLOCK_PALETTE_GROUPS)[number];
 
 /** What makes a trigger fire. Set by triggers and by nothing else. */
-export const BLOCK_TRIGGER_SOURCES = ['buttonClick', 'levelUp', 'memberJoin', 'memberLeave', 'reactionAdd'] as const;
+export const BLOCK_TRIGGER_SOURCES = [
+    'buttonClick',
+    'levelUp',
+    'memberJoin',
+    'memberLeave',
+    'messageSent',
+    'reactionAdd',
+] as const;
 
 export type BlockTriggerSource = (typeof BLOCK_TRIGGER_SOURCES)[number];
 
@@ -160,6 +167,7 @@ export type BlockTriggerSource = (typeof BLOCK_TRIGGER_SOURCES)[number];
 export const BLOCK_CONTROL_TYPES = [
     'rolePicker',
     'channelPicker',
+    'categoryPicker',
     'text',
     'longText',
     'duration',
@@ -289,6 +297,8 @@ export type BlockConfigField =
           optional?: boolean;
           defaultValue?: string;
       })
+    /** A category, by id. No `{{var}}`: no block records a category. */
+    | (BlockConfigFieldBase & { control: 'categoryPicker'; defaultValue?: string })
     | (BlockConfigFieldBase & {
           control: 'text';
           /** Clearing the box removes the key entirely rather than writing `''`. */
@@ -662,6 +672,7 @@ export const NODE_DESCRIPTOR_KEYS = [
 export const BLOCK_CONFIG_FIELD_KEYS = {
     rolePicker: ['key', 'label', 'description', 'visibleWhen', 'control', 'defaultValue'],
     channelPicker: ['key', 'label', 'description', 'visibleWhen', 'control', 'optional', 'defaultValue'],
+    categoryPicker: ['key', 'label', 'description', 'visibleWhen', 'control', 'defaultValue'],
     text: ['key', 'label', 'description', 'visibleWhen', 'control', 'optional', 'placeholder', 'maxLength', 'defaultValue', 'rendersTokens'],
     longText: ['key', 'label', 'description', 'visibleWhen', 'control', 'placeholder', 'maxLength', 'defaultValue', 'rendersTokens'],
     duration: ['key', 'label', 'description', 'visibleWhen', 'control', 'optional', 'placeholder', 'defaultValue'],

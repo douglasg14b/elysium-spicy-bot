@@ -11,13 +11,23 @@ import type { FlowRunContext } from '../blocks/types';
 
 const CHANNEL_ID = 'channel-abc';
 
-/** A context operating in `channelId`, or nowhere at all when none is given. */
-function contextInChannel(channelId?: string): FlowRunContext {
+/**
+ * A context operating in `channelId`, or nowhere at all when none is given — in a thread
+ * under `threadParentId`, when one is given.
+ */
+function contextInChannel(channelId?: string, threadParentId?: string): FlowRunContext {
+    const channel = channelId
+        ? ({
+              id: channelId,
+              isThread: () => threadParentId !== undefined,
+              parentId: threadParentId ?? null,
+          } as unknown as FlowRunContext['channel'])
+        : undefined;
     return {
         client: {} as FlowRunContext['client'],
         guild: { id: 'guild-1' } as FlowRunContext['guild'],
         subject: {} as FlowRunContext['subject'],
-        channel: channelId ? ({ id: channelId } as FlowRunContext['channel']) : undefined,
+        channel,
         runId: 'run-1',
         nodeId: 'node-1',
         variables: {},
@@ -39,6 +49,26 @@ describe('condition.inChannel', () => {
         const outcome = await conditionInChannelNode.run(
             { channelId: CHANNEL_ID },
             contextInChannel('some-other-channel')
+        );
+
+        expect(outcome).toEqual({ kind: 'continue', handle: 'false' });
+    });
+
+    it('leaves by the true handle for a thread under the configured channel', async () => {
+        // A thread counts toward its channel everywhere: a run Message Sent started for a
+        // reply in a thread under #general is in #general.
+        const outcome = await conditionInChannelNode.run(
+            { channelId: CHANNEL_ID },
+            contextInChannel('thread-under-it', CHANNEL_ID)
+        );
+
+        expect(outcome).toEqual({ kind: 'continue', handle: 'true' });
+    });
+
+    it('leaves by the false handle for a thread under some other channel', async () => {
+        const outcome = await conditionInChannelNode.run(
+            { channelId: CHANNEL_ID },
+            contextInChannel('thread-elsewhere', 'some-other-channel')
         );
 
         expect(outcome).toEqual({ kind: 'continue', handle: 'false' });
