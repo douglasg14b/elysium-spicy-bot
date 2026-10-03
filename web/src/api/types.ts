@@ -394,10 +394,11 @@ export type BlockConfigField =
     | (BlockConfigFieldBase & {
           /**
            * A variable an earlier block records, picked by name. Stores the bare name,
-           * never a `{{var.…}}` token, and offers only variables of `valueKind`.
+           * never a `{{var.…}}` token, and offers only variables of `valueKind` — or
+           * every variable in scope when `valueKind` is absent.
            */
           control: 'variableSelect';
-          valueKind: BlockOutputValueKind;
+          valueKind?: BlockOutputValueKind;
           defaultValue?: string;
       });
 

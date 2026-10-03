@@ -380,6 +380,15 @@ function kindIssue(
 }
 
 /**
+ * Why a field taking **any** variable cannot have `name`: only that nothing in the graph
+ * records it. Kept apart from {@link kindIssue} because there is no kind to agree on —
+ * and `describeKind(undefined)` reads "a plain value", which would claim one.
+ */
+function anyKindIssue(sources: readonly VariableSource[]): string | undefined {
+    return sources.length === 0 ? 'no block in this flow records anything by that name.' : undefined;
+}
+
+/**
  * Whether `source` writes its value on some path into `nodeId` — the builder's
  * `availableVariablesAt` over-approximation, mirrored: the source can run before the
  * node, and a value scoped to one exit counts only when that exit leads there.
@@ -416,13 +425,21 @@ function outgoingTargets(graph: FlowGraph): ReadonlyMap<string, readonly string[
     return outgoing;
 }
 
-/** Every node reachable from `starts`, the starts included. Cycles end on `seen`. */
-function walkFrom(outgoing: ReadonlyMap<string, readonly string[]>, starts: readonly string[]): Set<string> {
+/**
+ * Every node reachable from `starts`, the starts included. Cycles end on `seen`. A walk
+ * given `without` never enters that node, so it answers "reachable without passing
+ * through it".
+ */
+function walkFrom(
+    outgoing: ReadonlyMap<string, readonly string[]>,
+    starts: readonly string[],
+    without?: string
+): Set<string> {
     const seen = new Set<string>();
     const queue = [...starts];
     while (queue.length > 0) {
         const id = queue.shift();
-        if (id === undefined || seen.has(id)) {
+        if (id === undefined || id === without || seen.has(id)) {
             continue;
         }
         seen.add(id);
@@ -436,6 +453,7 @@ function checkCopyTokens(graph: FlowGraph): readonly FlowValidationIssue[] {
     // Built on first need: most graphs read no variable through a field at all.
     let sourcesByName: ReadonlyMap<string, readonly VariableSource[]> | undefined;
     let outgoing: ReadonlyMap<string, readonly string[]> | undefined;
+    let triggerIds: readonly string[] | undefined;
 
     for (const node of graph.nodes) {
         const block = getBlockDefinition(node.type);
@@ -457,11 +475,25 @@ function checkCopyTokens(graph: FlowGraph): readonly FlowValidationIssue[] {
              * The path rule is stricter than copy's, deliberately: a name only ever
              * recorded after this block, or on a branch that cannot lead here, is a
              * wiring mistake the block would otherwise answer as "no record" on every
-             * run. "On some path" is the builder's own over-approximation, so the path
-             * rule never refuses a name the builder offers. The kind rule can: it asks
+             * run. "On some path" is the builder's own over-approximation, so that half
+             * of the path rule never refuses a name the builder offers (the loop half
+             * below can). The kind rule can too: it asks
              * every recording node in the flow, where the builder offers the nearest
              * producer's kind — a deliberate gap, named in the message, since a second
              * writer of another kind anywhere is the mistake it exists to catch.
+             *
+             * A field declaring no kind takes any variable, so the kind rule does not
+             * apply and only the path rule does — save for a name nothing records at
+             * all, which is refused as that rather than as "only after it".
+             *
+             * **Round a loop, "on some path" is not enough.** A block recording the name
+             * after this one, wired back to it, writes on a path here — yet on the run's
+             * first visit nothing has recorded it, and every run leaves by "no record"
+             * before the loop ever turns. So some recording node must also be reachable
+             * from a trigger without passing through this node: that is what can have run
+             * before its first visit. The builder offers by ancestry and cannot tell the
+             * two apart, so this is the one place the path rule can refuse a name the
+             * builder offered.
              */
             if (field.control === 'variableSelect') {
                 const name = node.data[field.key];
@@ -470,7 +502,8 @@ function checkCopyTokens(graph: FlowGraph): readonly FlowValidationIssue[] {
                 }
                 const sources = (sourcesByName ??= variableSources(graph)).get(name) ?? [];
                 const where = `Node ${node.id} (${node.type}) has "${field.label}" set to "${name}", but`;
-                const failure = kindIssue(sources, name, field.valueKind);
+                const failure =
+                    field.valueKind !== undefined ? kindIssue(sources, name, field.valueKind) : anyKindIssue(sources);
                 const onPath = (source: VariableSource): boolean =>
                     writesOnPath(source, node.id, graph, (outgoing ??= outgoingTargets(graph)));
                 if (failure) {
@@ -483,6 +516,20 @@ function checkCopyTokens(graph: FlowGraph): readonly FlowValidationIssue[] {
                             `${where} only blocks after it or on another branch record it, so it is never set ` +
                             'by the time this block runs. Wire the block that records it in ahead of this one.',
                     });
+                } else {
+                    triggerIds ??= graph.nodes
+                        .filter((candidate) => getBlockDefinition(candidate.type)?.kind === 'trigger')
+                        .map((candidate) => candidate.id);
+                    const reachable = walkFrom((outgoing ??= outgoingTargets(graph)), triggerIds, node.id);
+                    if (!sources.some((source) => onPath(source) && reachable.has(source.nodeId))) {
+                        errors.push({
+                            nodeId: node.id,
+                            field: field.key,
+                            message:
+                                `${where} every block that records it only runs after this one, so the first time ` +
+                                'the run gets here it is never set. Set it before this block.',
+                        });
+                    }
                 }
                 continue;
             }

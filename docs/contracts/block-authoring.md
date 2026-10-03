@@ -278,7 +278,7 @@ only renders** — never the other way round.
 | `textList` | `string[]` | an ordered list of short strings an author types. `placeholder`, `maxLength` (of **one entry**), `minEntries`, `maxEntries`, `addLabel`. |
 | `objectList` | `Record<string, unknown>[]` | an ordered list of **records** — `textList` one dimension up. Needs `columns`; also takes `minEntries`, `maxEntries`, `addLabel`. See below. |
 | `eligibility` | an `Eligibility` object | who is allowed. Declares no options: the principals are a closed vocabulary the control reads from `engine/eligibility.ts`. |
-| `variableSelect` | a bare variable name | one variable an earlier block records, picked by name. Needs `valueKind`; see [Reading a variable by name](#reading-a-variable-by-name). |
+| `variableSelect` | a bare variable name | one variable an earlier block records, picked by name. `valueKind` narrows it to one kind; leave it off to take any variable. See [Reading a variable by name](#reading-a-variable-by-name). |
 
 ### Fields that only sometimes apply — `visibleWhen`
 
@@ -313,10 +313,20 @@ There is no clearing on switch, and none is needed: a value nobody reads cannot 
 
 ### Reading a variable by name
 
-A `variableSelect` field stores a **bare name** — never a `{{var.…}}` token — and declares
-the `valueKind` it can use. The builder offers the variables in scope at the node whose
-kind matches, shows a stored name that is no longer offered as "not available here", and
-says so when there is nothing to pick.
+A `variableSelect` field stores a **bare name** — never a `{{var.…}}` token — and may
+declare the `valueKind` it can use. The builder offers the variables in scope at the node
+whose kind matches, when one is declared, shows a stored name that is no longer offered as
+"not available here", and says so when there is nothing to pick.
+
+Leave `valueKind` off and the field takes **any variable**, of any kind or none: the
+builder offers every variable in scope ("Pick a variable"), and save drops the kind rule
+below — the path refusals still apply. `condition.compare` is the worked example: it
+compares whatever the variable holds, so a Set Variable's text or number, which carry no
+kind, are fair game. A block taking any variable has the most shape-checking to do at run
+time, since nothing at save narrowed what it can be handed. Read a number — typed into a
+field or held in a variable — with `parseAuthoredNumber` or `readNumber` from
+`blocks/authoredNumber.ts`, never `Number()`: they refuse hex, exponents, blank, and
+anything too big to hold exactly, so a snowflake ID stays text.
 
 The executor passes the name through untouched, unlike a [picker holding a
 variable](#a-picker-holding-a-variable), whose token it resolves and fails on when unset.
@@ -333,9 +343,14 @@ Save refuses a name that:
 - is recorded only by blocks that cannot run first on a path here — after this block, or on
   a branch that cannot lead to it (the builder's own over-approximation, so this rule never
   refuses a name the builder offers)
+- is recorded only by blocks a run can reach **through** this one — a loop that checks
+  first and counts after, so the first visit always finds it unset. This one *can* refuse
+  a name the builder offered: the builder offers by ancestry, while save asks whether the
+  value can be set before the block's first visit
 - **any** recording block records as another kind, a kindless one included — the message
   names both blocks. This one *can* refuse a name the builder offered: the builder offers
-  the nearest producer's kind, while the bag keeps whichever block wrote last, anywhere
+  the nearest producer's kind, while the bag keeps whichever block wrote last, anywhere.
+  Only a field that declares a kind is held to it.
 
 ### A list of records — `objectList`
 
@@ -758,7 +773,8 @@ that has not caught up fails by name. It checks, from your declaration alone, th
 - every `visibleWhen` names a defaulted, unconditional choice offering each `equals` value,
   over a field the schema leaves optional — see [Fields that only sometimes
   apply](#fields-that-only-sometimes-apply--visiblewhen)
-- every `variableSelect` names a real kind over a schema taking the shared name spelling
+- every `variableSelect` takes the shared name spelling, and names a real kind if it names
+  one at all
 - your `cardSummary`, if you declared one, only references fields that exist and is otherwise
   well formed — see [Card summary](#card-summary)
 

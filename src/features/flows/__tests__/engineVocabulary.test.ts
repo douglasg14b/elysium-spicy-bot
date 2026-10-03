@@ -345,6 +345,16 @@ const GENERIC_VOCABULARY = [
     // `rule` (which folds onto the proven rejection `rules`) became `when`, `sibling`
     // became `source`, `derived` became `from`.
     'effective', 'warn',
+    // Reading a number an author typed (`parseAuthoredNumber` in `blocks/authoredNumber.ts`),
+    // shared by Set Variable and Compare so "5" reads the same to both. `parse` is the verb
+    // `parsed` above already implies, `number` is a value's type, on the footing of
+    // `string` and `object`, and `exact` is whether a JS number holds a value without
+    // rounding (`isExact`, the line past which a snowflake ID is text). None says what a
+    // flow is for, and none folds onto a proven rejection. Two were renamed rather than
+    // admitted when the reader moved here from Set Variable: `DECIMAL_NUMBER` became
+    // `NUMBER_SHAPE` and `trimmed` became `text`, since `shape` and `text` were already
+    // here; and the walk's "never enter this node" parameter is `without`, not `excluded`.
+    'parse', 'number', 'exact',
 ];
 
 /**

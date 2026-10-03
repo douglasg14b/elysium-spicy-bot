@@ -652,8 +652,9 @@ function checkVisibleWhen(label: string, configFields: unknown, configSchema: un
 }
 
 /**
- * A `variableSelect` must name a real kind, and its schema must take a variable name
- * in the shared spelling.
+ * A `variableSelect` that declares a kind must name a real one, and its schema must take
+ * a variable name in the shared spelling. Declaring no kind is allowed — it takes any
+ * variable — so only a kind that is present is judged.
  *
  * Probed rather than compared by identity, like every other schema check here: a
  * well-formed name must parse and a dotted one must not. The dotted probe is the one
@@ -673,7 +674,7 @@ function checkVariableNameField(
     const issues: string[] = [];
     const valueKinds: readonly unknown[] = BLOCK_OUTPUT_VALUE_KINDS;
     const valueKind: unknown = 'valueKind' in field ? field.valueKind : undefined;
-    if (!valueKinds.includes(valueKind)) {
+    if (valueKind !== undefined && !valueKinds.includes(valueKind)) {
         issues.push(
             `${label}: the variableSelect field "${key}" offers variables of the kind ` +
                 `${JSON.stringify(valueKind)}, which is not a value kind (${BLOCK_OUTPUT_VALUE_KINDS.join(', ')}).`

@@ -453,8 +453,13 @@ export type BlockConfigField =
            * variables of this kind, and save refuses a name no block before this one
            * records, or that any block records as another kind — see
            * `checkCopyTokens` in `engine/graphValidation.ts`.
+           *
+           * Absent means **any variable**, of any kind or none: the builder offers
+           * every variable in scope, and save asks only that a block which can run
+           * first on a path here records the name. A block taking any variable reads
+           * whatever the bag holds and checks its shape at run time itself.
            */
-          readonly valueKind: BlockOutputValueKind;
+          readonly valueKind?: BlockOutputValueKind;
           readonly defaultValue?: string;
       });
 

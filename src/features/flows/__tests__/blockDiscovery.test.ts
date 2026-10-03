@@ -41,6 +41,7 @@ const SHIPPED_BLOCK_TYPES = [
     'action.sendMessage',
     'action.setVariable',
     'action.waitForEvent',
+    'condition.compare',
     'condition.hasOpenTicket',
     'condition.hasRole',
     'condition.inChannel',

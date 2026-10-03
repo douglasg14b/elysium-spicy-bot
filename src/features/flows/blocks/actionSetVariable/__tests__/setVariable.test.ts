@@ -5,7 +5,7 @@ import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../../data/flowGraph';
 import { executeFlow, executeFlowSegment } from '../../../engine/executor';
 import type { FlowSuspension } from '../../../engine/executor';
 import { validateNodeData } from '../../../engine/nodeDataValidation';
-import { ACTION_SET_VARIABLE, block, parseAuthoredNumber, setVariableConfigSchema } from '../index';
+import { ACTION_SET_VARIABLE, block, setVariableConfigSchema } from '../index';
 
 /**
  * Set Variable writes the type the author picked, and refuses — at save — to write
@@ -24,7 +24,10 @@ afterEach(() => {
 });
 
 /** A context that records what the block writes, which is its whole job. */
-function recordingContext(): { context: FlowRunContext; writes: Map<string, FlowVariableValue> } {
+function recordingContext(variables: Readonly<Record<string, FlowVariableValue>> = {}): {
+    context: FlowRunContext;
+    writes: Map<string, FlowVariableValue>;
+} {
     const writes = new Map<string, FlowVariableValue>();
     return {
         writes,
@@ -34,7 +37,7 @@ function recordingContext(): { context: FlowRunContext; writes: Map<string, Flow
             subject: {} as FlowRunContext['subject'],
             runId: 'run-1',
             nodeId: 'node-1',
-            variables: {},
+            variables,
             setOutput: (key, value) => {
                 writes.set(key, value);
             },
@@ -89,6 +92,73 @@ describe('what each type writes', () => {
 
     it('defaults to text, so a node saved before the type was touched still writes its text', async () => {
         expect(await written({ variableName: 'mood', textValue: 'bratty' })).toBe('bratty');
+    });
+});
+
+describe('adding to a number', () => {
+    /** Add `amount` to `count`, which holds `variables.count` before the block runs. */
+    async function added(amount: string, variables: Readonly<Record<string, FlowVariableValue>>): Promise<unknown> {
+        const { context, writes } = recordingContext(variables);
+        const outcome = await block.run(
+            setVariableConfigSchema.parse({ variableName: 'count', valueType: 'add', numberValue: amount }),
+            context
+        );
+        return outcome.kind === 'continue' ? writes.get('count') : outcome;
+    }
+
+    it('starts a variable that was never set, or set to null, from 0', async () => {
+        expect(await added('1', {})).toBe(1);
+        expect(await added('1', { count: null })).toBe(1);
+    });
+
+    it('adds to a number, and to a string that reads as one, writing a number', async () => {
+        expect(await added('1', { count: 2 })).toBe(3);
+        expect(await added('2.5', { count: '5' })).toBe(7.5);
+    });
+
+    it('takes away with a negative amount', async () => {
+        expect(await added('-3', { count: 2 })).toBe(-1);
+    });
+
+    it.each([['abc'], [''], [true]] as const)('fails by name when the variable holds %j', async (held) => {
+        expect(await added('1', { count: held })).toEqual({
+            kind: 'fail',
+            error: `"count" holds ${JSON.stringify(held)}, which is not a number, so there is nothing to add 1 to.`,
+        });
+    });
+
+    it('fails by name on a snowflake ID, which is text too big to count exactly', async () => {
+        expect(await added('1', { count: '1234567890123456789' })).toEqual({
+            kind: 'fail',
+            error: '"count" holds "1234567890123456789", which is not a number, so there is nothing to add 1 to.',
+        });
+    });
+
+    it('fails rather than writing a sum past what can be held exactly', async () => {
+        expect(await added('1', { count: Number.MAX_SAFE_INTEGER })).toEqual({
+            kind: 'fail',
+            error: `Adding 1 to "count" goes past ${Number.MAX_SAFE_INTEGER} — too big to count exactly.`,
+        });
+    });
+
+    it('rounds away float drift, so adding 0.1 three times makes 0.3', async () => {
+        let count: FlowVariableValue = null;
+        for (let round = 0; round < 3; round += 1) {
+            count = (await added('0.1', { count })) as FlowVariableValue;
+        }
+
+        expect(count).toBe(0.3);
+        expect(await added('0.25', { count: 1.5 })).toBe(1.75);
+    });
+
+    it('refuses a blank or non-numeric amount at save, as Number does', () => {
+        expect(saveIssues({ variableName: 'count', valueType: 'add' })).toEqual([
+            { field: 'numberValue', message: 'A number, please. Blank is not zero.' },
+        ]);
+        expect(saveIssues({ variableName: 'count', valueType: 'add', numberValue: 'lots' })).toEqual([
+            { field: 'numberValue', message: '"lots" is not a number. Digits, please — 3, -2, 0.5.' },
+        ]);
+        expect(saveIssues({ variableName: 'count', valueType: 'add', numberValue: '-1' })).toEqual([]);
     });
 });
 
@@ -212,33 +282,15 @@ describe('what a save refuses', () => {
         expect(saveIssues({ variableName: 'count', valueType: 'number', numberValue: '3' })).toEqual([]);
     });
 
-    it('never reads blank, or anything that is not a finite number, as one', () => {
-        expect(parseAuthoredNumber(undefined)).toBeUndefined();
-        expect(parseAuthoredNumber('')).toBeUndefined();
-        expect(parseAuthoredNumber('  ')).toBeUndefined();
-        expect(parseAuthoredNumber('Infinity')).toBeUndefined();
-        expect(parseAuthoredNumber('12abc')).toBeUndefined();
-        expect(parseAuthoredNumber('1.2.3')).toBeUndefined();
-        expect(parseAuthoredNumber('.')).toBeUndefined();
-        expect(parseAuthoredNumber('+')).toBeUndefined();
-        // Plain decimal, but too long to be finite.
-        expect(parseAuthoredNumber('1' + '0'.repeat(400))).toBeUndefined();
-        expect(parseAuthoredNumber('0')).toBe(0);
+    it('refuses a number too big to hold exactly — a snowflake ID belongs in Text', () => {
+        expect(saveIssues({ variableName: 'id', valueType: 'number', numberValue: '1234567890123456789' })).toEqual([
+            { field: 'numberValue', message: '"1234567890123456789" is not a number. Digits, please — 3, -2, 0.5.' },
+        ]);
     });
 
-    it.each([['0x10'], ['0b101'], ['0o7'], ['1e3'], ['-1E-2']])(
-        'refuses %s, which Number() would read but an author would not',
-        (raw) => {
-            expect(parseAuthoredNumber(raw)).toBeUndefined();
-        }
-    );
-
-    it('reads plain decimal notation, signed or not, with or without a leading digit', () => {
-        expect(parseAuthoredNumber('+3')).toBe(3);
-        expect(parseAuthoredNumber('-0.5')).toBe(-0.5);
-        expect(parseAuthoredNumber('.5')).toBe(0.5);
-        expect(parseAuthoredNumber('5.')).toBe(5);
-        expect(parseAuthoredNumber('007')).toBe(7);
+    it('still saves and writes an explicit 0 through Number', async () => {
+        expect(saveIssues({ variableName: 'count', valueType: 'number', numberValue: '0' })).toEqual([]);
+        expect(await written({ variableName: 'count', valueType: 'number', numberValue: '0' })).toBe(0);
     });
 
     it('refuses empty text, and true or false with neither picked', () => {

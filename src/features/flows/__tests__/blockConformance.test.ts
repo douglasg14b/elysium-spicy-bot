@@ -1110,6 +1110,24 @@ describe('a field reading a variable by name', () => {
         expect(issues).toMatch(/offers variables of the kind "banana", which is not a value kind/);
     });
 
+    it('accepts one declaring no kind, which takes any variable — the shape Compare needs', () => {
+        const manifest = manifestWith({
+            configSchema: z.object({ seenAt: z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/) }),
+            configFields: [{ key: 'seenAt', label: 'Variable', control: 'variableSelect' }],
+        });
+
+        expect(checkBlockConformance(manifest)).toEqual([]);
+    });
+
+    it('still holds one declaring no kind to the shared spelling', () => {
+        const manifest = manifestWith({
+            configSchema: z.object({ seenAt: z.string() }),
+            configFields: [{ key: 'seenAt', label: 'Variable', control: 'variableSelect' }],
+        });
+
+        expect(checkBlockConformance(manifest).join('\n')).toMatch(/must take one in the shared spelling/);
+    });
+
     it('catches a schema that would store a name no token can address', () => {
         const issues = checkBlockConformance(variableManifest({}, z.string().optional())).join('\n');
 
