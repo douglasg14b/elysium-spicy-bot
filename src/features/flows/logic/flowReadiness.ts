@@ -3,7 +3,7 @@ import { authoredGraphIssues } from '../engine/graphValidation';
 import { validateNodeData, type FlowValidationIssue } from '../engine/nodeDataValidation';
 import { fieldCheckIssueMessage } from './fieldChecks';
 import { pendingResourceFields } from './pendingResourceFields';
-import { collectResourceTargets } from './resourceTargets';
+import { collectApplicableResourceTargets } from './resourceTargets';
 
 /**
  * Everything standing between a structurally sound graph and a flow that may run.
@@ -108,7 +108,8 @@ export function uninstalledResourceKeys(
     const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
     const waiting = new Set<string>();
 
-    for (const target of collectResourceTargets(graph)) {
+    // A picker its `visibleWhen` hides waits on nothing: it does not apply.
+    for (const target of collectApplicableResourceTargets(graph)) {
         if (!declaredKeys.has(target.resourceKey)) continue;
         const value = nodesById.get(target.nodeId)?.data[target.configKey];
         if (value === undefined || value === '') {

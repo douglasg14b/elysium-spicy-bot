@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { FLOW_MAX_NODE_VISITS, FLOW_MAX_VARIABLES_SIZE } from '../constants';
 import type { FlowEdge, FlowGraph, FlowNode } from '../data/flowGraph';
 import { flowRunsRepo } from '../data/flowRunsRepo';
-import type { BlockKind, BlockManifest } from '../blocks/manifest';
+import { visibleNodeData, type BlockKind, type BlockManifest } from '../blocks/manifest';
 import { getBlockDefinition } from '../blocks/registry';
 import type {
     FlowResume,
@@ -91,6 +91,15 @@ export interface ExecuteSegmentOptions {
      * it to the row it later creates, so the two can never disagree.
      */
     runId: string;
+    /**
+     * When the run started, handed to every block as `context.startedAt`.
+     *
+     * Supplied by the caller for the reason `runId` is: {@link executeFlow} takes it
+     * when a fresh run begins, and a resumed segment carries the one its row recorded.
+     * Optional because a row parked before the snapshot kept it has none — and a run
+     * that cannot say when it started reports nothing rather than a guess.
+     */
+    startedAt?: Date;
     /** Node to begin at. A trigger node on a fresh run; any node on a resume. */
     startNodeId: string;
     /**
@@ -214,7 +223,16 @@ export async function executeFlowSegment(
 
         visitedNodeIds.push(node.id);
 
-        const parsed = definition.configSchema.safeParse(node.data);
+        /*
+         * A field its `visibleWhen` hides does not exist for this run: it is left out
+         * before the parse, so neither the schema nor `run` sees it, and it is never
+         * rendered or resolved. A node keeps whatever a hidden field held — the builder
+         * seeds every default and switching the sibling clears nothing — so a stale
+         * `{{var.x}}` or an over-long value in one would otherwise fail a run over a
+         * field the author cannot see. Stripped again after the parse, because a
+         * schema `.default()` can put a hidden key back.
+         */
+        const parsed = definition.configSchema.safeParse(visibleNodeData(definition.configFields, node.data));
         if (!parsed.success) {
             const message = `Invalid config for ${node.type}: ${parsed.error.issues
                 .map((issue) => issue.message)
@@ -225,7 +243,11 @@ export async function executeFlowSegment(
 
         // Rendering reads the run and writes nothing, so it takes the seed rather
         // than a context: there is no node running yet to own a write channel.
-        const rendered = renderNodeCopy(definition, parsed.data, { ...context, variables });
+        const rendered = renderNodeCopy(
+            definition,
+            isObjectValue(parsed.data) ? visibleNodeData(definition.configFields, parsed.data) : parsed.data,
+            { ...context, variables }
+        );
         if (!rendered.ok) {
             const message = `Node ${node.id} (${node.type}): ${rendered.error}`;
             log.push({ nodeId: node.id, type: node.type, kind: definition.kind, status: 'error', error: message });
@@ -257,6 +279,7 @@ export async function executeFlowSegment(
         const stepContext: FlowRunContext = {
             ...context,
             runId: options.runId,
+            ...(options.startedAt ? { startedAt: options.startedAt } : {}),
             nodeId: node.id,
             variables,
             setOutput: (key, value) => {
@@ -418,10 +441,17 @@ export async function executeFlow(
      * A run that never parks spends this id on nothing, which costs one UUID.
      */
     const runId = randomUUID();
-    const persist = onSuspend ?? ((suspension) => persistNewSuspendedRun(flowId, runId, context, suspension));
+    // Taken beside the id and for the same reason: a block on the first leg can ask
+    // how long the run has been going, and the row written at the first park records
+    // this same instant rather than the moment it parked. Only the default persister
+    // records it; a caller-supplied `onSuspend` (a test seam today) writes its own row.
+    const startedAt = new Date();
+    const persist =
+        onSuspend ?? ((suspension) => persistNewSuspendedRun(flowId, runId, startedAt, context, suspension));
 
     const outcome = await executeFlowSegment(flowId, graph, context, {
         runId,
+        startedAt,
         startNodeId: triggerNodeId,
         requireTrigger: true,
     });
@@ -464,10 +494,15 @@ export async function executeFlow(
  * The channel is recorded as an id and only when the run has one: a run started
  * by a member join is genuinely nowhere, and writing a key for it would claim
  * otherwise.
+ *
+ * `startedAt` is written here, at the first park, and never again: a re-park goes
+ * through `flowRunsRepo.park`, which leaves the snapshot alone, so the start time
+ * survives every later wait unchanged.
  */
 async function persistNewSuspendedRun(
     flowId: string,
     runId: string,
+    startedAt: Date,
     context: FlowRunSeed,
     suspension: FlowSuspension
 ): Promise<void> {
@@ -490,6 +525,7 @@ async function persistNewSuspendedRun(
             // serialised sees "no channel recorded" rather than "channel recorded
             // as nothing".
             ...(context.channel ? { channelId: context.channel.id } : {}),
+            startedAt: startedAt.toISOString(),
         },
         resumeNodeId: suspension.resumeNodeId,
         wakeAt: suspension.wakeAt ?? null,
@@ -574,6 +610,11 @@ function drainWrites(
     }
 
     return { ok: true, variables: merged };
+}
+
+/** Whether a parsed config is a record, as an object schema always produces. */
+function isObjectValue(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 /** A node's config with its copy fields expanded, or why they could not be. */

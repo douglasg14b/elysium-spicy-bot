@@ -17,7 +17,14 @@ import type { BlockConfigField } from './manifest';
  * comes due at the ordinary `wakeAt`, and the scheduler pushes that back while
  * qualifying messages keep landing, so the block wakes on `timeout` only once it is
  * genuinely quiet — no re-posted buttons, and no visit spent per message.
+ *
+ * {@link checkChannelUsable} is exported beyond the three: any block reading the activity
+ * record for one channel refuses an unusable channel through it, worded for that block,
+ * rather than with a second copy of the check.
  */
+
+/** The channel field's label, as the form shows it and as a refusal names it. */
+const QUIET_CHANNEL_LABEL = 'Messages in';
 
 /** Where a time limit counts from. `waitStart` is today's behaviour and the default. */
 export const TIMEOUT_COUNTS_FROM = ['waitStart', 'memberMessage', 'anyMessage'] as const;
@@ -46,8 +53,9 @@ export type QuietTimeoutConfig = {
 
 /**
  * The two form fields, in the order they render, appended after a block's own time
- * limit. Both always show — the inspector has no "show when" — so the channel's
- * description says it only matters for the two message options.
+ * limit. The channel shows only while counting from a last message (`visibleWhen`);
+ * counting from the wait's start reads no channel, so a hidden one — even a stale
+ * `{{var}}` left from before the author switched — is never resolved or checked.
  */
 export const quietTimeoutFields: readonly BlockConfigField[] = [
     {
@@ -65,11 +73,12 @@ export const quietTimeoutFields: readonly BlockConfigField[] = [
     },
     {
         key: 'quietChannelId',
-        label: 'Messages in',
+        label: QUIET_CHANNEL_LABEL,
         description:
-            "Only matters when counting from a last message. Replies in its threads count too. Leave empty for anywhere in the server — except with anyone's messages, which needs a channel, because a whole server never shuts up.",
+            "Replies in its threads count too. Leave empty for anywhere in the server — except with anyone's messages, which needs a channel, because a whole server never shuts up.",
         control: 'channelPicker',
         optional: true,
+        visibleWhen: { field: 'timeoutCountsFrom', equals: ['memberMessage', 'anyMessage'] },
     },
 ];
 
@@ -128,7 +137,10 @@ export function toQuietWindow(
 
     const channelId = config.quietChannelId || undefined;
     if (channelId && config.timeoutCountsFrom !== 'waitStart') {
-        checkChannelUsable(guild, channelId);
+        checkChannelUsable(guild, channelId, {
+            fieldLabel: QUIET_CHANNEL_LABEL,
+            reason: 'so it would never hear anyone there and the time limit would run out on people mid-sentence',
+        });
     }
 
     switch (config.timeoutCountsFrom) {
@@ -149,21 +161,48 @@ export function toQuietWindow(
 }
 
 /**
- * Refuse a "Messages in" channel the bot cannot read. Messages there never reach the
- * activity record, so it would look silent forever.
- *
- * Checked at park time against the cache, which holds every channel the guild sent the
- * bot. Access revoked later, mid-park, is not caught.
+ * How {@link checkChannelUsable} words its refusal: which field, and what an unusable
+ * channel would get wrong for this block.
  */
-function checkChannelUsable(guild: Guild, channelId: string): void {
+export type ChannelUsableMessage = {
+    /** The field's label as the author sees it, e.g. `Messages in`. */
+    readonly fieldLabel: string;
+    /**
+     * The consequence for this block, as a clause continuing the sentence after the
+     * channel id — starting `so …`.
+     */
+    readonly reason: string;
+};
+
+/**
+ * Refuse a channel whose messages never reach the activity record, by throwing — which
+ * the executor records against the node. Such a channel would look silent forever, and
+ * every block that reads that record would answer from silence that is not real.
+ *
+ * Two cases, worded apart because the fix differs. A channel missing from the cache
+ * entirely **no longer exists** — deleted since it was picked, or since a `{{var}}`
+ * recorded it — and no permission change will bring it back. A cached one the bot cannot
+ * view is a permissions problem.
+ *
+ * Checked against the cache, which holds every channel the guild sent the bot. Access
+ * revoked after the check is not caught.
+ */
+export function checkChannelUsable(guild: Guild, channelId: string, message: ChannelUsableMessage): void {
     const channel = guild.channels.cache.get(channelId);
+    if (!channel) {
+        throw new Error(
+            `"${message.fieldLabel}" is a channel that no longer exists (${channelId}), ${message.reason}. ` +
+                'Pick one that does.'
+        );
+    }
+
     const me = guild.members.me;
-    if (channel && me && channel.permissionsFor(me).has(PermissionFlagsBits.ViewChannel)) {
+    if (me && channel.permissionsFor(me).has(PermissionFlagsBits.ViewChannel)) {
         return;
     }
 
     throw new Error(
-        `"Messages in" is a channel the bot can't see (${channelId}), so it would never hear anyone there ` +
-            'and the time limit would run out on people mid-sentence. Pick a channel the bot can read.'
+        `"${message.fieldLabel}" is a channel the bot can't see (${channelId}), ${message.reason}. ` +
+            'Pick a channel the bot can read.'
     );
 }

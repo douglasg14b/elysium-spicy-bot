@@ -12,12 +12,14 @@
  * here that the server would not make is the worse failure, so wherever the answer
  * depends on something only the server knows, this says nothing.
  *
- * Imports only types and the sidecar naming rule, so the root workspace's parity test
- * can run the very function the browser runs (`src/features/flows/logic/__tests__/fieldChecks.test.ts`).
+ * Imports only types, the sidecar naming rule and the visibility rule, so the root
+ * workspace's parity test can run the very function the browser runs
+ * (`src/features/flows/logic/__tests__/fieldChecks.test.ts`).
  */
 
 import type { BlockConfigField, FieldCheck, FlowNode, FlowValidationIssue, NodeDescriptor } from '../api/types';
 import { resourceKeyFieldFor } from './controls/types';
+import { isFieldVisible } from './variables';
 
 /**
  * The first of `checks` that `value` fails, if any.
@@ -70,12 +72,23 @@ function emptinessIsTheServers(field: BlockConfigField, config: Record<string, u
     return typeof sidecar === 'string' && sidecar !== '';
 }
 
-/** The complaint about one field of one node, as the author leaves it now. */
+/**
+ * The complaint about one field of one node, as the author leaves it now.
+ *
+ * None for a field its `visibleWhen` hides: it does not apply, and whatever it still
+ * holds — a long value typed before the author switched it off — is nothing they can
+ * see or need to fix. The server leaves it out before parsing (`visibleNodeData`), so
+ * the two agree.
+ */
 export function fieldIssue(
     descriptor: NodeDescriptor,
     field: BlockConfigField,
     config: Record<string, unknown>
 ): string | undefined {
+    if (!isFieldVisible(field, descriptor.configFields, config)) {
+        return undefined;
+    }
+
     const value = config[field.key];
     // Every rule, not just `required`: a picker's `min(1)` refuses the same empty
     // string, and the server forgives both (`isEmptyValue` in `nodeDataValidation.ts`).

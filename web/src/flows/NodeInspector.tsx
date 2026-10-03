@@ -19,8 +19,9 @@ import { renderControl } from './controls/renderControl';
 import type { ControlContext } from './controls/types';
 import { KIND_STYLES } from './nodeMeta';
 import { ticketChannelNameFor } from './ticketChannelName';
+import { describeUnconnectedExit } from './unconnectedExits';
 import { describeUnplacedIssue, placeIssues } from './validationIssues';
-import { resolveOutputName, variableToken, type AvailableVariable } from './variables';
+import { isFieldVisible, resolveOutputName, variableToken, type AvailableVariable } from './variables';
 
 interface NodeInspectorProps {
     /** The block this node instantiates, absent when its type is unknown to this build. */
@@ -54,6 +55,12 @@ interface NodeInspectorProps {
      * slice, so the inspector never has to know which node it is drawing twice.
      */
     issues: readonly FlowValidationIssue[];
+    /**
+     * Labels of the exits this block asked to be warned about that nothing is wired
+     * to — the same list the card renders, already filtered by `exitWarningsShown` on
+     * the page, so the two surfaces never disagree about one node.
+     */
+    unconnectedExits: readonly string[];
     onChange: (patch: Record<string, unknown>) => void;
     onDelete: () => void;
 }
@@ -69,6 +76,7 @@ export function NodeInspector({
     actorAvailable,
     declaredResources,
     issues,
+    unconnectedExits,
     onChange,
     onDelete,
 }: NodeInspectorProps) {
@@ -77,9 +85,15 @@ export function NodeInspector({
     }
 
     const style = KIND_STYLES[descriptor.kind];
+    // Only the fields that apply now. A hidden one is not drawn, so an issue the server
+    // last raised about it has no control to sit under and is listed at node level
+    // instead — never dropped, and never placed under a control nobody can see.
+    const shownFields = descriptor.configFields.filter((field) =>
+        isFieldVisible(field, descriptor.configFields, config)
+    );
     const placed = placeIssues(
         issues,
-        descriptor.configFields.map((field) => field.key)
+        shownFields.map((field) => field.key)
     );
     const context: ControlContext = {
         roles,
@@ -153,8 +167,22 @@ export function NodeInspector({
                 </Alert>
             ) : null}
 
+            {/*
+             * Amber and below the red: advice about the graph rather than a reason it
+             * cannot go live, worded exactly as the card words it.
+             */}
+            {unconnectedExits.length > 0 ? (
+                <Stack gap={2}>
+                    {unconnectedExits.map((exitLabel) => (
+                        <Text key={exitLabel} size="11.5px" c="yellow.5">
+                            {describeUnconnectedExit(exitLabel, descriptor.canSuspend)}
+                        </Text>
+                    ))}
+                </Stack>
+            ) : null}
+
             <Stack gap="md">
-                {descriptor.configFields.map((field) => (
+                {shownFields.map((field) => (
                     <div key={field.key}>
                         {renderControl(
                             field,

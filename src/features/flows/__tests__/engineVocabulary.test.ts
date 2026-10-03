@@ -123,6 +123,12 @@ const DOMAIN_VOCABULARY = [
     // without knowing what any particular one says.
     'icon', 'description', 'note', 'placeholder', 'swatches', 'prefix', 'suffix',
     'timeout',
+    // Two more presentation members the contract names. A field declares when it is
+    // `visible` (`visibleWhen`), and an exit asks to be flagged while `unconnected`
+    // (`warnIfUnconnected`). Both describe how a form and a canvas are drawn — which
+    // sibling hides a field, which dead end is worth a word — and neither says what a
+    // flow is for or folds onto a proven rejection.
+    'visible', 'unconnected',
     // Discord nouns the engine genuinely handles
     'guild', 'member', 'user', 'channel', 'role', 'message', 'embed', 'button',
     'reaction', 'emoji', 'interaction', 'client', 'event', 'permission',
@@ -321,6 +327,12 @@ const GENERIC_VOCABULARY = [
     // admitted: `deadline` and `deferredWakeAt` both became `nextWakeAt`, since `next`
     // and `wake` were already here.
     'duration', 'last', 'defer',
+    // Conditional fields and exit warnings. `effective` is the value a field holds once
+    // its default is counted (`effectiveFieldValue`), and `warn` is the verb of an
+    // advisory. Both mechanism. Three locals were renamed rather than admitted —
+    // `rule` (which folds onto the proven rejection `rules`) became `when`, `sibling`
+    // became `source`, `derived` became `from`.
+    'effective', 'warn',
 ];
 
 /**

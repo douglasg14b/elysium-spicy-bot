@@ -1,3 +1,5 @@
+import { isFieldVisible } from '../blocks/manifest';
+import { getBlockDefinition } from '../blocks/registry';
 import type { FlowGraph } from '../data/flowGraph';
 import type { ResourceBindingTarget } from './bindResourcesToGraph';
 
@@ -27,6 +29,12 @@ export const RESOURCE_KEY_SUFFIX = 'Key';
  * a picker, and treating it as a resource key would send a number to a lookup that
  * expects one — better to ignore it here and let schema validation report the real
  * problem.
+ *
+ * **Blind to `visibleWhen`, on purpose.** This is what install writes ids back
+ * through, and writing an id into a hidden field is harmless — the engine leaves hidden
+ * fields out — while skipping it would leave the field empty once the author shows it
+ * again, refusing switch-on over a resource that is installed. A question about
+ * whether a field is *waiting* on a resource asks {@link collectApplicableResourceTargets}.
  */
 export function collectResourceTargets(graph: FlowGraph): ResourceBindingTarget[] {
     const targets: ResourceBindingTarget[] = [];
@@ -50,4 +58,24 @@ export function collectResourceTargets(graph: FlowGraph): ResourceBindingTarget[
     }
 
     return targets;
+}
+
+/**
+ * The targets of {@link collectResourceTargets} whose field currently applies.
+ *
+ * For the readers asking whether a field is waiting on a resource — readiness, the
+ * switch-on gate, deploy. A picker its `visibleWhen` hides does not apply, so its
+ * sidecar must neither hold the flow back nor be blamed for naming an undeclared key;
+ * shown again, it is judged again. A node whose block this build does not know is read
+ * as it stands. Needs the block registry, so a caller must have awaited discovery.
+ */
+export function collectApplicableResourceTargets(graph: FlowGraph): ResourceBindingTarget[] {
+    const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
+
+    return collectResourceTargets(graph).filter((target) => {
+        const node = nodesById.get(target.nodeId);
+        const fields = node ? (getBlockDefinition(node.type)?.configFields ?? []) : [];
+        const field = fields.find((candidate) => candidate.key === target.configKey);
+        return !field || !node || isFieldVisible(field, fields, node.data ?? {});
+    });
 }

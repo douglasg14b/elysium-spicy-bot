@@ -169,7 +169,12 @@ Do not build the window by hand. `blocks/quietTimeout.ts` is the shared fragment
 `checkQuietTimeout`, and park with `toQuietWindow(config, durationMs, context.guild)` — so every
 block words and validates the option the same way. Set `wakeAt` to now plus the same
 `durationMs`, and call `toQuietWindow` before posting anything: it throws for a channel the bot
-cannot read, which would otherwise never record a message.
+cannot read, which would otherwise never record a message. A block that reads the activity
+record for one channel without waiting — Time Since — makes the same refusal through the
+fragment's exported `checkChannelUsable`, passing its own field label and consequence, rather
+than a second copy of the check. It words a channel missing from the cache — deleted, perhaps
+since a `{{var}}` recorded it — as one that no longer exists, apart from a cached one the bot
+cannot view.
 
 ### Parking on controls you posted — set `waitMessageId`
 
@@ -256,6 +261,64 @@ only renders** — never the other way round.
 | `textList` | `string[]` | an ordered list of short strings an author types. `placeholder`, `maxLength` (of **one entry**), `minEntries`, `maxEntries`, `addLabel`. |
 | `objectList` | `Record<string, unknown>[]` | an ordered list of **records** — `textList` one dimension up. Needs `columns`; also takes `minEntries`, `maxEntries`, `addLabel`. See below. |
 | `eligibility` | an `Eligibility` object | who is allowed. Declares no options: the principals are a closed vocabulary the control reads from `engine/eligibility.ts`. |
+| `variableSelect` | a bare variable name | one variable an earlier block records, picked by name. Needs `valueKind`; see [Reading a variable by name](#reading-a-variable-by-name). |
+
+### Fields that only sometimes apply — `visibleWhen`
+
+Any field may declare `visibleWhen: { field, equals }`: show it only while the sibling
+`field` holds one of `equals`. `quietChannelId` in `blocks/quietTimeout.ts` is the worked
+example — the channel only shows while counting from a last message.
+
+**Hidden means absent to every reader**, not merely undrawn. Save-time validation and the
+executor both parse the node through `visibleNodeData`, so neither your schema, your
+`superRefine` nor `run` ever sees a hidden field, and the executor never renders or
+resolves one; the builder neither checks, places issues under, nor summarises it; and a
+hidden picker's resource sidecar neither holds the flow back nor is blamed (install still
+writes its id, so showing the field again finds it there). A node usually
+still *holds* a value for a hidden field — the builder seeds every default on drop, and
+switching the sibling clears nothing — so presence never decides. `isFieldVisible` in
+`blocks/manifest.ts` (mirrored in `web/src/flows/variables.ts`) does, reading the sibling's
+stored value or its default through `effectiveFieldValue`.
+
+That shapes your schema. A field with `visibleWhen` is **optional** — absent is what it is
+while hidden. Per-key limits (`.max()`, a name shape) are fine: they only ever judge it
+while shown. A rule that also depends on the sibling belongs in your block's own
+`superRefine`, as `checkQuietTimeout` does. Conformance holds the rest:
+
+- the sibling exists and is a `select` or `segmented`
+- it declares a `defaultValue` equal to its schema `.default()`, so every reader agrees what
+  an untouched node shows
+- it has no `visibleWhen` of its own — one level, no chains
+- every `equals` value is one of its options
+- the field carrying `visibleWhen` is optional in the schema
+
+There is no clearing on switch, and none is needed: a value nobody reads cannot hurt.
+
+### Reading a variable by name
+
+A `variableSelect` field stores a **bare name** — never a `{{var.…}}` token — and declares
+the `valueKind` it can use. The builder offers the variables in scope at the node whose
+kind matches, shows a stored name that is no longer offered as "not available here", and
+says so when there is nothing to pick.
+
+The executor passes the name through untouched, unlike a [picker holding a
+variable](#a-picker-holding-a-variable), whose token it resolves and fails on when unset.
+So your block reads `context.variables[name]` itself and decides what "unset" means — a
+"No record" exit, say. The bag carries no types, so check the value's shape at run time
+and fail by name when it is wrong. `condition.timeSince` is the worked example: unset,
+`null` or `''` leaves by No record, and anything that is not a strict time fails the run
+naming the variable. The schema takes the shared spelling:
+`z.string().regex(VARIABLE_NAME_SHAPE, VARIABLE_NAME_MESSAGE)` from `blocks/variableName.ts`.
+
+Save refuses a name that:
+
+- no block in the flow records
+- is recorded only by blocks that cannot run first on a path here — after this block, or on
+  a branch that cannot lead to it (the builder's own over-approximation, so this rule never
+  refuses a name the builder offers)
+- **any** recording block records as another kind, a kindless one included — the message
+  names both blocks. This one *can* refuse a name the builder offered: the builder offers
+  the nearest producer's kind, while the bag keeps whichever block wrote last, anywhere
 
 ### A list of records — `objectList`
 
@@ -342,6 +405,10 @@ way that field's own `control` already implies:
 | `textList` | the entries joined on ` · `, blanks dropped |
 | `objectList` | a count plus the field's own label, e.g. `3 fields` — a record has no one string to show |
 | `eligibility` | a short phrase, or nothing at all when the gate is open |
+| `variableSelect` | the bare variable name |
+
+A part whose field is currently hidden by its `visibleWhen` renders **nothing** — not its
+value, not its `emptyText`, and its `stopIfEmpty` does not cut the line short.
 
 `cardSummary` never repeats that resolution logic; it only says which field, what surrounds it,
 and what to show in its place when it's unset:
@@ -385,6 +452,43 @@ a stylesheet.
 Every block declares at least one handle, including one that usually ends a path: an author
 ends the path by connecting nothing to it, not by you declaring no way out.
 
+Mark an exit `warnIfUnconnected: true` when its silent dead end is rarely what an author
+meant — a "No record" they may not know exists. While it is unconnected on a node whose
+other exits are wired, the builder says so in amber on the card and in the inspector,
+stating what a run taking it does: "No record isn't connected — runs that land here just
+stop", or, on a block that can park, "…runs that land here fail" — a run that woke and
+leaves by a named exit wired to nothing fails rather than ending quietly. It is advice,
+never a save refusal. Leave it off a plain No/false: "No → end" is an ordinary flow, and a
+warning on it would sit on most cards and teach authors to ignore amber.
+
+An exit that can only fire while an optional field is filled in takes
+`warnIfUnconnected: { whenFieldSet: '<field key>' }` instead: the builder warns only while
+that field holds a value on the node — stored or its default, and not hidden by its
+`visibleWhen`. Wait for Event's and Ask a Question's "Timed out" exits are the worked
+example, keyed on `timeoutMs`: both default to no time limit, and a plain `true` would warn
+on nearly every node, about an exit no run could take. The field must be optional in your
+schema — a required one is set on every node, which is `true` spelled the long way.
+
+An exit that only some choices make reachable in an ordinary run takes
+`warnIfUnconnected: { whenField: '<field key>', equals: ['<value>', …] }`: the builder warns
+only while that `select` or `segmented` field holds one of `equals`, read exactly as
+`visibleWhen` reads its sibling — stored or its default, and never while the field itself is
+hidden. Time Since's "No record" is the worked example: from "When this run started" a run
+lands there only if it was parked before runs recorded their start, and from "When the member
+joined" only for a leaver the bot never cached, so it warns for the message and saved-time
+sources alone. The field must declare a default, and every `equals` value must be one of its
+options.
+
+Conformance accepts `true`, either condition shape with exactly its own keys, or absent —
+nothing else.
+
+**On a block that can park, warn only about an exit you take on waking, and name it.** The
+builder tells the author a run landing on a warned exit of a parking block *fails*, because
+the executor fails a run that woke and leaves by a named exit wired to nothing. A default exit,
+or a named one you also take before parking, only stops — and the warning would say the wrong
+thing. Conformance refuses a warned default exit on a `canSuspend` block; whether a named exit
+is only taken on waking cannot be read off a declaration, so that half is yours to keep.
+
 ## Context requirements
 
 `requires` says what your block needs to be present on the run:
@@ -417,12 +521,23 @@ legal, and over-declaring accepts ones that will misbehave at runtime.
 
 If you find yourself reading something off `context` that you did not declare, declare it.
 
+### When the run started — `context.startedAt`
+
+Every run carries `context.startedAt`, a `Date` taken as the trigger fired. It is written
+into the run's snapshot at the first park and never rewritten, so a run resumed after any
+number of waits reports the same instant. It is **undefined on a run parked before the
+snapshot recorded it** — treat that as "no record", and never substitute the row's
+`createdAt`, which is when the run first parked, not when it began.
+
 ## Run variables
 
 `context.variables` is a read-only bag of named values earlier blocks produced. It is scalar
 only — `string | number | boolean | null` — and that is a deliberate limit rather than an
 oversight: a variable holds an id or a reference, never evidence. If you are reaching for a
 place to stash a message body or an attachment url, the bag is the wrong home for it.
+
+A variable lasts **one run**. Other runs, other flows and journeys never see it, and nothing
+is kept per member between runs.
 
 You **write** to it through the one channel on the context:
 
@@ -474,11 +589,19 @@ typed into that field, resolved per node by `resolveOutputName`. Conformance rej
 `fromField` naming no declared field, so a renamed config key fails the suite rather than
 silently producing a node whose output nothing can resolve.
 
-Two optional members on either naming:
+Optional members on either naming:
 
-- **`valueKind`** — what the value *is*, when a picker can use it (`'channel'` today, from
-  `BLOCK_OUTPUT_VALUE_KINDS`). Declare it and the matching picker offers your output; leave it
-  off and the value is readable in copy only. A channel id you record should say so.
+- **`valueKind`** — what the value *is*, from `BLOCK_OUTPUT_VALUE_KINDS`: `'channel'` (taken
+  by the channel picker) or `'time'` (an ISO-8601 UTC string, `new Date().toISOString()`,
+  taken by a `variableSelect` field). Not every kind has a picker. Declare it and the
+  controls taking that kind offer your output; leave it off and the value is readable in
+  copy only. A channel id you record should say so.
+- **`valueKindFrom`** — instead of `valueKind`, when the kind depends on a choice the author
+  makes: `{ field, kinds }` names a `select` or `segmented` field with a default, and maps
+  its option values to kinds. An option left out of `kinds` means "no kind" —
+  `action.setVariable` maps only `time`, so its text, numbers and booleans have none. Never both;
+  conformance checks the field, its default, the option keys and the kinds. Read either
+  through `resolveOutputValueKind`, never `valueKind` directly.
 - **`handle`** — the exit a run leaves by when you wrote this, if only one does. A condition
   that finds something writes it on the branch where it found it; declaring
   `handle: 'true'` stops the builder offering it down No, where it is absent. Must name one of
@@ -497,7 +620,9 @@ A picker listed in `PICKER_VALUE_KINDS` (`channelPicker` today) may hold exactly
 so your block still receives a plain id and never knows. Nothing else may surround the token.
 
 Save refuses the token on a **trigger's** picker (its dispatcher reads the stored value before
-any run exists), and refuses a name that no block in the flow declares with the picker's kind.
+any run exists), refuses a name that no block in the flow declares with the picker's kind,
+and refuses one that **any** block declares as another kind — a text value sharing a
+channel's name would otherwise reach Discord as a channel id. The message names both blocks.
 At run time a name that was never recorded, was recorded `null`, or is not a string fails the
 step naming the field. So when a block finds no id to record, write `null` rather than skipping
 the write: a value left by an earlier visit would otherwise survive and be used.
@@ -605,9 +730,17 @@ that has not caught up fails by name. It checks, from your declaration alone, th
 - your declared fields and your schema describe the same config, **in both directions** — a
   declared field the schema ignores, and a schema key no field lets an author set
 - every declared default is one the schema accepts, and agrees with any schema default
-- your handles are well formed: at least one, no duplicate ids, at most one default, all labelled
+- your handles are well formed: at least one, no duplicate ids, at most one default, all
+  labelled, and any `warnIfUnconnected` exactly `true`, `{ whenFieldSet }` naming one of your
+  own optional fields, or `{ whenField, equals }` naming a defaulted choice offering each value
+  — and never on the default exit of a block that can park
 - your outputs are well formed: labelled, named one of the two ways, any `handle` one of your
-  own, any `valueKind` one a picker takes
+  own, any `valueKind` a real value kind, any `valueKindFrom` naming a defaulted choice whose
+  options map to real kinds, and never both
+- every `visibleWhen` names a defaulted, unconditional choice offering each `equals` value,
+  over a field the schema leaves optional — see [Fields that only sometimes
+  apply](#fields-that-only-sometimes-apply--visiblewhen)
+- every `variableSelect` names a real kind over a schema taking the shared name spelling
 - your `cardSummary`, if you declared one, only references fields that exist and is otherwise
   well formed — see [Card summary](#card-summary)
 
@@ -660,13 +793,16 @@ test tells you, and it tells you which of the two fixes you want:
 
 This covers the arms of `BlockConfigField` too, member by member — adding `maxLength` to one
 control's arm and not the other side fails, because a member the browser does not declare is one
-the inspector cannot read off a field it is being sent.
+the inspector cannot read off a field it is being sent. Exits and outputs are held the same way:
+`BLOCK_OUTPUT_HANDLE_KEYS`, `EXIT_WARNING_CONDITION_KEYS` (one list per object form of
+`warnIfUnconnected`) and `BLOCK_OUTPUT_DECLARATION_KEYS` (one list per naming arm) in the
+browser file, against exhaustive fixtures in the drift test.
 
 One gap to know about: the test derives what is served from the blocks that actually exist, so a
 **new optional top-level member no block sets yet** is served-as-absent and the test stays quiet
 about it. That is the one case you have to carry yourself — declare it in the mirror when you add
-it, not when the first block sets it. (It does not apply to the config-field arms, which are
-compared against an exhaustive fixture rather than live blocks.)
+it, not when the first block sets it. (It does not apply to the config-field arms, exits or
+outputs, which are compared against exhaustive fixtures rather than live blocks.)
 
 Everything a manifest declares except `configSchema` and `run` is served to the browser by
 `GET /api/nodes`, so a new member is published to every authenticated dashboard user by

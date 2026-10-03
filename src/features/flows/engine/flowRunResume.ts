@@ -475,6 +475,10 @@ async function advanceClaimedRun(
         // The row's own id, so a block re-entered here addresses the run it is
         // actually in — a fresh one would name a run nothing can find.
         runId: run.runId,
+        // The instant the first leg recorded. A row parked before the snapshot kept
+        // one has none, and the run says so rather than substituting `createdAt` —
+        // that is when it first parked, not when it started.
+        ...(run.contextSnapshot.startedAt ? { startedAt: new Date(run.contextSnapshot.startedAt) } : {}),
         startNodeId: run.resumeNodeId,
         triggerNodeId: run.resumeNodeId,
         visitsUsed: run.visitsUsed,

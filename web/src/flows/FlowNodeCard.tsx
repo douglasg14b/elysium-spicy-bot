@@ -13,6 +13,7 @@ import type { GuildChannel, GuildRole, NodeDescriptor } from '../api/types';
 import { summarizeFromDescriptor } from './cardSummary';
 import { describeConvergence } from './convergingTriggers';
 import { handlesAreLabelled, HANDLE_TONE_COLORS, KIND_STYLES } from './nodeMeta';
+import { describeUnconnectedExit } from './unconnectedExits';
 
 /**
  * What we stash on each React Flow node. `config` is the node's engine `data`;
@@ -60,6 +61,13 @@ export interface FlowNodeCardData extends Record<string, unknown> {
      * amounts of trouble, and only the author can say whether either is intended.
      */
     convergingTriggers: number;
+    /**
+     * Labels of the exits this block asked to be warned about that nothing is wired to
+     * — empty in the ordinary case. Recomputed from the live graph, like `unreachable`;
+     * see `unconnectedWarnedExits`. Already filtered by `exitWarningsShown`, so it is
+     * empty behind a failure or on an unreachable node, and is rendered as it comes.
+     */
+    unconnectedExits: readonly string[];
 }
 
 export type FlowCardNode = Node<FlowNodeCardData, 'flowCard'>;
@@ -74,8 +82,18 @@ const HANDLE_BASE: React.CSSProperties = {
 };
 
 export function FlowNodeCard({ data, selected }: NodeProps<FlowCardNode>) {
-    const { nodeType, label, config, descriptor, roles, channels, issueCount, unreachable, convergingTriggers } =
-        data;
+    const {
+        nodeType,
+        label,
+        config,
+        descriptor,
+        roles,
+        channels,
+        issueCount,
+        unreachable,
+        convergingTriggers,
+        unconnectedExits,
+    } = data;
 
     if (!descriptor) {
         return <BrokenNodeCard nodeType={nodeType} selected={selected} />;
@@ -216,6 +234,13 @@ export function FlowNodeCard({ data, selected }: NodeProps<FlowCardNode>) {
                         {describeConvergence(convergingTriggers)}
                     </Text>
                 ) : null}
+                {unconnectedExits.map((exitLabel) => (
+                    // Amber like the other advisories: the flow saves and runs, and
+                    // a dead end may be what the author meant.
+                    <Text key={exitLabel} size="11px" c="yellow.5" mt={4}>
+                        {describeUnconnectedExit(exitLabel, descriptor.canSuspend)}
+                    </Text>
+                ))}
                 {adrift ? (
                     /*
                      * Named, because dimming alone says "different" and not "why".

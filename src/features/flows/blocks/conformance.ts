@@ -99,9 +99,10 @@ export function checkBlockConformance(candidate: unknown): readonly string[] {
 
     issues.push(...checkOptionalProse(label, 'note', block.note));
     issues.push(...checkVocabulary(label, block));
-    issues.push(...checkHandles(label, block.handles));
+    issues.push(...checkHandles(label, block));
     issues.push(...checkOutputs(label, block.outputs, block.configFields, block.handles));
     issues.push(...checkConfigFields(label, block.configFields, block.configSchema));
+    issues.push(...checkVisibleWhen(label, block.configFields, block.configSchema));
     issues.push(...checkCardSummary(label, block.cardSummary, block.configFields));
     issues.push(...checkEligibilityEnforced(label, block));
 
@@ -214,7 +215,8 @@ function checkVocabulary(label: string, block: Partial<Record<string, unknown>>)
  * with no `sourceHandle`, so two of those would be two edges the executor could
  * not tell apart — the silent first-match this milestone exists to remove.
  */
-function checkHandles(label: string, handles: unknown): readonly string[] {
+function checkHandles(label: string, block: Partial<Record<string, unknown>>): readonly string[] {
+    const { handles } = block;
     if (!Array.isArray(handles)) {
         return [];
     }
@@ -241,6 +243,150 @@ function checkHandles(label: string, handles: unknown): readonly string[] {
 
         if (typeof handle.label !== 'string' || !handle.label) {
             issues.push(`${label}: output handle ${id || '<default>'} needs a label the builder can draw.`);
+        }
+
+        issues.push(...checkExitWarning(label, id, handle.warnIfUnconnected, block));
+    }
+
+    return issues;
+}
+
+/**
+ * An exit's `warnIfUnconnected` is `true`, one of the two condition shapes, or absent.
+ *
+ * A `false` reads as a decision the builder honours, and anything else is a typo the
+ * builder would silently treat as "don't warn". A condition naming no field is the quiet
+ * version of the same thing — the warning never shows, and the rename that causes it
+ * would otherwise pass every test — so each shape is held to a field that can make it
+ * true: see {@link checkWarnWhenFieldSet} and {@link checkWarnWhenFieldEquals}.
+ *
+ * On a block that can park, a warned exit must also be **named**. The builder tells the
+ * author a run landing there fails, which holds because the executor fails a run that
+ * woke and leaves by a named exit wired to nothing; a default exit only ever stops.
+ * Whether the exit is taken only on waking cannot be read off a declaration — that half
+ * of the rule is the block author's, stated beside `warnIfUnconnected`.
+ */
+function checkExitWarning(
+    label: string,
+    id: string,
+    warns: unknown,
+    block: Partial<Record<string, unknown>>
+): readonly string[] {
+    if (warns === undefined) {
+        return [];
+    }
+
+    const exit = `${label}: output handle ${id || '<default>'}`;
+    const issues: string[] = [];
+    if (!id && block.canSuspend === true) {
+        issues.push(
+            `${exit} is warned about on a block that can park, but has no id. The builder says a run ` +
+                'landing on a warned exit of a parking block fails, which only holds for a named exit — ' +
+                'a run leaving by the default one just stops. Name the exit, or leave the warning off.'
+        );
+    }
+
+    if (warns === true) {
+        return issues;
+    }
+
+    // The exact key set, so a condition carrying both shapes' keys matches neither.
+    const keys = typeof warns === 'object' && warns !== null ? Object.keys(warns).sort().join(',') : '';
+
+    const fieldSet = readProperty(warns, 'whenFieldSet');
+    if (keys === 'whenFieldSet' && typeof fieldSet === 'string') {
+        return [...issues, ...checkWarnWhenFieldSet(exit, fieldSet, block)];
+    }
+
+    const whenField = readProperty(warns, 'whenField');
+    const equals = readProperty(warns, 'equals');
+    if (
+        keys === 'equals,whenField' &&
+        typeof whenField === 'string' &&
+        Array.isArray(equals) &&
+        equals.length > 0 &&
+        equals.every((value): value is string => typeof value === 'string')
+    ) {
+        return [...issues, ...checkWarnWhenFieldEquals(exit, whenField, equals, block)];
+    }
+
+    return [
+        ...issues,
+        `${exit} sets warnIfUnconnected to ${JSON.stringify(warns)}. Set it to true on an exit worth a ` +
+            'warning, to { whenFieldSet: "<field>" } to warn only while that field is filled in, to ' +
+            '{ whenField: "<field>", equals: ["<value>", …] } to warn only while a choice holds one of those ' +
+            'values, or leave it off.',
+    ];
+}
+
+/**
+ * A `{ whenFieldSet }` must name one of the block's own fields, optional in its schema.
+ *
+ * Optional because "set" is only a question about a field that can be unset: a field
+ * the schema requires is set on every node that saves, so the condition would be `true`
+ * spelled the long way — and the warning would fire on every node, the over-warning the
+ * condition exists to avoid.
+ */
+function checkWarnWhenFieldSet(
+    exit: string,
+    fieldKey: string,
+    block: Partial<Record<string, unknown>>
+): readonly string[] {
+    const declared = asArray(block.configFields).some((candidate) => readProperty(candidate, 'key') === fieldKey);
+    if (!declared) {
+        return [
+            `${exit} warns only when the field "${fieldKey}" is set, but declares no such field, so the warning ` +
+                'could never show. Name one of its own config fields.',
+        ];
+    }
+
+    const shape = isZodType(block.configSchema) ? objectShape(block.configSchema) : null;
+    const fieldSchema = shape?.[fieldKey];
+    if (fieldSchema && !fieldSchema.safeParse(undefined).success) {
+        return [
+            `${exit} warns only when the field "${fieldKey}" is set, but its configSchema requires it, so it ` +
+                'is set on every node that saves and the warning would always show. Name an optional field, or ' +
+                'set warnIfUnconnected to true.',
+        ];
+    }
+
+    return [];
+}
+
+/**
+ * A `{ whenField, equals }` must name a choice that can actually hold each value.
+ *
+ * The same rules `visibleWhen` holds its sibling to, for the same reasons: a `select` or
+ * `segmented`, so its value is one of a known set; a declared default, so an untouched
+ * node reads a value rather than nothing; and every `equals` value one of its options,
+ * since any other could never make the warning show.
+ */
+function checkWarnWhenFieldEquals(
+    exit: string,
+    fieldKey: string,
+    equals: readonly string[],
+    block: Partial<Record<string, unknown>>
+): readonly string[] {
+    const field = asArray(block.configFields).find((candidate) => readProperty(candidate, 'key') === fieldKey);
+    const choices = choiceValuesOf(field);
+    if (!choices) {
+        return [
+            `${exit} warns only while "${fieldKey}" holds certain values, but that is not a select or segmented ` +
+                'field of this block. Only a fixed set of choices can decide whether the warning applies.',
+        ];
+    }
+
+    const issues: string[] = [];
+    if (readProperty(field, 'defaultValue') === undefined) {
+        issues.push(
+            `${exit} warns only while "${fieldKey}" holds certain values, but "${fieldKey}" declares no default, ` +
+                'so a node nobody has touched yet would never be warned about.'
+        );
+    }
+
+    for (const value of equals) {
+        if (!choices.includes(value)) {
+            issues.push(`${exit} warns while "${fieldKey}" is "${value}", which it never offers.`);
         }
     }
 
@@ -308,9 +454,11 @@ function checkOutputs(
         if (valueKind !== undefined && !valueKinds.includes(valueKind)) {
             issues.push(
                 `${label}: output ${outputLabel} declares the value kind ${JSON.stringify(valueKind)}, ` +
-                    `which no picker takes (${BLOCK_OUTPUT_VALUE_KINDS.join(', ')}).`
+                    `which is not a value kind (${BLOCK_OUTPUT_VALUE_KINDS.join(', ')}).`
             );
         }
+
+        issues.push(...checkValueKindFrom(label, outputLabel, output, configFields));
 
         if (naming === 'fixed') {
             const key = readProperty(output, 'key');
@@ -341,6 +489,218 @@ function checkOutputs(
     }
 
     return issues;
+}
+
+/**
+ * A `valueKindFrom` must name a choice the author can actually make, and map it to
+ * real kinds.
+ *
+ * Each part guards a failure the builder would show as nothing at all: a field that is
+ * not a choice has no options to map, a field with no default leaves a freshly dropped
+ * node with no kind until somebody touches it, a key outside the options can never be
+ * chosen, and a kind outside the vocabulary is one no control offers. Declaring
+ * `valueKind` as well is two statements of one fact, which disagree the first time one
+ * is edited.
+ */
+function checkValueKindFrom(
+    label: string,
+    outputLabel: string,
+    output: unknown,
+    configFields: unknown
+): readonly string[] {
+    const from = readProperty(output, 'valueKindFrom');
+    if (from === undefined) {
+        return [];
+    }
+
+    const where = `${label}: output ${outputLabel}`;
+    if (readProperty(output, 'valueKind') !== undefined) {
+        return [`${where} declares both valueKind and valueKindFrom. Declare one: the kind is fixed, or a field decides it.`];
+    }
+
+    const fieldKey = readProperty(from, 'field');
+    const kinds = readProperty(from, 'kinds');
+    if (typeof fieldKey !== 'string' || !kinds || typeof kinds !== 'object' || Array.isArray(kinds)) {
+        return [`${where} declares valueKindFrom without a field name and a map of kinds.`];
+    }
+
+    const field = asArray(configFields).find((candidate) => readProperty(candidate, 'key') === fieldKey);
+    const choices = choiceValuesOf(field);
+    if (!choices) {
+        return [
+            `${where} takes its kind from "${fieldKey}", which is not a select or segmented field of this ` +
+                'block — only a fixed set of choices can decide a kind.',
+        ];
+    }
+
+    const issues: string[] = [];
+    if (readProperty(field, 'defaultValue') === undefined) {
+        issues.push(
+            `${where} takes its kind from "${fieldKey}", which declares no default, so a node nobody has ` +
+                'touched yet would have no kind at all.'
+        );
+    }
+
+    const valueKinds: readonly unknown[] = BLOCK_OUTPUT_VALUE_KINDS;
+    for (const [option, kind] of Object.entries(kinds as Record<string, unknown>)) {
+        if (!choices.includes(option)) {
+            issues.push(`${where} maps "${option}" to a kind, but "${fieldKey}" offers no such option.`);
+        }
+        if (!valueKinds.includes(kind)) {
+            issues.push(
+                `${where} maps "${option}" to ${JSON.stringify(kind)}, which is not a value kind ` +
+                    `(${BLOCK_OUTPUT_VALUE_KINDS.join(', ')}).`
+            );
+        }
+    }
+
+    return issues;
+}
+
+/**
+ * Every `visibleWhen` must point at a choice that can actually show the field, and the
+ * field it hides must be one a stale value cannot break.
+ *
+ * The rules are what makes "hidden means absent" safe for every reader at once:
+ *
+ *  - The sibling is a `select` or `segmented`, so its value is one of a known set.
+ *  - It declares a default equal to its schema's, so the builder, the validator and the
+ *    executor all agree what an untouched node shows — they read the stored value or
+ *    that default, and nothing else.
+ *  - It is not conditional itself. One level only: a chain would let a field hide
+ *    because a field it never names is hidden, which nobody reading the form could
+ *    explain.
+ *  - Every `equals` value is one of its options; any other could never show the field.
+ *  - The hidden field is optional in the schema. `visibleNodeData` leaves it out
+ *    before every parse, so a schema requiring it would refuse every save made while it
+ *    is hidden — over a field the author cannot see.
+ */
+function checkVisibleWhen(label: string, configFields: unknown, configSchema: unknown): readonly string[] {
+    if (!Array.isArray(configFields)) {
+        return [];
+    }
+
+    const shape = isZodType(configSchema) ? objectShape(configSchema) : null;
+    const issues: string[] = [];
+
+    for (const field of configFields) {
+        const when = readProperty(field, 'visibleWhen');
+        if (when === undefined) {
+            continue;
+        }
+
+        const key = String(readProperty(field, 'key'));
+        const where = `${label}: the field "${key}"`;
+        const sourceKey = readProperty(when, 'field');
+        const equals = readProperty(when, 'equals');
+        if (
+            typeof sourceKey !== 'string' ||
+            !Array.isArray(equals) ||
+            equals.length === 0 ||
+            !equals.every((value) => typeof value === 'string')
+        ) {
+            issues.push(`${where} declares visibleWhen without a field name and a non-empty list of values to show for.`);
+            continue;
+        }
+
+        const source = configFields.find((candidate) => readProperty(candidate, 'key') === sourceKey);
+        const choices = choiceValuesOf(source);
+        if (!choices) {
+            issues.push(
+                `${where} is shown by "${sourceKey}", which is not a select or segmented field of this block. ` +
+                    'Only a fixed set of choices can decide whether a field applies.'
+            );
+            continue;
+        }
+
+        if (readProperty(source, 'visibleWhen') !== undefined) {
+            issues.push(
+                `${where} is shown by "${sourceKey}", which is itself conditional. One level only — a chain ` +
+                    'would hide a field for a reason the form never shows.'
+            );
+        }
+
+        const declaredDefault = readProperty(source, 'defaultValue');
+        const sourceSchema = shape?.[sourceKey];
+        const withoutValue = sourceSchema?.safeParse(undefined);
+        const schemaDefault = withoutValue?.success ? withoutValue.data : undefined;
+        if (declaredDefault === undefined || declaredDefault !== schemaDefault) {
+            issues.push(
+                `${where} is shown by "${sourceKey}", which needs a declared default matching a schema ` +
+                    `.default() (field says ${JSON.stringify(declaredDefault)}, schema says ` +
+                    `${JSON.stringify(schemaDefault)}), so every reader agrees what an untouched node shows.`
+            );
+        }
+
+        for (const value of equals as readonly string[]) {
+            if (!choices.includes(value)) {
+                issues.push(`${where} is shown when "${sourceKey}" is "${value}", which it never offers.`);
+            }
+        }
+
+        const fieldSchema = shape?.[key];
+        if (fieldSchema && !fieldSchema.safeParse(undefined).success) {
+            issues.push(
+                `${where} can be hidden, but its configSchema requires it. A hidden field is left out ` +
+                    'before the schema runs, so make it optional; a rule needing it only while shown goes ' +
+                    'in a visibility-gated superRefine.'
+            );
+        }
+    }
+
+    return issues;
+}
+
+/**
+ * A `variableSelect` must name a real kind, and its schema must take a variable name
+ * in the shared spelling.
+ *
+ * Probed rather than compared by identity, like every other schema check here: a
+ * well-formed name must parse and a dotted one must not. The dotted probe is the one
+ * `{{var.<name>}}` cannot address, so a schema accepting it would store a name no
+ * other block could ever produce.
+ */
+function checkVariableNameField(
+    label: string,
+    key: string,
+    field: Partial<BlockConfigField>,
+    fieldSchema: ZodType
+): readonly string[] {
+    if (field.control !== 'variableSelect') {
+        return [];
+    }
+
+    const issues: string[] = [];
+    const valueKinds: readonly unknown[] = BLOCK_OUTPUT_VALUE_KINDS;
+    const valueKind: unknown = 'valueKind' in field ? field.valueKind : undefined;
+    if (!valueKinds.includes(valueKind)) {
+        issues.push(
+            `${label}: the variableSelect field "${key}" offers variables of the kind ` +
+                `${JSON.stringify(valueKind)}, which is not a value kind (${BLOCK_OUTPUT_VALUE_KINDS.join(', ')}).`
+        );
+    }
+
+    if (!fieldSchema.safeParse('seenAt').success || fieldSchema.safeParse('seen.at').success) {
+        issues.push(
+            `${label}: the variableSelect field "${key}" stores a variable name, so its configSchema must ` +
+                'take one in the shared spelling — use VARIABLE_NAME_SHAPE from blocks/variableName.ts.'
+        );
+    }
+
+    return issues;
+}
+
+/** The option values of a `select` or `segmented` field, or undefined for any other. */
+function choiceValuesOf(field: unknown): readonly string[] | undefined {
+    const control = readProperty(field, 'control');
+    const choiceControls: readonly unknown[] = CHOICE_CONTROLS;
+    if (!choiceControls.includes(control)) {
+        return undefined;
+    }
+
+    return asArray(readProperty(field, 'options'))
+        .map((option) => readProperty(option, 'value'))
+        .filter((value): value is string => typeof value === 'string');
 }
 
 /**
@@ -391,6 +751,7 @@ function checkConfigFields(label: string, configFields: unknown, configSchema: u
         issues.push(...checkFieldMaxLength(label, key, field, fieldSchema));
         issues.push(...checkFieldEntryBounds(label, key, field, fieldSchema));
         issues.push(...checkFieldColumns(label, key, field, fieldSchema));
+        issues.push(...checkVariableNameField(label, key, field, fieldSchema));
     }
 
     for (const key of Object.keys(shape)) {

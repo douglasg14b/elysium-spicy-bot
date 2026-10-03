@@ -138,6 +138,7 @@ import { InstalledResourcesDialog } from '../flows/InstalledResourcesDialog';
 import { issuesByNode, problemCount, summarizeIssues } from '../flows/validationIssues';
 import { convergingTriggerCounts } from '../flows/convergingTriggers';
 import { unreachableNodeIds } from '../flows/unreachableNodes';
+import { exitWarningsShown, unconnectedWarnedExits } from '../flows/unconnectedExits';
 import { actorAvailableAt, availableVariablesAt } from '../flows/variables';
 import { NodePalette, NODE_DRAG_MIME } from '../flows/NodePalette';
 import { NodeInspector } from '../flows/NodeInspector';
@@ -168,6 +169,9 @@ const FLOW_EDGE_TYPE = 'flowEdge';
 
 /** How many graph snapshots the undo stack keeps before dropping the oldest. */
 const HISTORY_LIMIT = 50;
+
+/** A card with no forgotten exits, shared so the ordinary case allocates nothing. */
+const NO_EXITS: readonly string[] = [];
 
 /** The status line's colour per tone — yellow for unsaved, orange for "look at this". */
 const STATUS_TONE_COLOUR: Record<BuilderStatus['tone'], string> = {
@@ -242,6 +246,7 @@ function snapshot(source: Snapshot): Snapshot {
                 // Carried for the same reason, and it is a property of the restored
                 // graph rather than a verdict about an older one.
                 convergingTriggers: node.data.convergingTriggers,
+                unconnectedExits: node.data.unconnectedExits,
             },
         })),
         edges: structuredClone(source.edges),
@@ -701,6 +706,7 @@ function FlowBuilder() {
                             // The effect answers both as soon as the edges land.
                             unreachable: false,
                             convergingTriggers: 0,
+                            unconnectedExits: [],
                         } satisfies FlowNodeCardData,
                     };
                 })
@@ -873,6 +879,8 @@ function FlowBuilder() {
                     unreachable: false,
                     // Nothing reaches a block with no edges, let alone two triggers.
                     convergingTriggers: 0,
+                    // An unwired node is never warned about — see `unconnectedWarnedExits`.
+                    unconnectedExits: [],
                 },
             };
             setNodes((prev) => [...prev, node]);
@@ -1530,6 +1538,12 @@ function FlowBuilder() {
     const convergingCounts = useMemo(() => convergingTriggerCounts(nodes, edges), [nodes, edges]);
 
     /**
+     * Which exits a block asked to be warned about are left unconnected — the third
+     * canvas advisory, computed here for the same reason as the two above.
+     */
+    const forgottenExits = useMemo(() => unconnectedWarnedExits(nodes, edges), [nodes, edges]);
+
+    /**
      * Push each node's issue count and reachability onto its card data.
      *
      * React Flow renders from `node.data`, so a card cannot read page state — it has
@@ -1558,22 +1572,30 @@ function FlowBuilder() {
                 const count = issuesForNode.get(node.id)?.length ?? 0;
                 const unreachable = unreachableIds.has(node.id);
                 const convergingTriggers = convergingCounts.get(node.id) ?? 0;
+                // Filtered here, once, so the card and the inspector both read the result.
+                const unconnectedExits = exitWarningsShown(forgottenExits.get(node.id) ?? NO_EXITS, {
+                    failed: count > 0,
+                    unreachable,
+                });
                 if (
                     node.data.issueCount === count &&
                     node.data.unreachable === unreachable &&
-                    node.data.convergingTriggers === convergingTriggers
+                    node.data.convergingTriggers === convergingTriggers &&
+                    // By content: the map is rebuilt on every edit, so its lists are
+                    // new arrays even when they say the same thing.
+                    node.data.unconnectedExits.join('\u0000') === unconnectedExits.join('\u0000')
                 ) {
                     return node;
                 }
                 changed = true;
                 return {
                     ...node,
-                    data: { ...node.data, issueCount: count, unreachable, convergingTriggers },
+                    data: { ...node.data, issueCount: count, unreachable, convergingTriggers, unconnectedExits },
                 };
             });
             return changed ? next : prev;
         });
-    }, [issuesForNode, unreachableIds, convergingCounts, nodes, setNodes]);
+    }, [issuesForNode, unreachableIds, convergingCounts, forgottenExits, nodes, setNodes]);
 
     /**
      * What the selection's ancestry implies for the copy fields in it.
@@ -2081,6 +2103,7 @@ function FlowBuilder() {
                                 actorAvailable={actorAvailable}
                                 declaredResources={declaredResources}
                                 issues={issuesForNode.get(selectedNode.id) ?? []}
+                                unconnectedExits={selectedNode.data.unconnectedExits}
                                 onChange={updateNodeConfig}
                                 onDelete={deleteSelectedNode}
                             />

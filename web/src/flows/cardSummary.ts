@@ -15,7 +15,7 @@ import type {
     NodeDescriptor,
 } from '../api/types';
 import { formatDuration } from './nodeMeta';
-import { pickerVariableOf } from './variables';
+import { isFieldVisible, pickerVariableOf } from './variables';
 
 /** Shown when a block declares no `cardSummary` at all. */
 const NO_SUMMARY = 'Click to configure';
@@ -100,6 +100,9 @@ function resolveValue(
         case 'text':
         case 'longText':
         case 'colour':
+        // The bare variable name, as stored. Shown even when nothing above records it
+        // any more: the card states the config, and the inspector says it is stale.
+        case 'variableSelect':
             return typeof raw === 'string' ? raw : '';
         /*
          * Joined with ` · `, not counted. "Yes · No · Maybe" tells an author what
@@ -271,6 +274,11 @@ export function summarizeFromDescriptor(
         // here means the descriptor and its fields disagree — skip rather than
         // inventing copy for a field that does not exist.
         if (!field) continue;
+
+        // A hidden field does not apply, so its part renders nothing at all — not its
+        // `emptyText`, and never a cut-short line. The node may well still hold a
+        // value for it, which is exactly what must not reach the card.
+        if (!isFieldVisible(field, descriptor.configFields, config)) continue;
 
         const value = resolveValue(field, config[part.key], context);
 

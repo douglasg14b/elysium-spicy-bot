@@ -33,6 +33,16 @@ export interface FlowRunContextSnapshot {
      * job.
      */
     channelId?: string;
+    /**
+     * When the run started, as an ISO-8601 UTC string.
+     *
+     * Written once, at the first park, and never rewritten — a later park updates the
+     * row but leaves the snapshot alone — so it survives every wait unchanged.
+     * Optional because rows parked before this key existed simply do not have it; the
+     * resume path reports that as "no start time", never as the row's `createdAt`,
+     * which is when the run first parked rather than when it began.
+     */
+    startedAt?: string;
 }
 
 /** Extra matching data for a parked wait, mirroring the wait node's config. */

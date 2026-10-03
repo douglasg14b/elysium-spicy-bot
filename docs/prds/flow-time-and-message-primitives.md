@@ -1,9 +1,9 @@
 # Flow primitives for time and messages
 
-> **Status**: Approved 2026-10-02 — §8 answered; nothing in §5 built yet
+> **Status**: Approved 2026-10-02 — §8 answered; §5.1 and §5.2 built 2026-10-02 (not yet run on a real guild), §5.3 and §5.4 not started
 > **Owner**: Douglas
 > **Parent**: [Flow Engine v2](flow-engine-v2-journeys-and-provisioning.md) — this extends its block contract; it does not replace any of it
-> **Built so far**: [activity-events.md](../plans/activity-events.md), [quiet-timeouts-and-kick-member.md](../plans/quiet-timeouts-and-kick-member.md)
+> **Built so far**: [activity-events.md](../plans/activity-events.md), [quiet-timeouts-and-kick-member.md](../plans/quiet-timeouts-and-kick-member.md), [set-variable-and-time-since.md](../plans/set-variable-and-time-since.md)
 
 ## 1) Summary
 
@@ -95,41 +95,42 @@ Other flows the same primitives make possible (all examples):
 
 The general way to put a value in the run's variable bag.
 
-- [ ] **The author names the variable** (an `authored` output, like Pick Random's `outputKey`),
+- [x] **The author names the variable** (an `authored` output, like Pick Random's `outputKey`),
   read back as `{{var.<name>}}`.
-- [ ] **Value types**: text, number, true/false, and **time**.
+- [x] **Value types**: text, number, true/false, and **time**.
   - text renders tokens, so a variable can be built from other variables and built-ins.
   - number and true/false are literals.
   - time is **now** (see §8 for whether an offset belongs here).
-- [ ] **A time is a real type to the builder, not just a string.** Its output declares a `time`
+- [x] **A time is a real type to the builder, not just a string.** Its output declares a `time`
   value kind, so pickers and Time Since can offer time variables and only time variables.
   *Contract gap:* an output's `valueKind` is static in the manifest today, but Set Variable's
   depends on the type the author picked. The manifest needs a way to derive an output's kind
   from a config field. That is a contract change: manifest, conformance, browser mirror and
-  `block-authoring.md` together.
-- [ ] Writing an existing variable overwrites it — the bag's existing last-writer-wins rule.
-- [ ] Never holds message content or other evidence; the bag stays scalar (contract rule).
+  `block-authoring.md` together. *(Closed by `valueKindFrom`.)*
+- [x] Writing an existing variable overwrites it — the bag's existing last-writer-wins rule.
+- [x] Never holds message content or other evidence; the bag stays scalar (contract rule).
 
 ### 5.2 Time Since (condition)
 
 "Has at least / less than *duration* passed since *something*?" Answered instantly; never parks.
 
-- [ ] **Sources**, chosen per node:
+- [x] **Sources**, chosen per node:
   - the member's last message, optionally in one channel
   - anyone's last message in a channel
   - when the member joined the server
   - when this run started
-  - a time recorded earlier — a `{{var}}` of kind `time`
-- [ ] **Comparison**: *at least* or *less than*, against a duration.
-- [ ] Channel fields accept `{{var}}`; message sources count thread replies toward their parent,
+  - a time recorded earlier — a saved time variable, picked by name
+- [x] **Comparison**: *at least* or *less than*, against a duration.
+- [x] Channel fields accept `{{var}}`; message sources count thread replies toward their parent,
   as quiet timeouts do.
-- [ ] Yes / No / **No record** handles (§8.3): no activity found, no join time, or an unset
-  `{{var}}`.
-- [ ] **A recorded time that is not a time fails the run by name**, never answers a branch.
-- [ ] *Implementation note:* "when this run started" needs the start time on the run context
-  and through a park; neither carries it today.
-- [ ] *Implementation note:* the member's join time can be null for a partial member (a Member
-  Leaves run).
+- [x] Yes / No / **No record** handles (§8.3): no activity found, no join time, no start time on
+  an older run, or an unset saved time.
+- [x] **A recorded time that is not a time fails the run by name**, never answers a branch.
+- [x] *Implementation note:* "when this run started" needs the start time on the run context
+  and through a park; neither carries it today. *(Now `context.startedAt`, kept in the run's
+  snapshot from the first park.)*
+- [x] *Implementation note:* the member's join time can be null for a partial member (a Member
+  Leaves run). *(Answers No record.)*
 
 ### 5.3 Message event on Wait for Event
 

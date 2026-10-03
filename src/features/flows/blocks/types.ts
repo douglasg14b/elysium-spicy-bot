@@ -115,8 +115,9 @@ export interface FlowRunSeed {
      * (`memberLeave`). discord.js hands that event a partial member when the leaver
      * was not cached, which is most of them on a large server: an id and a user, no
      * join date, and no roles beyond `@everyone`. Hence the partial in the type —
-     * it nulls only `joinedAt`, `joinedTimestamp` and `pending`, which no block
-     * reads. A cached leaver is a full member holding what discord.js last knew.
+     * it nulls only `joinedAt`, `joinedTimestamp` and `pending`, so a block reading
+     * when they joined must treat `null` as "no record" rather than as a time. A
+     * cached leaver is a full member holding what discord.js last knew.
      * Either way, acting on them fails at Discord and reading their roles or boost
      * answers from that last-known state, not from the guild.
      */
@@ -200,6 +201,16 @@ export interface FlowRunContext extends FlowRunSeed {
      */
     readonly runId: string;
     readonly nodeId: string;
+    /**
+     * When this run started — taken as the trigger fired, and carried through every
+     * park in the run's snapshot, so a resumed run reports the same instant.
+     *
+     * **Absent on a run parked before the snapshot recorded it.** A block asking "how
+     * long has this run been going" must treat that as "no record", never fall back to
+     * when the row was written: that is the first park, not the start, and the answer
+     * would be wrong by however long the first leg took.
+     */
+    readonly startedAt?: Date;
     /**
      * Record a value for later blocks to read, under a key this block declared.
      *

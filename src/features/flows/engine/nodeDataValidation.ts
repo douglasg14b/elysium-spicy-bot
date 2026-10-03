@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import type { FlowGraph } from '../data/flowGraph';
+import { visibleNodeData } from '../blocks/manifest';
 import { getBlockDefinition } from '../blocks/registry';
 
 /**
@@ -92,7 +93,9 @@ export function validateNodeData(
             continue;
         }
 
-        const parsed = definition.configSchema.safeParse(node.data);
+        // Hidden fields left out, exactly as the executor leaves them out: a value the
+        // author cannot see must not refuse a save the run would never have refused.
+        const parsed = definition.configSchema.safeParse(visibleNodeData(definition.configFields, node.data));
         if (parsed.success) {
             continue;
         }

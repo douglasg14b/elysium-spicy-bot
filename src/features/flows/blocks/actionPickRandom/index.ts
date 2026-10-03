@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
+import { VARIABLE_NAME_MAX_LENGTH, VARIABLE_NAME_MESSAGE, VARIABLE_NAME_SHAPE } from '../variableName';
 
 export const ACTION_PICK_RANDOM = 'action.pickRandom';
 
@@ -27,17 +28,6 @@ const PICK_RANDOM_OPTION_MAX_LENGTH = 200;
  */
 const PICK_RANDOM_MAX_OPTIONS = 50;
 
-/**
- * How a variable name is spelled, matching what `{{var.<name>}}` can address.
- *
- * `variableNameOf` in `engine/copyRendering.ts` splits a token on `.` and rejects
- * anything with a second segment, so a name containing a dot would save happily
- * here and then be unreadable from copy — the author's token would resolve to
- * nothing and they would have no way to tell why. Whitespace and braces fail the
- * same way. Constrained at the schema instead, so the save is what refuses it.
- */
-const VARIABLE_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/;
-
 export const pickRandomConfigSchema = z.object({
     /*
      * `.min(1)`, and `.nonempty()` is **not** the stronger alternative it looks
@@ -50,16 +40,11 @@ export const pickRandomConfigSchema = z.object({
         .array(z.string().min(1).max(PICK_RANDOM_OPTION_MAX_LENGTH))
         .min(1)
         .max(PICK_RANDOM_MAX_OPTIONS),
-    /** The flat, author-declared name later blocks read as `{{var.<name>}}`. */
-    outputKey: z
-        .string()
-        .min(1)
-        .max(64)
-        .regex(
-            VARIABLE_NAME_PATTERN,
-            'A name must start with a letter and use only letters, numbers and underscores — ' +
-                'that is what {{var.name}} can address.'
-        ),
+    /**
+     * The flat, author-declared name later blocks read as `{{var.<name>}}`, in the
+     * shared spelling every block naming a variable uses.
+     */
+    outputKey: z.string().min(1).max(VARIABLE_NAME_MAX_LENGTH).regex(VARIABLE_NAME_SHAPE, VARIABLE_NAME_MESSAGE),
 });
 
 export type PickRandomConfig = z.infer<typeof pickRandomConfigSchema>;
@@ -141,7 +126,7 @@ export const block: BlockManifest<PickRandomConfig> = {
             description: 'Later blocks read it as {{var.name}} — use that in a message to say what came up.',
             control: 'text',
             placeholder: 'dare',
-            maxLength: 64,
+            maxLength: VARIABLE_NAME_MAX_LENGTH,
             defaultValue: 'pick',
             // Deliberately NOT `rendersTokens`: this is the *name* of a variable,
             // not copy somebody reads. Expanding tokens in it would let an author

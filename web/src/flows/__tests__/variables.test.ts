@@ -8,12 +8,15 @@
 
 import { describe, expect, it } from 'vitest';
 import type { Edge } from '@xyflow/react';
-import type { BlockOutputDeclaration, NodeDescriptor } from '../../api/types';
+import type { BlockConfigField, BlockOutputDeclaration, NodeDescriptor } from '../../api/types';
 import {
     actorAvailableAt,
     ancestorsOf,
     availableVariablesAt,
+    effectiveFieldValue,
+    isFieldVisible,
     pickerVariableOf,
+    resolveOutputValueKind,
     referencedVariables,
     resolveOutputName,
     tokensIn,
@@ -362,5 +365,74 @@ describe('a picker holding one variable', () => {
         ['123456789012345678', undefined],
     ])('reads %j as %s', (value, expected) => {
         expect(pickerVariableOf(value)).toBe(expected);
+    });
+});
+
+/** A `select` deciding both a sibling's visibility and an output's kind. */
+const VALUE_TYPE: BlockConfigField = {
+    key: 'valueType',
+    label: 'Value',
+    control: 'select',
+    defaultValue: 'text',
+    options: [
+        { value: 'text', label: 'Text' },
+        { value: 'time', label: 'Current time' },
+    ],
+};
+
+const NOTE: BlockConfigField = {
+    key: 'note',
+    label: 'Note',
+    control: 'text',
+    visibleWhen: { field: 'valueType', equals: ['text'] },
+};
+
+const TYPED: BlockOutputDeclaration = {
+    naming: 'authored',
+    fromField: 'outputKey',
+    label: 'The value',
+    valueKindFrom: { field: 'valueType', kinds: { time: 'time' } },
+};
+
+describe('the browser’s reading of a field’s current value', () => {
+    it('is the stored value, or the default when nothing or an empty string is stored', () => {
+        expect(effectiveFieldValue(VALUE_TYPE, { valueType: 'time' })).toBe('time');
+        expect(effectiveFieldValue(VALUE_TYPE, {})).toBe('text');
+        expect(effectiveFieldValue(VALUE_TYPE, { valueType: '' })).toBe('text');
+    });
+
+    it('hides a field by its sibling’s value or default, whatever the field itself holds', () => {
+        const fields = [VALUE_TYPE, NOTE];
+
+        expect(isFieldVisible(NOTE, fields, {})).toBe(true);
+        expect(isFieldVisible(NOTE, fields, { valueType: 'time', note: 'still here' })).toBe(false);
+        // A sibling this descriptor does not declare cannot explain a hidden field.
+        expect(isFieldVisible(NOTE, [NOTE], { valueType: 'time' })).toBe(true);
+    });
+
+    it('resolves a derived kind from the choice, the default, or to none', () => {
+        expect(resolveOutputValueKind(TYPED, [VALUE_TYPE], { valueType: 'time' })).toBe('time');
+        expect(resolveOutputValueKind(TYPED, [VALUE_TYPE], {})).toBeUndefined();
+        expect(resolveOutputValueKind({ naming: 'fixed', key: 'c', label: 'C', valueKind: 'channel' }, [], {})).toBe(
+            'channel'
+        );
+    });
+
+    it('offers a variable at the kind its producer resolves to on that node', () => {
+        const producer = (id: string, valueType: string): VariableSourceNode => ({
+            id,
+            data: {
+                label: `Node ${id}`,
+                config: { outputKey: `${id}Value`, valueType },
+                descriptor: { ...descriptorWith([TYPED]), configFields: [VALUE_TYPE] },
+            },
+        });
+        const nodes = [producer('a', 'time'), producer('b', 'text'), node('reader', [])];
+        const edges = [edge('a', 'b'), edge('b', 'reader')];
+
+        expect(availableVariablesAt('reader', nodes, edges).map(({ name, valueKind }) => ({ name, valueKind }))).toEqual([
+            { name: 'bValue', valueKind: undefined },
+            { name: 'aValue', valueKind: 'time' },
+        ]);
     });
 });
