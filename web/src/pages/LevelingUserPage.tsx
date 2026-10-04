@@ -21,7 +21,7 @@
  * files in this repo, so logic left in a component is logic nothing can test.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import {
     Alert,
     Anchor,
@@ -41,11 +41,12 @@ import {
     Tooltip,
 } from '@mantine/core';
 import { IconAlertTriangle, IconChevronLeft, IconTrendingUp } from '@tabler/icons-react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
-import { ApiError } from '../api/client';
-import { getLevelingUser } from '../api/leveling';
-import { STATS_PERIODS, type LevelingUserDetail, type StatsPeriod } from '../api/types';
+import { getLevelingUserOptions, type LevelingUserDetail, type StatsPeriod } from '@brattybot/web-sdk';
+import { loadErrorMessage } from '../api/loadErrorMessage';
 import { ChartBar } from '../leveling/ChartBar';
+import { STATS_PERIODS } from '../leveling/contractValues';
 import { CHART_HEIGHT_PX, activityChartView } from '../leveling/levelingChart';
 import { memberPresentation, type MemberPresentation } from '../leveling/levelingMember';
 import {
@@ -70,7 +71,6 @@ export function LevelingUserPage() {
     const { selected, loading: guildsLoading } = useGuilds();
     const { userId: rawUserId } = useParams<{ userId: string }>();
 
-    const [detail, setDetail] = useState<LevelingUserDetail | null>(null);
     /*
      * The window the operator has *asked* for, null until they ask.
      *
@@ -82,51 +82,35 @@ export function LevelingUserPage() {
      * What the control *displays* is `detail.statsPeriod` — the window actually aggregated —
      * not this. Keeping the request and the answer as separate values is what lets the first
      * read have no opinion without a second fetch: adopting the response into this state would
-     * change an effect dependency and re-run the read with the same window.
+     * change the query key and re-run the read with the same window.
      */
     const [requestedPeriod, setRequestedPeriod] = useState<StatsPeriod | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
 
-    const guildId = selected?.id;
     // Validated here so a mangled path segment is answered on this page rather than sent to
     // the API to come back as a 400 an operator has to interpret.
     const userId = rawUserId && SNOWFLAKE.test(rawUserId) ? rawUserId : null;
 
     /*
-     * Shared by every read, so the last one dispatched is the only one allowed to write.
-     * The period switcher can be clicked faster than a year's aggregation returns, and
-     * without this a slow `year` response lands after a fast `week` one, showing year data
-     * under a control reading "7 days".
+     * Keyed by guild, member and the requested window, so a slow `year` response can only
+     * land in the `year` entry — never under a control that has since moved to "7 days".
+     * The first read sends no `period` at all, so the server's own default decides.
+     *
+     * `keepPreviousData` holds the last answer on screen while a new window loads: the header
+     * and the switcher stay mounted through a period change rather than the page blanking to
+     * a spinner and the control jumping out from under the cursor.
      */
-    const readGeneration = useRef(0);
-
-    useEffect(() => {
-        if (!guildId || !userId) {
-            // Lowered rather than left alone: `loading` starts true so the first paint is a
-            // spinner, and bailing without clearing it spins forever with nothing to explain
-            // why.
-            setLoading(false);
-            return;
-        }
-        const generation = ++readGeneration.current;
-        void (async () => {
-            setLoading(true);
-            setError(null);
-            try {
-                // `?? undefined` so the first read omits the query parameter entirely and the
-                // server's own default decides the window.
-                const loaded = await getLevelingUser(guildId, userId, requestedPeriod ?? undefined);
-                if (generation === readGeneration.current) setDetail(loaded);
-            } catch (err) {
-                const message =
-                    err instanceof ApiError ? err.message : 'Failed to load those stats';
-                if (generation === readGeneration.current) setError(message);
-            } finally {
-                if (generation === readGeneration.current) setLoading(false);
-            }
-        })();
-    }, [guildId, userId, requestedPeriod]);
+    const stats = useQuery({
+        ...getLevelingUserOptions({
+            path: { guildId: selected?.id ?? '', userId: userId ?? '' },
+            query: requestedPeriod ? { period: requestedPeriod } : undefined,
+        }),
+        enabled: !!selected && !!userId,
+        placeholderData: keepPreviousData,
+    });
+    const detail = stats.data ?? null;
+    // True for the first read and while a new window loads behind the previous one.
+    const reading = stats.isPending || stats.isPlaceholderData;
+    const error = loadErrorMessage(stats.error, 'Failed to load those stats');
 
     if (guildsLoading) {
         return (
@@ -191,7 +175,7 @@ export function LevelingUserPage() {
              * reload rather than a window changing, and the control would jump out from under
              * the cursor.
              */}
-            {loading && !detail ? (
+            {reading && !detail ? (
                 <Center py="xl">
                     <Loader color="brand" size="sm" />
                 </Center>
@@ -210,7 +194,7 @@ export function LevelingUserPage() {
                 <LoadedStats
                     detail={detail}
                     person={person}
-                    refetching={loading}
+                    refetching={reading}
                     onPeriodChange={setRequestedPeriod}
                 />
             ) : null}
@@ -304,7 +288,7 @@ function LoadedStats({
                         // that knows which of the three is in force.
                         value={detail.statsPeriod}
                         onChange={(value) => onPeriodChange(value as StatsPeriod)}
-                        // Built from the mirrored vocabulary rather than three literals, so a
+                        // Built from the server's own enum rather than three literals, so a
                         // period the bot gains appears here instead of being a fourth string
                         // somebody has to remember to add.
                         data={STATS_PERIODS.map((candidate) => ({

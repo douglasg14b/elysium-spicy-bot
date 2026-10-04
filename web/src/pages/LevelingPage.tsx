@@ -16,7 +16,6 @@
  * no jsdom — so logic left in a component is logic nothing can test.
  */
 
-import { useEffect, useRef, useState } from 'react';
 import {
     Alert,
     Avatar,
@@ -36,10 +35,10 @@ import {
     IconMoodOff,
     IconTrendingUp,
 } from '@tabler/icons-react';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { ApiError } from '../api/client';
-import { listLeveling } from '../api/leveling';
-import type { LevelingRankingRow } from '../api/types';
+import { listLevelingOptions, type LevelingRankingRow } from '@brattybot/web-sdk';
+import { loadErrorMessage } from '../api/loadErrorMessage';
 import { LevelingTabs } from '../leveling/LevelingTabs';
 import { leaderboardTotals } from '../leveling/levelingLeaderboard';
 import { memberPresentation } from '../leveling/levelingMember';
@@ -50,55 +49,27 @@ import { PAGE_MAX_WIDTH } from '../theme';
 /** Medals for the top three, because a leaderboard without them is a spreadsheet. */
 const RANK_MEDALS: Readonly<Record<number, string>> = { 1: '🥇', 2: '🥈', 3: '🥉' };
 
+/** One reference for "no rows yet", so an unloaded board does not hand a new array to every render. */
+const NO_ENTRIES: readonly LevelingRankingRow[] = [];
+
 export function LevelingPage() {
     const { selected, loading: guildsLoading } = useGuilds();
     const navigate = useNavigate();
 
-    const [entries, setEntries] = useState<LevelingRankingRow[]>([]);
-    const [totalRankedMembers, setTotalRankedMembers] = useState(0);
-    const [truncated, setTruncated] = useState(false);
-    const [enabled, setEnabled] = useState(true);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-
-    const guildId = selected?.id;
-
     /*
-     * A generation counter rather than a per-effect `cancelled` boolean. The guild can be
-     * switched twice in quick succession, and a boolean scoped to each effect run lets the
-     * *first* guild's slower response land after the second's — leaving one guild's
-     * leaderboard under another guild's name, with nothing loading to explain it.
+     * The leaderboard, cached per guild. A guild switch reads the new guild's entry, so the
+     * first guild's slower response can never be painted under the second guild's name.
      */
-    const listGeneration = useRef(0);
-
-    useEffect(() => {
-        // Lowered rather than left alone: `loading` starts true so the first paint is a
-        // spinner and not an empty table, so bailing without clearing it would spin forever
-        // with no error surface to explain why.
-        if (!guildId) {
-            setLoading(false);
-            return;
-        }
-        const generation = ++listGeneration.current;
-        void (async () => {
-            setLoading(true);
-            setError(null);
-            try {
-                const result = await listLeveling(guildId);
-                if (generation !== listGeneration.current) return;
-                setEntries(result.entries);
-                setTotalRankedMembers(result.totalRankedMembers);
-                setTruncated(result.truncated);
-                setEnabled(result.enabled);
-            } catch (err) {
-                const message =
-                    err instanceof ApiError ? err.message : 'Failed to load the leaderboard';
-                if (generation === listGeneration.current) setError(message);
-            } finally {
-                if (generation === listGeneration.current) setLoading(false);
-            }
-        })();
-    }, [guildId]);
+    const leaderboard = useQuery({
+        ...listLevelingOptions({ path: { guildId: selected?.id ?? '' } }),
+        enabled: !!selected,
+    });
+    const entries = leaderboard.data?.entries ?? NO_ENTRIES;
+    const totalRankedMembers = leaderboard.data?.totalRankedMembers ?? 0;
+    const truncated = leaderboard.data?.truncated ?? false;
+    const enabled = leaderboard.data?.enabled ?? true;
+    const loading = leaderboard.isPending;
+    const error = loadErrorMessage(leaderboard.error, 'Failed to load the leaderboard');
 
     if (guildsLoading) {
         return (

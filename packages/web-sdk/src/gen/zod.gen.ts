@@ -2,6 +2,25 @@
 
 import * as z from 'zod';
 
+/**
+ * How recently a member has been active.
+ */
+export const zActivityStatus = z.enum([
+    'active',
+    'quiet',
+    'dormant',
+    'none'
+]);
+
+/**
+ * The signed-in Discord user. `avatar` is the avatar hash, null when they have none.
+ */
+export const zAuthUser = z.object({
+    avatar: z.string().nullable(),
+    id: z.string(),
+    username: z.string()
+});
+
 export const zBlockCardSummaryPart = z.union([
     z.object({
         emptyText: z.string().optional(),
@@ -101,6 +120,31 @@ export const zBlockPaletteGroup = z.enum([
     'triggers',
     'conditions',
     'actions'
+]);
+
+/**
+ * Which bot application the dashboard is connected to, read off its name.
+ */
+export const zBotFlavour = z.enum(['development', 'production']);
+
+/**
+ * The bot account the dashboard is connected to. Every field but `ready` is null while the gateway is still connecting; show the bundled branding then.
+ */
+export const zBotIdentity = z.object({
+    flavour: zBotFlavour.nullable(),
+    id: z.string().nullable(),
+    ready: z.boolean(),
+    username: z.string().nullable()
+});
+
+/**
+ * A band of members by XP within this server, least to most active. `topOnePercent` is a spotlight inside `topQuarter`, not a fifth band, so the counts do not sum.
+ */
+export const zCohortKey = z.enum([
+    'bottomHalf',
+    'middle',
+    'topQuarter',
+    'topOnePercent'
 ]);
 
 export const zDeployedButtonMessage = z.object({
@@ -623,6 +667,15 @@ export const zGuildSettingsUpdate = z.object({
     staffRoleIds: z.array(z.string().min(1))
 });
 
+/**
+ * The web server is up. `time` is the server's clock, as ISO.
+ */
+export const zHealth = z.object({
+    ok: z.literal(true),
+    service: z.enum(['brattybot-web']),
+    time: z.string()
+});
+
 export const zInstallPlanItem = z.object({
     action: z.enum([
         'create',
@@ -674,6 +727,158 @@ export const zInstallResult = z.object({
     updatedFlowIds: z.array(z.string()),
     writeBackFailed: z.boolean(),
     writtenCount: z.number()
+});
+
+/**
+ * One bar of the activity chart. `activityDate` is the day, or the first day of the week.
+ */
+export const zLevelingActivityBucket = z.object({
+    activityDate: z.string(),
+    messageCount: z.number(),
+    photoUploadCount: z.number(),
+    reactionCount: z.number(),
+    voiceSessionCount: z.number()
+});
+
+/**
+ * The activity chart. The period decides whether a bar is a day or a week.
+ */
+export const zLevelingActivityChart = z.object({
+    buckets: z.array(zLevelingActivityBucket),
+    granularity: z.enum(['daily', 'weekly'])
+});
+
+/**
+ * What a member did over a window, counted.
+ */
+export const zLevelingActivitySummary = z.object({
+    eventCount: z.number(),
+    messageCount: z.number(),
+    photoUploadCount: z.number(),
+    reactionCount: z.number(),
+    totalXp: z.number(),
+    voiceSessionCount: z.number()
+});
+
+/**
+ * How long a cohort took to reach a level. `thin` means too few members to call it typical.
+ */
+export const zLevelingCohortProgressionPoint = z.object({
+    level: z.number(),
+    medianDays: z.number(),
+    membersReached: z.number(),
+    thin: z.boolean()
+});
+
+/**
+ * One cohort. `medianActiveDays` counts days a member earned something, not days since joining.
+ */
+export const zLevelingCohortSummary = z.object({
+    cohort: zCohortKey,
+    medianActiveDays: z.number(),
+    medianLevel: z.number(),
+    medianTotalXp: z.number(),
+    memberCount: z.number(),
+    progression: z.array(zLevelingCohortProgressionPoint)
+});
+
+/**
+ * How many members ever reached a level. `percentReached` is 0–100 of tracked members.
+ */
+export const zLevelingLevelReachPoint = z.object({
+    level: z.number(),
+    membersReached: z.number(),
+    percentReached: z.number()
+});
+
+/**
+ * A member as Discord knows them now. `avatarUrl` is null when they have no avatar.
+ */
+export const zLevelingMember = z.object({
+    avatarUrl: z.string().nullable(),
+    displayName: z.string(),
+    isBot: z.boolean(),
+    userId: z.string(),
+    username: z.string()
+});
+
+/**
+ * A row on the leaderboard. `member` is null when they have left the server but still hold XP.
+ */
+export const zLevelingRankingRow = z.object({
+    lastActiveAt: z.string().nullable(),
+    level: z.number(),
+    member: zLevelingMember.nullable(),
+    messageCount: z.number(),
+    photoUploadCount: z.number(),
+    rank: z.number(),
+    reactionCount: z.number(),
+    totalXp: z.number(),
+    userId: z.string()
+});
+
+/**
+ * The leaderboard, capped. `truncated` means more members rank than are listed; `totalRankedMembers` is the whole server either way. `enabled` is whether leveling is on.
+ */
+export const zLevelingListResult = z.object({
+    enabled: z.boolean(),
+    entries: z.array(zLevelingRankingRow),
+    totalRankedMembers: z.number(),
+    truncated: z.boolean()
+});
+
+/**
+ * The figures the stats card shows. Timestamps are ISO, null when never.
+ */
+export const zLevelingUserMetrics = z.object({
+    activityStatus: zActivityStatus,
+    allTimeMsgsPerDay: z.number(),
+    avgMessageLengthRecent: z.number().nullable(),
+    avgXpPerMessageRecent: z.number().nullable(),
+    dailyPeakEvents: z.number(),
+    lastActiveAt: z.string().nullable(),
+    memberSince: z.string().nullable(),
+    messageSharePercent: z.number(),
+    photoRatePercent: z.number(),
+    reactionSharePercent: z.number(),
+    recentMsgsPerDay: z.number(),
+    recentXpPerDay: z.number(),
+    tenureDays: z.number(),
+    voiceSharePercent: z.number()
+});
+
+/**
+ * How lopsided the XP is.
+ */
+export const zLevelingXpDistribution = z.object({
+    deciles: z.array(z.number()),
+    meanToTypicalRatio: z.number(),
+    meanXp: z.number(),
+    topMemberXp: z.number(),
+    typicalXp: z.number()
+});
+
+/**
+ * The guild-wide insights report. `topLevel` is null when nobody has earned anything, and can pass the end of `levelReach` — `levelReachTruncated` says when. `xpDistribution` is null with no XP to describe. `computedAt` is ISO; `cached` means it came from the five-minute cache.
+ */
+export const zLevelingInsightsBody = z.object({
+    cached: z.boolean(),
+    cohorts: z.array(zLevelingCohortSummary),
+    computedAt: z.string(),
+    firstActivityDate: z.string().nullable(),
+    lastActivityDate: z.string().nullable(),
+    levelReach: z.array(zLevelingLevelReachPoint),
+    levelReachTruncated: z.boolean(),
+    topLevel: z.number().nullable(),
+    trackedMembers: z.number(),
+    xpDistribution: zLevelingXpDistribution.nullable()
+});
+
+/**
+ * The session cookie is cleared.
+ */
+export const zLogoutResult = z.object({
+    ok: z.literal(true)
 });
 
 /**
@@ -750,6 +955,37 @@ export const zPublishedFlowState = z.object({
     deletableResources: z.array(zPublishedResource),
     mayHaveUnrecordedButtons: z.boolean(),
     refusedResources: z.array(zPublishedResource)
+});
+
+/**
+ * The window a member’s stats cover, shortest first.
+ */
+export const zStatsPeriod = z.enum([
+    'week',
+    'month',
+    'year'
+]);
+
+/**
+ * One member's level, XP and activity. A member with no progress is level 1 with nothing recorded, not a 404. `statsPeriod` is the window actually aggregated.
+ */
+export const zLevelingUserDetail = z.object({
+    activityChart: zLevelingActivityChart,
+    hasAnyActivity: z.boolean(),
+    level: z.number(),
+    member: zLevelingMember.nullable(),
+    metrics: zLevelingUserMetrics,
+    recentActivity: zLevelingActivitySummary,
+    recentPeriodDays: z.number(),
+    statsPeriod: zStatsPeriod,
+    totalActivity: zLevelingActivitySummary,
+    totalVoiceSeconds: z.number(),
+    totalXp: z.number(),
+    userId: z.string(),
+    voiceSessionCount: z.number(),
+    xpForCurrentLevelStep: z.number(),
+    xpToNextLevel: z.number(),
+    xpWithinLevel: z.number()
 });
 
 /**
@@ -966,6 +1202,26 @@ export const zWarningsConfig = z.object({
 export const zWarningsConfigUpdate = z.object({
     modChannelId: z.string().min(1, 'Pick a channel. Warning notices do not haunt the void.')
 });
+
+export const zLoginCallbackQuery = z.object({
+    code: z.string().optional(),
+    state: z.string().optional()
+});
+
+/**
+ * Signed out.
+ */
+export const zLogoutResponse = zLogoutResult;
+
+/**
+ * The signed-in user.
+ */
+export const zGetCurrentUserResponse = zAuthUser;
+
+/**
+ * The bot identity, or `ready: false` with every other field null while the gateway connects.
+ */
+export const zGetBotIdentityResponse = zBotIdentity;
 
 /**
  * The manageable guilds.
@@ -1210,6 +1466,38 @@ export const zUnpublishFlowPath = z.object({
  */
 export const zUnpublishFlowResponse = zUnpublishResult;
 
+export const zListLevelingPath = z.object({
+    guildId: z.string()
+});
+
+/**
+ * The leaderboard, capped — read `truncated` before believing the length.
+ */
+export const zListLevelingResponse = zLevelingListResult;
+
+export const zGetLevelingInsightsPath = z.object({
+    guildId: z.string()
+});
+
+/**
+ * The report, and how fresh it is.
+ */
+export const zGetLevelingInsightsResponse = zLevelingInsightsBody;
+
+export const zGetLevelingUserPath = z.object({
+    guildId: z.string(),
+    userId: z.string()
+});
+
+export const zGetLevelingUserQuery = z.object({
+    period: z.string().optional()
+});
+
+/**
+ * The member’s stats, over the window in `statsPeriod`.
+ */
+export const zGetLevelingUserResponse = zLevelingUserDetail;
+
 export const zGetGuildRolesPath = z.object({
     guildId: z.string()
 });
@@ -1306,6 +1594,11 @@ export const zUnclaimTicketPath = z.object({
  * The ticket as it now stands. `syncWarning` is set when its channel did not follow.
  */
 export const zUnclaimTicketResponse = zTicketActionResult;
+
+/**
+ * Up.
+ */
+export const zGetHealthResponse = zHealth;
 
 /**
  * Every registered block, as the builder draws it.

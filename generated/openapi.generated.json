@@ -2,6 +2,39 @@
     "components": {
         "parameters": {},
         "schemas": {
+            "ActivityStatus": {
+                "description": "How recently a member has been active.",
+                "enum": [
+                    "active",
+                    "quiet",
+                    "dormant",
+                    "none"
+                ],
+                "type": "string"
+            },
+            "AuthUser": {
+                "description": "The signed-in Discord user. `avatar` is the avatar hash, null when they have none.",
+                "properties": {
+                    "avatar": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "username": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "username",
+                    "avatar"
+                ],
+                "type": "object"
+            },
             "BlockCardSummaryPart": {
                 "anyOf": [
                     {
@@ -929,6 +962,61 @@
                     "triggers",
                     "conditions",
                     "actions"
+                ],
+                "type": "string"
+            },
+            "BotFlavour": {
+                "description": "Which bot application the dashboard is connected to, read off its name.",
+                "enum": [
+                    "development",
+                    "production"
+                ],
+                "type": "string"
+            },
+            "BotIdentity": {
+                "description": "The bot account the dashboard is connected to. Every field but `ready` is null while the gateway is still connecting; show the bundled branding then.",
+                "properties": {
+                    "flavour": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/BotFlavour"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "ready": {
+                        "type": "boolean"
+                    },
+                    "username": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                },
+                "required": [
+                    "ready",
+                    "id",
+                    "username",
+                    "flavour"
+                ],
+                "type": "object"
+            },
+            "CohortKey": {
+                "description": "A band of members by XP within this server, least to most active. `topOnePercent` is a spotlight inside `topQuarter`, not a fifth band, so the counts do not sum.",
+                "enum": [
+                    "bottomHalf",
+                    "middle",
+                    "topQuarter",
+                    "topOnePercent"
                 ],
                 "type": "string"
             },
@@ -2208,6 +2296,32 @@
                 ],
                 "type": "object"
             },
+            "Health": {
+                "description": "The web server is up. `time` is the server's clock, as ISO.",
+                "properties": {
+                    "ok": {
+                        "enum": [
+                            true
+                        ],
+                        "type": "boolean"
+                    },
+                    "service": {
+                        "enum": [
+                            "brattybot-web"
+                        ],
+                        "type": "string"
+                    },
+                    "time": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "ok",
+                    "service",
+                    "time"
+                ],
+                "type": "object"
+            },
             "InstallPlan": {
                 "description": "What installing would do, item by item, unchanged items included. `applicable` is false when any blocker or blocked item stands in the way; the install re-checks it regardless.",
                 "properties": {
@@ -2358,6 +2472,551 @@
                     "discordId",
                     "action",
                     "name"
+                ],
+                "type": "object"
+            },
+            "LevelingActivityBucket": {
+                "description": "One bar of the activity chart. `activityDate` is the day, or the first day of the week.",
+                "properties": {
+                    "activityDate": {
+                        "type": "string"
+                    },
+                    "messageCount": {
+                        "type": "number"
+                    },
+                    "photoUploadCount": {
+                        "type": "number"
+                    },
+                    "reactionCount": {
+                        "type": "number"
+                    },
+                    "voiceSessionCount": {
+                        "type": "number"
+                    }
+                },
+                "required": [
+                    "activityDate",
+                    "messageCount",
+                    "reactionCount",
+                    "photoUploadCount",
+                    "voiceSessionCount"
+                ],
+                "type": "object"
+            },
+            "LevelingActivityChart": {
+                "description": "The activity chart. The period decides whether a bar is a day or a week.",
+                "properties": {
+                    "buckets": {
+                        "items": {
+                            "$ref": "#/components/schemas/LevelingActivityBucket"
+                        },
+                        "type": "array"
+                    },
+                    "granularity": {
+                        "enum": [
+                            "daily",
+                            "weekly"
+                        ],
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "granularity",
+                    "buckets"
+                ],
+                "type": "object"
+            },
+            "LevelingActivitySummary": {
+                "description": "What a member did over a window, counted.",
+                "properties": {
+                    "eventCount": {
+                        "type": "number"
+                    },
+                    "messageCount": {
+                        "type": "number"
+                    },
+                    "photoUploadCount": {
+                        "type": "number"
+                    },
+                    "reactionCount": {
+                        "type": "number"
+                    },
+                    "totalXp": {
+                        "type": "number"
+                    },
+                    "voiceSessionCount": {
+                        "type": "number"
+                    }
+                },
+                "required": [
+                    "messageCount",
+                    "reactionCount",
+                    "photoUploadCount",
+                    "voiceSessionCount",
+                    "totalXp",
+                    "eventCount"
+                ],
+                "type": "object"
+            },
+            "LevelingCohortProgressionPoint": {
+                "description": "How long a cohort took to reach a level. `thin` means too few members to call it typical.",
+                "properties": {
+                    "level": {
+                        "type": "number"
+                    },
+                    "medianDays": {
+                        "type": "number"
+                    },
+                    "membersReached": {
+                        "type": "number"
+                    },
+                    "thin": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "level",
+                    "medianDays",
+                    "membersReached",
+                    "thin"
+                ],
+                "type": "object"
+            },
+            "LevelingCohortSummary": {
+                "description": "One cohort. `medianActiveDays` counts days a member earned something, not days since joining.",
+                "properties": {
+                    "cohort": {
+                        "$ref": "#/components/schemas/CohortKey"
+                    },
+                    "medianActiveDays": {
+                        "type": "number"
+                    },
+                    "medianLevel": {
+                        "type": "number"
+                    },
+                    "medianTotalXp": {
+                        "type": "number"
+                    },
+                    "memberCount": {
+                        "type": "number"
+                    },
+                    "progression": {
+                        "items": {
+                            "$ref": "#/components/schemas/LevelingCohortProgressionPoint"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "cohort",
+                    "memberCount",
+                    "medianTotalXp",
+                    "medianLevel",
+                    "medianActiveDays",
+                    "progression"
+                ],
+                "type": "object"
+            },
+            "LevelingInsightsBody": {
+                "description": "The guild-wide insights report. `topLevel` is null when nobody has earned anything, and can pass the end of `levelReach` — `levelReachTruncated` says when. `xpDistribution` is null with no XP to describe. `computedAt` is ISO; `cached` means it came from the five-minute cache.",
+                "properties": {
+                    "cached": {
+                        "type": "boolean"
+                    },
+                    "cohorts": {
+                        "items": {
+                            "$ref": "#/components/schemas/LevelingCohortSummary"
+                        },
+                        "type": "array"
+                    },
+                    "computedAt": {
+                        "type": "string"
+                    },
+                    "firstActivityDate": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "lastActivityDate": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "levelReach": {
+                        "items": {
+                            "$ref": "#/components/schemas/LevelingLevelReachPoint"
+                        },
+                        "type": "array"
+                    },
+                    "levelReachTruncated": {
+                        "type": "boolean"
+                    },
+                    "topLevel": {
+                        "type": [
+                            "number",
+                            "null"
+                        ]
+                    },
+                    "trackedMembers": {
+                        "type": "number"
+                    },
+                    "xpDistribution": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/LevelingXpDistribution"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    }
+                },
+                "required": [
+                    "trackedMembers",
+                    "topLevel",
+                    "levelReachTruncated",
+                    "levelReach",
+                    "cohorts",
+                    "xpDistribution",
+                    "firstActivityDate",
+                    "lastActivityDate",
+                    "computedAt",
+                    "cached"
+                ],
+                "type": "object"
+            },
+            "LevelingLevelReachPoint": {
+                "description": "How many members ever reached a level. `percentReached` is 0–100 of tracked members.",
+                "properties": {
+                    "level": {
+                        "type": "number"
+                    },
+                    "membersReached": {
+                        "type": "number"
+                    },
+                    "percentReached": {
+                        "type": "number"
+                    }
+                },
+                "required": [
+                    "level",
+                    "membersReached",
+                    "percentReached"
+                ],
+                "type": "object"
+            },
+            "LevelingListResult": {
+                "description": "The leaderboard, capped. `truncated` means more members rank than are listed; `totalRankedMembers` is the whole server either way. `enabled` is whether leveling is on.",
+                "properties": {
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "entries": {
+                        "items": {
+                            "$ref": "#/components/schemas/LevelingRankingRow"
+                        },
+                        "type": "array"
+                    },
+                    "totalRankedMembers": {
+                        "type": "number"
+                    },
+                    "truncated": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "entries",
+                    "totalRankedMembers",
+                    "truncated",
+                    "enabled"
+                ],
+                "type": "object"
+            },
+            "LevelingMember": {
+                "description": "A member as Discord knows them now. `avatarUrl` is null when they have no avatar.",
+                "properties": {
+                    "avatarUrl": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "displayName": {
+                        "type": "string"
+                    },
+                    "isBot": {
+                        "type": "boolean"
+                    },
+                    "userId": {
+                        "type": "string"
+                    },
+                    "username": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "userId",
+                    "displayName",
+                    "username",
+                    "avatarUrl",
+                    "isBot"
+                ],
+                "type": "object"
+            },
+            "LevelingRankingRow": {
+                "description": "A row on the leaderboard. `member` is null when they have left the server but still hold XP.",
+                "properties": {
+                    "lastActiveAt": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "level": {
+                        "type": "number"
+                    },
+                    "member": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/LevelingMember"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "messageCount": {
+                        "type": "number"
+                    },
+                    "photoUploadCount": {
+                        "type": "number"
+                    },
+                    "rank": {
+                        "type": "number"
+                    },
+                    "reactionCount": {
+                        "type": "number"
+                    },
+                    "totalXp": {
+                        "type": "number"
+                    },
+                    "userId": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "rank",
+                    "userId",
+                    "member",
+                    "level",
+                    "totalXp",
+                    "messageCount",
+                    "reactionCount",
+                    "photoUploadCount",
+                    "lastActiveAt"
+                ],
+                "type": "object"
+            },
+            "LevelingUserDetail": {
+                "description": "One member's level, XP and activity. A member with no progress is level 1 with nothing recorded, not a 404. `statsPeriod` is the window actually aggregated.",
+                "properties": {
+                    "activityChart": {
+                        "$ref": "#/components/schemas/LevelingActivityChart"
+                    },
+                    "hasAnyActivity": {
+                        "type": "boolean"
+                    },
+                    "level": {
+                        "type": "number"
+                    },
+                    "member": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/LevelingMember"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "metrics": {
+                        "$ref": "#/components/schemas/LevelingUserMetrics"
+                    },
+                    "recentActivity": {
+                        "$ref": "#/components/schemas/LevelingActivitySummary"
+                    },
+                    "recentPeriodDays": {
+                        "type": "number"
+                    },
+                    "statsPeriod": {
+                        "$ref": "#/components/schemas/StatsPeriod"
+                    },
+                    "totalActivity": {
+                        "$ref": "#/components/schemas/LevelingActivitySummary"
+                    },
+                    "totalVoiceSeconds": {
+                        "type": "number"
+                    },
+                    "totalXp": {
+                        "type": "number"
+                    },
+                    "userId": {
+                        "type": "string"
+                    },
+                    "voiceSessionCount": {
+                        "type": "number"
+                    },
+                    "xpForCurrentLevelStep": {
+                        "type": "number"
+                    },
+                    "xpToNextLevel": {
+                        "type": "number"
+                    },
+                    "xpWithinLevel": {
+                        "type": "number"
+                    }
+                },
+                "required": [
+                    "userId",
+                    "member",
+                    "level",
+                    "totalXp",
+                    "xpWithinLevel",
+                    "xpToNextLevel",
+                    "xpForCurrentLevelStep",
+                    "hasAnyActivity",
+                    "statsPeriod",
+                    "recentPeriodDays",
+                    "recentActivity",
+                    "totalActivity",
+                    "voiceSessionCount",
+                    "totalVoiceSeconds",
+                    "activityChart",
+                    "metrics"
+                ],
+                "type": "object"
+            },
+            "LevelingUserMetrics": {
+                "description": "The figures the stats card shows. Timestamps are ISO, null when never.",
+                "properties": {
+                    "activityStatus": {
+                        "$ref": "#/components/schemas/ActivityStatus"
+                    },
+                    "allTimeMsgsPerDay": {
+                        "type": "number"
+                    },
+                    "avgMessageLengthRecent": {
+                        "type": [
+                            "number",
+                            "null"
+                        ]
+                    },
+                    "avgXpPerMessageRecent": {
+                        "type": [
+                            "number",
+                            "null"
+                        ]
+                    },
+                    "dailyPeakEvents": {
+                        "type": "number"
+                    },
+                    "lastActiveAt": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "memberSince": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "messageSharePercent": {
+                        "type": "number"
+                    },
+                    "photoRatePercent": {
+                        "type": "number"
+                    },
+                    "reactionSharePercent": {
+                        "type": "number"
+                    },
+                    "recentMsgsPerDay": {
+                        "type": "number"
+                    },
+                    "recentXpPerDay": {
+                        "type": "number"
+                    },
+                    "tenureDays": {
+                        "type": "number"
+                    },
+                    "voiceSharePercent": {
+                        "type": "number"
+                    }
+                },
+                "required": [
+                    "activityStatus",
+                    "lastActiveAt",
+                    "memberSince",
+                    "tenureDays",
+                    "recentMsgsPerDay",
+                    "recentXpPerDay",
+                    "allTimeMsgsPerDay",
+                    "messageSharePercent",
+                    "reactionSharePercent",
+                    "voiceSharePercent",
+                    "photoRatePercent",
+                    "avgMessageLengthRecent",
+                    "avgXpPerMessageRecent",
+                    "dailyPeakEvents"
+                ],
+                "type": "object"
+            },
+            "LevelingXpDistribution": {
+                "description": "How lopsided the XP is.",
+                "properties": {
+                    "deciles": {
+                        "items": {
+                            "type": "number"
+                        },
+                        "type": "array"
+                    },
+                    "meanToTypicalRatio": {
+                        "type": "number"
+                    },
+                    "meanXp": {
+                        "type": "number"
+                    },
+                    "topMemberXp": {
+                        "type": "number"
+                    },
+                    "typicalXp": {
+                        "type": "number"
+                    }
+                },
+                "required": [
+                    "typicalXp",
+                    "meanXp",
+                    "meanToTypicalRatio",
+                    "topMemberXp",
+                    "deciles"
+                ],
+                "type": "object"
+            },
+            "LogoutResult": {
+                "description": "The session cookie is cleared.",
+                "properties": {
+                    "ok": {
+                        "enum": [
+                            true
+                        ],
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "ok"
                 ],
                 "type": "object"
             },
@@ -2571,6 +3230,15 @@
                     "refused"
                 ],
                 "type": "object"
+            },
+            "StatsPeriod": {
+                "description": "The window a member’s stats cover, shortest first.",
+                "enum": [
+                    "week",
+                    "month",
+                    "year"
+                ],
+                "type": "string"
             },
             "TicketActionResult": {
                 "allOf": [
@@ -3315,6 +3983,189 @@
     },
     "openapi": "3.1.0",
     "paths": {
+        "/api/auth/callback": {
+            "get": {
+                "operationId": "loginCallback",
+                "parameters": [
+                    {
+                        "description": "Discord's authorization code.",
+                        "in": "query",
+                        "name": "code",
+                        "required": false,
+                        "schema": {
+                            "description": "Discord's authorization code.",
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "The signed state this server issued at login.",
+                        "in": "query",
+                        "name": "state",
+                        "required": false,
+                        "schema": {
+                            "description": "The signed state this server issued at login.",
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "To the dashboard, signed in: the session cookie is set.",
+                        "headers": {
+                            "Location": {
+                                "description": "Where the browser is sent.",
+                                "required": true,
+                                "schema": {
+                                    "description": "Where the browser is sent.",
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The state is missing, expired or not ours, or Discord sent no code."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The user manages no server the bot is in."
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Discord would not complete the sign-in."
+                    }
+                },
+                "summary": "Finish signing in: Discord's redirect back (a browser navigation, not a fetch)",
+                "tags": [
+                    "auth"
+                ]
+            }
+        },
+        "/api/auth/login": {
+            "get": {
+                "operationId": "login",
+                "responses": {
+                    "302": {
+                        "description": "To Discord's authorize page, with a signed state also set as a cookie.",
+                        "headers": {
+                            "Location": {
+                                "description": "Where the browser is sent.",
+                                "required": true,
+                                "schema": {
+                                    "description": "Where the browser is sent.",
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Start signing in with Discord (a browser navigation, not a fetch)",
+                "tags": [
+                    "auth"
+                ]
+            }
+        },
+        "/api/auth/logout": {
+            "post": {
+                "operationId": "logout",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LogoutResult"
+                                }
+                            }
+                        },
+                        "description": "Signed out."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    }
+                },
+                "summary": "Sign out",
+                "tags": [
+                    "auth"
+                ]
+            }
+        },
+        "/api/auth/me": {
+            "get": {
+                "operationId": "getCurrentUser",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AuthUser"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Nobody is signed in. The normal answer before login."
+                    }
+                },
+                "summary": "Who is signed in",
+                "tags": [
+                    "auth"
+                ]
+            }
+        },
+        "/api/bot": {
+            "get": {
+                "operationId": "getBotIdentity",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BotIdentity"
+                                }
+                            }
+                        },
+                        "description": "The bot identity, or `ready: false` with every other field null while the gateway connects."
+                    }
+                },
+                "summary": "Which bot account the dashboard is connected to",
+                "tags": [
+                    "bot"
+                ]
+            }
+        },
         "/api/guilds": {
             "get": {
                 "operationId": "listGuilds",
@@ -5364,6 +6215,247 @@
                 ]
             }
         },
+        "/api/guilds/{guildId}/leveling": {
+            "get": {
+                "operationId": "listLeveling",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LevelingListResult"
+                                }
+                            }
+                        },
+                        "description": "The leaderboard, capped — read `truncated` before believing the length."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    }
+                },
+                "summary": "The guild leaderboard, ranked by XP",
+                "tags": [
+                    "leveling"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/leveling/insights": {
+            "get": {
+                "operationId": "getLevelingInsights",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LevelingInsightsBody"
+                                }
+                            }
+                        },
+                        "description": "The report, and how fresh it is."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The guild has more logged XP events than the report will scan. Nothing is broken; the sentence names the count and the ceiling."
+                    }
+                },
+                "summary": "The guild-wide insights report",
+                "tags": [
+                    "leveling"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/leveling/users/{userId}": {
+            "get": {
+                "operationId": "getLevelingUser",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "userId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "A `StatsPeriod`. Absent or unrecognised means the bot’s default window.",
+                        "in": "query",
+                        "name": "period",
+                        "required": false,
+                        "schema": {
+                            "description": "A `StatsPeriod`. Absent or unrecognised means the bot’s default window.",
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LevelingUserDetail"
+                                }
+                            }
+                        },
+                        "description": "The member’s stats, over the window in `statsPeriod`."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The user id is not a Discord user id, or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    }
+                },
+                "summary": "One member's level, XP and activity",
+                "tags": [
+                    "leveling"
+                ]
+            }
+        },
         "/api/guilds/{guildId}/roles": {
             "get": {
                 "operationId": "getGuildRoles",
@@ -6153,6 +7245,27 @@
                 "summary": "Release a ticket's claim",
                 "tags": [
                     "tickets"
+                ]
+            }
+        },
+        "/api/health": {
+            "get": {
+                "operationId": "getHealth",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Health"
+                                }
+                            }
+                        },
+                        "description": "Up."
+                    }
+                },
+                "summary": "Whether the web server is up",
+                "tags": [
+                    "health"
                 ]
             }
         },

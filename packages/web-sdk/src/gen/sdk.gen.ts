@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { CheckFlowData, CheckFlowErrors, CheckFlowResponses, ClaimTicketData, ClaimTicketErrors, ClaimTicketResponses, CloseTicketData, CloseTicketErrors, CloseTicketResponses, CreateFlowData, CreateFlowErrors, CreateFlowResponses, DeleteFlowData, DeleteFlowErrors, DeleteFlowResponses, DeleteTicketTypeData, DeleteTicketTypeErrors, DeleteTicketTypeResponses, DeployFlowData, DeployFlowErrors, DeployFlowResponses, DiscardFlowDraftData, DiscardFlowDraftErrors, DiscardFlowDraftResponses, GetFlowData, GetFlowErrors, GetFlowResponses, GetGuildChannelsData, GetGuildChannelsErrors, GetGuildChannelsResponses, GetGuildRolesData, GetGuildRolesErrors, GetGuildRolesResponses, GetGuildSettingsData, GetGuildSettingsErrors, GetGuildSettingsResponses, GetInstallPlanData, GetInstallPlanErrors, GetInstallPlanResponses, GetNodeTypesData, GetNodeTypesErrors, GetNodeTypesResponses, GetPublishedStateData, GetPublishedStateErrors, GetPublishedStateResponses, GetTicketData, GetTicketErrors, GetTicketResponses, GetTicketsConfigData, GetTicketsConfigErrors, GetTicketsConfigResponses, GetWarningsConfigData, GetWarningsConfigErrors, GetWarningsConfigResponses, InstallFlowData, InstallFlowErrors, InstallFlowResponses, ListFlowDraftsData, ListFlowDraftsErrors, ListFlowDraftsResponses, ListFlowsData, ListFlowsErrors, ListFlowsResponses, ListGuildsData, ListGuildsErrors, ListGuildsResponses, ListTicketsData, ListTicketsErrors, ListTicketsResponses, ReopenTicketData, ReopenTicketErrors, ReopenTicketResponses, SaveMyFlowDraftData, SaveMyFlowDraftErrors, SaveMyFlowDraftResponses, SaveTicketTypeData, SaveTicketTypeErrors, SaveTicketTypeResponses, UnclaimTicketData, UnclaimTicketErrors, UnclaimTicketResponses, UndeployFlowData, UndeployFlowErrors, UndeployFlowResponses, UnpublishFlowData, UnpublishFlowErrors, UnpublishFlowResponses, UpdateFlowData, UpdateFlowErrors, UpdateFlowResponses, UpdateGuildSettingsData, UpdateGuildSettingsErrors, UpdateGuildSettingsResponses, UpdateTicketsConfigData, UpdateTicketsConfigErrors, UpdateTicketsConfigResponses, UpdateWarningsConfigData, UpdateWarningsConfigErrors, UpdateWarningsConfigResponses } from './types.gen';
+import type { CheckFlowData, CheckFlowErrors, CheckFlowResponses, ClaimTicketData, ClaimTicketErrors, ClaimTicketResponses, CloseTicketData, CloseTicketErrors, CloseTicketResponses, CreateFlowData, CreateFlowErrors, CreateFlowResponses, DeleteFlowData, DeleteFlowErrors, DeleteFlowResponses, DeleteTicketTypeData, DeleteTicketTypeErrors, DeleteTicketTypeResponses, DeployFlowData, DeployFlowErrors, DeployFlowResponses, DiscardFlowDraftData, DiscardFlowDraftErrors, DiscardFlowDraftResponses, GetBotIdentityData, GetBotIdentityResponses, GetCurrentUserData, GetCurrentUserErrors, GetCurrentUserResponses, GetFlowData, GetFlowErrors, GetFlowResponses, GetGuildChannelsData, GetGuildChannelsErrors, GetGuildChannelsResponses, GetGuildRolesData, GetGuildRolesErrors, GetGuildRolesResponses, GetGuildSettingsData, GetGuildSettingsErrors, GetGuildSettingsResponses, GetHealthData, GetHealthResponses, GetInstallPlanData, GetInstallPlanErrors, GetInstallPlanResponses, GetLevelingInsightsData, GetLevelingInsightsErrors, GetLevelingInsightsResponses, GetLevelingUserData, GetLevelingUserErrors, GetLevelingUserResponses, GetNodeTypesData, GetNodeTypesErrors, GetNodeTypesResponses, GetPublishedStateData, GetPublishedStateErrors, GetPublishedStateResponses, GetTicketData, GetTicketErrors, GetTicketResponses, GetTicketsConfigData, GetTicketsConfigErrors, GetTicketsConfigResponses, GetWarningsConfigData, GetWarningsConfigErrors, GetWarningsConfigResponses, InstallFlowData, InstallFlowErrors, InstallFlowResponses, ListFlowDraftsData, ListFlowDraftsErrors, ListFlowDraftsResponses, ListFlowsData, ListFlowsErrors, ListFlowsResponses, ListGuildsData, ListGuildsErrors, ListGuildsResponses, ListLevelingData, ListLevelingErrors, ListLevelingResponses, ListTicketsData, ListTicketsErrors, ListTicketsResponses, LoginCallbackData, LoginCallbackErrors, LoginData, LogoutData, LogoutErrors, LogoutResponses, ReopenTicketData, ReopenTicketErrors, ReopenTicketResponses, SaveMyFlowDraftData, SaveMyFlowDraftErrors, SaveMyFlowDraftResponses, SaveTicketTypeData, SaveTicketTypeErrors, SaveTicketTypeResponses, UnclaimTicketData, UnclaimTicketErrors, UnclaimTicketResponses, UndeployFlowData, UndeployFlowErrors, UndeployFlowResponses, UnpublishFlowData, UnpublishFlowErrors, UnpublishFlowResponses, UpdateFlowData, UpdateFlowErrors, UpdateFlowResponses, UpdateGuildSettingsData, UpdateGuildSettingsErrors, UpdateGuildSettingsResponses, UpdateTicketsConfigData, UpdateTicketsConfigErrors, UpdateTicketsConfigResponses, UpdateWarningsConfigData, UpdateWarningsConfigErrors, UpdateWarningsConfigResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -17,6 +17,31 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
      */
     meta?: keyof ClientMeta extends never ? Record<string, unknown> : ClientMeta;
 };
+
+/**
+ * Finish signing in: Discord's redirect back (a browser navigation, not a fetch)
+ */
+export const loginCallback = <ThrowOnError extends boolean = true>(options?: Options<LoginCallbackData, ThrowOnError>): RequestResult<unknown, LoginCallbackErrors, ThrowOnError> => (options?.client ?? client).get<unknown, LoginCallbackErrors, ThrowOnError>({ url: '/api/auth/callback', ...options });
+
+/**
+ * Start signing in with Discord (a browser navigation, not a fetch)
+ */
+export const login = <ThrowOnError extends boolean = true>(options?: Options<LoginData, ThrowOnError>): RequestResult<unknown, unknown, ThrowOnError> => (options?.client ?? client).get<unknown, unknown, ThrowOnError>({ url: '/api/auth/login', ...options });
+
+/**
+ * Sign out
+ */
+export const logout = <ThrowOnError extends boolean = true>(options?: Options<LogoutData, ThrowOnError>): RequestResult<LogoutResponses, LogoutErrors, ThrowOnError> => (options?.client ?? client).post<LogoutResponses, LogoutErrors, ThrowOnError>({ url: '/api/auth/logout', ...options });
+
+/**
+ * Who is signed in
+ */
+export const getCurrentUser = <ThrowOnError extends boolean = true>(options?: Options<GetCurrentUserData, ThrowOnError>): RequestResult<GetCurrentUserResponses, GetCurrentUserErrors, ThrowOnError> => (options?.client ?? client).get<GetCurrentUserResponses, GetCurrentUserErrors, ThrowOnError>({ url: '/api/auth/me', ...options });
+
+/**
+ * Which bot account the dashboard is connected to
+ */
+export const getBotIdentity = <ThrowOnError extends boolean = true>(options?: Options<GetBotIdentityData, ThrowOnError>): RequestResult<GetBotIdentityResponses, unknown, ThrowOnError> => (options?.client ?? client).get<GetBotIdentityResponses, unknown, ThrowOnError>({ url: '/api/bot', ...options });
 
 /**
  * Guilds the bot is in that the signed-in user may manage
@@ -183,6 +208,21 @@ export const undeployFlow = <ThrowOnError extends boolean = true>(options: Optio
 export const unpublishFlow = <ThrowOnError extends boolean = true>(options: Options<UnpublishFlowData, ThrowOnError>): RequestResult<UnpublishFlowResponses, UnpublishFlowErrors, ThrowOnError> => (options.client ?? client).post<UnpublishFlowResponses, UnpublishFlowErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/flows/{flowId}/unpublish', ...options });
 
 /**
+ * The guild leaderboard, ranked by XP
+ */
+export const listLeveling = <ThrowOnError extends boolean = true>(options: Options<ListLevelingData, ThrowOnError>): RequestResult<ListLevelingResponses, ListLevelingErrors, ThrowOnError> => (options.client ?? client).get<ListLevelingResponses, ListLevelingErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/leveling', ...options });
+
+/**
+ * The guild-wide insights report
+ */
+export const getLevelingInsights = <ThrowOnError extends boolean = true>(options: Options<GetLevelingInsightsData, ThrowOnError>): RequestResult<GetLevelingInsightsResponses, GetLevelingInsightsErrors, ThrowOnError> => (options.client ?? client).get<GetLevelingInsightsResponses, GetLevelingInsightsErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/leveling/insights', ...options });
+
+/**
+ * One member's level, XP and activity
+ */
+export const getLevelingUser = <ThrowOnError extends boolean = true>(options: Options<GetLevelingUserData, ThrowOnError>): RequestResult<GetLevelingUserResponses, GetLevelingUserErrors, ThrowOnError> => (options.client ?? client).get<GetLevelingUserResponses, GetLevelingUserErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/leveling/users/{userId}', ...options });
+
+/**
  * The guild's assignable roles
  */
 export const getGuildRoles = <ThrowOnError extends boolean = true>(options: Options<GetGuildRolesData, ThrowOnError>): RequestResult<GetGuildRolesResponses, GetGuildRolesErrors, ThrowOnError> => (options.client ?? client).get<GetGuildRolesResponses, GetGuildRolesErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/roles', ...options });
@@ -233,6 +273,11 @@ export const reopenTicket = <ThrowOnError extends boolean = true>(options: Optio
  * Release a ticket's claim
  */
 export const unclaimTicket = <ThrowOnError extends boolean = true>(options: Options<UnclaimTicketData, ThrowOnError>): RequestResult<UnclaimTicketResponses, UnclaimTicketErrors, ThrowOnError> => (options.client ?? client).post<UnclaimTicketResponses, UnclaimTicketErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/tickets/{ticketId}/unclaim', ...options });
+
+/**
+ * Whether the web server is up
+ */
+export const getHealth = <ThrowOnError extends boolean = true>(options?: Options<GetHealthData, ThrowOnError>): RequestResult<GetHealthResponses, unknown, ThrowOnError> => (options?.client ?? client).get<GetHealthResponses, unknown, ThrowOnError>({ url: '/api/health', ...options });
 
 /**
  * Every block the Flow Builder can offer

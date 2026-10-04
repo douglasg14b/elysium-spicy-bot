@@ -7,7 +7,7 @@
  * division has degenerate inputs that no `.tsx` in this repo could have a test for.
  */
 
-import type { LevelingUserDetail } from '../api/types';
+import type { LevelingUserDetail } from '@brattybot/web-sdk';
 
 /** The members of the detail response the bar is actually drawn from. */
 export type XpProgressInput = Pick<

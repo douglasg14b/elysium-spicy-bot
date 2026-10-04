@@ -5,7 +5,7 @@ import {
     MIN_VISIBLE_BAR_PERCENT,
     activityChartView,
 } from '../levelingChart';
-import type { LevelingActivityBucket, LevelingActivityChart } from '../../api/types';
+import type { LevelingActivityBucket, LevelingActivityChart } from '@brattybot/web-sdk';
 
 /**
  * The chart's scale, which is the only thing about it that can be wrong invisibly: a bar

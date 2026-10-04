@@ -35,15 +35,6 @@ import { buildOpenApiDocument } from '../openApiDocument';
  * that rule allows, not a place to park routes.
  */
 const NOT_YET_IN_SPEC: readonly string[] = [
-    // index.ts (registerApiRoutes itself)
-    'GET /api/health',
-    // botRoutes.ts
-    'GET /api/bot',
-    // authRoutes.ts
-    'GET /api/auth/login',
-    'GET /api/auth/callback',
-    'GET /api/auth/me',
-    'POST /api/auth/logout',
     // journeyRoutes.ts
     'GET /api/guilds/{guildId}/journeys',
     'GET /api/guilds/{guildId}/journeys/{journeyKey}',
@@ -63,10 +54,6 @@ const NOT_YET_IN_SPEC: readonly string[] = [
     'POST /api/guilds/{guildId}/journeys',
     'PUT /api/guilds/{guildId}/journeys/{journeyKey}',
     'DELETE /api/guilds/{guildId}/journeys/{journeyKey}',
-    // levelingRoutes.ts
-    'GET /api/guilds/{guildId}/leveling',
-    'GET /api/guilds/{guildId}/leveling/users/{userId}',
-    'GET /api/guilds/{guildId}/leveling/insights',
 ];
 
 /**
@@ -74,7 +61,7 @@ const NOT_YET_IN_SPEC: readonly string[] = [
  * raise it.** The other checks only see entries already on the list, so without this a
  * new, undeclared route plus one line here would pass every gate.
  */
-const NOT_YET_IN_SPEC_CEILING = 27;
+const NOT_YET_IN_SPEC_CEILING = 18;
 
 /**
  * The middleware `registerApiRoutes` mounts with `use`, by identity.

@@ -6,7 +6,7 @@
  * looked too small to matter, and one of them is not — see `topLevel`.
  */
 
-import type { LevelingRankingRow } from '../api/types';
+import type { LevelingRankingRow } from '@brattybot/web-sdk';
 
 export interface LeaderboardTotals {
     /** Messages across the shown rows. Not a server-wide total. */

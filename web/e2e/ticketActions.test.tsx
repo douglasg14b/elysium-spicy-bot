@@ -1,6 +1,6 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import { ChannelType, MessageType, type Client, type PermissionsString } from 'discord.js';
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { block as openTicketBlock } from '../../src/features/flows/blocks/actionOpenTicket';
 import type { FlowVariableValue } from '../../src/features/flows/blocks/types';
 import { defaultTicketTypes } from '../../src/features/tickets/data/defaultTicketTypes';
@@ -369,6 +369,40 @@ describe('releasing and closing a ticket from its detail page', () => {
     });
 });
 
+describe('going back to the list after acting on a ticket', () => {
+    it('never shows the list as it was before the action, with buttons for a state the ticket has left', async () => {
+        const ticketGuild = await guildWithTickets();
+        const title = 'Debrief after the wax play demo';
+        await openTicket(ticketGuild, title);
+
+        installDashboardApi(ticketGuild.client, ticketGuild.operator);
+        const { user, router } = renderDashboard('/tickets');
+        // The list is read, and cached, before the ticket is opened from it.
+        await user.click(await ticketRow(title));
+        expect(await screen.findByRole('heading', { name: title })).toBeTruthy();
+        await user.click(screen.getByRole('button', { name: 'Close' }));
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Reopen' })).toBeTruthy());
+
+        // The list's re-read is held, so what the page shows meanwhile is the cache's to say.
+        const answering = globalThis.fetch;
+        let release: () => void = () => undefined;
+        const held = new Promise<void>((resolve) => (release = resolve));
+        vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+            const url = new URL(new Request(input, init).url);
+            if (url.pathname === `/api/guilds/${ticketGuild.guild.id}/tickets`) await held;
+            return answering(input, init);
+        });
+
+        await act(() => router.navigate('/tickets'));
+
+        // The cached list still had the ticket open with a live Close button; the action
+        // dropped it, so the list waits for a fresh read rather than offering that meanwhile.
+        expect(screen.queryByText(title, { selector: 'td *' })).toBeNull();
+        release();
+        expect(await screen.findByText('No tickets yet')).toBeTruthy();
+    });
+});
+
 describe('acting on a ticket whose channel was deleted in Discord', () => {
     it('commits the claim without a warning, and asks Discord nothing but where the channel went', async () => {
         const ticketGuild = await guildWithTickets();
@@ -497,9 +531,13 @@ describe('declaring a ticket type from the config page', () => {
         await user.click(await screen.findByRole('option', { name: 'Impact Play Debrief' }));
 
         expect(await screen.findByText('Nothing matches that')).toBeTruthy();
-        expect(dashboard.requests.map((request) => request.path)).toContain(
-            `/api/guilds/${ticketGuild.guild.id}/tickets?status=open&type=impact-play`
-        );
+        // Compared as parameters, not as a string: the SDK writes the query in its own order.
+        const listPath = `/api/guilds/${ticketGuild.guild.id}/tickets`;
+        const listQueries = dashboard.requests
+            .map((request) => new URL(request.path, 'http://dashboard.test'))
+            .filter((url) => url.pathname === listPath)
+            .map((url) => Object.fromEntries(url.searchParams));
+        expect(listQueries).toContainEqual({ status: 'open', type: 'impact-play' });
     });
 
     it('names a key the server would refuse under the field, in the server’s words, before Save', async () => {

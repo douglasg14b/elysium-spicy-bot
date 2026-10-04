@@ -1,4 +1,4 @@
-import type { TicketingConfigView } from '@brattybot/web-sdk';
+import type { ListTicketsData, TicketingConfigView } from '@brattybot/web-sdk';
 
 /**
  * What the list is currently narrowed to.
@@ -27,23 +27,24 @@ export const DEFAULT_TICKET_FILTER: TicketFilterState = {
     search: '',
 };
 
+/** The list route's query, as the route declares it. */
+export type TicketListQuery = NonNullable<ListTicketsData['query']>;
+
 /**
- * The filter as query parameters for `listTickets`.
+ * The filter as the list route's query — which is also the list's cache key, so two
+ * filters that mean the same thing share one entry.
  *
  * `all` becomes an absent `status` rather than the literal string, which is the shape
  * the route expects — it validates `status` against the three real statuses and would
- * reject `all` as nonsense, correctly.
+ * reject `all` as nonsense, correctly. Likewise a blank search and an unset type are
+ * absent rather than empty, and `unclaimed` is sent only as `true`: the route reads
+ * anything else as "claimed or not".
  */
-export function toListFilter(filter: TicketFilterState): {
-    status?: string;
-    type?: string;
-    unclaimedOnly?: boolean;
-    search?: string;
-} {
+export function toListFilter(filter: TicketFilterState): TicketListQuery {
     return {
         status: filter.status === 'all' ? undefined : filter.status,
         type: filter.type ?? undefined,
-        unclaimedOnly: filter.unclaimedOnly || undefined,
+        unclaimed: filter.unclaimedOnly ? 'true' : undefined,
         search: filter.search.trim() || undefined,
     };
 }

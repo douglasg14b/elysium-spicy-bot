@@ -9,8 +9,8 @@ export interface SetupClientOptions {
     readonly baseUrl: string;
     /**
      * Called whenever the API answers 401, which means the session is gone — expired,
-     * revoked, or never established. Optional: the dashboard does not pass one yet, so a
-     * 401 surfaces as that page's error, the same as through the hand-written client.
+     * revoked, or never established. The dashboard signs out on it. Called before the
+     * refusal is thrown, so the caller still sees its `ApiError` as well.
      */
     readonly onUnauthorized?: () => void;
 }

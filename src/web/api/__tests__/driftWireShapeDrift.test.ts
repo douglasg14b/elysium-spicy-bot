@@ -12,8 +12,8 @@ import * as browserTypes from '../../../../web/src/api/types';
 /**
  * The drift gate between the drift wire shapes and the browser's copy of them.
  *
- * The same machinery as `levelingWireShapeDrift.test.ts`, for the same reason: the shapes
- * exist twice because a single `import type` from `src/` inside `web/src/` pulls the
+ * Member lists compared as data, because the shapes exist twice: the journey routes are
+ * not in the OpenAPI spec yet, and a single `import type` from `src/` inside `web/src/` pulls the
  * whole bot source tree into the browser's compilation, and this test stands in for the
  * type system across that gap.
  *

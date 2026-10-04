@@ -74,11 +74,15 @@ You are one step in a sequence the coordinator runs. Douglas is the user. He ask
 - **Never disable an input someone is typing into.** A `disabled={saving}` on a field that saves as you type steals its focus.
 - **Line endings.** This machine has `core.autocrlf=true`, and the generator writes LF. After generating, `git status` shows ~18 `packages/web-sdk/src/gen/*` files as modified with an empty `git diff`. That is noise; don't chase it. `sdk:check` reports it too.
 - **Baselines** (measure quietly; suites with a 20 s timeout flake under parallel load, so rerun a failing file alone before calling it real):
-  - `pnpm test`: 3,053 pass after step 5, 1 known failure (`ciBranchProductDiff`). The birthday test "skips overlapping runs" is a known date-dependent flake. Block discovery can push `levelUpDispatch`, `memberJoinDispatch`, `reactionAddDispatch` and `nodeRoutes` past their hook timeouts under load.
-- **Never use `git stash`.** The stash list is shared with the main checkout, and `stash@{0}` belongs to another session. To measure a baseline, check out a second worktree or compare against the numbers here.
+  - `pnpm test`: 3,020 pass after step 7, 1 known failure (`ciBranchProductDiff`). The birthday test "skips overlapping runs" is a known date-dependent flake. Block discovery can push `levelUpDispatch`, `memberJoinDispatch`, `reactionAddDispatch` and `nodeRoutes` past their hook timeouts under load.
   - Root `tsc --noEmit`: the same 17 pre-existing errors, none new.
   - `pnpm typecheck:e2e`: the same 4.
   - Web `tsc -b` and `pnpm --filter @brattybot/web-sdk typecheck`: clean.
+
+## Git and imports
+
+- **Never use `git stash`.** The stash list is shared with the main checkout, and `stash@{0}` belongs to another session. To measure a baseline, check out a second worktree or compare against the numbers here.
+- **Root code can't import SDK values at runtime.** Root `tsc` resolves `@brattybot/web-sdk` to `packages/web-sdk/src/contract.ts` through `tsconfig.json` `paths`, but nothing under `src/` can resolve that package when it runs. Root files import types only, and take values by relative path.
 
 ## Verification is the job, not a formality
 

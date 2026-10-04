@@ -4,6 +4,20 @@ export type ClientOptions = {
     baseUrl: `${string}://${string}` | (string & {});
 };
 
+/**
+ * How recently a member has been active.
+ */
+export type ActivityStatus = 'active' | 'quiet' | 'dormant' | 'none';
+
+/**
+ * The signed-in Discord user. `avatar` is the avatar hash, null when they have none.
+ */
+export type AuthUser = {
+    avatar: string | null;
+    id: string;
+    username: string;
+};
+
 export type BlockCardSummaryPart = {
     emptyText?: string;
     hideWhenEmpty?: boolean;
@@ -235,6 +249,26 @@ export type BlockOutputHandle = {
 export type BlockOutputValueKind = 'channel' | 'time';
 
 export type BlockPaletteGroup = 'triggers' | 'conditions' | 'actions';
+
+/**
+ * Which bot application the dashboard is connected to, read off its name.
+ */
+export type BotFlavour = 'development' | 'production';
+
+/**
+ * The bot account the dashboard is connected to. Every field but `ready` is null while the gateway is still connecting; show the bundled branding then.
+ */
+export type BotIdentity = {
+    flavour: BotFlavour | null;
+    id: string | null;
+    ready: boolean;
+    username: string | null;
+};
+
+/**
+ * A band of members by XP within this server, least to most active. `topOnePercent` is a spotlight inside `topQuarter`, not a fifth band, so the counts do not sum.
+ */
+export type CohortKey = 'bottomHalf' | 'middle' | 'topQuarter' | 'topOnePercent';
 
 export type DeployResult = {
     ok: true;
@@ -581,6 +615,15 @@ export type GuildSettingsUpdate = {
 };
 
 /**
+ * The web server is up. `time` is the server's clock, as ISO.
+ */
+export type Health = {
+    ok: true;
+    service: 'brattybot-web';
+    time: string;
+};
+
+/**
  * What installing would do, item by item, unchanged items included. `applicable` is false when any blocker or blocked item stands in the way; the install re-checks it regardless.
  */
 export type InstallPlan = {
@@ -617,6 +660,180 @@ export type InstalledResource = {
     discordId: string;
     name: string;
     resourceKey: string;
+};
+
+/**
+ * One bar of the activity chart. `activityDate` is the day, or the first day of the week.
+ */
+export type LevelingActivityBucket = {
+    activityDate: string;
+    messageCount: number;
+    photoUploadCount: number;
+    reactionCount: number;
+    voiceSessionCount: number;
+};
+
+/**
+ * The activity chart. The period decides whether a bar is a day or a week.
+ */
+export type LevelingActivityChart = {
+    buckets: Array<LevelingActivityBucket>;
+    granularity: 'daily' | 'weekly';
+};
+
+/**
+ * What a member did over a window, counted.
+ */
+export type LevelingActivitySummary = {
+    eventCount: number;
+    messageCount: number;
+    photoUploadCount: number;
+    reactionCount: number;
+    totalXp: number;
+    voiceSessionCount: number;
+};
+
+/**
+ * How long a cohort took to reach a level. `thin` means too few members to call it typical.
+ */
+export type LevelingCohortProgressionPoint = {
+    level: number;
+    medianDays: number;
+    membersReached: number;
+    thin: boolean;
+};
+
+/**
+ * One cohort. `medianActiveDays` counts days a member earned something, not days since joining.
+ */
+export type LevelingCohortSummary = {
+    cohort: CohortKey;
+    medianActiveDays: number;
+    medianLevel: number;
+    medianTotalXp: number;
+    memberCount: number;
+    progression: Array<LevelingCohortProgressionPoint>;
+};
+
+/**
+ * The guild-wide insights report. `topLevel` is null when nobody has earned anything, and can pass the end of `levelReach` — `levelReachTruncated` says when. `xpDistribution` is null with no XP to describe. `computedAt` is ISO; `cached` means it came from the five-minute cache.
+ */
+export type LevelingInsightsBody = {
+    cached: boolean;
+    cohorts: Array<LevelingCohortSummary>;
+    computedAt: string;
+    firstActivityDate: string | null;
+    lastActivityDate: string | null;
+    levelReach: Array<LevelingLevelReachPoint>;
+    levelReachTruncated: boolean;
+    topLevel: number | null;
+    trackedMembers: number;
+    xpDistribution: LevelingXpDistribution | null;
+};
+
+/**
+ * How many members ever reached a level. `percentReached` is 0–100 of tracked members.
+ */
+export type LevelingLevelReachPoint = {
+    level: number;
+    membersReached: number;
+    percentReached: number;
+};
+
+/**
+ * The leaderboard, capped. `truncated` means more members rank than are listed; `totalRankedMembers` is the whole server either way. `enabled` is whether leveling is on.
+ */
+export type LevelingListResult = {
+    enabled: boolean;
+    entries: Array<LevelingRankingRow>;
+    totalRankedMembers: number;
+    truncated: boolean;
+};
+
+/**
+ * A member as Discord knows them now. `avatarUrl` is null when they have no avatar.
+ */
+export type LevelingMember = {
+    avatarUrl: string | null;
+    displayName: string;
+    isBot: boolean;
+    userId: string;
+    username: string;
+};
+
+/**
+ * A row on the leaderboard. `member` is null when they have left the server but still hold XP.
+ */
+export type LevelingRankingRow = {
+    lastActiveAt: string | null;
+    level: number;
+    member: LevelingMember | null;
+    messageCount: number;
+    photoUploadCount: number;
+    rank: number;
+    reactionCount: number;
+    totalXp: number;
+    userId: string;
+};
+
+/**
+ * One member's level, XP and activity. A member with no progress is level 1 with nothing recorded, not a 404. `statsPeriod` is the window actually aggregated.
+ */
+export type LevelingUserDetail = {
+    activityChart: LevelingActivityChart;
+    hasAnyActivity: boolean;
+    level: number;
+    member: LevelingMember | null;
+    metrics: LevelingUserMetrics;
+    recentActivity: LevelingActivitySummary;
+    recentPeriodDays: number;
+    statsPeriod: StatsPeriod;
+    totalActivity: LevelingActivitySummary;
+    totalVoiceSeconds: number;
+    totalXp: number;
+    userId: string;
+    voiceSessionCount: number;
+    xpForCurrentLevelStep: number;
+    xpToNextLevel: number;
+    xpWithinLevel: number;
+};
+
+/**
+ * The figures the stats card shows. Timestamps are ISO, null when never.
+ */
+export type LevelingUserMetrics = {
+    activityStatus: ActivityStatus;
+    allTimeMsgsPerDay: number;
+    avgMessageLengthRecent: number | null;
+    avgXpPerMessageRecent: number | null;
+    dailyPeakEvents: number;
+    lastActiveAt: string | null;
+    memberSince: string | null;
+    messageSharePercent: number;
+    photoRatePercent: number;
+    reactionSharePercent: number;
+    recentMsgsPerDay: number;
+    recentXpPerDay: number;
+    tenureDays: number;
+    voiceSharePercent: number;
+};
+
+/**
+ * How lopsided the XP is.
+ */
+export type LevelingXpDistribution = {
+    deciles: Array<number>;
+    meanToTypicalRatio: number;
+    meanXp: number;
+    topMemberXp: number;
+    typicalXp: number;
+};
+
+/**
+ * The session cookie is cleared.
+ */
+export type LogoutResult = {
+    ok: true;
 };
 
 /**
@@ -667,6 +884,11 @@ export type PublishedResource = {
     resourceKey: string;
     survivors?: Array<string>;
 };
+
+/**
+ * The window a member’s stats cover, shortest first.
+ */
+export type StatsPeriod = 'week' | 'month' | 'year';
 
 /**
  * The ticket after a lifecycle action. `syncWarning` is set when the ticket changed and its channel did not follow — on a close, that the subject may still be able to read it. Show it.
@@ -856,6 +1078,112 @@ export type WarningsConfig = {
 export type WarningsConfigUpdate = {
     modChannelId: string;
 };
+
+export type LoginCallbackData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Discord's authorization code.
+         */
+        code?: string;
+        /**
+         * The signed state this server issued at login.
+         */
+        state?: string;
+    };
+    url: '/api/auth/callback';
+};
+
+export type LoginCallbackErrors = {
+    /**
+     * The state is missing, expired or not ours, or Discord sent no code.
+     */
+    400: ErrorBody;
+    /**
+     * The user manages no server the bot is in.
+     */
+    403: ErrorBody;
+    /**
+     * Discord would not complete the sign-in.
+     */
+    502: ErrorBody;
+};
+
+export type LoginCallbackError = LoginCallbackErrors[keyof LoginCallbackErrors];
+
+export type LoginData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/auth/login';
+};
+
+export type LogoutData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/auth/logout';
+};
+
+export type LogoutErrors = {
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+};
+
+export type LogoutError = LogoutErrors[keyof LogoutErrors];
+
+export type LogoutResponses = {
+    /**
+     * Signed out.
+     */
+    200: LogoutResult;
+};
+
+export type LogoutResponse = LogoutResponses[keyof LogoutResponses];
+
+export type GetCurrentUserData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/auth/me';
+};
+
+export type GetCurrentUserErrors = {
+    /**
+     * Nobody is signed in. The normal answer before login.
+     */
+    401: ErrorBody;
+};
+
+export type GetCurrentUserError = GetCurrentUserErrors[keyof GetCurrentUserErrors];
+
+export type GetCurrentUserResponses = {
+    /**
+     * The signed-in user.
+     */
+    200: AuthUser;
+};
+
+export type GetCurrentUserResponse = GetCurrentUserResponses[keyof GetCurrentUserResponses];
+
+export type GetBotIdentityData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/bot';
+};
+
+export type GetBotIdentityResponses = {
+    /**
+     * The bot identity, or `ready: false` with every other field null while the gateway connects.
+     */
+    200: BotIdentity;
+};
+
+export type GetBotIdentityResponse = GetBotIdentityResponses[keyof GetBotIdentityResponses];
 
 export type ListGuildsData = {
     body?: never;
@@ -1858,6 +2186,133 @@ export type UnpublishFlowResponses = {
 
 export type UnpublishFlowResponse = UnpublishFlowResponses[keyof UnpublishFlowResponses];
 
+export type ListLevelingData = {
+    body?: never;
+    path: {
+        guildId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/leveling';
+};
+
+export type ListLevelingErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+};
+
+export type ListLevelingError = ListLevelingErrors[keyof ListLevelingErrors];
+
+export type ListLevelingResponses = {
+    /**
+     * The leaderboard, capped — read `truncated` before believing the length.
+     */
+    200: LevelingListResult;
+};
+
+export type ListLevelingResponse = ListLevelingResponses[keyof ListLevelingResponses];
+
+export type GetLevelingInsightsData = {
+    body?: never;
+    path: {
+        guildId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/leveling/insights';
+};
+
+export type GetLevelingInsightsErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+    /**
+     * The guild has more logged XP events than the report will scan. Nothing is broken; the sentence names the count and the ceiling.
+     */
+    503: ErrorBody;
+};
+
+export type GetLevelingInsightsError = GetLevelingInsightsErrors[keyof GetLevelingInsightsErrors];
+
+export type GetLevelingInsightsResponses = {
+    /**
+     * The report, and how fresh it is.
+     */
+    200: LevelingInsightsBody;
+};
+
+export type GetLevelingInsightsResponse = GetLevelingInsightsResponses[keyof GetLevelingInsightsResponses];
+
+export type GetLevelingUserData = {
+    body?: never;
+    path: {
+        guildId: string;
+        userId: string;
+    };
+    query?: {
+        /**
+         * A `StatsPeriod`. Absent or unrecognised means the bot’s default window.
+         */
+        period?: string;
+    };
+    url: '/api/guilds/{guildId}/leveling/users/{userId}';
+};
+
+export type GetLevelingUserErrors = {
+    /**
+     * The user id is not a Discord user id, or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+};
+
+export type GetLevelingUserError = GetLevelingUserErrors[keyof GetLevelingUserErrors];
+
+export type GetLevelingUserResponses = {
+    /**
+     * The member’s stats, over the window in `statsPeriod`.
+     */
+    200: LevelingUserDetail;
+};
+
+export type GetLevelingUserResponse = GetLevelingUserResponses[keyof GetLevelingUserResponses];
+
 export type GetGuildRolesData = {
     body?: never;
     path: {
@@ -2252,6 +2707,22 @@ export type UnclaimTicketResponses = {
 };
 
 export type UnclaimTicketResponse = UnclaimTicketResponses[keyof UnclaimTicketResponses];
+
+export type GetHealthData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/health';
+};
+
+export type GetHealthResponses = {
+    /**
+     * Up.
+     */
+    200: Health;
+};
+
+export type GetHealthResponse = GetHealthResponses[keyof GetHealthResponses];
 
 export type GetNodeTypesData = {
     body?: never;

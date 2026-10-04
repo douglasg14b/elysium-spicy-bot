@@ -1,5 +1,11 @@
 import type { TicketSummary } from '@brattybot/web-sdk';
-import type { TicketAction } from '../api/tickets';
+
+/**
+ * The four lifecycle actions the dashboard can take on a ticket — one route each.
+ *
+ * No `delete`: destroying a ticket destroys its channel, and that stays in Discord.
+ */
+export type TicketAction = 'claim' | 'unclaim' | 'close' | 'reopen';
 
 /**
  * Which lifecycle actions a ticket can take, from the row alone.

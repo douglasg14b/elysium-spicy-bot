@@ -17,7 +17,7 @@ import type {
     LevelingCohortSummary,
     LevelingLevelReachPoint,
     LevelingXpDistribution,
-} from '../api/types';
+} from '@brattybot/web-sdk';
 import { MIN_VISIBLE_BAR_PERCENT } from './levelingChart';
 
 /**
@@ -60,10 +60,10 @@ export interface CohortPresentation {
 /**
  * Every cohort, exhaustively.
  *
- * A `Record<CohortKey, …>` rather than a lookup with a fallback: `COHORT_KEYS` is mirrored
- * from the bot by hand and gated by a drift test, so a fifth cohort the server starts
- * reporting is a **compile error** here instead of a line drawn in undefined colour with the
- * label `undefined`.
+ * A `Record<CohortKey, …>` rather than a lookup with a fallback: `CohortKey` is generated
+ * from the route's own enum, so a fifth cohort the server starts reporting is a **compile
+ * error** here after `pnpm sdk:generate` instead of a line drawn in undefined colour with
+ * the label `undefined`.
  *
  * Labels are `COHORT_LABELS`' verbatim — an operator reading "Middle quarter" in Discord and
  * "Middle" on the dashboard would reasonably wonder whether they were different bands.

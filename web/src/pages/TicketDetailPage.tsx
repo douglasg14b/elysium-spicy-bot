@@ -11,7 +11,6 @@
  * reason: one rule, in one place, that a test can reach.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Alert,
     Anchor,
@@ -25,18 +24,18 @@ import {
     Text,
     Title,
 } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import {
     IconAlertTriangle,
     IconBrandDiscord,
     IconChevronLeft,
     IconTicket,
 } from '@tabler/icons-react';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
-import type { TicketDetail } from '@brattybot/web-sdk';
-import { ApiError } from '../api/client';
-import { actOnTicket, getTicket, type TicketAction } from '../api/tickets';
+import { ApiError, getTicketOptions, type TicketDetail } from '@brattybot/web-sdk';
+import { loadErrorMessage } from '../api/loadErrorMessage';
 import { availableActions, TICKET_ACTION_PRESENTATION } from '../tickets/ticketActions';
+import { useTicketAction } from '../tickets/useTicketAction';
 import { formatTicketNumber, TICKET_STATUS_TONE } from '../tickets/ticketPresentation';
 import { optionalParticipantLabel, participantLabel } from '../tickets/participantLabel';
 import { useGuilds } from '../guilds/GuildContext';
@@ -76,111 +75,38 @@ export function TicketDetailPage() {
     const { selected, loading: guildsLoading } = useGuilds();
     const { ticketId: rawTicketId } = useParams<{ ticketId: string }>();
 
-    const [ticket, setTicket] = useState<TicketDetail | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    /*
-     * A 404 is not the same failure as a broken request, and it gets its own state so it
-     * can be rendered as an answer ("that ticket is not here") rather than a red alert
-     * implying something went wrong with the server.
-     */
-    const [missing, setMissing] = useState(false);
-    /*
-     * Which action is in flight, not merely whether one is — matching the list page.
-     *
-     * A shared boolean put every button on the card into `loading` at once, so clicking
-     * Claim spun Close as well. It is also the re-entry guard: React state updates are
-     * async, so without one a double-click fires two transitions and the second gets a
-     * 409 from the service, showing the operator a red banner for an action that actually
-     * succeeded.
-     */
-    const [acting, setActing] = useState<TicketAction | null>(null);
-
     const guildId = selected?.id;
     // Parsed once, here, so a junk path segment never reaches the API as `/tickets/NaN`.
     const parsedId = Number(rawTicketId);
     const ticketId = Number.isSafeInteger(parsedId) && parsedId > 0 ? parsedId : null;
 
     /*
-     * Shared by the load effect and `refresh`, so the last read dispatched is the only one
-     * that writes. `refresh` runs after a lifecycle action and outlives no effect, so a
-     * slow one could otherwise overwrite a newer read of a different ticket.
+     * The ticket, keyed by guild and id, so a slow read of one ticket can never overwrite
+     * the page after it has moved to another.
      */
-    const readGeneration = useRef(0);
+    const ticketQuery = useQuery({
+        ...getTicketOptions({ path: { guildId: guildId ?? '', ticketId: String(ticketId ?? '') } }),
+        enabled: !!guildId && ticketId !== null,
+    });
+    const ticket = ticketQuery.data ?? null;
+    const loading = ticketQuery.isPending;
+    /*
+     * A 404 is not the same failure as a broken request, and it is rendered as an answer
+     * ("that ticket is not here") rather than a red alert implying something went wrong
+     * with the server. Either one replaces the ticket — a re-read after an action that
+     * fails included — so the page never shows a record it could not confirm.
+     */
+    const missing = ticketQuery.error instanceof ApiError && ticketQuery.error.status === 404;
+    const error = missing ? null : loadErrorMessage(ticketQuery.error, 'Failed to load that ticket');
 
-    const refresh = useCallback(async () => {
-        if (!guildId || ticketId === null) return;
-        const generation = ++readGeneration.current;
-        setError(null);
-        try {
-            const loaded = await getTicket(guildId, ticketId);
-            if (generation !== readGeneration.current) return;
-            setTicket(loaded);
-        } catch (err) {
-            if (generation !== readGeneration.current) return;
-            if (err instanceof ApiError && err.status === 404) {
-                setMissing(true);
-                return;
-            }
-            setError(err instanceof ApiError ? err.message : 'Failed to load that ticket');
-        }
-    }, [guildId, ticketId]);
-
-    useEffect(() => {
-        if (!guildId || ticketId === null) return;
-        const generation = ++readGeneration.current;
-        void (async () => {
-            setLoading(true);
-            setError(null);
-            setMissing(false);
-            try {
-                const loaded = await getTicket(guildId, ticketId);
-                if (generation === readGeneration.current) setTicket(loaded);
-            } catch (err) {
-                if (generation !== readGeneration.current) return;
-                if (err instanceof ApiError && err.status === 404) {
-                    setMissing(true);
-                } else {
-                    setError(err instanceof ApiError ? err.message : 'Failed to load that ticket');
-                }
-            } finally {
-                if (generation === readGeneration.current) setLoading(false);
-            }
-        })();
-    }, [guildId, ticketId]);
-
-    async function handleAction(action: TicketAction) {
-        if (!guildId || !ticket || acting) return;
-        setActing(action);
-        const presentation = TICKET_ACTION_PRESENTATION[action];
-        try {
-            const result = await actOnTicket(guildId, ticket.id, action);
-            notifications.show({
-                color: 'brand',
-                title: 'Done',
-                message: `${formatTicketNumber(ticket.ticketNumber)} ${presentation.done}.`,
-            });
-            if (result.syncWarning) {
-                // Kept on screen: the row moved and the Discord channel did not, which is
-                // something an operator has to go and fix by hand.
-                notifications.show({
-                    color: 'red',
-                    title: 'Discord did not keep up',
-                    message: result.syncWarning,
-                    autoClose: false,
-                });
-            }
-            await refresh();
-        } catch (err) {
-            const message =
-                err instanceof ApiError
-                    ? err.message
-                    : `Couldn't ${presentation.label.toLowerCase()} that ticket.`;
-            notifications.show({ color: 'red', title: 'No dice', message });
-        } finally {
-            setActing(null);
-        }
-    }
+    /*
+     * Which action is in flight, on which ticket — not merely whether one is, matching the
+     * list page. A shared flag put every button on the card into `loading` at once, so
+     * clicking Claim spun Close as well; and a page that has since moved to another ticket
+     * must not spin that ticket's buttons.
+     */
+    const { acting: actingOnAny, act } = useTicketAction(guildId);
+    const acting = actingOnAny?.ticketId === ticketId ? actingOnAny : null;
 
     if (guildsLoading) {
         return (
@@ -302,12 +228,12 @@ export function TicketDetailPage() {
                                         key={action}
                                         color={presentation.tone}
                                         variant={presentation.tone === 'gray' ? 'default' : 'filled'}
-                                        loading={acting === action}
+                                        loading={acting?.action === action}
                                         // Every button is held while any one is in
                                         // flight, so a second transition cannot be
                                         // started against a row mid-change.
-                                        disabled={acting !== null && acting !== action}
-                                        onClick={() => void handleAction(action)}
+                                        disabled={acting !== null && acting.action !== action}
+                                        onClick={() => act(ticket, action)}
                                     >
                                         {presentation.label}
                                     </Button>

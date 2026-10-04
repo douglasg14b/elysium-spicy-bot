@@ -15,13 +15,15 @@ import { setupClient } from '@brattybot/web-sdk';
 import { notifications } from '@mantine/notifications';
 import { cleanup } from '@testing-library/react';
 import { afterEach } from 'vitest';
+import { reportSessionLost } from '../../auth/sessionLoss';
 
 /*
  * What `main.tsx` does before its first render, done before every test file's: a page on
  * the generated SDK refuses to send anything until the client is set up. Same base URL
- * as the app — `vitest.jsdomRequest.setup.ts` resolves it against the page.
+ * as the app — `vitest.jsdomRequest.setup.ts` resolves it against the page — and the same
+ * 401 handling, so a whole-app render signs out exactly as the browser does.
  */
-setupClient({ baseUrl: '' });
+setupClient({ baseUrl: '', onUnauthorized: reportSessionLost });
 
 /*
  * Testing Library unmounts after each test by itself only when the runner exposes a

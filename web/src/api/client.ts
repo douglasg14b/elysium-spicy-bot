@@ -2,10 +2,14 @@
  * Thin fetch wrapper for the BrattyBot JSON API. Same-origin — cookies (the session)
  * are sent automatically. Throws {@link ApiError} on non-2xx so callers can surface it.
  *
- * Being replaced, route by route, by the SDK generated in `packages/web-sdk`. Until the
- * last page moves, both clients throw the same `ApiError`, read from the error body by the
+ * Being replaced by the SDK generated in `packages/web-sdk`. Its one caller left is
+ * `journeys.ts`, for the journey routes that are not in the spec yet, plus the journey
+ * dialogs that import `ApiError` from here; it goes with them. Until then both clients throw the same `ApiError`, read from the error body by the
  * same function — it lives in the SDK and is re-exported here — so every
  * `instanceof ApiError` holds whichever client a page uses.
+ *
+ * Unlike the SDK, a 401 here does not sign the dashboard out: only `setupClient`'s
+ * `onUnauthorized` does that, and these calls do not pass through it.
  */
 
 import { ApiError, apiErrorFromBody } from '@brattybot/web-sdk';

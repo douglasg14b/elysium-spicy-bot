@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { getBotIdentity } from '../api/bot';
-import type { BotFlavour } from '../api/types';
+import { getBotIdentity, type BotFlavour } from '@brattybot/web-sdk';
 import { FALLBACK_BOT_NAME, brandLogoUrl } from '../brand';
 
 /**
@@ -9,6 +8,9 @@ import { FALLBACK_BOT_NAME, brandLogoUrl } from '../brand';
  * There is no `loading` flag and no null state by design: the fallback is the bundled
  * BrattyBot branding, so consumers always have a name and a logo to render. A cold
  * start — or a failed request — shows production branding rather than a spinner.
+ *
+ * Read with a direct SDK call rather than a query: it is one read on mount, made before
+ * anyone signs in, and signing out empties the query cache.
  */
 interface BotIdentityValue {
     /** The connected bot's name, or {@link FALLBACK_BOT_NAME} before it is known. */
@@ -30,7 +32,7 @@ export function BotIdentityProvider({ children }: { children: ReactNode }) {
         let cancelled = false;
         void (async () => {
             try {
-                const identity = await getBotIdentity();
+                const { data: identity } = await getBotIdentity();
                 if (cancelled || !identity.ready || !identity.username) return;
                 setName(identity.username);
                 setFlavour(identity.flavour);

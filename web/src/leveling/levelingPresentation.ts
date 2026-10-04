@@ -5,7 +5,7 @@
  * second copy of any of them would drift the moment a status gained a colour.
  */
 
-import type { ActivityStatus, LevelingActivityChart, StatsPeriod } from '../api/types';
+import type { ActivityStatus, LevelingActivityChart, StatsPeriod } from '@brattybot/web-sdk';
 
 /** A status as a badge: the bot's own word for it, and a Mantine colour. */
 export interface ActivityStatusPresentation {
@@ -16,10 +16,10 @@ export interface ActivityStatusPresentation {
 /**
  * Every status, exhaustively.
  *
- * A `Record<ActivityStatus, …>` rather than a switch with a default: `ACTIVITY_STATUSES` is
- * mirrored from the bot by hand and gated by a drift test, so the moment the server starts
- * emitting a fifth status this object is a **compile error** instead of a row that renders
- * no badge at all.
+ * A `Record<ActivityStatus, …>` rather than a switch with a default: `ActivityStatus` is
+ * generated from the route's own enum, so the moment the server starts emitting a fifth
+ * status this object is a **compile error** after `pnpm sdk:generate` instead of a row that
+ * renders no badge at all.
  *
  * Labels are `formatActivityStatus`'s, verbatim — a member reading "Dormant" on their stats
  * card and "Inactive" on the dashboard would reasonably think they were different facts.
@@ -35,7 +35,7 @@ export const ACTIVITY_STATUS_PRESENTATION: Readonly<
 };
 
 /**
- * The period picker's options, built from the mirrored vocabulary.
+ * The period picker's labels, one per period the server's enum declares.
  *
  * Labels match `formatStatsPeriodChartLabel`'s spans — the server computes the window from
  * `STATS_PERIOD_DAYS`, where a "year" is 52×7 days so the weekly buckets stay under the

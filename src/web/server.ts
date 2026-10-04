@@ -51,6 +51,16 @@ export function buildApp(): OpenAPIHono<AppEnv> {
     // JSON API (auth, guilds, config, flows) lives under /api.
     registerApiRoutes(app);
 
+    /*
+     * An `/api` path no route answered is a 404 in the API's own envelope, before the SPA
+     * fallback below can see it. Without this, a GET to an unmounted `/api/...` path fell
+     * through to `index.html` with a 200, which the dashboard's client reads as a load
+     * error about bad JSON rather than as "there is no such route". Registered after the
+     * API, so it only answers what nothing above did — including after the auth
+     * middleware has run, so an unknown guild path still asks for a session first.
+     */
+    app.all('/api/*', (c) => c.json({ error: 'Nothing lives at this API path.' }, 404));
+
     // Serve the built SPA + client-side routing fallback, if a build exists.
     const clientDir = resolveClientDir();
     if (clientDir) {

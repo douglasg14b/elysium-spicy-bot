@@ -1,7 +1,7 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, type ReactNode } from 'react';
 import { notifications } from '@mantine/notifications';
-import { api } from '../api/client';
-import type { Guild } from '../api/types';
+import { useQuery } from '@tanstack/react-query';
+import { listGuildsOptions, type Guild } from '@brattybot/web-sdk';
 
 /**
  * Loads the guilds the bot is in that the user may manage. Single-server for now
@@ -9,7 +9,7 @@ import type { Guild } from '../api/types';
  * guild so it stays multi-server-ready.
  */
 interface GuildContextValue {
-    guilds: Guild[];
+    guilds: readonly Guild[];
     selected: Guild | null;
     loading: boolean;
     error: string | null;
@@ -17,33 +17,23 @@ interface GuildContextValue {
 
 const GuildContext = createContext<GuildContextValue | undefined>(undefined);
 
-export function GuildProvider({ children }: { children: ReactNode }) {
-    const [guilds, setGuilds] = useState<Guild[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+/** One reference for "none loaded", so the context value does not change on every render. */
+const NO_GUILDS: readonly Guild[] = [];
 
+export function GuildProvider({ children }: { children: ReactNode }) {
+    const guildsQuery = useQuery(listGuildsOptions());
+    const guilds = guildsQuery.data?.guilds ?? NO_GUILDS;
+    const loading = guildsQuery.isPending;
+    const error = guildsQuery.error
+        ? guildsQuery.error instanceof Error
+            ? guildsQuery.error.message
+            : 'Failed to load servers'
+        : null;
+
+    // Said once per failure, as the hand-written load did; the pages show their own state.
     useEffect(() => {
-        let cancelled = false;
-        void (async () => {
-            setLoading(true);
-            setError(null);
-            try {
-                const data = await api.get<{ guilds: Guild[] }>('/api/guilds');
-                if (!cancelled) setGuilds(data.guilds);
-            } catch (err) {
-                const message = err instanceof Error ? err.message : 'Failed to load servers';
-                if (!cancelled) {
-                    setError(message);
-                    notifications.show({ color: 'red', title: 'Could not load servers', message });
-                }
-            } finally {
-                if (!cancelled) setLoading(false);
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, []);
+        if (error) notifications.show({ color: 'red', title: 'Could not load servers', message: error });
+    }, [error]);
 
     const value = useMemo<GuildContextValue>(
         () => ({ guilds, selected: guilds[0] ?? null, loading, error }),

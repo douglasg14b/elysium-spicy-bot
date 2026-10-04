@@ -16,7 +16,7 @@
  * debounced into `listTickets` instead.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
     Alert,
     Badge,
@@ -36,23 +36,18 @@ import {
     Tooltip,
     UnstyledButton,
 } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import {
     IconAlertTriangle,
     IconSearch,
     IconSettings,
     IconTicket,
 } from '@tabler/icons-react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
-import { ApiError } from '../api/client';
-import {
-    getTicketsConfig,
-    type TicketCounts,
-    type TicketingConfigView,
-    type TicketSummary,
-} from '@brattybot/web-sdk';
-import { actOnTicket, listTickets, type TicketAction } from '../api/tickets';
+import { getTicketsConfigOptions, listTicketsOptions, type TicketSummary } from '@brattybot/web-sdk';
+import { loadErrorMessage } from '../api/loadErrorMessage';
 import { availableActions, TICKET_ACTION_PRESENTATION } from '../tickets/ticketActions';
+import { useTicketAction } from '../tickets/useTicketAction';
 import { formatTicketNumber, TICKET_STATUS_TONE } from '../tickets/ticketPresentation';
 import {
     DEFAULT_TICKET_FILTER,
@@ -67,6 +62,9 @@ import { PAGE_MAX_WIDTH } from '../theme';
 
 /** How long a keystroke waits before it becomes a request. */
 const SEARCH_DEBOUNCE_MS = 300;
+
+/** One reference for "no rows yet", so an unloaded list does not hand a new array to every render. */
+const NO_TICKETS: readonly TicketSummary[] = [];
 
 function formatUpdated(iso: string): string {
     const date = new Date(iso);
@@ -83,20 +81,6 @@ export function TicketsListPage() {
     const { selected, loading: guildsLoading } = useGuilds();
     const navigate = useNavigate();
 
-    const [tickets, setTickets] = useState<TicketSummary[]>([]);
-    const [counts, setCounts] = useState<TicketCounts | null>(null);
-    const [truncated, setTruncated] = useState(false);
-    const [config, setConfig] = useState<TicketingConfigView | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    /*
-     * The one lifecycle action in flight, identified by row *and* action. A bare row id
-     * would put both of a row's buttons into `loading` at once, and it is also the
-     * re-entry guard: two actions overlapping means whichever finishes first clears the
-     * flag while the other is still outstanding, re-enabling a button mid-request.
-     */
-    const [acting, setActing] = useState<{ ticketId: number; action: TicketAction } | null>(null);
-
     const [filter, setFilter] = useState<TicketFilterState>(DEFAULT_TICKET_FILTER);
     /*
      * The input's own value, separate from the filter that is actually in force. They
@@ -104,165 +88,67 @@ export function TicketsListPage() {
      * request per keystroke or an input that lags behind the typing.
      */
     const [searchDraft, setSearchDraft] = useState(DEFAULT_TICKET_FILTER.search);
-    const [searching, setSearching] = useState(false);
 
     const guildId = selected?.id;
 
     /*
-     * The filter as the fetch reads it, held in a ref so `refresh` does not change
-     * identity every time a filter does. A row action calls `refresh` after the server
-     * commits, and that callback being re-created on every keystroke would make it
-     * useless as a dependency anywhere.
-     */
-    const filterRef = useRef(filter);
-    filterRef.current = filter;
-
-    /*
-     * One counter for both list readers — the filter effect and `refresh` — so the
-     * last request dispatched is the only one allowed to write.
+     * The list, cached per guild and filter. The filter is the key, so a late answer for a
+     * filter the operator has moved off lands in that filter's entry and can never leave the
+     * table showing `open` tickets under a control reading "Closed".
      *
-     * A per-effect `cancelled` flag is not enough on its own: `refresh` is called after a
-     * row action and is not tied to any effect's lifetime, so without a shared counter its
-     * late response can land after a filter change and leave the table showing `open`
-     * tickets while the control reads "Closed", with nothing loading to explain it.
+     * `keepPreviousData` keeps the rows on screen while a new filter loads: only the *first*
+     * read replaces the table with a spinner, because blanking it on every debounce tick reads
+     * as a page reload rather than a filter narrowing — and typing is when it would fire most.
      */
-    const listGeneration = useRef(0);
+    const listPath = { guildId: guildId ?? '' };
+    const listParams = toListFilter(filter);
+    const listQuery = useQuery({
+        ...listTicketsOptions({ path: listPath, query: listParams }),
+        enabled: !!guildId,
+        placeholderData: keepPreviousData,
+    });
+    const tickets = listQuery.data?.tickets ?? NO_TICKETS;
+    const counts = listQuery.data?.counts ?? null;
+    const truncated = listQuery.data?.truncated ?? false;
+    const loading = listQuery.isPending;
+    const error = loadErrorMessage(listQuery.error, 'Failed to load tickets');
 
-    /**
-     * Reload the list rather than patching the row an action returned.
+    /*
+     * The config. It is read for two things only — the type dropdown's labels and knowing
+     * whether tickets are set up at all — neither of which changes while the operator
+     * filters, so it is deliberately not part of the list's key.
      *
-     * The action response carries the updated ticket, but a row patched from it would be
-     * wrong about the counts strip — which is guild-wide — and about whether the row
-     * still satisfies the current filter. Closing a ticket while filtered to `open`
-     * should remove it from view, and only a re-read does that.
+     * A failed read is non-fatal: the type dropdown falls back to "All types" and the list
+     * still renders. The list's own error state covers a guild that is genuinely unreachable.
      */
-    const refresh = useCallback(async () => {
-        if (!guildId) return;
-        const generation = ++listGeneration.current;
-        setError(null);
-        try {
-            const result = await listTickets(guildId, toListFilter(filterRef.current));
-            if (generation !== listGeneration.current) return;
-            setTickets(result.tickets);
-            setCounts(result.counts);
-            setTruncated(result.truncated);
-        } catch (err) {
-            if (generation !== listGeneration.current) return;
-            setError(err instanceof ApiError ? err.message : 'Failed to load tickets');
-        }
-    }, [guildId]);
+    const configQuery = useQuery({
+        ...getTicketsConfigOptions({ path: listPath }),
+        enabled: !!guildId,
+    });
+    const config = configQuery.data ?? null;
 
     /*
-     * The config, once. It is read for two things only — the type dropdown's labels and
-     * knowing whether tickets are set up at all — neither of which changes while the
-     * operator filters, so it is deliberately not part of the list fetch.
+     * The search box's loader: the typed text has not reached the filter yet, or the table
+     * is still showing a previous filter's rows while the new one loads.
      */
-    useEffect(() => {
-        if (!guildId) return;
-        let cancelled = false;
-        void (async () => {
-            try {
-                const { data: loaded } = await getTicketsConfig({ path: { guildId } });
-                if (!cancelled) setConfig(loaded);
-            } catch {
-                // Non-fatal: without it the type dropdown falls back to "All types" and
-                // the list still renders. The list's own error state covers the case
-                // where the guild is genuinely unreachable.
-                if (!cancelled) setConfig(null);
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [guildId]);
+    const searching = searchDraft !== filter.search || listQuery.isPlaceholderData;
 
     /*
-     * The search term, debounced into the filter. Separate from the fetch below so the
+     * The search term, debounced into the filter. Separate from the query above so the
      * non-text controls stay instant — nobody wants a 300ms wait after clicking a
      * segmented control.
      */
     useEffect(() => {
-        if (searchDraft === filter.search) {
-            // Typing a character and deleting it inside the debounce window lands here
-            // with no request ever dispatched, so nothing downstream would ever clear the
-            // spinner — it would spin until some other control was touched.
-            setSearching(false);
-            return;
-        }
-        setSearching(true);
+        if (searchDraft === filter.search) return;
         const timer = setTimeout(() => {
             setFilter((current) => ({ ...current, search: searchDraft }));
         }, SEARCH_DEBOUNCE_MS);
         return () => clearTimeout(timer);
     }, [searchDraft, filter.search]);
 
-    useEffect(() => {
-        // Clear the flag rather than just bailing. `loading` starts true so the first
-        // paint is a spinner and not an empty table; if there is no guild to read, the
-        // only code that ever lowers it never runs, and the table spins forever with no
-        // error surface to explain it. The `!selected` guard upstream makes that hard to
-        // reach — not impossible, and a permanent spinner is unexplainable.
-        if (!guildId) {
-            setLoading(false);
-            return;
-        }
-        const generation = ++listGeneration.current;
-        void (async () => {
-            setLoading(true);
-            setError(null);
-            try {
-                const result = await listTickets(guildId, toListFilter(filter));
-                if (generation !== listGeneration.current) return;
-                setTickets(result.tickets);
-                setCounts(result.counts);
-                setTruncated(result.truncated);
-            } catch (err) {
-                const message = err instanceof ApiError ? err.message : 'Failed to load tickets';
-                if (generation === listGeneration.current) setError(message);
-            } finally {
-                if (generation === listGeneration.current) {
-                    setLoading(false);
-                    setSearching(false);
-                }
-            }
-        })();
-    }, [guildId, filter]);
-
-    async function handleAction(ticket: TicketSummary, action: TicketAction) {
-        // One at a time, across the whole table. Every action ends in a full re-read, so
-        // two in flight would race each other's `refresh` as well as each other.
-        if (!guildId || acting) return;
-        setActing({ ticketId: ticket.id, action });
-        const presentation = TICKET_ACTION_PRESENTATION[action];
-        try {
-            const result = await actOnTicket(guildId, ticket.id, action);
-            notifications.show({
-                color: 'brand',
-                title: 'Done',
-                message: `${formatTicketNumber(ticket.ticketNumber)} ${presentation.done}.`,
-            });
-            /*
-             * The row changed and the channel did not. Not an error — the ticket really
-             * moved — but it names something in Discord that is now out of step, so it
-             * stays on screen until dismissed rather than sliding away on a timer.
-             */
-            if (result.syncWarning) {
-                notifications.show({
-                    color: 'red',
-                    title: 'Discord did not keep up',
-                    message: result.syncWarning,
-                    autoClose: false,
-                });
-            }
-            await refresh();
-        } catch (err) {
-            const message =
-                err instanceof ApiError ? err.message : `Couldn't ${presentation.label.toLowerCase()} that ticket.`;
-            notifications.show({ color: 'red', title: 'No dice', message });
-        } finally {
-            setActing(null);
-        }
-    }
+    // Each action ends in a re-read of the list, never a patch of the row it returned: the
+    // counts are guild-wide, and a closed ticket must leave an `open`-filtered table.
+    const { acting, act } = useTicketAction(guildId);
 
     function applyStatus(status: TicketStatusFilter): void {
         setFilter((current) => ({ ...current, status, unclaimedOnly: false }));
@@ -658,7 +544,7 @@ export function TicketsListPage() {
                                                             // buttons must not also.
                                                             onClick={(event) => {
                                                                 event.stopPropagation();
-                                                                void handleAction(ticket, action);
+                                                                act(ticket, action);
                                                             }}
                                                         >
                                                             {presentation.label}

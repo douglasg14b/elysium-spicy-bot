@@ -2,7 +2,7 @@
  * The server, read as a shape rather than a ranking — who gets how far, how long it takes
  * them, and how lopsided the XP actually is.
  *
- * Shaped after `LevelingUserPage`: same generation-counter read, same loading → error → empty
+ * Shaped after `LevelingUserPage`: same per-guild query, same loading → error → empty
  * chain, same `PAGE_MAX_WIDTH`, same breadcrumb block, same `Card p="lg"` sections, and the
  * tiles strip is `LevelingPage`'s `CountTile` — local here, as it is on both other pages, plus a
  * required `hint` for the reason its own comment gives.
@@ -24,7 +24,6 @@
  * send an operator looking for a fault that does not exist.
  */
 
-import { useEffect, useRef, useState } from 'react';
 import {
     Alert,
     Badge,
@@ -44,9 +43,14 @@ import {
     IconHourglassHigh,
     IconTrendingUp,
 } from '@tabler/icons-react';
-import { ApiError } from '../api/client';
-import { getLevelingInsights } from '../api/leveling';
-import type { LevelingCohortSummary, LevelingInsightsBody } from '../api/types';
+import { useQuery } from '@tanstack/react-query';
+import {
+    ApiError,
+    getLevelingInsightsOptions,
+    type LevelingCohortSummary,
+    type LevelingInsightsBody,
+} from '@brattybot/web-sdk';
+import { loadErrorMessage } from '../api/loadErrorMessage';
 import { LevelingTabs } from '../leveling/LevelingTabs';
 import { ChartBar } from '../leveling/ChartBar';
 // The row height comes from the chart module that owns it — and owns the comment explaining why
@@ -74,71 +78,37 @@ import { PAGE_MAX_WIDTH } from '../theme';
 export function LevelingInsightsPage() {
     const { selected, loading: guildsLoading } = useGuilds();
 
-    const [insights, setInsights] = useState<LevelingInsightsBody | null>(null);
-    const [error, setError] = useState<string | null>(null);
     /*
-     * The refusal, held separately from `error`.
+     * The report, cached per guild — the slowest read in the dashboard, since a cold one scans
+     * every logged XP day, so a guild switched mid-read is the likely case here. The key is
+     * the guild, so the first guild's late answer lands in its own entry and never under the
+     * second guild's name.
+     *
+     * No `keepPreviousData`, unlike `LevelingUserPage`, and the difference is the subject
+     * rather than a preference. There the key changes with a period switch on the *same*
+     * member, so holding the previous frame reads as a window changing; here the key is the
+     * guild alone, so a new key can only mean the server being described changed.
+     * `selected.name` in the breadcrumb updates synchronously, so keeping the old report would
+     * attribute one guild's every figure to another for as long as the slowest read takes.
+     */
+    const report = useQuery({
+        ...getLevelingInsightsOptions({ path: { guildId: selected?.id ?? '' } }),
+        enabled: !!selected,
+    });
+    const insights = report.data ?? null;
+    const loading = report.isPending;
+
+    /*
+     * The refusal, held separately from the error.
      *
      * A 503 here means the guild is too big to scan — nothing is broken and there is nothing to
-     * retry differently — so it gets its own panel rather than the red one. Collapsing the two
-     * into a single string would lose the distinction the server went out of its way to make.
+     * retry differently — so it gets its own panel rather than the red one. The status is what
+     * separates the two, not the message text: matching on wording would break the moment the
+     * server rephrases its refusal, and the server's sentence names the event count and the
+     * ceiling — figures an operator can act on — so it is shown verbatim rather than replaced.
      */
-    const [refusal, setRefusal] = useState<string | null>(null);
-    const [loading, setLoading] = useState(true);
-
-    const guildId = selected?.id;
-
-    /*
-     * A generation counter rather than a per-effect `cancelled` boolean, matching both other
-     * leveling pages. The guild can be switched twice in quick succession and this report is
-     * the slowest read in the dashboard — a cold one scans every logged XP day — so the first
-     * guild's response landing after the second's is the likely case here, not the exotic one.
-     */
-    const readGeneration = useRef(0);
-
-    useEffect(() => {
-        if (!guildId) {
-            // Lowered rather than left alone: `loading` starts true so the first paint is a
-            // spinner, and bailing without clearing it spins forever with nothing to say why.
-            setLoading(false);
-            return;
-        }
-        const generation = ++readGeneration.current;
-        void (async () => {
-            setLoading(true);
-            setError(null);
-            setRefusal(null);
-            /*
-             * Cleared, unlike `LevelingUserPage`, and the difference is the subject rather than
-             * a preference. There the refetch trigger is a period switch on the *same* member,
-             * so holding the previous frame reads as a window changing; here the read takes no
-             * parameter but the guild, so a refetch can only mean the server being described
-             * changed. `selected.name` in the breadcrumb updates synchronously, so keeping the
-             * old report would attribute one guild's every figure to another for as long as the
-             * slowest read in the dashboard takes — with nothing on screen saying so.
-             */
-            setInsights(null);
-            try {
-                const loaded = await getLevelingInsights(guildId);
-                if (generation === readGeneration.current) setInsights(loaded);
-            } catch (err) {
-                if (generation !== readGeneration.current) return;
-                /*
-                 * The status is what separates the two, not the message text. Matching on
-                 * wording would break the moment the server rephrases its refusal, and the
-                 * server's sentence names the event count and the ceiling — figures an operator
-                 * can act on — so it is shown verbatim rather than replaced.
-                 */
-                if (err instanceof ApiError && err.status === 503) {
-                    setRefusal(err.message);
-                } else {
-                    setError(err instanceof ApiError ? err.message : 'Failed to load the insights report');
-                }
-            } finally {
-                if (generation === readGeneration.current) setLoading(false);
-            }
-        })();
-    }, [guildId]);
+    const refusal = report.error instanceof ApiError && report.error.status === 503 ? report.error.message : null;
+    const error = refusal ? null : loadErrorMessage(report.error, 'Failed to load the insights report');
 
     if (guildsLoading) {
         return (
