@@ -98,14 +98,26 @@ describe('setupClient', () => {
         await expect(sdk.getGuildSettings({ path: PATH })).rejects.toBeInstanceOf(SyntaxError);
     });
 
-    it('reports a 401 to onUnauthorized', async () => {
+    it('sends every request through the fetch it was given', async () => {
+        // The dashboard's session gate rides here; the global fetch must not be reached
+        // around it.
         const sdk = await freshSdk();
-        const onUnauthorized = vi.fn();
-        sdk.setupClient({ baseUrl: BASE_URL, onUnauthorized });
-        respondWith(401, { error: 'Not authenticated' });
+        const globalFetch = vi.fn();
+        vi.stubGlobal('fetch', globalFetch);
+        const sent: string[] = [];
+        const given = async (input: RequestInfo | URL): Promise<Response> => {
+            sent.push(input instanceof Request ? input.url : String(input));
+            return new Response(JSON.stringify({ modChannelId: null, modChannelName: null }), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        };
+        sdk.setupClient({ baseUrl: BASE_URL, fetch: given });
 
-        await sdk.getWarningsConfig({ path: PATH }).catch(() => undefined);
+        const { data } = await sdk.getWarningsConfig({ path: PATH });
 
-        expect(onUnauthorized).toHaveBeenCalledOnce();
+        expect(data).toEqual({ modChannelId: null, modChannelName: null });
+        expect(sent).toEqual([`${BASE_URL}/api/guilds/${PATH.guildId}/config/warnings`]);
+        expect(globalFetch).not.toHaveBeenCalled();
     });
 });

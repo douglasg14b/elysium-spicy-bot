@@ -8,15 +8,16 @@ export interface SetupClientOptions {
      */
     readonly baseUrl: string;
     /**
-     * Called whenever the API answers 401, which means the session is gone — expired,
-     * revoked, or never established. The dashboard signs out on it. Called before the
-     * refusal is thrown, so the caller still sees its `ApiError` as well.
+     * The `fetch` every request is sent through, in place of the global one: called once
+     * per request with the built `Request` and no init, and must resolve with the server's
+     * `Response`. Defaults to `globalThis.fetch`.
+     *
+     * The seam for an app's own request policy; the SDK keeps none.
      */
-    readonly onUnauthorized?: () => void;
+    readonly fetch?: typeof globalThis.fetch;
 }
 
 let isSetUp = false;
-let unauthorizedHandler: (() => void) | undefined;
 
 /*
  * Before setup, every request fails rather than going out against the generated
@@ -30,13 +31,6 @@ client.interceptors.request.use((request) => {
         );
     }
     return request;
-});
-
-client.interceptors.response.use((response) => {
-    if (response.status === 401) {
-        unauthorizedHandler?.();
-    }
-    return response;
 });
 
 /*
@@ -60,10 +54,10 @@ client.interceptors.error.use((error, response) =>
  * Every SDK call made before this throws, and every refusal after it is thrown as an
  * `ApiError` carrying the status, the server's message and any issues.
  */
-export function setupClient({ baseUrl, onUnauthorized }: SetupClientOptions): void {
-    unauthorizedHandler = onUnauthorized;
+export function setupClient({ baseUrl, fetch }: SetupClientOptions): void {
     client.setConfig({
         baseUrl,
+        fetch,
         // The session is an HttpOnly cookie the browser attaches itself; nothing here
         // supplies a credential. Same-origin is enough because `/api` is.
         credentials: 'same-origin',

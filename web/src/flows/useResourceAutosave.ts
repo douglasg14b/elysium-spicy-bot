@@ -116,6 +116,15 @@ export function useResourceAutosave({
     /** Monotonic request number. See `shouldAcceptResponse` for why this is not a diff. */
     const issuedRef = useRef(0);
 
+    /**
+     * The last write queued, until it settles. Writes go one at a time, behind it, as the
+     * draft autosave's do: each sends the whole list, so a list the server stored after a
+     * newer one would delete what the newer one added. Side by side that needs only two
+     * writes on separate connections answered out of order — which is exactly what a lost
+     * session sets up, holding both and releasing them together once the operator is back.
+     */
+    const queueRef = useRef<Promise<void>>(Promise.resolve());
+
     /** Kept in a ref so the flush-on-unmount effect does not re-subscribe per keystroke. */
     const latestRef = useRef(resources);
     latestRef.current = resources;
@@ -203,7 +212,13 @@ export function useResourceAutosave({
             savingChange(true);
             error(null);
 
-            void storeResources(guildId, target, next)
+            const request = queueRef.current.then(() => storeResources(guildId, target, next));
+            queueRef.current = request.then(
+                () => undefined,
+                () => undefined
+            );
+
+            void request
                 .then((stored) => {
                     // A response that a later edit has already superseded is dropped
                     // rather than applied. Applying it is the revert.

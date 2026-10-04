@@ -12,6 +12,10 @@ export interface DashboardRequest {
 export interface DashboardApi {
     /** Every request the dashboard sent, in order. */
     readonly requests: readonly DashboardRequest[];
+    /** The operator's session runs out: `/me` and every guarded route answer 401 until restored. */
+    readonly expireSession: () => void;
+    /** The operator has signed in again, as the same person. */
+    readonly restoreSession: () => void;
 }
 
 /** Signed in when a test does not say who. Not a guild member; a test that needs one passes it. */
@@ -31,7 +35,13 @@ const DEFAULT_OPERATOR: DashboardOperator = { id: '100000000000000001', username
 export function installDashboardApi(client: Client<true>, operator: DashboardOperator = DEFAULT_OPERATOR): DashboardApi {
     const requests: DashboardRequest[] = [];
     const faults: string[] = [];
-    const app = buildDashboardApp({ client, operator, onFault: (fault) => faults.push(fault) });
+    let sessionLive = true;
+    const app = buildDashboardApp({
+        client,
+        operator,
+        onFault: (fault) => faults.push(fault),
+        sessionLive: () => sessionLive,
+    });
 
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         // As a `Request`, because the generated SDK calls `fetch(request)` with no init
@@ -50,5 +60,13 @@ export function installDashboardApi(client: Client<true>, operator: DashboardOpe
         }
     });
 
-    return { requests };
+    return {
+        requests,
+        expireSession: () => {
+            sessionLive = false;
+        },
+        restoreSession: () => {
+            sessionLive = true;
+        },
+    };
 }

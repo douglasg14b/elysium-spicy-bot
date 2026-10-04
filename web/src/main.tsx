@@ -10,12 +10,13 @@ import '@mantine/notifications/styles.css';
 import { theme } from './theme';
 import { App } from './App';
 import { createDashboardQueryClient } from './api/queryClient';
-import { reportSessionLost } from './auth/sessionLoss';
+import { sessionGatedFetch } from './auth/sessionGate';
 import { CrashPage } from './pages/CrashPage';
 
-// Same origin: the spec's paths already carry `/api`, and Vite proxies it in dev. A 401
-// from any call means the session is gone, and `AuthProvider` signs the dashboard out.
-setupClient({ baseUrl: '', onUnauthorized: reportSessionLost });
+// Same origin: the spec's paths already carry `/api`, and Vite proxies it in dev. Every
+// call goes through the session gate, which holds it while a lost session is signed in
+// again rather than failing it.
+setupClient({ baseUrl: '', fetch: sessionGatedFetch });
 
 const queryClient = createDashboardQueryClient();
 

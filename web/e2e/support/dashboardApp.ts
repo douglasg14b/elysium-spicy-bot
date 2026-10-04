@@ -1,5 +1,5 @@
 import type { Client } from 'discord.js';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { resolveFlavour, type BotIdentityResponse } from '../../../src/web/api/botRoutes';
 import { flowRoutes } from '../../../src/web/api/flowRoutes';
 import { guildRoutes } from '../../../src/web/api/guildRoutes';
@@ -18,6 +18,12 @@ export interface DashboardAppOptions {
     readonly operator: DashboardOperator;
     /** Called for anything the product would not normally answer; see {@link buildDashboardApp}. */
     readonly onFault: (fault: string) => void;
+    /**
+     * Whether the operator's session is still live, asked per request. While it is not,
+     * `/api/auth/me` and every route `requireAuth` guards answer its 401; `/api/bot` and
+     * `/api/health` still answer. Live throughout when not given.
+     */
+    readonly sessionLive?: () => boolean;
 }
 
 /**
@@ -31,7 +37,8 @@ export interface DashboardAppOptions {
  *    OAuth and `requireGuildAccess` re-checks the member's permissions live. Here every
  *    request is {@link DashboardAppOptions.operator}, and a guild route resolves its guild
  *    from `client`, the way `requireGuildAccess` resolves it from the bot's cache. Who may
- *    reach a guild has its own suite.
+ *    reach a guild has its own suite. A session running out is
+ *    {@link DashboardAppOptions.sessionLive}.
  *  - **The three answers that read `DISCORD_CLIENT` directly**: `/api/auth/me`,
  *    `/api/bot`, and the guild list. Each is answered from `client` instead. The guild
  *    list is declared before `guildRoutes` so it answers first.
@@ -45,9 +52,11 @@ export interface DashboardAppOptions {
  * turns each of those into a quiet error message, so each goes to `onFault`. Designed
  * refusals, the 4xx a route returns itself, reach the page as normal.
  */
-export function buildDashboardApp({ client, operator, onFault }: DashboardAppOptions): Hono<AppEnv> {
+export function buildDashboardApp({ client, operator, onFault, sessionLive = () => true }: DashboardAppOptions): Hono<AppEnv> {
     const app = new Hono<AppEnv>();
     const user: SessionUser = { ...operator, avatar: null, manageableGuildIds: [...client.guilds.cache.keys()] };
+    // What `requireAuth` and `/me` answer without a session.
+    const notAuthenticated = (c: Context<AppEnv>) => c.json({ error: 'Not authenticated' }, 401);
 
     app.get('/api/health', (c) => c.json({ ok: true, service: 'brattybot-web', time: new Date().toISOString() }));
     app.get('/api/bot', (c) =>
@@ -58,10 +67,13 @@ export function buildDashboardApp({ client, operator, onFault }: DashboardAppOpt
             flavour: resolveFlavour(client.user.username),
         })
     );
-    app.get('/api/auth/me', (c) => c.json({ id: user.id, username: user.username, avatar: user.avatar }));
-    app.post('/api/auth/logout', (c) => c.json({ ok: true }));
+    app.get('/api/auth/me', (c) =>
+        sessionLive() ? c.json({ id: user.id, username: user.username, avatar: user.avatar }) : notAuthenticated(c)
+    );
+    app.post('/api/auth/logout', (c) => (sessionLive() ? c.json({ ok: true }) : notAuthenticated(c)));
 
     app.use('/api/*', async (c, next) => {
+        if (!sessionLive()) return notAuthenticated(c);
         c.set('user', user);
         await next();
     });

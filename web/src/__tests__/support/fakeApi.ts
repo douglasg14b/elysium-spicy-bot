@@ -34,7 +34,7 @@ export interface FakeApi {
  * Stand in for the bot's HTTP API underneath `@brattybot/web-sdk`, for one test.
  *
  * `fetch` is replaced rather than the SDK mocked, so the client's own error handling —
- * `ApiError`, the `error` body field, 204s, the 401 sign-out — runs as it does in the
+ * `ApiError`, the `error` body field, 204s, the session gate holding a 401 — runs as it does in the
  * browser.
  *
  * **A request nothing answers is a fault, not a 404.** The dialogs catch API errors and
