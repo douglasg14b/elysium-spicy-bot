@@ -6,6 +6,8 @@ import { TICKET_LIST_CAP, ticketsRepo } from '../../features/tickets/data/ticket
 import {
     isTicketingConfigConfigured,
     TICKET_CATEGORY_SLOTS,
+    TICKET_TYPE_KEY_MAX_LENGTH,
+    TICKET_TYPE_LABEL_MAX_LENGTH,
     type TicketCategoryBinding,
     type TicketCategorySlot,
     type TicketingConfig,
@@ -20,9 +22,10 @@ import {
     applyTicketTransition,
     type TicketTransition,
 } from '../../features/tickets/logic/applyTicketTransition';
-import { getTicketTypeDefinition } from '../../features/tickets/logic/ticketTypes';
+import { getTicketTypeDefinition, listTicketTypes } from '../../features/tickets/logic/ticketTypes';
 import {
     deleteTicketType,
+    TICKET_TYPE_LABEL_TOO_LONG_MESSAGE,
     upsertTicketType,
     type SetTicketTypeRefusal,
 } from '../../features/tickets/logic/setTicketTypes';
@@ -46,15 +49,6 @@ import type { AppEnv } from '../types';
 
 /** Only these narrow a list. `all` is the absence of a filter, not a fourth status. */
 const statusFilter = z.enum(TICKET_STATUSES);
-
-/**
- * How long a ticket-type key may be, used to bound the `?type=` filter.
- *
- * Types are guild-defined, so there is no closed vocabulary to validate the filter
- * against — but an unbounded string still reaches a query predicate on every request. 64
- * is far more than any key the type editor produces and still a bound.
- */
-const TICKET_TYPE_KEY_MAX_LENGTH = 64;
 
 /**
  * A ceiling on the moderation-role list, and on how much of a rejection is echoed back.
@@ -86,7 +80,11 @@ const ticketRolePermissions = z.object({
  * surface shares.
  */
 const ticketTypeBody = z.object({
-    label: z.string().trim().min(1, 'Give the type a label — operators have to pick it out of a list.'),
+    label: z
+        .string()
+        .trim()
+        .min(1, 'Give the type a label — operators have to pick it out of a list.')
+        .max(TICKET_TYPE_LABEL_MAX_LENGTH, TICKET_TYPE_LABEL_TOO_LONG_MESSAGE),
     nameTemplate: z
         .string()
         .trim()
@@ -670,17 +668,13 @@ function ticketingConfigView(guild: Guild, config: TicketingConfig | null): Tick
             .map((roleId) => guild.roles.cache.get(roleId))
             .filter((role): role is NonNullable<typeof role> => !!role)
             .map((role) => ({ id: role.id, name: role.name })),
-        // Sorted by label so the editor's row order does not depend on JSON key order,
-        // which is insertion-ordered and would shuffle when a type is replaced.
-        types: Object.values(config?.ticketTypes ?? {})
-            .map((definition) => ({
-                type: definition.type,
-                label: definition.label,
-                nameTemplate: definition.nameTemplate,
-                permissions: definition.permissions,
-                autoClaimOnOpen: definition.autoClaimOnOpen,
-            }))
-            .sort((left, right) => left.label.localeCompare(right.label)),
+        types: (config ? listTicketTypes(config) : []).map((definition) => ({
+            type: definition.type,
+            label: definition.label,
+            nameTemplate: definition.nameTemplate,
+            permissions: definition.permissions,
+            autoClaimOnOpen: definition.autoClaimOnOpen,
+        })),
     };
 }
 

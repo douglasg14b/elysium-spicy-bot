@@ -90,6 +90,26 @@ export interface TicketTypeDefinition {
 }
 
 /**
+ * The longest a ticket-type key may be.
+ *
+ * A key is a select option's value in the mod ticket modal (Discord caps those at 100), a
+ * flow `select` value, and the `?type=` list filter. 64 is far more than any key the type
+ * editor produces and still a bound. Mirrored in `web/src/tickets/ticketTypeForm.ts`.
+ */
+export const TICKET_TYPE_KEY_MAX_LENGTH = 64;
+
+/**
+ * The longest a ticket-type label may be.
+ *
+ * 45 because the label is a select option in the mod ticket modal, and
+ * `@discordjs/builders` validates an option inside a modal's labelled select against its
+ * 45-character label rule, so a longer one makes `showModal` throw. Discord's own option
+ * limit is 100; the builders are the binding constraint. Mirrored in
+ * `web/src/tickets/ticketTypeForm.ts`.
+ */
+export const TICKET_TYPE_LABEL_MAX_LENGTH = 45;
+
+/**
  * The three places a ticket channel can sit, by where the ticket is in its life.
  *
  * `open` is unclaimed, `claimed` is open and owned, `closed` covers closed and deleted.

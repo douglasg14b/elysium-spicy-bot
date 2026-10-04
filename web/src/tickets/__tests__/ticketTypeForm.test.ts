@@ -99,6 +99,16 @@ describe('validateTicketTypeDraft key and label rules', () => {
         expect(validateTicketTypeDraft(draft({ label: '  ' })).label).toBeTruthy();
     });
 
+    it('rejects a key over 64 characters and accepts one of exactly 64, as the server does', () => {
+        expect(validateTicketTypeDraft(draft({ type: 'a'.repeat(65) })).type).toContain('64 characters');
+        expect(validateTicketTypeDraft(draft({ type: 'a'.repeat(64) })).type).toBeUndefined();
+    });
+
+    it('rejects a label over 45 characters, measured after trimming, as the server does', () => {
+        expect(validateTicketTypeDraft(draft({ label: 'A'.repeat(46) })).label).toContain('45 characters');
+        expect(validateTicketTypeDraft(draft({ label: `  ${'A'.repeat(45)}  ` })).label).toBeUndefined();
+    });
+
     it('reports every bad field at once rather than one per submission', () => {
         const problems = validateTicketTypeDraft(
             draft({ type: 'Bad Key', label: '', nameTemplate: 'A{{user}}' })

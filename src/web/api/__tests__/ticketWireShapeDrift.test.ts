@@ -14,6 +14,12 @@ import {
     TICKET_TYPE_VIEW_KEYS,
 } from '../ticketRoutes';
 import * as browserTypes from '../../../../web/src/api/types';
+// Also a leaf: it imports only types from `api/types.ts`.
+import * as browserTicketTypeForm from '../../../../web/src/tickets/ticketTypeForm';
+import {
+    TICKET_TYPE_KEY_MAX_LENGTH,
+    TICKET_TYPE_LABEL_MAX_LENGTH,
+} from '../../../features/tickets/data/ticketingSchema';
 
 /**
  * The drift gate between the ticket wire shapes and the browser's copy of them.
@@ -121,6 +127,13 @@ describe('ticket wire shape drift between server and browser', () => {
                 'row filter and `availableActions` switch on — so widening one alone leaves the ' +
                 'dashboard unable to type a status it is being sent, or offering no actions for it.'
         ).toEqual(serverStatuses);
+    });
+
+    it('keeps the ticket type key and label limits identical on both sides', () => {
+        // The browser's form refuses past these before a round trip. Looser than the server
+        // and the operator meets a banner after saving; stricter and a legal type is unsavable.
+        expect(browserTicketTypeForm.TICKET_TYPE_KEY_MAX_LENGTH).toBe(TICKET_TYPE_KEY_MAX_LENGTH);
+        expect(browserTicketTypeForm.TICKET_TYPE_LABEL_MAX_LENGTH).toBe(TICKET_TYPE_LABEL_MAX_LENGTH);
     });
 
     it('does not mirror a ticket type union, because there is deliberately no longer one', () => {

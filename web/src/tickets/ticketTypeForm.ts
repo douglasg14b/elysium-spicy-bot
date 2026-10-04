@@ -28,6 +28,14 @@ export const SUPPORTED_TEMPLATE_TOKENS = ['####', 'subject', 'opener'] as const;
 /** Discord's hard cap on a channel name. */
 const CHANNEL_NAME_MAX_LENGTH = 100;
 
+/**
+ * Mirrored from `TICKET_TYPE_KEY_MAX_LENGTH` and `TICKET_TYPE_LABEL_MAX_LENGTH` in
+ * `src/features/tickets/data/ticketingSchema.ts`, which say why each is what it is (the
+ * label one is the mod ticket modal's select). `ticketWireShapeDrift.test.ts` holds them equal.
+ */
+export const TICKET_TYPE_KEY_MAX_LENGTH = 64;
+export const TICKET_TYPE_LABEL_MAX_LENGTH = 45;
+
 /** A type as the modal holds it while being edited. The key is separate — it is identity. */
 export interface TicketTypeDraft {
     readonly type: string;
@@ -71,10 +79,17 @@ export function validateTicketTypeDraft(draft: TicketTypeDraft): TicketTypeDraft
         // The key reaches a channel name and a flow `select` value, so it is restricted
         // rather than merely non-blank. Same expression the server uses.
         problems.type = 'Lowercase letters, digits, `-` and `_` only. The label is where you get to be expressive.';
+    } else if (type.length > TICKET_TYPE_KEY_MAX_LENGTH) {
+        problems.type = `A key caps out at ${TICKET_TYPE_KEY_MAX_LENGTH} characters. It's an identifier, not a manifesto.`;
     }
 
-    if (!draft.label.trim()) {
+    const label = draft.label.trim();
+    if (!label) {
         problems.label = 'Give it a label — operators have to pick it out of a list.';
+    } else if (label.length > TICKET_TYPE_LABEL_MAX_LENGTH) {
+        problems.label =
+            `A label caps out at ${TICKET_TYPE_LABEL_MAX_LENGTH} characters — ` +
+            'the mod ticket picker in Discord will not show more. Keep it snappy.';
     }
 
     const template = draft.nameTemplate.trim();

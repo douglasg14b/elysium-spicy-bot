@@ -274,6 +274,41 @@ describe('upsertTicketType persistence', () => {
 
         expect((await upsertTicketType('guild-1', definition({ type: 'Appeals & Bans' }), deps)).ok).toBe(false);
     });
+
+    it('refuses a key over 64 characters, naming the limit, and writes nothing', async () => {
+        const { deps, update } = harness();
+
+        const result = await upsertTicketType('guild-1', definition({ type: 'a'.repeat(65) }), deps);
+
+        expect(result.ok === false && result.reason).toBe('invalid-input');
+        expect(result.ok === false && result.message).toContain('64 characters');
+        expect(update).not.toHaveBeenCalled();
+    });
+
+    it('accepts a key of exactly 64 characters', async () => {
+        const { deps } = harness();
+
+        expect((await upsertTicketType('guild-1', definition({ type: 'a'.repeat(64) }), deps)).ok).toBe(true);
+    });
+
+    it('refuses a label over 45 characters — the Discord picker cannot show it — and writes nothing', async () => {
+        const { deps, update } = harness();
+
+        const result = await upsertTicketType('guild-1', definition({ label: 'A'.repeat(46) }), deps);
+
+        expect(result.ok === false && result.reason).toBe('invalid-input');
+        expect(result.ok === false && result.message).toContain('45 characters');
+        expect(update).not.toHaveBeenCalled();
+    });
+
+    it('measures the label after trimming, so padding does not count against it', async () => {
+        const { deps, written } = harness();
+
+        const result = await upsertTicketType('guild-1', definition({ label: `  ${'A'.repeat(45)}  ` }), deps);
+
+        expect(result.ok).toBe(true);
+        expect(written().ticketTypes?.appeals.label).toBe('A'.repeat(45));
+    });
 });
 
 describe('deleteTicketType', () => {

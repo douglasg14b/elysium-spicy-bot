@@ -7,11 +7,19 @@ import {
     TextChannel,
     UserSelectMenuBuilder,
     LabelBuilder,
+    StringSelectMenuBuilder,
+    StringSelectMenuOptionBuilder,
+    DiscordjsErrorCodes,
+    DiscordjsTypeError,
 } from 'discord.js';
 import { DISCORD_CLIENT } from '../../../discordClient';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { ticketingRepo } from '../data/ticketingRepo';
-import { isTicketingConfigConfigured } from '../data/ticketingSchema';
+import {
+    isTicketingConfigConfigured,
+    TICKET_TYPE_LABEL_MAX_LENGTH,
+    type TicketTypeDefinition,
+} from '../data/ticketingSchema';
 import { attachTicketChannel, openTicket, recordTicketStateMessage } from '../ticketService';
 import { createTicketChannelForTicket } from '../logic/ticketChannelOps';
 import { buildTicketButtons, buildTicketEmbed } from '../logic/ticketPresentation';
@@ -21,22 +29,78 @@ import { TICKETING_NOT_CONFIGURED_MESSAGE, ticketErrorMessage } from '../logic/t
 
 const MOD_TICKET_MODAL_ID = 'mod_ticket_create_modal';
 
-/**
- * The type this panel opens.
- *
- * Still a fixed key: the mod panel is a one-button surface and choosing a type is
- * a UI question the panel does not yet ask. It now has to *exist* in the guild's
- * config rather than being guaranteed by a source-level union, which is why the
- * handler refuses by name when it does not.
- */
-const MOD_TICKET_TYPE = 'support';
-
+const TYPE_INPUT_ID = 'mod_ticket_type_input';
 const USER_INPUT_ID = 'mod_ticket_user_input';
 const TITLE_INPUT_ID = 'mod_ticket_title_input';
 const REASON_INPUT_ID = 'mod_ticket_reason_input';
 
+/** Discord refuses a string select with more options than this. */
+const SELECT_OPTION_LIMIT = 25;
+
+/**
+ * **A bridge, to be removed.** Saving a type now refuses a label over
+ * `TICKET_TYPE_LABEL_MAX_LENGTH` (45 — the builders' limit for an option in a modal's
+ * labelled select), but rows saved before that limit existed can still hold a longer one,
+ * and one of those would make `showModal` throw for the whole guild. This cut keeps the
+ * picker working for them; once no stored label exceeds the limit it can go. The value
+ * is the key, so the cut label never decides which type is opened.
+ *
+ * Cut in UTF-16 units, as the validator counts, without leaving half an emoji behind.
+ */
+function optionLabel(label: string): string {
+    if (label.length <= TICKET_TYPE_LABEL_MAX_LENGTH) {
+        return label;
+    }
+    return `${label.slice(0, TICKET_TYPE_LABEL_MAX_LENGTH - 1).replace(/[\uD800-\uDBFF]$/, '')}…`;
+}
+
+/**
+ * The type picker, offering the guild's declared types in the order given — callers
+ * pass `listTicketTypes(config)`, the order every surface lists them in.
+ *
+ * Past Discord's 25 the rest are named in a warning, and the placeholder tells the
+ * moderator the list is short, rather than dropping them quietly.
+ */
+function buildTypeSelect(ticketTypes: readonly TicketTypeDefinition[]): StringSelectMenuBuilder {
+    const offered = ticketTypes.slice(0, SELECT_OPTION_LIMIT);
+    const omitted = ticketTypes.slice(SELECT_OPTION_LIMIT);
+    if (omitted.length > 0) {
+        console.warn(
+            `Mod ticket modal: ${ticketTypes.length} ticket types declared but Discord shows only ` +
+                `${SELECT_OPTION_LIMIT}; not offered: ${omitted.map((definition) => definition.type).join(', ')}`
+        );
+    }
+
+    return new StringSelectMenuBuilder()
+        .setCustomId(TYPE_INPUT_ID)
+        .setRequired(true)
+        .setMinValues(1)
+        .setMaxValues(1)
+        .setPlaceholder(
+            omitted.length > 0
+                ? `Pick a ticket type (${offered.length} of ${ticketTypes.length} shown, Discord's cap)`
+                : 'Pick a ticket type'
+        )
+        .addOptions(
+            offered.map((definition) =>
+                new StringSelectMenuOptionBuilder()
+                    .setValue(definition.type)
+                    .setLabel(optionLabel(definition.label))
+                    .setDefault(offered.length === 1)
+            )
+        );
+}
+
 export function CreateModTicketModalComponent() {
-    function buildComponent() {
+    /**
+     * Built per guild at show time, because the type options are the guild's own.
+     * The registry reads only the `custom_id`, so registration passes no types.
+     */
+    function buildComponent(ticketTypes: readonly TicketTypeDefinition[]): ModalBuilder {
+        const typeLabel = new LabelBuilder()
+            .setLabel('Type')
+            .setStringSelectMenuComponent(buildTypeSelect(ticketTypes));
+
         const userLabel = new LabelBuilder()
             .setLabel('User')
             .setUserSelectMenuComponent(
@@ -62,7 +126,7 @@ export function CreateModTicketModalComponent() {
         const modal = new ModalBuilder()
             .setCustomId(MOD_TICKET_MODAL_ID)
             .setTitle('Create Mod Ticket')
-            .addLabelComponents(userLabel)
+            .addLabelComponents(typeLabel, userLabel)
             .addComponents(
                 new ActionRowBuilder<TextInputBuilder>({ components: [titleInput] }),
                 new ActionRowBuilder<TextInputBuilder>({ components: [reasonInput] })
@@ -72,6 +136,24 @@ export function CreateModTicketModalComponent() {
     }
 
     async function handler(interaction: ModalSubmitInteraction): Promise<InteractionHandlerResult> {
+        // Required, so a current form always carries exactly one value. A form opened
+        // before the picker shipped has no such field, and discord.js throws for that.
+        let pickedType: string;
+        try {
+            pickedType = interaction.fields.getStringSelectValues(TYPE_INPUT_ID)[0];
+        } catch (error) {
+            if (
+                error instanceof DiscordjsTypeError &&
+                error.code === DiscordjsErrorCodes.ModalSubmitInteractionFieldNotFound
+            ) {
+                return {
+                    status: 'error',
+                    message:
+                        "❌ This form is out of date — it's older than the bot's last update. Open the panel again.",
+                };
+            }
+            throw error;
+        }
         const userInput = interaction.fields.getSelectedUsers(USER_INPUT_ID);
         const title = interaction.fields.getTextInputValue(TITLE_INPUT_ID);
         const reason = interaction.fields.getTextInputValue(REASON_INPUT_ID) || 'No additional details provided';
@@ -105,13 +187,16 @@ export function CreateModTicketModalComponent() {
         }
         const ticketsConfig = configEntity.config;
 
-        // Resolved before anything is written. A guild that deleted its support type
-        // gets told which type is missing rather than a half-made ticket.
-        const definition = getTicketTypeDefinition(ticketsConfig, MOD_TICKET_TYPE);
+        // Resolved before anything is written. The type was offered when the modal
+        // opened, but it can be deleted while the moderator is typing, so the guild
+        // that lost it gets told which one rather than a half-made ticket.
+        const definition = getTicketTypeDefinition(ticketsConfig, pickedType);
         if (!definition) {
             return {
                 status: 'error',
-                message: `❌ This server has no \`${MOD_TICKET_TYPE}\` ticket type declared. Add it back in the ticket config before opening one.`,
+                message:
+                    `❌ The \`${pickedType}\` ticket type got deleted while you were busy typing. ` +
+                    'Open the panel again and pick one that still exists.',
             };
         }
 
@@ -135,7 +220,7 @@ export function CreateModTicketModalComponent() {
 
             const ticketResult = await openTicket({
                 guildId: interaction.guild.id,
-                type: MOD_TICKET_TYPE,
+                type: pickedType,
                 definition,
                 subjectId: targetUser.id,
                 openerId: interaction.user.id,
@@ -217,7 +302,7 @@ export function CreateModTicketModalComponent() {
 
     return {
         handler,
-        component: buildComponent(),
+        component: buildComponent,
         interactionId: MOD_TICKET_MODAL_ID,
     };
 }

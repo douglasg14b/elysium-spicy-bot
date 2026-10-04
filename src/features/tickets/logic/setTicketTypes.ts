@@ -1,5 +1,10 @@
 import { ticketingRepo, type TicketingRepo } from '../data/ticketingRepo';
-import type { TicketingConfig, TicketTypeDefinition } from '../data/ticketingSchema';
+import {
+    TICKET_TYPE_KEY_MAX_LENGTH,
+    TICKET_TYPE_LABEL_MAX_LENGTH,
+    type TicketingConfig,
+    type TicketTypeDefinition,
+} from '../data/ticketingSchema';
 import { buildTicketChannelName } from './ticketTypes';
 import { ticketTypeInUseRefusal, ticketTypeIsHeld, ticketTypeUsage, type TicketTypeUsageDeps } from './ticketTypeInUse';
 
@@ -71,6 +76,11 @@ export interface SetTicketTypesDeps {
 /** The refusal a caller sees when the guild has no config row to edit. */
 const NO_CONFIG_MESSAGE =
     'This server has no ticket config yet. Deploy the ticket system first, then come back.';
+
+/** The refusal for an over-long label. Exported so the route's body schema says the same thing. */
+export const TICKET_TYPE_LABEL_TOO_LONG_MESSAGE =
+    `A label caps out at ${TICKET_TYPE_LABEL_MAX_LENGTH} characters — ` +
+    'the mod ticket picker in Discord will not show more. Keep it snappy.';
 
 /** The only tokens `buildTicketChannelName` implements. Anything else is rejected by name. */
 const SUPPORTED_TOKENS = ['####', 'subject', 'opener'] as const;
@@ -190,11 +200,28 @@ export async function upsertTicketType(
         };
     }
 
-    if (!input.label.trim()) {
+    if (type.length > TICKET_TYPE_KEY_MAX_LENGTH) {
+        return {
+            ok: false,
+            reason: 'invalid-input',
+            message: `A key caps out at ${TICKET_TYPE_KEY_MAX_LENGTH} characters. It's an identifier, not a manifesto.`,
+        };
+    }
+
+    const label = input.label.trim();
+    if (!label) {
         return {
             ok: false,
             reason: 'invalid-input',
             message: 'Give the type a label — operators have to pick it out of a list.',
+        };
+    }
+
+    if (label.length > TICKET_TYPE_LABEL_MAX_LENGTH) {
+        return {
+            ok: false,
+            reason: 'invalid-input',
+            message: TICKET_TYPE_LABEL_TOO_LONG_MESSAGE,
         };
     }
 
@@ -203,7 +230,7 @@ export async function upsertTicketType(
     // a type visible in the config that every lookup misses — and `type` living inside
     // the record as well as being its map key exists precisely so the two cannot
     // disagree.
-    const definition: TicketTypeDefinition = { ...input, type, label: input.label.trim() };
+    const definition: TicketTypeDefinition = { ...input, type, label };
 
     const problem = templateProblem(definition);
     if (problem) {

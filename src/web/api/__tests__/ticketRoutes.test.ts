@@ -53,7 +53,18 @@ vi.mock('../../../features/tickets/data/ticketsRepo', async () => {
 });
 vi.mock('../../../features/tickets/data/ticketingRepo', () => ({ ticketingRepo: ticketingRepoMock }));
 vi.mock('../../../features/tickets/logic/applyTicketTransition', () => ({ applyTicketTransition }));
-vi.mock('../../../features/tickets/logic/setTicketTypes', () => ({ upsertTicketType, deleteTicketType }));
+// The label refusal is the real one for the same reason as the cap above: the body schema
+// imports it beside the two functions, and a whole-module mock would make it `undefined`.
+vi.mock('../../../features/tickets/logic/setTicketTypes', async () => {
+    const actual = await vi.importActual<typeof import('../../../features/tickets/logic/setTicketTypes')>(
+        '../../../features/tickets/logic/setTicketTypes'
+    );
+    return {
+        upsertTicketType,
+        deleteTicketType,
+        TICKET_TYPE_LABEL_TOO_LONG_MESSAGE: actual.TICKET_TYPE_LABEL_TOO_LONG_MESSAGE,
+    };
+});
 // Whether the save creates, adopts and keeps correctly is settled against TestDiscord in
 // `setTicketSettings.integration.test.ts`; here only the routing is under test.
 vi.mock('../../../features/tickets/logic/setTicketSettings', () => ({ setTicketSettings }));
@@ -605,6 +616,17 @@ describe('PUT /:guildId/config/tickets/types/:type', () => {
             GUILD_ID,
             expect.objectContaining({ type: 'appeals' })
         );
+    });
+
+    it('rejects a label longer than the Discord picker can show, naming the limit', async () => {
+        const response = await send('/config/tickets/types/appeals', 'PUT', {
+            ...validTypeBody,
+            label: 'A'.repeat(46),
+        });
+
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as ErrorBody).error).toContain('45 characters');
+        expect(upsertTicketType).not.toHaveBeenCalled();
     });
 
     it('rejects a body missing the permission model', async () => {

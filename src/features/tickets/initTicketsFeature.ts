@@ -23,7 +23,11 @@ export function initTicketsFeature(): void {
         CreateModTicketButtonComponent(true).component,
         CreateModTicketButtonComponent(true).handler
     );
-    interactionsRegistry.register(CreateModTicketModalComponent().component, CreateModTicketModalComponent().handler);
+    // Registration reads only the modal's custom_id; the button builds the real one per guild.
+    interactionsRegistry.register(
+        CreateModTicketModalComponent().component([]),
+        CreateModTicketModalComponent().handler
+    );
 
     // Register ticket configuration components
     interactionsRegistry.register(TicketConfigModalComponent().component(), TicketConfigModalComponent().handler);
