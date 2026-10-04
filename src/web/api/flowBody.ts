@@ -431,8 +431,8 @@ export function flowSummary(flow: FlowEntity, entry: FlowJourneyIndexEntry | und
  * moves to the SDK, whose types are generated from the schemas above. The list row has
  * no list here: the flows list reads the SDK's `FlowSummary` already.
  *
- * Data rather than a type import for the reason `TICKET_SUMMARY_KEYS` gives: a single
- * `import type` from `src/` into `web/src/` pulls the bot tree into the browser project's
+ * Data rather than a type import because a single `import type` from `src/` into
+ * `web/src/` pulls the bot tree into the browser project's
  * compilation. `satisfies` holds each list to its type, and the check below fails to
  * compile when the type gains a member the list does not name.
  */

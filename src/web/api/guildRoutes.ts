@@ -31,7 +31,8 @@ import {
  *
  * What a schema states here is also what the dashboard checks before sending, through
  * the zod the SDK generates from the spec — so a rule belongs here only if the server
- * enforces it. The messages do not cross; the browser learns *whether*, not *why*.
+ * enforces it. A rule's fixed message crosses with it (`requestMessages.ts`), so the
+ * browser refuses with the same sentence the server would.
  */
 
 const WarningsConfigUpdateSchema = z

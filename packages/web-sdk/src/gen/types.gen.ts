@@ -274,6 +274,163 @@ export type PublishedResource = {
     survivors?: Array<string>;
 };
 
+/**
+ * The ticket after a lifecycle action. `syncWarning` is set when the ticket changed and its channel did not follow — on a close, that the subject may still be able to read it. Show it.
+ */
+export type TicketActionResult = TicketDetail & {
+    syncWarning: string | null;
+};
+
+/**
+ * One category slot. `name` is the expected name, `liveName` what Discord calls the bound category now (null when nothing is bound, or it is gone). A `name` with no `discordId` is linked to nothing yet, and tickets stop until it is.
+ */
+export type TicketCategoryView = {
+    discordId: string | null;
+    liveName: string | null;
+    name: string;
+    provenance: 'created' | 'adopted' | null;
+};
+
+/**
+ * The server's ticket totals, whatever the list is filtered to.
+ */
+export type TicketCounts = {
+    closed: number;
+    open: number;
+    unclaimed: number;
+};
+
+/**
+ * One ticket in full: the list row plus its reason and timeline. The conversation is not here; it lives in the Discord channel.
+ */
+export type TicketDetail = TicketSummary & {
+    claimedAt: string | null;
+    closedAt: string | null;
+    deletedAt: string | null;
+    reason: string;
+};
+
+/**
+ * The tickets matching the filter, newest first. `truncated` means the list was capped and more match; `counts` still reports the whole server.
+ */
+export type TicketList = {
+    counts: TicketCounts;
+    tickets: Array<TicketSummary>;
+    truncated: boolean;
+};
+
+/**
+ * A person on a ticket, as the row recorded them. Both names are null on a row written before names were recorded; show the id then.
+ */
+export type TicketParticipant = {
+    id: string;
+    nickname: string | null;
+    username: string | null;
+};
+
+/**
+ * Who may do what in a ticket channel: `subject` is who the ticket is about, `opener` whoever filed it, `staff` the moderation roles.
+ */
+export type TicketPermissionModel = {
+    opener: TicketRolePermissions;
+    staff: TicketRolePermissions;
+    subject: TicketRolePermissions;
+};
+
+/**
+ * What one person on a ticket may do in its channel.
+ */
+export type TicketRolePermissions = {
+    manageMessages: boolean;
+    readHistory: boolean;
+    send: boolean;
+    view: boolean;
+};
+
+export type TicketStatus = 'open' | 'closed' | 'deleted';
+
+/**
+ * A row in the tickets list. `typeLabel` is null when the server no longer declares the ticket's type; show `type` then.
+ */
+export type TicketSummary = {
+    channelId: string | null;
+    claimer: TicketParticipant | null;
+    id: number;
+    openedAt: string;
+    opener: TicketParticipant | null;
+    status: TicketStatus;
+    subject: TicketParticipant;
+    ticketNumber: number;
+    title: string;
+    type: string;
+    typeLabel: string | null;
+    updatedAt: string;
+};
+
+/**
+ * A ticket type, without its key: that is the path.
+ */
+export type TicketTypeUpdate = {
+    autoClaimOnOpen: boolean;
+    label: string;
+    nameTemplate: string;
+    permissions: TicketPermissionModel;
+};
+
+/**
+ * One declared ticket type. `type` is its key: identity, fixed once saved.
+ */
+export type TicketTypeView = {
+    autoClaimOnOpen: boolean;
+    label: string;
+    nameTemplate: string;
+    permissions: TicketPermissionModel;
+    type: string;
+};
+
+/**
+ * The server's ticket settings and declared types. `categories` is null per slot when nothing is chosen. A saved moderation role that no longer exists stays in `moderationRoleIds` and is missing from `moderationRoles`.
+ */
+export type TicketingConfigView = {
+    categories: {
+        claimed: TicketCategoryView | null;
+        closed: TicketCategoryView | null;
+        open: TicketCategoryView | null;
+    };
+    configured: boolean;
+    deployed: boolean;
+    moderationRoleIds: Array<string>;
+    moderationRoles: Array<{
+        id: string;
+        name: string;
+    }>;
+    types: Array<TicketTypeView>;
+};
+
+/**
+ * The category slots and moderation roles. A slot given a `name` is created in Discord on save; `null` leaves a slot as it is.
+ */
+export type TicketsConfigUpdate = {
+    categories: {
+        claimed: {
+            discordId: string;
+        } | {
+            name: string;
+        } | null;
+        closed: {
+            discordId: string;
+        } | {
+            name: string;
+        } | null;
+        open: {
+            discordId: string;
+        } | {
+            name: string;
+        } | null;
+    };
+    moderationRoles: Array<string>;
+};
+
 export type UndeployResult = {
     results: Array<UndeployedButtonMessage>;
 };
@@ -373,6 +530,204 @@ export type GetGuildChannelsResponses = {
 };
 
 export type GetGuildChannelsResponse = GetGuildChannelsResponses[keyof GetGuildChannelsResponses];
+
+export type GetTicketsConfigData = {
+    body?: never;
+    path: {
+        guildId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/config/tickets';
+};
+
+export type GetTicketsConfigErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+};
+
+export type GetTicketsConfigError = GetTicketsConfigErrors[keyof GetTicketsConfigErrors];
+
+export type GetTicketsConfigResponses = {
+    /**
+     * The ticket config. A server that has not deployed tickets reads as not configured.
+     */
+    200: TicketingConfigView;
+};
+
+export type GetTicketsConfigResponse = GetTicketsConfigResponses[keyof GetTicketsConfigResponses];
+
+export type UpdateTicketsConfigData = {
+    body: TicketsConfigUpdate;
+    path: {
+        guildId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/config/tickets';
+};
+
+export type UpdateTicketsConfigErrors = {
+    /**
+     * The body was refused, a moderation role is not in this server, a picked category is gone or the bot cannot work in it, or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+    /**
+     * The server has no ticket config yet: tickets have to be deployed in Discord first.
+     */
+    409: ErrorBody;
+    /**
+     * The body was not sent as JSON.
+     */
+    415: ErrorBody;
+    /**
+     * Another save of these settings is still running, so nothing was changed.
+     */
+    423: ErrorBody;
+    /**
+     * Discord refused to create a category. Everything else was saved, so re-read the settings.
+     */
+    502: ErrorBody;
+    /**
+     * The settings could not be saved. A category already made in Discord stays made, and the sentence names it.
+     */
+    503: ErrorBody;
+};
+
+export type UpdateTicketsConfigError = UpdateTicketsConfigErrors[keyof UpdateTicketsConfigErrors];
+
+export type UpdateTicketsConfigResponses = {
+    /**
+     * The ticket config as saved.
+     */
+    200: TicketingConfigView;
+};
+
+export type UpdateTicketsConfigResponse = UpdateTicketsConfigResponses[keyof UpdateTicketsConfigResponses];
+
+export type DeleteTicketTypeData = {
+    body?: never;
+    path: {
+        guildId: string;
+        type: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/config/tickets/types/{type}';
+};
+
+export type DeleteTicketTypeErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the server declares no ticket type by that key.
+     */
+    404: ErrorBody;
+    /**
+     * The server has no ticket config yet, or tickets still hold the type — deleted ones included. The sentence names how many, and some of their numbers.
+     */
+    409: ErrorBody;
+    /**
+     * The type could not be deleted. Nothing changed.
+     */
+    503: ErrorBody;
+};
+
+export type DeleteTicketTypeError = DeleteTicketTypeErrors[keyof DeleteTicketTypeErrors];
+
+export type DeleteTicketTypeResponses = {
+    /**
+     * Deleted.
+     */
+    204: void;
+};
+
+export type DeleteTicketTypeResponse = DeleteTicketTypeResponses[keyof DeleteTicketTypeResponses];
+
+export type SaveTicketTypeData = {
+    body: TicketTypeUpdate;
+    path: {
+        guildId: string;
+        type: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/config/tickets/types/{type}';
+};
+
+export type SaveTicketTypeErrors = {
+    /**
+     * The key or the body was refused, the template renders to nothing or to more than Discord allows a channel name, or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+    /**
+     * The server has no ticket config yet: tickets have to be deployed in Discord first.
+     */
+    409: ErrorBody;
+    /**
+     * The body was not sent as JSON.
+     */
+    415: ErrorBody;
+    /**
+     * The type could not be saved. Nothing changed.
+     */
+    503: ErrorBody;
+};
+
+export type SaveTicketTypeError = SaveTicketTypeErrors[keyof SaveTicketTypeErrors];
+
+export type SaveTicketTypeResponses = {
+    /**
+     * The ticket config as saved, every type included.
+     */
+    200: TicketingConfigView;
+};
+
+export type SaveTicketTypeResponse = SaveTicketTypeResponses[keyof SaveTicketTypeResponses];
 
 export type GetWarningsConfigData = {
     body?: never;
@@ -1231,3 +1586,275 @@ export type UpdateGuildSettingsResponses = {
 };
 
 export type UpdateGuildSettingsResponse = UpdateGuildSettingsResponses[keyof UpdateGuildSettingsResponses];
+
+export type ListTicketsData = {
+    body?: never;
+    path: {
+        guildId: string;
+    };
+    query?: {
+        /**
+         * `open`, `closed` or `deleted`. Absent or blank means every status.
+         */
+        status?: string;
+        /**
+         * A ticket type key. Absent or blank means every type.
+         */
+        type?: string;
+        /**
+         * `true` for unclaimed tickets only. Anything else means claimed or not.
+         */
+        unclaimed?: string;
+        /**
+         * A ticket number, matched exactly, or the start of a name on the ticket. Trimmed; blank means no search.
+         */
+        search?: string;
+    };
+    url: '/api/guilds/{guildId}/tickets';
+};
+
+export type ListTicketsErrors = {
+    /**
+     * A filter was refused — a status that is not one, or a type too long to be one — or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+};
+
+export type ListTicketsError = ListTicketsErrors[keyof ListTicketsErrors];
+
+export type ListTicketsResponses = {
+    /**
+     * The matching tickets, and the guild-wide counts.
+     */
+    200: TicketList;
+};
+
+export type ListTicketsResponse = ListTicketsResponses[keyof ListTicketsResponses];
+
+export type GetTicketData = {
+    body?: never;
+    path: {
+        guildId: string;
+        ticketId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/tickets/{ticketId}';
+};
+
+export type GetTicketErrors = {
+    /**
+     * The ticket id is not a positive whole number, or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the ticket is not in it.
+     */
+    404: ErrorBody;
+};
+
+export type GetTicketError = GetTicketErrors[keyof GetTicketErrors];
+
+export type GetTicketResponses = {
+    /**
+     * The ticket.
+     */
+    200: TicketDetail;
+};
+
+export type GetTicketResponse = GetTicketResponses[keyof GetTicketResponses];
+
+export type ClaimTicketData = {
+    body?: never;
+    path: {
+        guildId: string;
+        ticketId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/tickets/{ticketId}/claim';
+};
+
+export type ClaimTicketErrors = {
+    /**
+     * The ticket id is not a positive whole number, or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the ticket is not in it.
+     */
+    404: ErrorBody;
+    /**
+     * Nothing changed: the server has not finished setting up tickets, no longer declares the ticket's type, or the ticket is not in a state this action applies to. The sentence says which.
+     */
+    409: ErrorBody;
+};
+
+export type ClaimTicketError = ClaimTicketErrors[keyof ClaimTicketErrors];
+
+export type ClaimTicketResponses = {
+    /**
+     * The ticket as it now stands. `syncWarning` is set when its channel did not follow.
+     */
+    200: TicketActionResult;
+};
+
+export type ClaimTicketResponse = ClaimTicketResponses[keyof ClaimTicketResponses];
+
+export type CloseTicketData = {
+    body?: never;
+    path: {
+        guildId: string;
+        ticketId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/tickets/{ticketId}/close';
+};
+
+export type CloseTicketErrors = {
+    /**
+     * The ticket id is not a positive whole number, or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the ticket is not in it.
+     */
+    404: ErrorBody;
+    /**
+     * Nothing changed: the server has not finished setting up tickets, no longer declares the ticket's type, or the ticket is not in a state this action applies to. The sentence says which.
+     */
+    409: ErrorBody;
+};
+
+export type CloseTicketError = CloseTicketErrors[keyof CloseTicketErrors];
+
+export type CloseTicketResponses = {
+    /**
+     * The ticket as it now stands. `syncWarning` is set when its channel did not follow.
+     */
+    200: TicketActionResult;
+};
+
+export type CloseTicketResponse = CloseTicketResponses[keyof CloseTicketResponses];
+
+export type ReopenTicketData = {
+    body?: never;
+    path: {
+        guildId: string;
+        ticketId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/tickets/{ticketId}/reopen';
+};
+
+export type ReopenTicketErrors = {
+    /**
+     * The ticket id is not a positive whole number, or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the ticket is not in it.
+     */
+    404: ErrorBody;
+    /**
+     * Nothing changed: the server has not finished setting up tickets, no longer declares the ticket's type, or the ticket is not in a state this action applies to. The sentence says which.
+     */
+    409: ErrorBody;
+};
+
+export type ReopenTicketError = ReopenTicketErrors[keyof ReopenTicketErrors];
+
+export type ReopenTicketResponses = {
+    /**
+     * The ticket as it now stands. `syncWarning` is set when its channel did not follow.
+     */
+    200: TicketActionResult;
+};
+
+export type ReopenTicketResponse = ReopenTicketResponses[keyof ReopenTicketResponses];
+
+export type UnclaimTicketData = {
+    body?: never;
+    path: {
+        guildId: string;
+        ticketId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/tickets/{ticketId}/unclaim';
+};
+
+export type UnclaimTicketErrors = {
+    /**
+     * The ticket id is not a positive whole number, or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the ticket is not in it.
+     */
+    404: ErrorBody;
+    /**
+     * Nothing changed: the server has not finished setting up tickets, no longer declares the ticket's type, or the ticket is not in a state this action applies to. The sentence says which.
+     */
+    409: ErrorBody;
+};
+
+export type UnclaimTicketError = UnclaimTicketErrors[keyof UnclaimTicketErrors];
+
+export type UnclaimTicketResponses = {
+    /**
+     * The ticket as it now stands. `syncWarning` is set when its channel did not follow.
+     */
+    200: TicketActionResult;
+};
+
+export type UnclaimTicketResponse = UnclaimTicketResponses[keyof UnclaimTicketResponses];

@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { CheckFlowData, CheckFlowErrors, CheckFlowResponses, CreateFlowData, CreateFlowErrors, CreateFlowResponses, DeleteFlowData, DeleteFlowErrors, DeleteFlowResponses, DeployFlowData, DeployFlowErrors, DeployFlowResponses, DiscardFlowDraftData, DiscardFlowDraftErrors, DiscardFlowDraftResponses, GetFlowData, GetFlowErrors, GetFlowResponses, GetGuildChannelsData, GetGuildChannelsErrors, GetGuildChannelsResponses, GetGuildRolesData, GetGuildRolesErrors, GetGuildRolesResponses, GetGuildSettingsData, GetGuildSettingsErrors, GetGuildSettingsResponses, GetInstallPlanData, GetInstallPlanErrors, GetInstallPlanResponses, GetPublishedStateData, GetPublishedStateErrors, GetPublishedStateResponses, GetWarningsConfigData, GetWarningsConfigErrors, GetWarningsConfigResponses, InstallFlowData, InstallFlowErrors, InstallFlowResponses, ListFlowDraftsData, ListFlowDraftsErrors, ListFlowDraftsResponses, ListFlowsData, ListFlowsErrors, ListFlowsResponses, ListGuildsData, ListGuildsErrors, ListGuildsResponses, SaveMyFlowDraftData, SaveMyFlowDraftErrors, SaveMyFlowDraftResponses, UndeployFlowData, UndeployFlowErrors, UndeployFlowResponses, UnpublishFlowData, UnpublishFlowErrors, UnpublishFlowResponses, UpdateFlowData, UpdateFlowErrors, UpdateFlowResponses, UpdateGuildSettingsData, UpdateGuildSettingsErrors, UpdateGuildSettingsResponses, UpdateWarningsConfigData, UpdateWarningsConfigErrors, UpdateWarningsConfigResponses } from './types.gen';
+import type { CheckFlowData, CheckFlowErrors, CheckFlowResponses, ClaimTicketData, ClaimTicketErrors, ClaimTicketResponses, CloseTicketData, CloseTicketErrors, CloseTicketResponses, CreateFlowData, CreateFlowErrors, CreateFlowResponses, DeleteFlowData, DeleteFlowErrors, DeleteFlowResponses, DeleteTicketTypeData, DeleteTicketTypeErrors, DeleteTicketTypeResponses, DeployFlowData, DeployFlowErrors, DeployFlowResponses, DiscardFlowDraftData, DiscardFlowDraftErrors, DiscardFlowDraftResponses, GetFlowData, GetFlowErrors, GetFlowResponses, GetGuildChannelsData, GetGuildChannelsErrors, GetGuildChannelsResponses, GetGuildRolesData, GetGuildRolesErrors, GetGuildRolesResponses, GetGuildSettingsData, GetGuildSettingsErrors, GetGuildSettingsResponses, GetInstallPlanData, GetInstallPlanErrors, GetInstallPlanResponses, GetPublishedStateData, GetPublishedStateErrors, GetPublishedStateResponses, GetTicketData, GetTicketErrors, GetTicketResponses, GetTicketsConfigData, GetTicketsConfigErrors, GetTicketsConfigResponses, GetWarningsConfigData, GetWarningsConfigErrors, GetWarningsConfigResponses, InstallFlowData, InstallFlowErrors, InstallFlowResponses, ListFlowDraftsData, ListFlowDraftsErrors, ListFlowDraftsResponses, ListFlowsData, ListFlowsErrors, ListFlowsResponses, ListGuildsData, ListGuildsErrors, ListGuildsResponses, ListTicketsData, ListTicketsErrors, ListTicketsResponses, ReopenTicketData, ReopenTicketErrors, ReopenTicketResponses, SaveMyFlowDraftData, SaveMyFlowDraftErrors, SaveMyFlowDraftResponses, SaveTicketTypeData, SaveTicketTypeErrors, SaveTicketTypeResponses, UnclaimTicketData, UnclaimTicketErrors, UnclaimTicketResponses, UndeployFlowData, UndeployFlowErrors, UndeployFlowResponses, UnpublishFlowData, UnpublishFlowErrors, UnpublishFlowResponses, UpdateFlowData, UpdateFlowErrors, UpdateFlowResponses, UpdateGuildSettingsData, UpdateGuildSettingsErrors, UpdateGuildSettingsResponses, UpdateTicketsConfigData, UpdateTicketsConfigErrors, UpdateTicketsConfigResponses, UpdateWarningsConfigData, UpdateWarningsConfigErrors, UpdateWarningsConfigResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -27,6 +27,40 @@ export const listGuilds = <ThrowOnError extends boolean = true>(options?: Option
  * The guild's text channels and categories
  */
 export const getGuildChannels = <ThrowOnError extends boolean = true>(options: Options<GetGuildChannelsData, ThrowOnError>): RequestResult<GetGuildChannelsResponses, GetGuildChannelsErrors, ThrowOnError> => (options.client ?? client).get<GetGuildChannelsResponses, GetGuildChannelsErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/channels', ...options });
+
+/**
+ * The ticket settings and declared types
+ */
+export const getTicketsConfig = <ThrowOnError extends boolean = true>(options: Options<GetTicketsConfigData, ThrowOnError>): RequestResult<GetTicketsConfigResponses, GetTicketsConfigErrors, ThrowOnError> => (options.client ?? client).get<GetTicketsConfigResponses, GetTicketsConfigErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/config/tickets', ...options });
+
+/**
+ * Set the category slots and moderation roles, creating any category given a name
+ */
+export const updateTicketsConfig = <ThrowOnError extends boolean = true>(options: Options<UpdateTicketsConfigData, ThrowOnError>): RequestResult<UpdateTicketsConfigResponses, UpdateTicketsConfigErrors, ThrowOnError> => (options.client ?? client).put<UpdateTicketsConfigResponses, UpdateTicketsConfigErrors, ThrowOnError>({
+    url: '/api/guilds/{guildId}/config/tickets',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Remove a ticket type no ticket holds
+ */
+export const deleteTicketType = <ThrowOnError extends boolean = true>(options: Options<DeleteTicketTypeData, ThrowOnError>): RequestResult<DeleteTicketTypeResponses, DeleteTicketTypeErrors, ThrowOnError> => (options.client ?? client).delete<DeleteTicketTypeResponses, DeleteTicketTypeErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/config/tickets/types/{type}', ...options });
+
+/**
+ * Add or replace one ticket type
+ */
+export const saveTicketType = <ThrowOnError extends boolean = true>(options: Options<SaveTicketTypeData, ThrowOnError>): RequestResult<SaveTicketTypeResponses, SaveTicketTypeErrors, ThrowOnError> => (options.client ?? client).put<SaveTicketTypeResponses, SaveTicketTypeErrors, ThrowOnError>({
+    url: '/api/guilds/{guildId}/config/tickets/types/{type}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
 
 /**
  * The warnings mod-log channel
@@ -169,3 +203,33 @@ export const updateGuildSettings = <ThrowOnError extends boolean = true>(options
         ...options.headers
     }
 });
+
+/**
+ * The guild's tickets, newest first
+ */
+export const listTickets = <ThrowOnError extends boolean = true>(options: Options<ListTicketsData, ThrowOnError>): RequestResult<ListTicketsResponses, ListTicketsErrors, ThrowOnError> => (options.client ?? client).get<ListTicketsResponses, ListTicketsErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/tickets', ...options });
+
+/**
+ * One ticket, in full
+ */
+export const getTicket = <ThrowOnError extends boolean = true>(options: Options<GetTicketData, ThrowOnError>): RequestResult<GetTicketResponses, GetTicketErrors, ThrowOnError> => (options.client ?? client).get<GetTicketResponses, GetTicketErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/tickets/{ticketId}', ...options });
+
+/**
+ * Claim a ticket as the signed-in operator
+ */
+export const claimTicket = <ThrowOnError extends boolean = true>(options: Options<ClaimTicketData, ThrowOnError>): RequestResult<ClaimTicketResponses, ClaimTicketErrors, ThrowOnError> => (options.client ?? client).post<ClaimTicketResponses, ClaimTicketErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/tickets/{ticketId}/claim', ...options });
+
+/**
+ * Close a ticket
+ */
+export const closeTicket = <ThrowOnError extends boolean = true>(options: Options<CloseTicketData, ThrowOnError>): RequestResult<CloseTicketResponses, CloseTicketErrors, ThrowOnError> => (options.client ?? client).post<CloseTicketResponses, CloseTicketErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/tickets/{ticketId}/close', ...options });
+
+/**
+ * Reopen a closed ticket
+ */
+export const reopenTicket = <ThrowOnError extends boolean = true>(options: Options<ReopenTicketData, ThrowOnError>): RequestResult<ReopenTicketResponses, ReopenTicketErrors, ThrowOnError> => (options.client ?? client).post<ReopenTicketResponses, ReopenTicketErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/tickets/{ticketId}/reopen', ...options });
+
+/**
+ * Release a ticket's claim
+ */
+export const unclaimTicket = <ThrowOnError extends boolean = true>(options: Options<UnclaimTicketData, ThrowOnError>): RequestResult<UnclaimTicketResponses, UnclaimTicketErrors, ThrowOnError> => (options.client ?? client).post<UnclaimTicketResponses, UnclaimTicketErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/tickets/{ticketId}/unclaim', ...options });

@@ -1,16 +1,14 @@
-/** Ticket API helpers. Same style as `journeys.ts` — pages stay URL-free. */
+/**
+ * Ticket API helpers for the list and detail pages. Same style as `journeys.ts` — pages
+ * stay URL-free.
+ *
+ * The shapes are the SDK's (`@brattybot/web-sdk`), generated from the routes. The ticket
+ * config is read and written through the SDK itself; these calls move to it with the list
+ * and detail pages.
+ */
 
+import type { TicketActionResult, TicketDetail, TicketList } from '@brattybot/web-sdk';
 import { api } from './client';
-import type {
-    TicketActionResult,
-    TicketCategoryChoice,
-    TicketCategorySlot,
-    TicketCounts,
-    TicketDetail,
-    TicketSummary,
-    TicketTypeView,
-    TicketingConfigView,
-} from './types';
 
 /**
  * What narrows the list, all optional.
@@ -27,22 +25,12 @@ export interface TicketListFilter {
     search?: string;
 }
 
-export interface TicketListResult {
-    tickets: TicketSummary[];
-    /** Guild-wide, so the strip does not move when the list is filtered. */
-    counts: TicketCounts;
-    /**
-     * Whether the server capped the rows it returned.
-     *
-     * The list is bounded server-side — an uncapped one on a mature guild meant serialising
-     * the whole ticket history into one response — so the table has to be able to say it is
-     * showing a slice. `counts` still reports the guild's true totals, so the two together
-     * are honest: "200 of 4,312 shown, narrow it".
-     */
-    truncated: boolean;
-}
-
-export function listTickets(guildId: string, filter: TicketListFilter = {}): Promise<TicketListResult> {
+/**
+ * The tickets matching `filter`, the guild-wide counts, and whether the server capped the
+ * rows it returned — `counts` still reports the true totals, so the two together are
+ * honest: "200 of 4,312 shown, narrow it".
+ */
+export function listTickets(guildId: string, filter: TicketListFilter = {}): Promise<TicketList> {
     const params = new URLSearchParams();
     if (filter.status) params.set('status', filter.status);
     if (filter.type) params.set('type', filter.type);
@@ -50,7 +38,7 @@ export function listTickets(guildId: string, filter: TicketListFilter = {}): Pro
     if (filter.search?.trim()) params.set('search', filter.search.trim());
 
     const query = params.toString();
-    return api.get<TicketListResult>(`/api/guilds/${guildId}/tickets${query ? `?${query}` : ''}`);
+    return api.get<TicketList>(`/api/guilds/${guildId}/tickets${query ? `?${query}` : ''}`);
 }
 
 export function getTicket(guildId: string, ticketId: number): Promise<TicketDetail> {
@@ -75,55 +63,4 @@ export function actOnTicket(
     action: TicketAction
 ): Promise<TicketActionResult> {
     return api.post<TicketActionResult>(`/api/guilds/${guildId}/tickets/${ticketId}/${action}`);
-}
-
-export function getTicketsConfig(guildId: string): Promise<TicketingConfigView> {
-    return api.get<TicketingConfigView>(`/api/guilds/${guildId}/config/tickets`);
-}
-
-/**
- * Sets the category slots and moderation roles. The declared types are left alone.
- *
- * A slot given a `name` is created in Discord on save. A 502 means one create failed and
- * everything else was saved, so the page re-reads rather than trusting its draft.
- */
-export function updateTicketsConfig(
-    guildId: string,
-    input: {
-        categories: Record<TicketCategorySlot, TicketCategoryChoice>;
-        moderationRoles: string[];
-    }
-): Promise<TicketingConfigView> {
-    return api.put<TicketingConfigView>(`/api/guilds/${guildId}/config/tickets`, input);
-}
-
-/**
- * Adds or replaces one ticket type.
- *
- * The key travels in the path, so the body cannot disagree with it about which type is
- * being written. Returns the whole config so the editor re-reads every type rather than
- * patching the one row it changed.
- */
-export function saveTicketType(
-    guildId: string,
-    type: string,
-    input: Omit<TicketTypeView, 'type'>
-): Promise<TicketingConfigView> {
-    return api.put<TicketingConfigView>(
-        `/api/guilds/${guildId}/config/tickets/types/${encodeURIComponent(type)}`,
-        input
-    );
-}
-
-/**
- * Removes a ticket type.
- *
- * Refused with a 409 while any ticket holds it, including deleted ones — their rows
- * still have to be able to render their own label. The refusal names the counts and a
- * few ticket numbers, and it is shown verbatim.
- */
-export function deleteTicketType(guildId: string, type: string): Promise<void> {
-    return api.delete<void>(
-        `/api/guilds/${guildId}/config/tickets/types/${encodeURIComponent(type)}`
-    );
 }

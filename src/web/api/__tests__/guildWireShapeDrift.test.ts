@@ -5,7 +5,7 @@ import * as browserTypes from '../../../../web/src/api/types';
 /**
  * The drift gate between the guild directory shapes and the browser's copy of them.
  *
- * Same machinery as `ticketWireShapeDrift` and `driftWireShapeDrift`, and added here
+ * Same machinery as `levelingWireShapeDrift` and `driftWireShapeDrift`, and added here
  * because `GuildChannel` just went from two fields to five — one of which is a **closed
  * vocabulary** that every consumer branches on. A type the browser does not know about
  * is a channel silently treated as whatever the last `else` happens to be, and the

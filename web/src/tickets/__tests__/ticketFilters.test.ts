@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { TicketingConfigView } from '../../api/types';
+import type { TicketingConfigView } from '@brattybot/web-sdk';
 import { DEFAULT_TICKET_FILTER, toListFilter, typeFilterOptions } from '../ticketFilters';
 
 describe('DEFAULT_TICKET_FILTER', () => {

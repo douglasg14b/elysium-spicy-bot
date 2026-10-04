@@ -10,13 +10,31 @@
  * component around them is layout.
  */
 
-import type {
-    GuildChannel,
-    TicketCategoryChoice,
-    TicketCategorySlot,
-    TicketCategoryView,
-} from '../api/types';
+import type { TicketCategoryView, TicketingConfigView, TicketsConfigUpdate } from '@brattybot/web-sdk';
+import type { GuildChannel } from '../api/types';
 import { channelOptionLabel } from '../flows/resourceAdoption';
+
+/** The three places a ticket channel can sit, by where the ticket is in its life. */
+export type TicketCategorySlot = keyof TicketingConfigView['categories'];
+
+/**
+ * The slots in the order the page lists them. The SDK's types are unions, so the list the
+ * page iterates is written here and held to them: `satisfies` refuses a name that is not a
+ * slot, and the check below refuses a slot missing from the list.
+ */
+export const TICKET_CATEGORY_SLOTS = ['open', 'claimed', 'closed'] as const satisfies readonly TicketCategorySlot[];
+
+/** Do not delete as unused: it fails to compile when the server adds a slot this list lacks. */
+const ticketCategorySlotsAreComplete: [Exclude<TicketCategorySlot, (typeof TICKET_CATEGORY_SLOTS)[number]>] extends [
+    never,
+]
+    ? true
+    : ['TICKET_CATEGORY_SLOTS is missing a slot', Exclude<TicketCategorySlot, (typeof TICKET_CATEGORY_SLOTS)[number]>] =
+    true;
+void ticketCategorySlotsAreComplete;
+
+/** What the page sends for one slot: an existing category, a new name, or `null` to leave it. */
+export type TicketCategoryChoice = TicketsConfigUpdate['categories'][TicketCategorySlot];
 
 /** The picker value meaning "make a new category". Not a snowflake, so it cannot collide with one. */
 export const CREATE_NEW_CATEGORY = '__create__';

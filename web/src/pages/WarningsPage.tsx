@@ -167,8 +167,9 @@ function WarningsSettingsForm({ guildId }: WarningsSettingsFormProps) {
 
     /*
      * Whether the body is sendable is the server's rule, asked of the zod the SDK
-     * generates from its route rather than restated here. Only the verdict crosses: the
-     * wording stays the server's, and arrives as the error if a save is refused anyway.
+     * generates from its route rather than restated here. The rule's sentence crosses
+     * with it, but this picker has no empty state to show it under — Save is simply
+     * disabled — and a refusal on save arrives in the server's own words as the error.
      */
     const body = zUpdateWarningsConfigBody.safeParse({ modChannelId: selectedChannelId });
     const canSave = !pristine && !saving && body.success;

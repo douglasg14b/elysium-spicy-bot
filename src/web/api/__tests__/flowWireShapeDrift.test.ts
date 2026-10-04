@@ -12,7 +12,7 @@ import * as browserTypes from '../../../../web/src/api/types';
 /**
  * The drift gate between the flow wire shapes and the browser's copy of them.
  *
- * Same mechanism as `ticketWireShapeDrift.test.ts`, and for the same reason: `Flow` and
+ * Same mechanism as `levelingWireShapeDrift.test.ts`, and for the same reason: `Flow` and
  * the draft shapes exist twice — `flowBody.ts` here, hand-written in `web/src/api/types.ts`
  * there — because the browser project cannot import from `src/`. Each side's own `tsc`
  * holds its member list to its interface in both directions, so this only compares the

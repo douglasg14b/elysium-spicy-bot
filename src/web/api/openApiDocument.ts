@@ -1,6 +1,7 @@
 import { OpenAPIHono } from '@hono/zod-openapi';
 import type { AppEnv } from '../types';
 import { registerApiRoutes } from './index';
+import { attachRequestMessages } from './requestMessages';
 
 /** Where the committed spec lives, relative to the repo root. The SDK is generated from it. */
 export const OPENAPI_SPEC_PATH = 'generated/openapi.generated.json';
@@ -16,6 +17,10 @@ export type OpenApiDocument = ReturnType<OpenAPIHono['getOpenAPI31Document']>;
  * queries the database. Only routers built with `apiRouter` contribute; the rest are not
  * described yet.
  *
+ * Each request rule's fixed sentence rides beside its keyword as `x-messages`, so the
+ * browser's generated zod refuses with the server's words; a request rule the browser
+ * cannot be given faithfully throws here instead (see `attachRequestMessages`).
+ *
  * Keys are sorted at every depth so the committed file, and the SDK generated from it, do
  * not churn when routers are mounted or registered in a different order. The price is
  * that generated types list fields alphabetically rather than as declared. Arrays keep
@@ -25,6 +30,7 @@ export type OpenApiDocument = ReturnType<OpenAPIHono['getOpenAPI31Document']>;
 export function buildOpenApiDocument(): OpenApiDocument {
     const app = new OpenAPIHono<AppEnv>();
     registerApiRoutes(app);
+    attachRequestMessages(app.openAPIRegistry.definitions);
 
     const document = app.getOpenAPI31Document({
         openapi: '3.1.0',

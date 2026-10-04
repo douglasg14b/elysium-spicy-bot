@@ -1,21 +1,13 @@
+import { createRoute, z, type OpenAPIHono } from '@hono/zod-openapi';
 import type { Guild } from 'discord.js';
-import { Hono } from 'hono';
-import { z } from 'zod';
 import { ticketingRepo } from '../../features/tickets/data/ticketingRepo';
 import { TICKET_LIST_CAP, ticketsRepo } from '../../features/tickets/data/ticketsRepo';
 import {
     isTicketingConfigConfigured,
-    TICKET_CATEGORY_SLOTS,
-    type TicketCategoryBinding,
-    type TicketCategorySlot,
     type TicketingConfig,
-    // Named rather than reached through `TicketTypeDefinition['permissions']`, so `keyof`
-    // has something to bite on in the drift gate below.
-    type TicketPermissionModel,
-    type TicketRolePermissions,
     type TicketTypeDefinition,
 } from '../../features/tickets/data/ticketingSchema';
-import { TICKET_STATUSES, type TicketEntity, type TicketStatus } from '../../features/tickets/data/ticketsSchema';
+import { isTicketStatus, type TicketEntity, type TicketStatus } from '../../features/tickets/data/ticketsSchema';
 import {
     applyTicketTransition,
     type TicketTransition,
@@ -27,8 +19,33 @@ import {
     type SetTicketTypeRefusal,
 } from '../../features/tickets/logic/setTicketTypes';
 import { setTicketSettings, type SetTicketSettingsRefusal } from '../../features/tickets/logic/setTicketSettings';
+import {
+    TicketNameTemplateSchema,
+    TicketTypeKeySchema,
+    TicketTypeLabelSchema,
+} from '../../features/tickets/logic/ticketTypeRules';
 import { updateDeployedTicketMessage } from '../../features/tickets/utils/updateDeployedMessage';
 import type { AppEnv } from '../types';
+import {
+    apiRouter,
+    errorBodyResponse,
+    GUILD_SCOPED_BODY_ERRORS,
+    GUILD_SCOPED_ERRORS,
+    GuildPathSchema,
+    jsonBody,
+    jsonResponse,
+} from './openApi';
+import {
+    categorySlotsShape,
+    TicketActionResultSchema,
+    TicketDetailSchema,
+    ticketDetail,
+    TicketingConfigViewSchema,
+    ticketingConfigView,
+    TicketListSchema,
+    TicketPermissionModelSchema,
+    ticketSummary,
+} from './ticketBody';
 
 /**
  * The tickets dashboard API: the list, one ticket, the four lifecycle actions, and the
@@ -42,17 +59,25 @@ import type { AppEnv } from '../types';
  *
  * **Delete is absent on purpose.** A ticket delete destroys the channel and is
  * deliberately Discord-only; the dashboard can claim, unclaim, close and reopen.
+ *
+ * Described by the OpenAPI spec: each route's `createRoute` definition is its contract,
+ * and the dashboard's SDK is generated from it. Requests are validated before a handler
+ * runs, and a refusal answers with the first issue's message (see `apiRouter`). A rule's
+ * fixed message crosses into the SDK's zod with it (`requestMessages.ts`), so the ticket
+ * type editor refuses a bad key or template with the server's own sentence.
  */
-
-/** Only these narrow a list. `all` is the absence of a filter, not a fourth status. */
-const statusFilter = z.enum(TICKET_STATUSES);
 
 /**
  * How long a ticket-type key may be, used to bound the `?type=` filter.
  *
  * Types are guild-defined, so there is no closed vocabulary to validate the filter
  * against — but an unbounded string still reaches a query predicate on every request. 64
- * is far more than any key the type editor produces and still a bound.
+ * is a generous bound, not the key rule: `TicketTypeKeySchema` sets no maximum, so a key
+ * longer than this saves and cannot be filtered on — a gap that predates the rule moving
+ * there, closed by giving the key rule this maximum.
+ * It is a bound
+ * parameter, so this is not injection; it is an attacker-controlled string that would
+ * otherwise be compared against every row on every request.
  */
 const TICKET_TYPE_KEY_MAX_LENGTH = 64;
 
@@ -69,38 +94,31 @@ const MODERATION_ROLES_MAX = 50;
 const ROLE_ID_MAX_LENGTH = 32;
 const REJECTED_ROLES_ECHOED = 10;
 
-const ticketRolePermissions = z.object({
-    view: z.boolean(),
-    send: z.boolean(),
-    readHistory: z.boolean(),
-    manageMessages: z.boolean(),
-});
-
-/**
- * A ticket type as the editor submits it.
- *
- * The `type` key comes from the path, not the body, so the two cannot disagree about
- * which type is being written. Everything else Zod can see is checked here; the two
- * rules it cannot — that the guild has a config row, and that `nameTemplate` uses only
- * tokens the renderer implements — belong to `upsertTicketType`, which the Discord
- * surface shares.
- */
-const ticketTypeBody = z.object({
-    label: z.string().trim().min(1, 'Give the type a label — operators have to pick it out of a list.'),
-    nameTemplate: z
-        .string()
-        .trim()
-        .min(1, 'A channel-name template cannot be empty. Discord insists on calling channels something.'),
-    permissions: z.object({
-        subject: ticketRolePermissions,
-        opener: ticketRolePermissions,
-        staff: ticketRolePermissions,
-    }),
-    autoClaimOnOpen: z.boolean(),
-});
-
 /** Discord's limit on a channel name, categories included. */
 const CATEGORY_NAME_MAX_LENGTH = 100;
+
+/**
+ * The list's filters, all optional; an absent one means "all" rather than "none".
+ *
+ * `status` is a plain string here and checked in the handler, because its refusal names
+ * the value it was given — a sentence no schema can carry into the spec. `unclaimed` is
+ * a string for the same reason it always was: only `true` narrows.
+ */
+const TicketListQuerySchema = z.object({
+    status: z.string().optional().openapi({
+        description: '`open`, `closed` or `deleted`. Absent or blank means every status.',
+    }),
+    type: z.string().max(TICKET_TYPE_KEY_MAX_LENGTH, 'That is not a ticket type.').optional().openapi({
+        description: 'A ticket type key. Absent or blank means every type.',
+    }),
+    unclaimed: z.string().optional().openapi({
+        description: '`true` for unclaimed tickets only. Anything else means claimed or not.',
+    }),
+    search: z.string().optional().openapi({
+        description:
+            'A ticket number, matched exactly, or the start of a name on the ticket. Trimmed; blank means no search.',
+    }),
+});
 
 /**
  * One category slot as the page sends it: an existing category by id, a new one by
@@ -108,6 +126,9 @@ const CATEGORY_NAME_MAX_LENGTH = 100;
  *
  * An id and a name are separate shapes, never one string that might be either — a
  * display name that doubles as a binding is how two same-named categories get confused.
+ *
+ * Not named for the spec: zod-to-openapi flattens a nullable union into one `anyOf` with
+ * `null` and drops the name, so the browser reads it off `TicketsConfigUpdate` instead.
  */
 const categoryChoice = z
     .union([
@@ -133,17 +154,65 @@ const categoryChoice = z
  * button on holding one of these roles *or* native moderation permissions, so saving
  * none quietly narrows who can work tickets to whoever has server-level perms.
  */
-const ticketConfigBody = z.object({
-    categories: z.strictObject({
-        open: categoryChoice,
-        claimed: categoryChoice,
-        closed: categoryChoice,
-    }),
-    moderationRoles: z
-        .array(z.string().min(1).max(ROLE_ID_MAX_LENGTH))
-        .min(1, 'Pick at least one moderation role, or nobody but admins can touch a ticket.')
-        .max(MODERATION_ROLES_MAX, 'That is more moderation roles than any server has. Trim the list.'),
+const TicketsConfigUpdateSchema = z
+    .object({
+        categories: z.strictObject(categorySlotsShape(categoryChoice)),
+        moderationRoles: z
+            .array(z.string().min(1).max(ROLE_ID_MAX_LENGTH))
+            .min(1, 'Pick at least one moderation role, or nobody but admins can touch a ticket.')
+            .max(MODERATION_ROLES_MAX, 'That is more moderation roles than any server has. Trim the list.'),
+    })
+    .openapi('TicketsConfigUpdate', {
+        description:
+            'The category slots and moderation roles. A slot given a `name` is created in Discord on save; ' +
+            '`null` leaves a slot as it is.',
+    });
+
+/**
+ * A ticket type as the editor submits it.
+ *
+ * The `type` key comes from the path, not the body, so the two cannot disagree about
+ * which type is being written; a `type` in the body is stripped, not refused. The key,
+ * label and template rules are `ticketTypeRules.ts`'s. The rules that need the renderer,
+ * and whether the guild has a config row, are `upsertTicketType`'s.
+ */
+const TicketTypeUpdateSchema = z
+    .object({
+        label: TicketTypeLabelSchema,
+        nameTemplate: TicketNameTemplateSchema,
+        permissions: TicketPermissionModelSchema,
+        autoClaimOnOpen: z.boolean(),
+    })
+    .openapi('TicketTypeUpdate', {
+        description: 'A ticket type, without its key: that is the path.',
+    });
+
+/** The path of every route about one ticket. Its id is checked in the handler, whose refusal names it. */
+const TicketPathSchema = GuildPathSchema.extend({
+    ticketId: z.string(),
 });
+
+/** The path of a type save, whose key is held to the key rule before the handler runs. */
+const TicketTypeSavePathSchema = GuildPathSchema.extend({
+    type: TicketTypeKeySchema,
+});
+
+/** The path of a type delete. Any key: one this guild does not declare is a 404. */
+const TicketTypeDeletePathSchema = GuildPathSchema.extend({
+    type: z.string(),
+});
+
+/*
+ * What the routes refuse with, beyond the middleware's own answers. One entry per status
+ * in the spec, so a status two causes share names both. Not `as const`: see `openApi.ts`.
+ */
+
+/** A route about one ticket: the id it was given, or the ticket itself. */
+const TICKET_ERRORS = {
+    ...GUILD_SCOPED_ERRORS,
+    400: errorBodyResponse('The ticket id is not a positive whole number, or the server id is missing.'),
+    404: errorBodyResponse('The bot is not in this server, or the ticket is not in it.'),
+};
 
 /**
  * What each refusal from the shared type authority means over HTTP.
@@ -185,380 +254,389 @@ const SETTINGS_REFUSAL_STATUS: Readonly<Record<SetTicketSettingsRefusal, 400 | 4
     'write-failed': 503,
 };
 
-export function ticketRoutes(): Hono<AppEnv> {
-    const app = new Hono<AppEnv>();
+const listTicketsRoute = createRoute({
+    method: 'get',
+    path: '/{guildId}/tickets',
+    operationId: 'listTickets',
+    tags: ['tickets'],
+    summary: "The guild's tickets, newest first",
+    request: { params: GuildPathSchema, query: TicketListQuerySchema },
+    responses: {
+        200: jsonResponse('The matching tickets, and the guild-wide counts.', TicketListSchema),
+        ...GUILD_SCOPED_ERRORS,
+        400: errorBodyResponse(
+            'A filter was refused — a status that is not one, or a type too long to be one — or the server id is missing.'
+        ),
+    },
+});
 
-    /**
-     * The guild's tickets, newest first.
-     *
-     * Filters are all optional and an absent one means "all" rather than "none".
-     * `search` goes to a parameterized repo query rather than being filtered in
-     * memory: the list is unpaginated and a guild's whole ticket history is not a
-     * thing to ship to a browser so it can hide most of it.
-     */
-    app.get('/:guildId/tickets', async (c) => {
-        const guild = c.get('guild');
+const getTicketRoute = createRoute({
+    method: 'get',
+    path: '/{guildId}/tickets/{ticketId}',
+    operationId: 'getTicket',
+    tags: ['tickets'],
+    summary: 'One ticket, in full',
+    request: { params: TicketPathSchema },
+    responses: {
+        200: jsonResponse('The ticket.', TicketDetailSchema),
+        ...TICKET_ERRORS,
+    },
+});
 
-        const status = c.req.query('status');
-        if (status && !statusFilter.safeParse(status).success) {
-            return c.json({ error: `\`${status}\` is not a ticket status. Try open, closed or deleted.` }, 400);
-        }
+/**
+ * The four lifecycle actions, each with its own operation so the SDK names them as the
+ * dashboard always has. A `Record`, so a fifth transition is a compile error here rather
+ * than an action the dashboard cannot reach.
+ */
+const TRANSITION_OPERATIONS: Readonly<Record<TicketTransition, { operationId: string; summary: string }>> = {
+    claim: { operationId: 'claimTicket', summary: 'Claim a ticket as the signed-in operator' },
+    unclaim: { operationId: 'unclaimTicket', summary: "Release a ticket's claim" },
+    close: { operationId: 'closeTicket', summary: 'Close a ticket' },
+    reopen: { operationId: 'reopenTicket', summary: 'Reopen a closed ticket' },
+};
 
-        /*
-         * `status` is checked against a closed union above. `type` cannot be — types are
-         * guild-defined, so there is no vocabulary to validate against — but it still
-         * reaches a query predicate, so it gets a length cap. It is a bound parameter, so
-         * this is not injection; it is an unbounded attacker-controlled string that would
-         * otherwise be compared against every row on every request.
+function transitionRoute(transition: TicketTransition) {
+    return createRoute({
+        method: 'post',
+        path: `/{guildId}/tickets/{ticketId}/${transition}`,
+        operationId: TRANSITION_OPERATIONS[transition].operationId,
+        tags: ['tickets'],
+        summary: TRANSITION_OPERATIONS[transition].summary,
+        request: { params: TicketPathSchema },
+        responses: {
+            200: jsonResponse(
+                'The ticket as it now stands. `syncWarning` is set when its channel did not follow.',
+                TicketActionResultSchema
+            ),
+            ...TICKET_ERRORS,
+            409: errorBodyResponse(
+                "Nothing changed: the server has not finished setting up tickets, no longer declares the ticket's " +
+                    'type, or the ticket is not in a state this action applies to. The sentence says which.'
+            ),
+        },
+    });
+}
+
+const getTicketsConfigRoute = createRoute({
+    method: 'get',
+    path: '/{guildId}/config/tickets',
+    operationId: 'getTicketsConfig',
+    tags: ['tickets'],
+    summary: 'The ticket settings and declared types',
+    request: { params: GuildPathSchema },
+    responses: {
+        200: jsonResponse('The ticket config. A server that has not deployed tickets reads as not configured.', TicketingConfigViewSchema),
+        ...GUILD_SCOPED_ERRORS,
+    },
+});
+
+const updateTicketsConfigRoute = createRoute({
+    method: 'put',
+    path: '/{guildId}/config/tickets',
+    operationId: 'updateTicketsConfig',
+    tags: ['tickets'],
+    summary: 'Set the category slots and moderation roles, creating any category given a name',
+    request: { params: GuildPathSchema, body: jsonBody(TicketsConfigUpdateSchema) },
+    responses: {
+        200: jsonResponse('The ticket config as saved.', TicketingConfigViewSchema),
+        ...GUILD_SCOPED_BODY_ERRORS,
+        400: errorBodyResponse(
+            'The body was refused, a moderation role is not in this server, a picked category is gone or the bot ' +
+                'cannot work in it, or the server id is missing.'
+        ),
+        409: errorBodyResponse('The server has no ticket config yet: tickets have to be deployed in Discord first.'),
+        423: errorBodyResponse('Another save of these settings is still running, so nothing was changed.'),
+        502: errorBodyResponse('Discord refused to create a category. Everything else was saved, so re-read the settings.'),
+        503: errorBodyResponse(
+            'The settings could not be saved. A category already made in Discord stays made, and the sentence names it.'
+        ),
+    },
+});
+
+const saveTicketTypeRoute = createRoute({
+    method: 'put',
+    path: '/{guildId}/config/tickets/types/{type}',
+    operationId: 'saveTicketType',
+    tags: ['tickets'],
+    summary: 'Add or replace one ticket type',
+    request: { params: TicketTypeSavePathSchema, body: jsonBody(TicketTypeUpdateSchema) },
+    responses: {
+        200: jsonResponse('The ticket config as saved, every type included.', TicketingConfigViewSchema),
+        ...GUILD_SCOPED_BODY_ERRORS,
+        400: errorBodyResponse(
+            'The key or the body was refused, the template renders to nothing or to more than Discord allows a ' +
+                'channel name, or the server id is missing.'
+        ),
+        409: errorBodyResponse('The server has no ticket config yet: tickets have to be deployed in Discord first.'),
+        503: errorBodyResponse('The type could not be saved. Nothing changed.'),
+    },
+});
+
+const deleteTicketTypeRoute = createRoute({
+    method: 'delete',
+    path: '/{guildId}/config/tickets/types/{type}',
+    operationId: 'deleteTicketType',
+    tags: ['tickets'],
+    summary: 'Remove a ticket type no ticket holds',
+    request: { params: TicketTypeDeletePathSchema },
+    responses: {
+        204: { description: 'Deleted.' },
+        ...GUILD_SCOPED_ERRORS,
+        404: errorBodyResponse('The bot is not in this server, or the server declares no ticket type by that key.'),
+        409: errorBodyResponse(
+            'The server has no ticket config yet, or tickets still hold the type — deleted ones included. The ' +
+                'sentence names how many, and some of their numbers.'
+        ),
+        503: errorBodyResponse('The type could not be deleted. Nothing changed.'),
+    },
+});
+
+export function ticketRoutes(): OpenAPIHono<AppEnv> {
+    return apiRouter((router) => {
+        /**
+         * The guild's tickets, newest first.
+         *
+         * Filters are all optional and an absent one means "all" rather than "none".
+         * `search` goes to a parameterized repo query rather than being filtered in
+         * memory: the list is unpaginated and a guild's whole ticket history is not a
+         * thing to ship to a browser so it can hide most of it.
          */
-        const typeQuery = c.req.query('type');
-        if (typeQuery && typeQuery.length > TICKET_TYPE_KEY_MAX_LENGTH) {
-            return c.json({ error: 'That is not a ticket type.' }, 400);
-        }
-
-        const filter = {
-            status: status ? (status as TicketStatus) : undefined,
-            type: typeQuery || undefined,
-            unclaimedOnly: c.req.query('unclaimed') === 'true',
-        };
-
-        const search = c.req.query('search')?.trim();
-        const found = search
-            ? await ticketsRepo.searchByGuild(guild.id, search, filter)
-            : await ticketsRepo.listByGuild(guild.id, filter);
-
-        // Both reads ask for one row past the cap, so this can tell "exactly the cap" from
-        // "more than it" without a second count. Drop the sentinel and report it, rather
-        // than returning a short list that looks complete.
-        const truncated = found.length > TICKET_LIST_CAP;
-        const tickets = truncated ? found.slice(0, TICKET_LIST_CAP) : found;
-
-        // One config read for the whole page. `typeLabel` is resolved from it per row
-        // rather than joined in SQL, because a type is a member of a JSON blob and the
-        // list is already in memory by the time it is needed.
-        const config = await readConfig(guild.id);
-        const counts: TicketCounts = await ticketsRepo.countsByGuild(guild.id);
-
-        return c.json({
-            tickets: tickets.map((ticket) => ticketSummary(ticket, config)),
-            counts,
-            // The counts strip still reports the guild's true totals, so a capped list does
-            // not mislead — but the table needs to say it is showing a slice.
-            truncated,
-        });
-    });
-
-    /** One ticket, in full. The record is all there is — the conversation lives in Discord. */
-    app.get('/:guildId/tickets/:ticketId', async (c) => {
-        const guild = c.get('guild');
-        const resolved = await resolveTicket(guild, c.req.param('ticketId'));
-        if (!resolved.ok) return c.json({ error: resolved.error }, resolved.status);
-
-        const config = await readConfig(guild.id);
-        return c.json(ticketDetail(resolved.ticket, config));
-    });
-
-    /*
-     * The four lifecycle actions, each one line apart from the others.
-     *
-     * Registered from a table rather than written out four times, because the only
-     * thing that differs is the transition name — the gate, the cross-guild check, the
-     * config resolution, the actor and the response shape are identical, and four
-     * copies of that is four places for one of them to lose a check. This is the same
-     * argument `applyTicketTransition` makes one layer down.
-     */
-    const TRANSITIONS: readonly TicketTransition[] = ['claim', 'unclaim', 'close', 'reopen'];
-
-    for (const transition of TRANSITIONS) {
-        app.post(`/:guildId/tickets/:ticketId/${transition}`, async (c) => {
+        router.openapi(listTicketsRoute, async (c) => {
             const guild = c.get('guild');
+            const query = c.req.valid('query');
 
-            // Checked per route rather than in a shared helper: this is the rule that
-            // stops one guild's operator acting on another guild's ticket, and it is
-            // worth being able to point at it in each handler.
-            const resolved = await resolveTicket(guild, c.req.param('ticketId'));
-            if (!resolved.ok) return c.json({ error: resolved.error }, resolved.status);
-            const ticket = resolved.ticket;
-
-            const configEntity = await ticketingRepo.get(guild.id);
-            if (!isTicketingConfigConfigured(configEntity)) {
-                return c.json(
-                    {
-                        error: 'This server has not finished setting up tickets, so there is nothing to move a ticket between. Deploy the ticket system first.',
-                    },
-                    409
-                );
+            let status: TicketStatus | undefined;
+            if (query.status) {
+                if (!isTicketStatus(query.status)) {
+                    return c.json({ error: `\`${query.status}\` is not a ticket status. Try open, closed or deleted.` }, 400);
+                }
+                status = query.status;
             }
 
-            const definition = getTicketTypeDefinition(configEntity.config, ticket.type);
-            if (!definition) {
-                return c.json(
-                    {
-                        error: `Ticket #${ticket.ticketNumber} is typed \`${ticket.type}\`, which this server no longer declares. Re-add that ticket type before touching this one.`,
-                    },
-                    409
-                );
-            }
-
-            // The actor is the session, never the body. A body-supplied claimer id
-            // would let an authorized operator claim on somebody else's behalf, which
-            // is a different feature and not one that was asked for.
-            const user = c.get('user');
-
-            const result = await applyTicketTransition({
-                guild,
-                config: configEntity.config,
-                ticket,
-                definition,
-                transition,
-                actor: {
-                    id: user.id,
-                    // Named as a person acting through the dashboard rather than a raw
-                    // `<@id>`: the announcement is posted into the ticket channel, and
-                    // a mention would ping a moderator every time somebody clicked.
-                    mention: `**${user.username}** (via the dashboard)`,
-                    // The dashboard knows the session's username and nothing about
-                    // their guild nickname — resolving one would mean a member fetch on
-                    // a path built to avoid them. Null is honest: "not recorded".
-                    identity: transition === 'claim' ? { username: user.username, nickname: null } : null,
-                },
-            });
-
-            // The service's own refusal, forwarded with its own words. 409 because the
-            // request was well-formed and the ticket's state is what declined it.
-            if (!result.ok) return c.json({ error: result.message }, 409);
-
-            const config = await readConfig(guild.id);
-            // Annotated, so the drift-gated interface is what actually goes on the wire
-            // rather than a structurally-similar object literal the gate never sees.
-            const body: TicketActionResult = {
-                ...ticketDetail(result.outcome.ticket, config),
-                syncWarning: result.outcome.syncWarning,
+            const filter = {
+                status,
+                type: query.type || undefined,
+                unclaimedOnly: query.unclaimed === 'true',
             };
-            return c.json(body);
-        });
-    }
 
-    /** The ticket config, including every declared type. */
-    app.get('/:guildId/config/tickets', async (c) => {
-        const guild = c.get('guild');
-        const entity = await ticketingRepo.get(guild.id);
-        return c.json(ticketingConfigView(guild, entity?.config ?? null));
-    });
+            const search = query.search?.trim();
+            const found = search
+                ? await ticketsRepo.searchByGuild(guild.id, search, filter)
+                : await ticketsRepo.listByGuild(guild.id, filter);
 
-    /**
-     * Set the category slots and moderation roles.
-     *
-     * Through `setTicketSettings`, which may **create** categories — a slot given a name
-     * is made on save — so this route changes the guild, not just the config. It spreads
-     * the stored config rather than rebuilding it, so the types and anything added to
-     * `TicketingConfig` later survive a save here.
-     *
-     * The deployed panel is refreshed afterwards, because the dashboard is now the only
-     * place categories are chosen: without it the panel's Create button would stay
-     * disabled after setup until something else happened to redraw it.
-     */
-    app.put('/:guildId/config/tickets', async (c) => {
-        const guild = c.get('guild');
-        const parsed = ticketConfigBody.safeParse(await c.req.json().catch(() => null));
-        if (!parsed.success) {
-            return c.json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body.' }, 400);
-        }
+            // Both reads ask for one row past the cap, so this can tell "exactly the cap" from
+            // "more than it" without a second count. Drop the sentinel and report it, rather
+            // than returning a short list that looks complete.
+            const truncated = found.length > TICKET_LIST_CAP;
+            const tickets = truncated ? found.slice(0, TICKET_LIST_CAP) : found;
 
-        const rejected = parsed.data.moderationRoles.filter((roleId) => !guild.roles.cache.has(roleId));
-        if (rejected.length > 0) {
-            // Named, not counted — the operator has to go find these — but only the first
-            // few, so the message stays a message. The array is capped at
-            // `MODERATION_ROLES_MAX`, and echoing every rejected id of a full one would put
-            // fifty snowflakes in a sentence nobody can read.
-            const named = rejected.slice(0, REJECTED_ROLES_ECHOED).join(', ');
-            const remainder = rejected.length - REJECTED_ROLES_ECHOED;
-            const suffix = remainder > 0 ? ` (and ${remainder} more)` : '';
+            // One config read for the whole page. `typeLabel` is resolved from it per row
+            // rather than joined in SQL, because a type is a member of a JSON blob and the
+            // list is already in memory by the time it is needed.
+            const config = await readConfig(guild.id);
+            const counts = await ticketsRepo.countsByGuild(guild.id);
+
             return c.json(
                 {
-                    error: `These are not roles in this server: ${named}${suffix}. Pick ones that exist — the bot cannot gate a ticket on a role Discord has never heard of.`,
+                    tickets: tickets.map((ticket) => ticketSummary(ticket, config)),
+                    counts,
+                    // The counts strip still reports the guild's true totals, so a capped list does
+                    // not mislead — but the table needs to say it is showing a slice.
+                    truncated,
                 },
-                400
+                200
             );
-        }
-
-        const result = await setTicketSettings({
-            guild,
-            categories: parsed.data.categories,
-            moderationRoles: parsed.data.moderationRoles,
         });
 
-        // A failed create still saved what it made, so the panel is redrawn for that too.
-        if (result.ok || result.reason === 'create-failed') {
-            await updateDeployedTicketMessage(guild.id).catch((error: unknown) => {
-                console.error('[tickets] Settings saved, but the deployed panel could not be refreshed:', error);
+        /** One ticket, in full. The record is all there is — the conversation lives in Discord. */
+        router.openapi(getTicketRoute, async (c) => {
+            const guild = c.get('guild');
+            const resolved = await resolveTicket(guild, c.req.valid('param').ticketId);
+            if (!resolved.ok) return c.json({ error: resolved.error }, resolved.status);
+
+            const config = await readConfig(guild.id);
+            return c.json(ticketDetail(resolved.ticket, config), 200);
+        });
+
+        /*
+         * The four lifecycle actions, each one line apart from the others.
+         *
+         * Registered from a table rather than written out four times, because the only
+         * thing that differs is the transition name — the gate, the cross-guild check, the
+         * config resolution, the actor and the response shape are identical, and four
+         * copies of that is four places for one of them to lose a check. This is the same
+         * argument `applyTicketTransition` makes one layer down.
+         */
+        for (const transition of Object.keys(TRANSITION_OPERATIONS) as TicketTransition[]) {
+            router.openapi(transitionRoute(transition), async (c) => {
+                const guild = c.get('guild');
+
+                // Checked per route rather than in a shared helper: this is the rule that
+                // stops one guild's operator acting on another guild's ticket, and it is
+                // worth being able to point at it in each handler.
+                const resolved = await resolveTicket(guild, c.req.valid('param').ticketId);
+                if (!resolved.ok) return c.json({ error: resolved.error }, resolved.status);
+                const ticket = resolved.ticket;
+
+                const configEntity = await ticketingRepo.get(guild.id);
+                if (!isTicketingConfigConfigured(configEntity)) {
+                    return c.json(
+                        {
+                            error: 'This server has not finished setting up tickets, so there is nothing to move a ticket between. Deploy the ticket system first.',
+                        },
+                        409
+                    );
+                }
+
+                const definition = getTicketTypeDefinition(configEntity.config, ticket.type);
+                if (!definition) {
+                    return c.json(
+                        {
+                            error: `Ticket #${ticket.ticketNumber} is typed \`${ticket.type}\`, which this server no longer declares. Re-add that ticket type before touching this one.`,
+                        },
+                        409
+                    );
+                }
+
+                // The actor is the session, never the body. A body-supplied claimer id
+                // would let an authorized operator claim on somebody else's behalf, which
+                // is a different feature and not one that was asked for.
+                const user = c.get('user');
+
+                const result = await applyTicketTransition({
+                    guild,
+                    config: configEntity.config,
+                    ticket,
+                    definition,
+                    transition,
+                    actor: {
+                        id: user.id,
+                        // Named as a person acting through the dashboard rather than a raw
+                        // `<@id>`: the announcement is posted into the ticket channel, and
+                        // a mention would ping a moderator every time somebody clicked.
+                        mention: `**${user.username}** (via the dashboard)`,
+                        // The dashboard knows the session's username and nothing about
+                        // their guild nickname — resolving one would mean a member fetch on
+                        // a path built to avoid them. Null is honest: "not recorded".
+                        identity: transition === 'claim' ? { username: user.username, nickname: null } : null,
+                    },
+                });
+
+                // The service's own refusal, forwarded with its own words. 409 because the
+                // request was well-formed and the ticket's state is what declined it.
+                if (!result.ok) return c.json({ error: result.message }, 409);
+
+                const config = await readConfig(guild.id);
+                return c.json(
+                    { ...ticketDetail(result.outcome.ticket, config), syncWarning: result.outcome.syncWarning },
+                    200
+                );
             });
         }
 
-        if (!result.ok) return c.json({ error: result.message }, SETTINGS_REFUSAL_STATUS[result.reason]);
-        return c.json(ticketingConfigView(guild, result.config));
+        /** The ticket config, including every declared type. */
+        router.openapi(getTicketsConfigRoute, async (c) => {
+            const guild = c.get('guild');
+            const entity = await ticketingRepo.get(guild.id);
+            return c.json(ticketingConfigView(guild, entity?.config ?? null), 200);
+        });
+
+        /**
+         * Set the category slots and moderation roles.
+         *
+         * Through `setTicketSettings`, which may **create** categories — a slot given a name
+         * is made on save — so this route changes the guild, not just the config. It spreads
+         * the stored config rather than rebuilding it, so the types and anything added to
+         * `TicketingConfig` later survive a save here.
+         *
+         * The deployed panel is refreshed afterwards, because the dashboard is now the only
+         * place categories are chosen: without it the panel's Create button would stay
+         * disabled after setup until something else happened to redraw it.
+         */
+        router.openapi(updateTicketsConfigRoute, async (c) => {
+            const guild = c.get('guild');
+            const body = c.req.valid('json');
+
+            const rejected = body.moderationRoles.filter((roleId) => !guild.roles.cache.has(roleId));
+            if (rejected.length > 0) {
+                // Named, not counted — the operator has to go find these — but only the first
+                // few, so the message stays a message. The array is capped at
+                // `MODERATION_ROLES_MAX`, and echoing every rejected id of a full one would put
+                // fifty snowflakes in a sentence nobody can read.
+                const named = rejected.slice(0, REJECTED_ROLES_ECHOED).join(', ');
+                const remainder = rejected.length - REJECTED_ROLES_ECHOED;
+                const suffix = remainder > 0 ? ` (and ${remainder} more)` : '';
+                return c.json(
+                    {
+                        error: `These are not roles in this server: ${named}${suffix}. Pick ones that exist — the bot cannot gate a ticket on a role Discord has never heard of.`,
+                    },
+                    400
+                );
+            }
+
+            const result = await setTicketSettings({
+                guild,
+                categories: body.categories,
+                moderationRoles: body.moderationRoles,
+            });
+
+            // A failed create still saved what it made, so the panel is redrawn for that too.
+            if (result.ok || result.reason === 'create-failed') {
+                await updateDeployedTicketMessage(guild.id).catch((error: unknown) => {
+                    console.error('[tickets] Settings saved, but the deployed panel could not be refreshed:', error);
+                });
+            }
+
+            if (!result.ok) return c.json({ error: result.message }, SETTINGS_REFUSAL_STATUS[result.reason]);
+            return c.json(ticketingConfigView(guild, result.config), 200);
+        });
+
+        /**
+         * Add or replace one ticket type.
+         *
+         * The key, label and template were held to `ticketTypeRules.ts` before this runs;
+         * the shared `upsertTicketType` renders the template to check it fits a channel
+         * name, and refuses a guild with no config.
+         */
+        router.openapi(saveTicketTypeRoute, async (c) => {
+            const guild = c.get('guild');
+            const body = c.req.valid('json');
+
+            const definition: TicketTypeDefinition = {
+                type: c.req.valid('param').type,
+                label: body.label,
+                nameTemplate: body.nameTemplate,
+                permissions: body.permissions,
+                autoClaimOnOpen: body.autoClaimOnOpen,
+            };
+
+            // Same table as the delete, so a "no config yet" on a save and on a delete get the
+            // same answer rather than one being a 400 because that is what a body error is.
+            const result = await upsertTicketType(guild.id, definition);
+            if (!result.ok) return c.json({ error: result.message }, REFUSAL_STATUS[result.reason]);
+
+            return c.json(ticketingConfigView(guild, result.config), 200);
+        });
+
+        /**
+         * Remove a ticket type, unless tickets still hold it.
+         *
+         * The refusal is `deleteTicketType`'s and reaches the operator verbatim: it names
+         * the counts by status and a handful of ticket numbers, which is what they have to
+         * go and act on. A route that swallowed it and reported success would be the
+         * failure this whole shared-authority arrangement exists to prevent.
+         */
+        router.openapi(deleteTicketTypeRoute, async (c) => {
+            const guild = c.get('guild');
+
+            const result = await deleteTicketType(guild.id, c.req.valid('param').type);
+            if (!result.ok) {
+                return c.json({ error: result.message }, REFUSAL_STATUS[result.reason]);
+            }
+
+            return c.body(null, 204);
+        });
     });
-
-    /**
-     * Add or replace one ticket type.
-     *
-     * Through the shared `upsertTicketType`, which owns the template-token rules — so
-     * an unimplemented token is refused with the same sentence a Discord surface would
-     * give. 400 rather than 409: the body is what is wrong.
-     */
-    app.put('/:guildId/config/tickets/types/:type', async (c) => {
-        const guild = c.get('guild');
-        const parsed = ticketTypeBody.safeParse(await c.req.json().catch(() => null));
-        if (!parsed.success) {
-            return c.json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body.' }, 400);
-        }
-
-        const definition: TicketTypeDefinition = {
-            type: c.req.param('type'),
-            label: parsed.data.label,
-            nameTemplate: parsed.data.nameTemplate,
-            permissions: parsed.data.permissions,
-            autoClaimOnOpen: parsed.data.autoClaimOnOpen,
-        };
-
-        // Same table as the delete, so a "no config yet" on a save and on a delete get the
-        // same answer rather than one being a 400 because that is what a body error is.
-        const result = await upsertTicketType(guild.id, definition);
-        if (!result.ok) return c.json({ error: result.message }, REFUSAL_STATUS[result.reason]);
-
-        return c.json(ticketingConfigView(guild, result.config));
-    });
-
-    /**
-     * Remove a ticket type, unless tickets still hold it.
-     *
-     * The refusal is `deleteTicketType`'s and reaches the operator verbatim: it names
-     * the counts by status and a handful of ticket numbers, which is what they have to
-     * go and act on. A route that swallowed it and reported success would be the
-     * failure this whole shared-authority arrangement exists to prevent.
-     */
-    app.delete('/:guildId/config/tickets/types/:type', async (c) => {
-        const guild = c.get('guild');
-        const type = c.req.param('type');
-
-        const result = await deleteTicketType(guild.id, type);
-        if (!result.ok) {
-            return c.json({ error: result.message }, REFUSAL_STATUS[result.reason]);
-        }
-
-        return c.body(null, 204);
-    });
-
-    return app;
-}
-
-/* ---- Wire shapes ---- */
-
-/**
- * A person on a ticket, rendered from the row's own snapshot.
- *
- * Null names on a row written before the snapshot columns existed; the dashboard shows
- * the id then. Not backfilled, because backfilling means fetching every historical
- * member — the Discord call this shape exists to avoid.
- */
-interface TicketParticipant {
-    id: string;
-    username: string | null;
-    nickname: string | null;
-}
-
-interface TicketSummary {
-    id: number;
-    ticketNumber: number;
-    type: string;
-    /** Null when the guild no longer declares the type. The raw key is shown instead. */
-    typeLabel: string | null;
-    status: TicketStatus;
-    title: string;
-    subject: TicketParticipant;
-    opener: TicketParticipant | null;
-    claimer: TicketParticipant | null;
-    channelId: string | null;
-    openedAt: string;
-    updatedAt: string;
-}
-
-/**
- * One ticket in full: the summary plus the reason and the rest of its timeline.
- *
- * There is no `messages` member and there will not be one. A ticket stores no
- * conversation — that lives in the Discord channel and is not in this database — so the
- * detail page links to the channel rather than pretending to have its history.
- */
-interface TicketDetail extends TicketSummary {
-    reason: string;
-    claimedAt: string | null;
-    closedAt: string | null;
-    deletedAt: string | null;
-}
-
-/**
- * A lifecycle response: the updated ticket, plus whether Discord kept up.
- *
- * Gated by the drift test like the rest, and this one earns it most: `syncWarning` is the
- * highest-consequence string the feature sends. Rename it here without renaming it in the
- * browser and both pages' `if (result.syncWarning)` silently stops firing — so the
- * sentence that says *the subject can still read this channel* would go unshown, with a
- * green suite and nothing in either workspace's typecheck to object.
- */
-interface TicketActionResult extends TicketDetail {
-    syncWarning: string | null;
-}
-
-/** The three numbers the list's counts strip shows, for the whole guild. */
-interface TicketCounts {
-    open: number;
-    unclaimed: number;
-    closed: number;
-}
-
-/** One declared type, as the config editor reads and writes it. */
-interface TicketTypeView {
-    type: string;
-    label: string;
-    nameTemplate: string;
-    permissions: TicketTypeDefinition['permissions'];
-    autoClaimOnOpen: boolean;
-}
-
-/**
- * One category slot, for the settings page.
- *
- * `name` is the expected name — what a deleted category is remade as. `liveName` is what
- * Discord calls the bound category now, or null when nothing is bound or the category is
- * gone; the two differ after a rename, which is harmless and worth showing. A slot with a
- * name and no `discordId` is the migration's "linked to nothing yet" state.
- */
-interface TicketCategoryView {
-    name: string;
-    discordId: string | null;
-    provenance: 'created' | 'adopted' | null;
-    liveName: string | null;
-}
-
-/**
- * The ticket config for the config page.
- *
- * `deployed` rather than the three `modTicketsDeployed*` members: the page needs to
- * know whether there is a panel, not which message id it is. `moderationRoles` carries
- * resolved names beside the ids for the same reason `resolveGuildSettings` does — so a
- * role renders without a second round trip — and a role deleted since it was saved
- * keeps its id and loses its name rather than being quietly dropped from what was
- * saved.
- */
-interface TicketingConfigView {
-    configured: boolean;
-    deployed: boolean;
-    /** `null` per slot when nothing has been chosen. */
-    categories: Record<TicketCategorySlot, TicketCategoryView | null>;
-    moderationRoleIds: string[];
-    moderationRoles: { id: string; name: string }[];
-    types: TicketTypeView[];
 }
 
 /* ---- Helpers ---- */
@@ -596,217 +674,3 @@ async function resolveTicket(guild: Guild, rawId: string): Promise<ResolveTicket
 
     return { ok: true, ticket };
 }
-
-/** An id paired with whatever names the row recorded for it. */
-function participant(
-    id: string,
-    username: string | null,
-    nickname: string | null
-): TicketParticipant {
-    return { id, username, nickname };
-}
-
-function ticketSummary(ticket: TicketEntity, config: TicketingConfig | null): TicketSummary {
-    return {
-        id: ticket.id,
-        ticketNumber: ticket.ticketNumber,
-        type: ticket.type,
-        typeLabel: config ? getTicketTypeDefinition(config, ticket.type)?.label ?? null : null,
-        status: ticket.status,
-        title: ticket.title,
-        subject: participant(ticket.subjectId, ticket.subjectUsername, ticket.subjectNickname),
-        opener: ticket.openerId
-            ? participant(ticket.openerId, ticket.openerUsername, ticket.openerNickname)
-            : null,
-        claimer: ticket.claimerId
-            ? participant(ticket.claimerId, ticket.claimerUsername, ticket.claimerNickname)
-            : null,
-        channelId: ticket.channelId,
-        openedAt: new Date(ticket.openedAt).toISOString(),
-        updatedAt: new Date(ticket.updatedAt).toISOString(),
-    };
-}
-
-function ticketDetail(ticket: TicketEntity, config: TicketingConfig | null): TicketDetail {
-    return {
-        ...ticketSummary(ticket, config),
-        reason: ticket.reason,
-        claimedAt: ticket.claimedAt ? new Date(ticket.claimedAt).toISOString() : null,
-        closedAt: ticket.closedAt ? new Date(ticket.closedAt).toISOString() : null,
-        deletedAt: ticket.deletedAt ? new Date(ticket.deletedAt).toISOString() : null,
-    };
-}
-
-function categoryView(guild: Guild, binding: TicketCategoryBinding): TicketCategoryView | null {
-    if (!binding) return null;
-    if (!binding.discordId) return { name: binding.name, discordId: null, provenance: null, liveName: null };
-    return {
-        name: binding.name,
-        discordId: binding.discordId,
-        provenance: binding.provenance,
-        liveName: guild.channels.cache.get(binding.discordId)?.name ?? null,
-    };
-}
-
-function ticketingConfigView(guild: Guild, config: TicketingConfig | null): TicketingConfigView {
-    const moderationRoleIds = config?.moderationRoles ?? [];
-
-    return {
-        // A guild with no row is not configured and is not an error: it is a guild that
-        // has not run `/deploy-ticket-system` yet, and the page says so rather than
-        // 404ing at an operator who came to set it up.
-        configured: isTicketingConfigConfigured(
-            config ? { id: 0, guildId: guild.id, config, ticketNumberInc: 0, entityVersion: 1 } : null
-        ),
-        deployed: config?.modTicketsDeployed ?? false,
-        categories: Object.fromEntries(
-            TICKET_CATEGORY_SLOTS.map((slot) => [slot, categoryView(guild, config?.categories[slot] ?? null)])
-        ) as Record<TicketCategorySlot, TicketCategoryView | null>,
-        moderationRoleIds: [...moderationRoleIds],
-        moderationRoles: moderationRoleIds
-            .map((roleId) => guild.roles.cache.get(roleId))
-            .filter((role): role is NonNullable<typeof role> => !!role)
-            .map((role) => ({ id: role.id, name: role.name })),
-        // Sorted by label so the editor's row order does not depend on JSON key order,
-        // which is insertion-ordered and would shuffle when a type is replaced.
-        types: Object.values(config?.ticketTypes ?? {})
-            .map((definition) => ({
-                type: definition.type,
-                label: definition.label,
-                nameTemplate: definition.nameTemplate,
-                permissions: definition.permissions,
-                autoClaimOnOpen: definition.autoClaimOnOpen,
-            }))
-            .sort((left, right) => left.label.localeCompare(right.label)),
-    };
-}
-
-/**
- * The wire-shape member lists the drift test compares against the browser's copy.
- *
- * Exported as data for the same reason `NODE_DESCRIPTOR_KEYS` is: these interfaces
- * exist twice — here and hand-mirrored in `web/src/api/types.ts` — because a single
- * `import type` from `src/` into `web/src/` pulls the bot tree into the browser
- * project's compilation and breaks `pnpm build:web`. `satisfies` holds each list to its
- * interface here, the browser file does the same on its side, and
- * `ticketWireShapeDrift.test.ts` compares the two.
- */
-export const TICKET_PARTICIPANT_KEYS = ['id', 'username', 'nickname'] as const satisfies readonly (keyof TicketParticipant)[];
-
-export const TICKET_SUMMARY_KEYS = [
-    'id',
-    'ticketNumber',
-    'type',
-    'typeLabel',
-    'status',
-    'title',
-    'subject',
-    'opener',
-    'claimer',
-    'channelId',
-    'openedAt',
-    'updatedAt',
-] as const satisfies readonly (keyof TicketSummary)[];
-
-export const TICKET_DETAIL_KEYS = [
-    ...TICKET_SUMMARY_KEYS,
-    'reason',
-    'claimedAt',
-    'closedAt',
-    'deletedAt',
-] as const satisfies readonly (keyof TicketDetail)[];
-
-export const TICKET_ACTION_RESULT_KEYS = [
-    ...TICKET_DETAIL_KEYS,
-    'syncWarning',
-] as const satisfies readonly (keyof TicketActionResult)[];
-
-export const TICKET_COUNTS_KEYS = ['open', 'unclaimed', 'closed'] as const satisfies readonly (keyof TicketCounts)[];
-
-export const TICKET_TYPE_VIEW_KEYS = [
-    'type',
-    'label',
-    'nameTemplate',
-    'permissions',
-    'autoClaimOnOpen',
-] as const satisfies readonly (keyof TicketTypeView)[];
-
-/*
- * `permissions` is gated **by name above and by shape here**, because gating the name
- * alone left the four booleans inside it completely unchecked.
- *
- * That was proven, not supposed: adding a fifth member to the server's
- * `TicketRolePermissions` and mirroring nothing in the browser left all nine drift tests
- * green. The root typecheck happened to fail too, but only incidentally — the seed literal
- * in `defaultTicketTypes` no longer satisfied the widened interface. *Rename* a member
- * instead of adding one and the seed still satisfies it, while the browser reads a field
- * the server stopped sending.
- *
- * These are the permission bits written onto real Discord channels, and the config page
- * draws one checkbox per member — so an unmirrored member is a permission an operator can
- * never see or set, silently round-tripped away on the next save. `BLOCK_CONFIG_FIELD_KEYS`
- * already established this pattern one level down for exactly this reason; tickets gated
- * the top level and stopped.
- */
-export const TICKET_ROLE_PERMISSIONS_KEYS = [
-    'view',
-    'send',
-    'readHistory',
-    'manageMessages',
-] as const satisfies readonly (keyof TicketRolePermissions)[];
-
-export const TICKET_PERMISSION_MODEL_KEYS = [
-    'subject',
-    'opener',
-    'staff',
-] as const satisfies readonly (keyof TicketPermissionModel)[];
-
-export const TICKET_CATEGORY_VIEW_KEYS = [
-    'name',
-    'discordId',
-    'provenance',
-    'liveName',
-] as const satisfies readonly (keyof TicketCategoryView)[];
-
-/** The slot names are a wire vocabulary too: a fourth slot unmirrored is one the page never draws. */
-export const TICKET_CATEGORY_SLOT_KEYS = TICKET_CATEGORY_SLOTS;
-
-export const TICKETING_CONFIG_VIEW_KEYS = [
-    'configured',
-    'deployed',
-    'categories',
-    'moderationRoleIds',
-    'moderationRoles',
-    'types',
-] as const satisfies readonly (keyof TicketingConfigView)[];
-
-/*
- * Each list is held to its interface in **both** directions. `satisfies` above rejects
- * a name that is not a member; the checks below reject a member missing from the list,
- * which is the direction that actually rots — a member added to a wire shape and never
- * mirrored is one the browser is served and cannot read.
- */
-type KeyListsComplete =
-    | Exclude<keyof TicketSummary, (typeof TICKET_SUMMARY_KEYS)[number]>
-    | Exclude<keyof TicketDetail, (typeof TICKET_DETAIL_KEYS)[number]>
-    | Exclude<keyof TicketParticipant, (typeof TICKET_PARTICIPANT_KEYS)[number]>
-    | Exclude<keyof TicketActionResult, (typeof TICKET_ACTION_RESULT_KEYS)[number]>
-    | Exclude<keyof TicketCounts, (typeof TICKET_COUNTS_KEYS)[number]>
-    | Exclude<keyof TicketTypeView, (typeof TICKET_TYPE_VIEW_KEYS)[number]>
-    | Exclude<keyof TicketRolePermissions, (typeof TICKET_ROLE_PERMISSIONS_KEYS)[number]>
-    | Exclude<keyof TicketPermissionModel, (typeof TICKET_PERMISSION_MODEL_KEYS)[number]>
-    | Exclude<keyof TicketingConfigView, (typeof TICKETING_CONFIG_VIEW_KEYS)[number]>
-    | Exclude<keyof TicketCategoryView, (typeof TICKET_CATEGORY_VIEW_KEYS)[number]>;
-
-/**
- * Do not delete as unused: removing this erases the guards above.
- *
- * The tuple wrapper is load-bearing. A bare `KeyListsComplete extends never` distributes
- * over the union and is vacuously true for an empty one, so it would pass whatever the
- * lists said — `[X] extends [never]` compares the whole union at once.
- */
-const keyListsAreComplete: [KeyListsComplete] extends [never]
-    ? true
-    : ['A ticket wire-shape key list is missing a member', KeyListsComplete] = true;
-
-void keyListsAreComplete;

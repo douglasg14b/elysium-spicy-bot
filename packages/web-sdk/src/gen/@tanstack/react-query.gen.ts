@@ -3,8 +3,8 @@
 import { queryOptions, type UseMutationOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { checkFlow, createFlow, deleteFlow, deployFlow, discardFlowDraft, getFlow, getGuildChannels, getGuildRoles, getGuildSettings, getInstallPlan, getPublishedState, getWarningsConfig, installFlow, listFlowDrafts, listFlows, listGuilds, type Options, saveMyFlowDraft, undeployFlow, unpublishFlow, updateFlow, updateGuildSettings, updateWarningsConfig } from '../sdk.gen';
-import type { CheckFlowData, CheckFlowError, CheckFlowResponse, CreateFlowData, CreateFlowError, CreateFlowResponse, DeleteFlowData, DeleteFlowError, DeleteFlowResponse, DeployFlowData, DeployFlowError, DeployFlowResponse, DiscardFlowDraftData, DiscardFlowDraftError, DiscardFlowDraftResponse, GetFlowData, GetFlowError, GetFlowResponse, GetGuildChannelsData, GetGuildChannelsError, GetGuildChannelsResponse, GetGuildRolesData, GetGuildRolesError, GetGuildRolesResponse, GetGuildSettingsData, GetGuildSettingsError, GetGuildSettingsResponse, GetInstallPlanData, GetInstallPlanError, GetInstallPlanResponse, GetPublishedStateData, GetPublishedStateError, GetPublishedStateResponse, GetWarningsConfigData, GetWarningsConfigError, GetWarningsConfigResponse, InstallFlowData, InstallFlowError, InstallFlowResponse, ListFlowDraftsData, ListFlowDraftsError, ListFlowDraftsResponse, ListFlowsData, ListFlowsError, ListFlowsResponse, ListGuildsData, ListGuildsError, ListGuildsResponse, SaveMyFlowDraftData, SaveMyFlowDraftError, SaveMyFlowDraftResponse, UndeployFlowData, UndeployFlowError, UndeployFlowResponse, UnpublishFlowData, UnpublishFlowError, UnpublishFlowResponse, UpdateFlowData, UpdateFlowError, UpdateFlowResponse, UpdateGuildSettingsData, UpdateGuildSettingsError, UpdateGuildSettingsResponse, UpdateWarningsConfigData, UpdateWarningsConfigError, UpdateWarningsConfigResponse } from '../types.gen';
+import { checkFlow, claimTicket, closeTicket, createFlow, deleteFlow, deleteTicketType, deployFlow, discardFlowDraft, getFlow, getGuildChannels, getGuildRoles, getGuildSettings, getInstallPlan, getPublishedState, getTicket, getTicketsConfig, getWarningsConfig, installFlow, listFlowDrafts, listFlows, listGuilds, listTickets, type Options, reopenTicket, saveMyFlowDraft, saveTicketType, unclaimTicket, undeployFlow, unpublishFlow, updateFlow, updateGuildSettings, updateTicketsConfig, updateWarningsConfig } from '../sdk.gen';
+import type { CheckFlowData, CheckFlowError, CheckFlowResponse, ClaimTicketData, ClaimTicketError, ClaimTicketResponse, CloseTicketData, CloseTicketError, CloseTicketResponse, CreateFlowData, CreateFlowError, CreateFlowResponse, DeleteFlowData, DeleteFlowError, DeleteFlowResponse, DeleteTicketTypeData, DeleteTicketTypeError, DeleteTicketTypeResponse, DeployFlowData, DeployFlowError, DeployFlowResponse, DiscardFlowDraftData, DiscardFlowDraftError, DiscardFlowDraftResponse, GetFlowData, GetFlowError, GetFlowResponse, GetGuildChannelsData, GetGuildChannelsError, GetGuildChannelsResponse, GetGuildRolesData, GetGuildRolesError, GetGuildRolesResponse, GetGuildSettingsData, GetGuildSettingsError, GetGuildSettingsResponse, GetInstallPlanData, GetInstallPlanError, GetInstallPlanResponse, GetPublishedStateData, GetPublishedStateError, GetPublishedStateResponse, GetTicketData, GetTicketError, GetTicketResponse, GetTicketsConfigData, GetTicketsConfigError, GetTicketsConfigResponse, GetWarningsConfigData, GetWarningsConfigError, GetWarningsConfigResponse, InstallFlowData, InstallFlowError, InstallFlowResponse, ListFlowDraftsData, ListFlowDraftsError, ListFlowDraftsResponse, ListFlowsData, ListFlowsError, ListFlowsResponse, ListGuildsData, ListGuildsError, ListGuildsResponse, ListTicketsData, ListTicketsError, ListTicketsResponse, ReopenTicketData, ReopenTicketError, ReopenTicketResponse, SaveMyFlowDraftData, SaveMyFlowDraftError, SaveMyFlowDraftResponse, SaveTicketTypeData, SaveTicketTypeError, SaveTicketTypeResponse, UnclaimTicketData, UnclaimTicketError, UnclaimTicketResponse, UndeployFlowData, UndeployFlowError, UndeployFlowResponse, UnpublishFlowData, UnpublishFlowError, UnpublishFlowResponse, UpdateFlowData, UpdateFlowError, UpdateFlowResponse, UpdateGuildSettingsData, UpdateGuildSettingsError, UpdateGuildSettingsResponse, UpdateTicketsConfigData, UpdateTicketsConfigError, UpdateTicketsConfigResponse, UpdateWarningsConfigData, UpdateWarningsConfigError, UpdateWarningsConfigResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -74,6 +74,75 @@ export const getGuildChannelsOptions = (options: Options<GetGuildChannelsData>) 
     },
     queryKey: getGuildChannelsQueryKey(options)
 });
+
+export const getTicketsConfigQueryKey = (options: Options<GetTicketsConfigData>) => createQueryKey('getTicketsConfig', options);
+
+/**
+ * The ticket settings and declared types
+ */
+export const getTicketsConfigOptions = (options: Options<GetTicketsConfigData>) => queryOptions<GetTicketsConfigResponse, GetTicketsConfigError, GetTicketsConfigResponse, ReturnType<typeof getTicketsConfigQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getTicketsConfig({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getTicketsConfigQueryKey(options)
+});
+
+/**
+ * Set the category slots and moderation roles, creating any category given a name
+ */
+export const updateTicketsConfigMutation = (options?: Partial<Options<UpdateTicketsConfigData>>): UseMutationOptions<UpdateTicketsConfigResponse, UpdateTicketsConfigError, Options<UpdateTicketsConfigData>> => {
+    const mutationOptions: UseMutationOptions<UpdateTicketsConfigResponse, UpdateTicketsConfigError, Options<UpdateTicketsConfigData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await updateTicketsConfig({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Remove a ticket type no ticket holds
+ */
+export const deleteTicketTypeMutation = (options?: Partial<Options<DeleteTicketTypeData>>): UseMutationOptions<DeleteTicketTypeResponse, DeleteTicketTypeError, Options<DeleteTicketTypeData>> => {
+    const mutationOptions: UseMutationOptions<DeleteTicketTypeResponse, DeleteTicketTypeError, Options<DeleteTicketTypeData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await deleteTicketType({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Add or replace one ticket type
+ */
+export const saveTicketTypeMutation = (options?: Partial<Options<SaveTicketTypeData>>): UseMutationOptions<SaveTicketTypeResponse, SaveTicketTypeError, Options<SaveTicketTypeData>> => {
+    const mutationOptions: UseMutationOptions<SaveTicketTypeResponse, SaveTicketTypeError, Options<SaveTicketTypeData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await saveTicketType({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
 
 export const getWarningsConfigQueryKey = (options: Options<GetWarningsConfigData>) => createQueryKey('getWarningsConfig', options);
 
@@ -413,6 +482,110 @@ export const updateGuildSettingsMutation = (options?: Partial<Options<UpdateGuil
     const mutationOptions: UseMutationOptions<UpdateGuildSettingsResponse, UpdateGuildSettingsError, Options<UpdateGuildSettingsData>> = {
         mutationFn: async (fnOptions) => {
             const { data } = await updateGuildSettings({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const listTicketsQueryKey = (options: Options<ListTicketsData>) => createQueryKey('listTickets', options);
+
+/**
+ * The guild's tickets, newest first
+ */
+export const listTicketsOptions = (options: Options<ListTicketsData>) => queryOptions<ListTicketsResponse, ListTicketsError, ListTicketsResponse, ReturnType<typeof listTicketsQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await listTickets({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: listTicketsQueryKey(options)
+});
+
+export const getTicketQueryKey = (options: Options<GetTicketData>) => createQueryKey('getTicket', options);
+
+/**
+ * One ticket, in full
+ */
+export const getTicketOptions = (options: Options<GetTicketData>) => queryOptions<GetTicketResponse, GetTicketError, GetTicketResponse, ReturnType<typeof getTicketQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getTicket({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getTicketQueryKey(options)
+});
+
+/**
+ * Claim a ticket as the signed-in operator
+ */
+export const claimTicketMutation = (options?: Partial<Options<ClaimTicketData>>): UseMutationOptions<ClaimTicketResponse, ClaimTicketError, Options<ClaimTicketData>> => {
+    const mutationOptions: UseMutationOptions<ClaimTicketResponse, ClaimTicketError, Options<ClaimTicketData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await claimTicket({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Close a ticket
+ */
+export const closeTicketMutation = (options?: Partial<Options<CloseTicketData>>): UseMutationOptions<CloseTicketResponse, CloseTicketError, Options<CloseTicketData>> => {
+    const mutationOptions: UseMutationOptions<CloseTicketResponse, CloseTicketError, Options<CloseTicketData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await closeTicket({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Reopen a closed ticket
+ */
+export const reopenTicketMutation = (options?: Partial<Options<ReopenTicketData>>): UseMutationOptions<ReopenTicketResponse, ReopenTicketError, Options<ReopenTicketData>> => {
+    const mutationOptions: UseMutationOptions<ReopenTicketResponse, ReopenTicketError, Options<ReopenTicketData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await reopenTicket({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Release a ticket's claim
+ */
+export const unclaimTicketMutation = (options?: Partial<Options<UnclaimTicketData>>): UseMutationOptions<UnclaimTicketResponse, UnclaimTicketError, Options<UnclaimTicketData>> => {
+    const mutationOptions: UseMutationOptions<UnclaimTicketResponse, UnclaimTicketError, Options<UnclaimTicketData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await unclaimTicket({
                 ...options,
                 ...fnOptions,
                 throwOnError: true

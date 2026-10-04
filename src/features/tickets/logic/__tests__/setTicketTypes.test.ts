@@ -11,9 +11,9 @@ import { deleteTicketType, upsertTicketType, type SetTicketTypesDeps } from '../
  * The validate-and-persist authority, which a Discord surface and a web route both
  * go through so a refusal exists once.
  *
- * The template rules are the collapse of the phantom-template defect:
- * `S{{####}}-{{user}}-{{creator}}` named tokens nothing implemented and was accepted,
- * stored, shown to operators as the channel template, and then silently dropped.
+ * The key, label and token rules are declared in `ticketTypeRules.ts` and their sentences
+ * are tested there; here, only that this authority applies them — a surface calling it
+ * directly is held to them — and stores what they normalize.
  */
 
 function config(overrides: Partial<TicketingConfig> = {}): TicketingConfig {
@@ -113,27 +113,31 @@ const UNUSED: SetTicketTypesDeps['usage'] = {
 };
 
 describe('upsertTicketType template validation', () => {
-    it('rejects a nameTemplate using {{user}}, naming the token', async () => {
+    it('holds a direct caller to the declared rules: {{user}} is refused and nothing is written', async () => {
         const { deps, update } = harness();
 
         const result = await upsertTicketType('guild-1', definition({ nameTemplate: 'S{{####}}-{{user}}' }), deps);
 
-        expect(result.ok).toBe(false);
-        expect(result.ok === false && result.message).toContain('{{user}}');
+        expect(result).toEqual({
+            ok: false,
+            reason: 'invalid-input',
+            message:
+                'Only `{{####}}`, `{{subject}}` and `{{opener}}` render here, each with exactly two braces either side — nothing else, and no, wishing does not count.',
+        });
         expect(update).not.toHaveBeenCalled();
     });
 
-    it('rejects {{creator}} too — the other half of the phantom template', async () => {
-        const { deps } = harness();
+    it('refuses a key a channel name or a flow option cannot carry', async () => {
+        const { deps, update } = harness();
 
-        const result = await upsertTicketType('guild-1', definition({ nameTemplate: 'S{{####}}-{{creator}}' }), deps);
+        const result = await upsertTicketType('guild-1', definition({ type: 'Appeals & Bans' }), deps);
 
         expect(result.ok).toBe(false);
-        expect(result.ok === false && result.message).toContain('{{creator}}');
+        expect(update).not.toHaveBeenCalled();
     });
 
     it('rejects a nameTemplate whose maximum expansion exceeds 100 characters', async () => {
-        const { deps } = harness();
+        const { deps, update } = harness();
         // Two 32-character usernames plus a long literal prefix. Under 100 as written,
         // over it once the tokens expand — which is why the check renders rather than
         // measuring the template string.
@@ -144,7 +148,10 @@ describe('upsertTicketType template validation', () => {
         );
 
         expect(result.ok).toBe(false);
-        expect(result.ok === false && result.message).toContain('100');
+        expect(result.ok === false && result.message).toBe(
+            'At its longest that template renders 116 characters, and Discord caps a channel name at 100. Trim it.'
+        );
+        expect(update).not.toHaveBeenCalled();
     });
 
     it('rejects a nameTemplate that renders empty', async () => {
@@ -171,17 +178,6 @@ describe('upsertTicketType template validation', () => {
 
         expect(result.ok).toBe(false);
         expect(result.ok === false && result.message).toContain('100');
-    });
-
-    it('rejects a malformed token the brace scan cannot see', async () => {
-        const { deps } = harness();
-        // `{{subject}` has no closing pair, so `/\{\{([^}]+)\}\}/g` never matches it and
-        // the supported-token check passes it through. Caught by the post-render sweep for
-        // anything brace-shaped, which closes the class rather than this one spelling.
-        const result = await upsertTicketType('guild-1', definition({ nameTemplate: 'A{{####}}-{{subject}' }), deps);
-
-        expect(result.ok).toBe(false);
-        expect(result.ok === false && result.message).toContain('braces');
     });
 
     it('accepts a repeated token, which the renderer now substitutes everywhere', async () => {
@@ -238,6 +234,26 @@ describe('upsertTicketType persistence', () => {
         expect(written().categories.open?.name).toBe('Support');
     });
 
+    it('stores a padded key, label and template normalized, so the record and its map key agree', async () => {
+        const { deps, written } = harness();
+
+        const result = await upsertTicketType(
+            'guild-1',
+            definition({ type: '  appeals  ', label: ' Appeals ', nameTemplate: ' A{{####}} ' }),
+            deps
+        );
+
+        expect(result.ok).toBe(true);
+        // Validating the trimmed key and storing the untrimmed one would leave a type
+        // visible in the config that every lookup misses.
+        expect(written().ticketTypes).not.toHaveProperty('  appeals  ');
+        expect(written().ticketTypes?.appeals).toMatchObject({
+            type: 'appeals',
+            label: 'Appeals',
+            nameTemplate: 'A{{####}}',
+        });
+    });
+
     it('refuses a guild with no config row', async () => {
         const { deps, update } = harness(null);
 
@@ -246,33 +262,6 @@ describe('upsertTicketType persistence', () => {
         expect(result.ok).toBe(false);
         expect(result.ok === false && result.message).toContain('no ticket config');
         expect(update).not.toHaveBeenCalled();
-    });
-
-    it('refuses a blank type key', async () => {
-        const { deps } = harness();
-
-        expect((await upsertTicketType('guild-1', definition({ type: '  ' }), deps)).ok).toBe(false);
-    });
-
-    it('stores a padded key normalized, so the record and its map key agree', async () => {
-        const { deps, written } = harness();
-
-        const result = await upsertTicketType('guild-1', definition({ type: '  appeals  ' }), deps);
-
-        expect(result.ok).toBe(true);
-        const saved = written();
-        // Validating the trimmed key and storing the untrimmed one would leave a type
-        // visible in the config that every lookup misses — the guild would be told it
-        // "no longer declares" a type sitting right there.
-        expect(saved.ticketTypes).toHaveProperty('appeals');
-        expect(saved.ticketTypes).not.toHaveProperty('  appeals  ');
-        expect(saved.ticketTypes?.appeals.type).toBe('appeals');
-    });
-
-    it('refuses a key with characters a channel name or a flow option cannot carry', async () => {
-        const { deps } = harness();
-
-        expect((await upsertTicketType('guild-1', definition({ type: 'Appeals & Bans' }), deps)).ok).toBe(false);
     });
 });
 

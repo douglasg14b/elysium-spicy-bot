@@ -95,7 +95,7 @@ export interface DriftBody {
  * The member lists the drift gate compares, and the compile-time guards that keep each
  * list honest about its own interface.
  *
- * The same machinery `ticketRoutes.ts` uses, and it is here because this file's absence
+ * The same machinery `levelingRoutes.ts` uses, and it is here because this file's absence
  * of it cost something real: `RepairOutcome` was mirrored in the browser with a fourth
  * member the server cannot emit, so every partial repair was reported to the operator
  * as a flat failure. Two clean typechecks and 43 tests said nothing, because each
@@ -149,9 +149,9 @@ type KeyListsComplete =
 /**
  * Do not delete as unused: removing this erases the guards above.
  *
- * The tuple wrapper is load-bearing, for the reason `ticketRoutes.ts` records: a bare
- * `KeyListsComplete extends never` distributes over the union and is vacuously true for
- * an empty one, so it would pass whatever the lists said.
+ * The tuple wrapper is load-bearing: a bare `KeyListsComplete extends never` distributes
+ * over the union and is vacuously true for an empty one, so it would pass whatever the
+ * lists said.
  */
 type _KeyListsAreComplete = [KeyListsComplete] extends [never] ? true : never;
 const _keyListsAreComplete: _KeyListsAreComplete = true;

@@ -1,4 +1,4 @@
-import type { TicketParticipant } from '../api/types';
+import type { TicketParticipant } from '@brattybot/web-sdk';
 
 /**
  * How a person on a ticket is written on screen.

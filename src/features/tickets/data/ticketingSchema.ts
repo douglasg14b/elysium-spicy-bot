@@ -106,7 +106,8 @@ export const TICKET_CATEGORY_LABELS: Readonly<Record<TicketCategorySlot, string>
 };
 
 /** Whether the bot made a bound category or was handed one that already existed. */
-export type TicketCategoryProvenance = 'created' | 'adopted';
+export const TICKET_CATEGORY_PROVENANCES = ['created', 'adopted'] as const;
+export type TicketCategoryProvenance = (typeof TICKET_CATEGORY_PROVENANCES)[number];
 
 /**
  * A slot with an expected name and no category behind it.

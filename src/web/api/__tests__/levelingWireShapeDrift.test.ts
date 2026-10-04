@@ -37,7 +37,7 @@ import * as browserTypes from '../../../../web/src/api/types';
  * browser project's compilation and breaks `pnpm build:web` — so this test is what stops
  * the copy rotting, in place of the type system.
  *
- * **The comparison is data, not text**, exactly as `ticketWireShapeDrift.test.ts` does it.
+ * **The comparison is data, not text**, as every wire-shape drift test here does it.
  * Each side exports `as const` member lists that its *own* `tsc` holds to the interface in
  * both directions: `satisfies` rejects a name that is not a member, and a companion
  * conditional type rejects a member missing from the list. So this test only compares

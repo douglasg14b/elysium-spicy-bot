@@ -1,5 +1,6 @@
 import { Select, Stack, Text, TextInput } from '@mantine/core';
-import type { GuildChannel, TicketCategorySlot, TicketCategoryView } from '../api/types';
+import type { TicketCategoryView } from '@brattybot/web-sdk';
+import type { GuildChannel } from '../api/types';
 import {
     CATEGORY_SLOT_COPY,
     CREATE_NEW_CATEGORY,
@@ -7,6 +8,7 @@ import {
     categorySlotOptions,
     categorySlotProblem,
     type CategorySlotDraft,
+    type TicketCategorySlot,
 } from './categorySlots';
 
 interface TicketCategorySlotFieldProps {

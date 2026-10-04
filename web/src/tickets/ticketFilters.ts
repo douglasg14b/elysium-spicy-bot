@@ -1,4 +1,4 @@
-import type { TicketingConfigView } from '../api/types';
+import type { TicketingConfigView } from '@brattybot/web-sdk';
 
 /**
  * What the list is currently narrowed to.

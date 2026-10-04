@@ -45,8 +45,13 @@ import {
 } from '@tabler/icons-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ApiError } from '../api/client';
-import { actOnTicket, getTicketsConfig, listTickets, type TicketAction } from '../api/tickets';
-import type { TicketCounts, TicketSummary, TicketingConfigView } from '../api/types';
+import {
+    getTicketsConfig,
+    type TicketCounts,
+    type TicketingConfigView,
+    type TicketSummary,
+} from '@brattybot/web-sdk';
+import { actOnTicket, listTickets, type TicketAction } from '../api/tickets';
 import { availableActions, TICKET_ACTION_PRESENTATION } from '../tickets/ticketActions';
 import { formatTicketNumber, TICKET_STATUS_TONE } from '../tickets/ticketPresentation';
 import {
@@ -157,7 +162,7 @@ export function TicketsListPage() {
         let cancelled = false;
         void (async () => {
             try {
-                const loaded = await getTicketsConfig(guildId);
+                const { data: loaded } = await getTicketsConfig({ path: { guildId } });
                 if (!cancelled) setConfig(loaded);
             } catch {
                 // Non-fatal: without it the type dropdown falls back to "All types" and

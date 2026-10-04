@@ -63,17 +63,6 @@ const NOT_YET_IN_SPEC: readonly string[] = [
     'POST /api/guilds/{guildId}/journeys',
     'PUT /api/guilds/{guildId}/journeys/{journeyKey}',
     'DELETE /api/guilds/{guildId}/journeys/{journeyKey}',
-    // ticketRoutes.ts (the four lifecycle actions are registered in one loop)
-    'GET /api/guilds/{guildId}/tickets',
-    'GET /api/guilds/{guildId}/tickets/{ticketId}',
-    'POST /api/guilds/{guildId}/tickets/{ticketId}/claim',
-    'POST /api/guilds/{guildId}/tickets/{ticketId}/unclaim',
-    'POST /api/guilds/{guildId}/tickets/{ticketId}/close',
-    'POST /api/guilds/{guildId}/tickets/{ticketId}/reopen',
-    'GET /api/guilds/{guildId}/config/tickets',
-    'PUT /api/guilds/{guildId}/config/tickets',
-    'PUT /api/guilds/{guildId}/config/tickets/types/{type}',
-    'DELETE /api/guilds/{guildId}/config/tickets/types/{type}',
     // levelingRoutes.ts
     'GET /api/guilds/{guildId}/leveling',
     'GET /api/guilds/{guildId}/leveling/users/{userId}',
@@ -87,7 +76,7 @@ const NOT_YET_IN_SPEC: readonly string[] = [
  * raise it.** The other checks only see entries already on the list, so without this a
  * new, undeclared route plus one line here would pass every gate.
  */
-const NOT_YET_IN_SPEC_CEILING = 38;
+const NOT_YET_IN_SPEC_CEILING = 28;
 
 /**
  * The middleware `registerApiRoutes` mounts with `use`, by identity.

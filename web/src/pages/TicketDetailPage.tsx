@@ -33,9 +33,9 @@ import {
     IconTicket,
 } from '@tabler/icons-react';
 import { Link, useParams } from 'react-router-dom';
+import type { TicketDetail } from '@brattybot/web-sdk';
 import { ApiError } from '../api/client';
 import { actOnTicket, getTicket, type TicketAction } from '../api/tickets';
-import type { TicketDetail } from '../api/types';
 import { availableActions, TICKET_ACTION_PRESENTATION } from '../tickets/ticketActions';
 import { formatTicketNumber, TICKET_STATUS_TONE } from '../tickets/ticketPresentation';
 import { optionalParticipantLabel, participantLabel } from '../tickets/participantLabel';

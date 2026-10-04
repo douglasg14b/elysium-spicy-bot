@@ -111,7 +111,11 @@
                     "name": {
                         "maxLength": 100,
                         "minLength": 1,
-                        "type": "string"
+                        "type": "string",
+                        "x-messages": {
+                            "maxLength": "Flow names cap at 100 characters.",
+                            "minLength": "Give the flow a name."
+                        }
                     }
                 },
                 "required": [
@@ -158,7 +162,11 @@
                     "name": {
                         "maxLength": 100,
                         "minLength": 1,
-                        "type": "string"
+                        "type": "string",
+                        "x-messages": {
+                            "maxLength": "Flow names cap at 100 characters.",
+                            "minLength": "Give the flow a name."
+                        }
                     }
                 },
                 "required": [
@@ -505,7 +513,11 @@
                     "name": {
                         "maxLength": 100,
                         "minLength": 1,
-                        "type": "string"
+                        "type": "string",
+                        "x-messages": {
+                            "maxLength": "Flow names cap at 100 characters.",
+                            "minLength": "Give the flow a name."
+                        }
                     }
                 },
                 "type": "object"
@@ -916,6 +928,613 @@
                 ],
                 "type": "object"
             },
+            "TicketActionResult": {
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/TicketDetail"
+                    },
+                    {
+                        "properties": {
+                            "syncWarning": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            }
+                        },
+                        "required": [
+                            "syncWarning"
+                        ],
+                        "type": "object"
+                    }
+                ],
+                "description": "The ticket after a lifecycle action. `syncWarning` is set when the ticket changed and its channel did not follow — on a close, that the subject may still be able to read it. Show it."
+            },
+            "TicketCategoryView": {
+                "description": "One category slot. `name` is the expected name, `liveName` what Discord calls the bound category now (null when nothing is bound, or it is gone). A `name` with no `discordId` is linked to nothing yet, and tickets stop until it is.",
+                "properties": {
+                    "discordId": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "liveName": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "provenance": {
+                        "enum": [
+                            "created",
+                            "adopted",
+                            null
+                        ],
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                },
+                "required": [
+                    "name",
+                    "discordId",
+                    "provenance",
+                    "liveName"
+                ],
+                "type": "object"
+            },
+            "TicketCounts": {
+                "description": "The server's ticket totals, whatever the list is filtered to.",
+                "properties": {
+                    "closed": {
+                        "type": "number"
+                    },
+                    "open": {
+                        "type": "number"
+                    },
+                    "unclaimed": {
+                        "type": "number"
+                    }
+                },
+                "required": [
+                    "open",
+                    "unclaimed",
+                    "closed"
+                ],
+                "type": "object"
+            },
+            "TicketDetail": {
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/TicketSummary"
+                    },
+                    {
+                        "properties": {
+                            "claimedAt": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "closedAt": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "deletedAt": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "reason": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "reason",
+                            "claimedAt",
+                            "closedAt",
+                            "deletedAt"
+                        ],
+                        "type": "object"
+                    }
+                ],
+                "description": "One ticket in full: the list row plus its reason and timeline. The conversation is not here; it lives in the Discord channel."
+            },
+            "TicketList": {
+                "description": "The tickets matching the filter, newest first. `truncated` means the list was capped and more match; `counts` still reports the whole server.",
+                "properties": {
+                    "counts": {
+                        "$ref": "#/components/schemas/TicketCounts"
+                    },
+                    "tickets": {
+                        "items": {
+                            "$ref": "#/components/schemas/TicketSummary"
+                        },
+                        "type": "array"
+                    },
+                    "truncated": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "tickets",
+                    "counts",
+                    "truncated"
+                ],
+                "type": "object"
+            },
+            "TicketParticipant": {
+                "description": "A person on a ticket, as the row recorded them. Both names are null on a row written before names were recorded; show the id then.",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "nickname": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "username": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                },
+                "required": [
+                    "id",
+                    "username",
+                    "nickname"
+                ],
+                "type": "object"
+            },
+            "TicketPermissionModel": {
+                "description": "Who may do what in a ticket channel: `subject` is who the ticket is about, `opener` whoever filed it, `staff` the moderation roles.",
+                "properties": {
+                    "opener": {
+                        "$ref": "#/components/schemas/TicketRolePermissions"
+                    },
+                    "staff": {
+                        "$ref": "#/components/schemas/TicketRolePermissions"
+                    },
+                    "subject": {
+                        "$ref": "#/components/schemas/TicketRolePermissions"
+                    }
+                },
+                "required": [
+                    "subject",
+                    "opener",
+                    "staff"
+                ],
+                "type": "object"
+            },
+            "TicketRolePermissions": {
+                "description": "What one person on a ticket may do in its channel.",
+                "properties": {
+                    "manageMessages": {
+                        "type": "boolean"
+                    },
+                    "readHistory": {
+                        "type": "boolean"
+                    },
+                    "send": {
+                        "type": "boolean"
+                    },
+                    "view": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "view",
+                    "send",
+                    "readHistory",
+                    "manageMessages"
+                ],
+                "type": "object"
+            },
+            "TicketStatus": {
+                "enum": [
+                    "open",
+                    "closed",
+                    "deleted"
+                ],
+                "type": "string"
+            },
+            "TicketSummary": {
+                "description": "A row in the tickets list. `typeLabel` is null when the server no longer declares the ticket's type; show `type` then.",
+                "properties": {
+                    "channelId": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "claimer": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/TicketParticipant"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "id": {
+                        "type": "number"
+                    },
+                    "openedAt": {
+                        "type": "string"
+                    },
+                    "opener": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/TicketParticipant"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/TicketStatus"
+                    },
+                    "subject": {
+                        "$ref": "#/components/schemas/TicketParticipant"
+                    },
+                    "ticketNumber": {
+                        "type": "number"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string"
+                    },
+                    "typeLabel": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "updatedAt": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "ticketNumber",
+                    "type",
+                    "typeLabel",
+                    "status",
+                    "title",
+                    "subject",
+                    "opener",
+                    "claimer",
+                    "channelId",
+                    "openedAt",
+                    "updatedAt"
+                ],
+                "type": "object"
+            },
+            "TicketTypeUpdate": {
+                "description": "A ticket type, without its key: that is the path.",
+                "properties": {
+                    "autoClaimOnOpen": {
+                        "type": "boolean"
+                    },
+                    "label": {
+                        "minLength": 1,
+                        "type": "string",
+                        "x-messages": {
+                            "minLength": "Give the type a label — operators have to pick it out of a list."
+                        }
+                    },
+                    "nameTemplate": {
+                        "minLength": 1,
+                        "pattern": "^(?:[^{}]|\\{\\{(?:####|subject|opener)\\}\\})*$",
+                        "type": "string",
+                        "x-messages": {
+                            "minLength": "A channel-name template cannot be empty. Discord insists on calling channels something.",
+                            "pattern": "Only `{{####}}`, `{{subject}}` and `{{opener}}` render here, each with exactly two braces either side — nothing else, and no, wishing does not count."
+                        }
+                    },
+                    "permissions": {
+                        "$ref": "#/components/schemas/TicketPermissionModel"
+                    }
+                },
+                "required": [
+                    "label",
+                    "nameTemplate",
+                    "permissions",
+                    "autoClaimOnOpen"
+                ],
+                "type": "object"
+            },
+            "TicketTypeView": {
+                "description": "One declared ticket type. `type` is its key: identity, fixed once saved.",
+                "properties": {
+                    "autoClaimOnOpen": {
+                        "type": "boolean"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "nameTemplate": {
+                        "type": "string"
+                    },
+                    "permissions": {
+                        "$ref": "#/components/schemas/TicketPermissionModel"
+                    },
+                    "type": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "type",
+                    "label",
+                    "nameTemplate",
+                    "permissions",
+                    "autoClaimOnOpen"
+                ],
+                "type": "object"
+            },
+            "TicketingConfigView": {
+                "description": "The server's ticket settings and declared types. `categories` is null per slot when nothing is chosen. A saved moderation role that no longer exists stays in `moderationRoleIds` and is missing from `moderationRoles`.",
+                "properties": {
+                    "categories": {
+                        "properties": {
+                            "claimed": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/components/schemas/TicketCategoryView"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "closed": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/components/schemas/TicketCategoryView"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "open": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/components/schemas/TicketCategoryView"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            }
+                        },
+                        "required": [
+                            "open",
+                            "claimed",
+                            "closed"
+                        ],
+                        "type": "object"
+                    },
+                    "configured": {
+                        "type": "boolean"
+                    },
+                    "deployed": {
+                        "type": "boolean"
+                    },
+                    "moderationRoleIds": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    },
+                    "moderationRoles": {
+                        "items": {
+                            "properties": {
+                                "id": {
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "id",
+                                "name"
+                            ],
+                            "type": "object"
+                        },
+                        "type": "array"
+                    },
+                    "types": {
+                        "items": {
+                            "$ref": "#/components/schemas/TicketTypeView"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "configured",
+                    "deployed",
+                    "categories",
+                    "moderationRoleIds",
+                    "moderationRoles",
+                    "types"
+                ],
+                "type": "object"
+            },
+            "TicketsConfigUpdate": {
+                "description": "The category slots and moderation roles. A slot given a `name` is created in Discord on save; `null` leaves a slot as it is.",
+                "properties": {
+                    "categories": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "claimed": {
+                                "anyOf": [
+                                    {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "discordId": {
+                                                "pattern": "^\\d{17,20}$",
+                                                "type": "string",
+                                                "x-messages": {
+                                                    "pattern": "That is not a Discord category id."
+                                                }
+                                            }
+                                        },
+                                        "required": [
+                                            "discordId"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "name": {
+                                                "maxLength": 100,
+                                                "minLength": 1,
+                                                "type": "string",
+                                                "x-messages": {
+                                                    "maxLength": "Discord caps a category name at 100 characters.",
+                                                    "minLength": "A new category needs a name. Discord insists on calling things something."
+                                                }
+                                            }
+                                        },
+                                        "required": [
+                                            "name"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "closed": {
+                                "anyOf": [
+                                    {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "discordId": {
+                                                "pattern": "^\\d{17,20}$",
+                                                "type": "string",
+                                                "x-messages": {
+                                                    "pattern": "That is not a Discord category id."
+                                                }
+                                            }
+                                        },
+                                        "required": [
+                                            "discordId"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "name": {
+                                                "maxLength": 100,
+                                                "minLength": 1,
+                                                "type": "string",
+                                                "x-messages": {
+                                                    "maxLength": "Discord caps a category name at 100 characters.",
+                                                    "minLength": "A new category needs a name. Discord insists on calling things something."
+                                                }
+                                            }
+                                        },
+                                        "required": [
+                                            "name"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "open": {
+                                "anyOf": [
+                                    {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "discordId": {
+                                                "pattern": "^\\d{17,20}$",
+                                                "type": "string",
+                                                "x-messages": {
+                                                    "pattern": "That is not a Discord category id."
+                                                }
+                                            }
+                                        },
+                                        "required": [
+                                            "discordId"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "name": {
+                                                "maxLength": 100,
+                                                "minLength": 1,
+                                                "type": "string",
+                                                "x-messages": {
+                                                    "maxLength": "Discord caps a category name at 100 characters.",
+                                                    "minLength": "A new category needs a name. Discord insists on calling things something."
+                                                }
+                                            }
+                                        },
+                                        "required": [
+                                            "name"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            }
+                        },
+                        "required": [
+                            "open",
+                            "claimed",
+                            "closed"
+                        ],
+                        "type": "object"
+                    },
+                    "moderationRoles": {
+                        "items": {
+                            "maxLength": 32,
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "maxItems": 50,
+                        "minItems": 1,
+                        "type": "array",
+                        "x-messages": {
+                            "maxItems": "That is more moderation roles than any server has. Trim the list.",
+                            "minItems": "Pick at least one moderation role, or nobody but admins can touch a ticket."
+                        }
+                    }
+                },
+                "required": [
+                    "categories",
+                    "moderationRoles"
+                ],
+                "type": "object"
+            },
             "UndeployResult": {
                 "properties": {
                     "results": {
@@ -1033,7 +1652,10 @@
                 "properties": {
                     "modChannelId": {
                         "minLength": 1,
-                        "type": "string"
+                        "type": "string",
+                        "x-messages": {
+                            "minLength": "Pick a channel. Warning notices do not haunt the void."
+                        }
                     }
                 },
                 "required": [
@@ -1170,6 +1792,421 @@
                 "summary": "The guild's text channels and categories",
                 "tags": [
                     "guilds"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/config/tickets": {
+            "get": {
+                "operationId": "getTicketsConfig",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TicketingConfigView"
+                                }
+                            }
+                        },
+                        "description": "The ticket config. A server that has not deployed tickets reads as not configured."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    }
+                },
+                "summary": "The ticket settings and declared types",
+                "tags": [
+                    "tickets"
+                ]
+            },
+            "put": {
+                "operationId": "updateTicketsConfig",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TicketsConfigUpdate"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TicketingConfigView"
+                                }
+                            }
+                        },
+                        "description": "The ticket config as saved."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was refused, a moderation role is not in this server, a picked category is gone or the bot cannot work in it, or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server has no ticket config yet: tickets have to be deployed in Discord first."
+                    },
+                    "415": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was not sent as JSON."
+                    },
+                    "423": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Another save of these settings is still running, so nothing was changed."
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Discord refused to create a category. Everything else was saved, so re-read the settings."
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The settings could not be saved. A category already made in Discord stays made, and the sentence names it."
+                    }
+                },
+                "summary": "Set the category slots and moderation roles, creating any category given a name",
+                "tags": [
+                    "tickets"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/config/tickets/types/{type}": {
+            "delete": {
+                "operationId": "deleteTicketType",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "type",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Deleted."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, or the server declares no ticket type by that key."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server has no ticket config yet, or tickets still hold the type — deleted ones included. The sentence names how many, and some of their numbers."
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The type could not be deleted. Nothing changed."
+                    }
+                },
+                "summary": "Remove a ticket type no ticket holds",
+                "tags": [
+                    "tickets"
+                ]
+            },
+            "put": {
+                "operationId": "saveTicketType",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "type",
+                        "required": true,
+                        "schema": {
+                            "minLength": 1,
+                            "pattern": "^[a-z0-9_-]+$",
+                            "type": "string",
+                            "x-messages": {
+                                "minLength": "A ticket type needs a key. Blank is not a category of anything.",
+                                "pattern": "That will not do as a key — lowercase letters, digits, `-` and `_` only. The label is where you get to be expressive."
+                            }
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TicketTypeUpdate"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TicketingConfigView"
+                                }
+                            }
+                        },
+                        "description": "The ticket config as saved, every type included."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The key or the body was refused, the template renders to nothing or to more than Discord allows a channel name, or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server has no ticket config yet: tickets have to be deployed in Discord first."
+                    },
+                    "415": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was not sent as JSON."
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The type could not be saved. Nothing changed."
+                    }
+                },
+                "summary": "Add or replace one ticket type",
+                "tags": [
+                    "tickets"
                 ]
             }
         },
@@ -2922,6 +3959,556 @@
                 "summary": "Replace the guild's staff roles",
                 "tags": [
                     "guilds"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/tickets": {
+            "get": {
+                "operationId": "listTickets",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "`open`, `closed` or `deleted`. Absent or blank means every status.",
+                        "in": "query",
+                        "name": "status",
+                        "required": false,
+                        "schema": {
+                            "description": "`open`, `closed` or `deleted`. Absent or blank means every status.",
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "A ticket type key. Absent or blank means every type.",
+                        "in": "query",
+                        "name": "type",
+                        "required": false,
+                        "schema": {
+                            "description": "A ticket type key. Absent or blank means every type.",
+                            "maxLength": 64,
+                            "type": "string",
+                            "x-messages": {
+                                "maxLength": "That is not a ticket type."
+                            }
+                        }
+                    },
+                    {
+                        "description": "`true` for unclaimed tickets only. Anything else means claimed or not.",
+                        "in": "query",
+                        "name": "unclaimed",
+                        "required": false,
+                        "schema": {
+                            "description": "`true` for unclaimed tickets only. Anything else means claimed or not.",
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "A ticket number, matched exactly, or the start of a name on the ticket. Trimmed; blank means no search.",
+                        "in": "query",
+                        "name": "search",
+                        "required": false,
+                        "schema": {
+                            "description": "A ticket number, matched exactly, or the start of a name on the ticket. Trimmed; blank means no search.",
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TicketList"
+                                }
+                            }
+                        },
+                        "description": "The matching tickets, and the guild-wide counts."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "A filter was refused — a status that is not one, or a type too long to be one — or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    }
+                },
+                "summary": "The guild's tickets, newest first",
+                "tags": [
+                    "tickets"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/tickets/{ticketId}": {
+            "get": {
+                "operationId": "getTicket",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "ticketId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TicketDetail"
+                                }
+                            }
+                        },
+                        "description": "The ticket."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The ticket id is not a positive whole number, or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, or the ticket is not in it."
+                    }
+                },
+                "summary": "One ticket, in full",
+                "tags": [
+                    "tickets"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/tickets/{ticketId}/claim": {
+            "post": {
+                "operationId": "claimTicket",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "ticketId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TicketActionResult"
+                                }
+                            }
+                        },
+                        "description": "The ticket as it now stands. `syncWarning` is set when its channel did not follow."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The ticket id is not a positive whole number, or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, or the ticket is not in it."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Nothing changed: the server has not finished setting up tickets, no longer declares the ticket's type, or the ticket is not in a state this action applies to. The sentence says which."
+                    }
+                },
+                "summary": "Claim a ticket as the signed-in operator",
+                "tags": [
+                    "tickets"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/tickets/{ticketId}/close": {
+            "post": {
+                "operationId": "closeTicket",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "ticketId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TicketActionResult"
+                                }
+                            }
+                        },
+                        "description": "The ticket as it now stands. `syncWarning` is set when its channel did not follow."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The ticket id is not a positive whole number, or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, or the ticket is not in it."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Nothing changed: the server has not finished setting up tickets, no longer declares the ticket's type, or the ticket is not in a state this action applies to. The sentence says which."
+                    }
+                },
+                "summary": "Close a ticket",
+                "tags": [
+                    "tickets"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/tickets/{ticketId}/reopen": {
+            "post": {
+                "operationId": "reopenTicket",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "ticketId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TicketActionResult"
+                                }
+                            }
+                        },
+                        "description": "The ticket as it now stands. `syncWarning` is set when its channel did not follow."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The ticket id is not a positive whole number, or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, or the ticket is not in it."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Nothing changed: the server has not finished setting up tickets, no longer declares the ticket's type, or the ticket is not in a state this action applies to. The sentence says which."
+                    }
+                },
+                "summary": "Reopen a closed ticket",
+                "tags": [
+                    "tickets"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/tickets/{ticketId}/unclaim": {
+            "post": {
+                "operationId": "unclaimTicket",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "ticketId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TicketActionResult"
+                                }
+                            }
+                        },
+                        "description": "The ticket as it now stands. `syncWarning` is set when its channel did not follow."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The ticket id is not a positive whole number, or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, or the ticket is not in it."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Nothing changed: the server has not finished setting up tickets, no longer declares the ticket's type, or the ticket is not in a state this action applies to. The sentence says which."
+                    }
+                },
+                "summary": "Release a ticket's claim",
+                "tags": [
+                    "tickets"
                 ]
             }
         }

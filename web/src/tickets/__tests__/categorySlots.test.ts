@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { GuildChannel, TicketCategoryView } from '../../api/types';
+import type { TicketCategoryView } from '@brattybot/web-sdk';
+import type { GuildChannel } from '../../api/types';
 import {
     CREATE_NEW_CATEGORY,
     categorySlotNote,

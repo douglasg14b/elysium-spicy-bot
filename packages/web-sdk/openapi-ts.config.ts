@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type UserConfig } from '@hey-api/openapi-ts';
+import { ZOD_MESSAGE_RESOLVERS } from './zodMessageResolvers';
 
 /*
  * Generates `src/gen` from the spec the bot's routes emit (`pnpm openapi:emit` at the repo
@@ -48,9 +49,11 @@ export const SDK_GENERATOR_CONFIG = {
         },
         {
             // The server's request rules, for the browser to check a form against before
-            // sending. Zod 4, the major the server's schemas are written in.
+            // sending. Zod 4, the major the server's schemas are written in. Each rule
+            // carries the server's own sentence where the spec has one (`x-messages`).
             name: 'zod',
             compatibilityVersion: 4,
+            $resolvers: ZOD_MESSAGE_RESOLVERS,
         },
     ],
 } satisfies UserConfig;

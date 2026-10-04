@@ -1,6 +1,6 @@
 {
-    // Type-checks the package's Node-side files: the generator config and the stale-SDK
-    // test that runs it. Kept apart from `tsconfig.json` so the SDK's browser sources stay
+    // Type-checks the package's Node-side files: the generator config, its resolvers, and
+    // the tests that run them. Kept apart from `tsconfig.json` so the SDK's browser sources stay
     // compiled with `types: []` — Node types here would apply to every file in one program.
     "compilerOptions": {
         "target": "ES2022",
@@ -13,5 +13,5 @@
         "isolatedModules": true,
         "types": ["node"]
     },
-    "include": ["openapi-ts.config.ts", "__tests__"]
+    "include": ["openapi-ts.config.ts", "zodMessageResolvers.ts", "__tests__"]
 }

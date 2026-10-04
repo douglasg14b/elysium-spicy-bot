@@ -79,7 +79,7 @@ export const zFlowCheck = z.object({
 
 export const zFlowCreate = z.object({
     graph: zFlowGraph.optional(),
-    name: z.string().min(1).max(100)
+    name: z.string().min(1, 'Give the flow a name.').max(100, 'Flow names cap at 100 characters.')
 });
 
 /**
@@ -88,7 +88,7 @@ export const zFlowCreate = z.object({
 export const zFlowDraftSave = z.object({
     baseUpdatedAt: z.iso.datetime(),
     graph: zFlowGraph,
-    name: z.string().min(1).max(100)
+    name: z.string().min(1, 'Give the flow a name.').max(100, 'Flow names cap at 100 characters.')
 });
 
 /**
@@ -112,7 +112,7 @@ export const zFlowUpdate = z.object({
     baseUpdatedAt: z.iso.datetime().optional(),
     enabled: z.boolean().optional(),
     graph: zFlowGraph.optional(),
-    name: z.string().min(1).max(100).optional()
+    name: z.string().min(1, 'Give the flow a name.').max(100, 'Flow names cap at 100 characters.').optional()
 });
 
 /**
@@ -297,6 +297,176 @@ export const zPublishedFlowState = z.object({
     refusedResources: z.array(zPublishedResource)
 });
 
+/**
+ * One category slot. `name` is the expected name, `liveName` what Discord calls the bound category now (null when nothing is bound, or it is gone). A `name` with no `discordId` is linked to nothing yet, and tickets stop until it is.
+ */
+export const zTicketCategoryView = z.object({
+    discordId: z.string().nullable(),
+    liveName: z.string().nullable(),
+    name: z.string(),
+    provenance: z.enum(['created', 'adopted']).nullable()
+});
+
+/**
+ * The server's ticket totals, whatever the list is filtered to.
+ */
+export const zTicketCounts = z.object({
+    closed: z.number(),
+    open: z.number(),
+    unclaimed: z.number()
+});
+
+/**
+ * A person on a ticket, as the row recorded them. Both names are null on a row written before names were recorded; show the id then.
+ */
+export const zTicketParticipant = z.object({
+    id: z.string(),
+    nickname: z.string().nullable(),
+    username: z.string().nullable()
+});
+
+/**
+ * What one person on a ticket may do in its channel.
+ */
+export const zTicketRolePermissions = z.object({
+    manageMessages: z.boolean(),
+    readHistory: z.boolean(),
+    send: z.boolean(),
+    view: z.boolean()
+});
+
+/**
+ * Who may do what in a ticket channel: `subject` is who the ticket is about, `opener` whoever filed it, `staff` the moderation roles.
+ */
+export const zTicketPermissionModel = z.object({
+    opener: zTicketRolePermissions,
+    staff: zTicketRolePermissions,
+    subject: zTicketRolePermissions
+});
+
+export const zTicketStatus = z.enum([
+    'open',
+    'closed',
+    'deleted'
+]);
+
+/**
+ * A row in the tickets list. `typeLabel` is null when the server no longer declares the ticket's type; show `type` then.
+ */
+export const zTicketSummary = z.object({
+    channelId: z.string().nullable(),
+    claimer: zTicketParticipant.nullable(),
+    id: z.number(),
+    openedAt: z.string(),
+    opener: zTicketParticipant.nullable(),
+    status: zTicketStatus,
+    subject: zTicketParticipant,
+    ticketNumber: z.number(),
+    title: z.string(),
+    type: z.string(),
+    typeLabel: z.string().nullable(),
+    updatedAt: z.string()
+});
+
+/**
+ * One ticket in full: the list row plus its reason and timeline. The conversation is not here; it lives in the Discord channel.
+ */
+export const zTicketDetail = zTicketSummary.and(z.object({
+    claimedAt: z.string().nullable(),
+    closedAt: z.string().nullable(),
+    deletedAt: z.string().nullable(),
+    reason: z.string()
+}));
+
+/**
+ * The ticket after a lifecycle action. `syncWarning` is set when the ticket changed and its channel did not follow — on a close, that the subject may still be able to read it. Show it.
+ */
+export const zTicketActionResult = zTicketDetail.and(z.object({
+    syncWarning: z.string().nullable()
+}));
+
+/**
+ * The tickets matching the filter, newest first. `truncated` means the list was capped and more match; `counts` still reports the whole server.
+ */
+export const zTicketList = z.object({
+    counts: zTicketCounts,
+    tickets: z.array(zTicketSummary),
+    truncated: z.boolean()
+});
+
+/**
+ * A ticket type, without its key: that is the path.
+ */
+export const zTicketTypeUpdate = z.object({
+    autoClaimOnOpen: z.boolean(),
+    label: z.string().min(1, 'Give the type a label — operators have to pick it out of a list.'),
+    nameTemplate: z.string().min(1, 'A channel-name template cannot be empty. Discord insists on calling channels something.').regex(/^(?:[^{}]|\{\{(?:####|subject|opener)\}\})*$/, 'Only `{{####}}`, `{{subject}}` and `{{opener}}` render here, each with exactly two braces either side — nothing else, and no, wishing does not count.'),
+    permissions: zTicketPermissionModel
+});
+
+/**
+ * One declared ticket type. `type` is its key: identity, fixed once saved.
+ */
+export const zTicketTypeView = z.object({
+    autoClaimOnOpen: z.boolean(),
+    label: z.string(),
+    nameTemplate: z.string(),
+    permissions: zTicketPermissionModel,
+    type: z.string()
+});
+
+/**
+ * The server's ticket settings and declared types. `categories` is null per slot when nothing is chosen. A saved moderation role that no longer exists stays in `moderationRoleIds` and is missing from `moderationRoles`.
+ */
+export const zTicketingConfigView = z.object({
+    categories: z.object({
+        claimed: zTicketCategoryView.nullable(),
+        closed: zTicketCategoryView.nullable(),
+        open: zTicketCategoryView.nullable()
+    }),
+    configured: z.boolean(),
+    deployed: z.boolean(),
+    moderationRoleIds: z.array(z.string()),
+    moderationRoles: z.array(z.object({
+        id: z.string(),
+        name: z.string()
+    })),
+    types: z.array(zTicketTypeView)
+});
+
+/**
+ * The category slots and moderation roles. A slot given a `name` is created in Discord on save; `null` leaves a slot as it is.
+ */
+export const zTicketsConfigUpdate = z.object({
+    categories: z.object({
+        claimed: z.union([
+            z.object({
+                discordId: z.string().regex(/^\d{17,20}$/, 'That is not a Discord category id.')
+            }),
+            z.object({
+                name: z.string().min(1, 'A new category needs a name. Discord insists on calling things something.').max(100, 'Discord caps a category name at 100 characters.')
+            })
+        ]).nullable(),
+        closed: z.union([
+            z.object({
+                discordId: z.string().regex(/^\d{17,20}$/, 'That is not a Discord category id.')
+            }),
+            z.object({
+                name: z.string().min(1, 'A new category needs a name. Discord insists on calling things something.').max(100, 'Discord caps a category name at 100 characters.')
+            })
+        ]).nullable(),
+        open: z.union([
+            z.object({
+                discordId: z.string().regex(/^\d{17,20}$/, 'That is not a Discord category id.')
+            }),
+            z.object({
+                name: z.string().min(1, 'A new category needs a name. Discord insists on calling things something.').max(100, 'Discord caps a category name at 100 characters.')
+            })
+        ]).nullable()
+    }),
+    moderationRoles: z.array(z.string().min(1).max(32)).min(1, 'Pick at least one moderation role, or nobody but admins can touch a ticket.').max(50, 'That is more moderation roles than any server has. Trim the list.')
+});
+
 export const zUndeployedButtonMessage = z.object({
     channelId: z.string(),
     explanation: z.string().optional(),
@@ -339,7 +509,7 @@ export const zWarningsConfig = z.object({
 });
 
 export const zWarningsConfigUpdate = z.object({
-    modChannelId: z.string().min(1)
+    modChannelId: z.string().min(1, 'Pick a channel. Warning notices do not haunt the void.')
 });
 
 /**
@@ -359,6 +529,48 @@ export const zGetGuildChannelsPath = z.object({
 export const zGetGuildChannelsResponse = z.object({
     channels: z.array(zGuildChannel)
 });
+
+export const zGetTicketsConfigPath = z.object({
+    guildId: z.string()
+});
+
+/**
+ * The ticket config. A server that has not deployed tickets reads as not configured.
+ */
+export const zGetTicketsConfigResponse = zTicketingConfigView;
+
+export const zUpdateTicketsConfigBody = zTicketsConfigUpdate;
+
+export const zUpdateTicketsConfigPath = z.object({
+    guildId: z.string()
+});
+
+/**
+ * The ticket config as saved.
+ */
+export const zUpdateTicketsConfigResponse = zTicketingConfigView;
+
+export const zDeleteTicketTypePath = z.object({
+    guildId: z.string(),
+    type: z.string()
+});
+
+/**
+ * Deleted.
+ */
+export const zDeleteTicketTypeResponse = z.void();
+
+export const zSaveTicketTypeBody = zTicketTypeUpdate;
+
+export const zSaveTicketTypePath = z.object({
+    guildId: z.string(),
+    type: z.string().min(1, 'A ticket type needs a key. Blank is not a category of anything.').regex(/^[a-z0-9_-]+$/, 'That will not do as a key — lowercase letters, digits, `-` and `_` only. The label is where you get to be expressive.')
+});
+
+/**
+ * The ticket config as saved, every type included.
+ */
+export const zSaveTicketTypeResponse = zTicketingConfigView;
 
 export const zGetWarningsConfigPath = z.object({
     guildId: z.string()
@@ -573,3 +785,69 @@ export const zUpdateGuildSettingsPath = z.object({
  * The guild settings as saved.
  */
 export const zUpdateGuildSettingsResponse = zGuildSettings;
+
+export const zListTicketsPath = z.object({
+    guildId: z.string()
+});
+
+export const zListTicketsQuery = z.object({
+    status: z.string().optional(),
+    type: z.string().max(64, 'That is not a ticket type.').optional(),
+    unclaimed: z.string().optional(),
+    search: z.string().optional()
+});
+
+/**
+ * The matching tickets, and the guild-wide counts.
+ */
+export const zListTicketsResponse = zTicketList;
+
+export const zGetTicketPath = z.object({
+    guildId: z.string(),
+    ticketId: z.string()
+});
+
+/**
+ * The ticket.
+ */
+export const zGetTicketResponse = zTicketDetail;
+
+export const zClaimTicketPath = z.object({
+    guildId: z.string(),
+    ticketId: z.string()
+});
+
+/**
+ * The ticket as it now stands. `syncWarning` is set when its channel did not follow.
+ */
+export const zClaimTicketResponse = zTicketActionResult;
+
+export const zCloseTicketPath = z.object({
+    guildId: z.string(),
+    ticketId: z.string()
+});
+
+/**
+ * The ticket as it now stands. `syncWarning` is set when its channel did not follow.
+ */
+export const zCloseTicketResponse = zTicketActionResult;
+
+export const zReopenTicketPath = z.object({
+    guildId: z.string(),
+    ticketId: z.string()
+});
+
+/**
+ * The ticket as it now stands. `syncWarning` is set when its channel did not follow.
+ */
+export const zReopenTicketResponse = zTicketActionResult;
+
+export const zUnclaimTicketPath = z.object({
+    guildId: z.string(),
+    ticketId: z.string()
+});
+
+/**
+ * The ticket as it now stands. `syncWarning` is set when its channel did not follow.
+ */
+export const zUnclaimTicketResponse = zTicketActionResult;

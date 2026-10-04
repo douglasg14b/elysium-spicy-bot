@@ -1,5 +1,5 @@
+import type { TicketSummary } from '@brattybot/web-sdk';
 import type { TicketAction } from '../api/tickets';
-import type { TicketSummary } from '../api/types';
 
 /**
  * Which lifecycle actions a ticket can take, from the row alone.

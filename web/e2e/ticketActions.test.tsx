@@ -7,6 +7,7 @@ import { defaultTicketTypes } from '../../src/features/tickets/data/defaultTicke
 import { ticketingRepo } from '../../src/features/tickets/data/ticketingRepo';
 import type { TicketEntity } from '../../src/features/tickets/data/ticketsSchema';
 import { registerTicketChannelCleanup } from '../../src/features/tickets/logic/ticketChannelCleanup';
+import { TicketTypeKeySchema } from '../../src/features/tickets/logic/ticketTypeRules';
 import { getTicket } from '../../src/features/tickets/ticketService';
 import {
     TestDiscord,
@@ -499,5 +500,26 @@ describe('declaring a ticket type from the config page', () => {
         expect(dashboard.requests.map((request) => request.path)).toContain(
             `/api/guilds/${ticketGuild.guild.id}/tickets?status=open&type=impact-play`
         );
+    });
+
+    it('names a key the server would refuse under the field, in the server’s words, before Save', async () => {
+        const ticketGuild = await guildWithTickets();
+        const dashboard = installDashboardApi(ticketGuild.client, ticketGuild.operator);
+        const { user } = renderDashboard('/tickets/config');
+
+        await user.click(await screen.findByRole('button', { name: 'Add type' }));
+        const editor = await screen.findByRole('dialog', { name: 'New ticket type' });
+        await user.type(within(editor).getByRole('textbox', { name: /^Key/ }), 'Impact Play');
+        await user.type(within(editor).getByRole('textbox', { name: /^Label/ }), 'Impact Play Debrief');
+
+        // The sentence is the server's rule's own, asked of the rule itself: what the page
+        // shows has to be what the route would refuse with, not wording of its own.
+        const refusal = TicketTypeKeySchema.safeParse('Impact Play');
+        const serverSentence = refusal.error?.issues[0]?.message;
+        if (!serverSentence) throw new Error('The key rule accepted a key with a space and a capital.');
+        expect(within(editor).getByText(serverSentence)).toBeTruthy();
+
+        expect((within(editor).getByRole('button', { name: 'Save type' }) as HTMLButtonElement).disabled).toBe(true);
+        expect(dashboard.requests.filter((request) => request.path.includes('/config/tickets/types/'))).toEqual([]);
     });
 });
