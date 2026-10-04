@@ -2,30 +2,34 @@
  * The decisions the journeys page and the builder's attach control both take, kept out
  * of the components so the suite can drive them.
  *
- * `web/` has no jsdom and no React Testing Library, so anything only reachable by
- * rendering is untestable here by construction. That is the reason this file exists
- * rather than a preference: the two rules below are the ones that are *wrong quietly* —
+ * Anything only reachable by rendering needs a whole page or dialog to drive, and these
+ * are cheaper to pin directly. The two rules below are the ones that are *wrong quietly* —
  * an attach described as an addition when it is a move, and a delete offered on a
  * journey the server is going to refuse — and neither would show up as a crash.
  */
 
 import { zFlowGroup, type AttachedFlow, type JourneySummary } from '@brattybot/web-sdk';
+import { NEW_JOURNEY_KEY_MAX_LENGTH } from './contractValues';
 
 /**
  * Turn a journey name into a key an operator can live with.
  *
- * Same shape as `slugifyResourceName` and for the same reason: the server's
- * `resourceKeySchema` accepts lowercase letters, digits and single hyphens, capped at 64
- * characters. Duplicating the transform rather than importing it keeps the two concepts
- * separate — a resource key is scoped inside a journey, a journey key is scoped to the
- * guild — and they are free to diverge if either constraint moves.
+ * Same shape as `slugifyResourceName` and for the same reason: the server's key rule
+ * accepts lowercase letters, digits and single hyphens, up to a length the generated
+ * contract carries. Duplicating the transform rather than importing it keeps the two
+ * concepts separate — a resource key is scoped inside a journey, a journey key is scoped
+ * to the guild — and they are free to diverge if either constraint moves.
+ *
+ * Cut to length before the trailing hyphens go, so a cut that lands just after a word
+ * break cannot leave the key ending in one.
  */
 export function slugifyJourneyName(name: string): string {
     return name
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .slice(0, 64);
+        .replace(/^-+/, '')
+        .slice(0, NEW_JOURNEY_KEY_MAX_LENGTH)
+        .replace(/-+$/, '');
 }
 
 /**

@@ -7,8 +7,8 @@
  * Flows sharing a journey render as a **band**: a tinted header row carrying the
  * journey's name and its resources, with a rail running down its members. A journey
  * holding one flow is not a group and is not drawn — `flowGrouping.ts` owns every rule
- * about that, because `web/` has no jsdom and a rule living in this file could not be
- * tested.
+ * about that, because a rule living in this file could only be tested by rendering the
+ * whole page.
  *
  * Grouping is made and unmade by dragging a row onto another row (join or create) or out
  * of the band (leave). The outcome is decided on hover and shown on the **target**, so
@@ -20,7 +20,7 @@
  * box, destroying the drag registration and the focus along with it.
  */
 
-import { Fragment, useMemo, useState, type HTMLAttributes } from 'react';
+import { Fragment, useMemo, useRef, useState, type HTMLAttributes } from 'react';
 import {
     Alert,
     Badge,
@@ -912,6 +912,12 @@ function UngroupedZoneRow({
 /** The list before it has loaded: one value, so it is the same array on every render. */
 const NO_FLOWS: readonly FlowSummary[] = [];
 
+/**
+ * The re-read the switches owe once the last of them settles: none, or one as loud as the
+ * loudest list read a switch cancelled.
+ */
+type OwedReread = 'none' | 'quiet' | 'loud';
+
 export function FlowsListPage() {
     const { selected, loading: guildsLoading } = useGuilds();
     const navigate = useNavigate();
@@ -933,7 +939,15 @@ export function FlowsListPage() {
     // keeps it on screen — the cache holds the last good answer.
     const loadError = flowsQuery.data ? null : flowsQuery.error;
     const loading = !flowsQuery.data && !loadError;
-    const [togglingId, setTogglingId] = useState<string | null>(null);
+    /** Every flow whose switch is in flight, each disabled until its own PUT settles. */
+    const [togglingIds, setTogglingIds] = useState<ReadonlySet<string>>(() => new Set());
+    /*
+     * The switches' bookkeeping, in refs because the handlers that read it are still
+     * running when the render that made them is long gone. `loudReads` counts loud list
+     * refreshes in flight; `switches` counts switches in flight and the re-read they owe.
+     */
+    const loudReads = useRef(0);
+    const switches = useRef<{ inFlight: number; owed: OwedReread }>({ inFlight: 0, owed: 'none' });
 
     const [createOpen, setCreateOpen] = useState(false);
     const [newName, setNewName] = useState('');
@@ -1058,16 +1072,34 @@ export function FlowsListPage() {
      */
     async function refreshFlows(options?: { readonly quiet?: boolean }): Promise<void> {
         if (!selected) return;
+        /*
+         * While a switch is in flight, a read could answer with a row as it was before that
+         * switch's PUT and land over it. So the read is owed instead, and the last switch to
+         * settle issues it — once, however many were asked for meanwhile.
+         */
+        if (switches.current.inFlight > 0) {
+            oweReread(!options?.quiet);
+            return;
+        }
         if (options?.quiet) {
             await queryClient.invalidateQueries({ queryKey: flowsKey });
             return;
         }
+        // Counted while in flight: a switch that cancels this read owes a loud one back.
+        loudReads.current += 1;
         try {
             await queryClient.invalidateQueries({ queryKey: flowsKey }, { throwOnError: true });
         } catch (err) {
             const message = err instanceof ApiError ? err.message : 'Failed to reload flows';
             notifications.show({ color: 'red', title: "Couldn't refresh", message });
+        } finally {
+            loudReads.current -= 1;
         }
+    }
+
+    /** Owe the list a re-read once the switches settle, as loud as the loudest one asked for. */
+    function oweReread(loud: boolean): void {
+        switches.current.owed = loud || switches.current.owed === 'loud' ? 'loud' : 'quiet';
     }
 
     /** Rewrite one row of the cached list in place — the toggle's optimistic half. */
@@ -1124,48 +1156,67 @@ export function FlowsListPage() {
 
     async function handleToggle(flow: FlowSummary, enabled: boolean) {
         if (!selected) return;
-        setTogglingId(flow.flowId);
-        /*
-         * A read still in flight would land after the switch and put the old state back,
-         * so it is cancelled — and re-issued once the PUT has settled, below. A cancelled
-         * read resolves quietly with the old list, so without the re-read a refresh that
-         * was carrying a delete, a regroup or an uninstall would simply never arrive.
-         */
-        const cancelledARead = queryClient.isFetching({ queryKey: flowsKey }) > 0;
-        await queryClient.cancelQueries({ queryKey: flowsKey });
-        // Optimistic — revert if the PUT fails.
-        patchFlowRow(flow.flowId, (row) => ({ ...row, enabled }));
+        setTogglingIds((ids) => new Set(ids).add(flow.flowId));
+        switches.current.inFlight += 1;
         try {
-            const { data: updated } = await updateFlow({
-                path: { guildId: selected.id, flowId: flow.flowId },
-                body: { enabled },
-            });
-            patchFlowRow(flow.flowId, (row) => ({
-                ...row,
-                enabled: updated.enabled,
-                issueCount: updated.issues.length,
-                updatedAt: updated.updatedAt,
-            }));
-        } catch (err) {
-            // A refusal carrying issues is the stored graph's own list — fresher than the
-            // count this row was drawn with, so the chip is corrected from it too.
-            const issues = err instanceof ApiError ? err.issues : [];
-            patchFlowRow(flow.flowId, (row) => ({
-                ...row,
-                enabled: flow.enabled,
-                issueCount: issues.length > 0 ? issues.length : row.issueCount,
-            }));
-            const message =
-                err instanceof ApiError ? err.message : "Couldn't change that. Try again.";
-            if (issues.length > 0) {
-                showNotReady(flow, message, issues);
-                return;
+            /*
+             * A read still in flight would land after the switch and put the old state
+             * back, so it is cancelled — and re-issued once the last switch has settled,
+             * below. A cancelled read resolves quietly with the old list, so without the
+             * re-read a refresh that was carrying a delete, a regroup or an uninstall would
+             * simply never arrive; and the re-read is as loud as the read it replaces, so a
+             * refresh that would have said it failed still does.
+             */
+            if (queryClient.isFetching({ queryKey: flowsKey }) > 0) {
+                oweReread(loudReads.current > 0);
             }
-            notifications.show({ color: 'red', title: "Couldn't update flow", message });
+            await queryClient.cancelQueries({ queryKey: flowsKey });
+            // Optimistic — revert if the PUT fails.
+            patchFlowRow(flow.flowId, (row) => ({ ...row, enabled }));
+            try {
+                const { data: updated } = await updateFlow({
+                    path: { guildId: selected.id, flowId: flow.flowId },
+                    body: { enabled },
+                });
+                patchFlowRow(flow.flowId, (row) => ({
+                    ...row,
+                    enabled: updated.enabled,
+                    issueCount: updated.issues.length,
+                    updatedAt: updated.updatedAt,
+                }));
+            } catch (err) {
+                // A refusal carrying issues is the stored graph's own list — fresher than the
+                // count this row was drawn with, so the chip is corrected from it too.
+                const issues = err instanceof ApiError ? err.issues : [];
+                patchFlowRow(flow.flowId, (row) => ({
+                    ...row,
+                    enabled: flow.enabled,
+                    issueCount: issues.length > 0 ? issues.length : row.issueCount,
+                }));
+                const message =
+                    err instanceof ApiError ? err.message : "Couldn't change that. Try again.";
+                if (issues.length > 0) {
+                    showNotReady(flow, message, issues);
+                    return;
+                }
+                notifications.show({ color: 'red', title: "Couldn't update flow", message });
+            }
         } finally {
-            setTogglingId(null);
-            // After the PUT, so the re-read cannot undo the switch it just wrote.
-            if (cancelledARead) void refreshFlows({ quiet: true });
+            setTogglingIds((ids) => {
+                const next = new Set(ids);
+                next.delete(flow.flowId);
+                return next;
+            });
+            switches.current.inFlight -= 1;
+            /*
+             * After the last switch's PUT, so the re-read cannot undo a switch it raced:
+             * one re-read for every read the switches cancelled or held back between them.
+             */
+            const { inFlight, owed } = switches.current;
+            if (inFlight === 0 && owed !== 'none') {
+                switches.current.owed = 'none';
+                void refreshFlows({ quiet: owed === 'quiet' });
+            }
         }
     }
 
@@ -1779,7 +1830,7 @@ export function FlowsListPage() {
                                                 group={null}
                                                 isLastMember={false}
                                                 dragState={dragStateFor(row.flow.flowId)}
-                                                toggling={togglingId === row.flow.flowId}
+                                                toggling={togglingIds.has(row.flow.flowId)}
                                                 actions={rowActions}
                                             />
                                         ) : (
@@ -1811,7 +1862,7 @@ export function FlowsListPage() {
                                                         group={row}
                                                         isLastMember={index === row.flows.length - 1}
                                                         dragState={dragStateFor(flow.flowId)}
-                                                        toggling={togglingId === flow.flowId}
+                                                        toggling={togglingIds.has(flow.flowId)}
                                                         actions={rowActions}
                                                     />
                                                 ))}

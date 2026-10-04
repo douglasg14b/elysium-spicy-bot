@@ -55,6 +55,7 @@ import type {
     PermissionIntent,
     ResourceDeclaration,
 } from '@brattybot/web-sdk';
+import { PERMISSION_ACCESS_LEVELS, PERMISSION_AUDIENCES } from './contractValues';
 import { roleColorHex } from './nodeMeta';
 import { RESOURCE_KIND_STYLES } from './resourceMeta';
 import { declaredRoleOptionValue, parseDeclaredRoleReference } from './declaredRoleReference';
@@ -116,9 +117,6 @@ const ACCESS_STYLES: Record<PermissionAccess, AccessStyle> = {
         hint: 'Can see, post, reply in threads, and react.',
     },
 };
-
-const AUDIENCE_ORDER: readonly PermissionAudience[] = ['everyone', 'roles', 'staff', 'subject'];
-const ACCESS_ORDER: readonly PermissionAccess[] = ['hidden', 'readOnly', 'readWrite'];
 
 interface PermissionIntentEditorProps {
     /** Absent means "inherit from the parent category" and is not the same as `[]`. */
@@ -398,7 +396,7 @@ function IntentRow({
 
                 <Select
                     size="xs"
-                    data={AUDIENCE_ORDER.filter(
+                    data={PERMISSION_AUDIENCES.filter(
                         (audience) => SUBJECT_IS_OFFERED || audience !== 'subject'
                     ).map((audience) => ({ value: audience, label: AUDIENCE_LABEL[audience] }))}
                     value={intent.audience}
@@ -422,7 +420,7 @@ function IntentRow({
 
                 <Select
                     size="xs"
-                    data={ACCESS_ORDER.map((level) => ({
+                    data={PERMISSION_ACCESS_LEVELS.map((level) => ({
                         value: level,
                         label: ACCESS_STYLES[level].label,
                     }))}

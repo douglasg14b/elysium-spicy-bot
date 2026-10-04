@@ -7,11 +7,10 @@
  * is silent: the save is refused, the inspector places the message under that
  * control, and the control draws nothing.
  *
- * Asserted by reading the source rather than by rendering. This package has no DOM
- * test environment (`vitest.config.ts` collects `*.test.ts` only, and there is no
- * jsdom or React testing library in `web/package.json`), and adding one for this
- * would be a larger change than the thing it checks. The claim is correspondingly
- * bounded: **each control names `error`**, not that its widget draws it correctly.
+ * Asserted by reading the source rather than by rendering: one cheap pass over every
+ * control file, where a render test would need each control's props built by hand. The
+ * claim is correspondingly bounded: **each control names `error`**, not that its widget
+ * draws it correctly.
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
@@ -24,15 +23,17 @@ const CONTROLS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
 /**
  * Controls that deliberately do not place a field-level error.
  *
- * Both edit a **list**, and a rejected save blames one entry inside it — the issue
- * arrives on a dotted path (`fields.0.name`) that names no control, so the inspector
+ * The eligibility gate is a structured value, and a rejected save blames a part inside
+ * it — the issue arrives on a dotted path that names no control, so the inspector
  * renders it at node level instead. Exempted here rather than given a second error
- * channel of their own, which the plan explicitly left out of scope.
+ * channel of its own, which the plan explicitly left out of scope. The list controls
+ * are not exempt: an issue about a whole list — too few entries — is theirs to show,
+ * now that no browser hint restates the minimum beside it.
  *
- * Listed by file so adding a third list control is a decision somebody makes here,
+ * Listed by file so exempting another control is a decision somebody makes here,
  * not something that happens by forgetting.
  */
-const NODE_LEVEL_ONLY = ['ObjectListControl.tsx', 'EligibilityControl.tsx'];
+const NODE_LEVEL_ONLY = ['EligibilityControl.tsx'];
 
 /** The dispatcher, which is not itself a control. */
 const DISPATCHER = 'renderControl.tsx';

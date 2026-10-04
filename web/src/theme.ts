@@ -83,7 +83,15 @@ export const theme = createTheme({
             defaultProps: { radius: 'xl' },
         },
         Modal: {
-            defaultProps: { radius: 'lg', centered: true },
+            /*
+             * `nokey` is React Flow's own opt-out: it ignores a key whose target is inside
+             * one. Every modal carries it, because any of them can open over the builder's
+             * canvas — and without it the selected card stays selected underneath, so a
+             * Backspace typed into the dialog, or pressed with a dialog button focused,
+             * deletes the card. A default rather than a prop each dialog must remember;
+             * one that sets its own `className` must keep `nokey` in it.
+             */
+            defaultProps: { radius: 'lg', centered: true, className: 'nokey' },
         },
         Tooltip: {
             defaultProps: { radius: 'sm' },

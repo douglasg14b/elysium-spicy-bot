@@ -21,6 +21,8 @@ import {
     getGuildSettingsQueryKey,
     updateGuildSettingsMutation,
 } from '@brattybot/web-sdk';
+import { useSaveInFlight } from '../api/useSaveInFlight';
+import { writeSavedAnswer } from '../api/writeSavedAnswer';
 import { useGuilds } from '../guilds/GuildContext';
 import { PAGE_MAX_WIDTH } from '../theme';
 
@@ -113,6 +115,7 @@ function StaffRolesForm({ guildId }: StaffRolesFormProps) {
     const queryClient = useQueryClient();
     const settings = useQuery(getGuildSettingsOptions({ path: { guildId } }));
     const roles = useQuery(getGuildRolesOptions({ path: { guildId } }));
+    const settingsKey = getGuildSettingsQueryKey({ path: { guildId } });
 
     // `undefined` until the operator edits: the picker shows what is saved.
     const [draftRoleIds, setDraftRoleIds] = useState<string[]>();
@@ -120,10 +123,11 @@ function StaffRolesForm({ guildId }: StaffRolesFormProps) {
 
     const save = useMutation({
         ...updateGuildSettingsMutation(),
-        // A GET still in flight would land after the save and put the old list back.
-        onMutate: ({ path }) => queryClient.cancelQueries({ queryKey: getGuildSettingsQueryKey({ path }) }),
-        onSuccess: (updated, { path }) => {
-            queryClient.setQueryData(getGuildSettingsQueryKey({ path }), updated);
+        // Keyed by the entry it writes, so this form remounted mid-save still sees it.
+        mutationKey: settingsKey,
+        onSuccess: async (updated) => {
+            // Over any GET still in flight, which would otherwise put the old list back.
+            await writeSavedAnswer(queryClient, settingsKey, updated);
             setDraftRoleIds(undefined);
             setLastSaved(new Date());
             notifications.show({
@@ -167,7 +171,8 @@ function StaffRolesForm({ guildId }: StaffRolesFormProps) {
     const savedSet = new Set(savedIds);
     const pristine =
         draftSet.size === savedSet.size && [...draftSet].every((roleId) => savedSet.has(roleId));
-    const saving = save.isPending;
+    // Any save of this server's settings, this mount's or one an earlier mount left in flight.
+    const saving = useSaveInFlight(settingsKey);
     // An empty list is a legal save: it is how an operator says "nobody is staff yet".
     const canSave = !pristine && !saving;
 

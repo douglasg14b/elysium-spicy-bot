@@ -360,5 +360,23 @@ describe('attachRequestMessages', () => {
             expect(failure).toContain('PUT /things/{thingId} body.name');
             expect(failure).toContain('2 rules feed `minLength`');
         });
+
+        it('on rules declared in an order the generated zod does not run them in', () => {
+            // zod reports in declaration order and the server sends the first; the SDK's zod
+            // runs length before pattern, and a whole number before bounds, whatever the order here.
+            const patternFirst = failureFor(
+                z.object({ key: z.string().regex(/^[a-z]+$/, 'Lowercase only.').min(1, 'Key it.') })
+            );
+            const boundFirst = failureFor(z.object({ count: z.number().gte(1, 'One or more.').int('Whole numbers only.') }));
+
+            expect(patternFirst).toContain('PUT /things/{thingId} body.key');
+            expect(patternFirst).toContain('`.regex()` is declared before a length rule');
+            expect(boundFirst).toContain('PUT /things/{thingId} body.count');
+            expect(boundFirst).toContain('a bound is declared before `.int()`');
+            // The generated order itself is fine.
+            expect(
+                failureFor(z.object({ key: z.string().min(1, 'Key it.').max(9, 'Nine at most.').regex(/^[a-z]+$/, 'Lowercase only.') }))
+            ).toBeUndefined();
+        });
     });
 });

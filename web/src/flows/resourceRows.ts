@@ -3,15 +3,14 @@
  * references intact when a key changes.
  *
  * Everything here is a decision rather than a rendering, which is the whole reason the
- * module exists. `web/` has no jsdom, so a component is not something the suite can
- * drive; the arrangement this repo already uses (`installSummary.ts`, `cardSummary.ts`,
- * `resourceAdoption.ts`) is to keep the answers in a plain module and leave the
- * component a renderer over them. Sort order, indentation, what a filter matches, and
- * what a rename has to rewrite are all things that can be *wrong*, so they live where
- * `resourceRows.test.ts` can ask.
+ * module exists. A component takes a whole render to drive; the arrangement this repo
+ * already uses (`installSummary.ts`, `cardSummary.ts`, `resourceAdoption.ts`) is to keep
+ * the answers in a plain module and leave the component a renderer over them. Sort
+ * order, indentation, what a filter matches, and what a rename has to rewrite are all
+ * things that can be *wrong*, so they live where `resourceRows.test.ts` can ask.
  *
- * The panel still owns the refs, the expansion state and the focus calls. Those are
- * genuinely untestable without a DOM, and separating them is what keeps the untestable
+ * The panel still owns the refs, the expansion state and the focus calls. Those need a
+ * render to reach (`ResourcesPanel.test.tsx`), and separating them is what keeps that
  * part small enough to read.
  */
 

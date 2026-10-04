@@ -4,8 +4,9 @@ import type { FlowJourneyMembership, FlowSummary } from '@brattybot/web-sdk';
  * Turning a flat flow list into the rows the flows page draws.
  *
  * All of the grouping judgement lives here rather than in the page, because it is the
- * part with rules worth testing and `web/` has no jsdom to test a component with. The
- * page maps these rows to markup and does not decide anything.
+ * part with rules worth testing, and a plain module is driven by a unit test where a rule
+ * inside the page would need a whole render to reach. The page maps these rows to markup
+ * and does not decide anything.
  *
  * **The rule everything else follows from: a journey of one is not a group.** Every flow
  * that declares a resource has a journey — that is the implicit single-flow case the

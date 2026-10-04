@@ -7,9 +7,9 @@
  * tiles strip is `LevelingPage`'s `CountTile` — local here, as it is on both other pages, plus a
  * required `hint` for the reason its own comment gives.
  *
- * **Every scale lives in `levelingInsights`.** There are no `.test.tsx` files in this repo — no
- * jsdom — so a bar height computed in JSX is a bar height nothing can test, and almost every
- * number on this page is a statistic that looks plausible when it is wrong.
+ * **Every scale lives in `levelingInsights`.** A bar height computed in JSX is a bar height
+ * only a render can check, and almost every number on this page is a statistic that looks
+ * plausible when it is wrong.
  *
  * **Four figures here are easy to misrepresent, and the page says so out loud:**
  * - `topOnePercent` overlaps `topQuarter`, so the cohort table draws **no total row**. Summing

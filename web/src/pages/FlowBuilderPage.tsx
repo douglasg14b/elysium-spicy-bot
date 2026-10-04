@@ -712,9 +712,10 @@ function FlowBuilder() {
     /*
      * One read, once, into editable state — never a `useQuery` whose answer feeds the
      * canvas, because a refetch would put the stored graph back over the author's edits.
-     * The block catalogue and the guild directory go through the query cache all the same
-     * (`fetchQuery` always asks, because `createDashboardQueryClient` sets no `staleTime`), so the resources
-     * dialog's pickers open already filled from the same answer.
+     * The block catalogue and the guild directory go through the query cache all the same,
+     * so the resources dialog's pickers open already filled from the same answer — each
+     * with `staleTime: 0`, so opening a flow always asks afresh whatever the client's
+     * defaults become: a cached directory would offer channels deleted since.
      */
     useEffect(() => {
         if (!selected || !flowId) return;
@@ -734,9 +735,9 @@ function FlowBuilder() {
                     },
                 ] = await Promise.all([
                     getFlow({ path: { guildId: selected.id, flowId } }),
-                    queryClient.fetchQuery(getNodeTypesOptions()),
-                    queryClient.fetchQuery(getGuildRolesOptions({ path: guildPath })),
-                    queryClient.fetchQuery(getGuildChannelsOptions({ path: guildPath })),
+                    queryClient.fetchQuery({ ...getNodeTypesOptions(), staleTime: 0 }),
+                    queryClient.fetchQuery({ ...getGuildRolesOptions({ path: guildPath }), staleTime: 0 }),
+                    queryClient.fetchQuery({ ...getGuildChannelsOptions({ path: guildPath }), staleTime: 0 }),
                     getFlowResources({ path: { guildId: selected.id, flowId } }),
                 ]);
                 if (cancelled) return;
@@ -1647,8 +1648,8 @@ function FlowBuilder() {
     );
 
     // Every decision about what the install dialog says lives in `installSummary`,
-    // which is a plain module and therefore testable — `web/` has no jsdom, so a
-    // decision left inside JSX is a decision nothing can check.
+    // which is a plain module a unit test drives — a decision left inside JSX is one
+    // only a render of the whole builder can check.
     const planSummary = useMemo(
         () => (installPlan ? summariseInstallPlan(installPlan) : null),
         [installPlan]

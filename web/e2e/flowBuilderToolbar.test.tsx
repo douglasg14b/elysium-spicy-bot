@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import type { Client, PermissionsString } from 'discord.js';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { ACTION_SEND_DM } from '../../src/features/flows/blocks/actionSendDM';
@@ -6,7 +6,7 @@ import { TRIGGER_BUTTON_CLICK } from '../../src/features/flows/blocks/triggerBut
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../src/features/flows/data/flowGraph';
 import { ELIGIBILITY_CONFIG_KEY, OPEN_GATE } from '../../src/features/flows/engine/eligibility';
 import { TestDiscord, type ServerChannel } from '../../src/shared/__tests__/support/testDiscord';
-import { createSeedApi } from './preview/scenario/seedApi';
+import { createSeedApi, type SeedApi } from './preview/scenario/seedApi';
 import { bootBotForDashboard } from './support/bootBot';
 import { buildDashboardApp } from './support/dashboardApp';
 import { installDashboardApi } from './support/dashboardApi';
@@ -34,6 +34,10 @@ interface InstalledFlow {
     readonly client: Client<true>;
     readonly flowId: string;
     readonly lounge: ServerChannel;
+    /** The real routes, for changing the guild behind the page's back. */
+    readonly api: SeedApi;
+    readonly guildPath: string;
+    readonly flowPath: string;
 }
 
 const running: TestDiscord[] = [];
@@ -82,7 +86,7 @@ async function guildWithInstalledFlow(): Promise<InstalledFlow> {
 
     const loungeId = installed.applied.find((entry) => entry.resourceKey === 'vip-lounge')?.discordId;
     if (!loungeId) throw new Error('The install created no lounge.');
-    return { discord, client, flowId: flow.flowId, lounge: guild.channel(loungeId) };
+    return { discord, client, flowId: flow.flowId, lounge: guild.channel(loungeId), api, guildPath, flowPath };
 }
 
 describe('the builder toolbar', () => {
@@ -104,6 +108,50 @@ describe('the builder toolbar', () => {
 
         expect(await screen.findByRole('button', { name: 'Install 1' })).toBeTruthy();
         expect(screen.queryByRole('button', { name: 'Installed' })).toBeNull();
+    });
+
+    it('asks again what is live each time its inventory opens', async () => {
+        // The dialog's own `staleTime: 0`, not the client's default, is what keeps an answer
+        // from an earlier opening off screen: what is live may have changed since.
+        const installed = await guildWithInstalledFlow();
+        installDashboardApi(installed.client, OPERATOR);
+        const { user } = renderDashboard(`/flows/${installed.flowId}`);
+
+        await user.click(await screen.findByRole('button', { name: 'Installed' }));
+        await user.click(await screen.findByRole('menuitem', { name: /Uninstall from server/ }));
+        const first = await screen.findByRole('dialog', { name: `What ${FLOW_NAME} has in your server` });
+        await within(first).findByText('#vip-lounge');
+        await user.click(within(first).getByRole('button', { name: 'Done' }));
+        await waitFor(() => expect(screen.queryByRole('dialog', { name: `What ${FLOW_NAME} has in your server` })).toBeNull());
+
+        // Taken down behind the page's back — another operator, another tab.
+        await installed.api.send('POST', `${installed.flowPath}/unpublish`, {});
+        expect(installed.lounge.exists).toBe(false);
+
+        await user.click(screen.getByRole('button', { name: 'Installed' }));
+        await user.click(await screen.findByRole('menuitem', { name: /Uninstall from server/ }));
+        const second = await screen.findByRole('dialog', { name: `What ${FLOW_NAME} has in your server` });
+        await within(second).findByText('Nothing live in the server yet. Install it from the builder first.');
+        expect(within(second).queryByText('#vip-lounge')).toBeNull();
+    });
+
+    it("reads the guild's roles and channels afresh each time a flow is opened", async () => {
+        // The load's own `staleTime: 0`: a directory cached by an earlier opening would offer
+        // channels deleted since.
+        const installed = await guildWithInstalledFlow();
+        const dashboard = installDashboardApi(installed.client, OPERATOR);
+        const { router } = renderDashboard(`/flows/${installed.flowId}`);
+        expect(await screen.findByText('All changes saved')).toBeTruthy();
+
+        await act(() => router.navigate('/flows'));
+        await screen.findByText(FLOW_NAME);
+        await act(() => router.navigate(`/flows/${installed.flowId}`));
+        expect(await screen.findByText('All changes saved')).toBeTruthy();
+
+        const reads = (path: string): number =>
+            dashboard.requests.filter((request) => request.method === 'GET' && request.path === path).length;
+        expect(reads(`${installed.guildPath}/channels`)).toBe(2);
+        expect(reads(`${installed.guildPath}/roles`)).toBe(2);
     });
 
     it('deploys the flow’s button into the channel its trigger names', async () => {
@@ -130,7 +178,36 @@ describe('the builder toolbar', () => {
         ]);
         expect(live.faults).toEqual([]);
     });
+
+    it('keeps a selected card when Backspace is pressed inside a dialog over the canvas', async () => {
+        // Every modal carries React Flow's `nokey` (the theme's default), so a key pressed
+        // in a dialog never reaches the canvas's delete underneath it.
+        const live = await guildWithLiveButtonFlow();
+        installDashboardApi(live.client, OPERATOR);
+        const { user } = renderDashboard(`/flows/${live.flowId}`);
+        expect(await screen.findByText('All changes saved')).toBeTruthy();
+        await waitFor(() => expect(cardsOnCanvas()).toHaveLength(2));
+
+        // Selected from the keyboard, as React Flow allows: a pointer press runs d3-drag,
+        // which jsdom's events cannot carry.
+        const [card] = cardsOnCanvas();
+        if (!card) throw new Error('The canvas has no card to select.');
+        card.focus();
+        await user.keyboard('{Enter}');
+        await waitFor(() => expect(card.classList.contains('selected')).toBe(true));
+
+        await user.click(screen.getByRole('button', { name: 'Deploy' }));
+        const dialog = await screen.findByRole('dialog', { name: 'Deploy flow' });
+        within(dialog).getByRole('button', { name: 'Deploy' }).focus();
+        await user.keyboard('{Backspace}');
+
+        expect(cardsOnCanvas()).toHaveLength(2);
+        expect(screen.queryByText(/^Unsaved changes/)).toBeNull();
+    });
 });
+
+/** Every card on the canvas — React Flow renders one element per node. */
+const cardsOnCanvas = (): HTMLElement[] => [...document.querySelectorAll<HTMLElement>('.react-flow__node')];
 
 const BUTTON_FLOW_NAME = 'Safeword check-in';
 const BUTTON_NODE_ID = 'check-in';

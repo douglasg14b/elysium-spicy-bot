@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { JourneySummary } from '@brattybot/web-sdk';
+import { zFlowGroup, type JourneySummary } from '@brattybot/web-sdk';
+import { NEW_JOURNEY_KEY_MAX_LENGTH } from '../contractValues';
 import {
     attachableJourneys,
     describeAttachIntent,
@@ -12,8 +13,8 @@ import {
 /**
  * The attach/detach rules that are wrong *quietly*.
  *
- * `web/` has no jsdom and no React Testing Library, so the components are untestable
- * here by construction — which is precisely why these decisions live outside them. The
+ * These decisions live outside the components so they can be pinned without rendering
+ * a page or a dialog. The
  * two that matter are copy: an attach described as an addition when it is a move, and a
  * detach read as an uninstall. Neither fails loudly; both send the operator looking for
  * something that is not where they were told it would be.
@@ -71,8 +72,30 @@ describe('slugifyJourneyName', () => {
         expect(slugifyJourneyName('Onboarding & Rules!')).toBe('onboarding-rules');
     });
 
-    it('caps at 64 characters, matching the server', () => {
-        expect(slugifyJourneyName('a'.repeat(200))).toHaveLength(64);
+    it("caps at the server's length for a new journey's key", () => {
+        expect(slugifyJourneyName('a'.repeat(200))).toHaveLength(NEW_JOURNEY_KEY_MAX_LENGTH);
+    });
+
+    it('never ends the key in a hyphen when the cut lands on a word break', () => {
+        // One letter short of the cap, a space, more letters: the last character kept
+        // slugs to a hyphen.
+        const justShort = 'a'.repeat(NEW_JOURNEY_KEY_MAX_LENGTH - 1);
+        expect(slugifyJourneyName(`${justShort} rest of the name`)).toBe(justShort);
+    });
+
+    it('produces only keys the server takes, or nothing', () => {
+        const names = [
+            'Onboarding & Rules!',
+            `${'a'.repeat(NEW_JOURNEY_KEY_MAX_LENGTH - 1)} rest`,
+            `${'ab '.repeat(40)}`,
+            '  -- Spaced -- out --  ',
+            'Ünïcödé fläir',
+            '!!!',
+        ];
+        for (const name of names) {
+            const key = slugifyJourneyName(name);
+            if (key) expect(zFlowGroup.shape.newJourneyKey.safeParse(key).success, `${name} → ${key}`).toBe(true);
+        }
     });
 
     it('slugs a name of only punctuation to nothing rather than to a hyphen', () => {

@@ -22,6 +22,8 @@ import {
     updateWarningsConfigMutation,
     zUpdateWarningsConfigBody,
 } from '@brattybot/web-sdk';
+import { useSaveInFlight } from '../api/useSaveInFlight';
+import { writeSavedAnswer } from '../api/writeSavedAnswer';
 import { channelOptionLabel, postableChannels } from '../flows/resourceAdoption';
 import { useGuilds } from '../guilds/GuildContext';
 import { PAGE_MAX_WIDTH } from '../theme';
@@ -119,6 +121,7 @@ function WarningsSettingsForm({ guildId }: WarningsSettingsFormProps) {
     const queryClient = useQueryClient();
     const config = useQuery(getWarningsConfigOptions({ path: { guildId } }));
     const channels = useQuery(getGuildChannelsOptions({ path: { guildId } }));
+    const configKey = getWarningsConfigQueryKey({ path: { guildId } });
 
     // `undefined` until the operator picks something: the picker shows what is saved.
     const [draftChannelId, setDraftChannelId] = useState<string | null>();
@@ -126,10 +129,11 @@ function WarningsSettingsForm({ guildId }: WarningsSettingsFormProps) {
 
     const save = useMutation({
         ...updateWarningsConfigMutation(),
-        // A GET still in flight would land after the save and put the old value back.
-        onMutate: ({ path }) => queryClient.cancelQueries({ queryKey: getWarningsConfigQueryKey({ path }) }),
-        onSuccess: (updated, { path }) => {
-            queryClient.setQueryData(getWarningsConfigQueryKey({ path }), updated);
+        // Keyed by the entry it writes, so this form remounted mid-save still sees it.
+        mutationKey: configKey,
+        onSuccess: async (updated) => {
+            // Over any GET still in flight, which would otherwise put the old value back.
+            await writeSavedAnswer(queryClient, configKey, updated);
             setDraftChannelId(undefined);
             setLastSaved(new Date());
             notifications.show({
@@ -162,7 +166,8 @@ function WarningsSettingsForm({ guildId }: WarningsSettingsFormProps) {
 
     const savedChannelId = config.data?.modChannelId ?? null;
     const selectedChannelId = draftChannelId === undefined ? savedChannelId : draftChannelId;
-    const saving = save.isPending;
+    // Any save of this server's config, this mount's or one an earlier mount left in flight.
+    const saving = useSaveInFlight(configKey);
     const pristine = selectedChannelId === savedChannelId;
 
     /*

@@ -14,21 +14,17 @@ export const COHORT_KEYS = ['bottomHalf', 'middle', 'topQuarter', 'topOnePercent
 
 export type CohortKey = (typeof COHORT_KEYS)[number];
 
-/** Fails to compile if a cohort is added to the union without a label below. */
-type MissingCohortLabel = Exclude<CohortKey, keyof typeof COHORT_LABELS>;
-
+/**
+ * Every cohort's label. The `Record` annotation is the guard: a cohort added to
+ * {@link COHORT_KEYS} without a label here fails to compile at this literal, and the
+ * runtime test "labels every cohort" fails in the suite.
+ */
 export const COHORT_LABELS: Readonly<Record<CohortKey, string>> = {
     bottomHalf: 'Bottom half',
     middle: 'Middle quarter',
     topQuarter: 'Top quarter',
     topOnePercent: 'Top 1%',
 };
-
-const cohortLabelsAreComplete: [MissingCohortLabel] extends [never]
-    ? true
-    : ['A cohort has no label', MissingCohortLabel] = true;
-
-void cohortLabelsAreComplete;
 
 /**
  * Below this many members in a cohort, its figures are a hint rather than a fact.

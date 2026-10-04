@@ -101,8 +101,13 @@ export function InstalledResourcesDialog({
     const path = { guildId, flowId };
     const publishedKey = getPublishedStateQueryKey({ path });
 
-    // Asked only while open: the builder keeps this dialog mounted, closed.
-    const publishedQuery = useQuery({ ...getPublishedStateOptions({ path }), enabled: opened });
+    /*
+     * Asked only while open: the builder keeps this dialog mounted, closed. `staleTime: 0`
+     * is what makes each opening ask again, whatever the client's defaults become — the
+     * builder's toolbar holds the same entry, and a cached answer here would offer a
+     * teardown over things that may already be gone.
+     */
+    const publishedQuery = useQuery({ ...getPublishedStateOptions({ path }), enabled: opened, staleTime: 0 });
 
     /*
      * Each teardown re-reads the inventory before it settles, so `busy` covers the refresh

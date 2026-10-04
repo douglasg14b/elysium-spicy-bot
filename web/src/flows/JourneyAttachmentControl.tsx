@@ -6,10 +6,9 @@
  * editing declarations several flows install, and the panel below is otherwise
  * indistinguishable from one editing its own.
  *
- * **Every decision it takes is imported from `journeyAttachment.ts`.** `web/` has no
- * jsdom, so anything reachable only by rendering cannot be tested; the rules that are
- * wrong *quietly* — an attach described as an addition when it is a move, a detach read
- * as an uninstall — live there where the suite can drive them.
+ * **Every decision it takes is imported from `journeyAttachment.ts`.** The rules that
+ * are wrong *quietly* — an attach described as an addition when it is a move, a detach
+ * read as an uninstall — live there, where a unit test drives them without a render.
  */
 
 import { useState } from 'react';

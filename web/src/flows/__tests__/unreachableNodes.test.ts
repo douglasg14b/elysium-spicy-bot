@@ -7,8 +7,8 @@
  * for a different reason. An advisory that fires during ordinary authoring gets ignored,
  * and then it is not an advisory.
  *
- * `web/` has no jsdom, so this module is where the decision has to live to be testable
- * at all — the component may only render the answer.
+ * This module is where the decision lives, so it is pinned without rendering the canvas —
+ * the component may only render the answer.
  */
 
 import { describe, expect, it } from 'vitest';

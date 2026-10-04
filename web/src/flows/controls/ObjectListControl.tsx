@@ -62,15 +62,12 @@ function emptyEntry(columns: readonly BlockConfigColumn[]): Entry {
 }
 
 /**
- * The advice under the control. Mirrors `TextListControl`'s, including the
- * dropped-entry warning, which is the one an author cannot otherwise see.
+ * The advice under the control. Mirrors `TextListControl`'s: the dropped-entry
+ * warning, which is the one an author cannot otherwise see, and not the list's
+ * bounds, which the server's own sentence covers.
  */
-function describe(field: ObjectListField, count: number, dropped: number): string | undefined {
+function describe(field: ObjectListField, dropped: number): string | undefined {
     const parts = [field.description];
-
-    if (field.minEntries !== undefined && count < field.minEntries) {
-        parts.push(`Needs at least ${field.minEntries}.`);
-    }
 
     if (dropped > 0) {
         parts.push(
@@ -157,11 +154,11 @@ function ColumnInput({
  * block declaring this control always wants an array, so removing the key would
  * fail the save on a field the author had merely emptied.
  */
-export function ObjectListControl({ field, value, onChange }: ControlProps<ObjectListField>) {
+export function ObjectListControl({ field, value, onChange, error }: ControlProps<ObjectListField>) {
     const entries = asEntryList(value);
     const atCapacity = field.maxEntries !== undefined && entries.length >= field.maxEntries;
     const dropped = (Array.isArray(value) ? value.length : entries.length) - entries.length;
-    const advice = describe(field, entries.length, dropped);
+    const advice = describe(field, dropped);
 
     const editEntry = (index: number, key: string, next: string | boolean) =>
         onChange(
@@ -219,6 +216,18 @@ export function ObjectListControl({ field, value, onChange }: ControlProps<Objec
                 >
                     {field.addLabel ?? 'Add'}
                 </Button>
+            )}
+
+            {/*
+             * Under the list rather than on an entry, as `TextListControl` places it: an
+             * issue reaching this control is about the list as a whole (too few entries,
+             * too many). One about an entry's column arrives on a dotted path and the
+             * inspector renders it at node level instead.
+             */}
+            {error && (
+                <Text size="11.5px" c="red.6">
+                    {error}
+                </Text>
             )}
 
             {advice && (

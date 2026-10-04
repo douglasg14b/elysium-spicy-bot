@@ -4,7 +4,7 @@
  * Each block below is a sequence that actually happened in the browser, written as the
  * question the queue has to answer. The original code had no equivalent, which is why a
  * bug that made the feature unusable shipped with a green suite: the decisions lived in
- * a component, and `web/` has no jsdom.
+ * a component, and no test rendered it.
  */
 
 import { describe, expect, it } from 'vitest';

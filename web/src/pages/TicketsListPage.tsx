@@ -7,9 +7,8 @@
  *
  * **Every decision worth testing lives outside this file.** `availableActions` owns which
  * buttons a row offers, `toListFilter` owns what the filter means as query parameters,
- * and `participantLabel` owns how a person is written. There are no `.test.tsx` files in
- * this repo — no jsdom — so logic left in a component is logic nothing can test, and the
- * page is kept to wiring on purpose.
+ * and `participantLabel` owns how a person is written. Logic left in a component is logic
+ * only a render can check, so the page is kept to wiring on purpose.
  *
  * **Search is the server's.** The list is unpaginated, so narrowing in the browser would
  * mean shipping a guild's whole ticket history to hide most of it. Keystrokes are

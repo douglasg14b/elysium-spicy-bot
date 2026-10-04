@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { GuildChannel, GuildRole, ResourceDeclaration } from '@brattybot/web-sdk';
+import { zResourceDeclaration, type GuildChannel, type GuildRole, type ResourceDeclaration } from '@brattybot/web-sdk';
+import { RESOURCE_KEY_MAX_LENGTH } from '../contractValues';
 import {
     adoptableChannelOptions,
     adoptableRoleOptions,
@@ -407,7 +408,7 @@ describe('declarationForAdoptedResource', () => {
  *
  * Adopting a channel left the row bound, showing that channel's label, and carrying a red
  * `Name required` chip the field gave no way to satisfy. The rule was inline in
- * `ResourcesPanel.setAdoption`, and the panel has no jsdom tests, so nothing drove it.
+ * `ResourcesPanel.setAdoption`, and no test rendered the panel then, so nothing drove it.
  */
 describe('shouldSeedNameFromAdopted', () => {
     it('seeds over the generated name nobody chose', () => {
@@ -547,5 +548,33 @@ describe('uniqueResourceKey', () => {
         // A channel named only in punctuation or non-Latin script slugs to nothing.
         expect(slugifyResourceName('!!!')).toBe('');
         expect(uniqueResourceKey(slugifyResourceName('!!!'), [])).toBe('resource');
+    });
+});
+
+describe('slugifyResourceName', () => {
+    it("caps at the server's resource-key length", () => {
+        expect(slugifyResourceName('a'.repeat(200))).toHaveLength(RESOURCE_KEY_MAX_LENGTH);
+    });
+
+    it('never ends the key in a hyphen when the cut lands on a word break', () => {
+        // One letter short of the cap, a space, more letters: the last character kept slugs
+        // to a hyphen, which the server's pattern refuses.
+        const justShort = 'a'.repeat(RESOURCE_KEY_MAX_LENGTH - 1);
+        expect(slugifyResourceName(`${justShort} lounge`)).toBe(justShort);
+    });
+
+    it('produces only keys the server takes, or nothing', () => {
+        const names = [
+            'Mod Log',
+            `${'a'.repeat(RESOURCE_KEY_MAX_LENGTH - 1)} lounge`,
+            `${'ab '.repeat(40)}`,
+            '  -- Spaced -- out --  ',
+            'Ünïcödé fläir',
+            '!!!',
+        ];
+        for (const name of names) {
+            const key = slugifyResourceName(name);
+            if (key) expect(zResourceDeclaration.shape.key.safeParse(key).success, `${name} → ${key}`).toBe(true);
+        }
     });
 });

@@ -1,4 +1,5 @@
 import { z, type OpenAPIHono } from '@hono/zod-openapi';
+import { ruleOrderProblem } from '../../shared/zodRuleOrder';
 
 /**
  * Carries the server's own refusal sentences into the spec, beside the rules they belong
@@ -106,9 +107,15 @@ interface WalkPosition {
  *    sentence** (`.min(1, '…').min(3)`). The spec holds one bound per keyword and
  *    zod-to-openapi picks which by rules of its own, so the sentence could end up beside a
  *    bound it does not describe.
+ *  - **rules declared in an order the generated zod does not run them in**
+ *    (`.regex(…).min(1, …)`), so a value breaking both would be refused with a different
+ *    first sentence in the browser than on the server — see `ruleOrderProblem`.
  * Both sides of a `.pipe()` are walked; only the side zod-to-openapi documents (the input,
  * or the output of a preprocess) reaches the spec, so a sentence on the other side is
- * recorded but never emitted — the browser under-reports that rule, which it may.
+ * recorded but never emitted — the browser under-reports that rule, which it may. Every
+ * failure above is judged on both sides too, so a rule order the browser never sees can
+ * still fail the emit: stricter than it needs to be, deliberately, since no request schema
+ * pipes into a checked output today and a side-aware walk would be machinery for none.
  *
  * A normalising step (`.trim()`, `.toLowerCase()`) is not in the spec either, so the
  * browser checks the value as typed where the server checks it normalised. A page checks
@@ -286,6 +293,11 @@ function recordMessages(schema: z.core.$ZodType, at: string, report: ReportProbl
         return;
     }
     const checkDefs: z.core.$ZodCheckDef[] = (def.checks ?? []).map((check) => check._zod.def);
+
+    const orderProblem = ruleOrderProblem(checkDefs, def.type);
+    if (orderProblem) {
+        report(`${at}: ${orderProblem}`);
+    }
 
     // A schema's own `error` words its refusal of a value of the wrong type — and, on a
     // format schema (`z.int('…')`, `z.email('…')`, `z.iso.datetime('…')`), which is its own

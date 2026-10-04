@@ -7,7 +7,7 @@
  * than a third variant added beside them.
  *
  * It is tested rather than inlined for the reason the rest of `flows/` splits this way:
- * `web/` has no jsdom, so a rule reachable only by rendering cannot be driven. This one
+ * a rule reachable only by rendering needs a whole dialog to drive. This one
  * is small but is wrong *quietly* — an off-by-one in the separator produces "Welcome,
  * and Rules gate" or drops the last name entirely, neither of which crashes anything,
  * in copy whose whole job is naming the things an operator is about to affect.

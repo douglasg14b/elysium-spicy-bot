@@ -336,7 +336,9 @@ export type BlockConfigField =
           readonly maxLength?: number;
           /**
            * Fewest entries the block can work with. Below it the control still
-           * saves — the schema is the authority — but the author is told.
+           * saves — the schema is the authority, and its own sentence is what tells
+           * the author. No control renders this; conformance reads it to size its
+           * probes and to hold it against `maxEntries`.
            */
           readonly minEntries?: number;
           /**
@@ -373,7 +375,7 @@ export type BlockConfigField =
           readonly control: 'objectList';
           /** The columns every entry carries, in the order a row renders them. */
           readonly columns: readonly BlockConfigColumn[];
-          /** Fewest entries the block can work with. Below it the author is told. */
+          /** Fewest entries the block can work with, as for `textList`. */
           readonly minEntries?: number;
           /**
            * Most entries the block can work with. The control stops offering "add"

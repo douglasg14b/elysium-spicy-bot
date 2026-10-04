@@ -27,8 +27,9 @@
  *
  * ## Why this is a module rather than JSX
  *
- * `web/` has no jsdom, so a rule living inside `FlowsListPage.tsx` could not be tested. The
- * decision of *which* states earn a chip is precisely the part that can be silently wrong
+ * A rule living inside `FlowsListPage.tsx` could only be reached by rendering the whole
+ * page; here a unit test drives it directly. The decision of *which* states earn a chip is
+ * precisely the part that can be silently wrong
  * — it fails by being noisy or by being absent, and neither throws.
  */
 

@@ -564,6 +564,22 @@ describe('PUT /:guildId/config/tickets', () => {
         expect(body.types.map((type) => type.type)).toEqual(['support']);
     });
 
+    it('answers the save as saved when the panel cannot be redrawn, and logs why', async () => {
+        // The redraw rejects on failure and the route owns it: the settings are already
+        // saved, so a 500 would send the operator back to save something that stuck.
+        updateDeployedTicketMessage.mockRejectedValue(new Error('Unknown Message'));
+        const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+        const response = await send('/config/tickets', 'PUT', settingsBody);
+
+        expect(response.status).toBe(200);
+        expect(logged).toHaveBeenCalledWith(
+            '[tickets] Settings saved, but the deployed panel could not be refreshed:',
+            expect.objectContaining({ message: 'Unknown Message' })
+        );
+        logged.mockRestore();
+    });
+
     it.each([
         ['no-config', 409],
         ['invalid-input', 400],

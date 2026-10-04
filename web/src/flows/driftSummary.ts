@@ -2,8 +2,8 @@
  * Turning a drift report into what the dialog says, with no JSX anywhere in it.
  *
  * The same split `publishedSummary.ts` and `installSummary.ts` take, for the same
- * reason: `web/` runs without jsdom, so any decision left inside a component is a
- * decision no test can reach. Everything here is a pure function over the wire shape.
+ * reason: a decision left inside a component is one only a render of the dialog can
+ * reach. Everything here is a pure function over the wire shape.
  */
 
 import type { DriftedResource, JourneyDrift, OrphanedResource, RepairedResource } from '@brattybot/web-sdk';

@@ -8,10 +8,9 @@
  * lives in whatever renders the expanded row — because only that component owns the
  * refs to focus. This one owns neither, which is what keeps it testable by reading.
  *
- * `web/` has no jsdom, so components here are not render-tested; the arrangement the
- * repo already uses (see `installSummary.test.ts`) is to keep the decisions in a
- * module the suite can drive and leave the component a renderer over it. Putting any
- * judgement in this file would put it somewhere nothing can check.
+ * The arrangement the repo already uses (see `installSummary.test.ts`) is to keep the
+ * decisions in a module a unit test can drive and leave the component a renderer over
+ * it. Putting any judgement in this file would put it where only a render can reach.
  *
  * The visual language is the mockup's, expressed in Mantine over the theme's slate
  * `dark` ramp: grey for a plain fact, teal for adoption, amber for "this will not do
@@ -73,9 +72,11 @@ export function ResourceChip({ id, detail = NO_DETAIL, onJump }: ResourceChipPro
     );
 
     // The reason is the sentence the contract doc shows for this chip, so the tooltip
-    // and the doc cannot say different things about what a chip means.
+    // and the doc cannot say different things about what a chip means — unless the
+    // detector carried the server's own sentence for this row's problem, which says it
+    // more exactly than any general reason could.
     return (
-        <Tooltip label={style.reason} withArrow multiline w={260} openDelay={350}>
+        <Tooltip label={detail.problem ?? style.reason} withArrow multiline w={260} openDelay={350}>
             {badge}
         </Tooltip>
     );

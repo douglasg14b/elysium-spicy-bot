@@ -11,8 +11,9 @@ import type { InstallPlan, InstallPlanItem, InstallResult, ResourceKind } from '
 /**
  * What the install dialog decides, tested where the decisions live.
  *
- * `web/` has no jsdom, so the component is deliberately a renderer over this module —
- * the same arrangement `publishedSummary.test.ts` beside this one tests.
+ * The component is deliberately a renderer over this module, so the decisions are pinned
+ * here without rendering a dialog — the same arrangement `publishedSummary.test.ts`
+ * beside this one tests.
  */
 
 function item(overrides: Partial<InstallPlanItem> = {}): InstallPlanItem {

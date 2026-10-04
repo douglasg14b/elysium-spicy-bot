@@ -287,6 +287,17 @@ describe('what the derivation refuses', () => {
             /test\.block › name: more than one `\.regex\(\)`/
         );
     });
+
+    it('rules the block declares in an order the browser would not run them in', () => {
+        // The server runs this schema, so `''` fails its pattern first; the browser's
+        // generated zod checks length first and would lead with a different sentence.
+        expect(() => browserFieldRules(blockWith('name', z.string().regex(/^[a-z]+$/, 'Letters only.').min(1)))).toThrow(
+            /test\.block › name: `\.regex\(\)` is declared before a length rule/
+        );
+        expect(() => browserFieldRules(blockWith('count', z.number().min(1).int()))).toThrow(
+            /test\.block › count: a bound is declared before `\.int\(\)`/
+        );
+    });
 });
 
 describe('how the server words a field rule', () => {

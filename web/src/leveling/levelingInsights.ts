@@ -3,7 +3,7 @@
  *
  * Every scale here is a decision with a degenerate case behind it — an empty guild, a single
  * point, a cohort nobody is in, a denominator of zero — and a chart computed inside JSX is a
- * chart nothing can test, since there is no jsdom in this repo. So the page maps the results
+ * chart only a render can check. So the page maps the results
  * of this module to divs and polylines and holds no arithmetic of its own.
  *
  * **Several of these figures are easy to misrepresent, and the types say so rather than

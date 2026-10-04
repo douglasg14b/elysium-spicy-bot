@@ -15,24 +15,21 @@ import type { BlockConfigField } from '@brattybot/web-sdk';
 type TextListField = Extract<BlockConfigField, { control: 'textList' }>;
 
 /**
- * The advice under the control: the field's own description, plus whatever the
- * current list needs the author to know.
+ * The advice under the control: the field's own description, plus the one thing the
+ * current list needs the author to know that nothing else says.
  *
- * Two additions, both only when they apply. A list below `minEntries` says so; a
- * list at `maxEntries` does not, because the "add" button is simply gone, which
- * says the same thing without spending a line on it.
+ * Not the list's bounds. Too few entries is the server's rule, and its own sentence
+ * arrives as the field's `error` — live once the list is edited, or from the re-check —
+ * so a browser sentence here would restate it beside itself. Too many never happens:
+ * the "add" button is gone at `maxEntries`.
  *
  * `dropped` is the one that would otherwise be invisible. A stored list holding
  * a non-string — which only the API can produce, since this control cannot type
  * one — renders fewer rows than the graph holds, and without this the author
  * sees a row count that silently disagrees with what saves.
  */
-function describe(field: TextListField, count: number, dropped: number): string | undefined {
+function describe(field: TextListField, dropped: number): string | undefined {
     const parts = [field.description];
-
-    if (field.minEntries !== undefined && count < field.minEntries) {
-        parts.push(`Needs at least ${field.minEntries}.`);
-    }
 
     if (dropped > 0) {
         parts.push(
@@ -57,7 +54,7 @@ export function TextListControl({ field, value, onChange, error }: ControlProps<
     const entries = asTextList(value);
     const atCapacity = field.maxEntries !== undefined && entries.length >= field.maxEntries;
     const dropped = (Array.isArray(value) ? value.length : entries.length) - entries.length;
-    const advice = describe(field, entries.length, dropped);
+    const advice = describe(field, dropped);
 
     const replace = (index: number, next: string) =>
         onChange(entries.map((entry, position) => (position === index ? next : entry)));

@@ -1,7 +1,7 @@
 /**
  * What the delete dialog says about what a flow has live in the guild.
  *
- * A pure module because `web/` has no jsdom and no React testing library — the repo's
+ * A pure module, so its decisions are tested without rendering a dialog — the repo's
  * established answer, visible in `cardSummary.ts` and `validationIssues.ts` beside it,
  * is to put the decisions here and test them, leaving the component to render what
  * this returns.

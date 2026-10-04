@@ -13,8 +13,8 @@
  * and the confirm button — the one place the rule bends, because a button has room for
  * a word and the number is the part that has to survive being skim-read.
  *
- * `web/` has no jsdom, so nothing here decides anything worth testing: the preview
- * arrives fully resolved from `GET /group-preview` and this renders it.
+ * Nothing here decides anything worth testing on its own: the preview arrives fully
+ * resolved from `GET /group-preview` and this renders it.
  */
 
 import { useEffect, useState } from 'react';

@@ -84,6 +84,9 @@ interface TicketGuild {
     readonly subject: ServerMember;
     readonly operatorMember: ServerMember;
     readonly operator: DashboardOperator;
+    /** Where `/deploy-ticket-system`'s panel sits, and the panel message itself. */
+    readonly desk: ServerChannel;
+    readonly panelId: string;
 }
 
 interface OpenedTicket {
@@ -123,7 +126,8 @@ async function guildWithTickets(): Promise<TicketGuild> {
     const operator: DashboardOperator = { id: operatorMember.id, username: OPERATOR_NAME };
 
     // The panel `/deploy-ticket-system` would post, stood in for by a real message so the
-    // config names one Discord holds. The settings save below redraws it.
+    // config names one Discord holds. The settings save below redraws it (see "the deployed
+    // ticket panel").
     const liveDesk = discord.clientGuild(guild).channels.cache.get(desk.id);
     if (liveDesk?.type !== ChannelType.GuildText) throw new Error('The client holds no ticket desk.');
     const panel = await liveDesk.send({ content: 'Need a hand, a hug or a referee? Open a ticket.' });
@@ -154,8 +158,6 @@ async function guildWithTickets(): Promise<TicketGuild> {
         },
         moderationRoles: [moderators.id],
     });
-    // Through the route's guild, so the redraw reaches Discord rather than failing quietly.
-    expect(desk.message(panel.id).edited).toBe(true);
     await api.send('PUT', `${guildPath}/config/tickets/types/${TYPE_KEY}`, {
         label: TYPE_LABEL,
         nameTemplate: 'aftercare-{{####}}-{{subject}}',
@@ -170,7 +172,7 @@ async function guildWithTickets(): Promise<TicketGuild> {
     });
     expect(faults).toEqual([]);
 
-    return { discord, client, guild, api, moderators, subject, operatorMember, operator };
+    return { discord, client, guild, api, moderators, subject, operatorMember, operator, desk, panelId: panel.id };
 }
 
 /** Open a ticket about the guild's subject, through `action.openTicket`. Aftercare unless told otherwise. */
@@ -253,6 +255,17 @@ function personRow(label: 'Subject' | 'Opened by' | 'Claimed by'): HTMLElement {
     if (!row) throw new Error(`"${label}" has no row around it.`);
     return row;
 }
+
+describe('the deployed ticket panel', () => {
+    it('is redrawn with the new configuration when the settings are saved', async () => {
+        const { desk, panelId } = await guildWithTickets();
+
+        // Through the route's guild, so the redraw reaches Discord rather than failing.
+        const panel = desk.message(panelId);
+        expect(panel.edited).toBe(true);
+        expect(embedField(panel, '⚙️ Current Configuration')).toBeDefined();
+    });
+});
 
 describe('claiming a ticket from the tickets list', () => {
     it('records the operator as claimer, moves the channel to the claimed category, and says so in Discord without a ping', async () => {

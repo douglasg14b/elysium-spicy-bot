@@ -11,8 +11,8 @@
  * ## Where each rule comes from
  *
  * The key and name rules are the server's own, as the SDK generates them from the route's
- * `ResourceDeclaration` schema (`zResourceDeclaration`) — the key pattern and its 1–64
- * cap, the name's 1–100 cap. Nothing here restates them.
+ * `ResourceDeclaration` schema (`zResourceDeclaration`), and the `invalidKey` chip carries
+ * the server's own sentence for whichever one failed. Nothing here restates them.
  *
  * The rest are rules no schema states, so they cannot travel and are mirrored here
  * instead. The web workspace cannot import from `src/`: one `import type` drags the whole
@@ -60,6 +60,7 @@ import {
     type PermissionIntent,
     type ResourceDeclaration,
 } from '@brattybot/web-sdk';
+import { fieldProblems } from '../api/fieldProblems';
 import { parseDeclaredRoleReference } from './declaredRoleReference';
 import type { ResourceChipDetail, ResourceChipId } from './resourceChips';
 import { RESOURCE_CHIP_ORDER, RESOURCE_CHIPS } from './resourceChips';
@@ -203,11 +204,14 @@ function chipsForResource(context: ChipContext): ResourceChipInstance[] {
 
     // The name is reported in preference to the key when both are wrong. One chip
     // covers both fields (see `invalidKey` in the table), and an empty name is the
-    // one an operator can see is wrong without knowing the key rules.
-    if (!isValidResourceName(resource.defaultName)) {
-        chips.push({ id: 'invalidKey', detail: { field: 'name' } });
-    } else if (!isValidResourceKey(resource.key)) {
-        chips.push({ id: 'invalidKey', detail: { field: 'key' } });
+    // one an operator can see is wrong without knowing the key rules. Either way the
+    // chip carries the server's own sentence for what is wrong.
+    const nameProblem = resourceNameProblem(resource.defaultName);
+    const keyProblem = resourceKeyProblem(resource.key);
+    if (nameProblem) {
+        chips.push({ id: 'invalidKey', detail: { field: 'name', problem: nameProblem } });
+    } else if (keyProblem) {
+        chips.push({ id: 'invalidKey', detail: { field: 'key', problem: keyProblem } });
     }
 
     for (const [ruleIndex, intent] of (resource.permissions ?? []).entries()) {
@@ -248,7 +252,7 @@ function chipsForResource(context: ChipContext): ResourceChipInstance[] {
      */
     if (
         context.guild &&
-        isValidResourceName(resource.defaultName) &&
+        !nameProblem &&
         !context.installedKeys.has(resource.key)
     ) {
         const collides = nameCollidesWithExisting({
@@ -353,21 +357,28 @@ function ruleNamesNoRole(intent: PermissionIntent, context: ChipContext): boolea
     });
 }
 
-/** The server's key rule — 1–64 characters, lowercase, digits, single hyphens — as generated into the SDK. */
-function isValidResourceKey(key: string): boolean {
-    return zResourceDeclaration.shape.key.safeParse(key).success;
+/**
+ * The server's own sentence for what is wrong with a key, by its key rule as generated
+ * into the SDK; `undefined` when the key is fine.
+ *
+ * Read from `fieldProblems` under `''`, its key for a problem with no field to sit under
+ * — which, for a rule checking one bare value, is every problem it has.
+ */
+function resourceKeyProblem(key: string): string | undefined {
+    return fieldProblems(zResourceDeclaration.shape.key.safeParse(key))[''];
 }
 
 /**
- * The server's name rule, as generated into the SDK: 1–100 characters.
+ * The server's own sentence for what is wrong with a name, by its name rule as generated
+ * into the SDK; `undefined` when the name is fine.
  *
- * Only the emptiness and the cap, because that is all the server checks. Discord's own
+ * Only the server's rule, because that is all the server checks. Discord's own
  * channel-naming rules are not applied here: Discord silently transforms a channel
  * name it dislikes rather than refusing it, so a chip claiming the save would fail
  * would be wrong.
  */
-function isValidResourceName(name: string): boolean {
-    return zResourceDeclaration.shape.defaultName.safeParse(name).success;
+function resourceNameProblem(name: string): string | undefined {
+    return fieldProblems(zResourceDeclaration.shape.defaultName.safeParse(name))[''];
 }
 
 /**

@@ -16,9 +16,9 @@ interface SessionExpiredPanelProps {
  * moves into the panel — an input that loses focus keeps its text — and Mantine's
  * `returnFocus` puts it back where it was when the panel closes.
  *
- * `nokey` is React Flow's own opt-out: it ignores a key whose target is inside one. Without
- * it, the builder's selected card stays selected under the panel, and the first Backspace
- * the operator types — mid-word when the panel opened — deletes it.
+ * Like every modal, it carries React Flow's `nokey` opt-out (the theme's `Modal` default).
+ * Without it, the builder's selected card stays selected under the panel, and the first
+ * Backspace the operator types — mid-word when the panel opened — deletes it.
  *
  * Mounted always and opened by `opened`, rather than mounted when needed, so the modal's
  * own close is what returns focus.
@@ -33,7 +33,6 @@ export function SessionExpiredPanel({ opened }: SessionExpiredPanelProps) {
             closeOnEscape={false}
             centered
             zIndex={getDefaultZIndex('max')}
-            className="nokey"
             title="Your session safeworded out"
         >
             <SessionExpiredBody />

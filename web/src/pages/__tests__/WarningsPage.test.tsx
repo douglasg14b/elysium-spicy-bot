@@ -1,6 +1,7 @@
+import { useState, type ReactNode } from 'react';
 import { screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { installFakeApi, type FakeApi } from '../../__tests__/support/fakeApi';
+import { heldReply, installFakeApi, type FakeApi } from '../../__tests__/support/fakeApi';
 import { renderWithProviders } from '../../__tests__/support/renderWithProviders';
 import { GuildProvider } from '../../guilds/GuildContext';
 import { WarningsPage } from '../WarningsPage';
@@ -39,9 +40,30 @@ function serveGuild(api: FakeApi, modChannelId: string | null): void {
 function renderPage() {
     return renderWithProviders(
         <GuildProvider>
-            <WarningsPage />
+            <Remountable>
+                <WarningsPage />
+            </Remountable>
         </GuildProvider>
     );
+}
+
+/** The page behind a toggle, unmounted and mounted again the way leaving it and coming back does. */
+function Remountable({ children }: { readonly children: ReactNode }) {
+    const [shown, setShown] = useState(true);
+    return (
+        <>
+            <button type="button" onClick={() => setShown((now) => !now)}>
+                {shown ? 'Go elsewhere' : 'Come back'}
+            </button>
+            {shown && children}
+        </>
+    );
+}
+
+/** Leave the page and come back to it, as a route change away and back does. */
+async function leaveAndComeBack(user: ReturnType<typeof renderPage>['user']): Promise<void> {
+    await user.click(screen.getByRole('button', { name: 'Go elsewhere' }));
+    await user.click(screen.getByRole('button', { name: 'Come back' }));
 }
 
 async function pickChannel(user: ReturnType<typeof renderPage>['user'], name: string): Promise<void> {
@@ -87,6 +109,61 @@ describe('WarningsPage', () => {
         await user.click(saveButton());
 
         expect(await screen.findByText('That channel is a ghost town.')).toBeTruthy();
+    });
+
+    it('shows a save still in flight as saving after the operator leaves and comes back, and takes no second one', async () => {
+        // A guild switch, once there is one, remounts the form the same way.
+        const api = installFakeApi();
+        serveGuild(api, LOBBY);
+        const put = heldReply();
+        api.on('PUT', CONFIG_PATH, () => put.reply);
+        const { user } = renderPage();
+
+        await pickChannel(user, '#mod-log');
+        await user.click(saveButton());
+        await leaveAndComeBack(user);
+
+        // The new form has its own mutation, but the save it shows is the one in flight —
+        // spinning, not merely pristine, and with the picker held still under it.
+        await screen.findByRole('textbox', { name: 'Mod Log Channel' });
+        await waitFor(() => expect(saveButton().hasAttribute('data-loading')).toBe(true));
+        expect(screen.getByRole('textbox', { name: 'Mod Log Channel' })).toHaveProperty('disabled', true);
+
+        put.send({ body: { modChannelId: MOD_LOG, modChannelName: 'mod-log' } });
+
+        expect(await screen.findByText('Warning notices now land in # mod-log.')).toBeTruthy();
+        await waitFor(() =>
+            expect(screen.getByRole('textbox', { name: 'Mod Log Channel' })).toHaveProperty('value', '#mod-log')
+        );
+        expect(api.requests.filter((request) => request.method === 'PUT')).toHaveLength(1);
+    });
+
+    it('does not let a read the remount started put the value from before the save back', async () => {
+        const api = installFakeApi();
+        serveGuild(api, LOBBY);
+        const put = heldReply();
+        api.on('PUT', CONFIG_PATH, () => put.reply);
+        const { user } = renderPage();
+
+        await pickChannel(user, '#mod-log');
+        await user.click(saveButton());
+        // The remount's read reaches the server before the save has written, so it carries
+        // the old channel — and it answers after the save does.
+        const staleRead = heldReply();
+        api.on('GET', CONFIG_PATH, () => staleRead.reply);
+        await leaveAndComeBack(user);
+        await waitFor(() =>
+            expect(api.requests.filter((request) => request.method === 'GET' && request.path === CONFIG_PATH)).toHaveLength(2)
+        );
+
+        put.send({ body: { modChannelId: MOD_LOG, modChannelName: 'mod-log' } });
+        expect(await screen.findByText('Warning notices now land in # mod-log.')).toBeTruthy();
+        staleRead.send({ body: { modChannelId: LOBBY, modChannelName: 'lobby' } });
+
+        await waitFor(() => expect(saveButton()).toHaveProperty('disabled', true));
+        // Long enough for the late read to have landed, had it been allowed to.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(screen.getByRole('textbox', { name: 'Mod Log Channel' })).toHaveProperty('value', '#mod-log');
     });
 
     it("shows the server's sentence when the config cannot be loaded", async () => {

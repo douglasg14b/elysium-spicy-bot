@@ -12,8 +12,8 @@
  *
  * **Every decision worth testing lives outside this file.** `memberPresentation` owns how
  * a person is written, `ACTIVITY_STATUS_PRESENTATION` owns the badge, and
- * `levelingPresentation` owns the formatting. There are no `.test.tsx` files in this repo —
- * no jsdom — so logic left in a component is logic nothing can test.
+ * `levelingPresentation` owns the formatting. Logic left in a component is logic only a
+ * render can check; out there a unit test drives it.
  */
 
 import {

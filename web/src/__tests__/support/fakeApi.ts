@@ -93,6 +93,25 @@ export function installFakeApi(): FakeApi {
     };
 }
 
+/** A reply a test sends when it chooses, and the way to send it. */
+export interface HeldReply {
+    /** Hand this to {@link FakeApi.on}'s handler; the request waits on it. */
+    readonly reply: Promise<FakeApiReply>;
+    readonly send: (reply: FakeApiReply) => void;
+}
+
+/**
+ * A reply held back until the test sends it, so a request can be kept in flight while the
+ * page does something else — a remount, a second click, another request overtaking it.
+ */
+export function heldReply(): HeldReply {
+    let send: (reply: FakeApiReply) => void = () => undefined;
+    const reply = new Promise<FakeApiReply>((settle) => {
+        send = settle;
+    });
+    return { reply, send };
+}
+
 function routeKey(method: FakeApiMethod, path: string): string {
     return `${method} ${path}`;
 }

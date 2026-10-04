@@ -17,8 +17,8 @@
  * recovered from a narrower response.
  *
  * **Every decision worth testing lives outside this file** — `xpProgress`, `activityChartView`,
- * `memberPresentation` and the formatters in `levelingPresentation`. There are no `.test.tsx`
- * files in this repo, so logic left in a component is logic nothing can test.
+ * `memberPresentation` and the formatters in `levelingPresentation`. Logic left in a
+ * component is logic only a render can check; out there a unit test drives it.
  */
 
 import { useState } from 'react';

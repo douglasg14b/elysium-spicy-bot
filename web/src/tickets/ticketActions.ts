@@ -15,9 +15,8 @@ export type TicketAction = 'claim' | 'unclaim' | 'close' | 'reopen';
  * unclaim open-and-claimed, close open, reopen closed. A deleted ticket takes none —
  * its channel is gone, so there is nothing left to move.
  *
- * Extracted into a `.ts` module because it is the page's only real decision and there
- * are no `.test.tsx` files in this repo — no jsdom, no testing-library — so logic left
- * inside a component is logic nothing can test.
+ * Extracted into a `.ts` module because it is the page's only real decision, and logic
+ * left inside a component is logic only a render can check.
  *
  * The server stays the authority. This decides what to *offer*; `ticketService` decides
  * what to allow, and it refuses independently. Offering nothing is how an operator is

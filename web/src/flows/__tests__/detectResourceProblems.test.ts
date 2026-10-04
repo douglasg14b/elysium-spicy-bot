@@ -180,6 +180,26 @@ describe('invalid key and missing name', () => {
     it('flags a name past the 100-character cap', () => {
         expect(idsFor(channel({ defaultName: 'x'.repeat(101) }))).toEqual(['invalidKey']);
     });
+
+    it.each([
+        ['an over-long key', { key: 'a'.repeat(65) }, 'key', 'Resource keys cap at 64 characters.'],
+        [
+            'a mis-shaped key',
+            { key: 'qa_channel' },
+            'key',
+            'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).',
+        ],
+        // Breaks the length rule and the pattern alike: the length's sentence comes first,
+        // as on the server (`ruleOrderProblem` holds the declared order to the generated one).
+        ['an empty key', { key: '' }, 'key', 'Give the resource a key.'],
+        ['an empty name', { defaultName: '' }, 'name', 'Give the resource a name.'],
+    ] as const)("carries the server's own sentence for %s", (_description, overrides, field, sentence) => {
+        // The tooltip shows this in place of a browser restatement of the rule, so it is
+        // the generated zod's sentence — the one the save would come back with.
+        const invalid = detectResourceProblems([channel(overrides)])[0]?.chips.find((chip) => chip.id === 'invalidKey');
+
+        expect(invalid?.detail).toEqual({ field, problem: sentence });
+    });
 });
 
 describe('a rule that names no role', () => {

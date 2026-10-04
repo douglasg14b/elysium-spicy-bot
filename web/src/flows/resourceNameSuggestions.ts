@@ -12,9 +12,9 @@
  *
  * ## Why this is a module and not a component
  *
- * `web/` has no jsdom, so nothing rendered is testable here (see the note at the top of
- * `resourceRows.ts`). Ranking is the part with answers worth checking, so it lives in a
- * plain module the suite can drive and the combobox stays a renderer.
+ * Ranking is the part with answers worth checking (see the note at the top of
+ * `resourceRows.ts`), so it lives in a plain module a unit test can drive and the
+ * combobox stays a renderer.
  *
  * ## Why not fuzzy matching
  *

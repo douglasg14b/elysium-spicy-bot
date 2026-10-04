@@ -76,7 +76,7 @@ You are one step in a sequence the coordinator runs. Douglas is the user. He ask
 - **Server code takes the route's guild, never the `DISCORD_CLIENT` singleton.** The e2e app and the preview server never log that singleton in (step 10).
 - **Type guards belong in `*.test-d.ts`.** `pnpm test` ignores type errors inside source files, so a check that only root `tsc` sees guards nothing. Use `ChecksHold`/`MismatchedChecks` from `src/web/api/openApi.ts` (step 10).
 - **Baselines** (measure quietly; suites with a 20 s timeout flake under parallel load, so rerun a failing file alone before calling it real):
-  - `pnpm test`: 3,077 pass after step 9, 1 known failure (`ciBranchProductDiff`). The birthday test "skips overlapping runs" is a known date-dependent flake. Block discovery can push `levelUpDispatch`, `memberJoinDispatch`, `reactionAddDispatch` and `nodeRoutes` past their hook timeouts under load.
+  - `pnpm test`: 3,121 pass after step 11, 1 known failure (`ciBranchProductDiff`). The birthday test "skips overlapping runs" is a known date-dependent flake. Block discovery can push `levelUpDispatch`, `memberJoinDispatch`, `reactionAddDispatch` and `nodeRoutes` past their hook timeouts under load.
   - Root `tsc --noEmit`: the same 17 pre-existing errors, none new.
   - `pnpm typecheck:e2e`: the same 4.
   - Web `tsc -b` and `pnpm --filter @brattybot/web-sdk typecheck`: clean.

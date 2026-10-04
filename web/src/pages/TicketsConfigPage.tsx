@@ -71,6 +71,8 @@ import {
 } from '@brattybot/web-sdk';
 import { Link } from 'react-router-dom';
 import { fieldProblems } from '../api/fieldProblems';
+import { useSaveInFlight } from '../api/useSaveInFlight';
+import { writeSavedAnswer } from '../api/writeSavedAnswer';
 import {
     categorySlotProblem,
     choiceFromDraft,
@@ -230,19 +232,37 @@ function TicketsConfigForm({ guildId }: TicketsConfigFormProps) {
     const cancelConfigReads = () => queryClient.cancelQueries({ queryKey: configKey });
     const rereadConfig = () => queryClient.invalidateQueries({ queryKey: configKey });
 
+    /*
+     * All three writes carry the config entry's key as their `mutationKey`: they all write
+     * that one entry, so one in flight holds back the others — two answering out of order
+     * would put an older config back over a newer one — and this form remounted mid-save
+     * still sees it. The two saves write their answer, and the delete re-reads, while still
+     * in flight, so the hold covers that too.
+     */
     const saveCategories = useMutation({
         ...updateTicketsConfigMutation(),
+        mutationKey: configKey,
         onMutate: cancelConfigReads,
+        onSuccess: (updated) => writeSavedAnswer(queryClient, configKey, updated),
         onError: rereadConfig,
     });
-    const saveType = useMutation({ ...saveTicketTypeMutation(), onMutate: cancelConfigReads, onError: rereadConfig });
+    const saveType = useMutation({
+        ...saveTicketTypeMutation(),
+        mutationKey: configKey,
+        onMutate: cancelConfigReads,
+        onSuccess: (updated) => writeSavedAnswer(queryClient, configKey, updated),
+        onError: rereadConfig,
+    });
     const deleteType = useMutation({
         ...deleteTicketTypeMutation(),
+        mutationKey: configKey,
         // Re-read whatever the answer, and before the mutation settles, so the dialog's
         // button stays busy until the table is current. A refused delete re-reads too: the
         // refusal may be about a config another editor just changed.
         onSettled: () => queryClient.invalidateQueries({ queryKey: configKey }),
     });
+    // Any write to this server's config, from this mount or one an earlier mount left in flight.
+    const configWriting = useSaveInFlight(configKey);
 
     const config = configQuery.data;
     const roles = rolesQuery.data?.roles;
@@ -307,7 +327,7 @@ function TicketsConfigForm({ guildId }: TicketsConfigFormProps) {
 
         let reread = false;
         try {
-            const updated = await saveCategories.mutateAsync({
+            await saveCategories.mutateAsync({
                 path: { guildId },
                 body: {
                     categories: {
@@ -318,7 +338,6 @@ function TicketsConfigForm({ guildId }: TicketsConfigFormProps) {
                     moderationRoles: categories.moderationRoles,
                 },
             });
-            queryClient.setQueryData(configKey, updated);
             setCategoriesDraft(undefined);
             notifications.show({
                 color: 'brand',
@@ -367,11 +386,10 @@ function TicketsConfigForm({ guildId }: TicketsConfigFormProps) {
     async function handleSaveType() {
         if (!typeRequest || !typeIsSendable) return;
         try {
-            const updated = await saveType.mutateAsync({
+            await saveType.mutateAsync({
                 path: { guildId, type: typeRequest.type },
                 body: typeRequest.body,
             });
-            queryClient.setQueryData(configKey, updated);
             setEditing(null);
             notifications.show({
                 color: 'brand',
@@ -528,6 +546,7 @@ function TicketsConfigForm({ guildId }: TicketsConfigFormProps) {
                         <Button
                             color="brand"
                             loading={saveCategories.isPending}
+                            disabled={configWriting}
                             onClick={() => void handleSaveCategories()}
                         >
                             Save changes
@@ -745,7 +764,7 @@ function TicketsConfigForm({ guildId }: TicketsConfigFormProps) {
                             <Button
                                 color="brand"
                                 loading={saveType.isPending}
-                                disabled={!typeIsSendable}
+                                disabled={!typeIsSendable || configWriting}
                                 onClick={() => void handleSaveType()}
                             >
                                 Save type
@@ -783,7 +802,12 @@ function TicketsConfigForm({ guildId }: TicketsConfigFormProps) {
                         >
                             Cancel
                         </Button>
-                        <Button color="red" loading={deleteType.isPending} onClick={() => void handleDeleteType()}>
+                        <Button
+                            color="red"
+                            loading={deleteType.isPending}
+                            disabled={configWriting}
+                            onClick={() => void handleDeleteType()}
+                        >
                             Delete type
                         </Button>
                     </Group>

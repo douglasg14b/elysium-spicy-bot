@@ -1,9 +1,9 @@
 /**
  * What the install dialog says about a plan, and about what an install did.
  *
- * A pure module for the same reason `publishedSummary.ts` beside it is one: `web/` has
- * no jsdom and no React testing library, so a decision left inside JSX is a decision
- * nothing can check. The component renders what these return.
+ * A pure module for the same reason `publishedSummary.ts` beside it is one: a decision
+ * left inside JSX can only be checked by rendering the dialog, and here a unit test
+ * checks it directly. The component renders what these return.
  *
  * ## Voice
  *

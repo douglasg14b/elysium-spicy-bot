@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ruleOrderProblem } from '../../../shared/zodRuleOrder';
 import type { BlockManifest } from '../blocks/manifest';
 import { getBlockDefinition } from '../blocks/registry';
 
@@ -147,7 +148,8 @@ export function fieldJsonSchemas(definition: Pick<BlockManifest, 'configSchema'>
  * Throws, naming the block and field, when a schema holds a rule nobody has decided how
  * the browser should treat: a JSON Schema keyword outside the lists above, a drawn field
  * missing from the export (a top-level union or `preprocess` exports without
- * `properties`), or a `pattern` with no `.regex()` check behind it. The emit runs this
+ * `properties`), a `pattern` with no `.regex()` check behind it, or rules declared in an
+ * order the generated zod does not run them in (`ruleOrderProblem`). The emit runs this
  * over every block, so `pnpm sdk:generate` stops on it.
  */
 export function browserFieldRules(definition: BlockSchemaSource): ReadonlyMap<string, FieldBrowserRules> {
@@ -211,6 +213,17 @@ function rulesFor(
     const def = (base as z.core.$ZodTypes)._zod.def;
     if ('coerce' in def && def.coerce) {
         return { kind: 'unchecked' };
+    }
+
+    // The server runs the block's own schema, so its rules must already be in the order
+    // the browser's generated zod will run them, or the two would lead with different sentences.
+    const orderProblem = ruleOrderProblem(
+        (def.checks ?? []).map((check) => check._zod.def),
+        def.type
+    );
+    if (orderProblem) {
+        report(orderProblem);
+        return undefined;
     }
 
     switch (property.type) {

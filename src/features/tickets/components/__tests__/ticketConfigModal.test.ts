@@ -48,8 +48,10 @@ vi.mock('../../data/ticketingRepo', () => ({
     },
 }));
 
+const mockRedrawPanel = vi.fn();
+
 vi.mock('../../utils/updateDeployedMessage', () => ({
-    updateDeployedTicketMessage: vi.fn().mockResolvedValue(undefined),
+    updateDeployedTicketMessage: (...args: unknown[]) => mockRedrawPanel(...args),
 }));
 
 import { TicketConfigModalComponent } from '../ticketConfigModal';
@@ -106,6 +108,7 @@ beforeEach(() => {
     vi.clearAllMocks();
     mockUpdate.mockResolvedValue(undefined);
     mockUpsert.mockResolvedValue(undefined);
+    mockRedrawPanel.mockResolvedValue(undefined);
 });
 
 describe('a config-modal save', () => {
@@ -199,6 +202,33 @@ describe('a config-modal save', () => {
         expect(saved.modTicketsDeployed).toBe(true);
         expect(saved.modTicketsDeployedChannelId).toBe('channel-1');
         expect(saved.modTicketsDeployedMessageId).toBe('message-1');
+    });
+
+    it('still answers the save as saved when the deployed panel cannot be redrawn', async () => {
+        // The redraw rejects on failure and the modal owns it: the roles are saved by then,
+        // so "Failed to save" would send the operator back to re-save something that stuck.
+        mockGet.mockResolvedValue({
+            id: 1,
+            guildId: 'guild-1',
+            config: storedConfig(),
+            ticketNumberInc: 12,
+            entityVersion: 1,
+        } as TicketingConfigEntity);
+        mockRedrawPanel.mockRejectedValue(new Error('Unknown Message'));
+        const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const submitted = interaction();
+
+        const result = await TicketConfigModalComponent().handler(submitted);
+
+        expect(result.status).toBe('success');
+        expect(submitted.reply).toHaveBeenCalledWith(
+            expect.objectContaining({ content: expect.stringContaining('Moderation roles saved') })
+        );
+        expect(logged).toHaveBeenCalledWith(
+            'Ticket config saved, but the deployed panel could not be refreshed:',
+            expect.objectContaining({ message: 'Unknown Message' })
+        );
+        logged.mockRestore();
     });
 
     // No test here for "drops the dead `userTicketsDeployed`/`ticketChannelNameTemplate`

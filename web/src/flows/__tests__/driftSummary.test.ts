@@ -15,8 +15,8 @@ import {
 /**
  * The copy and the judgement behind the drift dialog.
  *
- * All of it lives here rather than in the component because `web/` runs without jsdom
- * — a decision left in JSX is one no test can reach. These are the cases where the
+ * All of it lives here rather than in the component, because a decision left in JSX is
+ * one only a render of the dialog can reach. These are the cases where the
  * wording is load-bearing: the denominator in the headline, the two different reasons
  * a resource is not repairable, and the partial-repair report.
  */

@@ -122,6 +122,12 @@ export interface ResourceChipDetail {
     readonly ruleIndex?: number;
     /** Which field failed. For `invalidKey`, which covers the key *and* the name. */
     readonly field?: 'key' | 'name';
+    /**
+     * The server's own sentence for what is wrong with that field, as the generated zod
+     * carries it — "Resource keys cap at 64 characters.", say. For `invalidKey`, whose
+     * tooltip shows it in place of the chip's general `reason`.
+     */
+    readonly problem?: string;
 }
 
 export interface ResourceChipStyle {
@@ -301,7 +307,7 @@ export const RESOURCE_CHIPS: Record<ResourceChipId, ResourceChipStyle> = {
         color: 'red',
         icon: IconX,
         label: (detail) => (detail.field === 'name' ? 'Name required' : 'Invalid key'),
-        reason: 'The key fails `^[a-z0-9]+(-[a-z0-9]+)*$` or its length cap, or the name is empty or too long. Zod refuses the save.',
+        reason: "The key or the name breaks the server's own rule for it, so the save will be refused.",
         jumpTo: 'keyField',
     },
 

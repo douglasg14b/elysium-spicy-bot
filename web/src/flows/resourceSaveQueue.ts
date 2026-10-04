@@ -2,9 +2,9 @@
  * Deciding what a stream of resource edits should send, and what it may accept back.
  *
  * Split out of `FlowBuilderPage` because the bug it fixes was a *sequencing* bug, and
- * sequencing is the one thing a component cannot be asked about: `web/` has no jsdom, so
- * the original defect — every keystroke disabling its own input and then reverting
- * itself — was unreachable by the suite and shipped green.
+ * sequencing is the hardest thing to ask a rendered component about: no test rendered the
+ * builder then, so the original defect — every keystroke disabling its own input and then
+ * reverting itself — was unreachable by the suite and shipped green.
  *
  * ## The bug
  *

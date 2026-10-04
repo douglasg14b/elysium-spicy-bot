@@ -8,11 +8,13 @@
  * The logic lives here rather than inside `ResourcesPanel.tsx` because it is the part
  * with answers worth checking — which channels are offered, what a picked channel
  * seeds into the key and name, and whether an already-claimed channel is offered
- * twice. The panel around it is layout, and the repo tests `.ts` logic modules rather
- * than rendering components (see `cardSummary.ts`, `variables.ts`).
+ * twice. The panel around it is layout, and the repo pins decisions in `.ts` logic
+ * modules a unit test drives rather than through a render (see `cardSummary.ts`,
+ * `variables.ts`).
  */
 
 import type { GuildChannel, GuildRole, ResourceDeclaration, ResourceKind } from '@brattybot/web-sdk';
+import { RESOURCE_KEY_MAX_LENGTH } from './contractValues';
 
 type GuildChannelType = GuildChannel['type'];
 
@@ -23,13 +25,17 @@ type GuildChannelType = GuildChannel['type'];
  * to invent one alongside a name is asking them to understand why the distinction
  * exists. They can still edit it: a key is permanent in a way a name is not, so it
  * stays visible rather than hidden.
+ *
+ * Cut to the server's length before the trailing hyphens go, so a cut that lands just
+ * after a word break cannot leave the key ending in one.
  */
 export function slugifyResourceName(name: string): string {
     return name
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .slice(0, 64);
+        .replace(/^-+/, '')
+        .slice(0, RESOURCE_KEY_MAX_LENGTH)
+        .replace(/-+$/, '');
 }
 
 /**
@@ -323,8 +329,8 @@ export function declarationForAdoptedResource(
  * Whether adopting should overwrite the name the row currently carries.
  *
  * Extracted from `ResourcesPanel.setAdoption` because it was inline there, and being
- * inline is why nothing caught it getting this wrong: the panel has no jsdom tests, so a
- * decision living in the component is a decision nothing drives.
+ * inline is why nothing caught it getting this wrong: no test rendered the panel then, so
+ * a decision living in the component was a decision nothing drove.
  *
  * Two cases say yes, and the second is the one that was missing:
  *
