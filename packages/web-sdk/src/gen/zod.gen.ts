@@ -1516,7 +1516,7 @@ export const zSaveTicketTypeBody = zTicketTypeUpdate;
 
 export const zSaveTicketTypePath = z.object({
     guildId: z.string(),
-    type: z.string().min(1, 'A ticket type needs a key. Blank is not a category of anything.').regex(/^[a-z0-9_-]+$/, 'That will not do as a key — lowercase letters, digits, `-` and `_` only. The label is where you get to be expressive.')
+    type: z.string().min(1, 'A ticket type needs a key. Blank is not a category of anything.').max(64, 'Keep the key to 64 characters or fewer. It is an identifier, not a confession.').regex(/^[a-z0-9_-]+$/, 'That will not do as a key — lowercase letters, digits, `-` and `_` only. The label is where you get to be expressive.')
 });
 
 /**

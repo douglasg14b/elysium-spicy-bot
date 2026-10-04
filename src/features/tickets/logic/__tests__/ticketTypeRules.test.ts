@@ -4,6 +4,7 @@ import { DEFAULT_TICKET_TYPES } from '../../data/defaultTicketTypes';
 import { buildTicketChannelName } from '../ticketTypes';
 import {
     SUPPORTED_TOKENS,
+    TICKET_TYPE_KEY_MAX_LENGTH,
     TicketNameTemplateSchema,
     TicketTypeKeySchema,
     TicketTypeLabelSchema,
@@ -40,6 +41,13 @@ describe('TicketTypeKeySchema', () => {
 
     it('accepts lowercase letters, digits, dashes and underscores', () => {
         expect(refusal(TicketTypeKeySchema, 'mod_appeals-2')).toBeUndefined();
+    });
+
+    it('refuses a key longer than the ticket list can filter on', () => {
+        expect(refusal(TicketTypeKeySchema, 'a'.repeat(TICKET_TYPE_KEY_MAX_LENGTH))).toBeUndefined();
+        expect(refusal(TicketTypeKeySchema, 'a'.repeat(TICKET_TYPE_KEY_MAX_LENGTH + 1))).toBe(
+            'Keep the key to 64 characters or fewer. It is an identifier, not a confession.'
+        );
     });
 
     it('trims a padded key, so the record and its map key agree', () => {

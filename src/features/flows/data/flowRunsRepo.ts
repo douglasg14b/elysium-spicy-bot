@@ -158,21 +158,14 @@ type Equals<Left, Right> = (<Probe>() => Probe extends Left ? 1 : 2) extends <Pr
     ? true
     : false;
 type AssertTrue<Condition extends true> = Condition;
-type SnapshotShapesAgree = AssertTrue<Equals<FlowRunContextSnapshot, z.infer<typeof contextSnapshotSchema>>>;
 
 /**
- * Do not delete as unused: removing it erases the guard above.
- *
- * The alias alone is enough for `tsc` — `AssertTrue`'s constraint is checked where it
- * is declared, not where it is used — but an alias nothing references reads as dead
- * code, and `noUnusedLocals` would report it as exactly that. The leading-underscore
- * convention does not help here; it exempts parameters, not type declarations. So the
- * guard is anchored to a value the same way the `SchemaMatches` checks in
- * `src/web/api/*Body.ts` anchor theirs.
+ * `true` when the snapshot type and its schema agree. `AssertTrue`'s constraint is checked
+ * where the alias is declared, which flags a drift here for root `tsc` and the editor; it
+ * is exported so `__tests__/flowRunsRepo.test-d.ts` asserts it too, because `pnpm test`
+ * ignores type errors inside source files.
  */
-const snapshotShapesAgree: SnapshotShapesAgree = true;
-
-void snapshotShapesAgree;
+export type SnapshotShapesAgree = AssertTrue<Equals<FlowRunContextSnapshot, z.infer<typeof contextSnapshotSchema>>>;
 
 /**
  * The stored variable bag: flat, scalar-only, exactly as {@link FlowVariableValue}
@@ -210,12 +203,7 @@ const quietWindowSchema = z.discriminatedUnion('who', [
  * `z.object` strips what it does not declare, so a key added to
  * {@link FlowQuietWindow} alone would be written and silently dropped on read.
  */
-type QuietWindowShapesAgree = AssertTrue<Equals<FlowQuietWindow, z.infer<typeof quietWindowSchema>>>;
-
-/** Do not delete as unused; see {@link snapshotShapesAgree}. */
-const quietWindowShapesAgree: QuietWindowShapesAgree = true;
-
-void quietWindowShapesAgree;
+export type QuietWindowShapesAgree = AssertTrue<Equals<FlowQuietWindow, z.infer<typeof quietWindowSchema>>>;
 
 const logSchema = z.array(nodeRunLogSchema);
 

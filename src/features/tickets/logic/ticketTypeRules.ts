@@ -29,6 +29,12 @@ import { z } from 'zod';
 export const SUPPORTED_TOKENS = ['####', 'subject', 'opener'] as const;
 
 /**
+ * How long a ticket type's key may be. The ticket list's `?type=` filter is capped at the
+ * same length (`ticketRoutes.ts`), so every key that saves can be filtered on.
+ */
+export const TICKET_TYPE_KEY_MAX_LENGTH = 64;
+
+/**
  * A ticket type's key: the identity every ticket of the type points at.
  *
  * Restricted rather than merely non-blank, because the key reaches a channel name and a
@@ -40,6 +46,10 @@ export const TicketTypeKeySchema = z
     .string()
     .trim()
     .min(1, 'A ticket type needs a key. Blank is not a category of anything.')
+    .max(
+        TICKET_TYPE_KEY_MAX_LENGTH,
+        `Keep the key to ${TICKET_TYPE_KEY_MAX_LENGTH} characters or fewer. It is an identifier, not a confession.`
+    )
     .regex(
         /^[a-z0-9_-]+$/,
         'That will not do as a key — lowercase letters, digits, `-` and `_` only. The label is where you get to be expressive.'

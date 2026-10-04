@@ -207,7 +207,7 @@ export function guildRoutes(): OpenAPIHono<AppEnv> {
             const guild = c.get('guild');
             const { modChannelId } = c.req.valid('json');
 
-            const result = await setWarningsModChannel(guild.id, modChannelId);
+            const result = await setWarningsModChannel(guild, modChannelId);
             if (!result.ok) {
                 return c.json({ error: result.message }, 400);
             }

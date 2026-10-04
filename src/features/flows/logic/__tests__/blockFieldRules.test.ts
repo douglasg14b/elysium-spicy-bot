@@ -6,6 +6,7 @@ import { VARIABLE_NAME_MESSAGE } from '../../blocks/variableName';
 import { FLOW_GRAPH_VERSION } from '../../data/flowGraph';
 import { browserFieldRules, fieldJsonSchemas, type BlockSchemaSource } from '../blockFieldRules';
 import { flowReadinessIssues } from '../flowReadiness';
+import { blockWith } from './support/blockWith';
 import { toDescriptor } from '../../../../web/api/nodeRoutes';
 import type { NodeDescriptor as BrowserNodeDescriptor } from '@brattybot/web-sdk';
 import { resourceKeyFieldFor } from '../../../../../web/src/flows/controls/types';
@@ -264,12 +265,6 @@ describe('deriving one block’s rules', () => {
 });
 
 describe('what the derivation refuses', () => {
-    const blockWith = (key: string, schema: z.ZodType): Block => ({
-        type: 'test.block',
-        configSchema: z.object({ [key]: schema }),
-        configFields: [{ key, label: 'Field', control: 'text' }],
-    });
-
     it('a keyword nobody has decided about, naming block, field and keyword', () => {
         expect(() => browserFieldRules(blockWith('count', z.number().multipleOf(5)))).toThrow(
             /test\.block › count: `multipleOf` not classified/

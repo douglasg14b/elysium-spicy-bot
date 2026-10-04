@@ -1319,6 +1319,10 @@ export type LoginCallbackErrors = {
      */
     403: ErrorBody;
     /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+    /**
      * Discord would not complete the sign-in.
      */
     502: ErrorBody;
@@ -1333,6 +1337,15 @@ export type LoginData = {
     url: '/api/auth/login';
 };
 
+export type LoginErrors = {
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type LoginError = LoginErrors[keyof LoginErrors];
+
 export type LogoutData = {
     body?: never;
     path?: never;
@@ -1345,6 +1358,10 @@ export type LogoutErrors = {
      * No valid session.
      */
     401: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type LogoutError = LogoutErrors[keyof LogoutErrors];
@@ -1370,6 +1387,10 @@ export type GetCurrentUserErrors = {
      * Nobody is signed in. The normal answer before login.
      */
     401: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type GetCurrentUserError = GetCurrentUserErrors[keyof GetCurrentUserErrors];
@@ -1389,6 +1410,15 @@ export type GetBotIdentityData = {
     query?: never;
     url: '/api/bot';
 };
+
+export type GetBotIdentityErrors = {
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type GetBotIdentityError = GetBotIdentityErrors[keyof GetBotIdentityErrors];
 
 export type GetBotIdentityResponses = {
     /**
@@ -1411,6 +1441,10 @@ export type ListGuildsErrors = {
      * No valid session.
      */
     401: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type ListGuildsError = ListGuildsErrors[keyof ListGuildsErrors];
@@ -1452,6 +1486,10 @@ export type GetGuildChannelsErrors = {
      * The bot is not in this server.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type GetGuildChannelsError = GetGuildChannelsErrors[keyof GetGuildChannelsErrors];
@@ -1493,6 +1531,10 @@ export type GetTicketsConfigErrors = {
      * The bot is not in this server.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type GetTicketsConfigError = GetTicketsConfigErrors[keyof GetTicketsConfigErrors];
@@ -1544,6 +1586,10 @@ export type UpdateTicketsConfigErrors = {
      * Another save of these settings is still running, so nothing was changed.
      */
     423: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
     /**
      * Discord refused to create a category. Everything else was saved, so re-read the settings.
      */
@@ -1597,6 +1643,10 @@ export type DeleteTicketTypeErrors = {
      */
     409: ErrorBody;
     /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+    /**
      * The type could not be deleted. Nothing changed.
      */
     503: ErrorBody;
@@ -1649,6 +1699,10 @@ export type SaveTicketTypeErrors = {
      */
     415: ErrorBody;
     /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+    /**
      * The type could not be saved. Nothing changed.
      */
     503: ErrorBody;
@@ -1691,6 +1745,10 @@ export type GetWarningsConfigErrors = {
      * The bot is not in this server.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type GetWarningsConfigError = GetWarningsConfigErrors[keyof GetWarningsConfigErrors];
@@ -1734,6 +1792,10 @@ export type UpdateWarningsConfigErrors = {
      * The body was not sent as JSON.
      */
     415: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type UpdateWarningsConfigError = UpdateWarningsConfigErrors[keyof UpdateWarningsConfigErrors];
@@ -1773,6 +1835,10 @@ export type ListFlowsErrors = {
      * The bot is not in this server.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type ListFlowsError = ListFlowsErrors[keyof ListFlowsErrors];
@@ -1818,6 +1884,10 @@ export type CreateFlowErrors = {
      * The body was not sent as JSON.
      */
     415: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type CreateFlowError = CreateFlowErrors[keyof CreateFlowErrors];
@@ -1858,6 +1928,10 @@ export type DeleteFlowErrors = {
      * The bot is not in this server, or the flow is not in it.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type DeleteFlowError = DeleteFlowErrors[keyof DeleteFlowErrors];
@@ -1899,7 +1973,7 @@ export type GetFlowErrors = {
      */
     404: ErrorBody;
     /**
-     * The flow's journey could not be read, so its readiness cannot be judged. The sentence names the cause.
+     * The flow's journey could not be read, so its readiness cannot be judged; the sentence names the cause. Or something else failed unexpectedly.
      */
     500: ErrorBody;
 };
@@ -1947,7 +2021,7 @@ export type UpdateFlowErrors = {
      */
     415: ErrorBody;
     /**
-     * The flow's journey could not be read. A request that could have been refused wrote nothing; a switch-off or rename was still written, and its sentence starts with 'Saved.'
+     * The flow's journey could not be read. A request that could have been refused wrote nothing; a switch-off or rename was still written, and its sentence starts with 'Saved.' Or something else failed unexpectedly.
      */
     500: ErrorBody;
 };
@@ -1994,6 +2068,10 @@ export type AttachFlowToJourneyErrors = {
      * The body was not sent as JSON.
      */
     415: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type AttachFlowToJourneyError = AttachFlowToJourneyErrors[keyof AttachFlowToJourneyErrors];
@@ -2034,6 +2112,10 @@ export type GetFlowAttachmentErrors = {
      * The bot is not in this server, or the flow is not in it.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type GetFlowAttachmentError = GetFlowAttachmentErrors[keyof GetFlowAttachmentErrors];
@@ -2081,7 +2163,7 @@ export type CheckFlowErrors = {
      */
     415: ErrorBody;
     /**
-     * The flow's journey could not be read, so its readiness cannot be judged. The sentence names the cause.
+     * The flow's journey could not be read, so its readiness cannot be judged; the sentence names the cause. Or something else failed unexpectedly.
      */
     500: ErrorBody;
 };
@@ -2126,6 +2208,10 @@ export type DeployFlowErrors = {
      * The bot is not in this server, or the flow is not in it.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type DeployFlowError = DeployFlowErrors[keyof DeployFlowErrors];
@@ -2166,6 +2252,10 @@ export type DetachFlowFromJourneyErrors = {
      * The bot is not in this server, or the flow is not in it.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type DetachFlowFromJourneyError = DetachFlowFromJourneyErrors[keyof DetachFlowFromJourneyErrors];
@@ -2207,7 +2297,7 @@ export type ListFlowDraftsErrors = {
      */
     404: ErrorBody;
     /**
-     * The flow's journey could not be read, so its readiness cannot be judged. The sentence names the cause.
+     * The flow's journey could not be read, so its readiness cannot be judged; the sentence names the cause. Or something else failed unexpectedly.
      */
     500: ErrorBody;
 };
@@ -2256,6 +2346,10 @@ export type SaveMyFlowDraftErrors = {
      * The body was not sent as JSON.
      */
     415: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type SaveMyFlowDraftError = SaveMyFlowDraftErrors[keyof SaveMyFlowDraftErrors];
@@ -2297,6 +2391,10 @@ export type DiscardFlowDraftErrors = {
      * The bot is not in this server, the flow is not in it, or the flow has no draft with that id.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type DiscardFlowDraftError = DiscardFlowDraftErrors[keyof DiscardFlowDraftErrors];
@@ -2345,6 +2443,10 @@ export type GroupFlowWithErrors = {
      * The body was not sent as JSON.
      */
     415: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type GroupFlowWithError = GroupFlowWithErrors[keyof GroupFlowWithErrors];
@@ -2391,6 +2493,10 @@ export type PreviewFlowGroupingErrors = {
      * This flow's journey is shared with other flows, which still install it.
      */
     409: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type PreviewFlowGroupingError = PreviewFlowGroupingErrors[keyof PreviewFlowGroupingErrors];
@@ -2439,6 +2545,10 @@ export type InstallFlowErrors = {
      * Another operation on this journey is running. Nothing was touched.
      */
     423: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type InstallFlowError = InstallFlowErrors[keyof InstallFlowErrors];
@@ -2483,6 +2593,10 @@ export type GetInstallPlanErrors = {
      * The journey is not this flow's to install, or declares something that cannot be installed as shared server structure.
      */
     409: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type GetInstallPlanError = GetInstallPlanErrors[keyof GetInstallPlanErrors];
@@ -2523,6 +2637,10 @@ export type GetPublishedStateErrors = {
      * The bot is not in this server, or the flow is not in it.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type GetPublishedStateError = GetPublishedStateErrors[keyof GetPublishedStateErrors];
@@ -2563,6 +2681,10 @@ export type GetFlowResourcesErrors = {
      * The bot is not in this server.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type GetFlowResourcesError = GetFlowResourcesErrors[keyof GetFlowResourcesErrors];
@@ -2613,6 +2735,10 @@ export type SaveFlowResourcesErrors = {
      * The body was not sent as JSON.
      */
     415: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type SaveFlowResourcesError = SaveFlowResourcesErrors[keyof SaveFlowResourcesErrors];
@@ -2655,6 +2781,10 @@ export type UndeployFlowErrors = {
      * The bot is not in this server.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type UndeployFlowError = UndeployFlowErrors[keyof UndeployFlowErrors];
@@ -2699,6 +2829,10 @@ export type UnpublishFlowErrors = {
      * Nothing was deleted: the journey belongs to another flow, other flows share it, or the teardown was refused before it started.
      */
     409: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type UnpublishFlowError = UnpublishFlowErrors[keyof UnpublishFlowErrors];
@@ -2738,6 +2872,10 @@ export type ListJourneysErrors = {
      * The bot is not in this server.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type ListJourneysError = ListJourneysErrors[keyof ListJourneysErrors];
@@ -2787,6 +2925,10 @@ export type CreateJourneyErrors = {
      * The body was not sent as JSON.
      */
     415: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type CreateJourneyError = CreateJourneyErrors[keyof CreateJourneyErrors];
@@ -2831,6 +2973,10 @@ export type DeleteJourneyErrors = {
      * Flows are still attached; the sentence names each.
      */
     409: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type DeleteJourneyError = DeleteJourneyErrors[keyof DeleteJourneyErrors];
@@ -2871,6 +3017,10 @@ export type GetJourneyErrors = {
      * The bot is not in this server, or the journey is not in it.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type GetJourneyError = GetJourneyErrors[keyof GetJourneyErrors];
@@ -2915,6 +3065,10 @@ export type UpdateJourneyErrors = {
      * The body was not sent as JSON.
      */
     415: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type UpdateJourneyError = UpdateJourneyErrors[keyof UpdateJourneyErrors];
@@ -2955,6 +3109,10 @@ export type GetJourneyDriftErrors = {
      * The bot is not in this server, or the journey is not in it.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type GetJourneyDriftError = GetJourneyDriftErrors[keyof GetJourneyDriftErrors];
@@ -2996,6 +3154,10 @@ export type ForgetJourneyOrphanErrors = {
      * The bot is not in this server, the journey is not in it, or the record is not one of its leftovers any more — already removed, or declared again.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type ForgetJourneyOrphanError = ForgetJourneyOrphanErrors[keyof ForgetJourneyOrphanErrors];
@@ -3036,6 +3198,10 @@ export type GetJourneyPublishedStateErrors = {
      * The bot is not in this server, or the journey is not in it.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type GetJourneyPublishedStateError = GetJourneyPublishedStateErrors[keyof GetJourneyPublishedStateErrors];
@@ -3084,6 +3250,10 @@ export type RepairJourneyDriftErrors = {
      * The body was not sent as JSON.
      */
     415: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type RepairJourneyDriftError = RepairJourneyDriftErrors[keyof RepairJourneyDriftErrors];
@@ -3124,6 +3294,10 @@ export type UndeployJourneyErrors = {
      * The bot is not in this server, or the journey is not in it.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type UndeployJourneyError = UndeployJourneyErrors[keyof UndeployJourneyErrors];
@@ -3168,6 +3342,10 @@ export type UnpublishJourneyErrors = {
      * Nothing was deleted: the teardown was refused before it started.
      */
     409: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type UnpublishJourneyError = UnpublishJourneyErrors[keyof UnpublishJourneyErrors];
@@ -3207,6 +3385,10 @@ export type ListLevelingErrors = {
      * The bot is not in this server.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type ListLevelingError = ListLevelingErrors[keyof ListLevelingErrors];
@@ -3246,6 +3428,10 @@ export type GetLevelingInsightsErrors = {
      * The bot is not in this server.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
     /**
      * The guild has more logged XP events than the report will scan. Nothing is broken; the sentence names the count and the ceiling.
      */
@@ -3295,6 +3481,10 @@ export type GetLevelingUserErrors = {
      * The bot is not in this server.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type GetLevelingUserError = GetLevelingUserErrors[keyof GetLevelingUserErrors];
@@ -3334,6 +3524,10 @@ export type GetGuildRolesErrors = {
      * The bot is not in this server.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type GetGuildRolesError = GetGuildRolesErrors[keyof GetGuildRolesErrors];
@@ -3375,6 +3569,10 @@ export type GetGuildSettingsErrors = {
      * The bot is not in this server.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type GetGuildSettingsError = GetGuildSettingsErrors[keyof GetGuildSettingsErrors];
@@ -3418,6 +3616,10 @@ export type UpdateGuildSettingsErrors = {
      * The body was not sent as JSON.
      */
     415: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type UpdateGuildSettingsError = UpdateGuildSettingsErrors[keyof UpdateGuildSettingsErrors];
@@ -3474,6 +3676,10 @@ export type ListTicketsErrors = {
      * The bot is not in this server.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type ListTicketsError = ListTicketsErrors[keyof ListTicketsErrors];
@@ -3514,6 +3720,10 @@ export type GetTicketErrors = {
      * The bot is not in this server, or the ticket is not in it.
      */
     404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type GetTicketError = GetTicketErrors[keyof GetTicketErrors];
@@ -3558,6 +3768,10 @@ export type ClaimTicketErrors = {
      * Nothing changed: the server has not finished setting up tickets, no longer declares the ticket's type, or the ticket is not in a state this action applies to. The sentence says which.
      */
     409: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type ClaimTicketError = ClaimTicketErrors[keyof ClaimTicketErrors];
@@ -3602,6 +3816,10 @@ export type CloseTicketErrors = {
      * Nothing changed: the server has not finished setting up tickets, no longer declares the ticket's type, or the ticket is not in a state this action applies to. The sentence says which.
      */
     409: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type CloseTicketError = CloseTicketErrors[keyof CloseTicketErrors];
@@ -3646,6 +3864,10 @@ export type ReopenTicketErrors = {
      * Nothing changed: the server has not finished setting up tickets, no longer declares the ticket's type, or the ticket is not in a state this action applies to. The sentence says which.
      */
     409: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type ReopenTicketError = ReopenTicketErrors[keyof ReopenTicketErrors];
@@ -3690,6 +3912,10 @@ export type UnclaimTicketErrors = {
      * Nothing changed: the server has not finished setting up tickets, no longer declares the ticket's type, or the ticket is not in a state this action applies to. The sentence says which.
      */
     409: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type UnclaimTicketError = UnclaimTicketErrors[keyof UnclaimTicketErrors];
@@ -3709,6 +3935,15 @@ export type GetHealthData = {
     query?: never;
     url: '/api/health';
 };
+
+export type GetHealthErrors = {
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type GetHealthError = GetHealthErrors[keyof GetHealthErrors];
 
 export type GetHealthResponses = {
     /**
@@ -3731,6 +3966,10 @@ export type GetNodeTypesErrors = {
      * No valid session.
      */
     401: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
 };
 
 export type GetNodeTypesError = GetNodeTypesErrors[keyof GetNodeTypesErrors];

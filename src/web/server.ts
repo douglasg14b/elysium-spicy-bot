@@ -1,11 +1,13 @@
 import { serve, type ServerType } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { OpenAPIHono } from '@hono/zod-openapi';
+import { HTTPException } from 'hono/http-exception';
 import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { WEB_DEV_CLIENT_PORT, WEB_ENABLED, WEB_PORT, getMissingWebEnv } from '../environment';
 import { registerApiRoutes } from './api';
+import { UNEXPECTED_ERROR_SENTENCE } from './api/openApi';
 import type { AppEnv } from './types';
 
 /**
@@ -60,6 +62,23 @@ export function buildApp(): OpenAPIHono<AppEnv> {
      * middleware has run, so an unknown guild path still asks for a session first.
      */
     app.all('/api/*', (c) => c.json({ error: 'Nothing lives at this API path.' }, 404));
+
+    /*
+     * An error nothing handled — a route or middleware that threw. Under `/api` it is a 500
+     * in the API's own envelope, which every route declares (`apiRouter`), rather than
+     * Hono's plain-text default; the error itself is logged here and never sent. An
+     * `HTTPException` keeps the answer it carries, as Hono's default handler gives it.
+     */
+    app.onError((error, c) => {
+        if (error instanceof HTTPException) {
+            const answer = error.getResponse();
+            return c.newResponse(answer.body, answer);
+        }
+        console.error(`[web] ${c.req.method} ${c.req.path} failed:`, error);
+        return c.req.path.startsWith('/api/')
+            ? c.json({ error: UNEXPECTED_ERROR_SENTENCE }, 500)
+            : c.text('Internal Server Error', 500);
+    });
 
     // Serve the built SPA + client-side routing fallback, if a build exists.
     const clientDir = resolveClientDir();

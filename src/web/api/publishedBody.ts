@@ -6,7 +6,7 @@ import type {
 } from '../../features/flows/logic/publishedFlowState';
 import type { PublishedJourneyState } from '../../features/flows/logic/publishedJourneyState';
 import { REFUSAL_REASONS } from '../../features/provisioning/logic/unpublishPlan';
-import type { SchemaMatches } from './openApi';
+import type { ChecksHold, MismatchedChecks, SchemaMatches } from './openApi';
 
 /**
  * A message carrying trigger buttons, as the flow and journey inventories report it.
@@ -24,12 +24,6 @@ const PublishedButtonMessageSchema = z
         nodeIds: z.array(z.string()).readonly(),
     })
     .openapi('PublishedButtonMessage');
-
-const publishedButtonMessageSchemaMatches: SchemaMatches<
-    typeof PublishedButtonMessageSchema,
-    PublishedButtonMessage
-> = true;
-void publishedButtonMessageSchemaMatches;
 
 /**
  * A channel or role the journey put in the guild. `refused` means unpublishing leaves it
@@ -50,8 +44,17 @@ const PublishedResourceSchema = z
     })
     .openapi('PublishedResource');
 
-const publishedResourceSchemaMatches: SchemaMatches<typeof PublishedResourceSchema, PublishedResource> = true;
-void publishedResourceSchemaMatches;
+/**
+ * Each schema above that states a domain type the routes send as it is, against that type.
+ * Gathered here so `__tests__/publishedBody.test-d.ts` can assert them; see {@link SchemaMatches}.
+ */
+type PublishedBodyChecks = ChecksHold<{
+    PublishedButtonMessage: SchemaMatches<typeof PublishedButtonMessageSchema, PublishedButtonMessage>;
+    PublishedResource: SchemaMatches<typeof PublishedResourceSchema, PublishedResource>;
+}>;
+
+/** The checks in {@link PublishedBodyChecks} that fail, or `never`. Asserted `never` in `__tests__/publishedBody.test-d.ts`. */
+export type PublishedBodyMismatch = MismatchedChecks<PublishedBodyChecks>;
 
 /**
  * What a flow — or a journey — has live in the guild.

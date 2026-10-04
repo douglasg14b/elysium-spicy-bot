@@ -1,6 +1,5 @@
 import type { Guild } from 'discord.js';
 import { ChannelType } from 'discord.js';
-import { DISCORD_CLIENT } from '../../../discordClient';
 import {
     flowButtonMessagesRepo,
     type FlowButtonMessagesRepo,
@@ -30,15 +29,7 @@ export interface UndeployFlowButtonsResult {
 }
 
 interface UndeployFlowButtonsDeps {
-    getGuild?: (guildId: string) => Promise<Guild | null>;
     buttonMessagesRepo?: Pick<FlowButtonMessagesRepo, 'listByFlowId' | 'forget'>;
-}
-
-async function defaultGetGuild(guildId: string): Promise<Guild | null> {
-    return (
-        DISCORD_CLIENT.guilds.cache.get(guildId) ??
-        (await DISCORD_CLIENT.guilds.fetch(guildId).catch(() => null))
-    );
 }
 
 /**
@@ -55,31 +46,16 @@ async function defaultGetGuild(guildId: string): Promise<Guild | null> {
  *
  * Per-message failures do not abort the run. Buttons in one channel have nothing to do
  * with buttons in another, and stopping at the first would strand the rest.
+ *
+ * Takes the guild its caller already holds, as {@link deployFlowButtons} does.
  */
 export async function undeployFlowButtons(
-    guildId: string,
+    guild: Guild,
     flowId: string,
     deps: UndeployFlowButtonsDeps = {}
 ): Promise<UndeployFlowButtonsResult> {
     const repo = deps.buttonMessagesRepo ?? flowButtonMessagesRepo;
-    const recorded = await repo.listByFlowId(guildId, flowId);
-    if (recorded.length === 0) {
-        return { results: [] };
-    }
-
-    const guild = await (deps.getGuild ?? defaultGetGuild)(guildId);
-    if (!guild) {
-        // Without the guild nothing can be deleted, and dropping the rows anyway would
-        // discard the only record of where those live buttons are.
-        return {
-            results: recorded.map((row) => ({
-                channelId: row.channelId,
-                messageId: row.messageId,
-                outcome: 'failed' as const,
-                explanation: 'That server is unavailable right now, so its buttons were left alone. Try again in a moment.',
-            })),
-        };
-    }
+    const recorded = await repo.listByFlowId(guild.id, flowId);
 
     const results: UndeployedButtonMessage[] = [];
     for (const row of recorded) {

@@ -12,7 +12,7 @@ import {
 } from '../../features/tickets/data/ticketingSchema';
 import { TICKET_STATUSES, type TicketEntity } from '../../features/tickets/data/ticketsSchema';
 import { getTicketTypeDefinition } from '../../features/tickets/logic/ticketTypes';
-import type { SchemaMatches } from './openApi';
+import type { ChecksHold, MismatchedChecks, SchemaMatches } from './openApi';
 
 /**
  * The ticket shapes the browser receives.
@@ -152,10 +152,6 @@ const TicketRolePermissionsSchema = z
         description: 'What one person on a ticket may do in its channel.',
     });
 
-const ticketRolePermissionsSchemaMatches: SchemaMatches<typeof TicketRolePermissionsSchema, TicketRolePermissions> =
-    true;
-void ticketRolePermissionsSchemaMatches;
-
 /** The permission model for one ticket type: the three people a ticket involves. Request and response both. */
 export const TicketPermissionModelSchema = z
     .object({
@@ -169,9 +165,17 @@ export const TicketPermissionModelSchema = z
             'filed it, `staff` the moderation roles.',
     });
 
-const ticketPermissionModelSchemaMatches: SchemaMatches<typeof TicketPermissionModelSchema, TicketPermissionModel> =
-    true;
-void ticketPermissionModelSchemaMatches;
+/**
+ * Each schema above that states a domain type the routes send as it is, against that type.
+ * Gathered here so `__tests__/ticketBody.test-d.ts` can assert them; see {@link SchemaMatches}.
+ */
+type TicketBodyChecks = ChecksHold<{
+    TicketRolePermissions: SchemaMatches<typeof TicketRolePermissionsSchema, TicketRolePermissions>;
+    TicketPermissionModel: SchemaMatches<typeof TicketPermissionModelSchema, TicketPermissionModel>;
+}>;
+
+/** The checks in {@link TicketBodyChecks} that fail, or `never`. Asserted `never` in `__tests__/ticketBody.test-d.ts`. */
+export type TicketBodyMismatch = MismatchedChecks<TicketBodyChecks>;
 
 /** One declared type, as the config editor reads it. */
 const TicketTypeViewSchema = z

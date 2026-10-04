@@ -22,19 +22,25 @@ export const ACTIVITY_STATUSES = [
 ] as const satisfies readonly ActivityStatus[];
 
 /**
- * Do not delete as unused: removing this lets the list above go stale.
- *
- * `satisfies` rejects a member that is not an `ActivityStatus` but says nothing about one
- * the list *omits*, which is the direction that rots. The tuple wrapper is load-bearing —
- * a bare `extends never` distributes and is vacuously true for an empty union.
+ * A status the list above omits, or a name there that is not a status; `never` when the
+ * two agree. Asserted `never` in `__tests__/statsCardMetrics.test-d.ts`, which `pnpm test`
+ * type-checks — the `satisfies` above alone fails only root `tsc`, and says nothing about a
+ * member the list *omits*, which is the direction that rots.
  */
-type MissingActivityStatus = Exclude<ActivityStatus, (typeof ACTIVITY_STATUSES)[number]>;
+export type ActivityStatusesMismatch =
+    | Exclude<ActivityStatus, (typeof ACTIVITY_STATUSES)[number]>
+    | Exclude<(typeof ACTIVITY_STATUSES)[number], ActivityStatus>;
 
-const activityStatusesAreComplete: [MissingActivityStatus] extends [never]
+/**
+ * Do not delete as unused: it is what shows a drift to root `tsc` and the editor, in this
+ * file. The tuple wrapper is load-bearing — a bare `extends never` distributes and is
+ * vacuously true for an empty union.
+ */
+const activityStatusesAgree: [ActivityStatusesMismatch] extends [never]
     ? true
-    : ['ACTIVITY_STATUSES is missing a member', MissingActivityStatus] = true;
+    : ['ACTIVITY_STATUSES disagrees with ActivityStatus', ActivityStatusesMismatch] = true;
 
-void activityStatusesAreComplete;
+void activityStatusesAgree;
 
 export type StatsCardMetrics = {
     activityStatus: ActivityStatus;

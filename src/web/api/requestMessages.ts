@@ -184,7 +184,7 @@ function walkSchema(schema: z.core.$ZodType, position: WalkPosition, state: Walk
     switch (def.type) {
         case 'object':
             for (const [key, value] of Object.entries(def.shape)) {
-                child(value, `.${key}`);
+                child(value, memberSegment(key));
             }
             if (def.catchall) {
                 child(def.catchall, '.*');
@@ -265,6 +265,15 @@ function walkSchema(schema: z.core.$ZodType, position: WalkPosition, state: Walk
 }
 
 /**
+ * One object member in a failure's field path: `.name` for a plain identifier, and quoted in
+ * brackets otherwise — `["action.pickRandom"]` — so a key holding dots stays one segment and
+ * a block type cannot blur into the field after it.
+ */
+function memberSegment(key: string): string {
+    return /^[A-Za-z_$][\w$]*$/.test(key) ? `.${key}` : `[${JSON.stringify(key)}]`;
+}
+
+/**
  * Reads one node's rules: records the sentences that can travel in its metadata, and
  * reports each rule that cannot.
  *
@@ -278,22 +287,17 @@ function recordMessages(schema: z.core.$ZodType, at: string, report: ReportProbl
     }
     const checkDefs: z.core.$ZodCheckDef[] = (def.checks ?? []).map((check) => check._zod.def);
 
-    // A format schema (`z.iso.datetime()`, `z.email()`, `z.int()`) is its own check, its
-    // sentence on the schema — where it also words a value of the wrong type, which no
-    // keyword can carry. Any other schema's own `error` words only its type refusal.
-    const formatSchema = 'check' in def && typeof def.check === 'string' ? { ...def, check: def.check } : undefined;
-    if (formatSchema) {
-        checkDefs.push(formatSchema);
-    } else {
-        const sentence = fixedSentence(def.error, "the schema's own error message", at, report);
-        if (sentence !== undefined) {
-            report(`${at}: ${noKeywordFor(`the schema's own error ("${sentence}")`)}`);
-        }
+    // A schema's own `error` words its refusal of a value of the wrong type — and, on a
+    // format schema (`z.int('…')`, `z.email('…')`, `z.iso.datetime('…')`), which is its own
+    // check, its format refusal too. No keyword carries a type refusal, so neither travels.
+    const sentence = fixedSentence(def.error, "the schema's own error message", at, report);
+    if (sentence !== undefined) {
+        report(`${at}: ${noKeywordFor(`the schema's own error ("${sentence}")`)}`);
     }
 
     const sentencesByKeyword = new Map<RequestMessageKeyword, (string | undefined)[]>();
     for (const checkDef of checkDefs) {
-        const contribution = inspectCheck(checkDef, def.type, at, report, checkDef === formatSchema);
+        const contribution = inspectCheck(checkDef, def.type, at, report);
         for (const keyword of contribution?.keywords ?? []) {
             sentencesByKeyword.set(keyword, [...(sentencesByKeyword.get(keyword) ?? []), contribution?.sentence]);
         }
@@ -321,17 +325,12 @@ function recordMessages(schema: z.core.$ZodType, at: string, report: ReportProbl
 /**
  * What one check feeds into the spec, judged by its kind and by the type of node it is
  * on; `undefined` for a check that was reported instead.
- *
- * @param isFormatSchema - The check is a format schema itself (`z.int('…')`), whose
- * sentence words a value of the wrong type too; the browser's copy of the rule would not,
- * so the sentence has nowhere faithful to travel.
  */
 function inspectCheck(
     checkDef: z.core.$ZodCheckDef,
     ownerType: z.core.$ZodTypeDef['type'],
     at: string,
-    report: ReportProblem,
-    isFormatSchema: boolean
+    report: ReportProblem
 ): CheckContribution | undefined {
     if (checkDef.check === 'custom') {
         report(`${at}: a \`.refine()\`/\`.superRefine()\` rule, which the browser cannot run from the spec. Check it in the handler instead.`);
@@ -347,7 +346,7 @@ function inspectCheck(
         );
     }
 
-    const keywords = isFormatSchema ? [] : keywordsFor(def, ownerType);
+    const keywords = keywordsFor(def, ownerType);
     const sentence = fixedSentence(def.error, `the \`${describeCheck(def)}\` rule's message`, at, report);
     if (sentence !== undefined && !keywords.length) {
         report(`${at}: ${noKeywordFor(`the \`${describeCheck(def)}\` rule's sentence ("${sentence}")`)}`);

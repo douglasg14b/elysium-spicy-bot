@@ -55,9 +55,7 @@ export function WarningsConfigModalComponent() {
 
         await interaction.deferReply({ ephemeral: true });
 
-        const result = await setWarningsModChannel(interaction.guildId, selectedChannel.id, {
-            getGuild: async () => interaction.guild,
-        });
+        const result = await setWarningsModChannel(interaction.guild, selectedChannel.id);
 
         if (!result.ok) {
             await interaction.editReply({ content: result.message });

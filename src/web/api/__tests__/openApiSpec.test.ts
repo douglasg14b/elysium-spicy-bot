@@ -65,4 +65,40 @@ describe('OpenAPI spec drift', () => {
             'Spread `GUILD_SCOPED_ERRORS` (or `GUILD_SCOPED_BODY_ERRORS`) from `openApi.ts` into these routes.'
         ).toEqual([]);
     });
+
+    /*
+     * Any route can throw, and the root app answers every throw under `/api` as a 500
+     * `ErrorBody` (`server.ts`). `apiRouter` adds the entry to each route it registers; a
+     * client generated without it would not know a 500 carries the API's envelope.
+     */
+    it('has every operation declare the 500 the root error handler answers', async () => {
+        const paths = (await buildOpenApiDocument()).paths as Record<string, Record<string, SpecOperation>>;
+        const operations = Object.entries(paths).flatMap(([path, byMethod]) =>
+            Object.entries(byMethod).map(([method, operation]) => ({ name: `${method.toUpperCase()} ${path}`, operation }))
+        );
+        // An empty list would leave nothing missing and pass for no reason.
+        expect(operations.length).toBeGreaterThan(0);
+
+        const missing = operations
+            .filter(
+                ({ operation }) =>
+                    operation.responses?.['500']?.content?.['application/json']?.schema?.$ref !==
+                    '#/components/schemas/ErrorBody'
+            )
+            .map(({ name }) => name);
+
+        expect(missing, 'Register these routes through `apiRouter`, which declares the 500.').toEqual([]);
+    });
+
+    it('keeps a 500 a route declares itself, rather than the generic one', async () => {
+        const paths = (await buildOpenApiDocument()).paths as Record<
+            string,
+            Record<string, { responses?: Record<string, { description?: string }> }>
+        >;
+
+        // `GET` one flow answers a designed 500 when the flow's journey cannot be read.
+        expect(paths['/api/guilds/{guildId}/flows/{flowId}']?.get?.responses?.['500']?.description).toContain(
+            "The flow's journey could not be read"
+        );
+    });
 });

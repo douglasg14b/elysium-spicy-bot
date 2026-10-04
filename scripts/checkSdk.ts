@@ -14,6 +14,7 @@
 
 import { execFileSync } from 'node:child_process';
 
+// `.gitattributes` checks these out with LF, as the generator writes them; change both together.
 const GENERATED_PATHS = ['generated', 'packages/web-sdk/src/gen'];
 
 const changes = execFileSync('git', ['status', '--porcelain', '--', ...GENERATED_PATHS], {

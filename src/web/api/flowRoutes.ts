@@ -194,7 +194,8 @@ const updateFlowRoute = createRoute({
         ),
         500: errorBodyResponse(
             "The flow's journey could not be read. A request that could have been refused wrote " +
-                "nothing; a switch-off or rename was still written, and its sentence starts with 'Saved.'"
+                "nothing; a switch-off or rename was still written, and its sentence starts with 'Saved.' " +
+                'Or something else failed unexpectedly.'
         ),
     },
 });
@@ -800,14 +801,14 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
      * going to several channels.
      */
     router.openapi(deployFlowRoute, async (c) => {
-        const guildId = c.get('guild').id;
+        const guild = c.get('guild');
         const { flowId } = c.req.valid('param');
         const existing = await flowsRepo.getByFlowId(flowId);
-        if (!existing || existing.guildId !== guildId) {
+        if (!existing || existing.guildId !== guild.id) {
             return c.json({ error: 'Flow not found.' }, 404);
         }
 
-        const result = await deployFlowButtons(guildId, flowId);
+        const result = await deployFlowButtons(guild, flowId);
         if (!result.ok) {
             return c.json({ error: result.message }, 400);
         }
@@ -956,8 +957,7 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
      * is the authorization boundary, and `requireGuildAccess` has already run.
      */
     router.openapi(undeployFlowRoute, async (c) => {
-        const guildId = c.get('guild').id;
-        const result = await undeployFlowButtons(guildId, c.req.valid('param').flowId);
+        const result = await undeployFlowButtons(c.get('guild'), c.req.valid('param').flowId);
         return c.json({ results: result.results }, 200);
     });
 

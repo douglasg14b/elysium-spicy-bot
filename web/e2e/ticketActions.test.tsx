@@ -123,7 +123,7 @@ async function guildWithTickets(): Promise<TicketGuild> {
     const operator: DashboardOperator = { id: operatorMember.id, username: OPERATOR_NAME };
 
     // The panel `/deploy-ticket-system` would post, stood in for by a real message so the
-    // config names one Discord holds. Nothing here renders or reads it.
+    // config names one Discord holds. The settings save below redraws it.
     const liveDesk = discord.clientGuild(guild).channels.cache.get(desk.id);
     if (liveDesk?.type !== ChannelType.GuildText) throw new Error('The client holds no ticket desk.');
     const panel = await liveDesk.send({ content: 'Need a hand, a hug or a referee? Open a ticket.' });
@@ -154,6 +154,8 @@ async function guildWithTickets(): Promise<TicketGuild> {
         },
         moderationRoles: [moderators.id],
     });
+    // Through the route's guild, so the redraw reaches Discord rather than failing quietly.
+    expect(desk.message(panel.id).edited).toBe(true);
     await api.send('PUT', `${guildPath}/config/tickets/types/${TYPE_KEY}`, {
         label: TYPE_LABEL,
         nameTemplate: 'aftercare-{{####}}-{{subject}}',

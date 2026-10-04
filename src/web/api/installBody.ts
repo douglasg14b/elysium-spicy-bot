@@ -19,7 +19,7 @@ import {
 import { isPlanApplicable, PLAN_ACTIONS, type InstallPlan } from '../../features/provisioning/logic/installPlan';
 import { RESOURCE_KINDS } from '../../features/provisioning/logic/resourceDeclaration';
 import type { InstallRunOutcome } from '../../features/provisioning/logic/runInstall';
-import { ErrorBodySchema, type SchemaMatches } from './openApi';
+import { ErrorBodySchema, type ChecksHold, type MismatchedChecks, type SchemaMatches } from './openApi';
 
 /**
  * What putting a flow into the guild, and taking it back out, says on the wire: its
@@ -42,12 +42,6 @@ const DeployedButtonMessageSchema = z
     })
     .openapi('DeployedButtonMessage');
 
-const deployedButtonMessageSchemaMatches: SchemaMatches<
-    typeof DeployedButtonMessageSchema,
-    DeployedButtonMessage
-> = true;
-void deployedButtonMessageSchemaMatches;
-
 /** A deploy that posted: one message per destination channel. A refusal is a 400. */
 export const DeployResultSchema = z
     .object({
@@ -66,12 +60,6 @@ const UndeployedButtonMessageSchema = z
     })
     .openapi('UndeployedButtonMessage');
 
-const undeployedButtonMessageSchemaMatches: SchemaMatches<
-    typeof UndeployedButtonMessageSchema,
-    UndeployedButtonMessage
-> = true;
-void undeployedButtonMessageSchemaMatches;
-
 export const UndeployResultSchema = z
     .object({
         results: z.array(UndeployedButtonMessageSchema).readonly(),
@@ -88,9 +76,6 @@ const UnpublishedResourceSchema = z
         explanation: z.string().optional(),
     })
     .openapi('UnpublishedResource');
-
-const unpublishedResourceSchemaMatches: SchemaMatches<typeof UnpublishedResourceSchema, UnpublishedResource> = true;
-void unpublishedResourceSchemaMatches;
 
 export const UnpublishResultSchema = z
     .object({
@@ -155,8 +140,19 @@ const InstalledResourceSchema = z
     })
     .openapi('InstalledResource');
 
-const installedResourceSchemaMatches: SchemaMatches<typeof InstalledResourceSchema, AppliedResource> = true;
-void installedResourceSchemaMatches;
+/**
+ * Each schema above that states a domain type the routes send as it is, against that type.
+ * Gathered here so `__tests__/installBody.test-d.ts` can assert them; see {@link SchemaMatches}.
+ */
+type InstallBodyChecks = ChecksHold<{
+    DeployedButtonMessage: SchemaMatches<typeof DeployedButtonMessageSchema, DeployedButtonMessage>;
+    UndeployedButtonMessage: SchemaMatches<typeof UndeployedButtonMessageSchema, UndeployedButtonMessage>;
+    UnpublishedResource: SchemaMatches<typeof UnpublishedResourceSchema, UnpublishedResource>;
+    InstalledResource: SchemaMatches<typeof InstalledResourceSchema, AppliedResource>;
+}>;
+
+/** The checks in {@link InstallBodyChecks} that fail, or `never`. Asserted `never` in `__tests__/installBody.test-d.ts`. */
+export type InstallBodyMismatch = MismatchedChecks<InstallBodyChecks>;
 
 /**
  * What an install did.

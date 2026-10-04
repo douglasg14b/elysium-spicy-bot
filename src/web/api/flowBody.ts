@@ -13,6 +13,8 @@ import {
     GUILD_SCOPED_ERRORS,
     GuildPathSchema,
     jsonResponse,
+    type ChecksHold,
+    type MismatchedChecks,
     type SchemaMatches,
 } from './openApi';
 
@@ -83,9 +85,6 @@ export const FlowGraphSchema = z
     })
     .openapi('FlowGraph');
 
-const flowGraphSchemaMatches: SchemaMatches<typeof FlowGraphSchema, FlowGraph> = true;
-void flowGraphSchemaMatches;
-
 /**
  * One problem with a graph — on a node, on one of its fields, or on the graph as a whole.
  * The shape `ApiError.issues` carries in the dashboard SDK, from a refusal's body.
@@ -102,9 +101,6 @@ export const FlowValidationIssueSchema = z
             'One problem with a graph. `nodeId` names the node it is on and `field` the dotted path ' +
             'into its config (e.g. `fields.0.name`); a problem with the graph as a whole has neither.',
     });
-
-const flowValidationIssueSchemaMatches: SchemaMatches<typeof FlowValidationIssueSchema, FlowValidationIssue> = true;
-void flowValidationIssueSchemaMatches;
 
 export const FlowValidationIssuesSchema = z.array(FlowValidationIssueSchema).readonly();
 
@@ -140,7 +136,7 @@ export const FLOW_NOT_FOUND = errorBodyResponse('The bot is not in this server, 
 
 /** The 500 of a route that judges readiness and cannot read the flow's journey to do it. */
 export const DECLARATIONS_UNREADABLE = errorBodyResponse(
-    "The flow's journey could not be read, so its readiness cannot be judged. The sentence names the cause."
+    "The flow's journey could not be read, so its readiness cannot be judged; the sentence names the cause. Or something else failed unexpectedly."
 );
 
 /** The 400 of a route that takes a graph: the body, the graph, or the server id was refused. */
@@ -229,11 +225,18 @@ export const FlowJourneyMembershipSchema = z
             'a live binding, which must stop following their resource name.',
     });
 
-const flowJourneyMembershipSchemaMatches: SchemaMatches<
-    typeof FlowJourneyMembershipSchema,
-    FlowJourneyMembership
-> = true;
-void flowJourneyMembershipSchemaMatches;
+/**
+ * Each schema above that states a domain type the routes send as it is, against that type.
+ * Gathered here so `__tests__/flowBody.test-d.ts` can assert them; see {@link SchemaMatches}.
+ */
+type FlowBodyChecks = ChecksHold<{
+    FlowGraph: SchemaMatches<typeof FlowGraphSchema, FlowGraph>;
+    FlowValidationIssue: SchemaMatches<typeof FlowValidationIssueSchema, FlowValidationIssue>;
+    FlowJourneyMembership: SchemaMatches<typeof FlowJourneyMembershipSchema, FlowJourneyMembership>;
+}>;
+
+/** The checks in {@link FlowBodyChecks} that fail, or `never`. Asserted `never` in `__tests__/flowBody.test-d.ts`. */
+export type FlowBodyMismatch = MismatchedChecks<FlowBodyChecks>;
 
 /**
  * One row of the flows list: metadata plus a node count, no graph.

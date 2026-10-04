@@ -554,7 +554,7 @@ describe('PUT /:guildId/config/tickets', () => {
         expect(setTicketSettings).toHaveBeenCalledWith(
             expect.objectContaining({ categories: settingsBody.categories, moderationRoles: [MOD_ROLE] })
         );
-        expect(updateDeployedTicketMessage).toHaveBeenCalledWith(GUILD_ID);
+        expect(updateDeployedTicketMessage).toHaveBeenCalledWith(expect.objectContaining({ id: GUILD_ID }));
         expect(body.categories.open).toEqual({
             name: 'Tickets',
             discordId: CATEGORY_ID,
@@ -590,7 +590,7 @@ describe('PUT /:guildId/config/tickets', () => {
         const response = await send('/config/tickets', 'PUT', settingsBody);
 
         expect(response.status).toBe(502);
-        expect(updateDeployedTicketMessage).toHaveBeenCalledWith(GUILD_ID);
+        expect(updateDeployedTicketMessage).toHaveBeenCalledWith(expect.objectContaining({ id: GUILD_ID }));
     });
 });
 

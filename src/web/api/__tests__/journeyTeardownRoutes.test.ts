@@ -284,7 +284,7 @@ describe('POST /journeys/:journeyKey/undeploy', () => {
 
     it('retires the buttons of every attached flow and reports them as one list', async () => {
         linksRepo.listFlowIdsForJourney.mockResolvedValue([FLOW_A, FLOW_B]);
-        undeployFlowButtonsMock.mockImplementation(async (_guildId: string, flowId: string) => ({
+        undeployFlowButtonsMock.mockImplementation(async (_guild: unknown, flowId: string) => ({
             results: [
                 {
                     channelId: '111111111111111111',
@@ -297,8 +297,8 @@ describe('POST /journeys/:journeyKey/undeploy', () => {
         const response = await post('undeploy');
 
         expect(response.status).toBe(200);
-        expect(undeployFlowButtonsMock).toHaveBeenCalledWith(GUILD_ID, FLOW_A);
-        expect(undeployFlowButtonsMock).toHaveBeenCalledWith(GUILD_ID, FLOW_B);
+        expect(undeployFlowButtonsMock).toHaveBeenCalledWith(expect.objectContaining({ id: GUILD_ID }), FLOW_A);
+        expect(undeployFlowButtonsMock).toHaveBeenCalledWith(expect.objectContaining({ id: GUILD_ID }), FLOW_B);
         const body = (await response.json()) as { results: { messageId: string }[] };
         expect(body.results.map((result) => result.messageId)).toEqual(['msg-a', 'msg-b']);
     });
@@ -315,7 +315,7 @@ describe('POST /journeys/:journeyKey/undeploy', () => {
      */
     it('reports a flow that throws as a failure and still retires the rest', async () => {
         linksRepo.listFlowIdsForJourney.mockResolvedValue([FLOW_A, FLOW_B]);
-        undeployFlowButtonsMock.mockImplementation(async (_guildId: string, flowId: string) => {
+        undeployFlowButtonsMock.mockImplementation(async (_guild: unknown, flowId: string) => {
             if (flowId === FLOW_A) throw new Error('database went away');
             return {
                 results: [

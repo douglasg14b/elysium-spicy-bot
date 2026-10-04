@@ -4871,6 +4871,16 @@
                         },
                         "description": "The user manages no server the bot is in."
                     },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
+                    },
                     "502": {
                         "content": {
                             "application/json": {
@@ -4904,6 +4914,16 @@
                                 }
                             }
                         }
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Start signing in with Discord (a browser navigation, not a fetch)",
@@ -4935,6 +4955,16 @@
                             }
                         },
                         "description": "No valid session."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Sign out",
@@ -4966,6 +4996,16 @@
                             }
                         },
                         "description": "Nobody is signed in. The normal answer before login."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Who is signed in",
@@ -4987,6 +5027,16 @@
                             }
                         },
                         "description": "The bot identity, or `ready: false` with every other field null while the gateway connects."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Which bot account the dashboard is connected to",
@@ -5029,6 +5079,16 @@
                             }
                         },
                         "description": "No valid session."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Guilds the bot is in that the signed-in user may manage",
@@ -5111,6 +5171,16 @@
                             }
                         },
                         "description": "The bot is not in this server."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "The guild's text channels and categories",
@@ -5182,6 +5252,16 @@
                             }
                         },
                         "description": "The bot is not in this server."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "The ticket settings and declared types",
@@ -5292,6 +5372,16 @@
                         },
                         "description": "Another save of these settings is still running, so nothing was changed."
                     },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
+                    },
                     "502": {
                         "content": {
                             "application/json": {
@@ -5394,6 +5484,16 @@
                         },
                         "description": "The server has no ticket config yet, or tickets still hold the type — deleted ones included. The sentence names how many, and some of their numbers."
                     },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
+                    },
                     "503": {
                         "content": {
                             "application/json": {
@@ -5426,10 +5526,12 @@
                         "name": "type",
                         "required": true,
                         "schema": {
+                            "maxLength": 64,
                             "minLength": 1,
                             "pattern": "^[a-z0-9_-]+$",
                             "type": "string",
                             "x-messages": {
+                                "maxLength": "Keep the key to 64 characters or fewer. It is an identifier, not a confession.",
                                 "minLength": "A ticket type needs a key. Blank is not a category of anything.",
                                 "pattern": "That will not do as a key — lowercase letters, digits, `-` and `_` only. The label is where you get to be expressive."
                             }
@@ -5517,6 +5619,16 @@
                         },
                         "description": "The body was not sent as JSON."
                     },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
+                    },
                     "503": {
                         "content": {
                             "application/json": {
@@ -5597,6 +5709,16 @@
                             }
                         },
                         "description": "The bot is not in this server."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "The warnings mod-log channel",
@@ -5686,6 +5808,16 @@
                             }
                         },
                         "description": "The body was not sent as JSON."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Set the warnings mod-log channel",
@@ -5768,6 +5900,16 @@
                             }
                         },
                         "description": "The bot is not in this server."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "The guild's flows, as list rows",
@@ -5857,6 +5999,16 @@
                             }
                         },
                         "description": "The body was not sent as JSON."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Create a flow, switched off",
@@ -5929,6 +6081,16 @@
                             }
                         },
                         "description": "The bot is not in this server, or the flow is not in it."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Delete a flow and its drafts. Touches nothing in the guild.",
@@ -6015,7 +6177,7 @@
                                 }
                             }
                         },
-                        "description": "The flow's journey could not be read, so its readiness cannot be judged. The sentence names the cause."
+                        "description": "The flow's journey could not be read, so its readiness cannot be judged; the sentence names the cause. Or something else failed unexpectedly."
                     }
                 },
                 "summary": "One flow with its graph, and what stands between it and going live",
@@ -6122,7 +6284,7 @@
                                 }
                             }
                         },
-                        "description": "The flow's journey could not be read. A request that could have been refused wrote nothing; a switch-off or rename was still written, and its sentence starts with 'Saved.'"
+                        "description": "The flow's journey could not be read. A request that could have been refused wrote nothing; a switch-off or rename was still written, and its sentence starts with 'Saved.' Or something else failed unexpectedly."
                     }
                 },
                 "summary": "Update a flow's name, switch or graph",
@@ -6222,6 +6384,16 @@
                             }
                         },
                         "description": "The body was not sent as JSON."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Move a flow onto an existing journey",
@@ -6316,6 +6488,16 @@
                             }
                         },
                         "description": "The bot is not in this server, or the flow is not in it."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Which journey this flow installs, if any",
@@ -6435,7 +6617,7 @@
                                 }
                             }
                         },
-                        "description": "The flow's journey could not be read, so its readiness cannot be judged. The sentence names the cause."
+                        "description": "The flow's journey could not be read, so its readiness cannot be judged; the sentence names the cause. Or something else failed unexpectedly."
                     }
                 },
                 "summary": "What a save of this graph would say is wrong with it. Changes nothing.",
@@ -6515,6 +6697,16 @@
                             }
                         },
                         "description": "The bot is not in this server, or the flow is not in it."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Post the flow's trigger buttons into the channels their nodes name",
@@ -6594,6 +6786,16 @@
                             }
                         },
                         "description": "The bot is not in this server, or the flow is not in it."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Take a flow off its journey. Leaves the journey and anything installed alone.",
@@ -6693,7 +6895,7 @@
                                 }
                             }
                         },
-                        "description": "The flow's journey could not be read, so its readiness cannot be judged. The sentence names the cause."
+                        "description": "The flow's journey could not be read, so its readiness cannot be judged; the sentence names the cause. Or something else failed unexpectedly."
                     }
                 },
                 "summary": "Every operator's draft of a flow, graphs included",
@@ -6793,6 +6995,16 @@
                             }
                         },
                         "description": "The body was not sent as JSON."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Write the caller's own draft of a flow",
@@ -6873,6 +7085,16 @@
                             }
                         },
                         "description": "The bot is not in this server, the flow is not in it, or the flow has no draft with that id."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Discard any operator's draft of a flow",
@@ -6982,6 +7204,16 @@
                             }
                         },
                         "description": "The body was not sent as JSON."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Group this flow with the target flow, on the target's journey",
@@ -7079,6 +7311,16 @@
                             }
                         },
                         "description": "This flow's journey is shared with other flows, which still install it."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "What grouping this flow with the target flow would do. Changes nothing.",
@@ -7178,6 +7420,16 @@
                             }
                         },
                         "description": "Another operation on this journey is running. Nothing was touched."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Create the channels and roles the flow declares, and wire their ids into its nodes",
@@ -7267,6 +7519,16 @@
                             }
                         },
                         "description": "The journey is not this flow's to install, or declares something that cannot be installed as shared server structure."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "What installing the flow's declared resources would do. Changes nothing.",
@@ -7346,6 +7608,16 @@
                             }
                         },
                         "description": "The bot is not in this server, or the flow is not in it."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "What the flow has live in the guild",
@@ -7436,6 +7708,16 @@
                             }
                         },
                         "description": "The bot is not in this server."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "What one flow declares, through the journey it is on",
@@ -7554,6 +7836,16 @@
                             }
                         },
                         "description": "The body was not sent as JSON."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Replace what a flow declares, creating its journey on first use. An empty list removes it.",
@@ -7633,6 +7925,16 @@
                             }
                         },
                         "description": "The bot is not in this server."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Delete the messages carrying the flow's buttons. Works after the flow is gone.",
@@ -7722,6 +8024,16 @@
                             }
                         },
                         "description": "Nothing was deleted: the journey belongs to another flow, other flows share it, or the teardown was refused before it started."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Destroy the channels and roles the flow's journey created. Irreversible.",
@@ -7804,6 +8116,16 @@
                             }
                         },
                         "description": "The bot is not in this server."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "The guild's journeys, with the flows attached to each",
@@ -7903,6 +8225,16 @@
                             }
                         },
                         "description": "The body was not sent as JSON."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Create a journey",
@@ -7985,6 +8317,16 @@
                             }
                         },
                         "description": "Flows are still attached; the sentence names each."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Delete a journey nothing is attached to. Leaves anything installed alone.",
@@ -8062,6 +8404,16 @@
                             }
                         },
                         "description": "The bot is not in this server, or the journey is not in it."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "One journey with what it declares",
@@ -8159,6 +8511,16 @@
                             }
                         },
                         "description": "The body was not sent as JSON."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Update a journey's name, description or declarations",
@@ -8238,6 +8600,16 @@
                             }
                         },
                         "description": "The bot is not in this server, or the journey is not in it."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "What the journey installed that no longer matches what it declares. Changes nothing.",
@@ -8325,6 +8697,16 @@
                             }
                         },
                         "description": "The bot is not in this server, the journey is not in it, or the record is not one of its leftovers any more — already removed, or declared again."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Drop the record of a resource the journey no longer declares. Never touches the object.",
@@ -8404,6 +8786,16 @@
                             }
                         },
                         "description": "The bot is not in this server, or the journey is not in it."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "What the journey has live in the guild, across every flow attached to it",
@@ -8513,6 +8905,16 @@
                             }
                         },
                         "description": "The body was not sent as JSON."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Put the chosen resources back to what the journey declares",
@@ -8592,6 +8994,16 @@
                             }
                         },
                         "description": "The bot is not in this server, or the journey is not in it."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Delete the messages carrying the buttons of every flow on the journey",
@@ -8681,6 +9093,16 @@
                             }
                         },
                         "description": "Nothing was deleted: the teardown was refused before it started."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Destroy the channels and roles the journey created. Irreversible.",
@@ -8752,6 +9174,16 @@
                             }
                         },
                         "description": "The bot is not in this server."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "The guild leaderboard, ranked by XP",
@@ -8823,6 +9255,16 @@
                             }
                         },
                         "description": "The bot is not in this server."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     },
                     "503": {
                         "content": {
@@ -8922,6 +9364,16 @@
                             }
                         },
                         "description": "The bot is not in this server."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "One member's level, XP and activity",
@@ -9004,6 +9456,16 @@
                             }
                         },
                         "description": "The bot is not in this server."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "The guild's assignable roles",
@@ -9075,6 +9537,16 @@
                             }
                         },
                         "description": "The bot is not in this server."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Server-wide settings: staff roles",
@@ -9164,6 +9636,16 @@
                             }
                         },
                         "description": "The body was not sent as JSON."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Replace the guild's staff roles",
@@ -9279,6 +9761,16 @@
                             }
                         },
                         "description": "The bot is not in this server."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "The guild's tickets, newest first",
@@ -9358,6 +9850,16 @@
                             }
                         },
                         "description": "The bot is not in this server, or the ticket is not in it."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "One ticket, in full",
@@ -9447,6 +9949,16 @@
                             }
                         },
                         "description": "Nothing changed: the server has not finished setting up tickets, no longer declares the ticket's type, or the ticket is not in a state this action applies to. The sentence says which."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Claim a ticket as the signed-in operator",
@@ -9536,6 +10048,16 @@
                             }
                         },
                         "description": "Nothing changed: the server has not finished setting up tickets, no longer declares the ticket's type, or the ticket is not in a state this action applies to. The sentence says which."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Close a ticket",
@@ -9625,6 +10147,16 @@
                             }
                         },
                         "description": "Nothing changed: the server has not finished setting up tickets, no longer declares the ticket's type, or the ticket is not in a state this action applies to. The sentence says which."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Reopen a closed ticket",
@@ -9714,6 +10246,16 @@
                             }
                         },
                         "description": "Nothing changed: the server has not finished setting up tickets, no longer declares the ticket's type, or the ticket is not in a state this action applies to. The sentence says which."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Release a ticket's claim",
@@ -9735,6 +10277,16 @@
                             }
                         },
                         "description": "Up."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Whether the web server is up",
@@ -9777,6 +10329,16 @@
                             }
                         },
                         "description": "No valid session."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
                 "summary": "Every block the Flow Builder can offer",

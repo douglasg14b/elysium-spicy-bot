@@ -5,6 +5,7 @@ import { flowRoutes } from '../../../src/web/api/flowRoutes';
 import { guildRoutes } from '../../../src/web/api/guildRoutes';
 import { journeyRoutes } from '../../../src/web/api/journeyRoutes';
 import { nodeRoutes } from '../../../src/web/api/nodeRoutes';
+import { UNEXPECTED_ERROR_SENTENCE } from '../../../src/web/api/openApi';
 import { ticketRoutes } from '../../../src/web/api/ticketRoutes';
 import type { SessionUser } from '../../../src/web/auth/session';
 import type { AppEnv } from '../../../src/web/types';
@@ -43,9 +44,8 @@ export interface DashboardAppOptions {
  *    `/api/bot`, and the guild list. Each is answered from `client` instead. The guild
  *    list is declared before `guildRoutes` so it answers first.
  *
- * Writes that product code sends through `DISCORD_CLIENT` rather than a route's guild,
- * such as posting a flow's trigger button, never reach TestDiscord. The singleton was
- * never logged in, so they fail.
+ * Every route works through the guild it resolved, so its Discord calls reach TestDiscord.
+ * One sent through `DISCORD_CLIENT` instead would fail: the singleton is never logged in.
  *
  * **Anything the product would not normally answer is a fault**: an unmounted route, a
  * guild the client does not hold, or an unhandled exception in a route. The dashboard
@@ -109,7 +109,8 @@ export function buildDashboardApp({ client, operator, onFault, sessionLive = () 
     });
     app.onError((error, c) => {
         onFault(`${c.req.method} ${c.req.path}: ${error.stack ?? String(error)}`);
-        return c.json({ error: 'Internal error.' }, 500);
+        // Production's answer, so a page under test shows what an operator would see.
+        return c.json({ error: UNEXPECTED_ERROR_SENTENCE }, 500);
     });
 
     return app;

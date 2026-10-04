@@ -19,7 +19,7 @@ import {
 } from '../../features/flows/blocks/manifest';
 import { ELIGIBILITY_PERMISSIONS, eligibilitySchema, type Eligibility } from '../../features/flows/engine/eligibility';
 import type { NodeDescriptor } from './nodeRoutes';
-import type { SchemaMatches } from './openApi';
+import type { ChecksHold, MismatchedChecks, SchemaMatches } from './openApi';
 
 /**
  * What `GET /api/nodes` serves: every block's descriptor, the manifest minus what stays on
@@ -336,7 +336,7 @@ type AssignableBothWays<Schema extends z.ZodType, Domain> = [z.infer<Schema>] ex
  * `key?: undefined`): absence has no JSON Schema the generator accepts, so they do not
  * travel, and the browser tells the arms apart with `'key' in part`.
  */
-type NodeBodyChecks = {
+type NodeBodyChecks = ChecksHold<{
     [Control in BlockControlType as `configField.${Control}`]: SchemaMatches<
         (typeof CONFIG_FIELD_ARMS)[Control],
         Extract<BlockConfigField, { control: Control }>
@@ -373,7 +373,7 @@ type NodeBodyChecks = {
         Extract<BlockOutputDeclaration, { naming: 'authored' }>
     >;
     valueKindFrom: SchemaMatches<typeof ValueKindFromSchema, NonNullable<BlockOutputDeclaration['valueKindFrom']>>;
-};
+}>;
 
 /**
  * The names of the checks in {@link NodeBodyChecks} that fail, or `never` when the spec states
@@ -381,14 +381,6 @@ type NodeBodyChecks = {
  *
  * Asserted `never` in `__tests__/nodeBody.test-d.ts`, which `pnpm test` type-checks — the
  * suite is where a drifted descriptor fails, as the browser drift test it replaced did.
- * The anchor below says the same to root `tsc`, naming the failing checks.
+ * `ChecksHold` says the same to root `tsc`, at the failing check.
  */
-export type NodeBodyMismatch = {
-    [Check in keyof NodeBodyChecks]: NodeBodyChecks[Check] extends true ? never : Check;
-}[keyof NodeBodyChecks];
-
-/** Do not delete as unused: removing it erases the guard above from root `tsc`. */
-const nodeBodyMatchesManifest: [NodeBodyMismatch] extends [never]
-    ? true
-    : ['These descriptor schemas drifted from the manifest', NodeBodyMismatch] = true;
-void nodeBodyMatchesManifest;
+export type NodeBodyMismatch = MismatchedChecks<NodeBodyChecks>;

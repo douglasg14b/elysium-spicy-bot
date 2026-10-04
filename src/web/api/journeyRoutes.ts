@@ -520,7 +520,8 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
      * itself and the run continues.
      */
     router.openapi(undeployJourneyRoute, async (c) => {
-        const guildId = c.get('guild').id;
+        const guild = c.get('guild');
+        const guildId = guild.id;
         const { journeyKey } = c.req.valid('param');
 
         const journey = await journeysRepo.getByKey(guildId, journeyKey);
@@ -533,7 +534,7 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
         const results: UndeployedButtonMessage[] = [];
         for (const flowId of flowIds) {
             try {
-                results.push(...(await undeployFlowButtons(guildId, flowId)).results);
+                results.push(...(await undeployFlowButtons(guild, flowId)).results);
             } catch (error) {
                 // No channel or message id to name — the throw came from the lookup that
                 // would have supplied them. The flow id is what the operator can act on,

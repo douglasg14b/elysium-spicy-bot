@@ -1,0 +1,7 @@
+# Generated output is written with LF by its generators (`pnpm sdk:generate`). Checked out
+# as anything else — `core.autocrlf=true` on Windows writes CRLF — a regeneration changes
+# every file's size, and `git status` (so `pnpm sdk:check`) lists them as modified with an
+# empty diff. Checking them out as the generator writes them keeps a clean regeneration clean.
+# The same paths as `GENERATED_PATHS` in `scripts/checkSdk.ts`; change both together.
+generated/** eol=lf
+packages/web-sdk/src/gen/** eol=lf

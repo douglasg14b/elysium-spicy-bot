@@ -70,14 +70,16 @@ type WithheldByHandler = Exclude<keyof BlockManifest, keyof ReturnType<typeof to
  * was supposed to be withheld, so a name added to the list and nowhere else would
  * compile and keep serving. Checking both directions against the destructure closes
  * that. Type-level only; erased at runtime.
+ *
+ * Asserted `true` in `__tests__/nodeRoutes.test-d.ts`, which `pnpm test` type-checks.
  */
-type NonWireMembersAreWithheld = [WithheldByHandler] extends [NonWireMember]
+export type NonWireMembersAreWithheld = [WithheldByHandler] extends [NonWireMember]
     ? [NonWireMember] extends [WithheldByHandler]
         ? true
         : never
     : never;
 
-/** Do not delete as unused: removing it erases the guard above. */
+/** Do not delete as unused: it is what shows a drift to root `tsc` and the editor, in this file. */
 const nonWireMembersAreWithheld: NonWireMembersAreWithheld = true;
 
 void nonWireMembersAreWithheld;

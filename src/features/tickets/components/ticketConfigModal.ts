@@ -112,7 +112,7 @@ export function TicketConfigModalComponent() {
             // count. Non-fatally: the config is already saved by this point, so letting
             // a failed panel edit report "Failed to save" would send the operator back to
             // re-save something that persisted.
-            await updateDeployedTicketMessage(interaction.guild.id).catch((error: unknown) => {
+            await updateDeployedTicketMessage(interaction.guild).catch((error: unknown) => {
                 console.error('Ticket config saved, but the deployed panel could not be refreshed:', error);
             });
 

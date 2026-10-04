@@ -17,7 +17,14 @@ import {
 import { RESOURCE_KINDS, type ResourceDeclaration } from '../../features/provisioning/logic/resourceDeclaration';
 import { RESOURCE_DRIFT_KINDS } from '../../features/provisioning/logic/resourceDrift';
 import { normaliseResourceName } from '../../features/provisioning/logic/resourceName';
-import { errorBodyResponse, GUILD_SCOPED_ERRORS, GuildPathSchema, type SchemaMatches } from './openApi';
+import {
+    errorBodyResponse,
+    GUILD_SCOPED_ERRORS,
+    GuildPathSchema,
+    type ChecksHold,
+    type MismatchedChecks,
+    type SchemaMatches,
+} from './openApi';
 
 /**
  * What the journey routes receive and send: a journey, the resources it declares, a flow's
@@ -119,9 +126,6 @@ const PermissionIntentSchema = z
             'empty there.',
     });
 
-const permissionIntentSchemaMatches: SchemaMatches<typeof PermissionIntentSchema, PermissionIntent> = true;
-void permissionIntentSchemaMatches;
-
 /**
  * A Discord snowflake, as the id of something being adopted.
  *
@@ -170,9 +174,6 @@ export const ResourceDeclarationSchema = z
             'stored as Discord will hold it: a text channel lowercased, whitespace hyphenated. ' +
             '`adoptDiscordId` adopts something that already exists instead of creating it.',
     });
-
-const resourceDeclarationSchemaMatches: SchemaMatches<typeof ResourceDeclarationSchema, ResourceDeclaration> = true;
-void resourceDeclarationSchemaMatches;
 
 const ResourceDeclarationsSchema = z.array(ResourceDeclarationSchema).readonly();
 
@@ -412,9 +413,6 @@ const MovingResourceSchema = z
     })
     .openapi('MovingResource');
 
-const movingResourceSchemaMatches: SchemaMatches<typeof MovingResourceSchema, MovingResource> = true;
-void movingResourceSchemaMatches;
-
 /** A key both journeys declare, and what each of them means by it. */
 const KeyCollisionSchema = z
     .object({
@@ -424,9 +422,6 @@ const KeyCollisionSchema = z
     })
     .openapi('KeyCollision');
 
-const keyCollisionSchemaMatches: SchemaMatches<typeof KeyCollisionSchema, KeyCollision> = true;
-void keyCollisionSchemaMatches;
-
 /** `planJourneyMerge`'s answer, which the preview sends as it is. Not a component of its own. */
 const journeyMergePlanSchema = z.object({
     moving: z.array(MovingResourceSchema).readonly(),
@@ -434,9 +429,6 @@ const journeyMergePlanSchema = z.object({
     collisions: z.array(KeyCollisionSchema).readonly(),
     orphaned: z.array(MovingResourceSchema).readonly(),
 });
-
-const journeyMergePlanSchemaMatches: SchemaMatches<typeof journeyMergePlanSchema, JourneyMergePlan> = true;
-void journeyMergePlanSchemaMatches;
 
 /**
  * What dropping one flow onto another would do. The dialog is built entirely from this.
@@ -473,8 +465,21 @@ const RepairedResourceSchema = z
     })
     .openapi('RepairedResource');
 
-const repairedResourceSchemaMatches: SchemaMatches<typeof RepairedResourceSchema, RepairedResource> = true;
-void repairedResourceSchemaMatches;
+/**
+ * Each schema above that states a domain type the routes send as it is, against that type.
+ * Gathered here so `__tests__/journeyBody.test-d.ts` can assert them; see {@link SchemaMatches}.
+ */
+type JourneyBodyChecks = ChecksHold<{
+    PermissionIntent: SchemaMatches<typeof PermissionIntentSchema, PermissionIntent>;
+    ResourceDeclaration: SchemaMatches<typeof ResourceDeclarationSchema, ResourceDeclaration>;
+    MovingResource: SchemaMatches<typeof MovingResourceSchema, MovingResource>;
+    KeyCollision: SchemaMatches<typeof KeyCollisionSchema, KeyCollision>;
+    JourneyMergePlan: SchemaMatches<typeof journeyMergePlanSchema, JourneyMergePlan>;
+    RepairedResource: SchemaMatches<typeof RepairedResourceSchema, RepairedResource>;
+}>;
+
+/** The checks in {@link JourneyBodyChecks} that fail, or `never`. Asserted `never` in `__tests__/journeyBody.test-d.ts`. */
+export type JourneyBodyMismatch = MismatchedChecks<JourneyBodyChecks>;
 
 export const RepairResultSchema = z
     .object({

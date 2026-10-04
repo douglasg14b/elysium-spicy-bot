@@ -52,9 +52,9 @@ export type ResourceDriftKind =
 /**
  * Every {@link ResourceDriftKind}'s `kind`, as a value — what a repair reports it put back.
  *
- * The union is the source; this list is held to it both ways (`satisfies` refuses a name
- * that is not a kind, the check below a kind missing here). It exists because the wire
- * schema for a repair's results (`src/web/api/journeyBody.ts`) needs the kinds as a value.
+ * The union is the source; this list is held to it both ways by
+ * {@link ResourceDriftKindsMismatch}. It exists because the wire schema for a repair's
+ * results (`src/web/api/journeyBody.ts`) needs the kinds as a value.
  */
 export const RESOURCE_DRIFT_KINDS = [
     'renamed',
@@ -63,13 +63,18 @@ export const RESOURCE_DRIFT_KINDS = [
     'permissions',
 ] as const satisfies readonly ResourceDriftKind['kind'][];
 
-/** Do not delete as unused: it is the half of the check above that catches a missing kind. */
-const resourceDriftKindsAreComplete: [
-    Exclude<ResourceDriftKind['kind'], (typeof RESOURCE_DRIFT_KINDS)[number]>,
-] extends [never]
-    ? true
-    : never = true;
-void resourceDriftKindsAreComplete;
+/**
+ * A kind missing from {@link RESOURCE_DRIFT_KINDS}, or a name there that is not a kind;
+ * `never` when the two agree. Asserted `never` in `__tests__/resourceDrift.test-d.ts`, which
+ * `pnpm test` type-checks — the `satisfies` above alone fails only root `tsc`.
+ */
+export type ResourceDriftKindsMismatch =
+    | Exclude<ResourceDriftKind['kind'], (typeof RESOURCE_DRIFT_KINDS)[number]>
+    | Exclude<(typeof RESOURCE_DRIFT_KINDS)[number], ResourceDriftKind['kind']>;
+
+/** Do not delete as unused: it is what shows a drift to root `tsc` and the editor, in this file. */
+const resourceDriftKindsAgree: [ResourceDriftKindsMismatch] extends [never] ? true : never = true;
+void resourceDriftKindsAgree;
 
 /** One id whose access no longer matches what the declaration compiled to. */
 export interface PermissionDifference {

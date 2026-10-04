@@ -141,7 +141,7 @@ describe('cleanup is reachable on its own', () => {
         });
 
         expect(response.status).toBe(200);
-        expect(undeployMock).toHaveBeenCalledWith(GUILD_ID, FLOW_ID);
+        expect(undeployMock).toHaveBeenCalledWith(expect.objectContaining({ id: GUILD_ID }), FLOW_ID);
     });
 
     it('undeploys a flow whose row is already gone', async () => {

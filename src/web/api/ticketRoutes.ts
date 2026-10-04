@@ -20,6 +20,7 @@ import {
 } from '../../features/tickets/logic/setTicketTypes';
 import { setTicketSettings, type SetTicketSettingsRefusal } from '../../features/tickets/logic/setTicketSettings';
 import {
+    TICKET_TYPE_KEY_MAX_LENGTH,
     TicketNameTemplateSchema,
     TicketTypeKeySchema,
     TicketTypeLabelSchema,
@@ -68,20 +69,6 @@ import {
  */
 
 /**
- * How long a ticket-type key may be, used to bound the `?type=` filter.
- *
- * Types are guild-defined, so there is no closed vocabulary to validate the filter
- * against — but an unbounded string still reaches a query predicate on every request. 64
- * is a generous bound, not the key rule: `TicketTypeKeySchema` sets no maximum, so a key
- * longer than this saves and cannot be filtered on — a gap that predates the rule moving
- * there, closed by giving the key rule this maximum.
- * It is a bound
- * parameter, so this is not injection; it is an attacker-controlled string that would
- * otherwise be compared against every row on every request.
- */
-const TICKET_TYPE_KEY_MAX_LENGTH = 64;
-
-/**
  * A ceiling on the moderation-role list, and on how much of a rejection is echoed back.
  *
  * A Discord snowflake is at most 20 characters and no server has 50 moderation roles, so
@@ -103,6 +90,10 @@ const CATEGORY_NAME_MAX_LENGTH = 100;
  * `status` is a plain string here and checked in the handler, because its refusal names
  * the value it was given — a sentence no schema can carry into the spec. `unclaimed` is
  * a string for the same reason it always was: only `true` narrows.
+ *
+ * `type` is bounded by the key rule's own maximum. Types are guild-defined, so there is no
+ * closed vocabulary to check it against, but an unbounded string would still reach a query
+ * predicate on every request. It is a bound parameter, so this is not about injection.
  */
 const TicketListQuerySchema = z.object({
     status: z.string().optional().openapi({
@@ -582,7 +573,7 @@ export function ticketRoutes(): OpenAPIHono<AppEnv> {
 
             // A failed create still saved what it made, so the panel is redrawn for that too.
             if (result.ok || result.reason === 'create-failed') {
-                await updateDeployedTicketMessage(guild.id).catch((error: unknown) => {
+                await updateDeployedTicketMessage(guild).catch((error: unknown) => {
                     console.error('[tickets] Settings saved, but the deployed panel could not be refreshed:', error);
                 });
             }

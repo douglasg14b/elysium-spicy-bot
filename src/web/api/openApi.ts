@@ -25,13 +25,17 @@ export const ErrorBodySchema = z
  * `true` when a wire schema describes exactly a domain type the routes send as it is —
  * each assignable to the other — and `false` otherwise.
  *
- * For a domain type that stays where it lives rather than becoming `z.infer` of its
- * schema: `const matches: SchemaMatches<typeof XSchema, X> = true` fails to compile as
- * soon as either side gains, loses or retypes a member. Both directions, because one
- * alone lets the other side grow a member the spec never mentions — and the top-level
- * member names as well, because an *optional* member added on one side alone passes both.
- * Nested objects get only the assignability half, so a nested type sent as it is wants a
- * check of its own.
+ * Use it for a domain type that stays where it lives rather than becoming `z.infer` of its
+ * schema: it turns `false` as soon as either side gains, loses or retypes a member. Both
+ * directions, because one alone lets the other side grow a member the spec never mentions —
+ * and the top-level member names as well, because an *optional* member added on one side
+ * alone passes both. Nested objects get only the assignability half, so a nested type sent
+ * as it is wants a check of its own.
+ *
+ * A body file gathers its checks into one {@link ChecksHold} type and exports
+ * {@link MismatchedChecks} of it, which a `.test-d.ts` asserts `never`. Only that makes a
+ * drift fail `pnpm test`: its typecheck mode ignores errors inside source files
+ * (`ignoreSourceErrors`), and root `tsc`, which does not, is not in CI.
  */
 export type SchemaMatches<Schema extends z.ZodType, Domain> = [z.infer<Schema>] extends [Domain]
     ? [Domain] extends [z.infer<Schema>]
@@ -40,6 +44,28 @@ export type SchemaMatches<Schema extends z.ZodType, Domain> = [z.infer<Schema>] 
             : false
         : false
     : false;
+
+/**
+ * A named set of checks, every one of which must be `true`. The constraint is checked where
+ * the alias is declared, so root `tsc` and the editor flag the failing member in place; the
+ * suite asserts the same through {@link MismatchedChecks}.
+ */
+export type ChecksHold<Checks extends Record<string, true>> = Checks;
+
+/**
+ * The names of the checks in `Checks` that are not `true`, or `never` when every one holds.
+ *
+ * Distributed over the names through `infer` rather than read off a mapped type, so a
+ * failing assertion prints the names themselves (`"KeyCollision"`) rather than this
+ * type's alias.
+ */
+export type MismatchedChecks<Checks> = keyof Checks extends infer Check
+    ? Check extends keyof Checks
+        ? Checks[Check] extends true
+            ? never
+            : Check
+        : never
+    : never;
 
 /** A JSON response entry for `schema`. */
 export function jsonResponse<Schema extends z.ZodType>(description: string, schema: Schema) {
@@ -58,6 +84,23 @@ export function jsonBody<Schema extends z.ZodType>(schema: Schema) {
 export function errorBodyResponse(description: string) {
     return jsonResponse(description, ErrorBodySchema);
 }
+
+/**
+ * What the web app answers, as a 500, for an error no route or middleware handled. Fixed,
+ * so nothing about the failure reaches the browser; the server logs the error itself.
+ */
+export const UNEXPECTED_ERROR_SENTENCE = 'Something broke on our side — not your fault, for once. Try again in a moment.';
+
+/**
+ * The 500 every route can answer: a throw nothing handled — a stored row that will not
+ * parse, a database gone away — reaches the root app's error handler (`server.ts`), which
+ * answers {@link UNEXPECTED_ERROR_SENTENCE}. {@link apiRouter} adds it to every route it
+ * registers, so none can leave it out of the spec. A route that declares a 500 of its own
+ * keeps it: that description names a designed refusal, and should cover the unexpected too.
+ */
+const UNEXPECTED_ERRORS = {
+    500: errorBodyResponse('Something failed that the route did not expect. The server logged it.'),
+};
 
 /*
  * The status maps below are deliberately not `as const`. A readonly status key makes
@@ -163,7 +206,8 @@ type DeclaredRoute = RouteConfig & { hide?: false; middleware?: never };
  *  - **`onError`**: malformed JSON (400) and a body without a JSON content type (415)
  *    are thrown by the validator as `HTTPException`s *before* any hook runs, and Hono
  *    would answer them as plain text. Anything else is rethrown untouched, so a real
- *    crash still reaches the parent's error handler — the e2e app's `onFault` included.
+ *    crash still reaches the parent's error handler — the e2e app's `onFault` included,
+ *    and in production the root app's, which answers the 500 every route declares.
  */
 export function apiRouter(defineRoutes: (router: ApiRouteRegistrar) => undefined): OpenAPIHono<AppEnv> {
     const router = new OpenAPIHono<AppEnv>({
@@ -185,7 +229,7 @@ export function apiRouter(defineRoutes: (router: ApiRouteRegistrar) => undefined
     // argument back to the whole router (`instanceof OpenAPIHono`) and reach `get`.
     defineRoutes({
         openapi: (route, handler) => {
-            router.openapi(route, handler);
+            router.openapi({ ...route, responses: { ...UNEXPECTED_ERRORS, ...route.responses } }, handler);
         },
     });
     return router;

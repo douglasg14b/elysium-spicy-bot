@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { listBlockDefinitions } from '../../../features/flows/blocks/registry';
 import { VARIABLE_NAME_MESSAGE } from '../../../features/flows/blocks/variableName';
 import type { BlockSchemaSource } from '../../../features/flows/logic/blockFieldRules';
+import { blockWith } from '../../../features/flows/logic/__tests__/support/blockWith';
 import { FLOW_BLOCK_FIELD_RULES, flowBlockFieldRulesSchema } from '../flowBlockFieldRules';
 import { buildOpenApiDocument, type OpenApiDocument } from '../openApiDocument';
 import { attachRequestMessages } from '../requestMessages';
@@ -43,12 +44,6 @@ function emitFailureFor(...blocks: Block[]): string | undefined {
         return error instanceof Error ? error.message : String(error);
     }
 }
-
-const blockWith = (key: string, schema: z.ZodType): Block => ({
-    type: 'test.block',
-    configSchema: z.object({ [key]: schema }),
-    configFields: [{ key, label: 'Field', control: 'text' }],
-});
 
 describe('the FlowBlockFieldRules component', () => {
     it('holds every registered block, and every field each one draws', () => {
@@ -91,14 +86,15 @@ describe('a block rule that cannot reach the browser faithfully fails the emit, 
             blockWith('name', z.string().regex(/^[a-z]+$/, { error: (issue) => `Not ${String(issue.input)}.` }))
         );
 
-        expect(failure).toContain('components.schemas .test.block.name');
+        // The block type quoted whole, so its dots do not read as field segments.
+        expect(failure).toContain('components.schemas ["test.block"].name');
         expect(failure).toContain('is a function of the issue');
     });
 
     it('a pattern with flags', () => {
         const failure = emitFailureFor(blockWith('name', z.string().regex(/^[a-z]+$/i, 'Letters only.')));
 
-        expect(failure).toContain('components.schemas .test.block.name');
+        expect(failure).toContain('components.schemas ["test.block"].name');
         expect(failure).toContain('has flags');
     });
 });

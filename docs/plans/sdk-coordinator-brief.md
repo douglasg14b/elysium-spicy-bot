@@ -72,9 +72,11 @@ You are one step in a sequence the coordinator runs. Douglas is the user. He ask
 - **Subagents and reviewers have injected sabotage into real files before.** After every subagent you spawn, check `git status` and grep for markers (`SABOTAGE`, `XXX`, `TEMP`).
 - **Spawn review specialists directly.** The `reviewer` orchestrator degrades silently when its own Task calls fail.
 - **Never disable an input someone is typing into.** A `disabled={saving}` on a field that saves as you type steals its focus.
-- **Line endings.** This machine has `core.autocrlf=true`, and the generator writes LF. After generating, `git status` shows ~18 `packages/web-sdk/src/gen/*` files as modified with an empty `git diff`. That is noise; don't chase it. `sdk:check` reports it too.
+- **Line endings are settled (step 10).** `.gitattributes` pins `generated/**` and `packages/web-sdk/src/gen/**` to LF. A generated file that `git status` lists is now a real change, and `pnpm sdk:check` must pass.
+- **Server code takes the route's guild, never the `DISCORD_CLIENT` singleton.** The e2e app and the preview server never log that singleton in (step 10).
+- **Type guards belong in `*.test-d.ts`.** `pnpm test` ignores type errors inside source files, so a check that only root `tsc` sees guards nothing. Use `ChecksHold`/`MismatchedChecks` from `src/web/api/openApi.ts` (step 10).
 - **Baselines** (measure quietly; suites with a 20 s timeout flake under parallel load, so rerun a failing file alone before calling it real):
-  - `pnpm test`: 3,060 pass after step 8, 1 known failure (`ciBranchProductDiff`). The birthday test "skips overlapping runs" is a known date-dependent flake. Block discovery can push `levelUpDispatch`, `memberJoinDispatch`, `reactionAddDispatch` and `nodeRoutes` past their hook timeouts under load.
+  - `pnpm test`: 3,077 pass after step 9, 1 known failure (`ciBranchProductDiff`). The birthday test "skips overlapping runs" is a known date-dependent flake. Block discovery can push `levelUpDispatch`, `memberJoinDispatch`, `reactionAddDispatch` and `nodeRoutes` past their hook timeouts under load.
   - Root `tsc --noEmit`: the same 17 pre-existing errors, none new.
   - `pnpm typecheck:e2e`: the same 4.
   - Web `tsc -b` and `pnpm --filter @brattybot/web-sdk typecheck`: clean.

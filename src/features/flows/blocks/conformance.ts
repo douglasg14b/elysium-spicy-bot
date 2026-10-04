@@ -1505,8 +1505,13 @@ const RESUME_REPRESENTATIVES = [
     { kind: 'choice', index: 0 },
 ] as const satisfies readonly FlowResumeReason[];
 
-/** Fails to compile if a resume kind has no representative above. */
-type ResumeKindsAllDriven = Exclude<
+/**
+ * The resume kinds with no representative above, or `never`. Asserted `never` in
+ * `src/features/flows/__tests__/conformance.test-d.ts` (not beside this file: block
+ * discovery reads every directory under `blocks/`), which `pnpm test` type-checks; the anchor below
+ * fails root `tsc` and the editor here.
+ */
+export type ResumeKindsAllDriven = Exclude<
     FlowResumeKind,
     (typeof RESUME_REPRESENTATIVES)[number]['kind']
 >;
