@@ -27,12 +27,8 @@
  * then prefix, then substring, and nothing else.
  */
 
-import type {
-    GuildChannel,
-    GuildChannelType,
-    GuildRole,
-    ResourceKind,
-} from '../api/types';
+import type { GuildChannel, GuildRole } from '@brattybot/web-sdk';
+import type { ResourceKind } from '../api/types';
 import type { ExistingChannelOption } from './resourceAdoption';
 
 /**
@@ -255,7 +251,7 @@ export function collidableNamesFor(input: {
 }): string[] {
     if (input.kind === 'role') return input.roles.map((role) => role.name);
 
-    const wantedType: GuildChannelType = input.kind === 'category' ? 'category' : 'text';
+    const wantedType: GuildChannel['type'] = input.kind === 'category' ? 'category' : 'text';
     return input.channels
         .filter((channel) => channel.type === wantedType)
         .map((channel) => channel.name);

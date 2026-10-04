@@ -2,11 +2,8 @@ import { ChannelType } from 'discord.js';
 import { describe, expect, it } from 'vitest';
 import { detectResourceProblems } from '../../../../../web/src/flows/detectResourceProblems';
 import { RESOURCE_CHIPS } from '../../../../../web/src/flows/resourceChips';
-import type {
-    GuildChannel as BrowserGuildChannel,
-    GuildRole as BrowserGuildRole,
-    ResourceDeclaration as BrowserResourceDeclaration,
-} from '../../../../../web/src/api/types';
+import type { GuildChannel as BrowserGuildChannel, GuildRole as BrowserGuildRole } from '@brattybot/web-sdk';
+import type { ResourceDeclaration as BrowserResourceDeclaration } from '../../../../../web/src/api/types';
 import { resourceSchema } from '../../../../web/api/journeyRoutes';
 import { declaredRoleReference } from '../declaredRoleReference';
 import { buildInstallPlan } from '../installPlan';
@@ -22,7 +19,7 @@ import { validateJourneyDeclaration, type JourneyDeclaration } from '../resource
  * test holds the two halves equal instead of the compiler.
  *
  * It lives on the **server** side of the boundary because imports run that way: a test
- * under `src/` may read `web/`, as `nodeDescriptorDrift.test.ts` and
+ * under `src/` may read `web/`, as `blockFieldRules.test.ts` and
  * `declaredRoleReference.test.ts` already do. The reverse is what breaks the build.
  *
  * Both directions are asserted, and the second is the one that matters more:

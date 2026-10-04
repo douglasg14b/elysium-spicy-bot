@@ -51,12 +51,8 @@
  * it needs a parent or role-reference loop the pickers cannot express.
  */
 
-import type {
-    GuildChannel,
-    GuildRole,
-    PermissionIntent,
-    ResourceDeclaration,
-} from '../api/types';
+import type { GuildChannel, GuildRole } from '@brattybot/web-sdk';
+import type { PermissionIntent, ResourceDeclaration } from '../api/types';
 import { parseDeclaredRoleReference } from './declaredRoleReference';
 import type { ResourceChipDetail, ResourceChipId } from './resourceChips';
 import { RESOURCE_CHIP_ORDER, RESOURCE_CHIPS } from './resourceChips';

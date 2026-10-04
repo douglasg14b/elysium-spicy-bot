@@ -21,12 +21,8 @@ import { Select, Text } from '@mantine/core';
 import { roleColorHex } from '../nodeMeta';
 import { channelOptionLabel, postableChannels } from '../resourceAdoption';
 import { asText, resourceKeyFieldFor, type ControlProps } from './types';
-import type {
-    BlockConfigField,
-    BlockOutputValueKind,
-    ResourceDeclaration,
-    ResourceKind,
-} from '../../api/types';
+import type { BlockConfigField, BlockOutputValueKind } from '@brattybot/web-sdk';
+import type { ResourceDeclaration, ResourceKind } from '../../api/types';
 import { pickerVariableOf, variableToken, type AvailableVariable } from '../variables';
 
 type RolePickerField = Extract<BlockConfigField, { control: 'rolePicker' }>;

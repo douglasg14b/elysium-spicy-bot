@@ -12,9 +12,8 @@
  * builder does with them.
  */
 
-import { zFlowBlockFieldRules } from '@brattybot/web-sdk';
+import { zFlowBlockFieldRules, type FlowNode, type NodeDescriptor } from '@brattybot/web-sdk';
 import { describe, expect, it } from 'vitest';
-import type { FlowNode, NodeDescriptor } from '../../api/types';
 import { liveFieldIssues } from '../liveFieldIssues';
 
 /** The rules the SDK ships, as `useFlowIssues` hands them over. */

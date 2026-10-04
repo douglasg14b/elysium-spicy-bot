@@ -38,7 +38,7 @@
  */
 
 import type { Edge } from '@xyflow/react';
-import type { NodeDescriptor } from '../api/types';
+import type { NodeDescriptor } from '@brattybot/web-sdk';
 
 /** The fields this module needs off a canvas node. React Flow's own type is wider. */
 export interface ReachabilityNode {

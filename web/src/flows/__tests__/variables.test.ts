@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { Edge } from '@xyflow/react';
-import type { BlockConfigField, BlockOutputDeclaration, NodeDescriptor } from '../../api/types';
+import type { BlockConfigField, BlockOutputDeclaration, NodeDescriptor } from '@brattybot/web-sdk';
 import {
     actorAvailableAt,
     ancestorsOf,

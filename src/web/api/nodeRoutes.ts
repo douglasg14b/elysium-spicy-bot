@@ -1,7 +1,9 @@
-import { Hono } from 'hono';
+import { createRoute, z, type OpenAPIHono } from '@hono/zod-openapi';
 import type { BlockManifest } from '../../features/flows/blocks/manifest';
 import { listBlockDefinitions } from '../../features/flows/blocks/registry';
 import type { AppEnv } from '../types';
+import { NodeDescriptorSchema } from './nodeBody';
+import { apiRouter, AUTHED_ERRORS, jsonResponse } from './openApi';
 
 /**
  * The manifest members that exist for the server alone and are never served.
@@ -31,11 +33,9 @@ type NonWireMember = (typeof NON_WIRE_MEMBERS)[number];
  * *forgotten* field impossible, which is the trade being made: the cost is that a
  * server-only field is public unless it is named above.
  *
- * The browser mirrors this as `NodeDescriptor` in `web/src/api/types.ts`. It has to
- * be a hand-written mirror — importing this type from the web workspace drags the
- * whole bot tree into that project's compilation — so the two are held together by
- * `__tests__/nodeDescriptorDrift.test.ts`, which fails naming any field one declares
- * and the other does not.
+ * The spec states it as `NodeDescriptorSchema` (`nodeBody.ts`), held to this type both
+ * ways, so a manifest member added for the builder fails to compile there until the
+ * schema says how it travels — and the browser's type is generated from that schema.
  */
 export type NodeDescriptor = Omit<BlockManifest, NonWireMember>;
 
@@ -82,6 +82,21 @@ const nonWireMembersAreWithheld: NonWireMembersAreWithheld = true;
 
 void nonWireMembersAreWithheld;
 
+const getNodeTypesRoute = createRoute({
+    method: 'get',
+    path: '/',
+    operationId: 'getNodeTypes',
+    tags: ['flows'],
+    summary: 'Every block the Flow Builder can offer',
+    responses: {
+        200: jsonResponse(
+            'Every registered block, as the builder draws it.',
+            z.object({ nodes: z.array(NodeDescriptorSchema).readonly() })
+        ),
+        ...AUTHED_ERRORS,
+    },
+});
+
 /**
  * The block catalogue that drives the builder's palette. Not guild-scoped — the
  * registry is process-wide — but still behind the `requireAuth` middleware applied
@@ -96,18 +111,15 @@ void nonWireMembersAreWithheld;
  * {@link NON_WIRE_MEMBERS}: `run` is a function, and `configSchema` is a Zod schema
  * that stays server-authoritative as the sole authority on `node.data`.
  *
- * The browser now *types* the whole response (`NodeDescriptor`, `web/src/api/types.ts`)
- * but does not yet *draw* from most of it: the builder still reads its own
- * hand-maintained catalogues in `web/src/flows/nodeMeta.ts`. Deleting those is the
- * next slice of work.
+ * The browser types the response from the spec (`NodeDescriptor` in the dashboard SDK),
+ * which states it in `nodeBody.ts`.
  */
-export function nodeRoutes(): Hono<AppEnv> {
-    const app = new Hono<AppEnv>();
-
-    app.get('/', (c) => {
-        const nodes: readonly NodeDescriptor[] = listBlockDefinitions().map(toDescriptor);
-        return c.json({ nodes });
+export function nodeRoutes(): OpenAPIHono<AppEnv> {
+    return apiRouter((router) => {
+        router.openapi(getNodeTypesRoute, (c) => {
+            const nodes: readonly NodeDescriptor[] = listBlockDefinitions().map(toDescriptor);
+            return c.json({ nodes }, 200);
+        });
+        return undefined;
     });
-
-    return app;
 }

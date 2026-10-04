@@ -12,7 +12,7 @@
  */
 
 import type { Edge } from '@xyflow/react';
-import type { BlockConfigField, BlockOutputDeclaration, BlockOutputValueKind, NodeDescriptor } from '../api/types';
+import type { BlockConfigField, BlockOutputDeclaration, BlockOutputValueKind, NodeDescriptor } from '@brattybot/web-sdk';
 
 /** One variable an author can reference, and the block that produces it. */
 export interface AvailableVariable {

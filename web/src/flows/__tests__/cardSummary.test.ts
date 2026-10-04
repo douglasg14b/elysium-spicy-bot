@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { GuildChannel, GuildRole, NodeDescriptor } from '../../api/types';
+import type { GuildChannel, GuildRole, NodeDescriptor } from '@brattybot/web-sdk';
 import { summarizeFromDescriptor } from '../cardSummary';
 
 const ROLES: GuildRole[] = [{ id: 'r1', name: 'Moderator', color: 0, position: 1 }];

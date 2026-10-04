@@ -9,7 +9,7 @@ import { Fragment } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { Text } from '@mantine/core';
 import { IconAlertTriangle } from '@tabler/icons-react';
-import type { GuildChannel, GuildRole, NodeDescriptor } from '../api/types';
+import type { GuildChannel, GuildRole, NodeDescriptor } from '@brattybot/web-sdk';
 import { summarizeFromDescriptor } from './cardSummary';
 import { describeConvergence } from './convergingTriggers';
 import { handlesAreLabelled, HANDLE_TONE_COLORS, KIND_STYLES } from './nodeMeta';

@@ -2,14 +2,14 @@
  * The one dispatcher from a declared field to its widget.
  *
  * This switch is on the **control vocabulary**, not on block type — which is
- * exactly the shape the block contract intends. Adding a control to
- * `BLOCK_CONTROL_TYPES` fails to compile here until it is implemented, so the
- * vocabulary and the builder cannot drift.
+ * exactly the shape the block contract intends. Adding a control to the server's
+ * `BLOCK_CONTROL_TYPES` (and its arm to the spec) fails to compile here, once the SDK is
+ * regenerated, until it is implemented — so the vocabulary and the builder cannot drift.
  */
 
 import type { ReactElement } from 'react';
 import { Text } from '@mantine/core';
-import type { BlockConfigField } from '../../api/types';
+import type { BlockConfigField } from '@brattybot/web-sdk';
 import { EligibilityControl } from './EligibilityControl';
 import { ChannelPickerControl, RolePickerControl } from './PickerControls';
 import { ColourControl } from './ColourControl';

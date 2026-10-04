@@ -300,6 +300,51 @@ export function summarisePublished(
     };
 }
 
+/** What the builder's toolbar and resources panel take from a read of the published state. */
+export interface InstalledView {
+    /**
+     * How many resources are live, or `null` when unknown — before any answer, or when the
+     * latest read failed. `null` renders as the plain install affordance, the safe default,
+     * since it proposes creating rather than destroying.
+     */
+    readonly count: number | null;
+    /** The keys of every live resource, so a bound key stops following its name. */
+    readonly keys: ReadonlySet<string>;
+}
+
+/** The answer of the published-state read, as a query holds it. */
+export interface PublishedRead {
+    /** The last answer that arrived, kept through a failed refresh. */
+    readonly data: Pick<PublishedFlowState, 'deletableResources' | 'refusedResources'> | undefined;
+    /** Whether the latest read failed. */
+    readonly failed: boolean;
+}
+
+/**
+ * The installed count and keys from a published-state read.
+ *
+ * The two are told different things on a failed refresh, on purpose:
+ *
+ *  - **The count goes unknown.** A button claiming "installed" over a lookup that failed is
+ *    a guess, and unknown proposes creating rather than destroying.
+ *  - **The keys keep the last answer.** A key becomes identity the moment something is bound
+ *    to it — `resource_bindings` rows and node sidecars point at it — and releasing it
+ *    because one read failed would let a rename move it and orphan both
+ *    (`resourceKeyFollowsName.ts`). Before any answer they are empty, which narrows that rule
+ *    to its hand-edit half rather than freezing everything.
+ *
+ * Both lists, deletable and refused: a refused resource is still installed. `refused` is
+ * about whether a *teardown* may touch it — an adopted channel, a category with survivors —
+ * and an adopted resource is exactly the case where the key must not move.
+ */
+export function installedFromPublished({ data, failed }: PublishedRead): InstalledView {
+    const live = data ? [...data.deletableResources, ...data.refusedResources] : [];
+    return {
+        count: data && !failed ? live.length : null,
+        keys: new Set(live.map((resource) => resource.resourceKey)),
+    };
+}
+
 /*
  * `unpublishConfirmLine` used to live here, supplying the sentence above a confirmation
  * card. The card is gone: it restated what the list directly above it already showed,

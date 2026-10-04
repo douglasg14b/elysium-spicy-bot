@@ -199,5 +199,5 @@ asserts agreement **in both directions**:
   vocabulary exists to prevent.
 
 It lives under `src/` because imports run that way across the boundary; the reverse is what
-breaks the build. `nodeDescriptorDrift.test.ts` and `declaredRoleReference.test.ts` are the same
+breaks the build. `blockFieldRules.test.ts` and `declaredRoleReference.test.ts` are the same
 arrangement.

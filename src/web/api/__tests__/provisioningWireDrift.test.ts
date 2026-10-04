@@ -1,21 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { PLAN_ACTIONS } from '../../../features/provisioning/logic/installPlan';
 import { REFUSAL_REASONS } from '../../../features/provisioning/logic/unpublishPlan';
 import * as browserTypes from '../../../../web/src/api/types';
 
 /**
  * The drift gate between provisioning's closed vocabularies and the browser's copies.
  *
- * Both lists are hand-mirrored in `web/src/api/types.ts` for the reason
- * `levelingWireShapeDrift.test.ts` records: `web/src` cannot import from `src/`. Neither
- * side's compiler can see the other, so an action added on the server alone reaches the
- * install dialog as an item its filters silently drop — the dialog would stop listing a
- * change the operator is approving. That is the failure `recover` would have shipped
- * with had the mirror been missed.
+ * Hand-mirrored in `web/src/api/types.ts` for the reason `levelingWireShapeDrift.test.ts`
+ * records: `web/src` cannot import from `src/`. Neither side's compiler can see the other,
+ * so a reason added on the server alone reaches the teardown dialog as a refusal it cannot
+ * group. The install plan's actions were gated here too until the builder read the
+ * install plan from the generated SDK, whose type is the spec's own enum.
  */
 
 const VOCABULARIES = [
-    { name: 'install plan actions', server: PLAN_ACTIONS, browser: browserTypes.INSTALL_PLAN_ACTIONS },
     { name: 'unpublish refusal reasons', server: REFUSAL_REASONS, browser: browserTypes.REFUSAL_REASONS },
 ] as const;
 

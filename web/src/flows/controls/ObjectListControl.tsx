@@ -13,7 +13,7 @@ import { ActionIcon, Checkbox, Group, Paper, Stack, Text, Textarea, TextInput } 
 import { Button } from '@mantine/core';
 import { IconPlus, IconTrash } from '@tabler/icons-react';
 import type { ControlProps } from './types';
-import type { BlockConfigColumn, BlockConfigField } from '../../api/types';
+import type { BlockConfigColumn, BlockConfigField } from '@brattybot/web-sdk';
 
 type ObjectListField = Extract<BlockConfigField, { control: 'objectList' }>;
 

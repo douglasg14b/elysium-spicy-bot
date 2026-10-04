@@ -75,12 +75,8 @@ import {
     IconTrash,
     IconX,
 } from '@tabler/icons-react';
-import type {
-    GuildChannel,
-    GuildRole,
-    ResourceDeclaration,
-    ResourceKind,
-} from '../api/types';
+import type { GuildChannel, GuildRole } from '@brattybot/web-sdk';
+import type { ResourceDeclaration, ResourceKind } from '../api/types';
 import { detectResourceProblems } from './detectResourceProblems';
 import type { ResourceChipInstance } from './detectResourceProblems';
 import { PermissionIntentEditor } from './PermissionIntentEditor';

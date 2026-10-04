@@ -82,6 +82,7 @@ import {
     updateFlow,
     type FlowJourneyMembership,
     type FlowSummary,
+    type FlowValidationIssue,
     type ListFlowsResponse,
 } from '@brattybot/web-sdk';
 // Journey calls stay on the hand-written client until the journey routes are in the spec.
@@ -91,7 +92,7 @@ import {
     previewFlowGrouping,
     updateJourney,
 } from '../api/journeys';
-import type { FlowValidationIssue, GroupPreview, GroupResolution } from '../api/types';
+import type { GroupPreview, GroupResolution } from '../api/types';
 import {
     buildFlowsListRows,
     decideDropOutcome,

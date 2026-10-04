@@ -67,8 +67,6 @@ const NOT_YET_IN_SPEC: readonly string[] = [
     'GET /api/guilds/{guildId}/leveling',
     'GET /api/guilds/{guildId}/leveling/users/{userId}',
     'GET /api/guilds/{guildId}/leveling/insights',
-    // nodeRoutes.ts
-    'GET /api/nodes',
 ];
 
 /**
@@ -76,7 +74,7 @@ const NOT_YET_IN_SPEC: readonly string[] = [
  * raise it.** The other checks only see entries already on the list, so without this a
  * new, undeclared route plus one line here would pass every gate.
  */
-const NOT_YET_IN_SPEC_CEILING = 28;
+const NOT_YET_IN_SPEC_CEILING = 27;
 
 /**
  * The middleware `registerApiRoutes` mounts with `use`, by identity.

@@ -12,13 +12,10 @@
  * than rendering components (see `cardSummary.ts`, `variables.ts`).
  */
 
-import type {
-    GuildChannel,
-    GuildChannelType,
-    GuildRole,
-    ResourceDeclaration,
-    ResourceKind,
-} from '../api/types';
+import type { GuildChannel, GuildRole } from '@brattybot/web-sdk';
+import type { ResourceDeclaration, ResourceKind } from '../api/types';
+
+type GuildChannelType = GuildChannel['type'];
 
 /**
  * Derive a key from a display name.

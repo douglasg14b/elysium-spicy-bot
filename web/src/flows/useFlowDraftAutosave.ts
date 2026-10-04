@@ -13,8 +13,8 @@
  * reports is {@link DraftAutosaveState}, and only the status line reads it.
  */
 
+import { saveMyFlowDraft } from '@brattybot/web-sdk';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { saveMyFlowDraft } from '../api/flows';
 import { shouldAcceptResponse } from './resourceSaveQueue';
 import {
     DRAFT_AUTOSAVE_DEBOUNCE_MS,
@@ -135,8 +135,10 @@ export function useFlowDraftAutosave({
             // stores them in the order they were made, and `settle` waits for all of them.
             const queue = inFlightRef.current ?? Promise.resolve(true);
             const request = queue
-                .then(() => saveMyFlowDraft(guildId, flowId, { ...next, baseUpdatedAt: base }))
-                .then((stored) => {
+                .then(() =>
+                    saveMyFlowDraft({ path: { guildId, flowId }, body: { ...next, baseUpdatedAt: base } })
+                )
+                .then(({ data: stored }) => {
                     if (stillCurrent()) setState({ kind: 'saved', at: stored.updatedAt });
                     return true;
                 })

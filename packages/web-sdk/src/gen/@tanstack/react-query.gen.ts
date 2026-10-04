@@ -3,8 +3,8 @@
 import { queryOptions, type UseMutationOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { checkFlow, claimTicket, closeTicket, createFlow, deleteFlow, deleteTicketType, deployFlow, discardFlowDraft, getFlow, getGuildChannels, getGuildRoles, getGuildSettings, getInstallPlan, getPublishedState, getTicket, getTicketsConfig, getWarningsConfig, installFlow, listFlowDrafts, listFlows, listGuilds, listTickets, type Options, reopenTicket, saveMyFlowDraft, saveTicketType, unclaimTicket, undeployFlow, unpublishFlow, updateFlow, updateGuildSettings, updateTicketsConfig, updateWarningsConfig } from '../sdk.gen';
-import type { CheckFlowData, CheckFlowError, CheckFlowResponse, ClaimTicketData, ClaimTicketError, ClaimTicketResponse, CloseTicketData, CloseTicketError, CloseTicketResponse, CreateFlowData, CreateFlowError, CreateFlowResponse, DeleteFlowData, DeleteFlowError, DeleteFlowResponse, DeleteTicketTypeData, DeleteTicketTypeError, DeleteTicketTypeResponse, DeployFlowData, DeployFlowError, DeployFlowResponse, DiscardFlowDraftData, DiscardFlowDraftError, DiscardFlowDraftResponse, GetFlowData, GetFlowError, GetFlowResponse, GetGuildChannelsData, GetGuildChannelsError, GetGuildChannelsResponse, GetGuildRolesData, GetGuildRolesError, GetGuildRolesResponse, GetGuildSettingsData, GetGuildSettingsError, GetGuildSettingsResponse, GetInstallPlanData, GetInstallPlanError, GetInstallPlanResponse, GetPublishedStateData, GetPublishedStateError, GetPublishedStateResponse, GetTicketData, GetTicketError, GetTicketResponse, GetTicketsConfigData, GetTicketsConfigError, GetTicketsConfigResponse, GetWarningsConfigData, GetWarningsConfigError, GetWarningsConfigResponse, InstallFlowData, InstallFlowError, InstallFlowResponse, ListFlowDraftsData, ListFlowDraftsError, ListFlowDraftsResponse, ListFlowsData, ListFlowsError, ListFlowsResponse, ListGuildsData, ListGuildsError, ListGuildsResponse, ListTicketsData, ListTicketsError, ListTicketsResponse, ReopenTicketData, ReopenTicketError, ReopenTicketResponse, SaveMyFlowDraftData, SaveMyFlowDraftError, SaveMyFlowDraftResponse, SaveTicketTypeData, SaveTicketTypeError, SaveTicketTypeResponse, UnclaimTicketData, UnclaimTicketError, UnclaimTicketResponse, UndeployFlowData, UndeployFlowError, UndeployFlowResponse, UnpublishFlowData, UnpublishFlowError, UnpublishFlowResponse, UpdateFlowData, UpdateFlowError, UpdateFlowResponse, UpdateGuildSettingsData, UpdateGuildSettingsError, UpdateGuildSettingsResponse, UpdateTicketsConfigData, UpdateTicketsConfigError, UpdateTicketsConfigResponse, UpdateWarningsConfigData, UpdateWarningsConfigError, UpdateWarningsConfigResponse } from '../types.gen';
+import { checkFlow, claimTicket, closeTicket, createFlow, deleteFlow, deleteTicketType, deployFlow, discardFlowDraft, getFlow, getGuildChannels, getGuildRoles, getGuildSettings, getInstallPlan, getNodeTypes, getPublishedState, getTicket, getTicketsConfig, getWarningsConfig, installFlow, listFlowDrafts, listFlows, listGuilds, listTickets, type Options, reopenTicket, saveMyFlowDraft, saveTicketType, unclaimTicket, undeployFlow, unpublishFlow, updateFlow, updateGuildSettings, updateTicketsConfig, updateWarningsConfig } from '../sdk.gen';
+import type { CheckFlowData, CheckFlowError, CheckFlowResponse, ClaimTicketData, ClaimTicketError, ClaimTicketResponse, CloseTicketData, CloseTicketError, CloseTicketResponse, CreateFlowData, CreateFlowError, CreateFlowResponse, DeleteFlowData, DeleteFlowError, DeleteFlowResponse, DeleteTicketTypeData, DeleteTicketTypeError, DeleteTicketTypeResponse, DeployFlowData, DeployFlowError, DeployFlowResponse, DiscardFlowDraftData, DiscardFlowDraftError, DiscardFlowDraftResponse, GetFlowData, GetFlowError, GetFlowResponse, GetGuildChannelsData, GetGuildChannelsError, GetGuildChannelsResponse, GetGuildRolesData, GetGuildRolesError, GetGuildRolesResponse, GetGuildSettingsData, GetGuildSettingsError, GetGuildSettingsResponse, GetInstallPlanData, GetInstallPlanError, GetInstallPlanResponse, GetNodeTypesData, GetNodeTypesError, GetNodeTypesResponse, GetPublishedStateData, GetPublishedStateError, GetPublishedStateResponse, GetTicketData, GetTicketError, GetTicketResponse, GetTicketsConfigData, GetTicketsConfigError, GetTicketsConfigResponse, GetWarningsConfigData, GetWarningsConfigError, GetWarningsConfigResponse, InstallFlowData, InstallFlowError, InstallFlowResponse, ListFlowDraftsData, ListFlowDraftsError, ListFlowDraftsResponse, ListFlowsData, ListFlowsError, ListFlowsResponse, ListGuildsData, ListGuildsError, ListGuildsResponse, ListTicketsData, ListTicketsError, ListTicketsResponse, ReopenTicketData, ReopenTicketError, ReopenTicketResponse, SaveMyFlowDraftData, SaveMyFlowDraftError, SaveMyFlowDraftResponse, SaveTicketTypeData, SaveTicketTypeError, SaveTicketTypeResponse, UnclaimTicketData, UnclaimTicketError, UnclaimTicketResponse, UndeployFlowData, UndeployFlowError, UndeployFlowResponse, UnpublishFlowData, UnpublishFlowError, UnpublishFlowResponse, UpdateFlowData, UpdateFlowError, UpdateFlowResponse, UpdateGuildSettingsData, UpdateGuildSettingsError, UpdateGuildSettingsResponse, UpdateTicketsConfigData, UpdateTicketsConfigError, UpdateTicketsConfigResponse, UpdateWarningsConfigData, UpdateWarningsConfigError, UpdateWarningsConfigResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -595,3 +595,21 @@ export const unclaimTicketMutation = (options?: Partial<Options<UnclaimTicketDat
     };
     return mutationOptions;
 };
+
+export const getNodeTypesQueryKey = (options?: Options<GetNodeTypesData>) => createQueryKey('getNodeTypes', options);
+
+/**
+ * Every block the Flow Builder can offer
+ */
+export const getNodeTypesOptions = (options?: Options<GetNodeTypesData>) => queryOptions<GetNodeTypesResponse, GetNodeTypesError, GetNodeTypesResponse, ReturnType<typeof getNodeTypesQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getNodeTypes({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getNodeTypesQueryKey(options)
+});

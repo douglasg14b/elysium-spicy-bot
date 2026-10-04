@@ -2,6 +2,936 @@
     "components": {
         "parameters": {},
         "schemas": {
+            "BlockCardSummaryPart": {
+                "anyOf": [
+                    {
+                        "properties": {
+                            "emptyText": {
+                                "type": "string"
+                            },
+                            "hideWhenEmpty": {
+                                "type": "boolean"
+                            },
+                            "key": {
+                                "type": "string"
+                            },
+                            "prefix": {
+                                "type": "string"
+                            },
+                            "quote": {
+                                "type": "boolean"
+                            },
+                            "stopIfEmpty": {
+                                "type": "boolean"
+                            },
+                            "suffix": {
+                                "type": "string"
+                            },
+                            "truncate": {
+                                "type": "number"
+                            }
+                        },
+                        "required": [
+                            "key"
+                        ],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "text": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "text"
+                        ],
+                        "type": "object"
+                    }
+                ]
+            },
+            "BlockConfigColumn": {
+                "description": "One column of an `objectList` entry: a named input on every row.",
+                "properties": {
+                    "control": {
+                        "enum": [
+                            "text",
+                            "longText",
+                            "toggle"
+                        ],
+                        "type": "string"
+                    },
+                    "key": {
+                        "type": "string"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "maxLength": {
+                        "type": "number"
+                    },
+                    "placeholder": {
+                        "type": "string"
+                    },
+                    "rendersTokens": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "key",
+                    "label",
+                    "control"
+                ],
+                "type": "object"
+            },
+            "BlockConfigField": {
+                "description": "One editable config field, in the order the inspector renders it, discriminated on `control`.",
+                "oneOf": [
+                    {
+                        "properties": {
+                            "control": {
+                                "enum": [
+                                    "rolePicker"
+                                ],
+                                "type": "string"
+                            },
+                            "defaultValue": {
+                                "type": "string"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "key": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "visibleWhen": {
+                                "properties": {
+                                    "equals": {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "field": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "field",
+                                    "equals"
+                                ],
+                                "type": "object"
+                            }
+                        },
+                        "required": [
+                            "key",
+                            "label",
+                            "control"
+                        ],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "control": {
+                                "enum": [
+                                    "channelPicker"
+                                ],
+                                "type": "string"
+                            },
+                            "defaultValue": {
+                                "type": "string"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "key": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "optional": {
+                                "type": "boolean"
+                            },
+                            "visibleWhen": {
+                                "properties": {
+                                    "equals": {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "field": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "field",
+                                    "equals"
+                                ],
+                                "type": "object"
+                            }
+                        },
+                        "required": [
+                            "key",
+                            "label",
+                            "control"
+                        ],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "control": {
+                                "enum": [
+                                    "text"
+                                ],
+                                "type": "string"
+                            },
+                            "defaultValue": {
+                                "type": "string"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "key": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "maxLength": {
+                                "type": "number"
+                            },
+                            "optional": {
+                                "type": "boolean"
+                            },
+                            "placeholder": {
+                                "type": "string"
+                            },
+                            "rendersTokens": {
+                                "type": "boolean"
+                            },
+                            "visibleWhen": {
+                                "properties": {
+                                    "equals": {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "field": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "field",
+                                    "equals"
+                                ],
+                                "type": "object"
+                            }
+                        },
+                        "required": [
+                            "key",
+                            "label",
+                            "control"
+                        ],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "control": {
+                                "enum": [
+                                    "longText"
+                                ],
+                                "type": "string"
+                            },
+                            "defaultValue": {
+                                "type": "string"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "key": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "maxLength": {
+                                "type": "number"
+                            },
+                            "placeholder": {
+                                "type": "string"
+                            },
+                            "rendersTokens": {
+                                "type": "boolean"
+                            },
+                            "visibleWhen": {
+                                "properties": {
+                                    "equals": {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "field": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "field",
+                                    "equals"
+                                ],
+                                "type": "object"
+                            }
+                        },
+                        "required": [
+                            "key",
+                            "label",
+                            "control"
+                        ],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "control": {
+                                "enum": [
+                                    "duration"
+                                ],
+                                "type": "string"
+                            },
+                            "defaultValue": {
+                                "type": "number"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "key": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "optional": {
+                                "type": "boolean"
+                            },
+                            "placeholder": {
+                                "type": "string"
+                            },
+                            "visibleWhen": {
+                                "properties": {
+                                    "equals": {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "field": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "field",
+                                    "equals"
+                                ],
+                                "type": "object"
+                            }
+                        },
+                        "required": [
+                            "key",
+                            "label",
+                            "control"
+                        ],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "control": {
+                                "enum": [
+                                    "segmented"
+                                ],
+                                "type": "string"
+                            },
+                            "defaultValue": {
+                                "type": "string"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "key": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "options": {
+                                "items": {
+                                    "$ref": "#/components/schemas/BlockConfigOption"
+                                },
+                                "type": "array"
+                            },
+                            "visibleWhen": {
+                                "properties": {
+                                    "equals": {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "field": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "field",
+                                    "equals"
+                                ],
+                                "type": "object"
+                            }
+                        },
+                        "required": [
+                            "key",
+                            "label",
+                            "control",
+                            "options"
+                        ],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "control": {
+                                "enum": [
+                                    "select"
+                                ],
+                                "type": "string"
+                            },
+                            "defaultValue": {
+                                "type": "string"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "key": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "options": {
+                                "items": {
+                                    "$ref": "#/components/schemas/BlockConfigOption"
+                                },
+                                "type": "array"
+                            },
+                            "visibleWhen": {
+                                "properties": {
+                                    "equals": {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "field": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "field",
+                                    "equals"
+                                ],
+                                "type": "object"
+                            }
+                        },
+                        "required": [
+                            "key",
+                            "label",
+                            "control",
+                            "options"
+                        ],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "control": {
+                                "enum": [
+                                    "colour"
+                                ],
+                                "type": "string"
+                            },
+                            "defaultValue": {
+                                "type": "string"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "key": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "swatches": {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "visibleWhen": {
+                                "properties": {
+                                    "equals": {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "field": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "field",
+                                    "equals"
+                                ],
+                                "type": "object"
+                            }
+                        },
+                        "required": [
+                            "key",
+                            "label",
+                            "control"
+                        ],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "addLabel": {
+                                "type": "string"
+                            },
+                            "control": {
+                                "enum": [
+                                    "textList"
+                                ],
+                                "type": "string"
+                            },
+                            "defaultValue": {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "key": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "maxEntries": {
+                                "type": "number"
+                            },
+                            "maxLength": {
+                                "type": "number"
+                            },
+                            "minEntries": {
+                                "type": "number"
+                            },
+                            "placeholder": {
+                                "type": "string"
+                            },
+                            "visibleWhen": {
+                                "properties": {
+                                    "equals": {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "field": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "field",
+                                    "equals"
+                                ],
+                                "type": "object"
+                            }
+                        },
+                        "required": [
+                            "key",
+                            "label",
+                            "control"
+                        ],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "addLabel": {
+                                "type": "string"
+                            },
+                            "columns": {
+                                "items": {
+                                    "$ref": "#/components/schemas/BlockConfigColumn"
+                                },
+                                "type": "array"
+                            },
+                            "control": {
+                                "enum": [
+                                    "objectList"
+                                ],
+                                "type": "string"
+                            },
+                            "defaultValue": {
+                                "items": {
+                                    "additionalProperties": {},
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "key": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "maxEntries": {
+                                "type": "number"
+                            },
+                            "minEntries": {
+                                "type": "number"
+                            },
+                            "visibleWhen": {
+                                "properties": {
+                                    "equals": {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "field": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "field",
+                                    "equals"
+                                ],
+                                "type": "object"
+                            }
+                        },
+                        "required": [
+                            "key",
+                            "label",
+                            "control",
+                            "columns"
+                        ],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "control": {
+                                "enum": [
+                                    "eligibility"
+                                ],
+                                "type": "string"
+                            },
+                            "defaultValue": {
+                                "$ref": "#/components/schemas/Eligibility"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "key": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "visibleWhen": {
+                                "properties": {
+                                    "equals": {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "field": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "field",
+                                    "equals"
+                                ],
+                                "type": "object"
+                            }
+                        },
+                        "required": [
+                            "key",
+                            "label",
+                            "control"
+                        ],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "control": {
+                                "enum": [
+                                    "variableSelect"
+                                ],
+                                "type": "string"
+                            },
+                            "defaultValue": {
+                                "type": "string"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "key": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "valueKind": {
+                                "$ref": "#/components/schemas/BlockOutputValueKind"
+                            },
+                            "visibleWhen": {
+                                "properties": {
+                                    "equals": {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "field": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "field",
+                                    "equals"
+                                ],
+                                "type": "object"
+                            }
+                        },
+                        "required": [
+                            "key",
+                            "label",
+                            "control",
+                            "valueKind"
+                        ],
+                        "type": "object"
+                    }
+                ]
+            },
+            "BlockConfigOption": {
+                "properties": {
+                    "label": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "value",
+                    "label"
+                ],
+                "type": "object"
+            },
+            "BlockHandleTone": {
+                "enum": [
+                    "neutral",
+                    "positive",
+                    "negative",
+                    "caution"
+                ],
+                "type": "string"
+            },
+            "BlockOutputDeclaration": {
+                "description": "A value a block writes for later blocks. `fixed` writes `key`; `authored` writes the name the node holds in its `fromField` config field.",
+                "oneOf": [
+                    {
+                        "properties": {
+                            "description": {
+                                "type": "string"
+                            },
+                            "handle": {
+                                "type": "string"
+                            },
+                            "key": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "naming": {
+                                "enum": [
+                                    "fixed"
+                                ],
+                                "type": "string"
+                            },
+                            "valueKind": {
+                                "$ref": "#/components/schemas/BlockOutputValueKind"
+                            },
+                            "valueKindFrom": {
+                                "properties": {
+                                    "field": {
+                                        "type": "string"
+                                    },
+                                    "kinds": {
+                                        "additionalProperties": {
+                                            "$ref": "#/components/schemas/BlockOutputValueKind"
+                                        },
+                                        "type": "object"
+                                    }
+                                },
+                                "required": [
+                                    "field",
+                                    "kinds"
+                                ],
+                                "type": "object"
+                            }
+                        },
+                        "required": [
+                            "label",
+                            "naming",
+                            "key"
+                        ],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "description": {
+                                "type": "string"
+                            },
+                            "fromField": {
+                                "type": "string"
+                            },
+                            "handle": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "naming": {
+                                "enum": [
+                                    "authored"
+                                ],
+                                "type": "string"
+                            },
+                            "valueKind": {
+                                "$ref": "#/components/schemas/BlockOutputValueKind"
+                            },
+                            "valueKindFrom": {
+                                "properties": {
+                                    "field": {
+                                        "type": "string"
+                                    },
+                                    "kinds": {
+                                        "additionalProperties": {
+                                            "$ref": "#/components/schemas/BlockOutputValueKind"
+                                        },
+                                        "type": "object"
+                                    }
+                                },
+                                "required": [
+                                    "field",
+                                    "kinds"
+                                ],
+                                "type": "object"
+                            }
+                        },
+                        "required": [
+                            "label",
+                            "naming",
+                            "fromField"
+                        ],
+                        "type": "object"
+                    }
+                ]
+            },
+            "BlockOutputHandle": {
+                "description": "One way a run can leave a block. `warnIfUnconnected` is `true`, or the condition under which the builder warns while the exit is unconnected.",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "tone": {
+                        "$ref": "#/components/schemas/BlockHandleTone"
+                    },
+                    "warnIfUnconnected": {
+                        "anyOf": [
+                            {
+                                "enum": [
+                                    true
+                                ],
+                                "type": "boolean"
+                            },
+                            {
+                                "properties": {
+                                    "whenFieldSet": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "whenFieldSet"
+                                ],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "equals": {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "whenField": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "whenField",
+                                    "equals"
+                                ],
+                                "type": "object"
+                            }
+                        ]
+                    }
+                },
+                "required": [
+                    "label",
+                    "tone"
+                ],
+                "type": "object"
+            },
+            "BlockOutputValueKind": {
+                "enum": [
+                    "channel",
+                    "time"
+                ],
+                "type": "string"
+            },
+            "BlockPaletteGroup": {
+                "enum": [
+                    "triggers",
+                    "conditions",
+                    "actions"
+                ],
+                "type": "string"
+            },
             "DeployResult": {
                 "properties": {
                     "ok": {
@@ -41,6 +971,130 @@
                     "buttonCount"
                 ],
                 "type": "object"
+            },
+            "Eligibility": {
+                "description": "Who may do something, by principal. Each principal carries only what it needs.",
+                "oneOf": [
+                    {
+                        "properties": {
+                            "principal": {
+                                "enum": [
+                                    "anyone"
+                                ],
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "principal"
+                        ],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "principal": {
+                                "enum": [
+                                    "subject"
+                                ],
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "principal"
+                        ],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "principal": {
+                                "enum": [
+                                    "actor"
+                                ],
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "principal"
+                        ],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "principal": {
+                                "enum": [
+                                    "variable"
+                                ],
+                                "type": "string"
+                            },
+                            "variable": {
+                                "minLength": 1,
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "principal",
+                            "variable"
+                        ],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "principal": {
+                                "enum": [
+                                    "roles"
+                                ],
+                                "type": "string"
+                            },
+                            "roleIds": {
+                                "items": {
+                                    "minLength": 1,
+                                    "type": "string"
+                                },
+                                "minItems": 1,
+                                "type": "array"
+                            }
+                        },
+                        "required": [
+                            "principal",
+                            "roleIds"
+                        ],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "permissions": {
+                                "items": {
+                                    "$ref": "#/components/schemas/EligibilityPermission"
+                                },
+                                "minItems": 1,
+                                "type": "array"
+                            },
+                            "principal": {
+                                "enum": [
+                                    "discordPermission"
+                                ],
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "principal",
+                            "permissions"
+                        ],
+                        "type": "object"
+                    }
+                ]
+            },
+            "EligibilityPermission": {
+                "enum": [
+                    "Administrator",
+                    "ManageGuild",
+                    "ManageRoles",
+                    "ManageChannels",
+                    "ManageMessages",
+                    "KickMembers",
+                    "BanMembers",
+                    "ModerateMembers"
+                ],
+                "type": "string"
             },
             "ErrorBody": {
                 "properties": {
@@ -1304,6 +2358,117 @@
                     "discordId",
                     "action",
                     "name"
+                ],
+                "type": "object"
+            },
+            "NodeDescriptor": {
+                "description": "Everything the Flow Builder draws a block from: its palette entry, its card, its inspector form and its exits. The block's config schema stays on the server.",
+                "properties": {
+                    "canSuspend": {
+                        "type": "boolean"
+                    },
+                    "capabilities": {
+                        "items": {
+                            "enum": [
+                                "manageRoles",
+                                "sendMessages",
+                                "embedLinks",
+                                "manageChannels",
+                                "kickMembers"
+                            ],
+                            "type": "string"
+                        },
+                        "type": "array"
+                    },
+                    "cardSummary": {
+                        "items": {
+                            "$ref": "#/components/schemas/BlockCardSummaryPart"
+                        },
+                        "type": "array"
+                    },
+                    "configFields": {
+                        "items": {
+                            "$ref": "#/components/schemas/BlockConfigField"
+                        },
+                        "type": "array"
+                    },
+                    "createsChannel": {
+                        "type": "boolean"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "group": {
+                        "$ref": "#/components/schemas/BlockPaletteGroup"
+                    },
+                    "handles": {
+                        "items": {
+                            "$ref": "#/components/schemas/BlockOutputHandle"
+                        },
+                        "type": "array"
+                    },
+                    "icon": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "enum": [
+                            "trigger",
+                            "condition",
+                            "action"
+                        ],
+                        "type": "string"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "note": {
+                        "type": "string"
+                    },
+                    "outputs": {
+                        "items": {
+                            "$ref": "#/components/schemas/BlockOutputDeclaration"
+                        },
+                        "type": "array"
+                    },
+                    "requires": {
+                        "items": {
+                            "enum": [
+                                "subject",
+                                "actor",
+                                "channel",
+                                "interaction"
+                            ],
+                            "type": "string"
+                        },
+                        "type": "array"
+                    },
+                    "startedBy": {
+                        "enum": [
+                            "buttonClick",
+                            "levelUp",
+                            "memberJoin",
+                            "memberLeave",
+                            "reactionAdd"
+                        ],
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "type",
+                    "kind",
+                    "label",
+                    "description",
+                    "group",
+                    "icon",
+                    "configFields",
+                    "handles",
+                    "outputs",
+                    "requires",
+                    "capabilities",
+                    "canSuspend"
                 ],
                 "type": "object"
             },
@@ -4988,6 +6153,48 @@
                 "summary": "Release a ticket's claim",
                 "tags": [
                     "tickets"
+                ]
+            }
+        },
+        "/api/nodes": {
+            "get": {
+                "operationId": "getNodeTypes",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "nodes": {
+                                            "items": {
+                                                "$ref": "#/components/schemas/NodeDescriptor"
+                                            },
+                                            "type": "array"
+                                        }
+                                    },
+                                    "required": [
+                                        "nodes"
+                                    ],
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "Every registered block, as the builder draws it."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    }
+                },
+                "summary": "Every block the Flow Builder can offer",
+                "tags": [
+                    "flows"
                 ]
             }
         }

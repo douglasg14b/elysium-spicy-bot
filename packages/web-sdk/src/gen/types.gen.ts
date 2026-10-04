@@ -4,6 +4,238 @@ export type ClientOptions = {
     baseUrl: `${string}://${string}` | (string & {});
 };
 
+export type BlockCardSummaryPart = {
+    emptyText?: string;
+    hideWhenEmpty?: boolean;
+    key: string;
+    prefix?: string;
+    quote?: boolean;
+    stopIfEmpty?: boolean;
+    suffix?: string;
+    truncate?: number;
+} | {
+    text: string;
+};
+
+/**
+ * One column of an `objectList` entry: a named input on every row.
+ */
+export type BlockConfigColumn = {
+    control: 'text' | 'longText' | 'toggle';
+    key: string;
+    label: string;
+    maxLength?: number;
+    placeholder?: string;
+    rendersTokens?: boolean;
+};
+
+/**
+ * One editable config field, in the order the inspector renders it, discriminated on `control`.
+ */
+export type BlockConfigField = {
+    control: 'rolePicker';
+    defaultValue?: string;
+    description?: string;
+    key: string;
+    label: string;
+    visibleWhen?: {
+        equals: Array<string>;
+        field: string;
+    };
+} | {
+    control: 'channelPicker';
+    defaultValue?: string;
+    description?: string;
+    key: string;
+    label: string;
+    optional?: boolean;
+    visibleWhen?: {
+        equals: Array<string>;
+        field: string;
+    };
+} | {
+    control: 'text';
+    defaultValue?: string;
+    description?: string;
+    key: string;
+    label: string;
+    maxLength?: number;
+    optional?: boolean;
+    placeholder?: string;
+    rendersTokens?: boolean;
+    visibleWhen?: {
+        equals: Array<string>;
+        field: string;
+    };
+} | {
+    control: 'longText';
+    defaultValue?: string;
+    description?: string;
+    key: string;
+    label: string;
+    maxLength?: number;
+    placeholder?: string;
+    rendersTokens?: boolean;
+    visibleWhen?: {
+        equals: Array<string>;
+        field: string;
+    };
+} | {
+    control: 'duration';
+    defaultValue?: number;
+    description?: string;
+    key: string;
+    label: string;
+    optional?: boolean;
+    placeholder?: string;
+    visibleWhen?: {
+        equals: Array<string>;
+        field: string;
+    };
+} | {
+    control: 'segmented';
+    defaultValue?: string;
+    description?: string;
+    key: string;
+    label: string;
+    options: Array<BlockConfigOption>;
+    visibleWhen?: {
+        equals: Array<string>;
+        field: string;
+    };
+} | {
+    control: 'select';
+    defaultValue?: string;
+    description?: string;
+    key: string;
+    label: string;
+    options: Array<BlockConfigOption>;
+    visibleWhen?: {
+        equals: Array<string>;
+        field: string;
+    };
+} | {
+    control: 'colour';
+    defaultValue?: string;
+    description?: string;
+    key: string;
+    label: string;
+    swatches?: Array<string>;
+    visibleWhen?: {
+        equals: Array<string>;
+        field: string;
+    };
+} | {
+    addLabel?: string;
+    control: 'textList';
+    defaultValue?: Array<string>;
+    description?: string;
+    key: string;
+    label: string;
+    maxEntries?: number;
+    maxLength?: number;
+    minEntries?: number;
+    placeholder?: string;
+    visibleWhen?: {
+        equals: Array<string>;
+        field: string;
+    };
+} | {
+    addLabel?: string;
+    columns: Array<BlockConfigColumn>;
+    control: 'objectList';
+    defaultValue?: Array<{
+        [key: string]: unknown;
+    }>;
+    description?: string;
+    key: string;
+    label: string;
+    maxEntries?: number;
+    minEntries?: number;
+    visibleWhen?: {
+        equals: Array<string>;
+        field: string;
+    };
+} | {
+    control: 'eligibility';
+    defaultValue?: Eligibility;
+    description?: string;
+    key: string;
+    label: string;
+    visibleWhen?: {
+        equals: Array<string>;
+        field: string;
+    };
+} | {
+    control: 'variableSelect';
+    defaultValue?: string;
+    description?: string;
+    key: string;
+    label: string;
+    valueKind: BlockOutputValueKind;
+    visibleWhen?: {
+        equals: Array<string>;
+        field: string;
+    };
+};
+
+export type BlockConfigOption = {
+    label: string;
+    value: string;
+};
+
+export type BlockHandleTone = 'neutral' | 'positive' | 'negative' | 'caution';
+
+/**
+ * A value a block writes for later blocks. `fixed` writes `key`; `authored` writes the name the node holds in its `fromField` config field.
+ */
+export type BlockOutputDeclaration = {
+    description?: string;
+    handle?: string;
+    key: string;
+    label: string;
+    naming: 'fixed';
+    valueKind?: BlockOutputValueKind;
+    valueKindFrom?: {
+        field: string;
+        kinds: {
+            [key: string]: BlockOutputValueKind;
+        };
+    };
+} | {
+    description?: string;
+    fromField: string;
+    handle?: string;
+    label: string;
+    naming: 'authored';
+    valueKind?: BlockOutputValueKind;
+    valueKindFrom?: {
+        field: string;
+        kinds: {
+            [key: string]: BlockOutputValueKind;
+        };
+    };
+};
+
+/**
+ * One way a run can leave a block. `warnIfUnconnected` is `true`, or the condition under which the builder warns while the exit is unconnected.
+ */
+export type BlockOutputHandle = {
+    id?: string;
+    label: string;
+    tone: BlockHandleTone;
+    warnIfUnconnected?: true | {
+        whenFieldSet: string;
+    } | {
+        equals: Array<string>;
+        whenField: string;
+    };
+};
+
+export type BlockOutputValueKind = 'channel' | 'time';
+
+export type BlockPaletteGroup = 'triggers' | 'conditions' | 'actions';
+
 export type DeployResult = {
     ok: true;
     posted: Array<DeployedButtonMessage>;
@@ -14,6 +246,28 @@ export type DeployedButtonMessage = {
     channelId: string;
     messageId: string;
 };
+
+/**
+ * Who may do something, by principal. Each principal carries only what it needs.
+ */
+export type Eligibility = {
+    principal: 'anyone';
+} | {
+    principal: 'subject';
+} | {
+    principal: 'actor';
+} | {
+    principal: 'variable';
+    variable: string;
+} | {
+    principal: 'roles';
+    roleIds: Array<string>;
+} | {
+    permissions: Array<EligibilityPermission>;
+    principal: 'discordPermission';
+};
+
+export type EligibilityPermission = 'Administrator' | 'ManageGuild' | 'ManageRoles' | 'ManageChannels' | 'ManageMessages' | 'KickMembers' | 'BanMembers' | 'ModerateMembers';
 
 export type ErrorBody = {
     error: string;
@@ -363,6 +617,28 @@ export type InstalledResource = {
     discordId: string;
     name: string;
     resourceKey: string;
+};
+
+/**
+ * Everything the Flow Builder draws a block from: its palette entry, its card, its inspector form and its exits. The block's config schema stays on the server.
+ */
+export type NodeDescriptor = {
+    canSuspend: boolean;
+    capabilities: Array<'manageRoles' | 'sendMessages' | 'embedLinks' | 'manageChannels' | 'kickMembers'>;
+    cardSummary?: Array<BlockCardSummaryPart>;
+    configFields: Array<BlockConfigField>;
+    createsChannel?: boolean;
+    description: string;
+    group: BlockPaletteGroup;
+    handles: Array<BlockOutputHandle>;
+    icon: string;
+    kind: 'trigger' | 'condition' | 'action';
+    label: string;
+    note?: string;
+    outputs: Array<BlockOutputDeclaration>;
+    requires: Array<'subject' | 'actor' | 'channel' | 'interaction'>;
+    startedBy?: 'buttonClick' | 'levelUp' | 'memberJoin' | 'memberLeave' | 'reactionAdd';
+    type: string;
 };
 
 export type PublishedButtonMessage = {
@@ -1976,3 +2252,30 @@ export type UnclaimTicketResponses = {
 };
 
 export type UnclaimTicketResponse = UnclaimTicketResponses[keyof UnclaimTicketResponses];
+
+export type GetNodeTypesData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/nodes';
+};
+
+export type GetNodeTypesErrors = {
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+};
+
+export type GetNodeTypesError = GetNodeTypesErrors[keyof GetNodeTypesErrors];
+
+export type GetNodeTypesResponses = {
+    /**
+     * Every registered block, as the builder draws it.
+     */
+    200: {
+        nodes: Array<NodeDescriptor>;
+    };
+};
+
+export type GetNodeTypesResponse = GetNodeTypesResponses[keyof GetNodeTypesResponses];

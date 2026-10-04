@@ -9,6 +9,14 @@
     "compilerOptions": {
         "rootDir": ".",
         "baseUrl": ".",
+        // Root tests import dashboard modules typed by the generated SDK. The root has no
+        // dependency on the package and no DOM library for its fetch client, so it sees the
+        // contract alone — the generated types and zod (`packages/web-sdk/src/contract.ts`).
+        // Types only: at run time nothing under `src/` can resolve the package, so a file
+        // there that needs a value imports it by relative path (`blockFieldRules.test.ts`).
+        "paths": {
+            "@brattybot/web-sdk": ["packages/web-sdk/src/contract.ts"]
+        },
         "typeRoots": ["node_modules/@types", "src/types"],
         "lib": ["ESNext"],
         "target": "ESNext",

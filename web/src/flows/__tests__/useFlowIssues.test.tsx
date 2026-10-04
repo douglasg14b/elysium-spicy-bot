@@ -1,10 +1,21 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FlowGraph, FlowValidationIssue, NodeDescriptor } from '../../api/types';
-import { FLOW_GRAPH_VERSION } from '../../api/types';
+import type { FlowGraph, FlowValidationIssue, NodeDescriptor } from '@brattybot/web-sdk';
+import { FLOW_GRAPH_VERSION } from '../contractValues';
+
+type Sdk = typeof import('@brattybot/web-sdk');
 
 const checkFlow = vi.fn<(guildId: string, flowId: string, graph: FlowGraph) => Promise<FlowValidationIssue[]>>();
-vi.mock('../../api/flows', () => ({ checkFlow: (...args: Parameters<typeof checkFlow>) => checkFlow(...args) }));
+/*
+ * Only the request is faked. The rest of the SDK stays real — `zFlowBlockFieldRules` above
+ * all, which the live checks run: mocked away, every live-check case here would pass on
+ * a hook that checks nothing.
+ */
+vi.mock('@brattybot/web-sdk', async (importOriginal) => ({
+    ...(await importOriginal<Sdk>()),
+    checkFlow: ({ path, body }: Parameters<Sdk['checkFlow']>[0]) =>
+        checkFlow(path.guildId, path.flowId, body.graph).then((issues) => ({ data: { issues } })),
+}));
 
 const { useFlowIssues } = await import('../useFlowIssues');
 

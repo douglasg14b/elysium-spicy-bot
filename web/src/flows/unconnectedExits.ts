@@ -35,7 +35,7 @@
  */
 
 import type { Edge } from '@xyflow/react';
-import type { BlockOutputHandle, NodeDescriptor } from '../api/types';
+import type { BlockOutputHandle, NodeDescriptor } from '@brattybot/web-sdk';
 import { effectiveFieldValue, isFieldVisible } from './variables';
 
 /** The fields this module needs off a canvas node. React Flow's own type is wider. */

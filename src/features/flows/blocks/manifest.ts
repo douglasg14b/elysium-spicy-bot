@@ -860,11 +860,11 @@ export type BlockCapability = (typeof BLOCK_CAPABILITIES)[number];
  * `NON_WIRE_MEMBERS` in `src/web/api/nodeRoutes.ts`, which will not compile until
  * that route withholds it too.
  *
- * The browser mirrors this by hand in `web/src/api/types.ts`, and
- * `src/web/api/__tests__/nodeDescriptorDrift.test.ts` fails when the two disagree —
- * with one exception to carry yourself: it reads what is served off the blocks that
- * exist, so **a new optional member here that no block sets yet is invisible to it.**
- * Mirror an optional member when you add it, not when the first block sets it.
+ * The spec states the served shape as zod in `src/web/api/nodeBody.ts`, held to these
+ * types both ways, member by member — so a member added here, optional or not, fails
+ * `pnpm test` (`nodeBody.test-d.ts`) until it is stated there too — and the browser's types
+ * are generated from it (`pnpm sdk:generate`). The same holds for every type the descriptor
+ * carries.
  */
 export interface BlockManifest<TConfig = unknown> {
     /** Stable identifier persisted in every saved graph, e.g. `action.assignRole`. */

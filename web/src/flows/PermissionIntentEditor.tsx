@@ -48,8 +48,8 @@ import {
     IconPlus,
     IconTrash,
 } from '@tabler/icons-react';
+import type { GuildRole } from '@brattybot/web-sdk';
 import type {
-    GuildRole,
     PermissionAccess,
     PermissionAudience,
     PermissionIntent,

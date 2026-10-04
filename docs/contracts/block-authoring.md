@@ -786,55 +786,45 @@ So, in order:
    [The entry point](#the-entry-point) again. If you still do, the block contract is wrong
    somewhere else. Treat it as a report about the contract, not as an enum to append to.
 
-### Extending the vocabulary or the manifest means editing the browser too
+### Extending the vocabulary or the manifest means stating it in the spec too
 
 The one-directory rule covers **adding a block**. Changing the *contract* — a new vocabulary
 member under step 1, or a new manifest member under step 2 — is the case where you do edit a
-shared file, because the browser holds a hand-written mirror of the manifest in
-`web/src/api/types.ts` (`NodeDescriptor` and the `BLOCK_*` vocabularies beside it).
+shared file: `src/web/api/nodeBody.ts`, which states the served descriptor (`NodeDescriptor`,
+every `BlockConfigField` arm, exits, outputs, the vocabularies) as the zod the OpenAPI spec is
+built from. The browser's types are generated from that spec, so there is no browser file to
+edit — run `pnpm sdk:generate` (which `pnpm dev` runs) and the builder sees the change.
 
-The mirror exists because the web workspace cannot import the bot's types: one `import type`
-from `src/` drags the whole bot tree into `tsc -b` and breaks `pnpm build:web`. So the two are
-kept together by `src/web/api/__tests__/nodeDescriptorDrift.test.ts`, which fails naming the
-field or union that drifted, in either direction. You do not have to remember this rule — the
-test tells you, and it tells you which of the two fixes you want:
+You do not have to remember this rule. Each schema there is held to its manifest type both ways,
+member by member — every control arm, both output arms, both exit-warning forms, the nested
+objects — so a member or arm added to `manifest.ts` and not stated there fails `pnpm test`
+(`src/web/api/__tests__/nodeBody.test-d.ts`, naming the check that drifted) and root `tsc`.
+Then pick one of two fixes:
 
-- the member is for the builder → declare it in `web/src/api/types.ts` (add it to
-  `NodeDescriptor` **and** `NODE_DESCRIPTOR_KEYS`, or to the vocabulary array)
+- the member is for the builder → state it in `nodeBody.ts`, then regenerate the SDK
 - the member is server-only → add it to `NON_WIRE_MEMBERS` in `src/web/api/nodeRoutes.ts`, which
   will not compile until the route withholds it too
 
-This covers the arms of `BlockConfigField` too, member by member — adding `maxLength` to one
-control's arm and not the other side fails, because a member the browser does not declare is one
-the inspector cannot read off a field it is being sent. Exits and outputs are held the same way:
-`BLOCK_OUTPUT_HANDLE_KEYS`, `EXIT_WARNING_CONDITION_KEYS` (one list per object form of
-`warnIfUnconnected`) and `BLOCK_OUTPUT_DECLARATION_KEYS` (one list per naming arm) in the
-browser file, against exhaustive fixtures in the drift test.
-
-One gap to know about: the test derives what is served from the blocks that actually exist, so a
-**new optional top-level member no block sets yet** is served-as-absent and the test stays quiet
-about it. That is the one case you have to carry yourself — declare it in the mirror when you add
-it, not when the first block sets it. (It does not apply to the config-field arms, exits or
-outputs, which are compared against exhaustive fixtures rather than live blocks.)
+A new control also fails web `tsc -b` in `controls/renderControl.tsx` once the SDK is
+regenerated, until the builder implements it.
 
 Everything a manifest declares except `configSchema` and `run` is served to the browser by
 `GET /api/nodes`, so a new member is published to every authenticated dashboard user by
 default. That is the reason the second option has to be a deliberate act.
 
-#### The other mirrors
+#### The mirrors that remain
 
-`NodeDescriptor` is the largest mirror across this boundary but not the only one. Anything the
-builder has to *know* rather than be *sent* is copied by hand for the same `build:web` reason,
-and each copy carries its own gate:
+Anything the builder has to *know* rather than be *sent* is still copied by hand — the web
+workspace cannot import the bot's code, because one `import type` from `src/` would pull the
+whole bot tree into `tsc -b` and break `pnpm build:web` — and each copy carries its own gate:
 
 | Browser copy | Authority in `src/` | Gate |
 | --- | --- | --- |
-| `web/src/api/types.ts` | `blocks/manifest.ts`, the block vocabularies | `src/web/api/__tests__/nodeDescriptorDrift.test.ts` |
 | `web/src/flows/builtinTokens.ts` | `RENDERABLE_TOKENS` in `engine/copyRendering.ts` | `src/web/api/__tests__/builtinTokenDrift.test.ts` |
 | `web/src/flows/ticketChannelName.ts` | `buildTicketChannelNameForType` in `tickets/logic/ticketTypes.ts` | `src/features/tickets/logic/__tests__/ticketChannelNamePreviewDrift.test.ts` |
 
-**A gate lives beside its authority, not beside the copy.** The first two answer to something
-under `src/web/api/`; the third answers to the ticketing feature, so it sits there. A gate placed
+**A gate lives beside its authority, not beside the copy.** The first answers to something
+under `src/web/api/`; the second answers to the ticketing feature, so it sits there. A gate placed
 beside the browser copy would run in the workspace that cannot import the authority.
 
 Two things a gate of this kind must do, both learned the hard way:

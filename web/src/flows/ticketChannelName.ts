@@ -31,7 +31,7 @@
  * just the template strings.
  */
 
-import type { NodeDescriptor } from '../api/types';
+import type { NodeDescriptor } from '@brattybot/web-sdk';
 
 /**
  * The config key holding the ticket type, once a block has declared it makes one.

@@ -59,22 +59,32 @@ import {
     IconStack2,
 } from '@tabler/icons-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ApiError } from '../api/client';
-import { getGuildChannels } from '../api/config';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+    ApiError,
     deployFlow,
     discardFlowDraft,
     getFlow,
-    getGuildRoles,
+    getGuildChannelsOptions,
+    getGuildRolesOptions,
     getInstallPlan,
-    getNodeTypes,
-    getPublishedState,
+    getNodeTypesOptions,
+    getPublishedStateOptions,
+    getPublishedStateQueryKey,
     installFlow,
     listFlowDrafts,
     saveMyFlowDraft,
     updateFlow,
-} from '../api/flows';
-// Only the initial read lives here now; the write moved into `useResourceAutosave`.
+    type FlowDraft,
+    type FlowEdge,
+    type FlowGraph,
+    type GuildChannel,
+    type GuildRole,
+    type InstallPlan,
+    type NodeDescriptor,
+} from '@brattybot/web-sdk';
+// Journey calls stay on the hand-written client until the journey routes are in the spec.
+// Only the initial resource read lives here; the write moved into `useResourceAutosave`.
 import {
     attachFlowToJourney,
     detachFlowFromJourney,
@@ -82,22 +92,11 @@ import {
     getFlowResources,
     listJourneys,
 } from '../api/journeys';
-import type {
-    FlowAttachment,
-    FlowDraft,
-    FlowEdge,
-    FlowGraph,
-    GuildChannel,
-    GuildRole,
-    InstallPlan,
-    JourneySummary,
-    NodeDescriptor,
-    ResourceDeclaration,
-} from '../api/types';
-import { FLOW_GRAPH_VERSION } from '../api/types';
+import type { FlowAttachment, JourneySummary, ResourceDeclaration } from '../api/types';
+import { FLOW_GRAPH_VERSION } from '../flows/contractValues';
 import { FlowNodeCard, type FlowCardNode, type FlowNodeCardData } from '../flows/FlowNodeCard';
-// Aliased: `FlowEdge` is already taken here by the serialized-graph edge type from
-// `../api/types`. The component draws one of those; it is not one.
+// Aliased: `FlowEdge` is already taken here by the serialized-graph edge type from the
+// SDK. The component draws one of those; it is not one.
 import { FlowEdge as FlowEdgeComponent, EdgeActionsProvider } from '../flows/FlowEdge';
 import { ColumnResizeHandle } from '../flows/ColumnResizeHandle';
 import {
@@ -135,6 +134,7 @@ import {
     summariseInstallPlan,
 } from '../flows/installSummary';
 import { InstalledResourcesDialog } from '../flows/InstalledResourcesDialog';
+import { installedFromPublished } from '../flows/publishedSummary';
 import { issuesByNode, problemCount, summarizeIssues } from '../flows/validationIssues';
 import { convergingTriggerCounts } from '../flows/convergingTriggers';
 import { unreachableNodeIds } from '../flows/unreachableNodes';
@@ -494,62 +494,35 @@ function FlowBuilder() {
      * it, rather than having to leave for the flows list to find the only teardown.
      */
     const [installedOpen, setInstalledOpen] = useState(false);
-    /**
-     * How many resources this flow currently has live, or `null` before we have asked.
+    const queryClient = useQueryClient();
+    /*
+     * What this flow has live in the guild — the same query, and so the same cache entry,
+     * as `InstalledResourcesDialog`'s. A teardown there re-reads it, and the toolbar follows.
      *
-     * Fetched on load rather than only when the dialog opens, because the toolbar
-     * button's own face depends on it: a flow with nothing installed offers "Install",
-     * and one with resources live offers to show and remove them. A button that cannot
-     * tell those apart is the two-buttons-for-one-concept problem this replaced.
-     *
-     * `null` means unknown, which renders as the plain install affordance — the safe
-     * default, since it proposes creating rather than destroying.
+     * Asked on load rather than only when the dialog opens, because the toolbar button's
+     * own face depends on it: a flow with nothing installed offers "Install", and one with
+     * resources live offers to show and remove them. A button that cannot tell those apart
+     * is the two-buttons-for-one-concept problem this replaced.
      */
-    const [installedCount, setInstalledCount] = useState<number | null>(null);
-    /**
-     * Which declared resources are live, by key.
-     *
-     * Read from the same call as the count above rather than fetched separately, because it
-     * is the same answer sliced differently. The resources panel needs it to know when a
-     * key may stop following its name: once something in the guild is bound to a key, that
-     * key is identity — `resource_bindings` rows and node config sidecars point at it — and
-     * changing it would orphan both (`resourceKeyFollowsName.ts`).
-     *
-     * Empty while unknown, which narrows the rule to its hand-edit half rather than
-     * freezing everything. Freezing on a failed lookup would be the safer-looking choice
-     * and is the wrong one: it would silently reinstate the stale-key bug for any operator
-     * whose published lookup happened to fail.
+    const publishedPath = { guildId: selected?.id ?? '', flowId: flowId ?? '' };
+    const publishedKey = getPublishedStateQueryKey({ path: publishedPath });
+    const publishedQuery = useQuery({
+        ...getPublishedStateOptions({ path: publishedPath }),
+        enabled: !!selected && !!flowId,
+    });
+    /*
+     * The count, for the toolbar's face, and the live keys, which the resources panel needs
+     * to know when a key may stop following its name. A failed read makes the count unknown
+     * but keeps the keys of the last answer — `installedFromPublished` says why each.
      */
-    const [installedResourceKeys, setInstalledResourceKeys] = useState<ReadonlySet<string>>(
-        () => new Set()
+    const { data: publishedData, isError: publishedFailed } = publishedQuery;
+    const { count: installedCount, keys: installedResourceKeys } = useMemo(
+        () => installedFromPublished({ data: publishedData, failed: publishedFailed }),
+        [publishedData, publishedFailed]
     );
 
-    const refreshInstalledCount = useCallback(async () => {
-        if (!selected || !flowId) return;
-        try {
-            const state = await getPublishedState(selected.id, flowId);
-            setInstalledCount(state.deletableResources.length + state.refusedResources.length);
-            // Both lists: a refused resource is still installed. `refused` is about whether
-            // a *teardown* may touch it — an adopted channel, a category with survivors —
-            // and an adopted resource is exactly the case where the key must not move, since
-            // the binding points at someone else's channel.
-            setInstalledResourceKeys(
-                new Set(
-                    [...state.deletableResources, ...state.refusedResources].map(
-                        (resource) => resource.resourceKey
-                    )
-                )
-            );
-        } catch {
-            // A failed lookup leaves the button on its install face rather than
-            // guessing. The dialog does its own fetch and reports properly.
-            setInstalledCount(null);
-        }
-    }, [selected, flowId]);
-
-    useEffect(() => {
-        void refreshInstalledCount();
-    }, [refreshInstalledCount]);
+    /** Ask again what is live — after an install, which changed it. */
+    const rereadPublished = (): Promise<void> => queryClient.invalidateQueries({ queryKey: publishedKey });
 
     // Undo/redo snapshot stacks. `skipHistory` guards the programmatic restores.
     const past = useRef<Snapshot[]>([]);
@@ -738,20 +711,29 @@ function FlowBuilder() {
     );
 
     /* ----------------------------- load ----------------------------- */
+    /*
+     * One read, once, into editable state — never a `useQuery` whose answer feeds the
+     * canvas, because a refetch would put the stored graph back over the author's edits.
+     * The block catalogue and the guild directory go through the query cache all the same
+     * (`fetchQuery` always asks, because `createDashboardQueryClient` sets no `staleTime`), so the resources
+     * dialog's pickers open already filled from the same answer.
+     */
     useEffect(() => {
         if (!selected || !flowId) return;
         let cancelled = false;
+        const guildPath = { guildId: selected.id };
         void (async () => {
             setLoading(true);
             setError(null);
             try {
-                const [flow, catalog, guildRoles, guildChannels, flowResources] = await Promise.all([
-                    getFlow(selected.id, flowId),
-                    getNodeTypes(),
-                    getGuildRoles(selected.id),
-                    getGuildChannels(selected.id),
-                    getFlowResources(selected.id, flowId),
-                ]);
+                const [{ data: flow }, { nodes: catalog }, { roles: guildRoles }, { channels: guildChannels }, flowResources] =
+                    await Promise.all([
+                        getFlow({ path: { guildId: selected.id, flowId } }),
+                        queryClient.fetchQuery(getNodeTypesOptions()),
+                        queryClient.fetchQuery(getGuildRolesOptions({ path: guildPath })),
+                        queryClient.fetchQuery(getGuildChannelsOptions({ path: guildPath })),
+                        getFlowResources(selected.id, flowId),
+                    ]);
                 if (cancelled) return;
 
                 setNodeCatalog(catalog);
@@ -789,7 +771,9 @@ function FlowBuilder() {
              * be the feature that protects work locking the operator out of it.
              */
             try {
-                const found = await listFlowDrafts(selected.id, flowId);
+                const {
+                    data: { drafts: found },
+                } = await listFlowDrafts({ path: { guildId: selected.id, flowId } });
                 if (cancelled || found.length === 0) return;
                 setDrafts(orderDraftsForPicker(found));
                 setDraftPickerOpen(true);
@@ -808,7 +792,7 @@ function FlowBuilder() {
         return () => {
             cancelled = true;
         };
-    }, [selected, flowId, rebaseDraft, putGraphOnCanvas, setGraphIssues]);
+    }, [selected, flowId, queryClient, rebaseDraft, putGraphOnCanvas, setGraphIssues]);
 
     /**
      * Load a draft from the picker: onto the canvas the way the flow loads, with the
@@ -839,7 +823,9 @@ function FlowBuilder() {
         async (draft: FlowDraft) => {
             if (!selected || !flowId) return;
             try {
-                await discardFlowDraft(selected.id, flowId, draft.draftId);
+                await discardFlowDraft({
+                    path: { guildId: selected.id, flowId, draftId: String(draft.draftId) },
+                });
                 const left = drafts.filter((candidate) => candidate.draftId !== draft.draftId);
                 setDrafts(left);
                 if (left.length === 0) setDraftPickerOpen(false);
@@ -1088,7 +1074,7 @@ function FlowBuilder() {
         setInstallPlan(null);
         setInstallPlanError(null);
         try {
-            const plan = await getInstallPlan(selected.id, flowId);
+            const { data: plan } = await getInstallPlan({ path: { guildId: selected.id, flowId } });
             if (isCurrent()) setInstallPlan(plan);
         } catch (cause) {
             if (!isCurrent()) return;
@@ -1231,9 +1217,9 @@ function FlowBuilder() {
             // An autosave still on its way would land after this save and put back the
             // draft it deletes. Settled first, and its outcome is not this save's concern.
             await draftAutosave.settle();
-            const updated = await updateFlow(selected.id, flowId, {
-                ...sent,
-                baseUpdatedAt: canvasBase ?? undefined,
+            const { data: updated } = await updateFlow({
+                path: { guildId: selected.id, flowId },
+                body: { ...sent, baseUpdatedAt: canvasBase ?? undefined },
             });
             setEnabled(updated.enabled);
             setDirty(false);
@@ -1324,10 +1310,15 @@ function FlowBuilder() {
             if (draftOnlySave) {
                 // Set by the load every save follows, so absent only if that stopped holding.
                 if (!canvasBase) throw new Error('A draft-only save with no flow version under it.');
-                await saveMyFlowDraft(selected.id, flowId, { ...draftOnlySave, baseUpdatedAt: canvasBase });
+                await saveMyFlowDraft({
+                    path: { guildId: selected.id, flowId },
+                    body: { ...draftOnlySave, baseUpdatedAt: canvasBase },
+                });
             } else {
-                const mine = (await listFlowDrafts(selected.id, flowId)).find((draft) => draft.mine);
-                if (mine) await discardFlowDraft(selected.id, flowId, mine.draftId);
+                const path = { guildId: selected.id, flowId };
+                const { data } = await listFlowDrafts({ path });
+                const mine = data.drafts.find((draft) => draft.mine);
+                if (mine) await discardFlowDraft({ path: { ...path, draftId: String(mine.draftId) } });
             }
             // Not left to the pause. A browser Back resolves the held navigation a tick
             // later, so the page re-renders unpaused before it unmounts — and its flush on
@@ -1388,7 +1379,10 @@ function FlowBuilder() {
         const previous = enabled;
         setEnabled(next);
         try {
-            const updated = await updateFlow(selected.id, flowId, { enabled: next });
+            const { data: updated } = await updateFlow({
+                path: { guildId: selected.id, flowId },
+                body: { enabled: next },
+            });
             setStoredIssueCount(updated.issues.length);
             // The cards too, but only while the canvas *is* the stored graph. With
             // unsaved edits on it — or a draft-only save, which is not the stored graph
@@ -1428,7 +1422,7 @@ function FlowBuilder() {
         if (!selected || !flowId) return;
         setInstalling(true);
         try {
-            const result = await installFlow(selected.id, flowId);
+            const { data: result } = await installFlow({ path: { guildId: selected.id, flowId } });
             const outcome = summariseInstallOutcome(result);
             notifications.show({
                 color: outcome.tone,
@@ -1439,7 +1433,7 @@ function FlowBuilder() {
             setInstallOpen(false);
 
             // Flips the toolbar to its installed face without a reload.
-            void refreshInstalledCount();
+            void rereadPublished();
 
             // The install wrote ids into this flow's nodes, so what is on screen is now
             // behind the server. Reloading would discard unsaved canvas edits, so the
@@ -1482,7 +1476,9 @@ function FlowBuilder() {
         if (!selected || !flowId) return;
         setDeploying(true);
         try {
-            const { posted } = await deployFlow(selected.id, flowId);
+            const {
+                data: { posted },
+            } = await deployFlow({ path: { guildId: selected.id, flowId } });
             setDeployOpen(false);
             const buttons = posted.reduce((total, entry) => total + entry.buttonCount, 0);
             notifications.show({
@@ -2300,10 +2296,9 @@ function FlowBuilder() {
                     flowId={flowId}
                     flowName={name || 'this flow'}
                     onChanged={(action) => {
-                        // The toolbar button's face is derived from this count, so a
-                        // teardown has to move it or the button keeps claiming the flow
-                        // is installed after its channels are gone.
-                        void refreshInstalledCount();
+                        // The toolbar button's face needs no refresh here: the dialog
+                        // re-reads the published query it shares with this page before
+                        // it calls back, so the count has already moved.
 
                         // Only an unpublish invalidates the canvas. An undeploy retires
                         // messages and leaves every bound id exactly as it was.

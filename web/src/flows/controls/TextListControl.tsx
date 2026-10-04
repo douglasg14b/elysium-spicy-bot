@@ -10,7 +10,7 @@
 import { ActionIcon, Button, Stack, Text, TextInput } from '@mantine/core';
 import { IconPlus, IconTrash } from '@tabler/icons-react';
 import { asTextList, type ControlProps } from './types';
-import type { BlockConfigField } from '../../api/types';
+import type { BlockConfigField } from '@brattybot/web-sdk';
 
 type TextListField = Extract<BlockConfigField, { control: 'textList' }>;
 

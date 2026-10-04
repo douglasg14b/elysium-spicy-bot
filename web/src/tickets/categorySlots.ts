@@ -10,8 +10,7 @@
  * component around them is layout.
  */
 
-import type { TicketCategoryView, TicketingConfigView, TicketsConfigUpdate } from '@brattybot/web-sdk';
-import type { GuildChannel } from '../api/types';
+import type { GuildChannel, TicketCategoryView, TicketingConfigView, TicketsConfigUpdate } from '@brattybot/web-sdk';
 import { channelOptionLabel } from '../flows/resourceAdoption';
 
 /** The three places a ticket channel can sit, by where the ticket is in its life. */

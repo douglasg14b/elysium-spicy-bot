@@ -12,7 +12,8 @@
  * Same rule as the teardown copy: clarity first, sass second.
  */
 
-import type { InstallPlan, InstallPlanItem, InstallResult, ResourceKind } from '../api/types';
+import type { InstallPlan, InstallPlanItem, InstallResult } from '@brattybot/web-sdk';
+import type { ResourceKind } from '../api/types';
 import { joinWithAnd } from './nameLists';
 
 /** What the review step needs to say, decided here rather than in JSX. */

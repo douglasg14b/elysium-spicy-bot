@@ -270,17 +270,6 @@ export const FlowSummarySchema = z
 export type FlowSummaryBody = z.infer<typeof FlowSummarySchema>;
 
 /**
- * Where a graph save landed — the discriminant of {@link FlowSaveBody}.
- *
- *  - `flow`: on the flow row. The saver's own draft, if they had one, is gone with it.
- *  - `draft`: on the saver's draft only, because the flow is live and the graph is
- *    incomplete or waiting on its install. The flow row — its graph, its name — is
- *    exactly as it was.
- */
-export const FLOW_SAVE_TARGETS = ['flow', 'draft'] as const;
-export type FlowSaveTarget = (typeof FLOW_SAVE_TARGETS)[number];
-
-/**
  * One operator's draft, without its graph — the body of `PUT drafts/mine`.
  *
  * `mine` is the caller's own, answered by the server so the page does not need to know
@@ -422,77 +411,3 @@ export function flowSummary(flow: FlowEntity, entry: FlowJourneyIndexEntry | und
         updatedAt: new Date(flow.updatedAt).toISOString(),
     };
 }
-
-/**
- * The wire-shape member lists `flowWireShapeDrift.test.ts` compares against the browser's
- * copy in `web/src/api/types.ts`.
- *
- * Still needed while the flow builder reads those hand-written types; they go when it
- * moves to the SDK, whose types are generated from the schemas above. The list row has
- * no list here: the flows list reads the SDK's `FlowSummary` already.
- *
- * Data rather than a type import because a single `import type` from `src/` into
- * `web/src/` pulls the bot tree into the browser project's
- * compilation. `satisfies` holds each list to its type, and the check below fails to
- * compile when the type gains a member the list does not name.
- */
-export const FLOW_DETAIL_KEYS = [
-    'flowId',
-    'name',
-    'enabled',
-    'graph',
-    'issues',
-    'createdAt',
-    'updatedAt',
-] as const satisfies readonly (keyof FlowDetailBody)[];
-
-export const FLOW_DRAFT_SUMMARY_KEYS = [
-    'draftId',
-    'authorId',
-    'authorName',
-    'mine',
-    'name',
-    'baseUpdatedAt',
-    'flowSavedSince',
-    'createdAt',
-    'updatedAt',
-] as const satisfies readonly (keyof FlowDraftSummaryBody)[];
-
-export const FLOW_DRAFT_KEYS = [
-    ...FLOW_DRAFT_SUMMARY_KEYS,
-    'graph',
-    'issues',
-] as const satisfies readonly (keyof FlowDraftBody)[];
-
-/** One list per arm of {@link FlowSaveBody}: `keyof` a union names only what the arms share. */
-export const FLOW_SAVED_TO_FLOW_KEYS = [
-    ...FLOW_DETAIL_KEYS,
-    'savedAs',
-] as const satisfies readonly (keyof Extract<FlowSaveBody, { savedAs: 'flow' }>)[];
-
-export const FLOW_SAVED_AS_DRAFT_KEYS = [
-    ...FLOW_DETAIL_KEYS,
-    'savedAs',
-    'draft',
-    'uninstalled',
-] as const satisfies readonly (keyof Extract<FlowSaveBody, { savedAs: 'draft' }>)[];
-
-/** Fails to compile if a flow wire shape gains a member absent from its list above. */
-type FlowKeyListsAreComplete =
-    | Exclude<keyof FlowDetailBody, (typeof FLOW_DETAIL_KEYS)[number]>
-    | Exclude<keyof FlowDraftSummaryBody, (typeof FLOW_DRAFT_SUMMARY_KEYS)[number]>
-    | Exclude<keyof FlowDraftBody, (typeof FLOW_DRAFT_KEYS)[number]>
-    | Exclude<keyof Extract<FlowSaveBody, { savedAs: 'flow' }>, (typeof FLOW_SAVED_TO_FLOW_KEYS)[number]>
-    | Exclude<keyof Extract<FlowSaveBody, { savedAs: 'draft' }>, (typeof FLOW_SAVED_AS_DRAFT_KEYS)[number]>
-    // The vocabulary, both ways: a `savedAs` arm the list does not name, or a name no arm has.
-    | Exclude<FlowSaveBody['savedAs'], FlowSaveTarget>
-    | Exclude<FlowSaveTarget, FlowSaveBody['savedAs']>;
-
-/**
- * Do not delete as unused: removing it erases the guard above. The tuple wrapper is
- * load-bearing — a bare `extends never` distributes and is vacuously true.
- */
-const flowKeyListsAreComplete: [FlowKeyListsAreComplete] extends [never]
-    ? true
-    : ['A flow wire-shape key list is missing', FlowKeyListsAreComplete] = true;
-void flowKeyListsAreComplete;

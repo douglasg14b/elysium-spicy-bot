@@ -21,11 +21,15 @@
  * answers describes an older canvas than the save does, so it is dropped.
  */
 
-import { zFlowBlockFieldRules } from '@brattybot/web-sdk';
+import {
+    ApiError,
+    checkFlow,
+    zFlowBlockFieldRules,
+    type FlowGraph,
+    type FlowValidationIssue,
+    type NodeDescriptor,
+} from '@brattybot/web-sdk';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ApiError } from '../api/client';
-import { checkFlow } from '../api/flows';
-import type { FlowGraph, FlowValidationIssue, NodeDescriptor } from '../api/types';
 import { fieldOwning, liveFieldIssues } from './liveFieldIssues';
 import { shouldAcceptResponse } from './resourceSaveQueue';
 import { visibleIssues } from './validationIssues';
@@ -166,8 +170,10 @@ export function useFlowIssues({ guildId, flowId, graph, catalog }: FlowIssuesInp
         const issued = issuedRef.current;
         const asOf = editCountRef.current;
 
-        checkFlow(guild, flow, canvas)
-            .then((found) => {
+        // Called directly, never as a query or a mutation: which answer may land, and
+        // when, is this hook's to decide, and its rules are above.
+        checkFlow({ path: { guildId: guild, flowId: flow }, body: { graph: canvas } })
+            .then(({ data: { issues: found } }) => {
                 if (!shouldAcceptResponse(issued, issuedRef.current)) return;
                 answeredRef.current = serialised;
                 answer(found, asOf);

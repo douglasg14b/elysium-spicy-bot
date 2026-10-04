@@ -14,14 +14,12 @@
 
 import { useMemo } from 'react';
 import { MultiSelect, Select, Stack, Text, TextInput } from '@mantine/core';
+import type { BlockConfigField, Eligibility, EligibilityPermission } from '@brattybot/web-sdk';
 import {
     ELIGIBILITY_PERMISSIONS,
     ELIGIBILITY_PRINCIPALS,
-    type EligibilityPermission,
-    type Eligibility,
     type EligibilityPrincipal,
-    type BlockConfigField,
-} from '../../api/types';
+} from '../contractValues';
 import { roleColorHex } from '../nodeMeta';
 import type { ControlProps } from './types';
 
@@ -37,10 +35,10 @@ type EligibilityField = Extract<BlockConfigField, { control: 'eligibility' }>;
  * Keyed by principal rather than a plain array, so adding one to the vocabulary
  * fails to compile here until it is given a label and a hint.
  *
- * Worth the shape. The drift test compares the principal *lists* as data, so a
- * new arm does force the browser constant to gain the string — but nothing would
- * force this table, and a principal with no entry renders a picker whose current
- * value has no option, which reads as unset.
+ * Worth the shape. A new arm on the server reaches the principal list on its own
+ * (`contractValues.ts` reads it off the generated union) — but nothing would force
+ * this table, and a principal with no entry renders a picker whose current value has
+ * no option, which reads as unset.
  */
 const PRINCIPAL_COPY: Record<EligibilityPrincipal, { label: string; hint: string }> = {
     anyone: { label: 'Anyone', hint: 'Nobody is turned away.' },

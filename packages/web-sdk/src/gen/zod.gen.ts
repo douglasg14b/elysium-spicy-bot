@@ -2,6 +2,107 @@
 
 import * as z from 'zod';
 
+export const zBlockCardSummaryPart = z.union([
+    z.object({
+        emptyText: z.string().optional(),
+        hideWhenEmpty: z.boolean().optional(),
+        key: z.string(),
+        prefix: z.string().optional(),
+        quote: z.boolean().optional(),
+        stopIfEmpty: z.boolean().optional(),
+        suffix: z.string().optional(),
+        truncate: z.number().optional()
+    }),
+    z.object({
+        text: z.string()
+    })
+]);
+
+/**
+ * One column of an `objectList` entry: a named input on every row.
+ */
+export const zBlockConfigColumn = z.object({
+    control: z.enum([
+        'text',
+        'longText',
+        'toggle'
+    ]),
+    key: z.string(),
+    label: z.string(),
+    maxLength: z.number().optional(),
+    placeholder: z.string().optional(),
+    rendersTokens: z.boolean().optional()
+});
+
+export const zBlockConfigOption = z.object({
+    label: z.string(),
+    value: z.string()
+});
+
+export const zBlockHandleTone = z.enum([
+    'neutral',
+    'positive',
+    'negative',
+    'caution'
+]);
+
+/**
+ * One way a run can leave a block. `warnIfUnconnected` is `true`, or the condition under which the builder warns while the exit is unconnected.
+ */
+export const zBlockOutputHandle = z.object({
+    id: z.string().optional(),
+    label: z.string(),
+    tone: zBlockHandleTone,
+    warnIfUnconnected: z.union([
+        z.literal(true),
+        z.object({
+            whenFieldSet: z.string()
+        }),
+        z.object({
+            equals: z.array(z.string()),
+            whenField: z.string()
+        })
+    ]).optional()
+});
+
+export const zBlockOutputValueKind = z.enum(['channel', 'time']);
+
+/**
+ * A value a block writes for later blocks. `fixed` writes `key`; `authored` writes the name the node holds in its `fromField` config field.
+ */
+export const zBlockOutputDeclaration = z.union([
+    z.object({
+        description: z.string().optional(),
+        handle: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        naming: z.enum(['fixed']),
+        valueKind: zBlockOutputValueKind.optional(),
+        valueKindFrom: z.object({
+            field: z.string(),
+            kinds: z.record(z.string(), zBlockOutputValueKind)
+        }).optional()
+    }),
+    z.object({
+        description: z.string().optional(),
+        fromField: z.string(),
+        handle: z.string().optional(),
+        label: z.string(),
+        naming: z.enum(['authored']),
+        valueKind: zBlockOutputValueKind.optional(),
+        valueKindFrom: z.object({
+            field: z.string(),
+            kinds: z.record(z.string(), zBlockOutputValueKind)
+        }).optional()
+    })
+]);
+
+export const zBlockPaletteGroup = z.enum([
+    'triggers',
+    'conditions',
+    'actions'
+]);
+
 export const zDeployedButtonMessage = z.object({
     buttonCount: z.number(),
     channelId: z.string(),
@@ -12,6 +113,205 @@ export const zDeployResult = z.object({
     ok: z.literal(true),
     posted: z.array(zDeployedButtonMessage)
 });
+
+export const zEligibilityPermission = z.enum([
+    'Administrator',
+    'ManageGuild',
+    'ManageRoles',
+    'ManageChannels',
+    'ManageMessages',
+    'KickMembers',
+    'BanMembers',
+    'ModerateMembers'
+]);
+
+/**
+ * Who may do something, by principal. Each principal carries only what it needs.
+ */
+export const zEligibility = z.union([
+    z.object({
+        principal: z.enum(['anyone'])
+    }),
+    z.object({
+        principal: z.enum(['subject'])
+    }),
+    z.object({
+        principal: z.enum(['actor'])
+    }),
+    z.object({
+        principal: z.enum(['variable']),
+        variable: z.string().min(1)
+    }),
+    z.object({
+        principal: z.enum(['roles']),
+        roleIds: z.array(z.string().min(1)).min(1)
+    }),
+    z.object({
+        permissions: z.array(zEligibilityPermission).min(1),
+        principal: z.enum(['discordPermission'])
+    })
+]);
+
+/**
+ * One editable config field, in the order the inspector renders it, discriminated on `control`.
+ */
+export const zBlockConfigField = z.union([
+    z.object({
+        control: z.enum(['rolePicker']),
+        defaultValue: z.string().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['channelPicker']),
+        defaultValue: z.string().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        optional: z.boolean().optional(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['text']),
+        defaultValue: z.string().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        maxLength: z.number().optional(),
+        optional: z.boolean().optional(),
+        placeholder: z.string().optional(),
+        rendersTokens: z.boolean().optional(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['longText']),
+        defaultValue: z.string().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        maxLength: z.number().optional(),
+        placeholder: z.string().optional(),
+        rendersTokens: z.boolean().optional(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['duration']),
+        defaultValue: z.number().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        optional: z.boolean().optional(),
+        placeholder: z.string().optional(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['segmented']),
+        defaultValue: z.string().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        options: z.array(zBlockConfigOption),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['select']),
+        defaultValue: z.string().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        options: z.array(zBlockConfigOption),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['colour']),
+        defaultValue: z.string().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        swatches: z.array(z.string()).optional(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        addLabel: z.string().optional(),
+        control: z.enum(['textList']),
+        defaultValue: z.array(z.string()).optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        maxEntries: z.number().optional(),
+        maxLength: z.number().optional(),
+        minEntries: z.number().optional(),
+        placeholder: z.string().optional(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        addLabel: z.string().optional(),
+        columns: z.array(zBlockConfigColumn),
+        control: z.enum(['objectList']),
+        defaultValue: z.array(z.record(z.string(), z.unknown())).optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        maxEntries: z.number().optional(),
+        minEntries: z.number().optional(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['eligibility']),
+        defaultValue: zEligibility.optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['variableSelect']),
+        defaultValue: z.string().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        valueKind: zBlockOutputValueKind,
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    })
+]);
 
 export const zErrorBody = z.object({
     error: z.string()
@@ -374,6 +674,49 @@ export const zInstallResult = z.object({
     updatedFlowIds: z.array(z.string()),
     writeBackFailed: z.boolean(),
     writtenCount: z.number()
+});
+
+/**
+ * Everything the Flow Builder draws a block from: its palette entry, its card, its inspector form and its exits. The block's config schema stays on the server.
+ */
+export const zNodeDescriptor = z.object({
+    canSuspend: z.boolean(),
+    capabilities: z.array(z.enum([
+        'manageRoles',
+        'sendMessages',
+        'embedLinks',
+        'manageChannels',
+        'kickMembers'
+    ])),
+    cardSummary: z.array(zBlockCardSummaryPart).optional(),
+    configFields: z.array(zBlockConfigField),
+    createsChannel: z.boolean().optional(),
+    description: z.string(),
+    group: zBlockPaletteGroup,
+    handles: z.array(zBlockOutputHandle),
+    icon: z.string(),
+    kind: z.enum([
+        'trigger',
+        'condition',
+        'action'
+    ]),
+    label: z.string(),
+    note: z.string().optional(),
+    outputs: z.array(zBlockOutputDeclaration),
+    requires: z.array(z.enum([
+        'subject',
+        'actor',
+        'channel',
+        'interaction'
+    ])),
+    startedBy: z.enum([
+        'buttonClick',
+        'levelUp',
+        'memberJoin',
+        'memberLeave',
+        'reactionAdd'
+    ]).optional(),
+    type: z.string()
 });
 
 export const zPublishedButtonMessage = z.object({
@@ -963,3 +1306,10 @@ export const zUnclaimTicketPath = z.object({
  * The ticket as it now stands. `syncWarning` is set when its channel did not follow.
  */
 export const zUnclaimTicketResponse = zTicketActionResult;
+
+/**
+ * Every registered block, as the builder draws it.
+ */
+export const zGetNodeTypesResponse = z.object({
+    nodes: z.array(zNodeDescriptor)
+});

@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { Edge } from '@xyflow/react';
-import type { NodeDescriptor } from '../../api/types';
+import type { NodeDescriptor } from '@brattybot/web-sdk';
 import {
     describeUnconnectedExit,
     exitWarningsShown,

@@ -13,13 +13,13 @@
  *
  * The rules are handed in — `zFlowBlockFieldRules.shape`, by `useFlowIssues` — rather than
  * imported here, so the root workspace's gate can run these very functions against the
- * server with the very same generated rules
- * (`src/features/flows/logic/__tests__/blockFieldRules.test.ts`): the root type-check
- * cannot resolve the SDK package.
+ * server (`src/features/flows/logic/__tests__/blockFieldRules.test.ts`): nothing under
+ * `src/` can resolve the SDK package at run time, so that gate takes the same generated
+ * rules by relative path and hands them in.
  */
 
+import type { BlockConfigField, FlowNode, FlowValidationIssue, NodeDescriptor } from '@brattybot/web-sdk';
 import { fieldProblems, type FieldCheck } from '../api/fieldProblems';
-import type { BlockConfigField, FlowNode, FlowValidationIssue, NodeDescriptor } from '../api/types';
 import { resourceKeyFieldFor } from './controls/types';
 import { isFieldVisible } from './variables';
 

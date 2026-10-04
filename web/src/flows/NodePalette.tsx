@@ -10,7 +10,8 @@
 import { useMemo, useState } from 'react';
 import { ScrollArea, Stack, Text, TextInput, UnstyledButton } from '@mantine/core';
 import { IconSearch } from '@tabler/icons-react';
-import { BLOCK_PALETTE_GROUPS, type BlockPaletteGroup, type NodeDescriptor } from '../api/types';
+import type { BlockPaletteGroup, NodeDescriptor } from '@brattybot/web-sdk';
+import { BLOCK_PALETTE_GROUPS } from './contractValues';
 import { KIND_STYLES } from './nodeMeta';
 
 /** The dataTransfer key the canvas reads on drop. */
@@ -19,7 +20,7 @@ export const NODE_DRAG_MIME = 'application/brattybot-node';
 /**
  * Heading per palette group, in the order the palette shows them.
  *
- * Keyed off the mirrored vocabulary, so a group added to the contract fails to
+ * Keyed off the generated vocabulary, so a group added to the contract fails to
  * compile here until it is given a heading — the palette cannot silently drop a
  * section's worth of blocks.
  */

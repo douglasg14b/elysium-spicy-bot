@@ -1,6 +1,6 @@
 import { screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { FlowValidationIssue, NodeDescriptor } from '../../api/types';
+import type { FlowValidationIssue, NodeDescriptor } from '@brattybot/web-sdk';
 import { renderWithProviders } from '../../__tests__/support/renderWithProviders';
 import { NodeInspector } from '../NodeInspector';
 

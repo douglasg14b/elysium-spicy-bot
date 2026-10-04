@@ -7,7 +7,7 @@ import { FLOW_GRAPH_VERSION } from '../../data/flowGraph';
 import { browserFieldRules, fieldJsonSchemas, type BlockSchemaSource } from '../blockFieldRules';
 import { flowReadinessIssues } from '../flowReadiness';
 import { toDescriptor } from '../../../../web/api/nodeRoutes';
-import type { NodeDescriptor as BrowserNodeDescriptor } from '../../../../../web/src/api/types';
+import type { NodeDescriptor as BrowserNodeDescriptor } from '@brattybot/web-sdk';
 import { resourceKeyFieldFor } from '../../../../../web/src/flows/controls/types';
 import { fieldIssue } from '../../../../../web/src/flows/liveFieldIssues';
 import { zFlowBlockFieldRules } from '../../../../../packages/web-sdk/src/gen/zod.gen';

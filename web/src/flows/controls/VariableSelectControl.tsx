@@ -9,7 +9,7 @@
 
 import { useMemo } from 'react';
 import { Select, Text } from '@mantine/core';
-import type { BlockConfigField, BlockOutputValueKind } from '../../api/types';
+import type { BlockConfigField, BlockOutputValueKind } from '@brattybot/web-sdk';
 import { asText, type ControlProps } from './types';
 
 type VariableSelectField = Extract<BlockConfigField, { control: 'variableSelect' }>;

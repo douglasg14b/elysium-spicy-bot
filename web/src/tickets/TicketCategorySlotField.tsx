@@ -1,6 +1,5 @@
 import { Select, Stack, Text, TextInput } from '@mantine/core';
-import type { TicketCategoryView } from '@brattybot/web-sdk';
-import type { GuildChannel } from '../api/types';
+import type { GuildChannel, TicketCategoryView } from '@brattybot/web-sdk';
 import {
     CATEGORY_SLOT_COPY,
     CREATE_NEW_CATEGORY,
