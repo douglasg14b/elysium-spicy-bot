@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { DriftedResource, JourneyDrift, OrphanedResource, RepairedResource } from '../../api/types';
+import type { DriftedResource, JourneyDrift, OrphanedResource, RepairedResource } from '@brattybot/web-sdk';
 import {
     driftHeadline,
     hasFindings,

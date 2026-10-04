@@ -47,7 +47,7 @@
  * one that can actually reach an installed resource, and it always passes the set.
  */
 
-import type { ResourceDeclaration } from '../api/types';
+import type { ResourceDeclaration } from '@brattybot/web-sdk';
 import { slugifyResourceName, uniqueResourceKey } from './resourceAdoption';
 
 /**

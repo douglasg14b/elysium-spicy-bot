@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import type { GuildChannel, GuildRole } from '@brattybot/web-sdk';
-import type { ResourceDeclaration } from '../../api/types';
+import type { GuildChannel, GuildRole, ResourceDeclaration } from '@brattybot/web-sdk';
 import { renderWithProviders } from '../../__tests__/support/renderWithProviders';
 import { ResourcesPanel } from '../ResourcesPanel';
 

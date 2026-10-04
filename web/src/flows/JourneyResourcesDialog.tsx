@@ -27,13 +27,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Group, Loader, Modal, Stack, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { ApiError } from '../api/client';
 import {
+    ApiError,
     getJourneyPublishedState,
     undeployJourney,
     unpublishJourney,
-} from '../api/journeys';
-import type { PublishedFlowState } from '../api/types';
+    type PublishedFlowState,
+} from '@brattybot/web-sdk';
 import { joinWithAnd } from './nameLists';
 import { ResourceGroup, TeardownActions } from './publishedInventory';
 import { summarisePublished } from './publishedSummary';
@@ -92,7 +92,7 @@ export function JourneyResourcesDialog({
 
     const refresh = useCallback(async (): Promise<PublishedFlowState | null> => {
         try {
-            const state = await getJourneyPublishedState(guildId, journeyKey);
+            const { data: state } = await getJourneyPublishedState({ path: { guildId, journeyKey } });
             setLoadError(null);
             return state;
         } catch (err) {
@@ -131,7 +131,9 @@ export function JourneyResourcesDialog({
     async function handleUndeploy() {
         setBusy(true);
         try {
-            const { results } = await undeployJourney(guildId, journeyKey);
+            const {
+                data: { results },
+            } = await undeployJourney({ path: { guildId, journeyKey } });
             const failed = results.filter((result) => result.outcome === 'failed');
             const gone = results.length - failed.length;
 
@@ -169,7 +171,9 @@ export function JourneyResourcesDialog({
     async function handleUnpublish() {
         setBusy(true);
         try {
-            const { results } = await unpublishJourney(guildId, journeyKey);
+            const {
+                data: { results },
+            } = await unpublishJourney({ path: { guildId, journeyKey } });
             const deleted = results.filter((result) => result.outcome === 'deleted').length;
             const failed = results.filter((result) => result.outcome === 'failed');
 

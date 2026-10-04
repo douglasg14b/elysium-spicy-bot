@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { JourneySummary } from '../../api/types';
+import type { JourneySummary } from '@brattybot/web-sdk';
 import {
     attachableJourneys,
     describeAttachIntent,
@@ -49,7 +49,8 @@ describe('newJourneyNameFor', () => {
     });
 
     it('drops the suffix rather than truncating a name at the server\'s cap', () => {
-        // `createJourneyBody` refuses names over 100 characters. The suffix is ours and
+        // The server refuses journey names over 100 characters (`FlowGroup`'s
+        // `newJourneyName`, read from the SDK). The suffix is ours and
         // the name is theirs, so the suffix is what gives way.
         const long = 'a'.repeat(96);
         expect(newJourneyNameFor(long)).toBe(long);

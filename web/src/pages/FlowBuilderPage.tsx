@@ -62,9 +62,13 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
     ApiError,
+    attachFlowToJourney,
     deployFlow,
+    detachFlowFromJourney,
     discardFlowDraft,
     getFlow,
+    getFlowAttachment,
+    getFlowResources,
     getGuildChannelsOptions,
     getGuildRolesOptions,
     getInstallPlan,
@@ -73,26 +77,20 @@ import {
     getPublishedStateQueryKey,
     installFlow,
     listFlowDrafts,
+    listJourneys,
     saveMyFlowDraft,
     updateFlow,
+    type FlowAttachment,
     type FlowDraft,
     type FlowEdge,
     type FlowGraph,
     type GuildChannel,
     type GuildRole,
     type InstallPlan,
+    type JourneySummary,
     type NodeDescriptor,
+    type ResourceDeclaration,
 } from '@brattybot/web-sdk';
-// Journey calls stay on the hand-written client until the journey routes are in the spec.
-// Only the initial resource read lives here; the write moved into `useResourceAutosave`.
-import {
-    attachFlowToJourney,
-    detachFlowFromJourney,
-    getFlowAttachment,
-    getFlowResources,
-    listJourneys,
-} from '../api/journeys';
-import type { FlowAttachment, JourneySummary, ResourceDeclaration } from '../api/types';
 import { FLOW_GRAPH_VERSION } from '../flows/contractValues';
 import { FlowNodeCard, type FlowCardNode, type FlowNodeCardData } from '../flows/FlowNodeCard';
 // Aliased: `FlowEdge` is already taken here by the serialized-graph edge type from the
@@ -726,14 +724,21 @@ function FlowBuilder() {
             setLoading(true);
             setError(null);
             try {
-                const [{ data: flow }, { nodes: catalog }, { roles: guildRoles }, { channels: guildChannels }, flowResources] =
-                    await Promise.all([
-                        getFlow({ path: { guildId: selected.id, flowId } }),
-                        queryClient.fetchQuery(getNodeTypesOptions()),
-                        queryClient.fetchQuery(getGuildRolesOptions({ path: guildPath })),
-                        queryClient.fetchQuery(getGuildChannelsOptions({ path: guildPath })),
-                        getFlowResources(selected.id, flowId),
-                    ]);
+                const [
+                    { data: flow },
+                    { nodes: catalog },
+                    { roles: guildRoles },
+                    { channels: guildChannels },
+                    {
+                        data: { resources: flowResources },
+                    },
+                ] = await Promise.all([
+                    getFlow({ path: { guildId: selected.id, flowId } }),
+                    queryClient.fetchQuery(getNodeTypesOptions()),
+                    queryClient.fetchQuery(getGuildRolesOptions({ path: guildPath })),
+                    queryClient.fetchQuery(getGuildChannelsOptions({ path: guildPath })),
+                    getFlowResources({ path: { guildId: selected.id, flowId } }),
+                ]);
                 if (cancelled) return;
 
                 setNodeCatalog(catalog);
@@ -976,9 +981,16 @@ function FlowBuilder() {
         if (!selected || !flowId) return;
         setAttachmentLoading(true);
         try {
-            const [current, all] = await Promise.all([
-                getFlowAttachment(selected.id, flowId),
-                listJourneys(selected.id),
+            const [
+                {
+                    data: { attachment: current },
+                },
+                {
+                    data: { journeys: all },
+                },
+            ] = await Promise.all([
+                getFlowAttachment({ path: { guildId: selected.id, flowId } }),
+                listJourneys({ path: { guildId: selected.id } }),
             ]);
             setAttachment(current);
             setGuildJourneys(all);
@@ -1009,8 +1021,9 @@ function FlowBuilder() {
         async (journeyKey: string) => {
             if (!selected || !flowId) return;
             try {
-                const result = await attachFlowToJourney(selected.id, flowId, journeyKey);
-                setDeclaredResources(await getFlowResources(selected.id, flowId));
+                const path = { guildId: selected.id, flowId };
+                const { data: result } = await attachFlowToJourney({ path, body: { journeyKey } });
+                setDeclaredResources((await getFlowResources({ path })).data.resources);
                 await refreshAttachment();
                 notifications.show({
                     color: 'brand',
@@ -1031,8 +1044,9 @@ function FlowBuilder() {
     const handleDetach = useCallback(async () => {
         if (!selected || !flowId) return;
         try {
-            await detachFlowFromJourney(selected.id, flowId);
-            setDeclaredResources(await getFlowResources(selected.id, flowId));
+            const path = { guildId: selected.id, flowId };
+            await detachFlowFromJourney({ path });
+            setDeclaredResources((await getFlowResources({ path })).data.resources);
             await refreshAttachment();
             notifications.show({
                 color: 'brand',

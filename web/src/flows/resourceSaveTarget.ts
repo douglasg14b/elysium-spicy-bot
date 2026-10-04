@@ -17,8 +17,8 @@
  *
  * So the journey-scoped dialog saves with `PUT /journeys/:journeyKey`, which already accepts
  * `{ resources }` and validates them identically — both routes parse with the same
- * `resourceSchema` and both land in `journeysRepo.update`, so there is no validation gap
- * between them.
+ * `ResourceDeclaration` schema and both land in `journeysRepo.update`, so there is no
+ * validation gap between them.
  *
  * **It is also the only one of the two that would work at all.** `PUT /flows/:flowId/resources`
  * refuses *every* write to a journey another flow also holds — a 409 carrying
@@ -38,11 +38,11 @@
 
 import {
     getFlowResources,
-    getJourneyResources,
+    getJourney,
     saveFlowResources,
     updateJourney,
-} from '../api/journeys';
-import type { ResourceDeclaration } from '../api/types';
+    type ResourceDeclaration,
+} from '@brattybot/web-sdk';
 
 export type ResourceSaveTarget =
     /** The builder: keyed on the flow, journey resolved server-side. */
@@ -63,16 +63,28 @@ export function resourceTargetIdentity(target: ResourceSaveTarget): string {
     return target.kind === 'flow' ? `flow:${target.flowId}` : `journey:${target.journeyKey}`;
 }
 
-/** Read what the target currently declares. */
+/**
+ * Read what the target currently declares.
+ *
+ * Direct SDK calls rather than queries: the autosave owns the ordering of its reads and
+ * writes (`resourceSaveQueue.ts`), and a cache would be a second owner of the same list.
+ */
 export function loadResources(
     guildId: string,
     target: ResourceSaveTarget
 ): Promise<ResourceDeclaration[]> {
     switch (target.kind) {
         case 'flow':
-            return getFlowResources(guildId, target.flowId);
+            return getFlowResources({ path: { guildId, flowId: target.flowId } }).then(
+                ({ data }) => data.resources
+            );
         case 'journey':
-            return getJourneyResources(guildId, target.journeyKey);
+            // The journey itself, not a member flow — see the header. A 404 means no such
+            // journey in this guild, including one belonging to another guild, which is
+            // deliberately indistinguishable.
+            return getJourney({ path: { guildId, journeyKey: target.journeyKey } }).then(
+                ({ data }) => data.resources
+            );
         default: {
             const unhandled: never = target;
             throw new Error(`Unhandled resource save target: ${JSON.stringify(unhandled)}`);
@@ -88,14 +100,19 @@ export function storeResources(
 ): Promise<ResourceDeclaration[]> {
     switch (target.kind) {
         case 'flow':
-            return saveFlowResources(guildId, target.flowId, resources);
+            // An empty list removes the flow's journey entirely.
+            return saveFlowResources({
+                path: { guildId, flowId: target.flowId },
+                body: { resources },
+            }).then(({ data }) => data.resources);
         case 'journey':
             // `PUT /journeys/:key` answers with the whole journey; only the declarations
             // are of interest, and unwrapping here keeps both arms returning the same
             // shape so the autosave never has to know which endpoint it used.
-            return updateJourney(guildId, target.journeyKey, { resources }).then(
-                (journey) => journey.resources
-            );
+            return updateJourney({
+                path: { guildId, journeyKey: target.journeyKey },
+                body: { resources },
+            }).then(({ data }) => data.resources);
         default: {
             const unhandled: never = target;
             throw new Error(`Unhandled resource save target: ${JSON.stringify(unhandled)}`);

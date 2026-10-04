@@ -20,7 +20,7 @@
  * dialog leads with the inventory and keeps the sentences around it to one line each.
  */
 
-import type { PublishedFlowState, PublishedResource, ResourceKind } from '../api/types';
+import type { PublishedFlowState, PublishedResource, ResourceKind } from '@brattybot/web-sdk';
 import { joinWithAnd } from './nameLists';
 import { RESOURCE_KIND_STYLES } from './resourceMeta';
 

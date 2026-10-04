@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { normaliseResourceName as browserNormalise } from '../../../../../web/src/flows/resourceName';
-import { resourceSchema } from '../../../../web/api/journeyRoutes';
+import { ResourceDeclarationSchema } from '../../../../web/api/journeyBody';
 import { RESOURCE_KINDS } from '../resourceDeclaration';
 import { normaliseResourceName } from '../resourceName';
 
@@ -70,7 +70,7 @@ describe('normaliseResourceName', () => {
  */
 describe('the save route', () => {
     it('stores a text channel under the name Discord will hold, rather than refusing it', () => {
-        const parsed = resourceSchema.parse({
+        const parsed = ResourceDeclarationSchema.parse({
             key: 'welcome-channel',
             kind: 'textChannel',
             defaultName: 'Welcome Mat',
@@ -80,7 +80,7 @@ describe('the save route', () => {
     });
 
     it('stores a category exactly as written', () => {
-        const parsed = resourceSchema.parse({ key: 'front-desk', kind: 'category', defaultName: 'Front Desk' });
+        const parsed = ResourceDeclarationSchema.parse({ key: 'front-desk', kind: 'category', defaultName: 'Front Desk' });
 
         expect(parsed.defaultName).toBe('Front Desk');
     });

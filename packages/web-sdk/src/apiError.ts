@@ -1,9 +1,8 @@
 import type { FlowValidationIssue } from './gen/types.gen';
 
 /**
- * Every refusal the dashboard API answers with, thrown by both the generated SDK and the
- * hand-written client in `web/src/api/client.ts` while pages move from one to the other —
- * so one `instanceof ApiError` check holds whichever client a page uses.
+ * Every refusal the dashboard API answers with, as every SDK call throws it — so one
+ * `instanceof ApiError` check holds wherever a page calls the API.
  *
  * Carries the HTTP status, which a page branches on (a 409 is not a 400), and the
  * server's own sentence from the `{ error }` body.

@@ -16,8 +16,8 @@ export type OpenApiDocument = ReturnType<OpenAPIHono['getOpenAPI31Document']>;
  *
  * `registerApiRoutes` onto a fresh app — the same function `buildApp` calls — so the
  * paths carry `/api` exactly as served, and nothing listens, logs in to Discord, or
- * queries the database. Only routers built with `apiRouter` contribute; the rest are not
- * described yet.
+ * queries the database. Only routers built with `apiRouter` contribute, and every `/api`
+ * router is one (`everyRouteInSpec.test.ts` holds that).
  *
  * Each request rule's fixed sentence rides beside its keyword as `x-messages`, so the
  * browser's generated zod refuses with the server's words; a request rule the browser

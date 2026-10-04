@@ -2,9 +2,12 @@ import { ChannelType } from 'discord.js';
 import { describe, expect, it } from 'vitest';
 import { detectResourceProblems } from '../../../../../web/src/flows/detectResourceProblems';
 import { RESOURCE_CHIPS } from '../../../../../web/src/flows/resourceChips';
-import type { GuildChannel as BrowserGuildChannel, GuildRole as BrowserGuildRole } from '@brattybot/web-sdk';
-import type { ResourceDeclaration as BrowserResourceDeclaration } from '../../../../../web/src/api/types';
-import { resourceSchema } from '../../../../web/api/journeyRoutes';
+import type {
+    GuildChannel as BrowserGuildChannel,
+    GuildRole as BrowserGuildRole,
+    ResourceDeclaration as BrowserResourceDeclaration,
+} from '@brattybot/web-sdk';
+import { ResourceDeclarationSchema, rolesWithoutIdsRefusal } from '../../../../web/api/journeyBody';
 import { declaredRoleReference } from '../declaredRoleReference';
 import { buildInstallPlan } from '../installPlan';
 import { validateJourneyDeclaration, type JourneyDeclaration } from '../resourceDeclaration';
@@ -14,9 +17,9 @@ import { validateJourneyDeclaration, type JourneyDeclaration } from '../resource
  *
  * `web/src/flows/detectResourceProblems.ts` says, of some declarations, "the save will
  * refuse this". It cannot call the code that would refuse — a `src/` import inside
- * `web/` drags the bot tree into `tsc -b` and breaks `pnpm build:web`, which is the
- * trade `web/src/api/types.ts` documents — so it re-implements the rules, and this
- * test holds the two halves equal instead of the compiler.
+ * `web/` drags the bot tree into `tsc -b` and breaks `pnpm build:web` — so it checks the
+ * key and the name with the server's own rules as generated into the SDK, re-implements
+ * the whole-list ones, and this test holds the two halves equal instead of the compiler.
  *
  * It lives on the **server** side of the boundary because imports run that way: a test
  * under `src/` may read `web/`, as `blockFieldRules.test.ts` and
@@ -31,25 +34,34 @@ import { validateJourneyDeclaration, type JourneyDeclaration } from '../resource
  *    the state this whole vocabulary exists to prevent.
  */
 
-/** What the server does with a declaration: both gates, in the order the route runs them. */
+/** What the server does with a declaration: every gate, in the order the route runs them. */
 type ServerVerdict = { accepted: true } | { accepted: false; reason: string };
 
 function serverVerdict(resources: readonly BrowserResourceDeclaration[]): ServerVerdict {
     // Gate one: the Zod schema on each resource. The route parses the array, so one
     // bad member rejects the whole save.
+    const parsed: JourneyDeclaration['resources'][number][] = [];
     for (const resource of resources) {
-        const parsed = resourceSchema.safeParse(resource);
-        if (!parsed.success) {
-            return { accepted: false, reason: parsed.error.issues[0]?.message ?? 'schema' };
+        const result = ResourceDeclarationSchema.safeParse(resource);
+        if (!result.success) {
+            return { accepted: false, reason: result.error.issues[0]?.message ?? 'schema' };
         }
+        parsed.push(result.data);
     }
 
-    // Gate two: the whole-journey invariants, which are the ones no single resource
+    // Gate two: a `roles` permission naming no role. Asked by the handler once the
+    // schema has passed, because it spans two fields the spec cannot relate.
+    const rolesRefusal = rolesWithoutIdsRefusal(parsed);
+    if (rolesRefusal) {
+        return { accepted: false, reason: rolesRefusal };
+    }
+
+    // Gate three: the whole-journey invariants, which are the ones no single resource
     // can answer. The journey key is the flow's own id on the real path.
     const journey: JourneyDeclaration = {
         journeyKey: 'flow-1',
         name: 'Flow 1',
-        resources: resources as JourneyDeclaration['resources'],
+        resources: parsed,
     };
 
     try {

@@ -9,6 +9,21 @@ export type ClientOptions = {
  */
 export type ActivityStatus = 'active' | 'quiet' | 'dormant' | 'none';
 
+export type AttachResult = {
+    journeyKey: string;
+    movedFrom: {
+        journeyKey: string;
+        name: string;
+    } | null;
+    name: string;
+    resourceCount: number;
+};
+
+export type AttachedFlow = {
+    flowId: string;
+    name: string;
+};
+
 /**
  * The signed-in Discord user. `avatar` is the avatar hash, null when they have none.
  */
@@ -281,6 +296,27 @@ export type DeployedButtonMessage = {
     messageId: string;
 };
 
+export type DetachResult = {
+    detached: boolean;
+};
+
+export type DriftDetail = {
+    explanation: string;
+    kind: 'renamed' | 'reparented' | 'wrongType' | 'permissions';
+};
+
+export type DriftRepair = {
+    resourceKeys: Array<string>;
+};
+
+export type DriftedResource = {
+    drift: Array<DriftDetail>;
+    kind: string;
+    name: string;
+    repairable: boolean;
+    resourceKey: string;
+};
+
 /**
  * Who may do something, by principal. Each principal carries only what it needs.
  */
@@ -318,6 +354,17 @@ export type Flow = {
     issues: Array<FlowValidationIssue>;
     name: string;
     updatedAt: string;
+};
+
+export type FlowAttach = {
+    journeyKey: string;
+};
+
+export type FlowAttachment = {
+    journeyKey: string;
+    name: string;
+    resourceCount: number;
+    sharedWith: Array<AttachedFlow>;
 };
 
 /**
@@ -494,6 +541,22 @@ export type FlowGraph = {
 };
 
 /**
+ * `resolution` is required when the moving flow declares resources. `newJourneyKey` is required when the target flow is on no journey yet, so one is created.
+ */
+export type FlowGroup = {
+    newJourneyKey?: string;
+    newJourneyName?: string;
+    resolution?: GroupResolution;
+    targetFlowId: string;
+};
+
+export type FlowGroupResult = {
+    journeyKey: string;
+    name: string;
+    resourceCount: number;
+};
+
+/**
  * The journey a flow sits in, present for every flow that resolves to one. Group rows on `memberCount > 1`, not on this being present: 1 is the implicit journey a lone flow gets. `installState` says install has run over the declared resources, read from the binding table — not that every channel still exists. `installedKeys` are the keys with a live binding, which must stop following their resource name.
  */
 export type FlowJourneyMembership = {
@@ -520,6 +583,10 @@ export type FlowNode = {
 
 export type FlowRefusal = ErrorBody & {
     issues?: Array<FlowValidationIssue>;
+};
+
+export type FlowResourcesSave = {
+    resources: Array<ResourceDeclaration>;
 };
 
 export type FlowSaveResult = ({
@@ -576,6 +643,31 @@ export type FlowValidationIssue = {
     message: string;
     nodeId?: string;
 };
+
+export type ForgottenOrphan = {
+    forgotten: true;
+    name: string;
+    objectRemains: boolean;
+    resourceKey: string;
+};
+
+/**
+ * What grouping would do. `destination` is null when the target flow is on no journey yet, so one would be created. `orphaned` are the live resources "leave" would strand.
+ */
+export type GroupPreview = {
+    canMerge: boolean;
+    collisions: Array<KeyCollision>;
+    destination: {
+        journeyKey: string;
+        name: string;
+    } | null;
+    destinationName: string;
+    moving: Array<MovingResource>;
+    movingFlowName: string;
+    orphaned: Array<MovingResource>;
+};
+
+export type GroupResolution = 'merge' | 'leave';
 
 export type Guild = {
     iconURL: string | null;
@@ -660,6 +752,61 @@ export type InstalledResource = {
     discordId: string;
     name: string;
     resourceKey: string;
+};
+
+export type Journey = {
+    createdAt: string;
+    description: string | null;
+    journeyKey: string;
+    name: string;
+    resources: Array<ResourceDeclaration>;
+    updatedAt: string;
+};
+
+export type JourneyCreate = {
+    description?: string;
+    journeyKey: string;
+    name: string;
+    resources: Array<ResourceDeclaration>;
+};
+
+/**
+ * What a journey installed that no longer matches what it declares (`drifted`), what it checked and found matching (`cleanKeys`), what it could not compare (`unchecked`), and what it installed and no longer declares (`orphans`).
+ */
+export type JourneyDrift = {
+    cleanKeys: Array<string>;
+    drifted: Array<DriftedResource>;
+    journeyKey: string;
+    orphans: Array<OrphanedResource>;
+    unchecked: Array<UncheckedResource>;
+};
+
+/**
+ * One journey, without its declarations, and the flows attached to it.
+ */
+export type JourneySummary = {
+    attachedFlows: Array<AttachedFlow>;
+    createdAt: string;
+    description: string | null;
+    journeyKey: string;
+    name: string;
+    resourceCount: number;
+    updatedAt: string;
+};
+
+/**
+ * A partial update: send only what changed. `description: null` clears it. `resources` replaces the whole list.
+ */
+export type JourneyUpdate = {
+    description?: string | null;
+    name?: string;
+    resources?: Array<ResourceDeclaration>;
+};
+
+export type KeyCollision = {
+    destinationName: string;
+    key: string;
+    movingName: string;
 };
 
 /**
@@ -836,6 +983,16 @@ export type LogoutResult = {
     ok: true;
 };
 
+export type MovingResource = {
+    declaredName: string;
+    key: string;
+    kind: ResourceKind;
+    live: {
+        discordId: string;
+        name: string;
+    } | null;
+};
+
 /**
  * Everything the Flow Builder draws a block from: its palette entry, its card, its inspector form and its exits. The block's config schema stays on the server.
  */
@@ -856,6 +1013,29 @@ export type NodeDescriptor = {
     requires: Array<'subject' | 'actor' | 'channel' | 'interaction'>;
     startedBy?: 'buttonClick' | 'levelUp' | 'memberJoin' | 'memberLeave' | 'reactionAdd';
     type: string;
+};
+
+export type OrphanedResource = {
+    bindingId: number;
+    explanation: string;
+    kind: string;
+    name: string;
+    neverSettled: boolean;
+    resourceKey: string;
+    stillInGuild: boolean;
+};
+
+export type PermissionAccess = 'hidden' | 'readOnly' | 'readWrite';
+
+export type PermissionAudience = 'everyone' | 'roles' | 'staff' | 'subject';
+
+/**
+ * This audience gets this access. `roleIds` names the roles for a `roles` audience — a snowflake, or `resource:<key>` for a role the same journey declares — and must not be empty there.
+ */
+export type PermissionIntent = {
+    access: PermissionAccess;
+    audience: PermissionAudience;
+    roleIds?: Array<string>;
 };
 
 export type PublishedButtonMessage = {
@@ -884,6 +1064,34 @@ export type PublishedResource = {
     resourceKey: string;
     survivors?: Array<string>;
 };
+
+export type RepairResult = {
+    results: Array<RepairedResource>;
+};
+
+export type RepairedResource = {
+    explanation?: string;
+    kind: ResourceKind;
+    name: string;
+    outcome: 'repaired' | 'refused' | 'failed';
+    repaired?: Array<'renamed' | 'reparented' | 'wrongType' | 'permissions'>;
+    resourceKey: string;
+};
+
+/**
+ * A resource a journey needs, named by a key stable across servers. `defaultName` is stored as Discord will hold it: a text channel lowercased, whitespace hyphenated. `adoptDiscordId` adopts something that already exists instead of creating it.
+ */
+export type ResourceDeclaration = {
+    adoptDiscordId?: string;
+    defaultName: string;
+    description?: string;
+    key: string;
+    kind: ResourceKind;
+    parentKey?: string;
+    permissions?: Array<PermissionIntent>;
+};
+
+export type ResourceKind = 'category' | 'textChannel' | 'role';
 
 /**
  * The window a member’s stats cover, shortest first.
@@ -1045,6 +1253,12 @@ export type TicketsConfigUpdate = {
         } | null;
     };
     moderationRoles: Array<string>;
+};
+
+export type UncheckedResource = {
+    name: string;
+    reason: string;
+    resourceKey: string;
 };
 
 export type UndeployResult = {
@@ -1749,6 +1963,92 @@ export type UpdateFlowResponses = {
 
 export type UpdateFlowResponse = UpdateFlowResponses[keyof UpdateFlowResponses];
 
+export type AttachFlowToJourneyData = {
+    body: FlowAttach;
+    path: {
+        guildId: string;
+        flowId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flows/{flowId}/attach';
+};
+
+export type AttachFlowToJourneyErrors = {
+    /**
+     * The body was refused, or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the flow or the journey is not in it.
+     */
+    404: ErrorBody;
+    /**
+     * The body was not sent as JSON.
+     */
+    415: ErrorBody;
+};
+
+export type AttachFlowToJourneyError = AttachFlowToJourneyErrors[keyof AttachFlowToJourneyErrors];
+
+export type AttachFlowToJourneyResponses = {
+    /**
+     * The journey the flow is now on, and the one it left.
+     */
+    200: AttachResult;
+};
+
+export type AttachFlowToJourneyResponse = AttachFlowToJourneyResponses[keyof AttachFlowToJourneyResponses];
+
+export type GetFlowAttachmentData = {
+    body?: never;
+    path: {
+        guildId: string;
+        flowId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flows/{flowId}/attachment';
+};
+
+export type GetFlowAttachmentErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the flow is not in it.
+     */
+    404: ErrorBody;
+};
+
+export type GetFlowAttachmentError = GetFlowAttachmentErrors[keyof GetFlowAttachmentErrors];
+
+export type GetFlowAttachmentResponses = {
+    /**
+     * The journey, or null when the flow is on none.
+     */
+    200: {
+        attachment: FlowAttachment | null;
+    };
+};
+
+export type GetFlowAttachmentResponse = GetFlowAttachmentResponses[keyof GetFlowAttachmentResponses];
+
 export type CheckFlowData = {
     body: FlowCheck;
     path: {
@@ -1838,6 +2138,46 @@ export type DeployFlowResponses = {
 };
 
 export type DeployFlowResponse = DeployFlowResponses[keyof DeployFlowResponses];
+
+export type DetachFlowFromJourneyData = {
+    body?: never;
+    path: {
+        guildId: string;
+        flowId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flows/{flowId}/detach';
+};
+
+export type DetachFlowFromJourneyErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the flow is not in it.
+     */
+    404: ErrorBody;
+};
+
+export type DetachFlowFromJourneyError = DetachFlowFromJourneyErrors[keyof DetachFlowFromJourneyErrors];
+
+export type DetachFlowFromJourneyResponses = {
+    /**
+     * `detached` is false when the flow was on no journey — the state asked for, so not an error.
+     */
+    200: DetachResult;
+};
+
+export type DetachFlowFromJourneyResponse = DetachFlowFromJourneyResponses[keyof DetachFlowFromJourneyResponses];
 
 export type ListFlowDraftsData = {
     body?: never;
@@ -1969,6 +2309,100 @@ export type DiscardFlowDraftResponses = {
 };
 
 export type DiscardFlowDraftResponse = DiscardFlowDraftResponses[keyof DiscardFlowDraftResponses];
+
+export type GroupFlowWithData = {
+    body: FlowGroup;
+    path: {
+        guildId: string;
+        flowId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flows/{flowId}/group';
+};
+
+export type GroupFlowWithErrors = {
+    /**
+     * The body was refused; the target is this flow; the flow declares resources and no `resolution` was given; a new group needs `newJourneyKey`; the merged declarations disagree with each other; or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or either flow is not in it.
+     */
+    404: ErrorBody;
+    /**
+     * Nothing was grouped: this flow's journey is shared, both journeys declare the same key, or a journey with the new key already exists.
+     */
+    409: ErrorBody;
+    /**
+     * The body was not sent as JSON.
+     */
+    415: ErrorBody;
+};
+
+export type GroupFlowWithError = GroupFlowWithErrors[keyof GroupFlowWithErrors];
+
+export type GroupFlowWithResponses = {
+    /**
+     * The journey both flows are now on.
+     */
+    200: FlowGroupResult;
+};
+
+export type GroupFlowWithResponse = GroupFlowWithResponses[keyof GroupFlowWithResponses];
+
+export type PreviewFlowGroupingData = {
+    body?: never;
+    path: {
+        guildId: string;
+        flowId: string;
+    };
+    query?: {
+        target?: string;
+    };
+    url: '/api/guilds/{guildId}/flows/{flowId}/group-preview';
+};
+
+export type PreviewFlowGroupingErrors = {
+    /**
+     * No target flow, the target is this flow, or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or either flow is not in it.
+     */
+    404: ErrorBody;
+    /**
+     * This flow's journey is shared with other flows, which still install it.
+     */
+    409: ErrorBody;
+};
+
+export type PreviewFlowGroupingError = PreviewFlowGroupingErrors[keyof PreviewFlowGroupingErrors];
+
+export type PreviewFlowGroupingResponses = {
+    /**
+     * The preview the grouping dialog is built from.
+     */
+    200: GroupPreview;
+};
+
+export type PreviewFlowGroupingResponse = PreviewFlowGroupingResponses[keyof PreviewFlowGroupingResponses];
 
 export type InstallFlowData = {
     body?: never;
@@ -2102,6 +2536,98 @@ export type GetPublishedStateResponses = {
 
 export type GetPublishedStateResponse = GetPublishedStateResponses[keyof GetPublishedStateResponses];
 
+export type GetFlowResourcesData = {
+    body?: never;
+    path: {
+        guildId: string;
+        flowId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flows/{flowId}/resources';
+};
+
+export type GetFlowResourcesErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+};
+
+export type GetFlowResourcesError = GetFlowResourcesErrors[keyof GetFlowResourcesErrors];
+
+export type GetFlowResourcesResponses = {
+    /**
+     * The flow's declarations. Empty when it declares nothing, which is the normal state of a flow.
+     */
+    200: {
+        resources: Array<ResourceDeclaration>;
+    };
+};
+
+export type GetFlowResourcesResponse = GetFlowResourcesResponses[keyof GetFlowResourcesResponses];
+
+export type SaveFlowResourcesData = {
+    body: FlowResourcesSave;
+    path: {
+        guildId: string;
+        flowId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flows/{flowId}/resources';
+};
+
+export type SaveFlowResourcesErrors = {
+    /**
+     * The body was refused, a `roles` permission names no role, the declarations disagree with each other (a duplicate key, a parent or role reference naming nothing), or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the flow is not in it.
+     */
+    404: ErrorBody;
+    /**
+     * Nothing was written: other flows share the journey, or a journey keyed with this flow id already exists.
+     */
+    409: ErrorBody;
+    /**
+     * The body was not sent as JSON.
+     */
+    415: ErrorBody;
+};
+
+export type SaveFlowResourcesError = SaveFlowResourcesErrors[keyof SaveFlowResourcesErrors];
+
+export type SaveFlowResourcesResponses = {
+    /**
+     * The declarations as stored, text-channel names normalised.
+     */
+    200: {
+        resources: Array<ResourceDeclaration>;
+    };
+};
+
+export type SaveFlowResourcesResponse = SaveFlowResourcesResponses[keyof SaveFlowResourcesResponses];
+
 export type UndeployFlowData = {
     body?: never;
     path: {
@@ -2185,6 +2711,475 @@ export type UnpublishFlowResponses = {
 };
 
 export type UnpublishFlowResponse = UnpublishFlowResponses[keyof UnpublishFlowResponses];
+
+export type ListJourneysData = {
+    body?: never;
+    path: {
+        guildId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/journeys';
+};
+
+export type ListJourneysErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+};
+
+export type ListJourneysError = ListJourneysErrors[keyof ListJourneysErrors];
+
+export type ListJourneysResponses = {
+    /**
+     * Every journey in the guild, without declarations.
+     */
+    200: {
+        journeys: Array<JourneySummary>;
+    };
+};
+
+export type ListJourneysResponse = ListJourneysResponses[keyof ListJourneysResponses];
+
+export type CreateJourneyData = {
+    body: JourneyCreate;
+    path: {
+        guildId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/journeys';
+};
+
+export type CreateJourneyErrors = {
+    /**
+     * The body was refused, a `roles` permission names no role, the declarations disagree with each other (a duplicate key, a parent or role reference naming nothing), or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+    /**
+     * A journey with that key already exists in this server.
+     */
+    409: ErrorBody;
+    /**
+     * The body was not sent as JSON.
+     */
+    415: ErrorBody;
+};
+
+export type CreateJourneyError = CreateJourneyErrors[keyof CreateJourneyErrors];
+
+export type CreateJourneyResponses = {
+    /**
+     * The new journey.
+     */
+    201: Journey;
+};
+
+export type CreateJourneyResponse = CreateJourneyResponses[keyof CreateJourneyResponses];
+
+export type DeleteJourneyData = {
+    body?: never;
+    path: {
+        guildId: string;
+        journeyKey: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/journeys/{journeyKey}';
+};
+
+export type DeleteJourneyErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the journey is not in it.
+     */
+    404: ErrorBody;
+    /**
+     * Flows are still attached; the sentence names each.
+     */
+    409: ErrorBody;
+};
+
+export type DeleteJourneyError = DeleteJourneyErrors[keyof DeleteJourneyErrors];
+
+export type DeleteJourneyResponses = {
+    /**
+     * Deleted.
+     */
+    204: void;
+};
+
+export type DeleteJourneyResponse = DeleteJourneyResponses[keyof DeleteJourneyResponses];
+
+export type GetJourneyData = {
+    body?: never;
+    path: {
+        guildId: string;
+        journeyKey: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/journeys/{journeyKey}';
+};
+
+export type GetJourneyErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the journey is not in it.
+     */
+    404: ErrorBody;
+};
+
+export type GetJourneyError = GetJourneyErrors[keyof GetJourneyErrors];
+
+export type GetJourneyResponses = {
+    /**
+     * The journey.
+     */
+    200: Journey;
+};
+
+export type GetJourneyResponse = GetJourneyResponses[keyof GetJourneyResponses];
+
+export type UpdateJourneyData = {
+    body: JourneyUpdate;
+    path: {
+        guildId: string;
+        journeyKey: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/journeys/{journeyKey}';
+};
+
+export type UpdateJourneyErrors = {
+    /**
+     * The body was refused, a `roles` permission names no role, the declarations disagree with each other (a duplicate key, a parent or role reference naming nothing), or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the journey is not in it.
+     */
+    404: ErrorBody;
+    /**
+     * The body was not sent as JSON.
+     */
+    415: ErrorBody;
+};
+
+export type UpdateJourneyError = UpdateJourneyErrors[keyof UpdateJourneyErrors];
+
+export type UpdateJourneyResponses = {
+    /**
+     * The journey as it now stands.
+     */
+    200: Journey;
+};
+
+export type UpdateJourneyResponse = UpdateJourneyResponses[keyof UpdateJourneyResponses];
+
+export type GetJourneyDriftData = {
+    body?: never;
+    path: {
+        guildId: string;
+        journeyKey: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/journeys/{journeyKey}/drift';
+};
+
+export type GetJourneyDriftErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the journey is not in it.
+     */
+    404: ErrorBody;
+};
+
+export type GetJourneyDriftError = GetJourneyDriftErrors[keyof GetJourneyDriftErrors];
+
+export type GetJourneyDriftResponses = {
+    /**
+     * The drift report, read from the guild, with the orphans beside it.
+     */
+    200: JourneyDrift;
+};
+
+export type GetJourneyDriftResponse = GetJourneyDriftResponses[keyof GetJourneyDriftResponses];
+
+export type ForgetJourneyOrphanData = {
+    body?: never;
+    path: {
+        guildId: string;
+        journeyKey: string;
+        bindingId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/journeys/{journeyKey}/orphans/{bindingId}/forget';
+};
+
+export type ForgetJourneyOrphanErrors = {
+    /**
+     * The binding id is not a whole number from 1, or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, the journey is not in it, or the record is not one of its leftovers any more — already removed, or declared again.
+     */
+    404: ErrorBody;
+};
+
+export type ForgetJourneyOrphanError = ForgetJourneyOrphanErrors[keyof ForgetJourneyOrphanErrors];
+
+export type ForgetJourneyOrphanResponses = {
+    /**
+     * Forgotten. `objectRemains` says whether the object is still in the server.
+     */
+    200: ForgottenOrphan;
+};
+
+export type ForgetJourneyOrphanResponse = ForgetJourneyOrphanResponses[keyof ForgetJourneyOrphanResponses];
+
+export type GetJourneyPublishedStateData = {
+    body?: never;
+    path: {
+        guildId: string;
+        journeyKey: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/journeys/{journeyKey}/published';
+};
+
+export type GetJourneyPublishedStateErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the journey is not in it.
+     */
+    404: ErrorBody;
+};
+
+export type GetJourneyPublishedStateError = GetJourneyPublishedStateErrors[keyof GetJourneyPublishedStateErrors];
+
+export type GetJourneyPublishedStateResponses = {
+    /**
+     * Every attached flow's button messages, and the resources the journey put in the guild.
+     */
+    200: PublishedFlowState;
+};
+
+export type GetJourneyPublishedStateResponse = GetJourneyPublishedStateResponses[keyof GetJourneyPublishedStateResponses];
+
+export type RepairJourneyDriftData = {
+    body: DriftRepair;
+    path: {
+        guildId: string;
+        journeyKey: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/journeys/{journeyKey}/repair';
+};
+
+export type RepairJourneyDriftErrors = {
+    /**
+     * The body was refused, or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the journey is not in it.
+     */
+    404: ErrorBody;
+    /**
+     * Nothing was repaired: the repair was refused before it started.
+     */
+    409: ErrorBody;
+    /**
+     * The body was not sent as JSON.
+     */
+    415: ErrorBody;
+};
+
+export type RepairJourneyDriftError = RepairJourneyDriftErrors[keyof RepairJourneyDriftErrors];
+
+export type RepairJourneyDriftResponses = {
+    /**
+     * What became of each chosen resource. A partial repair is a 200; a `failed` row with `repaired` set was changed before the step that failed.
+     */
+    200: RepairResult;
+};
+
+export type RepairJourneyDriftResponse = RepairJourneyDriftResponses[keyof RepairJourneyDriftResponses];
+
+export type UndeployJourneyData = {
+    body?: never;
+    path: {
+        guildId: string;
+        journeyKey: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/journeys/{journeyKey}/undeploy';
+};
+
+export type UndeployJourneyErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the journey is not in it.
+     */
+    404: ErrorBody;
+};
+
+export type UndeployJourneyError = UndeployJourneyErrors[keyof UndeployJourneyErrors];
+
+export type UndeployJourneyResponses = {
+    /**
+     * What became of each recorded message, across every flow. A flow whose buttons could not be read is a `failed` row naming it.
+     */
+    200: UndeployResult;
+};
+
+export type UndeployJourneyResponse = UndeployJourneyResponses[keyof UndeployJourneyResponses];
+
+export type UnpublishJourneyData = {
+    body?: never;
+    path: {
+        guildId: string;
+        journeyKey: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/journeys/{journeyKey}/unpublish';
+};
+
+export type UnpublishJourneyErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the journey is not in it.
+     */
+    404: ErrorBody;
+    /**
+     * Nothing was deleted: the teardown was refused before it started.
+     */
+    409: ErrorBody;
+};
+
+export type UnpublishJourneyError = UnpublishJourneyErrors[keyof UnpublishJourneyErrors];
+
+export type UnpublishJourneyResponses = {
+    /**
+     * What became of each resource.
+     */
+    200: UnpublishResult;
+};
+
+export type UnpublishJourneyResponse = UnpublishJourneyResponses[keyof UnpublishJourneyResponses];
 
 export type ListLevelingData = {
     body?: never;

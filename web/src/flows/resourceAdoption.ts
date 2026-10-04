@@ -12,8 +12,7 @@
  * than rendering components (see `cardSummary.ts`, `variables.ts`).
  */
 
-import type { GuildChannel, GuildRole } from '@brattybot/web-sdk';
-import type { ResourceDeclaration, ResourceKind } from '../api/types';
+import type { GuildChannel, GuildRole, ResourceDeclaration, ResourceKind } from '@brattybot/web-sdk';
 
 type GuildChannelType = GuildChannel['type'];
 

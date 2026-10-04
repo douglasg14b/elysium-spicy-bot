@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { ResourceDeclaration } from '../../api/types';
+import type { ResourceDeclaration } from '@brattybot/web-sdk';
 import { declaredRoleOptionValue } from '../declaredRoleReference';
 import {
     applyResourcePatch,

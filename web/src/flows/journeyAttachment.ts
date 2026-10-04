@@ -9,7 +9,7 @@
  * journey the server is going to refuse — and neither would show up as a crash.
  */
 
-import type { AttachedFlow, JourneySummary } from '../api/types';
+import { zFlowGroup, type AttachedFlow, type JourneySummary } from '@brattybot/web-sdk';
 
 /**
  * Turn a journey name into a key an operator can live with.
@@ -71,21 +71,14 @@ export function newJourneyNameFor(targetFlowName: string): string {
     // journey". Case-insensitive because the operator's capitalisation is theirs to keep.
     if (/\bjourney$/i.test(base)) return base;
 
-    // The server caps journey names at 100 characters and refuses longer ones with a 400.
-    // A flow name can reach that cap on its own, so the suffix has to be the part that
-    // gives way — truncating the operator's name to make room for our word would be this
-    // helper editing what they typed.
+    // The server caps journey names and refuses longer ones with a 400. A flow name can
+    // reach that cap on its own, so the suffix has to be the part that gives way —
+    // truncating the operator's name to make room for our word would be this helper
+    // editing what they typed. Asked of the server's own rule for the name the grouping
+    // sends, as generated into the SDK, so there is no cap here to fall out of step.
     const suffixed = `${base} journey`;
-    return suffixed.length <= JOURNEY_NAME_MAX_LENGTH ? suffixed : base;
+    return zFlowGroup.shape.newJourneyName.safeParse(suffixed).success ? suffixed : base;
 }
-
-/**
- * The server's own cap, from `updateJourneyBody`/`createJourneyBody` in
- * `src/web/api/journeyRoutes.ts`. Mirrored rather than imported for the reason the whole
- * `web/api/types.ts` mirror exists: importing from `src/` drags the bot tree into the web
- * build.
- */
-const JOURNEY_NAME_MAX_LENGTH = 100;
 
 /*
  * `deleteBlockedReason` was here: it disabled the journeys page's delete button and said

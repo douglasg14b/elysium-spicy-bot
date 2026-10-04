@@ -8,21 +8,23 @@
  * red tier. A chip claiming "the save will be refused" is worth something only if the
  * save really would be.
  *
- * ## Why this is a mirror rather than a call
+ * ## Where each rule comes from
  *
- * The web workspace cannot import from `src/`: one `import type` drags the whole bot
- * tree into `tsc -b` and breaks `pnpm build:web`. This is the same trade
- * `web/src/api/types.ts` and `web/src/flows/declaredRoleReference.ts` already took,
- * and it is paid for the same way — a test that holds the two halves equal, living on
- * the server side where importing *into* `web/` is allowed.
+ * The key and name rules are the server's own, as the SDK generates them from the route's
+ * `ResourceDeclaration` schema (`zResourceDeclaration`) — the key pattern and its 1–64
+ * cap, the name's 1–100 cap. Nothing here restates them.
  *
- * The authorities being mirrored, and nothing else:
+ * The rest are rules no schema states, so they cannot travel and are mirrored here
+ * instead. The web workspace cannot import from `src/`: one `import type` drags the whole
+ * bot tree into `tsc -b` and breaks `pnpm build:web`. This is the same trade
+ * `web/src/flows/declaredRoleReference.ts` takes, and it is paid for the same way — a test
+ * that holds the two halves equal, living on the server side where importing *into*
+ * `web/` is allowed. The authorities being mirrored, and nothing else:
  *
  *  - `validateJourneyDeclaration` — duplicate keys, duplicate adoptions, declared-role
  *    references naming an undeclared key or a key that is not a role.
- *  - `resourceSchema` in `src/web/api/journeyRoutes.ts` — the key regex and its 1–64
- *    cap, the name's 1–100 cap.
- *  - `permissionIntentSchema` — a `roles` intent must name at least one role.
+ *  - `rolesWithoutIdsRefusal` in `src/web/api/journeyBody.ts` — a `roles` intent must
+ *    name at least one role.
  *
  * ## What is deliberately *not* mirrored
  *
@@ -51,8 +53,13 @@
  * it needs a parent or role-reference loop the pickers cannot express.
  */
 
-import type { GuildChannel, GuildRole } from '@brattybot/web-sdk';
-import type { PermissionIntent, ResourceDeclaration } from '../api/types';
+import {
+    zResourceDeclaration,
+    type GuildChannel,
+    type GuildRole,
+    type PermissionIntent,
+    type ResourceDeclaration,
+} from '@brattybot/web-sdk';
 import { parseDeclaredRoleReference } from './declaredRoleReference';
 import type { ResourceChipDetail, ResourceChipId } from './resourceChips';
 import { RESOURCE_CHIP_ORDER, RESOURCE_CHIPS } from './resourceChips';
@@ -60,20 +67,6 @@ import { collidableNamesFor, nameCollidesWithExisting } from './resourceNameSugg
 
 /** Shared so an absent `installedKeys` does not allocate a set per resource per render. */
 const EMPTY_KEYS: ReadonlySet<string> = new Set();
-
-/**
- * The key rule, copied from `resourceKeySchema` in `src/web/api/journeyRoutes.ts`.
- *
- * Duplicated rather than derived for the boundary reason in the header. Held equal to
- * the server's by the agreement test, which feeds the same strings through both.
- */
-const RESOURCE_KEY_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-
-/** `resourceKeySchema.max(64)`. */
-const RESOURCE_KEY_MAX_LENGTH = 64;
-
-/** `defaultName`'s `.max(100)`. */
-const RESOURCE_NAME_MAX_LENGTH = 100;
 
 /**
  * One chip, resolved against one resource.
@@ -333,7 +326,7 @@ function hidesFromEveryone(intent: PermissionIntent): boolean {
  * Three ways one rule can fail, refused in two different places on the server, and all
  * three are the same mistake to the operator — the rule names no usable role:
  *
- *  - no ids at all, refused by `permissionIntentSchema` at save;
+ *  - no ids at all, refused by the save route (`rolesWithoutIdsRefusal`);
  *  - a `resource:` reference to a key the flow does not declare, refused by
  *    `validateJourneyDeclaration` at save;
  *  - a reference to a key that *is* declared but is not a role, refused by the same.
@@ -360,13 +353,13 @@ function ruleNamesNoRole(intent: PermissionIntent, context: ChipContext): boolea
     });
 }
 
-/** `resourceKeySchema`: 1–64 characters, lowercase, digits, single hyphens. */
+/** The server's key rule — 1–64 characters, lowercase, digits, single hyphens — as generated into the SDK. */
 function isValidResourceKey(key: string): boolean {
-    return key.length <= RESOURCE_KEY_MAX_LENGTH && RESOURCE_KEY_PATTERN.test(key);
+    return zResourceDeclaration.shape.key.safeParse(key).success;
 }
 
 /**
- * `defaultName`: 1–100 characters.
+ * The server's name rule, as generated into the SDK: 1–100 characters.
  *
  * Only the emptiness and the cap, because that is all the server checks. Discord's own
  * channel-naming rules are not applied here: Discord silently transforms a channel
@@ -374,7 +367,7 @@ function isValidResourceKey(key: string): boolean {
  * would be wrong.
  */
 function isValidResourceName(name: string): boolean {
-    return name.length > 0 && name.length <= RESOURCE_NAME_MAX_LENGTH;
+    return zResourceDeclaration.shape.defaultName.safeParse(name).success;
 }
 
 /**

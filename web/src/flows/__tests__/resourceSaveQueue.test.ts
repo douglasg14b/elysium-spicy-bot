@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { ResourceDeclaration } from '../../api/types';
+import type { ResourceDeclaration } from '@brattybot/web-sdk';
 import {
     decideAutosaveAction,
     describeSaveFailure,
@@ -49,7 +49,7 @@ describe('describeSaveFailure', () => {
     });
 
     /**
-     * **The destructive case.** Half a key is refused by `resourceSchema`; by the time
+     * **The destructive case.** Half a key is refused by the `ResourceDeclaration` schema; by the time
      * the refusal lands the operator has typed the rest. Re-reading the server here
      * overwrites a valid list with an older one — the revert — and the message describes
      * a problem that no longer exists.

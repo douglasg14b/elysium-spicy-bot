@@ -7,9 +7,8 @@ import type { AppEnv } from '../types';
  * A router built with {@link apiRouter} contributes its routes to the spec the dashboard
  * SDK is generated from (`generated/openapi.generated.json`), as long as it is mounted on
  * an `OpenAPIHono` parent: a plain `Hono` parent serves the routes but collects none of
- * their definitions. Unconverted routers are plain `Hono` and mount exactly as before;
- * they add nothing to the spec yet, and each of their routes is on the shrinking
- * `NOT_YET_IN_SPEC` list in `everyRouteInSpec.test.ts`.
+ * their definitions. Every `/api` router is built this way, and `everyRouteInSpec.test.ts`
+ * fails on any route served under `/api` that the spec lacks.
  */
 
 /**

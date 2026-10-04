@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { CheckFlowData, CheckFlowErrors, CheckFlowResponses, ClaimTicketData, ClaimTicketErrors, ClaimTicketResponses, CloseTicketData, CloseTicketErrors, CloseTicketResponses, CreateFlowData, CreateFlowErrors, CreateFlowResponses, DeleteFlowData, DeleteFlowErrors, DeleteFlowResponses, DeleteTicketTypeData, DeleteTicketTypeErrors, DeleteTicketTypeResponses, DeployFlowData, DeployFlowErrors, DeployFlowResponses, DiscardFlowDraftData, DiscardFlowDraftErrors, DiscardFlowDraftResponses, GetBotIdentityData, GetBotIdentityResponses, GetCurrentUserData, GetCurrentUserErrors, GetCurrentUserResponses, GetFlowData, GetFlowErrors, GetFlowResponses, GetGuildChannelsData, GetGuildChannelsErrors, GetGuildChannelsResponses, GetGuildRolesData, GetGuildRolesErrors, GetGuildRolesResponses, GetGuildSettingsData, GetGuildSettingsErrors, GetGuildSettingsResponses, GetHealthData, GetHealthResponses, GetInstallPlanData, GetInstallPlanErrors, GetInstallPlanResponses, GetLevelingInsightsData, GetLevelingInsightsErrors, GetLevelingInsightsResponses, GetLevelingUserData, GetLevelingUserErrors, GetLevelingUserResponses, GetNodeTypesData, GetNodeTypesErrors, GetNodeTypesResponses, GetPublishedStateData, GetPublishedStateErrors, GetPublishedStateResponses, GetTicketData, GetTicketErrors, GetTicketResponses, GetTicketsConfigData, GetTicketsConfigErrors, GetTicketsConfigResponses, GetWarningsConfigData, GetWarningsConfigErrors, GetWarningsConfigResponses, InstallFlowData, InstallFlowErrors, InstallFlowResponses, ListFlowDraftsData, ListFlowDraftsErrors, ListFlowDraftsResponses, ListFlowsData, ListFlowsErrors, ListFlowsResponses, ListGuildsData, ListGuildsErrors, ListGuildsResponses, ListLevelingData, ListLevelingErrors, ListLevelingResponses, ListTicketsData, ListTicketsErrors, ListTicketsResponses, LoginCallbackData, LoginCallbackErrors, LoginData, LogoutData, LogoutErrors, LogoutResponses, ReopenTicketData, ReopenTicketErrors, ReopenTicketResponses, SaveMyFlowDraftData, SaveMyFlowDraftErrors, SaveMyFlowDraftResponses, SaveTicketTypeData, SaveTicketTypeErrors, SaveTicketTypeResponses, UnclaimTicketData, UnclaimTicketErrors, UnclaimTicketResponses, UndeployFlowData, UndeployFlowErrors, UndeployFlowResponses, UnpublishFlowData, UnpublishFlowErrors, UnpublishFlowResponses, UpdateFlowData, UpdateFlowErrors, UpdateFlowResponses, UpdateGuildSettingsData, UpdateGuildSettingsErrors, UpdateGuildSettingsResponses, UpdateTicketsConfigData, UpdateTicketsConfigErrors, UpdateTicketsConfigResponses, UpdateWarningsConfigData, UpdateWarningsConfigErrors, UpdateWarningsConfigResponses } from './types.gen';
+import type { AttachFlowToJourneyData, AttachFlowToJourneyErrors, AttachFlowToJourneyResponses, CheckFlowData, CheckFlowErrors, CheckFlowResponses, ClaimTicketData, ClaimTicketErrors, ClaimTicketResponses, CloseTicketData, CloseTicketErrors, CloseTicketResponses, CreateFlowData, CreateFlowErrors, CreateFlowResponses, CreateJourneyData, CreateJourneyErrors, CreateJourneyResponses, DeleteFlowData, DeleteFlowErrors, DeleteFlowResponses, DeleteJourneyData, DeleteJourneyErrors, DeleteJourneyResponses, DeleteTicketTypeData, DeleteTicketTypeErrors, DeleteTicketTypeResponses, DeployFlowData, DeployFlowErrors, DeployFlowResponses, DetachFlowFromJourneyData, DetachFlowFromJourneyErrors, DetachFlowFromJourneyResponses, DiscardFlowDraftData, DiscardFlowDraftErrors, DiscardFlowDraftResponses, ForgetJourneyOrphanData, ForgetJourneyOrphanErrors, ForgetJourneyOrphanResponses, GetBotIdentityData, GetBotIdentityResponses, GetCurrentUserData, GetCurrentUserErrors, GetCurrentUserResponses, GetFlowAttachmentData, GetFlowAttachmentErrors, GetFlowAttachmentResponses, GetFlowData, GetFlowErrors, GetFlowResourcesData, GetFlowResourcesErrors, GetFlowResourcesResponses, GetFlowResponses, GetGuildChannelsData, GetGuildChannelsErrors, GetGuildChannelsResponses, GetGuildRolesData, GetGuildRolesErrors, GetGuildRolesResponses, GetGuildSettingsData, GetGuildSettingsErrors, GetGuildSettingsResponses, GetHealthData, GetHealthResponses, GetInstallPlanData, GetInstallPlanErrors, GetInstallPlanResponses, GetJourneyData, GetJourneyDriftData, GetJourneyDriftErrors, GetJourneyDriftResponses, GetJourneyErrors, GetJourneyPublishedStateData, GetJourneyPublishedStateErrors, GetJourneyPublishedStateResponses, GetJourneyResponses, GetLevelingInsightsData, GetLevelingInsightsErrors, GetLevelingInsightsResponses, GetLevelingUserData, GetLevelingUserErrors, GetLevelingUserResponses, GetNodeTypesData, GetNodeTypesErrors, GetNodeTypesResponses, GetPublishedStateData, GetPublishedStateErrors, GetPublishedStateResponses, GetTicketData, GetTicketErrors, GetTicketResponses, GetTicketsConfigData, GetTicketsConfigErrors, GetTicketsConfigResponses, GetWarningsConfigData, GetWarningsConfigErrors, GetWarningsConfigResponses, GroupFlowWithData, GroupFlowWithErrors, GroupFlowWithResponses, InstallFlowData, InstallFlowErrors, InstallFlowResponses, ListFlowDraftsData, ListFlowDraftsErrors, ListFlowDraftsResponses, ListFlowsData, ListFlowsErrors, ListFlowsResponses, ListGuildsData, ListGuildsErrors, ListGuildsResponses, ListJourneysData, ListJourneysErrors, ListJourneysResponses, ListLevelingData, ListLevelingErrors, ListLevelingResponses, ListTicketsData, ListTicketsErrors, ListTicketsResponses, LoginCallbackData, LoginCallbackErrors, LoginData, LogoutData, LogoutErrors, LogoutResponses, PreviewFlowGroupingData, PreviewFlowGroupingErrors, PreviewFlowGroupingResponses, ReopenTicketData, ReopenTicketErrors, ReopenTicketResponses, RepairJourneyDriftData, RepairJourneyDriftErrors, RepairJourneyDriftResponses, SaveFlowResourcesData, SaveFlowResourcesErrors, SaveFlowResourcesResponses, SaveMyFlowDraftData, SaveMyFlowDraftErrors, SaveMyFlowDraftResponses, SaveTicketTypeData, SaveTicketTypeErrors, SaveTicketTypeResponses, UnclaimTicketData, UnclaimTicketErrors, UnclaimTicketResponses, UndeployFlowData, UndeployFlowErrors, UndeployFlowResponses, UndeployJourneyData, UndeployJourneyErrors, UndeployJourneyResponses, UnpublishFlowData, UnpublishFlowErrors, UnpublishFlowResponses, UnpublishJourneyData, UnpublishJourneyErrors, UnpublishJourneyResponses, UpdateFlowData, UpdateFlowErrors, UpdateFlowResponses, UpdateGuildSettingsData, UpdateGuildSettingsErrors, UpdateGuildSettingsResponses, UpdateJourneyData, UpdateJourneyErrors, UpdateJourneyResponses, UpdateTicketsConfigData, UpdateTicketsConfigErrors, UpdateTicketsConfigResponses, UpdateWarningsConfigData, UpdateWarningsConfigErrors, UpdateWarningsConfigResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -144,6 +144,23 @@ export const updateFlow = <ThrowOnError extends boolean = true>(options: Options
 });
 
 /**
+ * Move a flow onto an existing journey
+ */
+export const attachFlowToJourney = <ThrowOnError extends boolean = true>(options: Options<AttachFlowToJourneyData, ThrowOnError>): RequestResult<AttachFlowToJourneyResponses, AttachFlowToJourneyErrors, ThrowOnError> => (options.client ?? client).post<AttachFlowToJourneyResponses, AttachFlowToJourneyErrors, ThrowOnError>({
+    url: '/api/guilds/{guildId}/flows/{flowId}/attach',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Which journey this flow installs, if any
+ */
+export const getFlowAttachment = <ThrowOnError extends boolean = true>(options: Options<GetFlowAttachmentData, ThrowOnError>): RequestResult<GetFlowAttachmentResponses, GetFlowAttachmentErrors, ThrowOnError> => (options.client ?? client).get<GetFlowAttachmentResponses, GetFlowAttachmentErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/flows/{flowId}/attachment', ...options });
+
+/**
  * What a save of this graph would say is wrong with it. Changes nothing.
  */
 export const checkFlow = <ThrowOnError extends boolean = true>(options: Options<CheckFlowData, ThrowOnError>): RequestResult<CheckFlowResponses, CheckFlowErrors, ThrowOnError> => (options.client ?? client).post<CheckFlowResponses, CheckFlowErrors, ThrowOnError>({
@@ -159,6 +176,11 @@ export const checkFlow = <ThrowOnError extends boolean = true>(options: Options<
  * Post the flow's trigger buttons into the channels their nodes name
  */
 export const deployFlow = <ThrowOnError extends boolean = true>(options: Options<DeployFlowData, ThrowOnError>): RequestResult<DeployFlowResponses, DeployFlowErrors, ThrowOnError> => (options.client ?? client).post<DeployFlowResponses, DeployFlowErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/flows/{flowId}/deploy', ...options });
+
+/**
+ * Take a flow off its journey. Leaves the journey and anything installed alone.
+ */
+export const detachFlowFromJourney = <ThrowOnError extends boolean = true>(options: Options<DetachFlowFromJourneyData, ThrowOnError>): RequestResult<DetachFlowFromJourneyResponses, DetachFlowFromJourneyErrors, ThrowOnError> => (options.client ?? client).post<DetachFlowFromJourneyResponses, DetachFlowFromJourneyErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/flows/{flowId}/detach', ...options });
 
 /**
  * Every operator's draft of a flow, graphs included
@@ -183,6 +205,23 @@ export const saveMyFlowDraft = <ThrowOnError extends boolean = true>(options: Op
 export const discardFlowDraft = <ThrowOnError extends boolean = true>(options: Options<DiscardFlowDraftData, ThrowOnError>): RequestResult<DiscardFlowDraftResponses, DiscardFlowDraftErrors, ThrowOnError> => (options.client ?? client).delete<DiscardFlowDraftResponses, DiscardFlowDraftErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/flows/{flowId}/drafts/{draftId}', ...options });
 
 /**
+ * Group this flow with the target flow, on the target's journey
+ */
+export const groupFlowWith = <ThrowOnError extends boolean = true>(options: Options<GroupFlowWithData, ThrowOnError>): RequestResult<GroupFlowWithResponses, GroupFlowWithErrors, ThrowOnError> => (options.client ?? client).post<GroupFlowWithResponses, GroupFlowWithErrors, ThrowOnError>({
+    url: '/api/guilds/{guildId}/flows/{flowId}/group',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * What grouping this flow with the target flow would do. Changes nothing.
+ */
+export const previewFlowGrouping = <ThrowOnError extends boolean = true>(options: Options<PreviewFlowGroupingData, ThrowOnError>): RequestResult<PreviewFlowGroupingResponses, PreviewFlowGroupingErrors, ThrowOnError> => (options.client ?? client).get<PreviewFlowGroupingResponses, PreviewFlowGroupingErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/flows/{flowId}/group-preview', ...options });
+
+/**
  * Create the channels and roles the flow declares, and wire their ids into its nodes
  */
 export const installFlow = <ThrowOnError extends boolean = true>(options: Options<InstallFlowData, ThrowOnError>): RequestResult<InstallFlowResponses, InstallFlowErrors, ThrowOnError> => (options.client ?? client).post<InstallFlowResponses, InstallFlowErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/flows/{flowId}/install', ...options });
@@ -198,6 +237,23 @@ export const getInstallPlan = <ThrowOnError extends boolean = true>(options: Opt
 export const getPublishedState = <ThrowOnError extends boolean = true>(options: Options<GetPublishedStateData, ThrowOnError>): RequestResult<GetPublishedStateResponses, GetPublishedStateErrors, ThrowOnError> => (options.client ?? client).get<GetPublishedStateResponses, GetPublishedStateErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/flows/{flowId}/published', ...options });
 
 /**
+ * What one flow declares, through the journey it is on
+ */
+export const getFlowResources = <ThrowOnError extends boolean = true>(options: Options<GetFlowResourcesData, ThrowOnError>): RequestResult<GetFlowResourcesResponses, GetFlowResourcesErrors, ThrowOnError> => (options.client ?? client).get<GetFlowResourcesResponses, GetFlowResourcesErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/flows/{flowId}/resources', ...options });
+
+/**
+ * Replace what a flow declares, creating its journey on first use. An empty list removes it.
+ */
+export const saveFlowResources = <ThrowOnError extends boolean = true>(options: Options<SaveFlowResourcesData, ThrowOnError>): RequestResult<SaveFlowResourcesResponses, SaveFlowResourcesErrors, ThrowOnError> => (options.client ?? client).put<SaveFlowResourcesResponses, SaveFlowResourcesErrors, ThrowOnError>({
+    url: '/api/guilds/{guildId}/flows/{flowId}/resources',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
  * Delete the messages carrying the flow's buttons. Works after the flow is gone.
  */
 export const undeployFlow = <ThrowOnError extends boolean = true>(options: Options<UndeployFlowData, ThrowOnError>): RequestResult<UndeployFlowResponses, UndeployFlowErrors, ThrowOnError> => (options.client ?? client).post<UndeployFlowResponses, UndeployFlowErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/flows/{flowId}/undeploy', ...options });
@@ -206,6 +262,82 @@ export const undeployFlow = <ThrowOnError extends boolean = true>(options: Optio
  * Destroy the channels and roles the flow's journey created. Irreversible.
  */
 export const unpublishFlow = <ThrowOnError extends boolean = true>(options: Options<UnpublishFlowData, ThrowOnError>): RequestResult<UnpublishFlowResponses, UnpublishFlowErrors, ThrowOnError> => (options.client ?? client).post<UnpublishFlowResponses, UnpublishFlowErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/flows/{flowId}/unpublish', ...options });
+
+/**
+ * The guild's journeys, with the flows attached to each
+ */
+export const listJourneys = <ThrowOnError extends boolean = true>(options: Options<ListJourneysData, ThrowOnError>): RequestResult<ListJourneysResponses, ListJourneysErrors, ThrowOnError> => (options.client ?? client).get<ListJourneysResponses, ListJourneysErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/journeys', ...options });
+
+/**
+ * Create a journey
+ */
+export const createJourney = <ThrowOnError extends boolean = true>(options: Options<CreateJourneyData, ThrowOnError>): RequestResult<CreateJourneyResponses, CreateJourneyErrors, ThrowOnError> => (options.client ?? client).post<CreateJourneyResponses, CreateJourneyErrors, ThrowOnError>({
+    url: '/api/guilds/{guildId}/journeys',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Delete a journey nothing is attached to. Leaves anything installed alone.
+ */
+export const deleteJourney = <ThrowOnError extends boolean = true>(options: Options<DeleteJourneyData, ThrowOnError>): RequestResult<DeleteJourneyResponses, DeleteJourneyErrors, ThrowOnError> => (options.client ?? client).delete<DeleteJourneyResponses, DeleteJourneyErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/journeys/{journeyKey}', ...options });
+
+/**
+ * One journey with what it declares
+ */
+export const getJourney = <ThrowOnError extends boolean = true>(options: Options<GetJourneyData, ThrowOnError>): RequestResult<GetJourneyResponses, GetJourneyErrors, ThrowOnError> => (options.client ?? client).get<GetJourneyResponses, GetJourneyErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/journeys/{journeyKey}', ...options });
+
+/**
+ * Update a journey's name, description or declarations
+ */
+export const updateJourney = <ThrowOnError extends boolean = true>(options: Options<UpdateJourneyData, ThrowOnError>): RequestResult<UpdateJourneyResponses, UpdateJourneyErrors, ThrowOnError> => (options.client ?? client).put<UpdateJourneyResponses, UpdateJourneyErrors, ThrowOnError>({
+    url: '/api/guilds/{guildId}/journeys/{journeyKey}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * What the journey installed that no longer matches what it declares. Changes nothing.
+ */
+export const getJourneyDrift = <ThrowOnError extends boolean = true>(options: Options<GetJourneyDriftData, ThrowOnError>): RequestResult<GetJourneyDriftResponses, GetJourneyDriftErrors, ThrowOnError> => (options.client ?? client).get<GetJourneyDriftResponses, GetJourneyDriftErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/journeys/{journeyKey}/drift', ...options });
+
+/**
+ * Drop the record of a resource the journey no longer declares. Never touches the object.
+ */
+export const forgetJourneyOrphan = <ThrowOnError extends boolean = true>(options: Options<ForgetJourneyOrphanData, ThrowOnError>): RequestResult<ForgetJourneyOrphanResponses, ForgetJourneyOrphanErrors, ThrowOnError> => (options.client ?? client).post<ForgetJourneyOrphanResponses, ForgetJourneyOrphanErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/journeys/{journeyKey}/orphans/{bindingId}/forget', ...options });
+
+/**
+ * What the journey has live in the guild, across every flow attached to it
+ */
+export const getJourneyPublishedState = <ThrowOnError extends boolean = true>(options: Options<GetJourneyPublishedStateData, ThrowOnError>): RequestResult<GetJourneyPublishedStateResponses, GetJourneyPublishedStateErrors, ThrowOnError> => (options.client ?? client).get<GetJourneyPublishedStateResponses, GetJourneyPublishedStateErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/journeys/{journeyKey}/published', ...options });
+
+/**
+ * Put the chosen resources back to what the journey declares
+ */
+export const repairJourneyDrift = <ThrowOnError extends boolean = true>(options: Options<RepairJourneyDriftData, ThrowOnError>): RequestResult<RepairJourneyDriftResponses, RepairJourneyDriftErrors, ThrowOnError> => (options.client ?? client).post<RepairJourneyDriftResponses, RepairJourneyDriftErrors, ThrowOnError>({
+    url: '/api/guilds/{guildId}/journeys/{journeyKey}/repair',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Delete the messages carrying the buttons of every flow on the journey
+ */
+export const undeployJourney = <ThrowOnError extends boolean = true>(options: Options<UndeployJourneyData, ThrowOnError>): RequestResult<UndeployJourneyResponses, UndeployJourneyErrors, ThrowOnError> => (options.client ?? client).post<UndeployJourneyResponses, UndeployJourneyErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/journeys/{journeyKey}/undeploy', ...options });
+
+/**
+ * Destroy the channels and roles the journey created. Irreversible.
+ */
+export const unpublishJourney = <ThrowOnError extends boolean = true>(options: Options<UnpublishJourneyData, ThrowOnError>): RequestResult<UnpublishJourneyResponses, UnpublishJourneyErrors, ThrowOnError> => (options.client ?? client).post<UnpublishJourneyResponses, UnpublishJourneyErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/journeys/{journeyKey}/unpublish', ...options });
 
 /**
  * The guild leaderboard, ranked by XP

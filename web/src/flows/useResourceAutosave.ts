@@ -12,8 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { notifications } from '@mantine/notifications';
-import { ApiError } from '../api/client';
-import type { ResourceDeclaration } from '../api/types';
+import { ApiError, type ResourceDeclaration } from '@brattybot/web-sdk';
 import {
     decideAutosaveAction,
     describeSaveFailure,

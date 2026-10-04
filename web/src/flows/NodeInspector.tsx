@@ -8,8 +8,13 @@
 
 import { Alert, Button, CopyButton, Divider, Group, Stack, Text, Tooltip, UnstyledButton } from '@mantine/core';
 import { IconAlertTriangle, IconTrash } from '@tabler/icons-react';
-import type { FlowValidationIssue, GuildChannel, GuildRole, NodeDescriptor } from '@brattybot/web-sdk';
-import type { ResourceDeclaration } from '../api/types';
+import type {
+    FlowValidationIssue,
+    GuildChannel,
+    GuildRole,
+    NodeDescriptor,
+    ResourceDeclaration,
+} from '@brattybot/web-sdk';
 import { renderControl } from './controls/renderControl';
 import type { ControlContext } from './controls/types';
 import { KIND_STYLES } from './nodeMeta';

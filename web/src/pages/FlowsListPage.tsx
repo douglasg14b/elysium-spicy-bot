@@ -77,22 +77,20 @@ import {
     ApiError,
     createFlowMutation,
     deleteFlowMutation,
+    detachFlowFromJourney,
+    groupFlowWith,
     listFlowsOptions,
     listFlowsQueryKey,
+    previewFlowGrouping,
     updateFlow,
+    updateJourney,
     type FlowJourneyMembership,
     type FlowSummary,
     type FlowValidationIssue,
+    type GroupPreview,
+    type GroupResolution,
     type ListFlowsResponse,
 } from '@brattybot/web-sdk';
-// Journey calls stay on the hand-written client until the journey routes are in the spec.
-import {
-    detachFlowFromJourney,
-    groupFlowWith,
-    previewFlowGrouping,
-    updateJourney,
-} from '../api/journeys';
-import type { GroupPreview, GroupResolution } from '../api/types';
 import {
     buildFlowsListRows,
     decideDropOutcome,
@@ -1347,11 +1345,10 @@ export function FlowsListPage() {
                 // from the list rows alone.
                 setGrouping(true);
                 try {
-                    const preview = await previewFlowGrouping(
-                        selected.id,
-                        dragged.flowId,
-                        outcome.targetFlowId
-                    );
+                    const { data: preview } = await previewFlowGrouping({
+                        path: { guildId: selected.id, flowId: dragged.flowId },
+                        query: { target: outcome.targetFlowId },
+                    });
                     setConflict({ dragged, outcome, preview });
                 } catch (err) {
                     showGroupingError(err, "Couldn't group those");
@@ -1420,10 +1417,13 @@ export function FlowsListPage() {
                       }
                     : {};
 
-            await groupFlowWith(selected.id, dragged.flowId, {
-                targetFlowId: outcome.targetFlowId,
-                resolution,
-                ...newJourney,
+            await groupFlowWith({
+                path: { guildId: selected.id, flowId: dragged.flowId },
+                body: {
+                    targetFlowId: outcome.targetFlowId,
+                    resolution,
+                    ...newJourney,
+                },
             });
             setConflict(null);
             await refreshFlows();
@@ -1456,7 +1456,7 @@ export function FlowsListPage() {
         if (!selected) return;
         setGrouping(true);
         try {
-            await detachFlowFromJourney(selected.id, flow.flowId);
+            await detachFlowFromJourney({ path: { guildId: selected.id, flowId: flow.flowId } });
             setLeaving(null);
             await refreshFlows();
         } catch (err) {
@@ -1492,7 +1492,7 @@ export function FlowsListPage() {
         setSavingRename(true);
         try {
             // The name only. The key is identity, so it is deliberately not editable.
-            await updateJourney(selected.id, journeyKey, { name });
+            await updateJourney({ path: { guildId: selected.id, journeyKey }, body: { name } });
             closeRename();
             await refreshFlows();
         } catch (err) {

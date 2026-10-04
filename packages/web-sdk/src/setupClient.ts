@@ -47,8 +47,8 @@ client.interceptors.response.use((response) => {
  *
  * Only a refusal. With no response (the network failed, the request could not be built,
  * the client was never set up) or an OK one whose body would not parse, the original
- * error is the true account of what happened and is rethrown untouched — the same
- * `TypeError` a failed `fetch` gives the hand-written client.
+ * error is the true account of what happened and is rethrown untouched — a failed
+ * `fetch` stays the `TypeError` it is.
  */
 client.interceptors.error.use((error, response) =>
     response && !response.ok ? apiErrorFromBody(response.status, error) : error
@@ -72,7 +72,7 @@ export function setupClient({ baseUrl, onUnauthorized }: SetupClientOptions): vo
          * an HTML page from a proxy, or the SPA fallback answering an unmounted `/api`
          * path, arrives as a string — and a page reading `data.staffRoleIds` sees
          * "nothing saved" and offers to save over the real list. Parsing as JSON makes
-         * that a load error instead, as it was through the hand-written client.
+         * that a load error instead.
          */
         parseAs: 'json',
         headers: { Accept: 'application/json' },

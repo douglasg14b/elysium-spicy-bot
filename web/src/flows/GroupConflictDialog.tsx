@@ -20,7 +20,7 @@
 import { useEffect, useState } from 'react';
 import { Alert, Badge, Button, Group, Modal, Radio, Stack, Text } from '@mantine/core';
 import { IconAlertTriangle } from '@tabler/icons-react';
-import type { GroupPreview, GroupResolution, MovingResource } from '../api/types';
+import type { GroupPreview, GroupResolution, MovingResource } from '@brattybot/web-sdk';
 import { joinWithAnd } from './nameLists';
 import { RESOURCE_KIND_STYLES, resourceDisplayName } from './resourceMeta';
 

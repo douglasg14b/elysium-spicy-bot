@@ -14,5 +14,5 @@ export * from './gen/@tanstack/react-query.gen';
 export * from './gen/sdk.gen';
 export * from './gen/types.gen';
 export * from './gen/zod.gen';
-export { ApiError, apiErrorFromBody } from './apiError';
+export { ApiError } from './apiError';
 export { setupClient, type SetupClientOptions } from './setupClient';

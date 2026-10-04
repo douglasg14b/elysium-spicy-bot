@@ -35,8 +35,8 @@ export function installDashboardApi(client: Client<true>, operator: DashboardOpe
 
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         // As a `Request`, because the generated SDK calls `fetch(request)` with no init
-        // while the hand-written client passes a path and an init. Hono routes on the
-        // pathname, so the page origin the URL was resolved against does not matter.
+        // while a plain call passes a path and an init. Hono routes on the pathname, so the
+        // page origin the URL was resolved against does not matter.
         const sent = new Request(input, init);
         const url = new URL(sent.url);
         requests.push({ method: sent.method.toUpperCase(), path: `${url.pathname}${url.search}` });

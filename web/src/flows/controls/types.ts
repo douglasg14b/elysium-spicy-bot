@@ -7,8 +7,7 @@
  * the block contract defines as its extension point.
  */
 
-import type { BlockConfigField, Eligibility, GuildChannel, GuildRole } from '@brattybot/web-sdk';
-import type { ResourceDeclaration } from '../../api/types';
+import type { BlockConfigField, Eligibility, GuildChannel, GuildRole, ResourceDeclaration } from '@brattybot/web-sdk';
 import type { AvailableVariable } from '../variables';
 
 /**

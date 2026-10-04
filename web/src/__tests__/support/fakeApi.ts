@@ -1,6 +1,6 @@
 import { onTestFinished, vi } from 'vitest';
 
-/** The methods `api/client.ts` sends. */
+/** The methods the SDK sends. */
 export type FakeApiMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
 /** A request the component sent, as the server would have received it. */
@@ -31,10 +31,11 @@ export interface FakeApi {
 }
 
 /**
- * Stand in for the bot's HTTP API underneath `api/client.ts`, for one test.
+ * Stand in for the bot's HTTP API underneath `@brattybot/web-sdk`, for one test.
  *
- * `fetch` is replaced rather than `api/client.ts` mocked, so the client's own error
- * handling — `ApiError`, the `error` body field, 204s — runs as it does in the browser.
+ * `fetch` is replaced rather than the SDK mocked, so the client's own error handling —
+ * `ApiError`, the `error` body field, 204s, the 401 sign-out — runs as it does in the
+ * browser.
  *
  * **A request nothing answers is a fault, not a 404.** The dialogs catch API errors and
  * show a sentence, so a route the test forgot to register would otherwise surface as a
@@ -51,8 +52,8 @@ export function installFakeApi(): FakeApi {
     const faults: string[] = [];
 
     const fakeFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-        // Read through a `Request` so both clients are heard the same way: the hand-written
-        // one calls `fetch(path, init)`, the generated SDK `fetch(request)` with no init.
+        // Read through a `Request`, so a call made either way is heard the same: the SDK
+        // calls `fetch(request)` with no init, plain code `fetch(path, init)`.
         const sent = new Request(input, init);
         const url = new URL(sent.url);
         const method = sent.method.toUpperCase() as FakeApiMethod;

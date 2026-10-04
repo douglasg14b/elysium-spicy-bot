@@ -44,8 +44,8 @@ import {
     getGuildRolesOptions,
     type GuildChannel,
     type GuildRole,
+    type ResourceDeclaration,
 } from '@brattybot/web-sdk';
-import type { ResourceDeclaration } from '../api/types';
 import { ResourcesPanel } from './ResourcesPanel';
 import { loadResources, resourceTargetIdentity, type ResourceSaveTarget } from './resourceSaveTarget';
 import { useResourceAutosave } from './useResourceAutosave';

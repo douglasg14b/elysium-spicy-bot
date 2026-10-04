@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { GuildChannel, GuildRole } from '@brattybot/web-sdk';
-import type { ResourceDeclaration } from '../../api/types';
+import type { GuildChannel, GuildRole, ResourceDeclaration } from '@brattybot/web-sdk';
 import {
     adoptableChannelOptions,
     adoptableRoleOptions,

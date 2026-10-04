@@ -15,7 +15,7 @@
  * part small enough to read.
  */
 
-import type { PermissionIntent, ResourceDeclaration } from '../api/types';
+import type { PermissionIntent, ResourceDeclaration } from '@brattybot/web-sdk';
 import { declaredRoleOptionValue, parseDeclaredRoleReference } from './declaredRoleReference';
 
 /**

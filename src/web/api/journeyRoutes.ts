@@ -1,5 +1,4 @@
-import { Hono, type Context } from 'hono';
-import { z } from 'zod';
+import { createRoute, z, type OpenAPIHono } from '@hono/zod-openapi';
 import { flowsRepo } from '../../features/flows/data/flowsRepo';
 import { getPublishedJourneyState } from '../../features/flows/logic/publishedJourneyState';
 import {
@@ -8,24 +7,14 @@ import {
 } from '../../features/flows/logic/undeployFlowButtons';
 import { flowJourneyLinksRepo } from '../../features/provisioning/data/flowJourneyLinksRepo';
 import { DuplicateJourneyKeyError, journeysRepo } from '../../features/provisioning/data/journeysRepo';
-import type { JourneyEntity } from '../../features/provisioning/data/journeysSchema';
 import { resourceBindingsRepo } from '../../features/provisioning/data/resourceBindingsRepo';
 import { planJourneyMerge } from '../../features/provisioning/logic/journeyMergePlan';
 import { resolveFlowJourney } from '../../features/provisioning/logic/resolveFlowJourney';
-import { normaliseResourceName } from '../../features/provisioning/logic/resourceName';
 import {
     otherFlowsOnJourney,
     sharedJourneyRefusal,
 } from '../../features/provisioning/logic/sharedJourneyGuard';
-import { parseDeclaredRoleReference } from '../../features/provisioning/logic/declaredRoleReference';
-import {
-    PERMISSION_ACCESS_LEVELS,
-    PERMISSION_AUDIENCES,
-} from '../../features/provisioning/logic/permissionIntent';
-import {
-    RESOURCE_KINDS,
-    ResourceDeclarationError,
-} from '../../features/provisioning/logic/resourceDeclaration';
+import { ResourceDeclarationError } from '../../features/provisioning/logic/resourceDeclaration';
 import {
     previewDrift,
     previewOrphans,
@@ -36,9 +25,47 @@ import {
 import { toDeclarationFromRow } from '../../features/provisioning/data/journeysRepo';
 import { guildSettingsRepo } from '../../features-system/guild-settings';
 import type { AppEnv } from '../types';
-import { driftBody } from './driftBody';
+import { driftBody, JourneyDriftSchema } from './driftBody';
+import { FLOW_ERRORS, FLOW_NOT_FOUND, FlowPathSchema } from './flowBody';
 import { flowNameInGuild } from './flowNameInGuild';
-import { publishedBody } from './publishedBody';
+import { UndeployResultSchema, UnpublishResultSchema } from './installBody';
+import {
+    AttachResultSchema,
+    DetachResultSchema,
+    DriftRepairSchema,
+    FlowAttachmentSchema,
+    FlowAttachSchema,
+    FlowGroupResultSchema,
+    FlowGroupSchema,
+    FlowResourcesSaveSchema,
+    FlowResourcesSchema,
+    ForgottenOrphanSchema,
+    GroupPreviewSchema,
+    JOURNEY_ERRORS,
+    JOURNEY_NOT_FOUND,
+    journeyDetail,
+    JourneyCreateSchema,
+    JourneyPathSchema,
+    JourneySchema,
+    journeySummary,
+    JourneySummarySchema,
+    JourneyUpdateSchema,
+    OrphanPathSchema,
+    RepairResultSchema,
+    rolesWithoutIdsRefusal,
+    type AttachedFlowBody,
+} from './journeyBody';
+import {
+    apiRouter,
+    errorBodyResponse,
+    GUILD_SCOPED_BODY_ERRORS,
+    GUILD_SCOPED_ERRORS,
+    GuildPathSchema,
+    jsonBody,
+    jsonResponse,
+    type ApiRouteRegistrar,
+} from './openApi';
+import { publishedBody, PublishedFlowStateSchema } from './publishedBody';
 
 /**
  * Journey CRUD. Mounted under the `/api/guilds` route group, so `requireAuth` and
@@ -47,225 +74,346 @@ import { publishedBody } from './publishedBody';
  * This is the surface that makes a journey operator-authored. 5A shipped with
  * journeys as TypeScript constants, which meant the engine was neutral about their
  * content and an operator still could not create one.
+ *
+ * Described by the OpenAPI spec: each route's `createRoute` definition is its contract,
+ * and the dashboard's SDK is generated from it. Path, query and body are validated before
+ * a handler runs — before the journey or flow is looked up — and a refusal answers with
+ * the first issue's message (see `apiRouter`). The wire schemas live in `journeyBody.ts`
+ * and `driftBody.ts`.
  */
 
-/**
- * A resource key, constrained to what is safe to embed in a Discord custom_id and
- * readable in a diagnostic: lowercase, digits, hyphens.
- *
- * Restrictive on purpose. The key appears in `resource_bindings`, in node configs,
- * and in button custom_ids which Discord caps at 100 characters — permitting
- * arbitrary text would push the failure to whichever of those hit its limit first,
- * long after the operator typed it.
- */
-const resourceKeySchema = z
-    .string()
-    .min(1, 'Give the resource a key.')
-    .max(64, 'Resource keys cap at 64 characters.')
-    .regex(
-        /^[a-z0-9]+(-[a-z0-9]+)*$/,
-        'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).'
-    );
-
-/**
- * One entry in a permission's `roleIds`: a Discord snowflake, or a reference to a
- * role this journey declares.
- *
- * A reference is `resource:<key>` — the key of a role the same journey creates, which
- * has no snowflake until install. Both are strings in the same array, made disjoint
- * by the prefix rather than by assuming ids stay numeric.
- *
- * Only the *shape* is checked here. Whether the referenced key is actually declared
- * is `validateJourneyDeclaration`'s job, because it is the only thing holding the
- * whole journey and can therefore answer it.
- */
-const permissionRoleIdSchema = z.string().min(1).refine(
-    (roleId) => {
-        const key = parseDeclaredRoleReference(roleId);
-        return key === undefined || /^[a-z0-9]+(-[a-z0-9]+)*$/.test(key);
-    },
-    {
-        message:
-            'A declared role reference must name a valid resource key (lowercase letters, numbers and single hyphens).',
-    }
+/** The 400 of a route that takes resources: the schema, a `roles` rule naming no role, the repo's whole-list checks. */
+const RESOURCES_REFUSED = errorBodyResponse(
+    'The body was refused, a `roles` permission names no role, the declarations disagree with each other ' +
+        '(a duplicate key, a parent or role reference naming nothing), or the server id is missing.'
 );
 
-const permissionIntentSchema = z
-    .object({
-        audience: z.enum(PERMISSION_AUDIENCES),
-        roleIds: z.array(permissionRoleIdSchema).optional(),
-        access: z.enum(PERMISSION_ACCESS_LEVELS),
-    })
-    // `roles` without role ids compiles to an error deep inside the applier at install
-    // time. Rejecting it at save time blames the field the operator can actually fix.
-    .refine((intent) => intent.audience !== 'roles' || (intent.roleIds?.length ?? 0) > 0, {
-        message: 'A `roles` permission must name at least one role.',
-        path: ['roleIds'],
-    });
-
-/**
- * A Discord snowflake, as the id of something being adopted.
- *
- * Shape-checked here and nowhere else in the request path. Whether the id names
- * anything real is a question only the guild can answer, and it is asked at plan
- * time (`buildInstallPlan`) and again at apply time (`requireAdoptable`) — a channel
- * can be deleted between declaring it and installing, so a save-time existence check
- * would be a guarantee that expires. What this *can* stop is a non-id reaching the
- * plan, where it would surface as "this channel does not exist" and send the operator
- * looking for a deletion that never happened.
- */
-const discordIdSchema = z
-    .string()
-    .regex(/^\d{17,20}$/, 'A channel or role id is 17 to 20 digits.');
-
-/**
- * Exported for the chip-agreement test, which drives this schema and
- * `validateJourneyDeclaration` with the same declarations the browser's
- * `detectResourceProblems` judges, and fails if the three disagree. Nothing else
- * should import it — the save path is the only caller.
- */
-export const resourceSchema = z
-    .object({
-        key: resourceKeySchema,
-        kind: z.enum(RESOURCE_KINDS),
-        defaultName: z
-            .string()
-            .min(1, 'Give the resource a name.')
-            .max(100, 'Resource names cap at 100 characters.'),
-        parentKey: resourceKeySchema.optional(),
-        permissions: z.array(permissionIntentSchema).optional(),
-        description: z.string().max(500, 'Descriptions cap at 500 characters.').optional(),
-        /** Set when the operator picked something that already exists instead of declaring a new one. */
-        adoptDiscordId: discordIdSchema.optional(),
-    })
-    /*
-     * Stored as the name Discord will hold, so the declaration never disagrees with the
-     * channel it installs. Normalised rather than rejected: journeys saved before this
-     * rule carry names like `Welcome Mat`, and refusing them would 400 the operator's
-     * next unrelated save of that journey — they get fixed on it instead. The panel
-     * already normalises as the operator types, so a browser save is unchanged by this;
-     * it is here because the browser is a client, not the authority.
-     */
-    .transform((resource) => ({
-        ...resource,
-        defaultName: normaliseResourceName(resource.kind, resource.defaultName),
-    }));
-
-/**
- * Which drifted resources the operator ticked.
- *
- * Keys rather than the reviewed report, because the report is rebuilt server-side —
- * see the route. `min(1)` because an empty repair is a request that cannot have been
- * meant: the button is only reachable with something selected, so an empty array is a
- * malformed client rather than an operator who chose nothing, and silently returning
- * "repaired 0" would hide that.
- */
-/**
- * A `resource_bindings` row id, as it appears in a path.
- *
- * Matched as **text** rather than coerced, because `Number` is lenient in ways a row id
- * is not: `Number('0x2a')` is 42, and so are `' 42 '`, `'4.2e1'` and `'42.0'` — while
- * `Number('')` is **0**, which `Number.isInteger` accepts. None of those could reach the
- * wrong row, since the orphan re-find is the real gate, and that was the problem: the
- * 400 was decorative and the whole protection rested on a downstream lookup. A validator
- * that accepts hex for a primary key is the wrong shape even where it is harmless.
- *
- * `max(16)` because the id is a `Generated<number>` and sixteen digits is already past
- * anything this table will hold — it stops a caller handing us a string long enough to
- * lose precision on the way to a `number`.
- */
-const bindingIdSchema = z
-    .string()
-    .regex(/^\d{1,16}$/, 'A binding id is a whole number.')
-    .refine((value) => Number(value) > 0, 'A binding id starts at 1.');
-
-/**
- * Exported for the route test that asserts a forged `approvedPlan` is stripped here
- * rather than merely ignored downstream. That distinction is not observable through
- * the handler — see the test — so the schema is checked directly.
- */
-export const repairBody = z.object({
-    resourceKeys: z
-        .array(resourceKeySchema)
-        .min(1, 'Choose at least one resource to repair.'),
+const listJourneysRoute = createRoute({
+    method: 'get',
+    path: '/{guildId}/journeys',
+    operationId: 'listJourneys',
+    tags: ['journeys'],
+    summary: "The guild's journeys, with the flows attached to each",
+    request: { params: GuildPathSchema },
+    responses: {
+        200: jsonResponse('Every journey in the guild, without declarations.', z.object({ journeys: z.array(JourneySummarySchema) })),
+        ...GUILD_SCOPED_ERRORS,
+    },
 });
 
-const createJourneyBody = z.object({
-    journeyKey: resourceKeySchema,
-    name: z.string().min(1, 'Give the journey a name.').max(100, 'Journey names cap at 100 characters.'),
-    description: z.string().max(500, 'Descriptions cap at 500 characters.').optional(),
-    resources: z.array(resourceSchema),
+const getJourneyRoute = createRoute({
+    method: 'get',
+    path: '/{guildId}/journeys/{journeyKey}',
+    operationId: 'getJourney',
+    tags: ['journeys'],
+    summary: 'One journey with what it declares',
+    request: { params: JourneyPathSchema },
+    responses: {
+        200: jsonResponse('The journey.', JourneySchema),
+        ...JOURNEY_ERRORS,
+    },
 });
 
-const updateJourneyBody = z.object({
-    name: z.string().min(1, 'Give the journey a name.').max(100, 'Journey names cap at 100 characters.').optional(),
-    description: z.string().max(500, 'Descriptions cap at 500 characters.').nullable().optional(),
-    resources: z.array(resourceSchema).optional(),
+const getJourneyPublishedStateRoute = createRoute({
+    method: 'get',
+    path: '/{guildId}/journeys/{journeyKey}/published',
+    operationId: 'getJourneyPublishedState',
+    tags: ['journeys'],
+    summary: 'What the journey has live in the guild, across every flow attached to it',
+    request: { params: JourneyPathSchema },
+    responses: {
+        200: jsonResponse(
+            "Every attached flow's button messages, and the resources the journey put in the guild.",
+            PublishedFlowStateSchema
+        ),
+        ...JOURNEY_ERRORS,
+    },
 });
+
+const undeployJourneyRoute = createRoute({
+    method: 'post',
+    path: '/{guildId}/journeys/{journeyKey}/undeploy',
+    operationId: 'undeployJourney',
+    tags: ['journeys'],
+    summary: "Delete the messages carrying the buttons of every flow on the journey",
+    request: { params: JourneyPathSchema },
+    responses: {
+        200: jsonResponse(
+            'What became of each recorded message, across every flow. A flow whose buttons could not ' +
+                'be read is a `failed` row naming it.',
+            UndeployResultSchema
+        ),
+        ...JOURNEY_ERRORS,
+    },
+});
+
+const unpublishJourneyRoute = createRoute({
+    method: 'post',
+    path: '/{guildId}/journeys/{journeyKey}/unpublish',
+    operationId: 'unpublishJourney',
+    tags: ['journeys'],
+    summary: 'Destroy the channels and roles the journey created. Irreversible.',
+    request: { params: JourneyPathSchema },
+    responses: {
+        200: jsonResponse('What became of each resource.', UnpublishResultSchema),
+        ...JOURNEY_ERRORS,
+        409: errorBodyResponse('Nothing was deleted: the teardown was refused before it started.'),
+    },
+});
+
+const getJourneyDriftRoute = createRoute({
+    method: 'get',
+    path: '/{guildId}/journeys/{journeyKey}/drift',
+    operationId: 'getJourneyDrift',
+    tags: ['journeys'],
+    summary: 'What the journey installed that no longer matches what it declares. Changes nothing.',
+    request: { params: JourneyPathSchema },
+    responses: {
+        200: jsonResponse('The drift report, read from the guild, with the orphans beside it.', JourneyDriftSchema),
+        ...JOURNEY_ERRORS,
+    },
+});
+
+const repairJourneyDriftRoute = createRoute({
+    method: 'post',
+    path: '/{guildId}/journeys/{journeyKey}/repair',
+    operationId: 'repairJourneyDrift',
+    tags: ['journeys'],
+    summary: 'Put the chosen resources back to what the journey declares',
+    request: { params: JourneyPathSchema, body: jsonBody(DriftRepairSchema) },
+    responses: {
+        200: jsonResponse(
+            'What became of each chosen resource. A partial repair is a 200; a `failed` row with ' +
+                '`repaired` set was changed before the step that failed.',
+            RepairResultSchema
+        ),
+        ...GUILD_SCOPED_BODY_ERRORS,
+        404: JOURNEY_NOT_FOUND,
+        409: errorBodyResponse('Nothing was repaired: the repair was refused before it started.'),
+    },
+});
+
+const forgetJourneyOrphanRoute = createRoute({
+    method: 'post',
+    path: '/{guildId}/journeys/{journeyKey}/orphans/{bindingId}/forget',
+    operationId: 'forgetJourneyOrphan',
+    tags: ['journeys'],
+    summary: 'Drop the record of a resource the journey no longer declares. Never touches the object.',
+    request: { params: OrphanPathSchema },
+    responses: {
+        200: jsonResponse('Forgotten. `objectRemains` says whether the object is still in the server.', ForgottenOrphanSchema),
+        ...GUILD_SCOPED_ERRORS,
+        400: errorBodyResponse('The binding id is not a whole number from 1, or the server id is missing.'),
+        404: errorBodyResponse(
+            'The bot is not in this server, the journey is not in it, or the record is not one of its ' +
+                'leftovers any more — already removed, or declared again.'
+        ),
+    },
+});
+
+const getFlowResourcesRoute = createRoute({
+    method: 'get',
+    path: '/{guildId}/flows/{flowId}/resources',
+    operationId: 'getFlowResources',
+    tags: ['journeys'],
+    summary: 'What one flow declares, through the journey it is on',
+    request: { params: FlowPathSchema },
+    responses: {
+        200: jsonResponse(
+            "The flow's declarations. Empty when it declares nothing, which is the normal state of a flow.",
+            FlowResourcesSchema
+        ),
+        ...GUILD_SCOPED_ERRORS,
+    },
+});
+
+const saveFlowResourcesRoute = createRoute({
+    method: 'put',
+    path: '/{guildId}/flows/{flowId}/resources',
+    operationId: 'saveFlowResources',
+    tags: ['journeys'],
+    summary: "Replace what a flow declares, creating its journey on first use. An empty list removes it.",
+    request: { params: FlowPathSchema, body: jsonBody(FlowResourcesSaveSchema) },
+    responses: {
+        200: jsonResponse(
+            'The declarations as stored, text-channel names normalised.',
+            FlowResourcesSchema
+        ),
+        ...GUILD_SCOPED_BODY_ERRORS,
+        400: RESOURCES_REFUSED,
+        404: FLOW_NOT_FOUND,
+        409: errorBodyResponse(
+            'Nothing was written: other flows share the journey, or a journey keyed with this flow id ' +
+                'already exists.'
+        ),
+    },
+});
+
+const getFlowAttachmentRoute = createRoute({
+    method: 'get',
+    path: '/{guildId}/flows/{flowId}/attachment',
+    operationId: 'getFlowAttachment',
+    tags: ['journeys'],
+    summary: 'Which journey this flow installs, if any',
+    request: { params: FlowPathSchema },
+    responses: {
+        200: jsonResponse(
+            'The journey, or null when the flow is on none.',
+            z.object({ attachment: z.union([FlowAttachmentSchema, z.null()]) })
+        ),
+        ...FLOW_ERRORS,
+    },
+});
+
+const attachFlowToJourneyRoute = createRoute({
+    method: 'post',
+    path: '/{guildId}/flows/{flowId}/attach',
+    operationId: 'attachFlowToJourney',
+    tags: ['journeys'],
+    summary: 'Move a flow onto an existing journey',
+    request: { params: FlowPathSchema, body: jsonBody(FlowAttachSchema) },
+    responses: {
+        200: jsonResponse('The journey the flow is now on, and the one it left.', AttachResultSchema),
+        ...GUILD_SCOPED_BODY_ERRORS,
+        404: errorBodyResponse('The bot is not in this server, or the flow or the journey is not in it.'),
+    },
+});
+
+const detachFlowFromJourneyRoute = createRoute({
+    method: 'post',
+    path: '/{guildId}/flows/{flowId}/detach',
+    operationId: 'detachFlowFromJourney',
+    tags: ['journeys'],
+    summary: 'Take a flow off its journey. Leaves the journey and anything installed alone.',
+    request: { params: FlowPathSchema },
+    responses: {
+        200: jsonResponse(
+            '`detached` is false when the flow was on no journey — the state asked for, so not an error.',
+            DetachResultSchema
+        ),
+        ...FLOW_ERRORS,
+    },
+});
+
+const previewFlowGroupingRoute = createRoute({
+    method: 'get',
+    path: '/{guildId}/flows/{flowId}/group-preview',
+    operationId: 'previewFlowGrouping',
+    tags: ['journeys'],
+    summary: 'What grouping this flow with the target flow would do. Changes nothing.',
+    request: {
+        params: FlowPathSchema,
+        // Optional to the validator so its absence gets the route's own sentence below.
+        query: z.object({ target: z.string().optional() }),
+    },
+    responses: {
+        200: jsonResponse('The preview the grouping dialog is built from.', GroupPreviewSchema),
+        ...GUILD_SCOPED_ERRORS,
+        400: errorBodyResponse('No target flow, the target is this flow, or the server id is missing.'),
+        404: errorBodyResponse('The bot is not in this server, or either flow is not in it.'),
+        409: errorBodyResponse("This flow's journey is shared with other flows, which still install it."),
+    },
+});
+
+const groupFlowWithRoute = createRoute({
+    method: 'post',
+    path: '/{guildId}/flows/{flowId}/group',
+    operationId: 'groupFlowWith',
+    tags: ['journeys'],
+    summary: "Group this flow with the target flow, on the target's journey",
+    request: { params: FlowPathSchema, body: jsonBody(FlowGroupSchema) },
+    responses: {
+        200: jsonResponse('The journey both flows are now on.', FlowGroupResultSchema),
+        ...GUILD_SCOPED_BODY_ERRORS,
+        400: errorBodyResponse(
+            'The body was refused; the target is this flow; the flow declares resources and no ' +
+                '`resolution` was given; a new group needs `newJourneyKey`; the merged declarations ' +
+                'disagree with each other; or the server id is missing.'
+        ),
+        404: errorBodyResponse('The bot is not in this server, or either flow is not in it.'),
+        409: errorBodyResponse(
+            "Nothing was grouped: this flow's journey is shared, both journeys declare the same key, or " +
+                'a journey with the new key already exists.'
+        ),
+    },
+});
+
+const createJourneyRoute = createRoute({
+    method: 'post',
+    path: '/{guildId}/journeys',
+    operationId: 'createJourney',
+    tags: ['journeys'],
+    summary: 'Create a journey',
+    request: { params: GuildPathSchema, body: jsonBody(JourneyCreateSchema) },
+    responses: {
+        201: jsonResponse('The new journey.', JourneySchema),
+        ...GUILD_SCOPED_BODY_ERRORS,
+        400: RESOURCES_REFUSED,
+        409: errorBodyResponse('A journey with that key already exists in this server.'),
+    },
+});
+
+const updateJourneyRoute = createRoute({
+    method: 'put',
+    path: '/{guildId}/journeys/{journeyKey}',
+    operationId: 'updateJourney',
+    tags: ['journeys'],
+    summary: "Update a journey's name, description or declarations",
+    request: { params: JourneyPathSchema, body: jsonBody(JourneyUpdateSchema) },
+    responses: {
+        200: jsonResponse('The journey as it now stands.', JourneySchema),
+        ...GUILD_SCOPED_BODY_ERRORS,
+        400: RESOURCES_REFUSED,
+        404: JOURNEY_NOT_FOUND,
+    },
+});
+
+const deleteJourneyRoute = createRoute({
+    method: 'delete',
+    path: '/{guildId}/journeys/{journeyKey}',
+    operationId: 'deleteJourney',
+    tags: ['journeys'],
+    summary: 'Delete a journey nothing is attached to. Leaves anything installed alone.',
+    request: { params: JourneyPathSchema },
+    responses: {
+        204: { description: 'Deleted.' },
+        ...JOURNEY_ERRORS,
+        409: errorBodyResponse('Flows are still attached; the sentence names each.'),
+    },
+});
+
+/** Why a repo write was refused by the operator's input, as a status and the sentence to send. */
+type JourneyWriteRefusal =
+    | { readonly status: 400; readonly error: string }
+    | { readonly status: 409; readonly error: string };
 
 /**
- * What the flows page sends when a row is dropped onto another.
+ * Map a repo error onto a status the builder can act on, or `undefined` for anything else.
  *
- * `resolution` has no default on purpose. Omitting it is only legal when the moving flow
- * declares nothing — the silent, common case — and any other omission is a 400 rather
- * than an assumed answer, because both outcomes are consequential and one of them
- * abandons live channels.
- *
- * The new journey's key is supplied by the client, which already derives a unique slug
- * for the attach modal. Validated here against the same shape every other key uses, so
- * a hand-rolled request cannot conjure one the rest of the system could not store.
+ * Both cases are the operator's input being wrong, not the server failing, so
+ * letting them fall through to a 500 would tell the builder nothing it could show.
+ * Anything else is genuinely unexpected and the caller rethrows it for the error handler.
+ * `journeysRepo.update` never raises the duplicate-key error, so the update route asks
+ * {@link declarationRefusal} alone.
  */
-const groupFlowBody = z.object({
-    targetFlowId: z.string().min(1, 'Name the flow being grouped with.'),
-    resolution: z.enum(['merge', 'leave']).optional(),
-    newJourneyKey: resourceKeySchema.optional(),
-    newJourneyName: z
-        .string()
-        .min(1, 'Give the journey a name.')
-        .max(100, 'Journey names cap at 100 characters.')
-        .optional(),
-});
-
-function journeyDetail(journey: JourneyEntity) {
-    return {
-        journeyKey: journey.journeyKey,
-        name: journey.name,
-        description: journey.description,
-        resources: journey.resources,
-        createdAt: new Date(journey.createdAt).toISOString(),
-        updatedAt: new Date(journey.updatedAt).toISOString(),
-    };
+function journeyWriteRefusal(error: unknown): JourneyWriteRefusal | undefined {
+    if (error instanceof DuplicateJourneyKeyError) {
+        return { status: 409, error: 'A journey with that key already exists in this server.' };
+    }
+    const declaration = declarationRefusal(error);
+    return declaration === undefined ? undefined : { status: 400, error: declaration };
 }
 
-/** A flow attached to a journey, as the list reports it. */
-interface AttachedFlowSummary {
-    flowId: string;
-    name: string;
+/** The sentence for declarations the repo refused as a whole, or `undefined` for any other error. */
+function declarationRefusal(error: unknown): string | undefined {
+    return error instanceof ResourceDeclarationError ? error.message : undefined;
 }
 
-/**
- * The list shape: metadata, a count, and **which flows are attached**.
- *
- * The attachments are what make a journey legible as a shared thing rather than a row
- * with a key. They are also what an operator needs before pressing delete, since that is
- * refused while anything is attached — showing the names on the row means the refusal
- * confirms something already on screen rather than being the first they hear of it.
- */
-function journeySummary(journey: JourneyEntity, attachedFlows: readonly AttachedFlowSummary[]) {
-    return {
-        journeyKey: journey.journeyKey,
-        name: journey.name,
-        description: journey.description,
-        resourceCount: journey.resources.length,
-        attachedFlows,
-        createdAt: new Date(journey.createdAt).toISOString(),
-        updatedAt: new Date(journey.updatedAt).toISOString(),
-    };
+export function journeyRoutes(): OpenAPIHono<AppEnv> {
+    return apiRouter(defineJourneyRoutes);
 }
 
-export function journeyRoutes(): Hono<AppEnv> {
-    const app = new Hono<AppEnv>();
-
+function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
     /**
      * Every journey in the guild, with the flows attached to each.
      *
@@ -279,7 +427,7 @@ export function journeyRoutes(): Hono<AppEnv> {
      * contributes no name — the same rule `flowNameInGuild` applies, kept here because
      * these names go in a response body.
      */
-    app.get('/:guildId/journeys', async (c) => {
+    router.openapi(listJourneysRoute, async (c) => {
         const guildId = c.get('guild').id;
         const [journeys, links, flows] = await Promise.all([
             journeysRepo.listByGuildId(guildId),
@@ -288,7 +436,7 @@ export function journeyRoutes(): Hono<AppEnv> {
         ]);
 
         const flowNames = new Map(flows.map((flow) => [flow.flowId, flow.name]));
-        const attachedByKey = new Map<string, AttachedFlowSummary[]>();
+        const attachedByKey = new Map<string, AttachedFlowBody[]>();
         for (const link of links) {
             const forKey = attachedByKey.get(link.journeyKey) ?? [];
             // A flow whose row has vanished keeps its id as the label rather than being
@@ -299,20 +447,24 @@ export function journeyRoutes(): Hono<AppEnv> {
             attachedByKey.set(link.journeyKey, forKey);
         }
 
-        return c.json({
-            journeys: journeys.map((journey) =>
-                journeySummary(journey, attachedByKey.get(journey.journeyKey) ?? [])
-            ),
-        });
+        return c.json(
+            {
+                journeys: journeys.map((journey) =>
+                    journeySummary(journey, attachedByKey.get(journey.journeyKey) ?? [])
+                ),
+            },
+            200
+        );
     });
 
-    app.get('/:guildId/journeys/:journeyKey', async (c) => {
-        const journey = await journeysRepo.getByKey(c.get('guild').id, c.req.param('journeyKey'));
+    router.openapi(getJourneyRoute, async (c) => {
+        const { journeyKey } = c.req.valid('param');
+        const journey = await journeysRepo.getByKey(c.get('guild').id, journeyKey);
         if (!journey) {
             return c.json({ error: 'Journey not found.' }, 404);
         }
 
-        return c.json(journeyDetail(journey));
+        return c.json(journeyDetail(journey), 200);
     });
 
     /**
@@ -330,16 +482,16 @@ export function journeyRoutes(): Hono<AppEnv> {
      * the empty state honest: without it a foreign key would plan against no bindings and
      * report "nothing installed" for a journey that is fully installed elsewhere.
      */
-    app.get('/:guildId/journeys/:journeyKey/published', async (c) => {
+    router.openapi(getJourneyPublishedStateRoute, async (c) => {
         const guild = c.get('guild');
-        const journeyKey = c.req.param('journeyKey');
+        const { journeyKey } = c.req.valid('param');
 
         const journey = await journeysRepo.getByKey(guild.id, journeyKey);
         if (!journey) {
             return c.json({ error: 'Journey not found.' }, 404);
         }
 
-        return c.json(publishedBody(await getPublishedJourneyState(guild, journeyKey)));
+        return c.json(publishedBody(await getPublishedJourneyState(guild, journeyKey)), 200);
     });
 
     /**
@@ -367,9 +519,9 @@ export function journeyRoutes(): Hono<AppEnv> {
      * the remaining live buttons are. A flow that throws is reported as a failure against
      * itself and the run continues.
      */
-    app.post('/:guildId/journeys/:journeyKey/undeploy', async (c) => {
+    router.openapi(undeployJourneyRoute, async (c) => {
         const guildId = c.get('guild').id;
-        const journeyKey = c.req.param('journeyKey');
+        const { journeyKey } = c.req.valid('param');
 
         const journey = await journeysRepo.getByKey(guildId, journeyKey);
         if (!journey) {
@@ -398,7 +550,7 @@ export function journeyRoutes(): Hono<AppEnv> {
             }
         }
 
-        return c.json({ results });
+        return c.json({ results }, 200);
     });
 
     /**
@@ -424,9 +576,9 @@ export function journeyRoutes(): Hono<AppEnv> {
      * journey is this guild's, and `requireGuildAccess` has already proved the caller
      * may act on this guild.
      */
-    app.post('/:guildId/journeys/:journeyKey/unpublish', async (c) => {
+    router.openapi(unpublishJourneyRoute, async (c) => {
         const guild = c.get('guild');
-        const journeyKey = c.req.param('journeyKey');
+        const { journeyKey } = c.req.valid('param');
 
         const journey = await journeysRepo.getByKey(guild.id, journeyKey);
         if (!journey) {
@@ -440,7 +592,7 @@ export function journeyRoutes(): Hono<AppEnv> {
             return c.json({ error: result.refusal }, 409);
         }
 
-        return c.json({ results: result.results });
+        return c.json({ results: result.results }, 200);
     });
 
     /**
@@ -462,9 +614,9 @@ export function journeyRoutes(): Hono<AppEnv> {
      * That is the whole difference between this and the `installState` on the flows
      * list, which is deliberately the weaker claim.
      */
-    app.get('/:guildId/journeys/:journeyKey/drift', async (c) => {
+    router.openapi(getJourneyDriftRoute, async (c) => {
         const guild = c.get('guild');
-        const journeyKey = c.req.param('journeyKey');
+        const { journeyKey } = c.req.valid('param');
 
         const row = await journeysRepo.getByKey(guild.id, journeyKey);
         if (!row) {
@@ -481,7 +633,7 @@ export function journeyRoutes(): Hono<AppEnv> {
             previewOrphans({ guild, journey }),
         ]);
 
-        return c.json(driftBody(plan, orphans));
+        return c.json(driftBody(plan, orphans), 200);
     });
 
     /**
@@ -504,18 +656,14 @@ export function journeyRoutes(): Hono<AppEnv> {
      * A partial repair is **200, not an error**, for the same reason a partial install
      * is: what was fixed is really fixed, and the per-item results say where it stopped.
      */
-    app.post('/:guildId/journeys/:journeyKey/repair', async (c) => {
+    router.openapi(repairJourneyDriftRoute, async (c) => {
         const guild = c.get('guild');
-        const journeyKey = c.req.param('journeyKey');
+        const { journeyKey } = c.req.valid('param');
+        const { resourceKeys } = c.req.valid('json');
 
         const row = await journeysRepo.getByKey(guild.id, journeyKey);
         if (!row) {
             return c.json({ error: 'Journey not found.' }, 404);
-        }
-
-        const parsed = repairBody.safeParse(await c.req.json().catch(() => null));
-        if (!parsed.success) {
-            return c.json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body.' }, 400);
         }
 
         const journey = toDeclarationFromRow(row);
@@ -529,14 +677,14 @@ export function journeyRoutes(): Hono<AppEnv> {
             journey,
             staffRoleIds,
             approvedPlan: plan,
-            approvedKeys: new Set(parsed.data.resourceKeys),
+            approvedKeys: new Set(resourceKeys),
         });
 
         if (result.refusal) {
             return c.json({ error: result.refusal }, 409);
         }
 
-        return c.json({ results: result.results });
+        return c.json({ results: result.results }, 200);
     });
 
     /**
@@ -558,20 +706,19 @@ export function journeyRoutes(): Hono<AppEnv> {
      * — or another guild — is a 404, so an id guessed at a URL cannot drop a row the
      * operator was never shown.
      */
-    app.post('/:guildId/journeys/:journeyKey/orphans/:bindingId/forget', async (c) => {
+    router.openapi(forgetJourneyOrphanRoute, async (c) => {
         const guild = c.get('guild');
-        const journeyKey = c.req.param('journeyKey');
+        const { journeyKey, bindingId: rawBindingId } = c.req.valid('param');
 
         const row = await journeysRepo.getByKey(guild.id, journeyKey);
         if (!row) {
             return c.json({ error: 'Journey not found.' }, 404);
         }
 
-        const parsedId = bindingIdSchema.safeParse(c.req.param('bindingId'));
-        if (!parsedId.success) {
+        const bindingId = parseBindingId(rawBindingId);
+        if (bindingId === undefined) {
             return c.json({ error: 'Binding id must be a whole number.' }, 400);
         }
-        const bindingId = Number(parsedId.data);
 
         /*
          * Re-found through `previewOrphans` rather than forgotten by id directly.
@@ -601,15 +748,18 @@ export function journeyRoutes(): Hono<AppEnv> {
             return c.json({ error: 'That leftover record was already removed.' }, 404);
         }
 
-        return c.json({
-            forgotten: true,
-            resourceKey: orphan.resourceKey,
-            name: orphan.name,
-            // The operator is owed the distinction: a row dropped behind a live object
-            // means something is still sitting in their server that nothing tracks any
-            // more, and that is the case where they may want to go and look at it.
-            objectRemains: orphan.stillInGuild,
-        });
+        return c.json(
+            {
+                forgotten: true,
+                resourceKey: orphan.resourceKey,
+                name: orphan.name,
+                // The operator is owed the distinction: a row dropped behind a live object
+                // means something is still sitting in their server that nothing tracks any
+                // more, and that is the case where they may want to go and look at it.
+                objectRemains: orphan.stillInGuild,
+            } satisfies z.infer<typeof ForgottenOrphanSchema>,
+            200
+        );
     });
 
     /**
@@ -624,9 +774,9 @@ export function journeyRoutes(): Hono<AppEnv> {
      * Returns an empty list rather than a 404 when the flow has declared nothing —
      * "no resources yet" is the normal state of every flow, not an error.
      */
-    app.get('/:guildId/flows/:flowId/resources', async (c) => {
-        const resolved = await resolveFlowJourney(c.get('guild').id, c.req.param('flowId'));
-        return c.json({ resources: resolved?.journey.resources ?? [] });
+    router.openapi(getFlowResourcesRoute, async (c) => {
+        const resolved = await resolveFlowJourney(c.get('guild').id, c.req.valid('param').flowId);
+        return c.json({ resources: resolved?.journey.resources ?? [] }, 200);
     });
 
     /**
@@ -637,15 +787,14 @@ export function journeyRoutes(): Hono<AppEnv> {
      * it". The journey is created on the first save with a non-empty list, which is
      * what "journeys are created implicitly with a flow" means in practice.
      */
-    app.put('/:guildId/flows/:flowId/resources', async (c) => {
+    router.openapi(saveFlowResourcesRoute, async (c) => {
         const guildId = c.get('guild').id;
-        const flowId = c.req.param('flowId');
+        const { flowId } = c.req.valid('param');
+        const { resources } = c.req.valid('json');
 
-        const parsed = z
-            .object({ resources: z.array(resourceSchema) })
-            .safeParse(await c.req.json().catch(() => null));
-        if (!parsed.success) {
-            return c.json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body.' }, 400);
+        const rolesRefusal = rolesWithoutIdsRefusal(resources);
+        if (rolesRefusal) {
+            return c.json({ error: rolesRefusal }, 400);
         }
 
         const flow = await flowsRepo.getByFlowId(flowId);
@@ -679,7 +828,7 @@ export function journeyRoutes(): Hono<AppEnv> {
         // The journey row goes; `resource_bindings` deliberately stay, because they
         // record channels that exist in the guild and removing them would orphan real
         // Discord objects. Tearing those down is uninstall's job.
-        if (parsed.data.resources.length === 0) {
+        if (resources.length === 0) {
             if (shared.length > 0) {
                 return c.json(
                     {
@@ -704,7 +853,7 @@ export function journeyRoutes(): Hono<AppEnv> {
             // nothing, detach itself, and report success, leaving the journey row
             // behind attached to nobody.
             await journeysRepo.deleteByKey(guildId, resolved?.journey.journeyKey ?? flowId);
-            return c.json({ resources: [] });
+            return c.json({ resources: [] }, 200);
         }
 
         if (shared.length > 0) {
@@ -722,16 +871,14 @@ export function journeyRoutes(): Hono<AppEnv> {
 
         try {
             const journey = resolved
-                ? await journeysRepo.update(guildId, resolved.journey.journeyKey, {
-                      resources: parsed.data.resources,
-                  })
+                ? await journeysRepo.update(guildId, resolved.journey.journeyKey, { resources })
                 : await journeysRepo.create({
                       guildId,
                       // The flow's id, so the scope is unambiguous and needs no name.
                       journeyKey: flowId,
                       // Named after the flow for diagnostics only. The key is identity.
                       name: flow.name,
-                      resources: parsed.data.resources,
+                      resources,
                       createdForFlowId: flowId,
                   });
 
@@ -746,9 +893,13 @@ export function journeyRoutes(): Hono<AppEnv> {
                 journeyKey: journey.journeyKey,
             });
 
-            return c.json({ resources: journey.resources });
+            return c.json({ resources: journey.resources }, 200);
         } catch (error) {
-            return errorResponse(c, error);
+            const refusal = journeyWriteRefusal(error);
+            if (!refusal) {
+                throw error;
+            }
+            return c.json({ error: refusal.error }, refusal.status);
         }
     });
 
@@ -764,9 +915,9 @@ export function journeyRoutes(): Hono<AppEnv> {
      * `sharedWith` names the other flows on the same journey, because "detach" reads
      * very differently depending on whether anything else is holding it.
      */
-    app.get('/:guildId/flows/:flowId/attachment', async (c) => {
+    router.openapi(getFlowAttachmentRoute, async (c) => {
         const guildId = c.get('guild').id;
-        const flowId = c.req.param('flowId');
+        const { flowId } = c.req.valid('param');
 
         const flow = await flowsRepo.getByFlowId(flowId);
         if (!flow || flow.guildId !== guildId) {
@@ -775,21 +926,24 @@ export function journeyRoutes(): Hono<AppEnv> {
 
         const resolved = await resolveFlowJourney(guildId, flowId);
         if (!resolved) {
-            return c.json({ attachment: null });
+            return c.json({ attachment: null }, 200);
         }
 
         const others = await otherFlowsOnJourney(guildId, resolved.journey.journeyKey, flowId, {
             flowName: (otherFlowId) => flowNameInGuild(guildId, otherFlowId),
         });
 
-        return c.json({
-            attachment: {
-                journeyKey: resolved.journey.journeyKey,
-                name: resolved.journey.name,
-                resourceCount: resolved.journey.resources.length,
-                sharedWith: others.map((other) => ({ flowId: other.flowId, name: other.label })),
+        return c.json(
+            {
+                attachment: {
+                    journeyKey: resolved.journey.journeyKey,
+                    name: resolved.journey.name,
+                    resourceCount: resolved.journey.resources.length,
+                    sharedWith: others.map((other) => ({ flowId: other.flowId, name: other.label })),
+                },
             },
-        });
+            200
+        );
     });
 
     /**
@@ -817,16 +971,10 @@ export function journeyRoutes(): Hono<AppEnv> {
      * it from the old one in the same statement. The response reports `movedFrom` so the
      * UI can say which journey was left rather than implying a flow now has two.
      */
-    app.post('/:guildId/flows/:flowId/attach', async (c) => {
+    router.openapi(attachFlowToJourneyRoute, async (c) => {
         const guildId = c.get('guild').id;
-        const flowId = c.req.param('flowId');
-
-        const parsed = z
-            .object({ journeyKey: resourceKeySchema })
-            .safeParse(await c.req.json().catch(() => null));
-        if (!parsed.success) {
-            return c.json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body.' }, 400);
-        }
+        const { flowId } = c.req.valid('param');
+        const { journeyKey } = c.req.valid('json');
 
         // Guild-scoped, and a mismatch is a 404 rather than a 403: never confirm another
         // guild's flow exists. `flowsRepo.getByFlowId` matches on the id alone, so this
@@ -836,7 +984,7 @@ export function journeyRoutes(): Hono<AppEnv> {
             return c.json({ error: 'Flow not found.' }, 404);
         }
 
-        const journey = await journeysRepo.getByKey(guildId, parsed.data.journeyKey);
+        const journey = await journeysRepo.getByKey(guildId, journeyKey);
         if (!journey) {
             return c.json({ error: 'Journey not found.' }, 404);
         }
@@ -851,12 +999,15 @@ export function journeyRoutes(): Hono<AppEnv> {
 
         await flowJourneyLinksRepo.attach({ guildId, flowId, journeyKey: journey.journeyKey });
 
-        return c.json({
-            journeyKey: journey.journeyKey,
-            name: journey.name,
-            resourceCount: journey.resources.length,
-            movedFrom,
-        });
+        return c.json(
+            {
+                journeyKey: journey.journeyKey,
+                name: journey.name,
+                resourceCount: journey.resources.length,
+                movedFrom,
+            },
+            200
+        );
     });
 
     /**
@@ -872,9 +1023,9 @@ export function journeyRoutes(): Hono<AppEnv> {
      * be attached to it, and this route has no business deciding that a journey is
      * finished because one flow left.
      */
-    app.post('/:guildId/flows/:flowId/detach', async (c) => {
+    router.openapi(detachFlowFromJourneyRoute, async (c) => {
         const guildId = c.get('guild').id;
-        const flowId = c.req.param('flowId');
+        const { flowId } = c.req.valid('param');
 
         const flow = await flowsRepo.getByFlowId(flowId);
         if (!flow || flow.guildId !== guildId) {
@@ -885,7 +1036,7 @@ export function journeyRoutes(): Hono<AppEnv> {
 
         // 200 either way. "Already detached" is the state the caller asked for, and a
         // 404 would make the UI report a failure for reaching the outcome it wanted.
-        return c.json({ detached });
+        return c.json({ detached }, 200);
     });
 
     /**
@@ -900,10 +1051,10 @@ export function journeyRoutes(): Hono<AppEnv> {
      * journey is the destination, creating one if it has none, so this route answers for
      * the journey that would exist rather than the one that does.
      */
-    app.get('/:guildId/flows/:flowId/group-preview', async (c) => {
+    router.openapi(previewFlowGroupingRoute, async (c) => {
         const guildId = c.get('guild').id;
-        const flowId = c.req.param('flowId');
-        const targetFlowId = c.req.query('target');
+        const { flowId } = c.req.valid('param');
+        const targetFlowId = c.req.valid('query').target;
 
         if (!targetFlowId) {
             return c.json({ error: 'Name the flow being grouped with.' }, 400);
@@ -959,15 +1110,20 @@ export function journeyRoutes(): Hono<AppEnv> {
             movingBindings: bindings,
         });
 
-        return c.json({
-            /** Null when the target has no journey yet — one would be created. */
-            destination: destination
-                ? { journeyKey: destination.journey.journeyKey, name: destination.journey.name }
-                : null,
-            destinationName: destination?.journey.name ?? target.name,
-            movingFlowName: flow.name,
-            ...plan,
-        });
+        return c.json(
+            {
+                destination: destination
+                    ? { journeyKey: destination.journey.journeyKey, name: destination.journey.name }
+                    : null,
+                destinationName: destination?.journey.name ?? target.name,
+                movingFlowName: flow.name,
+                moving: plan.moving,
+                canMerge: plan.canMerge,
+                collisions: plan.collisions,
+                orphaned: plan.orphaned,
+            },
+            200
+        );
     });
 
     /**
@@ -982,15 +1138,10 @@ export function journeyRoutes(): Hono<AppEnv> {
      * the moving flow has resources of its own. Defaulting it would make the destructive
      * choice the quiet one.
      */
-    app.post('/:guildId/flows/:flowId/group', async (c) => {
+    router.openapi(groupFlowWithRoute, async (c) => {
         const guildId = c.get('guild').id;
-        const flowId = c.req.param('flowId');
-
-        const parsed = groupFlowBody.safeParse(await c.req.json().catch(() => null));
-        if (!parsed.success) {
-            return c.json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body.' }, 400);
-        }
-        const { targetFlowId, resolution, newJourneyKey, newJourneyName } = parsed.data;
+        const { flowId } = c.req.valid('param');
+        const { targetFlowId, resolution, newJourneyKey, newJourneyName } = c.req.valid('json');
 
         if (targetFlowId === flowId) {
             return c.json({ error: 'A flow cannot be grouped with itself.' }, 400);
@@ -1117,58 +1268,77 @@ export function journeyRoutes(): Hono<AppEnv> {
                 journeyKey: destinationJourney.journeyKey,
             });
 
-            return c.json({
-                journeyKey: destinationJourney.journeyKey,
-                name: destinationJourney.name,
-                resourceCount: destinationJourney.resources.length,
-            });
+            return c.json(
+                {
+                    journeyKey: destinationJourney.journeyKey,
+                    name: destinationJourney.name,
+                    resourceCount: destinationJourney.resources.length,
+                },
+                200
+            );
         } catch (error) {
-            return errorResponse(c, error);
+            const refusal = journeyWriteRefusal(error);
+            if (!refusal) {
+                throw error;
+            }
+            return c.json({ error: refusal.error }, refusal.status);
         }
     });
 
-    app.post('/:guildId/journeys', async (c) => {
-        const parsed = createJourneyBody.safeParse(await c.req.json().catch(() => null));
-        if (!parsed.success) {
-            return c.json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body.' }, 400);
+    router.openapi(createJourneyRoute, async (c) => {
+        const body = c.req.valid('json');
+
+        const rolesRefusal = rolesWithoutIdsRefusal(body.resources);
+        if (rolesRefusal) {
+            return c.json({ error: rolesRefusal }, 400);
         }
 
         try {
             const journey = await journeysRepo.create({
                 guildId: c.get('guild').id,
-                journeyKey: parsed.data.journeyKey,
-                name: parsed.data.name,
-                description: parsed.data.description,
-                resources: parsed.data.resources,
+                journeyKey: body.journeyKey,
+                name: body.name,
+                description: body.description,
+                resources: body.resources,
             });
             return c.json(journeyDetail(journey), 201);
         } catch (error) {
-            return errorResponse(c, error);
+            const refusal = journeyWriteRefusal(error);
+            if (!refusal) {
+                throw error;
+            }
+            return c.json({ error: refusal.error }, refusal.status);
         }
     });
 
-    app.put('/:guildId/journeys/:journeyKey', async (c) => {
+    router.openapi(updateJourneyRoute, async (c) => {
         const guildId = c.get('guild').id;
-        const journeyKey = c.req.param('journeyKey');
+        const { journeyKey } = c.req.valid('param');
+        const body = c.req.valid('json');
+
+        const rolesRefusal = body.resources ? rolesWithoutIdsRefusal(body.resources) : undefined;
+        if (rolesRefusal) {
+            return c.json({ error: rolesRefusal }, 400);
+        }
+
         const existing = await journeysRepo.getByKey(guildId, journeyKey);
         if (!existing) {
             return c.json({ error: 'Journey not found.' }, 404);
         }
 
-        const parsed = updateJourneyBody.safeParse(await c.req.json().catch(() => null));
-        if (!parsed.success) {
-            return c.json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body.' }, 400);
-        }
-
         try {
             const journey = await journeysRepo.update(guildId, journeyKey, {
-                name: parsed.data.name,
-                description: parsed.data.description,
-                resources: parsed.data.resources,
+                name: body.name,
+                description: body.description,
+                resources: body.resources,
             });
-            return c.json(journeyDetail(journey));
+            return c.json(journeyDetail(journey), 200);
         } catch (error) {
-            return errorResponse(c, error);
+            const refusal = declarationRefusal(error);
+            if (refusal === undefined) {
+                throw error;
+            }
+            return c.json({ error: refusal }, 400);
         }
     });
 
@@ -1185,9 +1355,9 @@ export function journeyRoutes(): Hono<AppEnv> {
      * what they act on, and it is the shape the category-cascade refusal in
      * `buildUnpublishPlan` already uses.
      */
-    app.delete('/:guildId/journeys/:journeyKey', async (c) => {
+    router.openapi(deleteJourneyRoute, async (c) => {
         const guildId = c.get('guild').id;
-        const journeyKey = c.req.param('journeyKey');
+        const { journeyKey } = c.req.valid('param');
         const existing = await journeysRepo.getByKey(guildId, journeyKey);
         if (!existing) {
             return c.json({ error: 'Journey not found.' }, 404);
@@ -1215,22 +1385,30 @@ export function journeyRoutes(): Hono<AppEnv> {
         return c.body(null, 204);
     });
 
-    return app;
+    return undefined;
 }
 
 /**
- * Map a repo error onto a status the builder can act on.
+ * A `resource_bindings` row id from a path, or `undefined` when it is not one.
  *
- * Both cases are the operator's input being wrong, not the server failing, so
- * letting them fall through to a 500 would tell the builder nothing it could show.
- * Anything else is genuinely unexpected and is rethrown for the error handler.
+ * Matched as **text** rather than coerced, because `Number` is lenient in ways a row id
+ * is not: `Number('0x2a')` is 42, and so are `' 42 '`, `'4.2e1'` and `'42.0'` — while
+ * `Number('')` is **0**, which `Number.isInteger` accepts. None of those could reach the
+ * wrong row, since the orphan re-find is the real gate, and that was the problem: the
+ * 400 was decorative and the whole protection rested on a downstream lookup. A validator
+ * that accepts hex for a primary key is the wrong shape even where it is harmless.
+ *
+ * At most sixteen digits because the id is a `Generated<number>` and sixteen digits is
+ * already past anything this table will hold — it stops a caller handing us a string long
+ * enough to lose precision on the way to a `number`. And from 1, the first id a row gets.
+ *
+ * Checked here rather than declared on the path: its refusal is one fixed sentence,
+ * `Binding id must be a whole number.`, whichever part failed.
  */
-function errorResponse(c: Context<AppEnv>, error: unknown): Response {
-    if (error instanceof DuplicateJourneyKeyError) {
-        return c.json({ error: 'A journey with that key already exists in this server.' }, 409);
+function parseBindingId(raw: string): number | undefined {
+    if (!/^\d{1,16}$/.test(raw)) {
+        return undefined;
     }
-    if (error instanceof ResourceDeclarationError) {
-        return c.json({ error: error.message }, 400);
-    }
-    throw error;
+    const bindingId = Number(raw);
+    return bindingId > 0 ? bindingId : undefined;
 }

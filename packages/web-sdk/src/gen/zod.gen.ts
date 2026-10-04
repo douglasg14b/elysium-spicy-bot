@@ -12,6 +12,21 @@ export const zActivityStatus = z.enum([
     'none'
 ]);
 
+export const zAttachResult = z.object({
+    journeyKey: z.string(),
+    movedFrom: z.object({
+        journeyKey: z.string(),
+        name: z.string()
+    }).nullable(),
+    name: z.string(),
+    resourceCount: z.number()
+});
+
+export const zAttachedFlow = z.object({
+    flowId: z.string(),
+    name: z.string()
+});
+
 /**
  * The signed-in Discord user. `avatar` is the avatar hash, null when they have none.
  */
@@ -156,6 +171,32 @@ export const zDeployedButtonMessage = z.object({
 export const zDeployResult = z.object({
     ok: z.literal(true),
     posted: z.array(zDeployedButtonMessage)
+});
+
+export const zDetachResult = z.object({
+    detached: z.boolean()
+});
+
+export const zDriftDetail = z.object({
+    explanation: z.string(),
+    kind: z.enum([
+        'renamed',
+        'reparented',
+        'wrongType',
+        'permissions'
+    ])
+});
+
+export const zDriftRepair = z.object({
+    resourceKeys: z.array(z.string().min(1, 'Give the resource a key.').max(64, 'Resource keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).')).min(1, 'Choose at least one resource to repair.')
+});
+
+export const zDriftedResource = z.object({
+    drift: z.array(zDriftDetail),
+    kind: z.string(),
+    name: z.string(),
+    repairable: z.boolean(),
+    resourceKey: z.string()
 });
 
 export const zEligibilityPermission = z.enum([
@@ -361,6 +402,17 @@ export const zErrorBody = z.object({
     error: z.string()
 });
 
+export const zFlowAttach = z.object({
+    journeyKey: z.string().min(1, 'Give the resource a key.').max(64, 'Resource keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).')
+});
+
+export const zFlowAttachment = z.object({
+    journeyKey: z.string(),
+    name: z.string(),
+    resourceCount: z.number(),
+    sharedWith: z.array(zAttachedFlow)
+});
+
 /**
  * What the Flow Builder may check about each block's config fields as an author types, keyed by block type, each rule carrying the server's own sentence. Not the config's type: every field is optional here, and a field the browser cannot check faithfully is unknown. The server checks the rest when the flow is saved or re-checked.
  */
@@ -494,6 +546,12 @@ export const zFlowEdge = z.object({
     sourceHandle: z.string().min(1).optional(),
     target: z.string().min(1),
     targetHandle: z.string().min(1).optional()
+});
+
+export const zFlowGroupResult = z.object({
+    journeyKey: z.string(),
+    name: z.string(),
+    resourceCount: z.number()
 });
 
 /**
@@ -630,6 +688,25 @@ export const zFlowSaveResult = z.union([
     }).and(zFlowSavedAsDraft)
 ]);
 
+export const zForgottenOrphan = z.object({
+    forgotten: z.literal(true),
+    name: z.string(),
+    objectRemains: z.boolean(),
+    resourceKey: z.string()
+});
+
+export const zGroupResolution = z.enum(['merge', 'leave']);
+
+/**
+ * `resolution` is required when the moving flow declares resources. `newJourneyKey` is required when the target flow is on no journey yet, so one is created.
+ */
+export const zFlowGroup = z.object({
+    newJourneyKey: z.string().min(1, 'Give the resource a key.').max(64, 'Resource keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).').optional(),
+    newJourneyName: z.string().min(1, 'Give the journey a name.').max(100, 'Journey names cap at 100 characters.').optional(),
+    resolution: zGroupResolution.optional(),
+    targetFlowId: z.string().min(1, 'Name the flow being grouped with.')
+});
+
 export const zGuild = z.object({
     iconURL: z.string().nullable(),
     id: z.string(),
@@ -727,6 +804,25 @@ export const zInstallResult = z.object({
     updatedFlowIds: z.array(z.string()),
     writeBackFailed: z.boolean(),
     writtenCount: z.number()
+});
+
+/**
+ * One journey, without its declarations, and the flows attached to it.
+ */
+export const zJourneySummary = z.object({
+    attachedFlows: z.array(zAttachedFlow),
+    createdAt: z.string(),
+    description: z.string().nullable(),
+    journeyKey: z.string(),
+    name: z.string(),
+    resourceCount: z.number(),
+    updatedAt: z.string()
+});
+
+export const zKeyCollision = z.object({
+    destinationName: z.string(),
+    key: z.string(),
+    movingName: z.string()
 });
 
 /**
@@ -924,6 +1020,38 @@ export const zNodeDescriptor = z.object({
     type: z.string()
 });
 
+export const zOrphanedResource = z.object({
+    bindingId: z.number(),
+    explanation: z.string(),
+    kind: z.string(),
+    name: z.string(),
+    neverSettled: z.boolean(),
+    resourceKey: z.string(),
+    stillInGuild: z.boolean()
+});
+
+export const zPermissionAccess = z.enum([
+    'hidden',
+    'readOnly',
+    'readWrite'
+]);
+
+export const zPermissionAudience = z.enum([
+    'everyone',
+    'roles',
+    'staff',
+    'subject'
+]);
+
+/**
+ * This audience gets this access. `roleIds` names the roles for a `roles` audience — a snowflake, or `resource:<key>` for a role the same journey declares — and must not be empty there.
+ */
+export const zPermissionIntent = z.object({
+    access: zPermissionAccess,
+    audience: zPermissionAudience,
+    roleIds: z.array(z.string().min(1).regex(/^(?:(?!resource:)[\s\S]*|resource:[a-z0-9]+(-[a-z0-9]+)*)$/, 'A declared role reference must name a valid resource key (lowercase letters, numbers and single hyphens).')).optional()
+});
+
 export const zPublishedButtonMessage = z.object({
     channelId: z.string(),
     messageId: z.string(),
@@ -955,6 +1083,102 @@ export const zPublishedFlowState = z.object({
     deletableResources: z.array(zPublishedResource),
     mayHaveUnrecordedButtons: z.boolean(),
     refusedResources: z.array(zPublishedResource)
+});
+
+export const zResourceKind = z.enum([
+    'category',
+    'textChannel',
+    'role'
+]);
+
+export const zMovingResource = z.object({
+    declaredName: z.string(),
+    key: z.string(),
+    kind: zResourceKind,
+    live: z.object({
+        discordId: z.string(),
+        name: z.string()
+    }).nullable()
+});
+
+/**
+ * What grouping would do. `destination` is null when the target flow is on no journey yet, so one would be created. `orphaned` are the live resources "leave" would strand.
+ */
+export const zGroupPreview = z.object({
+    canMerge: z.boolean(),
+    collisions: z.array(zKeyCollision),
+    destination: z.object({
+        journeyKey: z.string(),
+        name: z.string()
+    }).nullable(),
+    destinationName: z.string(),
+    moving: z.array(zMovingResource),
+    movingFlowName: z.string(),
+    orphaned: z.array(zMovingResource)
+});
+
+export const zRepairedResource = z.object({
+    explanation: z.string().optional(),
+    kind: zResourceKind,
+    name: z.string(),
+    outcome: z.enum([
+        'repaired',
+        'refused',
+        'failed'
+    ]),
+    repaired: z.array(z.enum([
+        'renamed',
+        'reparented',
+        'wrongType',
+        'permissions'
+    ])).optional(),
+    resourceKey: z.string()
+});
+
+export const zRepairResult = z.object({
+    results: z.array(zRepairedResource)
+});
+
+/**
+ * A resource a journey needs, named by a key stable across servers. `defaultName` is stored as Discord will hold it: a text channel lowercased, whitespace hyphenated. `adoptDiscordId` adopts something that already exists instead of creating it.
+ */
+export const zResourceDeclaration = z.object({
+    adoptDiscordId: z.string().regex(/^\d{17,20}$/, 'A channel or role id is 17 to 20 digits.').optional(),
+    defaultName: z.string().min(1, 'Give the resource a name.').max(100, 'Resource names cap at 100 characters.'),
+    description: z.string().max(500, 'Descriptions cap at 500 characters.').optional(),
+    key: z.string().min(1, 'Give the resource a key.').max(64, 'Resource keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).'),
+    kind: zResourceKind,
+    parentKey: z.string().min(1, 'Give the resource a key.').max(64, 'Resource keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).').optional(),
+    permissions: z.array(zPermissionIntent).optional()
+});
+
+export const zFlowResourcesSave = z.object({
+    resources: z.array(zResourceDeclaration)
+});
+
+export const zJourney = z.object({
+    createdAt: z.string(),
+    description: z.string().nullable(),
+    journeyKey: z.string(),
+    name: z.string(),
+    resources: z.array(zResourceDeclaration),
+    updatedAt: z.string()
+});
+
+export const zJourneyCreate = z.object({
+    description: z.string().max(500, 'Descriptions cap at 500 characters.').optional(),
+    journeyKey: z.string().min(1, 'Give the resource a key.').max(64, 'Resource keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).'),
+    name: z.string().min(1, 'Give the journey a name.').max(100, 'Journey names cap at 100 characters.'),
+    resources: z.array(zResourceDeclaration)
+});
+
+/**
+ * A partial update: send only what changed. `description: null` clears it. `resources` replaces the whole list.
+ */
+export const zJourneyUpdate = z.object({
+    description: z.string().max(500, 'Descriptions cap at 500 characters.').nullish(),
+    name: z.string().min(1, 'Give the journey a name.').max(100, 'Journey names cap at 100 characters.').optional(),
+    resources: z.array(zResourceDeclaration).optional()
 });
 
 /**
@@ -1158,6 +1382,23 @@ export const zTicketsConfigUpdate = z.object({
     moderationRoles: z.array(z.string().min(1).max(32)).min(1, 'Pick at least one moderation role, or nobody but admins can touch a ticket.').max(50, 'That is more moderation roles than any server has. Trim the list.')
 });
 
+export const zUncheckedResource = z.object({
+    name: z.string(),
+    reason: z.string(),
+    resourceKey: z.string()
+});
+
+/**
+ * What a journey installed that no longer matches what it declares (`drifted`), what it checked and found matching (`cleanKeys`), what it could not compare (`unchecked`), and what it installed and no longer declares (`orphans`).
+ */
+export const zJourneyDrift = z.object({
+    cleanKeys: z.array(z.string()),
+    drifted: z.array(zDriftedResource),
+    journeyKey: z.string(),
+    orphans: z.array(zOrphanedResource),
+    unchecked: z.array(zUncheckedResource)
+});
+
 export const zUndeployedButtonMessage = z.object({
     channelId: z.string(),
     explanation: z.string().optional(),
@@ -1357,6 +1598,30 @@ export const zUpdateFlowPath = z.object({
  */
 export const zUpdateFlowResponse = zFlowSaveResult;
 
+export const zAttachFlowToJourneyBody = zFlowAttach;
+
+export const zAttachFlowToJourneyPath = z.object({
+    guildId: z.string(),
+    flowId: z.string()
+});
+
+/**
+ * The journey the flow is now on, and the one it left.
+ */
+export const zAttachFlowToJourneyResponse = zAttachResult;
+
+export const zGetFlowAttachmentPath = z.object({
+    guildId: z.string(),
+    flowId: z.string()
+});
+
+/**
+ * The journey, or null when the flow is on none.
+ */
+export const zGetFlowAttachmentResponse = z.object({
+    attachment: zFlowAttachment.nullable()
+});
+
 export const zCheckFlowBody = zFlowCheck;
 
 export const zCheckFlowPath = z.object({
@@ -1380,6 +1645,16 @@ export const zDeployFlowPath = z.object({
  * Posted: one message per destination channel.
  */
 export const zDeployFlowResponse = zDeployResult;
+
+export const zDetachFlowFromJourneyPath = z.object({
+    guildId: z.string(),
+    flowId: z.string()
+});
+
+/**
+ * `detached` is false when the flow was on no journey — the state asked for, so not an error.
+ */
+export const zDetachFlowFromJourneyResponse = zDetachResult;
 
 export const zListFlowDraftsPath = z.object({
     guildId: z.string(),
@@ -1416,6 +1691,32 @@ export const zDiscardFlowDraftPath = z.object({
  */
 export const zDiscardFlowDraftResponse = z.void();
 
+export const zGroupFlowWithBody = zFlowGroup;
+
+export const zGroupFlowWithPath = z.object({
+    guildId: z.string(),
+    flowId: z.string()
+});
+
+/**
+ * The journey both flows are now on.
+ */
+export const zGroupFlowWithResponse = zFlowGroupResult;
+
+export const zPreviewFlowGroupingPath = z.object({
+    guildId: z.string(),
+    flowId: z.string()
+});
+
+export const zPreviewFlowGroupingQuery = z.object({
+    target: z.string().optional()
+});
+
+/**
+ * The preview the grouping dialog is built from.
+ */
+export const zPreviewFlowGroupingResponse = zGroupPreview;
+
 export const zInstallFlowPath = z.object({
     guildId: z.string(),
     flowId: z.string()
@@ -1446,6 +1747,32 @@ export const zGetPublishedStatePath = z.object({
  */
 export const zGetPublishedStateResponse = zPublishedFlowState;
 
+export const zGetFlowResourcesPath = z.object({
+    guildId: z.string(),
+    flowId: z.string()
+});
+
+/**
+ * The flow's declarations. Empty when it declares nothing, which is the normal state of a flow.
+ */
+export const zGetFlowResourcesResponse = z.object({
+    resources: z.array(zResourceDeclaration)
+});
+
+export const zSaveFlowResourcesBody = zFlowResourcesSave;
+
+export const zSaveFlowResourcesPath = z.object({
+    guildId: z.string(),
+    flowId: z.string()
+});
+
+/**
+ * The declarations as stored, text-channel names normalised.
+ */
+export const zSaveFlowResourcesResponse = z.object({
+    resources: z.array(zResourceDeclaration)
+});
+
 export const zUndeployFlowPath = z.object({
     guildId: z.string(),
     flowId: z.string()
@@ -1465,6 +1792,123 @@ export const zUnpublishFlowPath = z.object({
  * What became of each resource.
  */
 export const zUnpublishFlowResponse = zUnpublishResult;
+
+export const zListJourneysPath = z.object({
+    guildId: z.string()
+});
+
+/**
+ * Every journey in the guild, without declarations.
+ */
+export const zListJourneysResponse = z.object({
+    journeys: z.array(zJourneySummary)
+});
+
+export const zCreateJourneyBody = zJourneyCreate;
+
+export const zCreateJourneyPath = z.object({
+    guildId: z.string()
+});
+
+/**
+ * The new journey.
+ */
+export const zCreateJourneyResponse = zJourney;
+
+export const zDeleteJourneyPath = z.object({
+    guildId: z.string(),
+    journeyKey: z.string()
+});
+
+/**
+ * Deleted.
+ */
+export const zDeleteJourneyResponse = z.void();
+
+export const zGetJourneyPath = z.object({
+    guildId: z.string(),
+    journeyKey: z.string()
+});
+
+/**
+ * The journey.
+ */
+export const zGetJourneyResponse = zJourney;
+
+export const zUpdateJourneyBody = zJourneyUpdate;
+
+export const zUpdateJourneyPath = z.object({
+    guildId: z.string(),
+    journeyKey: z.string()
+});
+
+/**
+ * The journey as it now stands.
+ */
+export const zUpdateJourneyResponse = zJourney;
+
+export const zGetJourneyDriftPath = z.object({
+    guildId: z.string(),
+    journeyKey: z.string()
+});
+
+/**
+ * The drift report, read from the guild, with the orphans beside it.
+ */
+export const zGetJourneyDriftResponse = zJourneyDrift;
+
+export const zForgetJourneyOrphanPath = z.object({
+    guildId: z.string(),
+    journeyKey: z.string(),
+    bindingId: z.string()
+});
+
+/**
+ * Forgotten. `objectRemains` says whether the object is still in the server.
+ */
+export const zForgetJourneyOrphanResponse = zForgottenOrphan;
+
+export const zGetJourneyPublishedStatePath = z.object({
+    guildId: z.string(),
+    journeyKey: z.string()
+});
+
+/**
+ * Every attached flow's button messages, and the resources the journey put in the guild.
+ */
+export const zGetJourneyPublishedStateResponse = zPublishedFlowState;
+
+export const zRepairJourneyDriftBody = zDriftRepair;
+
+export const zRepairJourneyDriftPath = z.object({
+    guildId: z.string(),
+    journeyKey: z.string()
+});
+
+/**
+ * What became of each chosen resource. A partial repair is a 200; a `failed` row with `repaired` set was changed before the step that failed.
+ */
+export const zRepairJourneyDriftResponse = zRepairResult;
+
+export const zUndeployJourneyPath = z.object({
+    guildId: z.string(),
+    journeyKey: z.string()
+});
+
+/**
+ * What became of each recorded message, across every flow. A flow whose buttons could not be read is a `failed` row naming it.
+ */
+export const zUndeployJourneyResponse = zUndeployResult;
+
+export const zUnpublishJourneyPath = z.object({
+    guildId: z.string(),
+    journeyKey: z.string()
+});
+
+/**
+ * What became of each resource.
+ */
+export const zUnpublishJourneyResponse = zUnpublishResult;
 
 export const zListLevelingPath = z.object({
     guildId: z.string()

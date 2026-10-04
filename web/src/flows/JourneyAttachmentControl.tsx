@@ -15,7 +15,7 @@
 import { useState } from 'react';
 import { Alert, Badge, Button, Group, Modal, Select, Stack, Text } from '@mantine/core';
 import { IconLink, IconUnlink, IconUsers } from '@tabler/icons-react';
-import type { FlowAttachment, JourneySummary } from '../api/types';
+import type { FlowAttachment, JourneySummary } from '@brattybot/web-sdk';
 import {
     attachableJourneys,
     describeAttachIntent,

@@ -48,13 +48,13 @@ import {
     IconPlus,
     IconTrash,
 } from '@tabler/icons-react';
-import type { GuildRole } from '@brattybot/web-sdk';
 import type {
+    GuildRole,
     PermissionAccess,
     PermissionAudience,
     PermissionIntent,
     ResourceDeclaration,
-} from '../api/types';
+} from '@brattybot/web-sdk';
 import { roleColorHex } from './nodeMeta';
 import { RESOURCE_KIND_STYLES } from './resourceMeta';
 import { declaredRoleOptionValue, parseDeclaredRoleReference } from './declaredRoleReference';

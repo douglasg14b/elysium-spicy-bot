@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PublishedFlowState, PublishedResource } from '../../api/types';
+import type { PublishedFlowState, PublishedResource } from '@brattybot/web-sdk';
 import {
     installedFromPublished,
     summarisePublished,

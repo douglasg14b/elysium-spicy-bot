@@ -242,7 +242,10 @@ describe('journey routes', () => {
 
         expect(response.status).toBe(400);
         const body = (await response.json()) as { error: string };
-        expect(body.error).toMatch(/at least one role/i);
+        // The exact sentence, which the handler now sends: it was a `.refine()` on the
+        // schema, which the spec cannot carry to the browser.
+        expect(body.error).toBe('A `roles` permission must name at least one role.');
+        expect(repo.create).not.toHaveBeenCalled();
     });
 
     it('accepts a `staff` permission without role ids', async () => {
@@ -616,5 +619,112 @@ describe('flow resource declarations', () => {
 
         expect(response.status).toBe(400);
         expect(repo.create).not.toHaveBeenCalled();
+    });
+
+    it('stores a text channel under the name Discord will hold, through the route', async () => {
+        // The validator hands the handler the schema's *output*, so the normalising
+        // transform runs on this write path. A validator that passed the raw body through
+        // would store `Welcome Mat`, and only a test through the route would notice.
+        repo.getByKey.mockResolvedValue(null);
+        repo.create.mockImplementation(async (input: { resources: unknown }) =>
+            journeyRow({ journeyKey: FLOW_ID, resources: input.resources })
+        );
+
+        const response = await putResources([
+            { key: 'welcome', kind: 'textChannel', defaultName: 'Welcome Mat' },
+        ]);
+
+        expect(response.status).toBe(200);
+        expect(repo.create).toHaveBeenCalledWith(
+            expect.objectContaining({
+                resources: [{ key: 'welcome', kind: 'textChannel', defaultName: 'welcome-mat' }],
+            })
+        );
+        expect(await response.json()).toEqual({
+            resources: [{ key: 'welcome', kind: 'textChannel', defaultName: 'welcome-mat' }],
+        });
+    });
+
+    it('refuses a `roles` permission naming no role before looking the flow up', async () => {
+        const response = await putResources([
+            {
+                key: 'qa-channel',
+                kind: 'textChannel',
+                defaultName: 'questions',
+                permissions: [{ audience: 'roles', roleIds: [], access: 'readWrite' }],
+            },
+        ]);
+
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as { error: string }).error).toBe(
+            'A `roles` permission must name at least one role.'
+        );
+        // Still ahead of every lookup, as it was when the schema refused it.
+        expect(flowsRepoMock.getByFlowId).not.toHaveBeenCalled();
+    });
+});
+
+/**
+ * What changed when these routes moved onto `apiRouter`: the request is checked before the
+ * handler runs, by the same validator every other route uses.
+ */
+describe('requests the validator refuses', () => {
+    it('refuses a body sent without a JSON content type with 415', async () => {
+        const response = await app().request(`/${GUILD_ID}/journeys`, {
+            method: 'POST',
+            body: JSON.stringify({ journeyKey: 'qa', name: 'Q&A', resources: RESOURCES }),
+        });
+
+        expect(response.status).toBe(415);
+        expect(await response.json()).toEqual({ error: expect.any(String) });
+        expect(repo.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses malformed JSON with its own sentence', async () => {
+        const response = await app().request(`/${GUILD_ID}/journeys`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: '{"journeyKey":',
+        });
+
+        expect(response.status).toBe(400);
+        expect(await response.json()).toEqual({ error: 'Malformed JSON in request body' });
+    });
+
+    it('checks an update body before looking the journey up', async () => {
+        repo.getByKey.mockResolvedValue(null);
+
+        const response = await app().request(`/${GUILD_ID}/journeys/qa`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ name: '' }),
+        });
+
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as { error: string }).error).toBe('Give the journey a name.');
+        expect(repo.getByKey).not.toHaveBeenCalled();
+    });
+
+    it('refuses a `roles` permission naming no role on an update too', async () => {
+        const response = await app().request(`/${GUILD_ID}/journeys/qa`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+                resources: [
+                    {
+                        key: 'qa-channel',
+                        kind: 'textChannel',
+                        defaultName: 'questions',
+                        permissions: [{ audience: 'roles', access: 'hidden' }],
+                    },
+                ],
+            }),
+        });
+
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as { error: string }).error).toBe(
+            'A `roles` permission must name at least one role.'
+        );
+        expect(repo.update).not.toHaveBeenCalled();
     });
 });

@@ -6,7 +6,7 @@
  * decision no test can reach. Everything here is a pure function over the wire shape.
  */
 
-import type { DriftedResource, JourneyDrift, OrphanedResource, RepairedResource } from '../api/types';
+import type { DriftedResource, JourneyDrift, OrphanedResource, RepairedResource } from '@brattybot/web-sdk';
 
 /**
  * What the operator calls the thing being checked.
@@ -92,9 +92,9 @@ export function hasRepairable(drift: JourneyDrift): boolean {
  * conservative thing to tell an operator.
  *
  * **If a third reason for withholding a repair ever appears, move this to the server**
- * as a `withheldReason` beside `repairable`. It was not moved now because the wire cost
- * — a field, two `*_KEYS` entries and a gate row — buys nothing while there are two
- * reasons and one of them is structurally visible.
+ * as a `withheldReason` beside `repairable`. It was not moved now because a field on the
+ * `DriftedResource` schema buys nothing while there are two reasons and one of them is
+ * structurally visible.
  */
 export function whyNotRepairable(resource: DriftedResource): string | null {
     if (resource.repairable) return null;

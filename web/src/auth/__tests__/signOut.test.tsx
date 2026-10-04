@@ -1,11 +1,13 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { listGuildsQueryKey } from '@brattybot/web-sdk';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { App } from '../../App';
+import { JourneyDriftDialog } from '../../flows/JourneyDriftDialog';
 import { installFakeApi, type FakeApi } from '../../__tests__/support/fakeApi';
 import { renderWithProviders } from '../../__tests__/support/renderWithProviders';
+import { onSessionLost } from '../sessionLoss';
 
 /**
  * Signing out, both ways it happens: the operator asks to, or the API answers 401 because
@@ -76,6 +78,32 @@ describe('signing out', () => {
         await new Promise((resolve) => setTimeout(resolve, 100));
         expect(api.requests.filter((request) => request.path.endsWith('/config/warnings'))).toHaveLength(1);
         expect(api.requests.filter((request) => request.path === '/api/guilds')).toHaveLength(1);
+    });
+
+    it('hears a 401 from a journey call too', async () => {
+        // The journey dialogs went through a hand-written client that never reported a
+        // 401. They call the SDK now, so a lost session reaches `AuthProvider` from them as
+        // from every other call — the case above shows what it does on hearing it.
+        const api = installFakeApi();
+        api.on('GET', `/api/guilds/${GUILD_ID}/journeys/onboarding/drift`, () => ({
+            status: 401,
+            body: { error: 'Not authenticated' },
+        }));
+        const lost = vi.fn();
+        onTestFinished(onSessionLost(lost));
+
+        renderWithProviders(
+            <JourneyDriftDialog
+                opened
+                onClose={() => undefined}
+                guildId={GUILD_ID}
+                journeyKey="onboarding"
+                journeyName="Onboarding"
+                subject="journey"
+            />
+        );
+
+        await waitFor(() => expect(lost).toHaveBeenCalledTimes(1));
     });
 
     it('lands on the login page after Log out, and forgets what was loaded', async () => {

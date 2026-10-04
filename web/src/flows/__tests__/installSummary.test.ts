@@ -6,8 +6,7 @@ import {
     summariseInstallOutcome,
     summariseInstallPlan,
 } from '../installSummary';
-import type { InstallPlan, InstallPlanItem, InstallResult } from '@brattybot/web-sdk';
-import type { ResourceKind } from '../../api/types';
+import type { InstallPlan, InstallPlanItem, InstallResult, ResourceKind } from '@brattybot/web-sdk';
 
 /**
  * What the install dialog decides, tested where the decisions live.

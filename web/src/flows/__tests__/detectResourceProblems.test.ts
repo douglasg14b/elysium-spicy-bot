@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PermissionIntent, ResourceDeclaration } from '../../api/types';
+import type { PermissionIntent, ResourceDeclaration } from '@brattybot/web-sdk';
 import { declaredRoleOptionValue } from '../declaredRoleReference';
 import {
     detectResourceProblems,

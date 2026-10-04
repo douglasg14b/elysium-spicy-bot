@@ -49,6 +49,28 @@ export type ResourceDriftKind =
     | { readonly kind: 'wrongType'; readonly declared: ResourceKind; readonly actual: string }
     | { readonly kind: 'permissions'; readonly differences: readonly PermissionDifference[] };
 
+/**
+ * Every {@link ResourceDriftKind}'s `kind`, as a value — what a repair reports it put back.
+ *
+ * The union is the source; this list is held to it both ways (`satisfies` refuses a name
+ * that is not a kind, the check below a kind missing here). It exists because the wire
+ * schema for a repair's results (`src/web/api/journeyBody.ts`) needs the kinds as a value.
+ */
+export const RESOURCE_DRIFT_KINDS = [
+    'renamed',
+    'reparented',
+    'wrongType',
+    'permissions',
+] as const satisfies readonly ResourceDriftKind['kind'][];
+
+/** Do not delete as unused: it is the half of the check above that catches a missing kind. */
+const resourceDriftKindsAreComplete: [
+    Exclude<ResourceDriftKind['kind'], (typeof RESOURCE_DRIFT_KINDS)[number]>,
+] extends [never]
+    ? true
+    : never = true;
+void resourceDriftKindsAreComplete;
+
 /** One id whose access no longer matches what the declaration compiled to. */
 export interface PermissionDifference {
     /** The role or member id the overwrite is for. */

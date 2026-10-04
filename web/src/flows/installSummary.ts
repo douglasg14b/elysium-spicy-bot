@@ -12,8 +12,7 @@
  * Same rule as the teardown copy: clarity first, sass second.
  */
 
-import type { InstallPlan, InstallPlanItem, InstallResult } from '@brattybot/web-sdk';
-import type { ResourceKind } from '../api/types';
+import type { InstallPlan, InstallPlanItem, InstallResult, ResourceKind } from '@brattybot/web-sdk';
 import { joinWithAnd } from './nameLists';
 
 /** What the review step needs to say, decided here rather than in JSX. */
@@ -58,10 +57,11 @@ const KIND_NOUNS: Record<ResourceKind, KindNouns> = {
 };
 
 /**
- * Nouns for a kind off the wire, which is `string` rather than `ResourceKind`.
+ * Nouns for a kind off the wire, falling back to the kind's own name.
  *
- * `ResourceKind` is a hand-written mirror with no drift test behind it, so a kind this
- * build has not heard of falls back to its own name instead of being dropped — a
+ * `ResourceKind` is generated from the server's enum, so the table above names every kind
+ * this build's server sends. The fallback is for a dashboard tab left open across a deploy
+ * that adds a kind: the response carries a kind this bundle has never heard of, and a
  * resource nobody can name is still one about to be created. Callers holding the union
  * itself go through {@link kindLabel} and keep the compiler's check.
  */

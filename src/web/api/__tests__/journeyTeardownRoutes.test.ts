@@ -111,7 +111,10 @@ vi.mock('../../../features/provisioning', async (importOriginal) => {
 /** The button teardown, stubbed so the fan-out is observable without a Discord guild. */
 const undeployFlowButtonsMock = vi.fn();
 
-vi.mock('../../../features/flows/logic/undeployFlowButtons', () => ({
+// The real exports stay: `installBody.ts`, which the routes import, reads
+// `UNDEPLOY_OUTCOMES` from this module while it loads.
+vi.mock('../../../features/flows/logic/undeployFlowButtons', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../../../features/flows/logic/undeployFlowButtons')>()),
     undeployFlowButtons: undeployFlowButtonsMock,
 }));
 

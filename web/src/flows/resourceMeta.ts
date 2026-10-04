@@ -18,7 +18,7 @@ import {
     IconShieldHalfFilled,
     type Icon as TablerIcon,
 } from '@tabler/icons-react';
-import type { ResourceKind } from '../api/types';
+import type { ResourceKind } from '@brattybot/web-sdk';
 
 export interface ResourceKindStyle {
     /** Mantine colour key, used for the icon, the badge and the row accent. */
@@ -64,7 +64,7 @@ export const RESOURCE_KIND_STYLES: Record<ResourceKind, ResourceKindStyle> = {
 /**
  * The kinds in the order they are offered.
  *
- * Not `RESOURCE_KINDS` from the API mirror: that array's order is the server's
+ * Not the generated `zResourceKind.options`: that array's order is the server's
  * vocabulary, and this one is a UI judgement — a channel is what an operator
  * declares most often, so it comes first.
  */

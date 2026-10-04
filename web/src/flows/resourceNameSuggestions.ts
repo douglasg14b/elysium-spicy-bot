@@ -27,8 +27,7 @@
  * then prefix, then substring, and nothing else.
  */
 
-import type { GuildChannel, GuildRole } from '@brattybot/web-sdk';
-import type { ResourceKind } from '../api/types';
+import type { GuildChannel, GuildRole, ResourceKind } from '@brattybot/web-sdk';
 import type { ExistingChannelOption } from './resourceAdoption';
 
 /**

@@ -3,8 +3,8 @@
 import { type DefaultError, queryOptions, type UseMutationOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { checkFlow, claimTicket, closeTicket, createFlow, deleteFlow, deleteTicketType, deployFlow, discardFlowDraft, getBotIdentity, getCurrentUser, getFlow, getGuildChannels, getGuildRoles, getGuildSettings, getHealth, getInstallPlan, getLevelingInsights, getLevelingUser, getNodeTypes, getPublishedState, getTicket, getTicketsConfig, getWarningsConfig, installFlow, listFlowDrafts, listFlows, listGuilds, listLeveling, listTickets, login, loginCallback, logout, type Options, reopenTicket, saveMyFlowDraft, saveTicketType, unclaimTicket, undeployFlow, unpublishFlow, updateFlow, updateGuildSettings, updateTicketsConfig, updateWarningsConfig } from '../sdk.gen';
-import type { CheckFlowData, CheckFlowError, CheckFlowResponse, ClaimTicketData, ClaimTicketError, ClaimTicketResponse, CloseTicketData, CloseTicketError, CloseTicketResponse, CreateFlowData, CreateFlowError, CreateFlowResponse, DeleteFlowData, DeleteFlowError, DeleteFlowResponse, DeleteTicketTypeData, DeleteTicketTypeError, DeleteTicketTypeResponse, DeployFlowData, DeployFlowError, DeployFlowResponse, DiscardFlowDraftData, DiscardFlowDraftError, DiscardFlowDraftResponse, GetBotIdentityData, GetBotIdentityResponse, GetCurrentUserData, GetCurrentUserError, GetCurrentUserResponse, GetFlowData, GetFlowError, GetFlowResponse, GetGuildChannelsData, GetGuildChannelsError, GetGuildChannelsResponse, GetGuildRolesData, GetGuildRolesError, GetGuildRolesResponse, GetGuildSettingsData, GetGuildSettingsError, GetGuildSettingsResponse, GetHealthData, GetHealthResponse, GetInstallPlanData, GetInstallPlanError, GetInstallPlanResponse, GetLevelingInsightsData, GetLevelingInsightsError, GetLevelingInsightsResponse, GetLevelingUserData, GetLevelingUserError, GetLevelingUserResponse, GetNodeTypesData, GetNodeTypesError, GetNodeTypesResponse, GetPublishedStateData, GetPublishedStateError, GetPublishedStateResponse, GetTicketData, GetTicketError, GetTicketResponse, GetTicketsConfigData, GetTicketsConfigError, GetTicketsConfigResponse, GetWarningsConfigData, GetWarningsConfigError, GetWarningsConfigResponse, InstallFlowData, InstallFlowError, InstallFlowResponse, ListFlowDraftsData, ListFlowDraftsError, ListFlowDraftsResponse, ListFlowsData, ListFlowsError, ListFlowsResponse, ListGuildsData, ListGuildsError, ListGuildsResponse, ListLevelingData, ListLevelingError, ListLevelingResponse, ListTicketsData, ListTicketsError, ListTicketsResponse, LoginCallbackData, LoginCallbackError, LoginData, LogoutData, LogoutError, LogoutResponse, ReopenTicketData, ReopenTicketError, ReopenTicketResponse, SaveMyFlowDraftData, SaveMyFlowDraftError, SaveMyFlowDraftResponse, SaveTicketTypeData, SaveTicketTypeError, SaveTicketTypeResponse, UnclaimTicketData, UnclaimTicketError, UnclaimTicketResponse, UndeployFlowData, UndeployFlowError, UndeployFlowResponse, UnpublishFlowData, UnpublishFlowError, UnpublishFlowResponse, UpdateFlowData, UpdateFlowError, UpdateFlowResponse, UpdateGuildSettingsData, UpdateGuildSettingsError, UpdateGuildSettingsResponse, UpdateTicketsConfigData, UpdateTicketsConfigError, UpdateTicketsConfigResponse, UpdateWarningsConfigData, UpdateWarningsConfigError, UpdateWarningsConfigResponse } from '../types.gen';
+import { attachFlowToJourney, checkFlow, claimTicket, closeTicket, createFlow, createJourney, deleteFlow, deleteJourney, deleteTicketType, deployFlow, detachFlowFromJourney, discardFlowDraft, forgetJourneyOrphan, getBotIdentity, getCurrentUser, getFlow, getFlowAttachment, getFlowResources, getGuildChannels, getGuildRoles, getGuildSettings, getHealth, getInstallPlan, getJourney, getJourneyDrift, getJourneyPublishedState, getLevelingInsights, getLevelingUser, getNodeTypes, getPublishedState, getTicket, getTicketsConfig, getWarningsConfig, groupFlowWith, installFlow, listFlowDrafts, listFlows, listGuilds, listJourneys, listLeveling, listTickets, login, loginCallback, logout, type Options, previewFlowGrouping, reopenTicket, repairJourneyDrift, saveFlowResources, saveMyFlowDraft, saveTicketType, unclaimTicket, undeployFlow, undeployJourney, unpublishFlow, unpublishJourney, updateFlow, updateGuildSettings, updateJourney, updateTicketsConfig, updateWarningsConfig } from '../sdk.gen';
+import type { AttachFlowToJourneyData, AttachFlowToJourneyError, AttachFlowToJourneyResponse, CheckFlowData, CheckFlowError, CheckFlowResponse, ClaimTicketData, ClaimTicketError, ClaimTicketResponse, CloseTicketData, CloseTicketError, CloseTicketResponse, CreateFlowData, CreateFlowError, CreateFlowResponse, CreateJourneyData, CreateJourneyError, CreateJourneyResponse, DeleteFlowData, DeleteFlowError, DeleteFlowResponse, DeleteJourneyData, DeleteJourneyError, DeleteJourneyResponse, DeleteTicketTypeData, DeleteTicketTypeError, DeleteTicketTypeResponse, DeployFlowData, DeployFlowError, DeployFlowResponse, DetachFlowFromJourneyData, DetachFlowFromJourneyError, DetachFlowFromJourneyResponse, DiscardFlowDraftData, DiscardFlowDraftError, DiscardFlowDraftResponse, ForgetJourneyOrphanData, ForgetJourneyOrphanError, ForgetJourneyOrphanResponse, GetBotIdentityData, GetBotIdentityResponse, GetCurrentUserData, GetCurrentUserError, GetCurrentUserResponse, GetFlowAttachmentData, GetFlowAttachmentError, GetFlowAttachmentResponse, GetFlowData, GetFlowError, GetFlowResourcesData, GetFlowResourcesError, GetFlowResourcesResponse, GetFlowResponse, GetGuildChannelsData, GetGuildChannelsError, GetGuildChannelsResponse, GetGuildRolesData, GetGuildRolesError, GetGuildRolesResponse, GetGuildSettingsData, GetGuildSettingsError, GetGuildSettingsResponse, GetHealthData, GetHealthResponse, GetInstallPlanData, GetInstallPlanError, GetInstallPlanResponse, GetJourneyData, GetJourneyDriftData, GetJourneyDriftError, GetJourneyDriftResponse, GetJourneyError, GetJourneyPublishedStateData, GetJourneyPublishedStateError, GetJourneyPublishedStateResponse, GetJourneyResponse, GetLevelingInsightsData, GetLevelingInsightsError, GetLevelingInsightsResponse, GetLevelingUserData, GetLevelingUserError, GetLevelingUserResponse, GetNodeTypesData, GetNodeTypesError, GetNodeTypesResponse, GetPublishedStateData, GetPublishedStateError, GetPublishedStateResponse, GetTicketData, GetTicketError, GetTicketResponse, GetTicketsConfigData, GetTicketsConfigError, GetTicketsConfigResponse, GetWarningsConfigData, GetWarningsConfigError, GetWarningsConfigResponse, GroupFlowWithData, GroupFlowWithError, GroupFlowWithResponse, InstallFlowData, InstallFlowError, InstallFlowResponse, ListFlowDraftsData, ListFlowDraftsError, ListFlowDraftsResponse, ListFlowsData, ListFlowsError, ListFlowsResponse, ListGuildsData, ListGuildsError, ListGuildsResponse, ListJourneysData, ListJourneysError, ListJourneysResponse, ListLevelingData, ListLevelingError, ListLevelingResponse, ListTicketsData, ListTicketsError, ListTicketsResponse, LoginCallbackData, LoginCallbackError, LoginData, LogoutData, LogoutError, LogoutResponse, PreviewFlowGroupingData, PreviewFlowGroupingError, PreviewFlowGroupingResponse, ReopenTicketData, ReopenTicketError, ReopenTicketResponse, RepairJourneyDriftData, RepairJourneyDriftError, RepairJourneyDriftResponse, SaveFlowResourcesData, SaveFlowResourcesError, SaveFlowResourcesResponse, SaveMyFlowDraftData, SaveMyFlowDraftError, SaveMyFlowDraftResponse, SaveTicketTypeData, SaveTicketTypeError, SaveTicketTypeResponse, UnclaimTicketData, UnclaimTicketError, UnclaimTicketResponse, UndeployFlowData, UndeployFlowError, UndeployFlowResponse, UndeployJourneyData, UndeployJourneyError, UndeployJourneyResponse, UnpublishFlowData, UnpublishFlowError, UnpublishFlowResponse, UnpublishJourneyData, UnpublishJourneyError, UnpublishJourneyResponse, UpdateFlowData, UpdateFlowError, UpdateFlowResponse, UpdateGuildSettingsData, UpdateGuildSettingsError, UpdateGuildSettingsResponse, UpdateJourneyData, UpdateJourneyError, UpdateJourneyResponse, UpdateTicketsConfigData, UpdateTicketsConfigError, UpdateTicketsConfigResponse, UpdateWarningsConfigData, UpdateWarningsConfigError, UpdateWarningsConfigResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -356,6 +356,41 @@ export const updateFlowMutation = (options?: Partial<Options<UpdateFlowData>>): 
 };
 
 /**
+ * Move a flow onto an existing journey
+ */
+export const attachFlowToJourneyMutation = (options?: Partial<Options<AttachFlowToJourneyData>>): UseMutationOptions<AttachFlowToJourneyResponse, AttachFlowToJourneyError, Options<AttachFlowToJourneyData>> => {
+    const mutationOptions: UseMutationOptions<AttachFlowToJourneyResponse, AttachFlowToJourneyError, Options<AttachFlowToJourneyData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await attachFlowToJourney({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const getFlowAttachmentQueryKey = (options: Options<GetFlowAttachmentData>) => createQueryKey('getFlowAttachment', options);
+
+/**
+ * Which journey this flow installs, if any
+ */
+export const getFlowAttachmentOptions = (options: Options<GetFlowAttachmentData>) => queryOptions<GetFlowAttachmentResponse, GetFlowAttachmentError, GetFlowAttachmentResponse, ReturnType<typeof getFlowAttachmentQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getFlowAttachment({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getFlowAttachmentQueryKey(options)
+});
+
+/**
  * What a save of this graph would say is wrong with it. Changes nothing.
  */
 export const checkFlowMutation = (options?: Partial<Options<CheckFlowData>>): UseMutationOptions<CheckFlowResponse, CheckFlowError, Options<CheckFlowData>> => {
@@ -379,6 +414,23 @@ export const deployFlowMutation = (options?: Partial<Options<DeployFlowData>>): 
     const mutationOptions: UseMutationOptions<DeployFlowResponse, DeployFlowError, Options<DeployFlowData>> = {
         mutationFn: async (fnOptions) => {
             const { data } = await deployFlow({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Take a flow off its journey. Leaves the journey and anything installed alone.
+ */
+export const detachFlowFromJourneyMutation = (options?: Partial<Options<DetachFlowFromJourneyData>>): UseMutationOptions<DetachFlowFromJourneyResponse, DetachFlowFromJourneyError, Options<DetachFlowFromJourneyData>> => {
+    const mutationOptions: UseMutationOptions<DetachFlowFromJourneyResponse, DetachFlowFromJourneyError, Options<DetachFlowFromJourneyData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await detachFlowFromJourney({
                 ...options,
                 ...fnOptions,
                 throwOnError: true
@@ -442,6 +494,41 @@ export const discardFlowDraftMutation = (options?: Partial<Options<DiscardFlowDr
 };
 
 /**
+ * Group this flow with the target flow, on the target's journey
+ */
+export const groupFlowWithMutation = (options?: Partial<Options<GroupFlowWithData>>): UseMutationOptions<GroupFlowWithResponse, GroupFlowWithError, Options<GroupFlowWithData>> => {
+    const mutationOptions: UseMutationOptions<GroupFlowWithResponse, GroupFlowWithError, Options<GroupFlowWithData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await groupFlowWith({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const previewFlowGroupingQueryKey = (options: Options<PreviewFlowGroupingData>) => createQueryKey('previewFlowGrouping', options);
+
+/**
+ * What grouping this flow with the target flow would do. Changes nothing.
+ */
+export const previewFlowGroupingOptions = (options: Options<PreviewFlowGroupingData>) => queryOptions<PreviewFlowGroupingResponse, PreviewFlowGroupingError, PreviewFlowGroupingResponse, ReturnType<typeof previewFlowGroupingQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await previewFlowGrouping({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: previewFlowGroupingQueryKey(options)
+});
+
+/**
  * Create the channels and roles the flow declares, and wire their ids into its nodes
  */
 export const installFlowMutation = (options?: Partial<Options<InstallFlowData>>): UseMutationOptions<InstallFlowResponse, InstallFlowError, Options<InstallFlowData>> => {
@@ -494,6 +581,41 @@ export const getPublishedStateOptions = (options: Options<GetPublishedStateData>
     queryKey: getPublishedStateQueryKey(options)
 });
 
+export const getFlowResourcesQueryKey = (options: Options<GetFlowResourcesData>) => createQueryKey('getFlowResources', options);
+
+/**
+ * What one flow declares, through the journey it is on
+ */
+export const getFlowResourcesOptions = (options: Options<GetFlowResourcesData>) => queryOptions<GetFlowResourcesResponse, GetFlowResourcesError, GetFlowResourcesResponse, ReturnType<typeof getFlowResourcesQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getFlowResources({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getFlowResourcesQueryKey(options)
+});
+
+/**
+ * Replace what a flow declares, creating its journey on first use. An empty list removes it.
+ */
+export const saveFlowResourcesMutation = (options?: Partial<Options<SaveFlowResourcesData>>): UseMutationOptions<SaveFlowResourcesResponse, SaveFlowResourcesError, Options<SaveFlowResourcesData>> => {
+    const mutationOptions: UseMutationOptions<SaveFlowResourcesResponse, SaveFlowResourcesError, Options<SaveFlowResourcesData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await saveFlowResources({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
 /**
  * Delete the messages carrying the flow's buttons. Works after the flow is gone.
  */
@@ -518,6 +640,197 @@ export const unpublishFlowMutation = (options?: Partial<Options<UnpublishFlowDat
     const mutationOptions: UseMutationOptions<UnpublishFlowResponse, UnpublishFlowError, Options<UnpublishFlowData>> = {
         mutationFn: async (fnOptions) => {
             const { data } = await unpublishFlow({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const listJourneysQueryKey = (options: Options<ListJourneysData>) => createQueryKey('listJourneys', options);
+
+/**
+ * The guild's journeys, with the flows attached to each
+ */
+export const listJourneysOptions = (options: Options<ListJourneysData>) => queryOptions<ListJourneysResponse, ListJourneysError, ListJourneysResponse, ReturnType<typeof listJourneysQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await listJourneys({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: listJourneysQueryKey(options)
+});
+
+/**
+ * Create a journey
+ */
+export const createJourneyMutation = (options?: Partial<Options<CreateJourneyData>>): UseMutationOptions<CreateJourneyResponse, CreateJourneyError, Options<CreateJourneyData>> => {
+    const mutationOptions: UseMutationOptions<CreateJourneyResponse, CreateJourneyError, Options<CreateJourneyData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await createJourney({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Delete a journey nothing is attached to. Leaves anything installed alone.
+ */
+export const deleteJourneyMutation = (options?: Partial<Options<DeleteJourneyData>>): UseMutationOptions<DeleteJourneyResponse, DeleteJourneyError, Options<DeleteJourneyData>> => {
+    const mutationOptions: UseMutationOptions<DeleteJourneyResponse, DeleteJourneyError, Options<DeleteJourneyData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await deleteJourney({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const getJourneyQueryKey = (options: Options<GetJourneyData>) => createQueryKey('getJourney', options);
+
+/**
+ * One journey with what it declares
+ */
+export const getJourneyOptions = (options: Options<GetJourneyData>) => queryOptions<GetJourneyResponse, GetJourneyError, GetJourneyResponse, ReturnType<typeof getJourneyQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getJourney({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getJourneyQueryKey(options)
+});
+
+/**
+ * Update a journey's name, description or declarations
+ */
+export const updateJourneyMutation = (options?: Partial<Options<UpdateJourneyData>>): UseMutationOptions<UpdateJourneyResponse, UpdateJourneyError, Options<UpdateJourneyData>> => {
+    const mutationOptions: UseMutationOptions<UpdateJourneyResponse, UpdateJourneyError, Options<UpdateJourneyData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await updateJourney({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const getJourneyDriftQueryKey = (options: Options<GetJourneyDriftData>) => createQueryKey('getJourneyDrift', options);
+
+/**
+ * What the journey installed that no longer matches what it declares. Changes nothing.
+ */
+export const getJourneyDriftOptions = (options: Options<GetJourneyDriftData>) => queryOptions<GetJourneyDriftResponse, GetJourneyDriftError, GetJourneyDriftResponse, ReturnType<typeof getJourneyDriftQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getJourneyDrift({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getJourneyDriftQueryKey(options)
+});
+
+/**
+ * Drop the record of a resource the journey no longer declares. Never touches the object.
+ */
+export const forgetJourneyOrphanMutation = (options?: Partial<Options<ForgetJourneyOrphanData>>): UseMutationOptions<ForgetJourneyOrphanResponse, ForgetJourneyOrphanError, Options<ForgetJourneyOrphanData>> => {
+    const mutationOptions: UseMutationOptions<ForgetJourneyOrphanResponse, ForgetJourneyOrphanError, Options<ForgetJourneyOrphanData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await forgetJourneyOrphan({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const getJourneyPublishedStateQueryKey = (options: Options<GetJourneyPublishedStateData>) => createQueryKey('getJourneyPublishedState', options);
+
+/**
+ * What the journey has live in the guild, across every flow attached to it
+ */
+export const getJourneyPublishedStateOptions = (options: Options<GetJourneyPublishedStateData>) => queryOptions<GetJourneyPublishedStateResponse, GetJourneyPublishedStateError, GetJourneyPublishedStateResponse, ReturnType<typeof getJourneyPublishedStateQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getJourneyPublishedState({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getJourneyPublishedStateQueryKey(options)
+});
+
+/**
+ * Put the chosen resources back to what the journey declares
+ */
+export const repairJourneyDriftMutation = (options?: Partial<Options<RepairJourneyDriftData>>): UseMutationOptions<RepairJourneyDriftResponse, RepairJourneyDriftError, Options<RepairJourneyDriftData>> => {
+    const mutationOptions: UseMutationOptions<RepairJourneyDriftResponse, RepairJourneyDriftError, Options<RepairJourneyDriftData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await repairJourneyDrift({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Delete the messages carrying the buttons of every flow on the journey
+ */
+export const undeployJourneyMutation = (options?: Partial<Options<UndeployJourneyData>>): UseMutationOptions<UndeployJourneyResponse, UndeployJourneyError, Options<UndeployJourneyData>> => {
+    const mutationOptions: UseMutationOptions<UndeployJourneyResponse, UndeployJourneyError, Options<UndeployJourneyData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await undeployJourney({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Destroy the channels and roles the journey created. Irreversible.
+ */
+export const unpublishJourneyMutation = (options?: Partial<Options<UnpublishJourneyData>>): UseMutationOptions<UnpublishJourneyResponse, UnpublishJourneyError, Options<UnpublishJourneyData>> => {
+    const mutationOptions: UseMutationOptions<UnpublishJourneyResponse, UnpublishJourneyError, Options<UnpublishJourneyData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await unpublishJourney({
                 ...options,
                 ...fnOptions,
                 throwOnError: true

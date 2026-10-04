@@ -483,11 +483,11 @@ describe('GET /:guildId/leveling/users/:userId', () => {
         const body = (await (await get(`/leveling/users/${USER_ID}`)).json()) as DetailBody;
 
         /*
-         * The mirrored wire type in `web/src/api/types.ts` claims these are `string`.
+         * The route's declared `LevelingUserMetrics` schema says these are `string`.
          * Leaving them as `Date` and letting `JSON.stringify` deal with it would happen to
          * produce ISO today while putting no *contract* on the wire — and a later change to
          * a `toJSON`-less carrier would silently ship `{}`. The explicit conversion is what
-         * makes the mirror true, so the assertion is on the type, not just the value.
+         * makes the schema true, so the assertion is on the type, not just the value.
          */
         expect(typeof body.metrics.lastActiveAt).toBe('string');
         expect(typeof body.metrics.memberSince).toBe('string');

@@ -182,11 +182,14 @@ If so, it is not a chip, whatever else is true of it.
 
 ## How the red tier stays honest
 
-`detectResourceProblems.ts` re-implements the server's rules because it cannot call them — one
-`import type` from `src/` inside `web/` drags the bot tree into `tsc -b` and breaks
-`pnpm build:web`. This is the same trade `web/src/api/types.ts` and
-`web/src/flows/declaredRoleReference.ts` already took, and it is paid the same way: a test holds
-the two halves equal instead of the compiler.
+`detectResourceProblems.ts` checks a resource's key and name with the server's own rules, as
+the SDK generates them from the route's `ResourceDeclaration` schema (`zResourceDeclaration`).
+The rest of the server's rules — the whole-list checks in `validateJourneyDeclaration`, and a
+`roles` permission naming no role — are stated by no schema, so they cannot travel, and the
+detector re-implements them: one `import type` from `src/` inside `web/` drags the bot tree into
+`tsc -b` and breaks `pnpm build:web`. This is the same trade
+`web/src/flows/declaredRoleReference.ts` takes, and it is paid the same way: a test holds the two
+halves equal instead of the compiler.
 
 `src/features/provisioning/logic/__tests__/resourceChipAgreement.test.ts` drives both the Zod
 schema and `validateJourneyDeclaration` with the same declarations the browser judges, and
