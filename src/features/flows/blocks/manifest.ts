@@ -58,6 +58,20 @@ export type BlockPaletteGroup = (typeof BLOCK_PALETTE_GROUPS)[number];
  * webhook or a system message, and never one the startup backfill recovered. Its
  * dispatcher is an activity subscriber rather than a gateway listener, so the activity
  * row is written before a run started by it reads the record.
+ *
+ * `ticketChanged` is a committed change to a ticket — opened, claimed, unclaimed,
+ * closed, reopened or deleted — announced by the ticket service through its own
+ * subscriber seam, the `levelUp` precedent. It is the one source whose runs can be
+ * started by another run (a flow's own ticket change), so its dispatcher is the one that
+ * carries a chain depth and refuses a start past `FLOW_MAX_CHAIN_DEPTH`.
+ *
+ * `'ticketChanged'` here and `'ticketTypePicker'` in {@link BLOCK_CONTROL_TYPES} are the
+ * only places this file names tickets, and both are string literals, which the engine
+ * vocabulary gate does not scan. That is acceptable rather than a loophole: they are
+ * vocabulary *values* — what a block may declare — on the footing of `'levelUp'`, and no
+ * interpreter code branches on either. The gate exists to stop the engine declaring a
+ * use case in its own identifiers, and every identifier that handles a ticket change
+ * lives outside the gated files (`logic/ticketEventDispatch.ts`, the block directory).
  */
 export const BLOCK_TRIGGER_SOURCES = [
     'buttonClick',
@@ -66,6 +80,7 @@ export const BLOCK_TRIGGER_SOURCES = [
     'memberLeave',
     'messageSent',
     'reactionAdd',
+    'ticketChanged',
 ] as const;
 
 export type BlockTriggerSource = (typeof BLOCK_TRIGGER_SOURCES)[number];
@@ -109,6 +124,17 @@ export const BLOCK_CONTROL_TYPES = [
      * its dispatcher reads the stored value before any run exists.
      */
     'categoryPicker',
+    /**
+     * Searchable picker over the guild's own declared ticket types, storing the type's
+     * **key** and showing its label.
+     *
+     * Reads the server's own list, so Support and Verification are only the entries a
+     * fresh guild was seeded with — never options a block hardcodes. A stored key the
+     * guild no longer declares shows as not available here rather than going blank; what
+     * that means at run time is the block's call. No `{{var}}` and no declared-resource
+     * sidecar: nothing records a ticket type, and provisioning does not create one.
+     */
+    'ticketTypePicker',
     /** Single-line text. */
     'text',
     /** Autosizing multi-line text. */
@@ -283,6 +309,16 @@ export type BlockConfigField =
           readonly defaultValue?: string;
       })
     | (BlockConfigFieldBase & { readonly control: 'categoryPicker'; readonly defaultValue?: string })
+    | (BlockConfigFieldBase & {
+          readonly control: 'ticketTypePicker';
+          /**
+           * The author may clear the pick, which removes the key — for a block where no
+           * type means something (Ticket Event: any type). Same meaning as the
+           * `channelPicker` arm's member of this name; without it a pick cannot be undone.
+           */
+          readonly optional?: boolean;
+          readonly defaultValue?: string;
+      })
     | (BlockConfigFieldBase & {
           readonly control: 'text';
           /**

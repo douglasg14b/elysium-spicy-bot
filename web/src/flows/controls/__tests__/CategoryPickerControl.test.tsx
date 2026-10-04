@@ -29,6 +29,7 @@ function renderPicker(options: { declaredResources?: ResourceDeclaration[]; conf
             { id: 'cat-1', name: 'Dungeon', type: 'category', parentId: null, parentName: null },
             { id: 'c1', name: 'lobby', type: 'text', parentId: 'cat-1', parentName: 'Dungeon' },
         ],
+        ticketTypes: [],
         variables: [],
         actorAvailable: true,
         declaredResources: options.declaredResources ?? [],

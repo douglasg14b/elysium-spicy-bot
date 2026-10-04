@@ -53,6 +53,15 @@ export interface FlowRunContextSnapshot {
      * which is when the run first parked rather than when it began.
      */
     startedAt?: string;
+    /**
+     * How many runs deep this run sits in a chain of runs that started one another — see
+     * `FlowRunSeed.chainDepth`. Written once, at the first park, like `startedAt`.
+     *
+     * Optional because rows parked before this key existed do not have it; the resume
+     * path reads that as depth 1, which is what every one of them was — nothing but a
+     * ticket change starts a run deeper, and that trigger did not exist before this key.
+     */
+    chainDepth?: number;
 }
 
 /**

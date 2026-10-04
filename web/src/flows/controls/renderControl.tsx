@@ -18,6 +18,7 @@ import { SegmentedChoiceControl, SelectChoiceControl } from './ChoiceControls';
 import { LongTextControl, TextControl } from './TextControls';
 import { ObjectListControl } from './ObjectListControl';
 import { TextListControl } from './TextListControl';
+import { TicketTypePickerControl } from './TicketTypePickerControl';
 import { VariableSelectControl } from './VariableSelectControl';
 import type { ControlChange, ControlContext } from './types';
 
@@ -50,6 +51,8 @@ export function renderControl(
             return <ChannelPickerControl field={field} {...props} />;
         case 'categoryPicker':
             return <CategoryPickerControl field={field} {...props} />;
+        case 'ticketTypePicker':
+            return <TicketTypePickerControl field={field} {...props} />;
         case 'text':
             return <TextControl field={field} {...props} />;
         case 'longText':

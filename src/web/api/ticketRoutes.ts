@@ -322,6 +322,9 @@ export function ticketRoutes(): Hono<AppEnv> {
                     // a path built to avoid them. Null is honest: "not recorded".
                     identity: transition === 'claim' ? { username: user.username, nickname: null } : null,
                 },
+                // The session's id is the operator's Discord id (it comes from the OAuth
+                // login), so a flow started by this change knows who made it.
+                change: { actorId: user.id, chainDepth: 0 },
             });
 
             // The service's own refusal, forwarded with its own words. 409 because the

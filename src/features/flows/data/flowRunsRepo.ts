@@ -137,12 +137,17 @@ const nodeRunLogSchema = z.object({
  * existed reads back with no start time, which the resume path reports as absent.
  * Strict ISO only, so a value that is not a real instant fails the read loudly rather
  * than reaching a block as `Invalid Date`.
+ *
+ * `chainDepth` too: a row parked before it existed reads back without one, which the
+ * resume path reads as depth 1. A positive whole number only, so a corrupt depth fails
+ * the read rather than quietly letting a chain of runs past its cap.
  */
 const contextSnapshotSchema = z.object({
     guildId: z.string().min(1),
     userId: z.string().min(1),
     channelId: z.string().min(1).optional(),
     startedAt: z.iso.datetime().optional(),
+    chainDepth: z.number().int().positive().optional(),
 });
 
 /**

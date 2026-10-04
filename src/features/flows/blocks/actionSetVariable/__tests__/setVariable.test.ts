@@ -37,6 +37,7 @@ function recordingContext(variables: Readonly<Record<string, FlowVariableValue>>
             subject: {} as FlowRunContext['subject'],
             runId: 'run-1',
             nodeId: 'node-1',
+            chainDepth: 1,
             variables,
             setOutput: (key, value) => {
                 writes.set(key, value);

@@ -93,8 +93,10 @@ import type {
     JourneySummary,
     NodeDescriptor,
     ResourceDeclaration,
+    TicketTypeView,
 } from '../api/types';
 import { FLOW_GRAPH_VERSION } from '../api/types';
+import { getTicketsConfig } from '../api/tickets';
 import { FlowNodeCard, type FlowCardNode, type FlowNodeCardData } from '../flows/FlowNodeCard';
 // Aliased: `FlowEdge` is already taken here by the serialized-graph edge type from
 // `../api/types`. The component draws one of those; it is not one.
@@ -219,8 +221,8 @@ interface Snapshot {
 /**
  * Clone a graph for the undo stack, deep-copying only what can actually change.
  *
- * `config` is the mutable part and is cloned. `descriptor`, `roles` and `channels`
- * are shared immutable catalogue data riding along on each node: deep-cloning them
+ * `config` is the mutable part and is cloned. `descriptor`, `roles`, `channels` and
+ * `ticketTypes` are shared immutable catalogue data riding along on each node: deep-cloning them
  * would copy every block's full manifest once per node per snapshot, fifty deep, and
  * would break referential identity with the live catalogue for no benefit.
  */
@@ -346,6 +348,8 @@ function FlowBuilder() {
     const [nodeCatalog, setNodeCatalog] = useState<NodeDescriptor[]>([]);
     const [roles, setRoles] = useState<GuildRole[]>([]);
     const [channels, setChannels] = useState<GuildChannel[]>([]);
+    /** The guild's own declared ticket types, for the ticket-type picker and the cards. */
+    const [ticketTypes, setTicketTypes] = useState<TicketTypeView[]>([]);
     /**
      * What this flow declares but has not installed.
      *
@@ -660,6 +664,7 @@ function FlowBuilder() {
                 readonly catalog: NodeDescriptor[];
                 readonly roles: GuildRole[];
                 readonly channels: GuildChannel[];
+                readonly ticketTypes: TicketTypeView[];
             }
         ) => {
             const { catalog } = directory;
@@ -700,6 +705,7 @@ function FlowBuilder() {
                             descriptor,
                             roles: directory.roles,
                             channels: directory.channels,
+                            ticketTypes: directory.ticketTypes,
                             // Filled from the flow's own `issues` by the effect
                             // that carries `graphIssues` onto the cards.
                             issueCount: 0,
@@ -745,11 +751,13 @@ function FlowBuilder() {
             setLoading(true);
             setError(null);
             try {
-                const [flow, catalog, guildRoles, guildChannels, flowResources] = await Promise.all([
+                const [flow, catalog, guildRoles, guildChannels, guildTicketTypes, flowResources] = await Promise.all([
                     getFlow(selected.id, flowId),
                     getNodeTypes(),
                     getGuildRoles(selected.id),
                     getGuildChannels(selected.id),
+                    // A guild that never set tickets up answers with no types, not an error.
+                    getTicketsConfig(selected.id).then((ticketsConfig) => ticketsConfig.types),
                     getFlowResources(selected.id, flowId),
                 ]);
                 if (cancelled) return;
@@ -757,6 +765,7 @@ function FlowBuilder() {
                 setNodeCatalog(catalog);
                 setRoles(guildRoles);
                 setChannels(guildChannels);
+                setTicketTypes(guildTicketTypes);
                 setDeclaredResources(flowResources);
                 setName(flow.name);
                 setEnabled(flow.enabled);
@@ -773,6 +782,7 @@ function FlowBuilder() {
                     catalog,
                     roles: guildRoles,
                     channels: guildChannels,
+                    ticketTypes: guildTicketTypes,
                 });
                 setDirty(false);
             } catch (err) {
@@ -824,14 +834,14 @@ function FlowBuilder() {
             rebaseDraft({ mineSavedAt: draft.mine ? draft.updatedAt : undefined });
             setCanvasBase(draft.baseUpdatedAt);
             setName(draft.name);
-            putGraphOnCanvas(draft.graph, { catalog: nodeCatalog, roles, channels });
+            putGraphOnCanvas(draft.graph, { catalog: nodeCatalog, roles, channels, ticketTypes });
             setGraphIssues(draft.issues);
             setSelectedNodeId(null);
             setDraftOnlySave(null);
             setDirty(true);
             setDraftPickerOpen(false);
         },
-        [rebaseDraft, putGraphOnCanvas, setGraphIssues, nodeCatalog, roles, channels]
+        [rebaseDraft, putGraphOnCanvas, setGraphIssues, nodeCatalog, roles, channels, ticketTypes]
     );
 
     /** Throw a draft away — anyone's. The picker closes itself once none are left. */
@@ -871,6 +881,7 @@ function FlowBuilder() {
                     descriptor: entry,
                     roles,
                     channels,
+                    ticketTypes,
                     // Nothing has judged it yet; the next save will.
                     issueCount: 0,
                     // A block just dropped from the palette has no edges, and an
@@ -886,7 +897,7 @@ function FlowBuilder() {
             setNodes((prev) => [...prev, node]);
             setSelectedNodeId(id);
         },
-        [pushHistory, roles, channels, setNodes]
+        [pushHistory, roles, channels, ticketTypes, setNodes]
     );
 
     const onConnect: OnConnect = useCallback(
@@ -2099,6 +2110,7 @@ function FlowBuilder() {
                                 config={selectedNode.data.config}
                                 roles={roles}
                                 channels={channels}
+                                ticketTypes={ticketTypes}
                                 variables={availableVariables}
                                 actorAvailable={actorAvailable}
                                 declaredResources={declaredResources}

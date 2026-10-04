@@ -168,5 +168,33 @@ export const FLOW_MESSAGE_TRIGGER_READ_FAILURE_WINDOW_MS = 60_000;
  * enum refuses a `message` row outright, and since every JSON column is validated on
  * read, one such row fails the whole `findWaiting`/`findDue` batch it is read in. A v3
  * row reads forwards cleanly — the other wait kinds are unchanged.
+ *
+ * **5** since the snapshot gained `chainDepth`, for the reason 3 was taken: a rolled-back
+ * binary would strip the key on read, and a run it resumed would forget how deep in a
+ * chain it sits — so a change it made after waiting could start a chain past the cap. A
+ * v4 row reads forwards cleanly as depth 1, which is what every such run was.
  */
-export const FLOW_RUN_ENTITY_VERSION = 4;
+export const FLOW_RUN_ENTITY_VERSION = 5;
+
+/**
+ * How deep a chain of runs starting one another may go.
+ *
+ * A run started by a person's act is depth 1; a run started by a ticket change that a
+ * depth-N run made is depth N+1. A start that would reach depth 6 is refused and
+ * logged, so two flows that close and reopen one ticket at each other stop on their
+ * own instead of running forever. This is the runtime half of loop protection; the
+ * other half checks the flows themselves when one is switched on.
+ *
+ * Only a ticket change carries a depth across today. Kick Member → Member Leaves goes
+ * through Discord's gateway, which cannot carry one, so that run starts at the root again.
+ * (Award XP is not a second such path: XP a flow awards never sets off Level Reached —
+ * `awardFlowXp` announces the level but does not notify level-up subscribers.)
+ */
+export const FLOW_MAX_CHAIN_DEPTH = 5;
+
+/**
+ * The depth of a run nothing else started: every run from a person's act or an ordinary
+ * event, and every run parked before depth was recorded. The executor reads an absent
+ * depth as this, in one place, so nothing else spells the default.
+ */
+export const FLOW_ROOT_CHAIN_DEPTH = 1;

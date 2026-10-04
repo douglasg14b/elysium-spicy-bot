@@ -4,7 +4,9 @@ import { DISCORD_CLIENT } from '../../discordClient';
 import { registerActivitySubscriber } from '../../features-system/activity';
 import { registerLevelUpSubscriber } from '../leveling';
 import { registerResourceWriteBack } from '../provisioning';
+import { registerTicketSubscriber } from '../tickets';
 import { applyResourcesToFlows } from './logic/applyResourcesToFlows';
+import { ticketChangeSubscriber } from './logic/ticketEventDispatch';
 import { ensureBlocksDiscovered } from './blocks/registry';
 import { flowDeployCommand, handleFlowDeployCommand } from './commands/flowDeployCommand';
 import { FLOW_CHOICE_CUSTOM_ID_PREFIX, FLOW_CUSTOM_ID_PREFIX } from './constants';
@@ -73,6 +75,13 @@ async function initializeFlows(): Promise<void> {
     // and no message arrives before that anyway. The trigger index loads each guild on
     // its first message.
     registerActivitySubscriber(handleMessage);
+
+    // Tell tickets to announce every committed change to us, to start Ticket Event runs.
+    //
+    // Registered from this side for the reason leveling's is: tickets is a base capability
+    // and must not know flows exist. The subscriber only schedules its dispatch, so a flow
+    // whose own block changed a ticket is never left running another flow inside itself.
+    registerTicketSubscriber(ticketChangeSubscriber(DISCORD_CLIENT));
 
     // Drop the in-memory Message Sent triggers after every committed flow write — a save,
     // a switch on or off, a delete, an install writing ids back — so what fires changes

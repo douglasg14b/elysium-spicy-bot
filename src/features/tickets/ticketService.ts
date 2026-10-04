@@ -3,6 +3,7 @@ import { ticketingRepo } from './data/ticketingRepo';
 import { ticketsRepo } from './data/ticketsRepo';
 import type { TicketTypeDefinition } from './data/ticketingSchema';
 import type { TicketEntity, TicketIdentity, TicketType } from './data/ticketsSchema';
+import { notifyTicketChange, type TicketChange, type TicketChangeKind } from './ticketChanges';
 
 /**
  * The ticket system's own surface, owing nothing to Discord interactions or to
@@ -31,7 +32,30 @@ import type { TicketEntity, TicketIdentity, TicketType } from './data/ticketsSch
  * they were implied by an enum where claiming moved a ticket out of `active`,
  * so "claimed" and "open" could not be distinguished. Here lifecycle and
  * ownership are independent, and each transition states what it refuses.
+ *
+ * Every change that commits is announced to `ticketChanges.ts`'s subscribers —
+ * from here rather than from `applyTicketTransition`, which never sees an open, a
+ * delete, or Close Ticket's direct-close fallback. Announced only once the write has
+ * returned, and never inside a transaction. Each announcing change requires a
+ * {@link TicketChange} saying who made it and how deep in a chain of automated
+ * changes it sits; the caller knows both and the service does not, so there is no
+ * default for a caller to fall back on by forgetting.
  */
+
+/**
+ * Tell subscribers about a change that has committed. Awaited, so a caller's
+ * next step sees subscribers' synchronous work done; a subscriber that wants to do
+ * slow work schedules it itself.
+ */
+async function announce(kind: TicketChangeKind, ticket: TicketEntity, change: TicketChange): Promise<void> {
+    await notifyTicketChange({
+        kind,
+        ticket,
+        actorId: change.actorId,
+        chainDepth: change.chainDepth,
+        changedAt: new Date(),
+    });
+}
 
 export interface OpenTicketInput {
     readonly guildId: string;
@@ -134,13 +158,28 @@ export async function openTicket(input: OpenTicketInput): Promise<Result<TicketE
  *
  * Separate from {@link openTicket} because the channel is an output of creating
  * one, not an input to opening a ticket.
+ *
+ * **Silent.** The ticket is not announced as opened yet: its state message — the embed
+ * with Claim and Close on it — does not exist until after this, and a flow that heard
+ * "opened" here and closed the ticket would leave that embed, posted afterwards,
+ * showing a closed ticket as open. {@link recordTicketStateMessage} announces instead.
+ *
+ * Only an open ticket with no channel recorded can be attached, so a second attach
+ * fails rather than overwriting the first.
  */
 export async function attachTicketChannel(ticketId: number, channelId: string): Promise<Result<TicketEntity>> {
+    let attached: TicketEntity | null;
     try {
-        return ok(await ticketsRepo.update(ticketId, { channelId }));
+        attached = await ticketsRepo.attachChannelIfUnattached(ticketId, channelId);
     } catch (error) {
         return fail(error instanceof Error ? error : new Error(String(error)));
     }
+
+    if (!attached) {
+        return fail(`Ticket ${ticketId} does not exist, is not open, or already has a channel.`);
+    }
+
+    return ok(attached);
 }
 
 /**
@@ -173,22 +212,50 @@ export async function forgetTicketChannel(channelId: string): Promise<Result<Tic
  * A caller with no interaction to re-render from resolves the message by this id,
  * so it is written at open rather than left null for a later consumer to
  * discover it never arrives.
+ *
+ * **This is where a ticket is announced as `opened`** — not in {@link openTicket},
+ * which returns before any channel exists, and not in {@link attachTicketChannel},
+ * which returns before the embed does. Once this has run the ticket has a channel and
+ * an embed showing its state, so a flow that hears "opened" and closes it re-renders
+ * an embed that is already there. A ticket whose channel or state message fails to be
+ * made — or whose message id cannot be recorded — announces nothing; its creator
+ * reports the failure.
+ *
+ * Only an open ticket with no state message recorded can be given one, so a second
+ * record fails rather than announcing the same ticket twice.
  */
 export async function recordTicketStateMessage(
     ticketId: number,
-    stateMessageId: string
+    stateMessageId: string,
+    change: TicketChange
 ): Promise<Result<TicketEntity>> {
+    let recorded: TicketEntity | null;
     try {
-        return ok(await ticketsRepo.update(ticketId, { stateMessageId }));
+        recorded = await ticketsRepo.recordStateMessageIfUnrecorded(ticketId, stateMessageId);
     } catch (error) {
         return fail(error instanceof Error ? error : new Error(String(error)));
     }
+
+    if (!recorded) {
+        return fail(`Ticket ${ticketId} does not exist, is not open, or already has a state message.`);
+    }
+
+    await announce('opened', recorded, change);
+    return ok(recorded);
 }
 
+/**
+ * Claims a ticket for `claimerId`.
+ *
+ * The announced actor is `change.actorId`, not the claimer: the two agree for every
+ * claim made today, but a claim a flow made would name the bot as claimer, and the bot
+ * is not a person who acted.
+ */
 export async function claimTicket(
     ticketId: number,
     claimerId: string,
-    identity: TicketIdentity | null
+    identity: TicketIdentity | null,
+    change: TicketChange
 ): Promise<Result<TicketEntity>> {
     const ticket = await ticketsRepo.getById(ticketId);
     if (!ticket) return fail(`No ticket found with id ${ticketId}`);
@@ -205,25 +272,23 @@ export async function claimTicket(
         return fail(`Ticket #${ticket.ticketNumber} is already claimed by someone else.`);
     }
 
+    let claimed: TicketEntity | null;
     try {
         // The read above produces the specific message; this write is what
         // actually decides. Two moderators pressing Claim together both pass the
         // read, and the second gets nothing back from the conditional update
         // rather than silently overwriting the first.
-        const claimed = await ticketsRepo.claimIfUnclaimed(
-            ticketId,
-            claimerId,
-            new Date().toISOString(),
-            identity
-        );
-        if (!claimed) {
-            return fail(`Ticket #${ticket.ticketNumber} was just claimed by someone else.`);
-        }
-
-        return ok(claimed);
+        claimed = await ticketsRepo.claimIfUnclaimed(ticketId, claimerId, new Date().toISOString(), identity);
     } catch (error) {
         return fail(error instanceof Error ? error : new Error(String(error)));
     }
+
+    if (!claimed) {
+        return fail(`Ticket #${ticket.ticketNumber} was just claimed by someone else.`);
+    }
+
+    await announce('claimed', claimed, change);
+    return ok(claimed);
 }
 
 /**
@@ -238,7 +303,7 @@ export async function claimTicket(
  * because closing keeps the claim, which is the rule {@link closeTicket} already
  * states.
  */
-export async function unclaimTicket(ticketId: number): Promise<Result<TicketEntity>> {
+export async function unclaimTicket(ticketId: number, change: TicketChange): Promise<Result<TicketEntity>> {
     const ticket = await ticketsRepo.getById(ticketId);
     if (!ticket) return fail(`No ticket found with id ${ticketId}`);
 
@@ -246,18 +311,22 @@ export async function unclaimTicket(ticketId: number): Promise<Result<TicketEnti
         return fail(`Ticket #${ticket.ticketNumber} is not claimed.`);
     }
 
+    let released: TicketEntity | null;
     try {
-        return ok(
-            await ticketsRepo.update(ticketId, {
-                claimerId: null,
-                claimedAt: null,
-                claimerUsername: null,
-                claimerNickname: null,
-            })
-        );
+        // Guarded on the claimer just read, as claim and the lifecycle moves are guarded
+        // on what they read. Unguarded, two releases racing would both write and both
+        // announce, and a release that read a stale claim would wipe a fresh one.
+        released = await ticketsRepo.releaseClaimIf(ticketId, ticket.claimerId);
     } catch (error) {
         return fail(error instanceof Error ? error : new Error(String(error)));
     }
+
+    if (!released) {
+        return fail(`Ticket #${ticket.ticketNumber} changed before it could be unclaimed.`);
+    }
+
+    await announce('unclaimed', released, change);
+    return ok(released);
 }
 
 /**
@@ -266,7 +335,7 @@ export async function unclaimTicket(ticketId: number): Promise<Result<TicketEnti
  * The claimer is kept on purpose: "who handled this" is a fact about a finished
  * ticket, and clearing it on close would destroy the only record of it.
  */
-export async function closeTicket(ticketId: number): Promise<Result<TicketEntity>> {
+export async function closeTicket(ticketId: number, change: TicketChange): Promise<Result<TicketEntity>> {
     const ticket = await ticketsRepo.getById(ticketId);
     if (!ticket) return fail(`No ticket found with id ${ticketId}`);
 
@@ -278,24 +347,27 @@ export async function closeTicket(ticketId: number): Promise<Result<TicketEntity
         return fail(`Ticket #${ticket.ticketNumber} has been deleted and cannot be closed.`);
     }
 
+    let closed: TicketEntity | null;
     try {
         // Guarded on `open` so a close racing a delete cannot land on top of it
         // and leave a row that is `closed` but carries `deletedAt`.
-        const closed = await ticketsRepo.transitionStatus(ticketId, 'open', {
+        closed = await ticketsRepo.transitionStatus(ticketId, 'open', {
             status: 'closed',
             closedAt: new Date().toISOString(),
         });
-        if (!closed) {
-            return fail(`Ticket #${ticket.ticketNumber} changed state before it could be closed.`);
-        }
-
-        return ok(closed);
     } catch (error) {
         return fail(error instanceof Error ? error : new Error(String(error)));
     }
+
+    if (!closed) {
+        return fail(`Ticket #${ticket.ticketNumber} changed state before it could be closed.`);
+    }
+
+    await announce('closed', closed, change);
+    return ok(closed);
 }
 
-export async function reopenTicket(ticketId: number): Promise<Result<TicketEntity>> {
+export async function reopenTicket(ticketId: number, change: TicketChange): Promise<Result<TicketEntity>> {
     const ticket = await ticketsRepo.getById(ticketId);
     if (!ticket) return fail(`No ticket found with id ${ticketId}`);
 
@@ -303,16 +375,19 @@ export async function reopenTicket(ticketId: number): Promise<Result<TicketEntit
         return fail(`Ticket #${ticket.ticketNumber} is ${ticket.status} and cannot be reopened.`);
     }
 
+    let reopened: TicketEntity | null;
     try {
-        const reopened = await ticketsRepo.transitionStatus(ticketId, 'closed', { status: 'open', closedAt: null });
-        if (!reopened) {
-            return fail(`Ticket #${ticket.ticketNumber} changed state before it could be reopened.`);
-        }
-
-        return ok(reopened);
+        reopened = await ticketsRepo.transitionStatus(ticketId, 'closed', { status: 'open', closedAt: null });
     } catch (error) {
         return fail(error instanceof Error ? error : new Error(String(error)));
     }
+
+    if (!reopened) {
+        return fail(`Ticket #${ticket.ticketNumber} changed state before it could be reopened.`);
+    }
+
+    await announce('reopened', reopened, change);
+    return ok(reopened);
 }
 
 /**
@@ -322,8 +397,12 @@ export async function reopenTicket(ticketId: number): Promise<Result<TicketEntit
  * has to survive to answer "did this member ever have a verification ticket?"
  * after its channel is long gone. `channelId` is cleared because the channel
  * genuinely stops existing; the rest of the record stays.
+ *
+ * Announced as `deleted` with no channel, because the row no longer names one. A
+ * channel deleted by hand is not this: it only clears `channelId`, through
+ * {@link forgetTicketChannel}, and announces nothing.
  */
-export async function deleteTicket(ticketId: number): Promise<Result<TicketEntity>> {
+export async function deleteTicket(ticketId: number, change: TicketChange): Promise<Result<TicketEntity>> {
     const ticket = await ticketsRepo.getById(ticketId);
     if (!ticket) return fail(`No ticket found with id ${ticketId}`);
 
@@ -331,22 +410,25 @@ export async function deleteTicket(ticketId: number): Promise<Result<TicketEntit
         return fail(`Ticket #${ticket.ticketNumber} is already deleted.`);
     }
 
+    let deleted: TicketEntity | null;
     try {
         // Guarded on the status just read rather than on a single expected one,
         // because deleting is legal from both `open` and `closed`.
-        const deleted = await ticketsRepo.transitionStatus(ticketId, ticket.status, {
+        deleted = await ticketsRepo.transitionStatus(ticketId, ticket.status, {
             status: 'deleted',
             deletedAt: new Date().toISOString(),
             channelId: null,
         });
-        if (!deleted) {
-            return fail(`Ticket #${ticket.ticketNumber} changed state before it could be deleted.`);
-        }
-
-        return ok(deleted);
     } catch (error) {
         return fail(error instanceof Error ? error : new Error(String(error)));
     }
+
+    if (!deleted) {
+        return fail(`Ticket #${ticket.ticketNumber} changed state before it could be deleted.`);
+    }
+
+    await announce('deleted', deleted, change);
+    return ok(deleted);
 }
 
 /**

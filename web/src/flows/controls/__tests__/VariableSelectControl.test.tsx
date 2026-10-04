@@ -42,6 +42,7 @@ function renderSelect(options: { variables: AvailableVariable[]; value?: string;
     const context: ControlContext = {
         roles: [],
         channels: [],
+        ticketTypes: [],
         variables: options.variables,
         actorAvailable: true,
         declaredResources: [],

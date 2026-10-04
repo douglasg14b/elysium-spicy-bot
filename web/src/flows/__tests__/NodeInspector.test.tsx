@@ -54,6 +54,7 @@ function renderInspector(options: {
             config={options.config}
             roles={[]}
             channels={[]}
+            ticketTypes={[]}
             variables={[]}
             actorAvailable
             declaredResources={[]}

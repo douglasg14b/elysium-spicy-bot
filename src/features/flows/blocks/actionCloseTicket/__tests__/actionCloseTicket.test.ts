@@ -57,12 +57,16 @@ const CONFIGURED = {
 
 const ticket = { id: 7, guildId: 'guild-1', ticketNumber: 42, type: 'support', status: 'open', channelId: 'channel-1' };
 
-function context() {
+function context(chainDepth = 1) {
     return {
         guild: { id: 'guild-1' },
         client: { user: { id: 'bot-1' } },
+        chainDepth,
     } as never;
 }
+
+/** What a flow's close says about itself: nobody acted, at the run's own depth. */
+const FLOW_CHANGE = { actorId: null, chainDepth: 1 };
 
 beforeEach(() => {
     vi.clearAllMocks();
@@ -97,6 +101,16 @@ describe('action.closeTicket', () => {
         expect(actor.mention).not.toContain('<@');
     });
 
+    it('says nobody made the change, at the run’s own depth, though it names the bot in the channel', async () => {
+        // The announcement names the bot; the change it reports to subscribers must not,
+        // or a Ticket Event flow would see the bot as a person who acted.
+        await block.run({ ticketId: '7' }, context(3));
+
+        expect(applyTicketTransition).toHaveBeenCalledWith(
+            expect.objectContaining({ change: { actorId: null, chainDepth: 3 } })
+        );
+    });
+
     it('still closes the row when the guild has no usable ticket config', async () => {
         // The old behaviour, preserved on purpose. A flow must not be blocked from
         // closing a ticket because the guild's *presentation* config has rotted — what
@@ -106,7 +120,7 @@ describe('action.closeTicket', () => {
         const result = await block.run({ ticketId: '7' }, context());
 
         expect(result).toEqual({ kind: 'continue' });
-        expect(closeTicket).toHaveBeenCalledWith(7);
+        expect(closeTicket).toHaveBeenCalledWith(7, FLOW_CHANGE);
         expect(applyTicketTransition).not.toHaveBeenCalled();
     });
 
@@ -118,7 +132,7 @@ describe('action.closeTicket', () => {
         const result = await block.run({ ticketId: '7' }, context());
 
         expect(result).toEqual({ kind: 'continue' });
-        expect(closeTicket).toHaveBeenCalledWith(7);
+        expect(closeTicket).toHaveBeenCalledWith(7, FLOW_CHANGE);
         expect(applyTicketTransition).not.toHaveBeenCalled();
     });
 

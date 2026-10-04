@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_TICKET_TYPES } from '../data/defaultTicketTypes';
 import type { TicketEntity, TicketIdentity } from '../data/ticketsSchema';
 
@@ -10,6 +10,9 @@ const mockNewestOpenBySubject = vi.fn();
 const mockIncrementTicketNumber = vi.fn();
 const mockClaimIfUnclaimed = vi.fn();
 const mockTransitionStatus = vi.fn();
+const mockAttachChannelIfUnattached = vi.fn();
+const mockRecordStateMessageIfUnrecorded = vi.fn();
+const mockReleaseClaimIf = vi.fn();
 
 vi.mock('../data/ticketsRepo', () => ({
     ticketsRepo: {
@@ -20,6 +23,9 @@ vi.mock('../data/ticketsRepo', () => ({
         newestOpenBySubject: (...args: unknown[]) => mockNewestOpenBySubject(...args),
         claimIfUnclaimed: (...args: unknown[]) => mockClaimIfUnclaimed(...args),
         transitionStatus: (...args: unknown[]) => mockTransitionStatus(...args),
+        attachChannelIfUnattached: (...args: unknown[]) => mockAttachChannelIfUnattached(...args),
+        recordStateMessageIfUnrecorded: (...args: unknown[]) => mockRecordStateMessageIfUnrecorded(...args),
+        releaseClaimIf: (...args: unknown[]) => mockReleaseClaimIf(...args),
     },
 }));
 
@@ -30,15 +36,18 @@ vi.mock('../data/ticketingRepo', () => ({
 }));
 
 import {
+    attachTicketChannel,
     claimTicket,
     closeTicket,
     deleteTicket,
     findOpenTicket,
     openTicket,
+    recordTicketStateMessage,
     reopenTicket,
     unclaimTicket,
     type OpenTicketInput,
 } from '../ticketService';
+import { clearTicketSubscribers, registerTicketSubscriber, type TicketChangeEvent } from '../ticketChanges';
 
 function ticket(overrides: Partial<TicketEntity> = {}): TicketEntity {
     return {
@@ -111,7 +120,19 @@ beforeEach(() => {
     mockTransitionStatus.mockImplementation(async (id: number, _from: string, changes: Record<string, unknown>) =>
         ticket({ id, ...(changes as Partial<TicketEntity>) })
     );
+    mockAttachChannelIfUnattached.mockImplementation(async (id: number, channelId: string) => ticket({ id, channelId }));
+    mockRecordStateMessageIfUnrecorded.mockImplementation(async (id: number, stateMessageId: string) =>
+        ticket({ id, stateMessageId })
+    );
+    mockReleaseClaimIf.mockImplementation(async (id: number) =>
+        ticket({ id, claimerId: null, claimedAt: null, claimerUsername: null, claimerNickname: null })
+    );
 });
+
+/** A person's change, handed in by a button or the dashboard. */
+const BY_A_PERSON = { actorId: 'mod-1', chainDepth: 0 };
+/** A flow's change: nobody acted, three runs deep. */
+const BY_A_FLOW = { actorId: null, chainDepth: 3 };
 
 describe('openTicket', () => {
     it('allocates the ticket number atomically before any channel exists', async () => {
@@ -220,7 +241,7 @@ describe('claim and unclaim are independent of lifecycle', () => {
     it('claims an open, unclaimed ticket, carrying the claimer’s names into the same statement', async () => {
         mockGetById.mockResolvedValue(ticket({ claimerId: null }));
 
-        const result = await claimTicket(1, 'mod-1', CLAIMER_IDENTITY);
+        const result = await claimTicket(1, 'mod-1', CLAIMER_IDENTITY, BY_A_PERSON);
 
         expect(result.ok).toBe(true);
         // A conditional UPDATE, not a read-then-write: the `where` clause is
@@ -235,7 +256,7 @@ describe('claim and unclaim are independent of lifecycle', () => {
         // Zero rows back is how the database says "someone got here first".
         mockClaimIfUnclaimed.mockResolvedValue(null);
 
-        const result = await claimTicket(1, 'mod-1', CLAIMER_IDENTITY);
+        const result = await claimTicket(1, 'mod-1', CLAIMER_IDENTITY, BY_A_PERSON);
 
         expect(result.ok).toBe(false);
     });
@@ -243,7 +264,7 @@ describe('claim and unclaim are independent of lifecycle', () => {
     it('refuses to claim a ticket someone else holds', async () => {
         mockGetById.mockResolvedValue(ticket({ claimerId: 'mod-other' }));
 
-        const result = await claimTicket(1, 'mod-1', CLAIMER_IDENTITY);
+        const result = await claimTicket(1, 'mod-1', CLAIMER_IDENTITY, BY_A_PERSON);
 
         expect(result.ok).toBe(false);
         expect(mockUpdate).not.toHaveBeenCalled();
@@ -253,28 +274,36 @@ describe('claim and unclaim are independent of lifecycle', () => {
     it('refuses to claim a closed ticket', async () => {
         mockGetById.mockResolvedValue(ticket({ status: 'closed', claimerId: null }));
 
-        expect((await claimTicket(1, 'mod-1', CLAIMER_IDENTITY)).ok).toBe(false);
+        expect((await claimTicket(1, 'mod-1', CLAIMER_IDENTITY, BY_A_PERSON)).ok).toBe(false);
     });
 
-    it('unclaims without changing the lifecycle status, and clears the claimer’s names with the claim', async () => {
+    it('unclaims through a write guarded on the claimer it read, clearing their names with the claim', async () => {
         // The transition the old three-value enum could not represent: unclaiming
         // meant moving back to `active`, which conflated ownership with lifecycle.
         mockGetById.mockResolvedValue(
             ticket({ claimerId: 'mod-1', claimerUsername: 'moduser', claimerNickname: 'Mod' })
         );
 
-        const result = await unclaimTicket(1);
+        const result = await unclaimTicket(1, BY_A_PERSON);
 
         expect(result.ok).toBe(true);
-        // A released ticket keeps no claimer, so it keeps no claimer name. Leaving the
-        // names behind would say a ticket nobody holds was handled by somebody.
-        expect(mockUpdate).toHaveBeenCalledWith(1, {
-            claimerId: null,
-            claimedAt: null,
-            claimerUsername: null,
-            claimerNickname: null,
-        });
-        expect(mockUpdate.mock.calls[0][1]).not.toHaveProperty('status');
+        // A conditional release naming the claimer read above — not a blind update,
+        // which is what would let a stale release wipe a fresh claim.
+        expect(mockReleaseClaimIf).toHaveBeenCalledWith(1, 'mod-1');
+        expect(mockUpdate).not.toHaveBeenCalled();
+        // A released ticket keeps no claimer, so it keeps no claimer name.
+        expect(result.ok && result.value).toMatchObject({ claimerId: null, claimerUsername: null, claimerNickname: null });
+    });
+
+    it('reports a lost race on unclaim instead of wiping whatever claim is there now', async () => {
+        mockGetById.mockResolvedValue(ticket({ claimerId: 'mod-1' }));
+        // Zero rows back: the claim it read was released, or released and re-taken.
+        mockReleaseClaimIf.mockResolvedValue(null);
+
+        const result = await unclaimTicket(1, BY_A_PERSON);
+
+        expect(result.ok).toBe(false);
+        expect(!result.ok && String(result.error)).toContain('changed before it could be unclaimed');
     });
 });
 
@@ -282,7 +311,7 @@ describe('close, reopen and delete', () => {
     it('closes an open ticket and keeps the claimer as a record of who handled it', async () => {
         mockGetById.mockResolvedValue(ticket({ claimerId: 'mod-1' }));
 
-        const result = await closeTicket(1);
+        const result = await closeTicket(1, BY_A_PERSON);
 
         expect(result.ok).toBe(true);
         // Guarded on `open`, so a close racing a delete cannot land on top of it
@@ -297,7 +326,7 @@ describe('close, reopen and delete', () => {
     it('leaves all three identities untouched on close — no member is re-resolved', async () => {
         mockGetById.mockResolvedValue(ticket({ claimerId: 'mod-1', claimerUsername: 'moduser' }));
 
-        await closeTicket(1);
+        await closeTicket(1, BY_A_PERSON);
 
         // Closing changes no person, so it re-resolves nobody. Re-resolving the subject
         // here would add a Discord call to a transition that currently needs none —
@@ -319,19 +348,19 @@ describe('close, reopen and delete', () => {
         mockGetById.mockResolvedValue(ticket());
         mockTransitionStatus.mockResolvedValue(null);
 
-        expect((await closeTicket(1)).ok).toBe(false);
+        expect((await closeTicket(1, BY_A_PERSON)).ok).toBe(false);
     });
 
     it('refuses to close an already closed ticket', async () => {
         mockGetById.mockResolvedValue(ticket({ status: 'closed' }));
 
-        expect((await closeTicket(1)).ok).toBe(false);
+        expect((await closeTicket(1, BY_A_PERSON)).ok).toBe(false);
     });
 
     it('reopens a closed ticket and clears closedAt', async () => {
         mockGetById.mockResolvedValue(ticket({ status: 'closed', closedAt: new Date() }));
 
-        const result = await reopenTicket(1);
+        const result = await reopenTicket(1, BY_A_PERSON);
 
         expect(result.ok).toBe(true);
         expect(mockTransitionStatus).toHaveBeenCalledWith(1, 'closed', { status: 'open', closedAt: null });
@@ -340,7 +369,7 @@ describe('close, reopen and delete', () => {
     it('marks deleted without removing the row, so a delete trigger has something to fire on', async () => {
         mockGetById.mockResolvedValue(ticket());
 
-        const result = await deleteTicket(1);
+        const result = await deleteTicket(1, BY_A_PERSON);
 
         expect(result.ok).toBe(true);
         // Guarded on the status just read, because deleting is legal from both
@@ -355,14 +384,156 @@ describe('close, reopen and delete', () => {
     it('deletes a closed ticket too, guarding on the status it actually had', async () => {
         mockGetById.mockResolvedValue(ticket({ status: 'closed' }));
 
-        expect((await deleteTicket(1)).ok).toBe(true);
+        expect((await deleteTicket(1, BY_A_PERSON)).ok).toBe(true);
         expect(mockTransitionStatus).toHaveBeenCalledWith(1, 'closed', expect.objectContaining({ status: 'deleted' }));
     });
 
     it('refuses to reopen a deleted ticket', async () => {
         mockGetById.mockResolvedValue(ticket({ status: 'deleted' }));
 
-        expect((await reopenTicket(1)).ok).toBe(false);
+        expect((await reopenTicket(1, BY_A_PERSON)).ok).toBe(false);
+    });
+});
+
+describe('announcing changes', () => {
+    /** Every change announced, in order, and — for the timing case — what the row looked like then. */
+    let announced: TicketChangeEvent[];
+
+    beforeEach(() => {
+        announced = [];
+        registerTicketSubscriber((event) => {
+            announced.push(event);
+        });
+    });
+
+    afterEach(() => {
+        clearTicketSubscribers();
+    });
+
+    it('announces opened when the state message is first recorded, carrying the ticket as written', async () => {
+        const result = await recordTicketStateMessage(1, 'state-9', BY_A_FLOW);
+
+        expect(result.ok).toBe(true);
+        expect(mockRecordStateMessageIfUnrecorded).toHaveBeenCalledWith(1, 'state-9');
+        expect(announced).toEqual([
+            expect.objectContaining({
+                kind: 'opened',
+                actorId: null,
+                chainDepth: 3,
+                ticket: expect.objectContaining({ stateMessageId: 'state-9' }),
+            }),
+        ]);
+        expect(announced[0]?.changedAt).toBeInstanceOf(Date);
+    });
+
+    it('announces nothing when opening the record, or attaching its channel — there is no embed yet', async () => {
+        // A flow that heard "opened" here and closed the ticket would leave the embed,
+        // posted afterwards, showing a closed ticket as open with Claim and Close on it.
+        await openTicket(openInput());
+        const attached = await attachTicketChannel(1, 'channel-9');
+
+        expect(attached.ok).toBe(true);
+        expect(announced).toEqual([]);
+    });
+
+    it('refuses a second attach without overwriting the first', async () => {
+        mockAttachChannelIfUnattached.mockResolvedValue(null);
+
+        expect((await attachTicketChannel(1, 'channel-10')).ok).toBe(false);
+    });
+
+    it('announces opened only once: a second record writes nothing and says nothing', async () => {
+        // The conditional write is what decides "first": a ticket that already has a
+        // state message gets no row back.
+        mockRecordStateMessageIfUnrecorded.mockResolvedValue(null);
+
+        const result = await recordTicketStateMessage(1, 'state-10', BY_A_PERSON);
+
+        expect(result.ok).toBe(false);
+        expect(announced).toEqual([]);
+    });
+
+    it('announces claimed with the actor it was handed, not one derived from the claimer', async () => {
+        mockGetById.mockResolvedValue(ticket({ claimerId: null }));
+
+        // A claim a flow made would name the bot as claimer; the bot is not a person.
+        await claimTicket(1, 'bot-1', null, { actorId: null, chainDepth: 2 });
+
+        expect(announced).toEqual([expect.objectContaining({ kind: 'claimed', actorId: null, chainDepth: 2 })]);
+    });
+
+    it('announces unclaimed, closed, reopened and deleted with the actor and depth each was handed', async () => {
+        mockGetById.mockResolvedValueOnce(ticket({ claimerId: 'mod-1' }));
+        await unclaimTicket(1, BY_A_PERSON);
+        mockGetById.mockResolvedValueOnce(ticket());
+        await closeTicket(1, BY_A_FLOW);
+        mockGetById.mockResolvedValueOnce(ticket({ status: 'closed' }));
+        await reopenTicket(1, BY_A_PERSON);
+        mockGetById.mockResolvedValueOnce(ticket());
+        await deleteTicket(1, BY_A_FLOW);
+
+        expect(announced.map(({ kind, actorId, chainDepth }) => ({ kind, actorId, chainDepth }))).toEqual([
+            { kind: 'unclaimed', actorId: 'mod-1', chainDepth: 0 },
+            { kind: 'closed', actorId: null, chainDepth: 3 },
+            { kind: 'reopened', actorId: 'mod-1', chainDepth: 0 },
+            { kind: 'deleted', actorId: null, chainDepth: 3 },
+        ]);
+        // A deleted ticket names no channel, because the write cleared it.
+        expect(announced[3]?.ticket.channelId).toBeNull();
+    });
+
+    it('announces only after the write has returned', async () => {
+        mockGetById.mockResolvedValue(ticket());
+        let written = false;
+        mockTransitionStatus.mockImplementation(async (id: number, _from: string, changes: Record<string, unknown>) => {
+            written = true;
+            return ticket({ id, ...(changes as Partial<TicketEntity>) });
+        });
+        const writtenWhenAnnounced: boolean[] = [];
+        registerTicketSubscriber(() => {
+            writtenWhenAnnounced.push(written);
+        });
+
+        await closeTicket(1, BY_A_PERSON);
+
+        expect(writtenWhenAnnounced).toEqual([true]);
+    });
+
+    it('announces nothing for a refused change, or a write that lost a race', async () => {
+        mockGetById.mockResolvedValue(ticket({ status: 'closed' }));
+        await closeTicket(1, BY_A_PERSON);
+        await unclaimTicket(1, BY_A_PERSON);
+
+        mockGetById.mockResolvedValue(ticket());
+        mockTransitionStatus.mockResolvedValue(null);
+        await closeTicket(1, BY_A_PERSON);
+        await reopenTicket(1, BY_A_PERSON);
+
+        mockGetById.mockResolvedValue(ticket({ claimerId: null }));
+        mockClaimIfUnclaimed.mockResolvedValue(null);
+        await claimTicket(1, 'mod-1', null, BY_A_PERSON);
+
+        mockGetById.mockResolvedValue(ticket({ claimerId: 'mod-1' }));
+        mockReleaseClaimIf.mockResolvedValue(null);
+        await unclaimTicket(1, BY_A_PERSON);
+
+        expect(announced).toEqual([]);
+    });
+
+    it('keeps the change when a subscriber throws, and still tells the others', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        clearTicketSubscribers();
+        const later = vi.fn();
+        registerTicketSubscriber(() => {
+            throw new Error('a consumer fell over');
+        });
+        registerTicketSubscriber(later);
+        mockGetById.mockResolvedValue(ticket());
+
+        const result = await closeTicket(1, BY_A_PERSON);
+
+        expect(result.ok).toBe(true);
+        expect(later).toHaveBeenCalledOnce();
     });
 });
 

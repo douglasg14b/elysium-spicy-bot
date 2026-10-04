@@ -160,8 +160,21 @@ export interface FlowRunSeed {
     /** The originating interaction, when the trigger was an interaction. */
     interaction?: ButtonInteraction;
     /**
+     * How many runs deep this run sits in a chain of runs that started one another,
+     * when a dispatcher knows: a run started by a person's act is 1, and a run started
+     * by a change a depth-N run made is N+1. Absent means 1 — every source but a ticket
+     * change starts a fresh chain, and a run parked before depth was recorded reads as 1.
+     *
+     * Read it through {@link FlowRunContext.chainDepth}, where the executor has already
+     * settled the default. A block whose action can start other runs hands that number
+     * on, so whoever dispatches those runs can refuse one that would go too deep.
+     */
+    chainDepth?: number;
+    /**
      * When the event that started or woke this leg happened, **by Discord's clock** —
      * set only where the event carries its own timestamp, which today is a message.
+     * A ticket change sets it too, from the bot's clock as the change committed: it has
+     * no Discord timestamp, and the later-of-the-two rule below makes that harmless.
      *
      * For a block that records "look for events from now on", as a message wait records
      * where its catch-up starts: the bot's clock and Discord's can disagree by a little,
@@ -222,6 +235,15 @@ export interface FlowRunContext extends FlowRunSeed {
      * would be wrong by however long the first leg took.
      */
     readonly startedAt?: Date;
+    /**
+     * How many runs deep this run sits in a chain of runs that started one another — 1
+     * unless it was started by a change another run made. See {@link FlowRunSeed.chainDepth}.
+     *
+     * Required here, unlike on the seed: the executor settles the default once, so no
+     * block ever writes `?? 1` of its own. Carried across every park in the run's
+     * snapshot, so a run that waits and then acts still hands on the depth it started at.
+     */
+    readonly chainDepth: number;
     /**
      * Record a value for later blocks to read, under a key this block declared.
      *

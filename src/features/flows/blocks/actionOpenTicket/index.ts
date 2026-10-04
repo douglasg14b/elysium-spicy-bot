@@ -12,10 +12,9 @@ export const ACTION_OPEN_TICKET = 'action.openTicket';
 
 export const openTicketConfigSchema = z.object({
     // Free text rather than an enum: a ticket type is a row in the guild's
-    // `ticketing_config` now, so a closed union in source would reject every type an
-    // operator declares. The `options` below stay the two seeded keys until the
-    // picker learns to read the guild's own list — `checkFieldChoices` requires a
-    // `select` to offer non-empty options, so they cannot simply be emptied here.
+    // `ticketing_config`, so a closed union in source would reject every type an
+    // operator declares. The picker offers the guild's own list; a key it no longer
+    // declares fails the run by name below.
     ticketType: z.string().min(1),
     title: z.string().min(1).max(100),
     // Optional rather than defaulted: a schema default the builder does not also
@@ -53,11 +52,7 @@ export const block: BlockManifest<OpenTicketConfig> = {
             key: 'ticketType',
             label: 'Ticket type',
             description: 'Decides the category, the channel name, and who can see it.',
-            control: 'select',
-            options: [
-                { value: 'support', label: 'Support' },
-                { value: 'verification', label: 'Verification' },
-            ],
+            control: 'ticketTypePicker',
         },
         {
             key: 'title',
@@ -162,10 +157,16 @@ export const block: BlockManifest<OpenTicketConfig> = {
             allowedMentions: { parse: ['users'] },
         });
 
-        // Recorded so a caller with no interaction can re-render this embed. Logged
-        // rather than thrown: the row is the ticket and the flow has already done the
-        // thing it was asked to do.
-        const stateMessage = await recordTicketStateMessage(attached.value.id, message.id);
+        // Recorded so a caller with no interaction can re-render this embed, and
+        // recording it is what announces the ticket as opened, now its embed exists. A
+        // flow did it, so nobody acted, and the run's depth goes with it so a flow it
+        // starts sits one link further down. Logged rather than thrown: the row is the
+        // ticket and the flow has already done the thing it was asked to do — though no
+        // flow listening for "opened" will hear this one.
+        const stateMessage = await recordTicketStateMessage(attached.value.id, message.id, {
+            actorId: null,
+            chainDepth: context.chainDepth,
+        });
         if (!stateMessage.ok) {
             console.error('[action.openTicket] Failed to record ticket state message id:', stateMessage.error);
         }

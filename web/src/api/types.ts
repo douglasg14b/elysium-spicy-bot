@@ -159,6 +159,7 @@ export const BLOCK_TRIGGER_SOURCES = [
     'memberLeave',
     'messageSent',
     'reactionAdd',
+    'ticketChanged',
 ] as const;
 
 export type BlockTriggerSource = (typeof BLOCK_TRIGGER_SOURCES)[number];
@@ -168,6 +169,7 @@ export const BLOCK_CONTROL_TYPES = [
     'rolePicker',
     'channelPicker',
     'categoryPicker',
+    'ticketTypePicker',
     'text',
     'longText',
     'duration',
@@ -299,6 +301,16 @@ export type BlockConfigField =
       })
     /** A category, by id. No `{{var}}`: no block records a category. */
     | (BlockConfigFieldBase & { control: 'categoryPicker'; defaultValue?: string })
+    /**
+     * A ticket type, by key, from the guild's own declared list. A stored key the guild
+     * no longer declares shows as not available here. No `{{var}}`, no resource sidecar.
+     */
+    | (BlockConfigFieldBase & {
+          control: 'ticketTypePicker';
+          /** The pick can be cleared, which removes the key; empty means something to the block. */
+          optional?: boolean;
+          defaultValue?: string;
+      })
     | (BlockConfigFieldBase & {
           control: 'text';
           /** Clearing the box removes the key entirely rather than writing `''`. */
@@ -674,6 +686,7 @@ export const BLOCK_CONFIG_FIELD_KEYS = {
     rolePicker: ['key', 'label', 'description', 'visibleWhen', 'control', 'defaultValue'],
     channelPicker: ['key', 'label', 'description', 'visibleWhen', 'control', 'optional', 'defaultValue'],
     categoryPicker: ['key', 'label', 'description', 'visibleWhen', 'control', 'defaultValue'],
+    ticketTypePicker: ['key', 'label', 'description', 'visibleWhen', 'control', 'optional', 'defaultValue'],
     text: ['key', 'label', 'description', 'visibleWhen', 'control', 'optional', 'placeholder', 'maxLength', 'defaultValue', 'rendersTokens'],
     longText: ['key', 'label', 'description', 'visibleWhen', 'control', 'placeholder', 'maxLength', 'defaultValue', 'rendersTokens'],
     duration: ['key', 'label', 'description', 'visibleWhen', 'control', 'optional', 'placeholder', 'defaultValue'],

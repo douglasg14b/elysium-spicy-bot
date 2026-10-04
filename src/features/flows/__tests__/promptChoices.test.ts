@@ -469,6 +469,7 @@ function runContext(): FlowRunContext {
         subject: {} as FlowRunContext['subject'],
         runId: RUN_ID,
         nodeId: NODE_ID,
+        chainDepth: 1,
         variables: {},
         setOutput: () => {},
     };

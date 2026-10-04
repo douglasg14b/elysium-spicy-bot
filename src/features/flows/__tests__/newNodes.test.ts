@@ -30,6 +30,7 @@ function contextInChannel(channelId?: string, threadParentId?: string): FlowRunC
         channel,
         runId: 'run-1',
         nodeId: 'node-1',
+        chainDepth: 1,
         variables: {},
         setOutput: () => {},
     };
@@ -107,6 +108,7 @@ describe('action.postEmbed', () => {
             subject: {} as FlowRunContext['subject'],
             runId: 'run-1',
             nodeId: 'node-1',
+            chainDepth: 1,
             variables: {},
             setOutput: () => {},
         };
@@ -172,6 +174,7 @@ describe('action.postEmbed', () => {
             subject: {} as FlowRunContext['subject'],
             runId: 'run-1',
             nodeId: 'node-1',
+            chainDepth: 1,
             variables: {},
             setOutput: () => {},
         };

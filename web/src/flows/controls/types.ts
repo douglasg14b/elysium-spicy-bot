@@ -13,6 +13,7 @@ import type {
     GuildChannel,
     GuildRole,
     ResourceDeclaration,
+    TicketTypeView,
 } from '../../api/types';
 import type { AvailableVariable } from '../variables';
 
@@ -26,6 +27,12 @@ import type { AvailableVariable } from '../variables';
 export interface ControlContext {
     roles: GuildRole[];
     channels: GuildChannel[];
+    /**
+     * The guild's own declared ticket types, for the ticket-type picker. Read from the
+     * same config the tickets page edits, so a type an operator adds there is offered
+     * here without anything in the builder knowing its name.
+     */
+    ticketTypes: TicketTypeView[];
     /**
      * Variables some upstream block writes, for the copy fields to offer.
      *

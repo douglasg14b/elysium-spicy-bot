@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { FLOW_MAX_NODE_VISITS, FLOW_MAX_VARIABLES_SIZE } from '../constants';
+import { FLOW_MAX_NODE_VISITS, FLOW_MAX_VARIABLES_SIZE, FLOW_ROOT_CHAIN_DEPTH } from '../constants';
 import type { FlowEdge, FlowGraph, FlowNode } from '../data/flowGraph';
 import { flowRunsRepo } from '../data/flowRunsRepo';
 import { visibleNodeData, type BlockKind, type BlockManifest } from '../blocks/manifest';
@@ -281,6 +281,7 @@ export async function executeFlowSegment(
             ...context,
             runId: options.runId,
             ...(options.startedAt ? { startedAt: options.startedAt } : {}),
+            chainDepth: chainDepthOf(context),
             nodeId: node.id,
             variables,
             setOutput: (key, value) => {
@@ -502,7 +503,7 @@ export async function executeFlow(
  *
  * `startedAt` is written here, at the first park, and never again: a re-park goes
  * through `flowRunsRepo.park`, which leaves the snapshot alone, so the start time
- * survives every later wait unchanged.
+ * survives every later wait unchanged. `chainDepth` rides the same snapshot the same way.
  *
  * A first park on a message wait also enters the message-wait index, right after the
  * row exists, so the member's next message can find it.
@@ -534,6 +535,9 @@ async function persistNewSuspendedRun(
             // as nothing".
             ...(context.channel ? { channelId: context.channel.id } : {}),
             startedAt: startedAt.toISOString(),
+            // Written at the first park beside the start time, for the same reason: a run
+            // that waits and then changes something hands on the depth it started at.
+            chainDepth: chainDepthOf(context),
         },
         resumeNodeId: suspension.resumeNodeId,
         wakeAt: suspension.wakeAt ?? null,
@@ -626,6 +630,18 @@ function drainWrites(
     }
 
     return { ok: true, variables: merged };
+}
+
+/**
+ * How deep in a chain of runs this run sits — the seed's depth, or the root when the
+ * seed carries none.
+ *
+ * The one place an absent depth is given its meaning, so a block, the snapshot writer
+ * and the resume path never each decide it: every source but a ticket change starts at
+ * the root, and so does a run parked before depth was recorded.
+ */
+function chainDepthOf(context: FlowRunSeed): number {
+    return context.chainDepth ?? FLOW_ROOT_CHAIN_DEPTH;
 }
 
 /** Whether a parsed config is a record, as an object schema always produces. */

@@ -8,10 +8,24 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { GuildChannel, GuildRole, NodeDescriptor } from '../../api/types';
+import type { GuildChannel, GuildRole, NodeDescriptor, TicketTypeView } from '../../api/types';
 import { summarizeFromDescriptor } from '../cardSummary';
 
 const ROLES: GuildRole[] = [{ id: 'r1', name: 'Moderator', color: 0, position: 1 }];
+/** A type the guild declared itself, so nothing about the seeded two is assumed. */
+const TICKET_TYPES: TicketTypeView[] = [
+    {
+        type: 'aftercare',
+        label: 'Aftercare Check-in',
+        nameTemplate: 'aftercare-{{####}}',
+        permissions: {
+            subject: { view: true, send: true, readHistory: true, manageMessages: false },
+            opener: { view: true, send: true, readHistory: true, manageMessages: false },
+            staff: { view: true, send: true, readHistory: true, manageMessages: true },
+        },
+        autoClaimOnOpen: false,
+    },
+];
 const CHANNELS: GuildChannel[] = [
     { id: 'c1', name: 'general', type: 'text', parentId: null, parentName: null },
     // A card may still be asked to name a category: an older config could hold one,
@@ -45,7 +59,7 @@ function descriptorWith(
 const summarize = (
     descriptor: NodeDescriptor,
     config: Record<string, unknown>
-): string => summarizeFromDescriptor(descriptor, config, ROLES, CHANNELS);
+): string => summarizeFromDescriptor(descriptor, config, ROLES, CHANNELS, TICKET_TYPES);
 
 describe('summarizeFromDescriptor', () => {
     it('falls back to generic copy when a block declares no summary', () => {
@@ -77,6 +91,17 @@ describe('summarizeFromDescriptor', () => {
         );
         expect(summarize(descriptor, { categoryId: 'cat1' })).toBe('In Support');
         expect(summarize(descriptor, { categoryId: 'deleted-category' })).toBe('In no category picked');
+    });
+
+    it('names a ticket type by its label, shows a key the guild dropped as the key, and empty as empty', () => {
+        const descriptor = descriptorWith(
+            [{ key: 'ticketType', label: 'Ticket type', control: 'ticketTypePicker', optional: true }],
+            [{ text: 'Ticket' }, { key: 'ticketType', prefix: ' · ', emptyText: 'any type' }]
+        );
+        expect(summarize(descriptor, { ticketType: 'aftercare' })).toBe('Ticket · Aftercare Check-in');
+        // Readable, unlike a stale snowflake — and "any type" would misstate a node that names one.
+        expect(summarize(descriptor, { ticketType: 'retired-type' })).toBe('Ticket · retired-type');
+        expect(summarize(descriptor, {})).toBe('Ticket · any type');
     });
 
     it('keeps prefix and suffix around emptyText when a field is unset', () => {

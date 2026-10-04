@@ -283,6 +283,38 @@ const ROUTES: readonly Route[] = [
         },
     }),
     defineRoute({
+        /*
+         * A read discord.js makes only for a member it has not cached —
+         * `guild.members.fetch(id)` answers from the cache otherwise. So in practice it is
+         * how product code finds out somebody has left: they left the cache with their
+         * GUILD_MEMBER_REMOVE, and Discord answers the fetch with 10007.
+         */
+        key: 'GET /guilds/:guildId/members/:userId',
+        schema: z.undefined(),
+        apply(state, params) {
+            const member = state.member(params.guildId, params.userId);
+            if (!member) {
+                return { status: 404, body: { code: RESTJSONErrorCodes.UnknownMember, message: 'Unknown Member' } };
+            }
+            return { status: 200, body: structuredClone(member) };
+        },
+    }),
+    defineRoute({
+        /*
+         * A user, guild or no guild — which is how a member who has left is still known by
+         * name. Answered from every user the harness ever made; one it never made is 10013.
+         */
+        key: 'GET /users/:userId',
+        schema: z.undefined(),
+        apply(state, params) {
+            const user = state.user(params.userId);
+            if (!user) {
+                return { status: 404, body: { code: RESTJSONErrorCodes.UnknownUser, message: 'Unknown User' } };
+            }
+            return { status: 200, body: structuredClone(user) };
+        },
+    }),
+    defineRoute({
         key: 'POST /guilds/:guildId/channels',
         schema: createChannelSchema,
         validate(state, params, body) {

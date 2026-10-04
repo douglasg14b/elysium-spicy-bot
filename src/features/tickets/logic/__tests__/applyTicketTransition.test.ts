@@ -34,6 +34,8 @@ const { applyTicketTransition } = await import('../applyTicketTransition');
 const CHANNEL_ID = 'channel-1';
 const STATE_MESSAGE_ID = 'message-1';
 const ACTOR_ID = 'actor-1';
+/** A person's change: they acted, and it starts a chain rather than continuing one. */
+const PERSON_CHANGE = { actorId: ACTOR_ID, chainDepth: 0 };
 
 const definition: TicketTypeDefinition = {
     type: 'support',
@@ -151,6 +153,7 @@ describe('applyTicketTransition', () => {
             definition,
             transition: 'claim',
             actor: { id: ACTOR_ID, mention: '<@actor-1>', identity: { username: 'mod', nickname: 'Mod' } },
+            change: PERSON_CHANGE,
         });
 
         expect(result.ok).toBe(true);
@@ -169,6 +172,7 @@ describe('applyTicketTransition', () => {
             definition,
             transition: 'close',
             actor: { id: ACTOR_ID, mention: '<@actor-1>', identity: null },
+            change: PERSON_CHANGE,
         });
 
         expect(result).toEqual({ ok: false, message: 'Ticket #42 is already closed.' });
@@ -191,6 +195,7 @@ describe('applyTicketTransition', () => {
             definition,
             transition: 'reopen',
             actor: { id: ACTOR_ID, mention: '<@actor-1>', identity: null },
+            change: PERSON_CHANGE,
         });
 
         expect(result.ok).toBe(true);
@@ -215,6 +220,7 @@ describe('applyTicketTransition', () => {
             definition,
             transition: 'close',
             actor: { id: ACTOR_ID, mention: '<@actor-1>', identity: null },
+            change: PERSON_CHANGE,
         });
 
         expect(result.ok).toBe(true);
@@ -235,6 +241,7 @@ describe('applyTicketTransition', () => {
             definition,
             transition: 'close',
             actor: { id: ACTOR_ID, mention: '<@actor-1>', identity: null },
+            change: PERSON_CHANGE,
         });
 
         // This is the whole reason `stateMessageId` exists: a web caller has no
@@ -256,6 +263,7 @@ describe('applyTicketTransition', () => {
             definition,
             transition: 'close',
             actor: { id: ACTOR_ID, mention: '<@actor-1>', identity: null },
+            change: PERSON_CHANGE,
             message: supplied as never,
         });
 
@@ -279,6 +287,7 @@ describe('applyTicketTransition', () => {
             definition,
             transition: 'close',
             actor: { id: ACTOR_ID, mention: '<@actor-1>', identity: null },
+            change: PERSON_CHANGE,
         });
 
         // The committed row itself, not `expect.anything()`: this is what a caller renders
@@ -301,12 +310,15 @@ describe('applyTicketTransition', () => {
             definition,
             transition: 'claim',
             actor: { id: ACTOR_ID, mention: '<@actor-1>', identity: { username: 'mod', nickname: 'Mod' } },
+            change: PERSON_CHANGE,
         });
 
-        expect(serviceMock.claimTicket).toHaveBeenCalledWith(7, ACTOR_ID, {
-            username: 'mod',
-            nickname: 'Mod',
-        });
+        expect(serviceMock.claimTicket).toHaveBeenCalledWith(
+            7,
+            ACTOR_ID,
+            { username: 'mod', nickname: 'Mod' },
+            PERSON_CHANGE
+        );
     });
 
     it('announces with the actor mention the caller supplied, not a raw id', async () => {
@@ -322,8 +334,36 @@ describe('applyTicketTransition', () => {
             // A web caller has no member to mention, so it sends readable text. A raw
             // `<@id>` from the dashboard would ping somebody on every browser click.
             actor: { id: ACTOR_ID, mention: 'Kitten (via the dashboard)', identity: null },
+            change: PERSON_CHANGE,
         });
 
         expect(sent[0]).toContain('Kitten (via the dashboard)');
+    });
+
+    it('hands the caller’s change to the service, not one derived from the displayed actor', async () => {
+        // Close Ticket shows the bot as the actor but reports that nobody acted, at its
+        // run's depth. The service announces whatever it is handed, so this is where the
+        // two are kept apart.
+        const { guild } = harness();
+        const flowChange = { actorId: null, chainDepth: 3 };
+        serviceMock.closeTicket.mockResolvedValue({ ok: true, value: ticketStub({ status: 'closed' }) });
+        serviceMock.reopenTicket.mockResolvedValue({ ok: true, value: ticketStub() });
+        serviceMock.unclaimTicket.mockResolvedValue({ ok: true, value: ticketStub() });
+
+        for (const transition of ['close', 'reopen', 'unclaim'] as const) {
+            await applyTicketTransition({
+                guild: guild as never,
+                config,
+                ticket: ticketStub({ claimerId: ACTOR_ID, status: transition === 'reopen' ? 'closed' : 'open' }),
+                definition,
+                transition,
+                actor: { id: 'bot-1', mention: 'an automated flow', identity: null },
+                change: flowChange,
+            });
+        }
+
+        expect(serviceMock.closeTicket).toHaveBeenCalledWith(7, flowChange);
+        expect(serviceMock.reopenTicket).toHaveBeenCalledWith(7, flowChange);
+        expect(serviceMock.unclaimTicket).toHaveBeenCalledWith(7, flowChange);
     });
 });

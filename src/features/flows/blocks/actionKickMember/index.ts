@@ -1,5 +1,6 @@
-import { DiscordAPIError, PermissionFlagsBits, RESTJSONErrorCodes, type Guild, type GuildMember } from 'discord.js';
+import { PermissionFlagsBits, type Guild, type GuildMember } from 'discord.js';
 import { z } from 'zod';
+import { isUnknownMember } from '../../../../utils/isUnknownMember';
 import type { BlockManifest } from '../manifest';
 
 export const ACTION_KICK_MEMBER = 'action.kickMember';
@@ -104,10 +105,6 @@ async function fetchIfStillHere(guild: Guild, userId: string): Promise<GuildMemb
  */
 function auditReason(reason: string | undefined): string | undefined {
     return reason === undefined ? undefined : [...reason].slice(0, KICK_REASON_MAX_LENGTH).join('');
-}
-
-function isUnknownMember(error: unknown): boolean {
-    return error instanceof DiscordAPIError && error.code === RESTJSONErrorCodes.UnknownMember;
 }
 
 /**

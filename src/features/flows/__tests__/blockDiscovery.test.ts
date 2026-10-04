@@ -54,6 +54,7 @@ const SHIPPED_BLOCK_TYPES = [
     'trigger.memberLeave',
     'trigger.messageSent',
     'trigger.reactionAdd',
+    'trigger.ticketEvent',
 ] as const;
 
 describe('scanning the blocks tree', () => {

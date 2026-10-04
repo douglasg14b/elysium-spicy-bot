@@ -175,6 +175,8 @@ const DECLARED_BLOCK_DEPENDENTS: Readonly<Record<string, string>> = {
         'Residual: fills in triggerMessageSent\'s output keys, the Level Reached precedent — only the dispatcher sees the message.',
     'src/features/flows/logic/planButtonDeployment.ts':
         'Residual: reads triggerButtonClick\'s schema to render its button and read its destination.',
+    'src/features/flows/logic/ticketEventDispatch.ts':
+        'Residual: reads triggerTicketEvent\'s schema to match a ticket change by event and type — in logic/ rather than engine/ because `ticket` is a proven rejection of the engine vocabulary gate.',
 };
 
 /**

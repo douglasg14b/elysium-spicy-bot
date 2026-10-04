@@ -75,7 +75,7 @@ marks it optional; arrays are declared empty rather than omitted, so a reader ca
 | `outputs` | Values your block writes for later blocks to read, via `context.setOutput`. Read by the builder to offer an author the variables in scope. Discriminated on `naming` — `fixed` carries the name, `authored` names the config field holding it. See [Run variables](#run-variables). |
 | `requires` | Run context you cannot work without. See [Context requirements](#context-requirements). |
 | `capabilities` | Discord permissions the bot needs for your block to work. Declared, not yet enforced. |
-| `startedBy` | **Optional. Triggers only.** What fires you: `buttonClick`, `levelUp`, `memberJoin`, `memberLeave`, `messageSent`, or `reactionAdd`. The gateway dispatchers select on this, so a new trigger for an existing source needs no dispatcher edit. Every dispatcher but the button's starts each run through one function, `startTriggeredRun` in `engine/triggeredRun.ts`, which isolates and logs a failure per run and is the only place a run start can be limited — only `messageSent` passes the flood limit. Leave it off any condition or action. |
+| `startedBy` | **Optional. Triggers only.** What fires you: `buttonClick`, `levelUp`, `memberJoin`, `memberLeave`, `messageSent`, `reactionAdd`, or `ticketChanged`. The gateway dispatchers select on this, so a new trigger for an existing source needs no dispatcher edit. Every dispatcher but the button's starts each run through one function, `startTriggeredRun` in `engine/triggeredRun.ts`, which isolates and logs a failure per run and is the only place a run start can be limited — only `messageSent` passes the flood limit. `ticketChanged` is a committed ticket change the ticket service announces through its subscriber seam; its dispatcher lives in `logic/ticketEventDispatch.ts` rather than `engine/`, because `ticket` is a word the engine vocabulary gate rejects, and it is the one source whose runs can be started by another run — see [How deep in a chain](#how-deep-in-a-chain--contextchaindepth). Leave it off any condition or action. |
 | `canSuspend` | Whether `run` may park the run. State it truthfully; conformance holds you to it. |
 | `run` | The entry point. See [The entry point](#the-entry-point). |
 
@@ -269,6 +269,7 @@ only renders** — never the other way round.
 | `rolePicker` | role id | any role. Never make someone type a snowflake. |
 | `channelPicker` | channel id, or one `{{var.<name>}}` | any channel. Same. Also offers channels earlier blocks record — see [A picker holding a variable](#a-picker-holding-a-variable). Set `optional: true` when the block can do without one and empty means something (`quietChannelId` in `blocks/quietTimeout.ts`: anywhere) — the pick becomes clearable, and clearing removes the key. Without it a pick cannot be undone, and a required picker writes `''` on change. |
 | `categoryPicker` | category id | a category: the guild's own, plus categories the flow declares, through the same `<field>Key` sidecar install fills in. No `{{var}}` — nothing records a category. A required pick writes `''` on change, so a schema that needs one while shown takes `z.string().min(1).optional()` and refuses only an absent id in its refinement: an empty pick naming a declared, uninstalled category is the *too short* complaint save forgives (`trigger.messageSent`). |
+| `ticketTypePicker` | ticket type key | one of the guild's own declared ticket types, offered by label from its ticket config. Never hardcode the seeded `support`/`verification` as options — they are only what a fresh guild starts with. A stored key the guild no longer declares shows as not available here; what it means at run time is your call (Open Ticket fails by name, Has Open Ticket still answers from the records, Ticket Event matches nothing). No `{{var}}`, no resource sidecar. Set `optional: true` when no type means something (Ticket Event: any type) — clearing removes the key. |
 | `text` | string | one line. `maxLength`, `placeholder`, `rendersTokens`. Set `optional: true` when the schema is `.optional()` over a non-empty floor (`z.string().min(1).optional()`, a url) — clearing the box then removes the key instead of writing `''`, which such a schema rejects and `validateNodeData` then holds the whole flow back from going live over. A field whose description says "leave empty for none" needs it. |
 | `longText` | string | a message body. `maxLength`, `placeholder`, `rendersTokens`. |
 | `duration` | milliseconds | any span. Shows a number plus a unit, so nobody hand-computes `604800000`. Set `optional: true` when absence is meaningful — clearing it removes the key rather than writing a zero. `placeholder` hints the empty number box — worth having chiefly on an `optional` field (e.g. `'No limit'`), where an empty box is a real setting rather than a blank. A field with a `defaultValue` is never empty, so a hint for it could never render. |
@@ -432,6 +433,7 @@ way that field's own `control` already implies:
 | `rolePicker` | `@name` |
 | `channelPicker` | `#name` |
 | `categoryPicker` | the category's bare name — no `#`, since nobody posts in one |
+| `ticketTypePicker` | the type's label; a key the guild no longer declares shows as the key itself, since "no type picked" would misstate a node that names one |
 | `duration` | `5m` (via the same formatter the inspector uses) |
 | `segmented` / `select` | the matching option's `label`, not the raw stored value — `action.waitForEvent`'s `eventKind: 'buttonClick'` renders as "They click a flow button", never `buttonClick` |
 | `text` / `longText` / `colour` | the raw string value |
@@ -562,6 +564,25 @@ number of waits reports the same instant. It is **undefined on a run parked befo
 snapshot recorded it** — treat that as "no record", and never substitute the row's
 `createdAt`, which is when the run first parked, not when it began.
 
+### How deep in a chain — `context.chainDepth`
+
+Every run carries `context.chainDepth`, a whole number: `FLOW_ROOT_CHAIN_DEPTH` (1) for a
+run started by a person's act or any ordinary event, and N+1 for a run started by a change
+a depth-N run made. The executor settles an absent depth as the root in one place. It
+is written into the snapshot at the first park like `startedAt`, so a run that waits and
+then acts keeps its place; a run parked before depth was recorded reads as the root. A start
+that would pass `FLOW_MAX_CHAIN_DEPTH` (5) is refused and logged, which is what stops
+two flows setting each other off forever.
+
+**A block whose action can start other runs hands its depth on.** Today that is any
+block that changes a ticket: pass `{ actorId: null, chainDepth: context.chainDepth }` as
+the ticket service's `change` (Open Ticket, Close Ticket). `actorId` is null because a
+flow is nobody — even where the in-channel announcement names the bot. The service
+requires a `change` on every announcing call, so there is no default to fall back on by
+forgetting. Only a ticket change carries depth across today: Kick Member → Member Leaves
+goes through Discord's gateway, which cannot carry one, so that run restarts at the root.
+Award XP is not a second such path — XP a flow awards never sets off Level Reached.
+
 ## Run variables
 
 `context.variables` is a read-only bag of named values earlier blocks produced. It is scalar
@@ -590,7 +611,9 @@ Four things follow from how that is wired, and each of them has bitten somebody:
   last-writer-wins today; nothing rejects it yet, so pick names that say what they hold.
   Sharing a name **on purpose** is fine when both blocks mean the same thing by it:
   `action.openTicket` and `condition.hasOpenTicket` both write `ticketChannelId` (from
-  `TICKET_VARIABLES` in the tickets feature), so either branch can feed one later block.
+  `TICKET_VARIABLES` in the tickets feature), so either branch can feed one later block —
+  and `trigger.ticketEvent`'s dispatcher seeds the same two names, so Close Ticket works on
+  the ticket that started the run with nothing to wire.
 - **Your writes land after you return.** You cannot read back what you just wrote — you already
   have the value, and a bag that changed mid-`run` would make "what this node was handed" depend
   on where in the function you looked. A block that throws records nothing.

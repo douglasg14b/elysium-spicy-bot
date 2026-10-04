@@ -187,6 +187,7 @@ async function openTicket(ticketGuild: TicketGuild, title: string, ticketType: s
             variables: {},
             runId: `e2e-${title}`,
             nodeId: 'open-ticket',
+            chainDepth: 1,
             setOutput: (key, value) => outputs.set(key, value),
         }
     );

@@ -33,6 +33,7 @@ function renderPicker(options: { variables: AvailableVariable[]; value?: string;
     const context: ControlContext = {
         roles: [],
         channels: [{ id: 'c1', name: 'lobby', type: 'text', parentId: null, parentName: null }],
+        ticketTypes: [],
         variables: options.variables,
         actorAvailable: true,
         declaredResources: [],

@@ -182,11 +182,16 @@ export function CreateModTicketModalComponent() {
                 allowedMentions: { parse: ['users'] },
             });
 
-            // Recorded so a caller with no interaction can re-render this embed. A
-            // failure here is not fatal to the ticket — the row is the ticket and its
-            // own buttons still work — but it is loud, because silence would leave a
-            // column that looks like it is never written.
-            const stateMessage = await recordTicketStateMessage(attached.value.id, initialMessage.id);
+            // Recorded so a caller with no interaction can re-render this embed, and
+            // recording it is what announces the ticket as opened — by the moderator
+            // filing it, now that its embed exists. A failure here is not fatal to the
+            // ticket — the row is the ticket and its own buttons still work — but it is
+            // loud, because silence would leave a column that looks like it is never
+            // written, and no flow listening for "opened" will hear this one.
+            const stateMessage = await recordTicketStateMessage(attached.value.id, initialMessage.id, {
+                actorId: interaction.user.id,
+                chainDepth: 0,
+            });
             if (!stateMessage.ok) {
                 console.error('Failed to record ticket state message id:', stateMessage.error);
             }

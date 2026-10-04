@@ -9,7 +9,7 @@ import { Fragment } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { Text } from '@mantine/core';
 import { IconAlertTriangle } from '@tabler/icons-react';
-import type { GuildChannel, GuildRole, NodeDescriptor } from '../api/types';
+import type { GuildChannel, GuildRole, NodeDescriptor, TicketTypeView } from '../api/types';
 import { summarizeFromDescriptor } from './cardSummary';
 import { describeConvergence } from './convergingTriggers';
 import { handlesAreLabelled, HANDLE_TONE_COLORS, KIND_STYLES } from './nodeMeta';
@@ -18,8 +18,8 @@ import { describeUnconnectedExit } from './unconnectedExits';
 /**
  * What we stash on each React Flow node. `config` is the node's engine `data`;
  * `descriptor` is the block it instantiates, absent when the saved graph names a
- * type this build has no block for. `roles`/`channels` ride along so the card can
- * resolve IDs to names.
+ * type this build has no block for. `roles`/`channels`/`ticketTypes` ride along so the
+ * card can resolve IDs and keys to names.
  */
 export interface FlowNodeCardData extends Record<string, unknown> {
     nodeType: string;
@@ -28,6 +28,7 @@ export interface FlowNodeCardData extends Record<string, unknown> {
     descriptor: NodeDescriptor | undefined;
     roles: GuildRole[];
     channels: GuildChannel[];
+    ticketTypes: TicketTypeView[];
     /**
      * How many things the server last found wrong with this node — when the flow was
      * opened, or at the last save.
@@ -89,6 +90,7 @@ export function FlowNodeCard({ data, selected }: NodeProps<FlowCardNode>) {
         descriptor,
         roles,
         channels,
+        ticketTypes,
         issueCount,
         unreachable,
         convergingTriggers,
@@ -210,7 +212,7 @@ export function FlowNodeCard({ data, selected }: NodeProps<FlowCardNode>) {
 
             <div style={{ padding: 12 }}>
                 <Text size="12px" c="dark.1" lineClamp={2}>
-                    {summarizeFromDescriptor(descriptor, config, roles, channels)}
+                    {summarizeFromDescriptor(descriptor, config, roles, channels, ticketTypes)}
                 </Text>
                 {failed ? (
                     // Counted in problems rather than fields: two rules can fail on

@@ -458,6 +458,80 @@ export class TicketsRepo {
     }
 
     /**
+     * Record a ticket's channel, only if it is open and has no channel recorded.
+     *
+     * Conditional for the reason {@link claimIfUnclaimed} is: the `where` clause decides,
+     * so a second attach gets nothing back rather than overwriting the first.
+     *
+     * "No channel" is read as `channelId is null`, which {@link clearChannel} also
+     * produces for a ticket whose channel was deleted. Nothing re-attaches such a ticket
+     * today.
+     */
+    async attachChannelIfUnattached(id: number, channelId: string): Promise<TicketEntity | null> {
+        const attached = await database
+            .updateTable('tickets')
+            .set({ channelId, updatedAt: new Date().toISOString() })
+            .where('id', '=', id)
+            .where('status', '=', 'open')
+            .where('channelId', 'is', null)
+            .returningAll()
+            .executeTakeFirst();
+
+        return attached ?? null;
+    }
+
+    /**
+     * Record the message rendering a ticket's state, only if it is open and has none
+     * recorded.
+     *
+     * The same shape as {@link attachChannelIfUnattached}, and the service announces a
+     * ticket as opened exactly when this returns a row — so the `where` clause is what
+     * makes "opened" fire once.
+     *
+     * {@link clearChannel} also nulls this, for a ticket whose channel was deleted.
+     * Nothing re-records such a ticket today; a path that does would announce it as
+     * opened again, and must decide whether that is what it means.
+     */
+    async recordStateMessageIfUnrecorded(id: number, stateMessageId: string): Promise<TicketEntity | null> {
+        const recorded = await database
+            .updateTable('tickets')
+            .set({ stateMessageId, updatedAt: new Date().toISOString() })
+            .where('id', '=', id)
+            .where('status', '=', 'open')
+            .where('stateMessageId', 'is', null)
+            .returningAll()
+            .executeTakeFirst();
+
+        return recorded ?? null;
+    }
+
+    /**
+     * Release a claim, only if `expectedClaimerId` still holds it.
+     *
+     * Same reasoning as {@link claimIfUnclaimed}, from the other side: two releases racing
+     * cannot both land, and a release that read a claim which has since been dropped and
+     * re-taken cannot wipe the new one. Zero rows back is the refusal. The claimer's names
+     * go with the claim, in the same statement.
+     */
+    async releaseClaimIf(id: number, expectedClaimerId: string): Promise<TicketEntity | null> {
+        const released = await database
+            .updateTable('tickets')
+            .set({
+                claimerId: null,
+                claimedAt: null,
+                claimerUsername: null,
+                claimerNickname: null,
+                updatedAt: new Date().toISOString(),
+            })
+            .where('id', '=', id)
+            .where('claimerId', '=', expectedClaimerId)
+            .returningAll()
+            .executeTakeFirst();
+
+        return released ?? null;
+    }
+
+    /**
      * Forget a channel Discord no longer holds, on every ticket still naming it.
      *
      * Every ticket, not the newest, because a closed and a reopened ticket can name the

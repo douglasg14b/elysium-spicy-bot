@@ -41,6 +41,7 @@ const context = {
     subject: {} as FlowRunContext['subject'],
     runId: 'run-1',
     nodeId: 'node-1',
+    chainDepth: 1,
     variables: {},
     // Conformance drives `run` for real, so it supplies a real write channel. It
     // discards what it is given because no case here asserts on a recorded value —

@@ -250,6 +250,8 @@ export class ServerState {
     readonly messages = new ServerMessages(this, (event) => this.sink?.publish(event));
 
     private readonly guilds = new Map<string, GuildRecord>();
+    /** Every user ever made here, kept after they leave a guild — Discord still knows them. */
+    private readonly users = new Map<string, APIUser>();
     private readonly rejections = new Map<string, InjectedRejection>();
     private readonly rateLimits = new Map<string, InjectedRateLimit>();
     private sink: EventSink | undefined;
@@ -264,6 +266,7 @@ export class ServerState {
             avatar: null,
             bot: true,
         };
+        this.users.set(this.botUser.id, this.botUser);
     }
 
     /** From here on every change is also dispatched to the connected client. */
@@ -624,6 +627,11 @@ export class ServerState {
         return this.guild(guildId).members.get(userId);
     }
 
+    /** A user this harness made, whether or not they are in any guild now. */
+    user(userId: string): Readonly<APIUser> | undefined {
+        return this.users.get(userId);
+    }
+
     /** Every channel in a guild as Discord holds it now, for `GET /guilds/:id/channels`. */
     guildChannels(guildId: string): ServerChannelPayload[] {
         return structuredClone([...this.guild(guildId).channels.values()]);
@@ -776,7 +784,9 @@ export class ServerState {
     }
 
     private newUser(username: string): APIUser {
-        return { id: newSnowflake(), username, discriminator: '0000', global_name: null, avatar: null };
+        const user: APIUser = { id: newSnowflake(), username, discriminator: '0000', global_name: null, avatar: null };
+        this.users.set(user.id, user);
+        return user;
     }
 
     private newMember(user: APIUser, roleIds: readonly string[]): APIGuildMember {

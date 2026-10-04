@@ -96,8 +96,12 @@ export const block: BlockManifest<CloseTicketConfig> = {
             ? getTicketTypeDefinition(configEntity.config, existing.type)
             : undefined;
 
+        // A flow made this change, so nobody acted — and it sits at this run's depth, so
+        // a flow the close starts is one link further down the chain and the cap holds.
+        const change = { actorId: null, chainDepth: context.chainDepth };
+
         if (!isTicketingConfigConfigured(configEntity) || !definition) {
-            const closed = await closeTicket(ticketId);
+            const closed = await closeTicket(ticketId, change);
             if (!closed.ok) throw closed.error;
             return { kind: 'continue' };
         }
@@ -112,6 +116,7 @@ export const block: BlockManifest<CloseTicketConfig> = {
             // blank, because the in-channel announcement is read by the people in the
             // ticket and "closed by" with nothing after it reads like a bug.
             actor: { id: context.client.user?.id ?? 'flow', mention: 'an automated flow', identity: null },
+            change,
         });
 
         // Thrown rather than swallowed: the block's contract is that the ticket is

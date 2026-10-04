@@ -13,6 +13,7 @@ import type {
     GuildChannel,
     GuildRole,
     NodeDescriptor,
+    TicketTypeView,
 } from '../api/types';
 import { formatDuration } from './nodeMeta';
 import { isFieldVisible, pickerVariableOf } from './variables';
@@ -23,6 +24,7 @@ const NO_SUMMARY = 'Click to configure';
 interface SummaryContext {
     roles: GuildRole[];
     channels: GuildChannel[];
+    ticketTypes: TicketTypeView[];
 }
 
 /** Truncate to `max` characters, the last of which becomes an ellipsis. */
@@ -90,6 +92,16 @@ function resolveValue(
         case 'categoryPicker': {
             if (typeof raw !== 'string' || !raw) return '';
             return context.channels.find((candidate) => candidate.id === raw)?.name ?? '';
+        }
+        /*
+         * The type's label. A key the guild no longer declares — or a list that has not
+         * loaded — shows as the key itself rather than as unset: unlike a deleted role's
+         * snowflake, a type key is readable, and "no type picked" would be a lie about a
+         * node that names one.
+         */
+        case 'ticketTypePicker': {
+            if (typeof raw !== 'string' || !raw) return '';
+            return context.ticketTypes.find((candidate) => candidate.type === raw)?.label ?? raw;
         }
         case 'duration': {
             if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) return '';
@@ -256,16 +268,18 @@ function decorateEmpty(
  * @param config - The node's current engine `data`.
  * @param roles - Guild roles, for resolving a `rolePicker` value to `@name`.
  * @param channels - Guild channels, for resolving a `channelPicker` to `#name`.
+ * @param ticketTypes - The guild's ticket types, for resolving a `ticketTypePicker` to its label.
  */
 export function summarizeFromDescriptor(
     descriptor: NodeDescriptor | undefined,
     config: Record<string, unknown>,
     roles: GuildRole[],
-    channels: GuildChannel[]
+    channels: GuildChannel[],
+    ticketTypes: TicketTypeView[]
 ): string {
     if (!descriptor?.cardSummary || descriptor.cardSummary.length === 0) return NO_SUMMARY;
 
-    const context: SummaryContext = { roles, channels };
+    const context: SummaryContext = { roles, channels, ticketTypes };
     const pieces: string[] = [];
 
     for (const part of descriptor.cardSummary) {

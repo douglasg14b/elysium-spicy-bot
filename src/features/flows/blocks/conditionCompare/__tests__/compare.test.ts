@@ -30,6 +30,7 @@ function contextWith(variables: Readonly<Record<string, FlowVariableValue>>): Fl
         subject: {} as FlowRunContext['subject'],
         runId: 'run-1',
         nodeId: 'compare',
+        chainDepth: 1,
         variables,
         setOutput: () => {},
     };

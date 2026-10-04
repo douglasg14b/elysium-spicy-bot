@@ -14,6 +14,7 @@ import type {
     GuildRole,
     NodeDescriptor,
     ResourceDeclaration,
+    TicketTypeView,
 } from '../api/types';
 import { renderControl } from './controls/renderControl';
 import type { ControlContext } from './controls/types';
@@ -31,6 +32,8 @@ interface NodeInspectorProps {
     config: Record<string, unknown>;
     roles: GuildRole[];
     channels: GuildChannel[];
+    /** The guild's declared ticket types, for the ticket-type picker. */
+    ticketTypes: TicketTypeView[];
     /**
      * Variables blocks upstream of this node write, for its copy fields to offer.
      *
@@ -72,6 +75,7 @@ export function NodeInspector({
     config,
     roles,
     channels,
+    ticketTypes,
     variables,
     actorAvailable,
     declaredResources,
@@ -98,6 +102,7 @@ export function NodeInspector({
     const context: ControlContext = {
         roles,
         channels,
+        ticketTypes,
         variables,
         actorAvailable,
         declaredResources,

@@ -71,6 +71,7 @@ function contextWith(overrides: ContextOverrides = {}): FlowRunContext {
         } as unknown as FlowRunContext['subject'],
         runId: 'run-1',
         nodeId: 'since',
+        chainDepth: 1,
         variables: overrides.variables ?? {},
         ...(overrides.startedAt ? { startedAt: overrides.startedAt } : {}),
         setOutput: () => {},

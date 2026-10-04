@@ -179,6 +179,12 @@ const DOMAIN_VOCABULARY = [
     // and `thread`; it says where a message landed, not what a flow is for, and folds
     // onto no proven rejection.
     'category',
+    // A run started by a change another run made sits one link further down a *chain* of
+    // runs, and `FLOW_MAX_CHAIN_DEPTH` refuses a start past a set depth. Causation, on the
+    // footing of `trigger` and `step`: it says how a run came to start, never what a flow
+    // is for — the ticket change that carries a depth today is named only outside the
+    // gated files. Folds onto no proven rejection.
+    'chain',
 ];
 
 /**

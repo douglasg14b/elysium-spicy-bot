@@ -84,7 +84,7 @@ describe('a block added as one directory renders end to end', () => {
         expect(defaultDataFor(browserDescriptor)).toEqual({});
 
         // The literal arm of the summary interpreter, which is what this block uses.
-        expect(summarizeFromDescriptor(browserDescriptor, {}, [], [])).toBe('Currently boosting?');
+        expect(summarizeFromDescriptor(browserDescriptor, {}, [], [], [])).toBe('Currently boosting?');
     });
 
     it('branches with labelled exits, on the shared rule', () => {
@@ -159,6 +159,7 @@ describe('a block added after the contract settled still needs only its director
         const summary = summarizeFromDescriptor(
             browserDescriptor,
             { options: ['truth', 'dare'], outputKey: 'pick' },
+            [],
             [],
             []
         );

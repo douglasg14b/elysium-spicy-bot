@@ -8,6 +8,7 @@ import {
 } from 'discord.js';
 import type { ConfiguredTicketingConfig, TicketTypeDefinition } from '../data/ticketingSchema';
 import type { TicketEntity, TicketIdentity } from '../data/ticketsSchema';
+import type { TicketChange } from '../ticketChanges';
 import { claimTicket, closeTicket, forgetTicketChannel, reopenTicket, unclaimTicket } from '../ticketService';
 import { syncTicketChannelToState } from './ticketChannelOps';
 import { buildTicketButtons, buildTicketEmbed } from './ticketPresentation';
@@ -82,6 +83,17 @@ export interface ApplyTicketTransitionInput {
     readonly transition: TicketTransition;
     readonly actor: TicketTransitionActor;
     /**
+     * Who made the change and how deep in a chain of automated changes it sits, for
+     * the announcement the service makes once the row commits.
+     *
+     * **Separate from {@link actor}, and the two can disagree on purpose.** `actor` is
+     * how the change is *shown* — Close Ticket names the bot there, because "closed by"
+     * with nothing after it reads like a bug — while `change.actorId` is who *did* it,
+     * which for automation is nobody. Required rather than defaulted: every caller has
+     * both facts in hand, and a forgotten depth is what lets a chain of flows run on.
+     */
+    readonly change: TicketChange;
+    /**
      * The message rendering this ticket's state, when the caller already holds it.
      *
      * A button handler does — it is the message the button is on — and passing it
@@ -139,23 +151,23 @@ const TRANSITION_COPY: Readonly<Record<TicketTransition, TransitionCopy>> = {
 async function commit(
     input: ApplyTicketTransitionInput
 ): Promise<{ ok: true; ticket: TicketEntity } | { ok: false; message: string }> {
-    const { ticket, transition, actor } = input;
+    const { ticket, transition, actor, change } = input;
 
     switch (transition) {
         case 'claim': {
-            const result = await claimTicket(ticket.id, actor.id, actor.identity);
+            const result = await claimTicket(ticket.id, actor.id, actor.identity, change);
             return result.ok ? { ok: true, ticket: result.value } : { ok: false, message: ticketErrorMessage(result.error) };
         }
         case 'unclaim': {
-            const result = await unclaimTicket(ticket.id);
+            const result = await unclaimTicket(ticket.id, change);
             return result.ok ? { ok: true, ticket: result.value } : { ok: false, message: ticketErrorMessage(result.error) };
         }
         case 'close': {
-            const result = await closeTicket(ticket.id);
+            const result = await closeTicket(ticket.id, change);
             return result.ok ? { ok: true, ticket: result.value } : { ok: false, message: ticketErrorMessage(result.error) };
         }
         case 'reopen': {
-            const result = await reopenTicket(ticket.id);
+            const result = await reopenTicket(ticket.id, change);
             return result.ok ? { ok: true, ticket: result.value } : { ok: false, message: ticketErrorMessage(result.error) };
         }
         default: {

@@ -125,6 +125,10 @@ export async function rebuildResumeContext(
             variables: emptyBagWith(run.variables),
             // Resumed runs have no interaction — the token is expired.
             interaction: undefined,
+            // The depth the run started at, so a change it makes after waiting continues
+            // its chain rather than starting a fresh one. A row parked before depth was
+            // recorded carries none, and the executor reads that as the root.
+            ...(run.contextSnapshot.chainDepth === undefined ? {} : { chainDepth: run.contextSnapshot.chainDepth }),
         },
     };
 }
