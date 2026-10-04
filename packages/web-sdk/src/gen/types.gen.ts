@@ -32,6 +32,124 @@ export type Flow = {
     updatedAt: string;
 };
 
+/**
+ * What the Flow Builder may check about each block's config fields as an author types, keyed by block type, each rule carrying the server's own sentence. Not the config's type: every field is optional here, and a field the browser cannot check faithfully is unknown. The server checks the rest when the flow is saved or re-checked.
+ */
+export type FlowBlockFieldRules = {
+    'action.assignRole': {
+        roleId?: string;
+    };
+    'action.awardXp': {
+        amount?: unknown;
+    };
+    'action.closeTicket': {
+        ticketId?: string;
+    };
+    'action.delay': {
+        durationMs?: number;
+        quietChannelId?: unknown;
+        timeoutCountsFrom?: unknown;
+    };
+    'action.kickMember': {
+        reason?: string;
+    };
+    'action.openTicket': {
+        reason?: string;
+        ticketType?: string;
+        title?: string;
+    };
+    'action.pickRandom': {
+        options?: Array<unknown>;
+        outputKey?: string;
+    };
+    'action.postEmbed': {
+        authorName?: string;
+        channelId?: string;
+        color?: string;
+        description?: string;
+        fields?: Array<unknown>;
+        footerText?: string;
+        imageUrl?: unknown;
+        showTimestamp?: unknown;
+        thumbnailUrl?: unknown;
+        title?: string;
+        url?: unknown;
+    };
+    'action.prompt': {
+        choices?: Array<unknown>;
+        eligibility?: unknown;
+        question?: string;
+        quietChannelId?: unknown;
+        timeoutCountsFrom?: unknown;
+        timeoutMs?: number;
+    };
+    'action.removeRole': {
+        roleId?: string;
+    };
+    'action.sendDM': {
+        message?: string;
+    };
+    'action.sendMessage': {
+        channelId?: string;
+        message?: string;
+    };
+    'action.setVariable': {
+        booleanValue?: unknown;
+        numberValue?: unknown;
+        textValue?: string;
+        valueType?: unknown;
+        variableName?: string;
+    };
+    'action.waitForEvent': {
+        eventKind?: unknown;
+        quietChannelId?: unknown;
+        timeoutCountsFrom?: unknown;
+        timeoutMs?: number;
+    };
+    'condition.hasOpenTicket': {
+        ticketType?: string;
+    };
+    'condition.hasRole': {
+        roleId?: string;
+    };
+    'condition.inChannel': {
+        channelId?: string;
+    };
+    'condition.isBooster': {
+        [key: string]: unknown;
+    };
+    'condition.levelAtLeast': {
+        level?: unknown;
+    };
+    'condition.timeSince': {
+        channelId?: unknown;
+        comparison?: unknown;
+        durationMs?: number;
+        source?: unknown;
+        timeVariable?: string;
+    };
+    'trigger.buttonClick': {
+        channelId?: string;
+        eligibility?: unknown;
+        label?: string;
+        style?: unknown;
+    };
+    'trigger.levelReached': {
+        level?: unknown;
+    };
+    'trigger.memberJoin': {
+        [key: string]: unknown;
+    };
+    'trigger.memberLeave': {
+        [key: string]: unknown;
+    };
+    'trigger.reactionAdd': {
+        channelId?: string;
+        emoji?: string;
+        messageId?: string;
+    };
+};
+
 export type FlowCheck = {
     graph: FlowGraph;
 };

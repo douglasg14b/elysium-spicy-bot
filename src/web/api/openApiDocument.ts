@@ -1,5 +1,7 @@
 import { OpenAPIHono } from '@hono/zod-openapi';
+import { ensureBlocksDiscovered } from '../../features/flows/blocks/registry';
 import type { AppEnv } from '../types';
+import { FLOW_BLOCK_FIELD_RULES, flowBlockFieldRulesSchema } from './flowBlockFieldRules';
 import { registerApiRoutes } from './index';
 import { attachRequestMessages } from './requestMessages';
 
@@ -21,15 +23,21 @@ export type OpenApiDocument = ReturnType<OpenAPIHono['getOpenAPI31Document']>;
  * browser's generated zod refuses with the server's words; a request rule the browser
  * cannot be given faithfully throws here instead (see `attachRequestMessages`).
  *
+ * Also carries `FlowBlockFieldRules`, the Flow Builder's rules for every block's config
+ * fields (`flowBlockFieldRules.ts`). They are read off the block registry, so this awaits
+ * block discovery first, as `initFlows` does before the web server starts.
+ *
  * Keys are sorted at every depth so the committed file, and the SDK generated from it, do
  * not churn when routers are mounted or registered in a different order. The price is
  * that generated types list fields alphabetically rather than as declared. Arrays keep
  * their order — `enum` and `tags` are ordered lists — so reordering a schema's fields
  * still moves its `required` list.
  */
-export function buildOpenApiDocument(): OpenApiDocument {
+export async function buildOpenApiDocument(): Promise<OpenApiDocument> {
+    await ensureBlocksDiscovered();
     const app = new OpenAPIHono<AppEnv>();
     registerApiRoutes(app);
+    app.openAPIRegistry.register(FLOW_BLOCK_FIELD_RULES, flowBlockFieldRulesSchema());
     attachRequestMessages(app.openAPIRegistry.definitions);
 
     const document = app.getOpenAPI31Document({

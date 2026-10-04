@@ -508,31 +508,6 @@ export const BLOCK_CAPABILITIES = ['manageRoles', 'sendMessages', 'embedLinks', 
 export type BlockCapability = (typeof BLOCK_CAPABILITIES)[number];
 
 /**
- * The rules a field can be checked against as an author types, mirroring
- * `src/features/flows/logic/fieldChecks.ts`. Each is named for the JSON Schema keyword
- * the server derives it from; `web/src/flows/fieldChecks.ts` evaluates them.
- */
-export const FIELD_CHECK_RULES = [
-    'required',
-    'integer',
-    'minLength',
-    'maxLength',
-    'minimum',
-    'maximum',
-    'exclusiveMinimum',
-    'exclusiveMaximum',
-    'minItems',
-    'maxItems',
-] as const;
-
-export type FieldCheckRule = (typeof FIELD_CHECK_RULES)[number];
-
-/** One rule a field's value must meet, already worded by the server. */
-export type FieldCheck =
-    | { rule: 'required' | 'integer'; message: string }
-    | { rule: Exclude<FieldCheckRule, 'required' | 'integer'>; limit: number; message: string };
-
-/**
  * An available block from the engine's registry (`GET /api/nodes`) — everything
  * the builder needs in order to draw it.
  *
@@ -560,14 +535,6 @@ export interface NodeDescriptor {
     note?: string;
     /** Config fields in the order the inspector should show them. */
     configFields: BlockConfigField[];
-    /**
-     * The rules each field can be checked against as the author types, keyed by field.
-     *
-     * Not declared by the block: the server derives them from its schema, so every
-     * block has them without anyone writing them down. A subset of what the server
-     * enforces — what it cannot state here, it reports when asked.
-     */
-    fieldChecks: Record<string, FieldCheck[]>;
     /** The one-line config summary on the canvas card. Absent when nothing is worth summarising. */
     cardSummary?: BlockCardSummaryPart[];
     /** Every way a run can leave this block. */
@@ -615,7 +582,6 @@ export const NODE_DESCRIPTOR_KEYS = [
     'icon',
     'note',
     'configFields',
-    'fieldChecks',
     'cardSummary',
     'handles',
     'outputs',

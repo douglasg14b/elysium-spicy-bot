@@ -26,7 +26,6 @@ import {
 } from '../../../features/flows/engine/eligibility';
 import { ensureBlocksDiscovered, listBlockDefinitions } from '../../../features/flows/blocks/registry';
 import { FLOW_GRAPH_VERSION } from '../../../features/flows/data/flowGraph';
-import { FIELD_CHECK_RULES } from '../../../features/flows/logic/fieldChecks';
 import { toDescriptor } from '../nodeRoutes';
 import * as browserTypes from '../../../../web/src/api/types';
 
@@ -98,9 +97,6 @@ const VOCABULARIES = [
     },
     { name: 'FlowContextRequirement', server: FLOW_CONTEXT_REQUIREMENTS, browser: browserTypes.FLOW_CONTEXT_REQUIREMENTS },
     { name: 'BlockCapability', server: BLOCK_CAPABILITIES, browser: browserTypes.BLOCK_CAPABILITIES },
-    // Derived from each block's schema and evaluated in the browser by a switch over
-    // this union, so a rule the server starts serving alone is one the builder skips.
-    { name: 'FieldCheckRule', server: FIELD_CHECK_RULES, browser: browserTypes.FIELD_CHECK_RULES },
     // Not served on a descriptor, and here anyway. The eligibility control
     // renders its principal list from these rather than from what the server sends,
     // so the two copies can drift without a single descriptor key changing —
@@ -335,8 +331,8 @@ describe('node descriptor drift between server and browser', () => {
         // them, and a single-block sample would call that a server field the browser
         // must not declare.
         //
-        // Read off what the route builds, not the manifest: a derived member such as
-        // `fieldChecks` is served without any manifest declaring it.
+        // Read off what the route builds, not the manifest, so the keys compared are
+        // the ones really served.
         const keys = new Set<string>();
         for (const definition of definitions) {
             for (const [key, value] of Object.entries(toDescriptor(definition))) {

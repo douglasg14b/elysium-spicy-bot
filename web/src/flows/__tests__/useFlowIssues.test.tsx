@@ -25,12 +25,6 @@ const SEND_DM: NodeDescriptor = {
     group: 'actions',
     icon: '✉️',
     configFields: [{ key: 'message', label: 'Message', control: 'longText', maxLength: 2000 }],
-    fieldChecks: {
-        message: [
-            { rule: 'required', message: REQUIRED },
-            { rule: 'maxLength', limit: 2000, message: 'No more than 2000 characters.' },
-        ],
-    },
     handles: [],
     outputs: [],
     requires: [],

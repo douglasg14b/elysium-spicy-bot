@@ -1,7 +1,7 @@
 import type { FlowGraph } from '../data/flowGraph';
 import { authoredGraphIssues } from '../engine/graphValidation';
 import { validateNodeData, type FlowValidationIssue } from '../engine/nodeDataValidation';
-import { fieldCheckIssueMessage } from './fieldChecks';
+import { fieldRuleIssueMessage } from './blockFieldRules';
 import { pendingResourceFields } from './pendingResourceFields';
 import { collectApplicableResourceTargets } from './resourceTargets';
 
@@ -69,7 +69,7 @@ export function flowReadinessIssues(
     const nodeData = validateNodeData(graph, {
         pendingFields: pending.pendingFields,
         // Worded as the builder words the same rule while the author types.
-        issueMessage: fieldCheckIssueMessage,
+        issueMessage: fieldRuleIssueMessage,
     });
 
     return [

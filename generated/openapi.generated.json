@@ -92,6 +92,485 @@
                 ],
                 "type": "object"
             },
+            "FlowBlockFieldRules": {
+                "description": "What the Flow Builder may check about each block's config fields as an author types, keyed by block type, each rule carrying the server's own sentence. Not the config's type: every field is optional here, and a field the browser cannot check faithfully is unknown. The server checks the rest when the flow is saved or re-checked.",
+                "properties": {
+                    "action.assignRole": {
+                        "properties": {
+                            "roleId": {
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "minLength": "Fill this in."
+                                }
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "action.awardXp": {
+                        "properties": {
+                            "amount": {}
+                        },
+                        "type": "object"
+                    },
+                    "action.closeTicket": {
+                        "properties": {
+                            "ticketId": {
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "minLength": "Fill this in."
+                                }
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "action.delay": {
+                        "properties": {
+                            "durationMs": {
+                                "exclusiveMinimum": 0,
+                                "maximum": 2592000000,
+                                "type": "integer",
+                                "x-messages": {
+                                    "exclusiveMinimum": "Must be more than 0.",
+                                    "integer": "Whole numbers only.",
+                                    "maximum": "No more than 2592000000."
+                                }
+                            },
+                            "quietChannelId": {},
+                            "timeoutCountsFrom": {}
+                        },
+                        "type": "object"
+                    },
+                    "action.kickMember": {
+                        "properties": {
+                            "reason": {
+                                "maxLength": 512,
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "maxLength": "No more than 512 characters.",
+                                    "minLength": "Can't be empty."
+                                }
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "action.openTicket": {
+                        "properties": {
+                            "reason": {
+                                "maxLength": 1000,
+                                "type": "string",
+                                "x-messages": {
+                                    "maxLength": "No more than 1000 characters."
+                                }
+                            },
+                            "ticketType": {
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "minLength": "Fill this in."
+                                }
+                            },
+                            "title": {
+                                "maxLength": 100,
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "maxLength": "No more than 100 characters.",
+                                    "minLength": "Fill this in."
+                                }
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "action.pickRandom": {
+                        "properties": {
+                            "options": {
+                                "items": {},
+                                "maxItems": 50,
+                                "minItems": 1,
+                                "type": "array",
+                                "x-messages": {
+                                    "maxItems": "No more than 50 entries.",
+                                    "minItems": "Add at least 1 entry."
+                                }
+                            },
+                            "outputKey": {
+                                "maxLength": 64,
+                                "minLength": 1,
+                                "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                                "type": "string",
+                                "x-messages": {
+                                    "maxLength": "No more than 64 characters.",
+                                    "minLength": "Fill this in.",
+                                    "pattern": "A name must start with a letter and use only letters, numbers and underscores — that is what {{var.name}} can address."
+                                }
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "action.postEmbed": {
+                        "properties": {
+                            "authorName": {
+                                "maxLength": 256,
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "maxLength": "No more than 256 characters.",
+                                    "minLength": "Can't be empty."
+                                }
+                            },
+                            "channelId": {
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "minLength": "Fill this in."
+                                }
+                            },
+                            "color": {
+                                "pattern": "^#[0-9a-fA-F]{6}$",
+                                "type": "string",
+                                "x-messages": {
+                                    "pattern": "Colour must be a hex value like #00A2FF"
+                                }
+                            },
+                            "description": {
+                                "maxLength": 4096,
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "maxLength": "No more than 4096 characters.",
+                                    "minLength": "Fill this in."
+                                }
+                            },
+                            "fields": {
+                                "items": {},
+                                "maxItems": 25,
+                                "type": "array",
+                                "x-messages": {
+                                    "maxItems": "No more than 25 entries."
+                                }
+                            },
+                            "footerText": {
+                                "maxLength": 2048,
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "maxLength": "No more than 2048 characters.",
+                                    "minLength": "Can't be empty."
+                                }
+                            },
+                            "imageUrl": {},
+                            "showTimestamp": {},
+                            "thumbnailUrl": {},
+                            "title": {
+                                "maxLength": 256,
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "maxLength": "No more than 256 characters.",
+                                    "minLength": "Fill this in."
+                                }
+                            },
+                            "url": {}
+                        },
+                        "type": "object"
+                    },
+                    "action.prompt": {
+                        "properties": {
+                            "choices": {
+                                "items": {},
+                                "maxItems": 5,
+                                "minItems": 1,
+                                "type": "array",
+                                "x-messages": {
+                                    "maxItems": "No more than 5 entries.",
+                                    "minItems": "Add at least 1 entry."
+                                }
+                            },
+                            "eligibility": {},
+                            "question": {
+                                "maxLength": 2000,
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "maxLength": "No more than 2000 characters.",
+                                    "minLength": "Fill this in."
+                                }
+                            },
+                            "quietChannelId": {},
+                            "timeoutCountsFrom": {},
+                            "timeoutMs": {
+                                "exclusiveMinimum": 0,
+                                "maximum": 2592000000,
+                                "type": "integer",
+                                "x-messages": {
+                                    "exclusiveMinimum": "Must be more than 0.",
+                                    "integer": "Whole numbers only.",
+                                    "maximum": "No more than 2592000000."
+                                }
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "action.removeRole": {
+                        "properties": {
+                            "roleId": {
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "minLength": "Fill this in."
+                                }
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "action.sendDM": {
+                        "properties": {
+                            "message": {
+                                "maxLength": 2000,
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "maxLength": "No more than 2000 characters.",
+                                    "minLength": "Fill this in."
+                                }
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "action.sendMessage": {
+                        "properties": {
+                            "channelId": {
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "minLength": "Fill this in."
+                                }
+                            },
+                            "message": {
+                                "maxLength": 2000,
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "maxLength": "No more than 2000 characters.",
+                                    "minLength": "Fill this in."
+                                }
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "action.setVariable": {
+                        "properties": {
+                            "booleanValue": {},
+                            "numberValue": {},
+                            "textValue": {
+                                "maxLength": 1000,
+                                "type": "string",
+                                "x-messages": {
+                                    "maxLength": "No more than 1000 characters."
+                                }
+                            },
+                            "valueType": {},
+                            "variableName": {
+                                "maxLength": 64,
+                                "minLength": 1,
+                                "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                                "type": "string",
+                                "x-messages": {
+                                    "maxLength": "No more than 64 characters.",
+                                    "minLength": "Fill this in.",
+                                    "pattern": "A name must start with a letter and use only letters, numbers and underscores — that is what {{var.name}} can address."
+                                }
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "action.waitForEvent": {
+                        "properties": {
+                            "eventKind": {},
+                            "quietChannelId": {},
+                            "timeoutCountsFrom": {},
+                            "timeoutMs": {
+                                "exclusiveMinimum": 0,
+                                "maximum": 2592000000,
+                                "type": "integer",
+                                "x-messages": {
+                                    "exclusiveMinimum": "Must be more than 0.",
+                                    "integer": "Whole numbers only.",
+                                    "maximum": "No more than 2592000000."
+                                }
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "condition.hasOpenTicket": {
+                        "properties": {
+                            "ticketType": {
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "minLength": "Fill this in."
+                                }
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "condition.hasRole": {
+                        "properties": {
+                            "roleId": {
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "minLength": "Fill this in."
+                                }
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "condition.inChannel": {
+                        "properties": {
+                            "channelId": {
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "minLength": "Fill this in."
+                                }
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "condition.isBooster": {
+                        "properties": {},
+                        "type": "object"
+                    },
+                    "condition.levelAtLeast": {
+                        "properties": {
+                            "level": {}
+                        },
+                        "type": "object"
+                    },
+                    "condition.timeSince": {
+                        "properties": {
+                            "channelId": {},
+                            "comparison": {},
+                            "durationMs": {
+                                "exclusiveMinimum": 0,
+                                "maximum": 31536000000,
+                                "type": "integer",
+                                "x-messages": {
+                                    "exclusiveMinimum": "Must be more than 0.",
+                                    "integer": "Whole numbers only.",
+                                    "maximum": "No more than 31536000000."
+                                }
+                            },
+                            "source": {},
+                            "timeVariable": {
+                                "maxLength": 64,
+                                "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                                "type": "string",
+                                "x-messages": {
+                                    "maxLength": "No more than 64 characters.",
+                                    "pattern": "A name must start with a letter and use only letters, numbers and underscores — that is what {{var.name}} can address."
+                                }
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "trigger.buttonClick": {
+                        "properties": {
+                            "channelId": {
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "minLength": "Fill this in."
+                                }
+                            },
+                            "eligibility": {},
+                            "label": {
+                                "maxLength": 80,
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "maxLength": "No more than 80 characters.",
+                                    "minLength": "Fill this in."
+                                }
+                            },
+                            "style": {}
+                        },
+                        "type": "object"
+                    },
+                    "trigger.levelReached": {
+                        "properties": {
+                            "level": {}
+                        },
+                        "type": "object"
+                    },
+                    "trigger.memberJoin": {
+                        "properties": {},
+                        "type": "object"
+                    },
+                    "trigger.memberLeave": {
+                        "properties": {},
+                        "type": "object"
+                    },
+                    "trigger.reactionAdd": {
+                        "properties": {
+                            "channelId": {
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "minLength": "Fill this in."
+                                }
+                            },
+                            "emoji": {
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "minLength": "Fill this in."
+                                }
+                            },
+                            "messageId": {
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "minLength": "Fill this in."
+                                }
+                            }
+                        },
+                        "type": "object"
+                    }
+                },
+                "required": [
+                    "action.assignRole",
+                    "action.awardXp",
+                    "action.closeTicket",
+                    "action.delay",
+                    "action.kickMember",
+                    "action.openTicket",
+                    "action.pickRandom",
+                    "action.postEmbed",
+                    "action.prompt",
+                    "action.removeRole",
+                    "action.sendDM",
+                    "action.sendMessage",
+                    "action.setVariable",
+                    "action.waitForEvent",
+                    "condition.hasOpenTicket",
+                    "condition.hasRole",
+                    "condition.inChannel",
+                    "condition.isBooster",
+                    "condition.levelAtLeast",
+                    "condition.timeSince",
+                    "trigger.buttonClick",
+                    "trigger.levelReached",
+                    "trigger.memberJoin",
+                    "trigger.memberLeave",
+                    "trigger.reactionAdd"
+                ],
+                "type": "object"
+            },
             "FlowCheck": {
                 "properties": {
                     "graph": {

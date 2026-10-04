@@ -24,5 +24,5 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const specPath = resolve(repoRoot, OPENAPI_SPEC_PATH);
 
 mkdirSync(dirname(specPath), { recursive: true });
-writeFileSync(specPath, serializeOpenApiDocument(buildOpenApiDocument()));
+writeFileSync(specPath, serializeOpenApiDocument(await buildOpenApiDocument()));
 console.log(`OpenAPI spec written to ${OPENAPI_SPEC_PATH}`);

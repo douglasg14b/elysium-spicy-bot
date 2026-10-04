@@ -14,7 +14,9 @@ import type { Plugins } from '@hey-api/openapi-ts';
  *
  * The pattern node is hey-api's own, which already takes a message (`x-pattern-message`).
  * The length and bound nodes have no such hook, so theirs repeat hey-api's call for the
- * rule (`min`, `length`, `gte` …) with one argument more; the zod v4 plugin's nodes are in
+ * rule (`min`, `length`, `gte` …) with one argument more. The whole-number rule is the one
+ * written differently from hey-api — `z.number().int(message)` for its `z.int()` — and
+ * says why where it does it. The zod v4 plugin's nodes are in
  * `@hey-api/openapi-ts/dist/init-*.mjs`, region `src/plugins/zod/v4/toAst/`. An upgrade
  * that changes them shows up in `zodMessageResolvers.test.ts`, which holds every worded
  * line to hey-api's unworded one, as a stale SDK (`generatedSdkIsCurrent.test.ts`), and as
@@ -37,6 +39,7 @@ export const REQUEST_MESSAGE_KEYWORDS = [
     'exclusiveMinimum',
     'exclusiveMaximum',
     'pattern',
+    'integer',
 ] as const;
 
 type RequestMessageKeyword = (typeof REQUEST_MESSAGE_KEYWORDS)[number];
@@ -144,9 +147,19 @@ export const ZOD_MESSAGE_RESOLVERS: ZodResolvers = {
         if (!Object.keys(messages).length) {
             return undefined;
         }
-        const { min, max } = ctx.nodes;
+        const { base, min, max } = ctx.nodes;
         const { $ } = ctx;
 
+        // hey-api writes `type: 'integer'` as `z.int()`, whose message would also word a
+        // value that is not a number at all. The server's `.int('…')` words only a fraction,
+        // so the sentence goes on an `.int()` after a plain number, as the server wrote it.
+        ctx.nodes.base = (node) => {
+            const message = messages.integer;
+            if (message === undefined || node.schema.type !== 'integer' || node.utils.shouldCoerceToBigInt(node.schema.format)) {
+                return base(node);
+            }
+            return $(node.symbols.z).attr('number').call().attr('int').call($.literal(message));
+        };
         // The keyword hey-api's node picks decides which sentence goes with it: exclusive first.
         ctx.nodes.min = (node) => {
             const { exclusiveMinimum, minimum, format } = node.schema;

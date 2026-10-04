@@ -27,7 +27,6 @@ const CONDITION: NodeDescriptor = {
     group: 'conditions',
     icon: '⌛',
     configFields: [],
-    fieldChecks: {},
     handles: [
         { id: 'true', label: 'Yes', tone: 'positive' },
         { id: 'false', label: 'No', tone: 'negative' },
@@ -69,7 +68,6 @@ const WAIT: NodeDescriptor = {
             visibleWhen: { field: 'mode', equals: ['limited'] },
         },
     ],
-    fieldChecks: {},
     handles: [
         { label: 'It happened', tone: 'positive' },
         { id: 'timeout', label: 'Timed out', tone: 'caution', warnIfUnconnected: { whenFieldSet: 'timeoutMs' } },

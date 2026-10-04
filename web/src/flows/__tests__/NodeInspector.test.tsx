@@ -33,7 +33,6 @@ const DESCRIPTOR: NodeDescriptor = {
         },
         { key: 'note', label: 'Note', control: 'text', visibleWhen: { field: 'mode', equals: ['copy'] } },
     ],
-    fieldChecks: {},
     handles: [{ label: 'Next', tone: 'neutral' }],
     outputs: [],
     requires: [],

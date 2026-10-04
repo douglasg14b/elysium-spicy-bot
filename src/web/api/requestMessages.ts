@@ -24,7 +24,11 @@ import { z, type OpenAPIHono } from '@hono/zod-openapi';
  */
 export const REQUEST_MESSAGES_EXTENSION = 'x-messages';
 
-/** The keywords a sentence can travel beside. */
+/**
+ * The keywords a sentence can travel beside. `integer` is the one named for a value rather
+ * than a keyword: zod-to-openapi writes `.int()` as `type: 'integer'`, and its sentence
+ * travels beside that.
+ */
 export const REQUEST_MESSAGE_KEYWORDS = [
     'minLength',
     'maxLength',
@@ -35,6 +39,7 @@ export const REQUEST_MESSAGE_KEYWORDS = [
     'exclusiveMinimum',
     'exclusiveMaximum',
     'pattern',
+    'integer',
 ] as const;
 
 type RequestMessageKeyword = (typeof REQUEST_MESSAGE_KEYWORDS)[number];
@@ -84,18 +89,19 @@ interface WalkPosition {
  * on a registry's definitions before generating the document from them.
  *
  * Walks every route's path parameters, query and JSON body — what the dashboard sends and
- * checks — through every wrapper and container zod has. Throws, naming each route and
- * field, when a request schema holds a rule the browser cannot be given faithfully:
+ * checks — and every schema registered as a component of its own (the Flow Builder's
+ * `FlowBlockFieldRules`), through every wrapper and container zod has. Throws, naming each
+ * route and field, when a request schema holds a rule the browser cannot be given faithfully:
  *  - **a dynamic message**, an `error` function that reads the issue. Nothing fixed can be
  *    written down at build time.
  *  - **a `.refine()` / `.superRefine()` / `z.custom()`**, a rule the browser cannot run
  *    from the spec. Move it into the handler.
  *  - **a `.regex()` with flags.** zod-to-openapi emits `/^abc$/i` as the pattern `^abc$/i`,
  *    so the browser would refuse valid input.
- *  - **a fixed sentence with no keyword to travel beside** — on `.int()`, `z.email()`,
- *    `.startsWith()`, an array's `.length()`, a schema's own type error (`z.string('…')`),
- *    and the like. The browser would show zod's default sentence where the server sends
- *    this one.
+ *  - **a fixed sentence with no keyword to travel beside** — on `z.email()`, `z.int()`
+ *    (whose sentence words a wrong type too; `.int('…')` travels), `.startsWith()`, an
+ *    array's `.length()`, a schema's own type error (`z.string('…')`), and the like. The
+ *    browser would show zod's default sentence where the server sends this one.
  *  - **two rules on one node feeding the same keyword, unless both carry the same
  *    sentence** (`.min(1, '…').min(3)`). The spec holds one bound per keyword and
  *    zod-to-openapi picks which by rules of its own, so the sentence could end up beside a
@@ -125,6 +131,14 @@ export function attachRequestMessages(definitions: readonly OpenApiDefinition[])
     const state: WalkState = { visited: new Set(), report: (problem) => problems.push(problem) };
 
     for (const definition of definitions) {
+        if (definition.type === 'schema') {
+            // A component registered on its own, reached by no route. The one there is,
+            // `FlowBlockFieldRules`, is there for the browser to check against, so it is
+            // held to the same rules as a request; a response-only component registered
+            // this way would be too. The path names the block and field inside it.
+            walkRequestPart(definition.schema, { route: 'components.schemas', field: '' }, state);
+            continue;
+        }
         if (definition.type !== 'route') {
             continue;
         }
@@ -264,11 +278,12 @@ function recordMessages(schema: z.core.$ZodType, at: string, report: ReportProbl
     }
     const checkDefs: z.core.$ZodCheckDef[] = (def.checks ?? []).map((check) => check._zod.def);
 
-    // A string format (`z.iso.datetime()`, `z.email()`) is its own check, its sentence on
-    // the schema. Any other schema's own `error` words only its type refusal, which no
-    // keyword can carry.
-    if ('check' in def && typeof def.check === 'string') {
-        checkDefs.push({ ...def, check: def.check });
+    // A format schema (`z.iso.datetime()`, `z.email()`, `z.int()`) is its own check, its
+    // sentence on the schema — where it also words a value of the wrong type, which no
+    // keyword can carry. Any other schema's own `error` words only its type refusal.
+    const formatSchema = 'check' in def && typeof def.check === 'string' ? { ...def, check: def.check } : undefined;
+    if (formatSchema) {
+        checkDefs.push(formatSchema);
     } else {
         const sentence = fixedSentence(def.error, "the schema's own error message", at, report);
         if (sentence !== undefined) {
@@ -278,7 +293,7 @@ function recordMessages(schema: z.core.$ZodType, at: string, report: ReportProbl
 
     const sentencesByKeyword = new Map<RequestMessageKeyword, (string | undefined)[]>();
     for (const checkDef of checkDefs) {
-        const contribution = inspectCheck(checkDef, def.type, at, report);
+        const contribution = inspectCheck(checkDef, def.type, at, report, checkDef === formatSchema);
         for (const keyword of contribution?.keywords ?? []) {
             sentencesByKeyword.set(keyword, [...(sentencesByKeyword.get(keyword) ?? []), contribution?.sentence]);
         }
@@ -306,12 +321,17 @@ function recordMessages(schema: z.core.$ZodType, at: string, report: ReportProbl
 /**
  * What one check feeds into the spec, judged by its kind and by the type of node it is
  * on; `undefined` for a check that was reported instead.
+ *
+ * @param isFormatSchema - The check is a format schema itself (`z.int('…')`), whose
+ * sentence words a value of the wrong type too; the browser's copy of the rule would not,
+ * so the sentence has nowhere faithful to travel.
  */
 function inspectCheck(
     checkDef: z.core.$ZodCheckDef,
     ownerType: z.core.$ZodTypeDef['type'],
     at: string,
-    report: ReportProblem
+    report: ReportProblem,
+    isFormatSchema: boolean
 ): CheckContribution | undefined {
     if (checkDef.check === 'custom') {
         report(`${at}: a \`.refine()\`/\`.superRefine()\` rule, which the browser cannot run from the spec. Check it in the handler instead.`);
@@ -327,7 +347,7 @@ function inspectCheck(
         );
     }
 
-    const keywords = keywordsFor(def, ownerType);
+    const keywords = isFormatSchema ? [] : keywordsFor(def, ownerType);
     const sentence = fixedSentence(def.error, `the \`${describeCheck(def)}\` rule's message`, at, report);
     if (sentence !== undefined && !keywords.length) {
         report(`${at}: ${noKeywordFor(`the \`${describeCheck(def)}\` rule's sentence ("${sentence}")`)}`);
@@ -389,8 +409,11 @@ function keywordsFor(def: CheckDef, ownerType: z.core.$ZodTypeDef['type']): read
             return [def.inclusive ? 'maximum' : 'exclusiveMaximum'];
         case 'string_format':
             return def.format === 'regex' ? ['pattern'] : [];
-        case 'multiple_of':
         case 'number_format':
+            // `.int()`, which zod-to-openapi writes as `type: 'integer'`. The 32-bit and
+            // float formats emit bounds of their own that no sentence was written for.
+            return def.format === 'safeint' ? ['integer'] : [];
+        case 'multiple_of':
         case 'bigint_format':
         case 'max_size':
         case 'min_size':

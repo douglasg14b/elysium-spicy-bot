@@ -3,6 +3,7 @@ import type { Client } from 'discord.js';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { ACTION_SEND_DM } from '../../src/features/flows/blocks/actionSendDM';
 import { TRIGGER_MEMBER_JOIN } from '../../src/features/flows/blocks/triggerMemberJoin';
+import { VARIABLE_NAME_MESSAGE } from '../../src/features/flows/blocks/variableName';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../src/features/flows/data/flowGraph';
 import { TestDiscord, type ServerGuild } from '../../src/shared/__tests__/support/testDiscord';
 import { createSeedApi, type SeedApi } from './preview/scenario/seedApi';
@@ -170,5 +171,28 @@ describe('an unfinished flow', () => {
         // stays locked.
         expect((screen.getByRole('switch', { name: 'Enabled' }) as HTMLInputElement).disabled).toBe(true);
         expect((await authored.api.send<StoredFlow>('GET', authored.flowPath)).issues).toHaveLength(2);
+    });
+
+    it('checks a pattern as the operator types, in the block’s own words', async () => {
+        const authored = await guildWithUnfinishedFlow();
+        const dashboard = installDashboardApi(authored.client, OPERATOR);
+        const { user } = renderDashboard(`/flows/${authored.flowId}`);
+        expect(await screen.findByText('Open it — one problem to fix.')).toBeTruthy();
+
+        // The variable-name rule reaches the browser with the SDK, sentence and all: no
+        // server is asked before the mark appears.
+        await user.click(screen.getByTitle('Set Variable — drag onto the canvas, or click to add'));
+        const name = screen.getByRole('textbox', { name: 'Name' });
+        await user.clear(name);
+        await user.type(name, '1abc');
+        expect(name.getAttribute('aria-invalid')).toBe('true');
+        expect(screen.getByText(VARIABLE_NAME_MESSAGE)).toBeTruthy();
+        expect(dashboard.requests).not.toContainEqual({ method: 'POST', path: `${authored.flowPath}/check` });
+
+        // Fixed, the mark goes on the next keystroke.
+        await user.clear(name);
+        await user.type(name, 'greeting');
+        expect(name.getAttribute('aria-invalid')).not.toBe('true');
+        expect(screen.queryByText(VARIABLE_NAME_MESSAGE)).toBeNull();
     });
 });

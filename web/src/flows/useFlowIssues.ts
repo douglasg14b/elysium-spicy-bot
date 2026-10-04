@@ -6,9 +6,10 @@
  *  - **The server's last answer** — on open, from every save, and from the re-check
  *    asked whenever focus leaves the inspector. It is the authority, and the only one
  *    that sees everything: graph rules, declared resources, a block's `.refine()`.
- *  - **Live checks on the fields edited since** — the rules the server derived from
- *    each block's schema (`fieldChecks.ts`), run on every keystroke. They are what
- *    clear a mark as the author fixes it, rather than one blur later.
+ *  - **Live checks on the fields edited since** — each block's rules as the SDK carries
+ *    them, generated from its schema with the server's sentences (`liveFieldIssues.ts`),
+ *    run on every keystroke. They are what clear a mark as the author fixes it, rather
+ *    than one blur later.
  *
  * An edited field's server complaint is dropped, since it describes a value that is
  * gone; every other field keeps the server's word, so fixing one of three problems does
@@ -20,11 +21,12 @@
  * answers describes an older canvas than the save does, so it is dropped.
  */
 
+import { zFlowBlockFieldRules } from '@brattybot/web-sdk';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError } from '../api/client';
 import { checkFlow } from '../api/flows';
 import type { FlowGraph, FlowValidationIssue, NodeDescriptor } from '../api/types';
-import { fieldOwning, liveFieldIssues } from './fieldChecks';
+import { fieldOwning, liveFieldIssues } from './liveFieldIssues';
 import { shouldAcceptResponse } from './resourceSaveQueue';
 import { visibleIssues } from './validationIssues';
 
@@ -34,7 +36,7 @@ interface FlowIssuesInput {
     readonly flowId: string | undefined;
     /** The canvas as it stands — what a re-check sends, and what live checks read. */
     readonly graph: FlowGraph;
-    /** Every block's descriptor, for the checks its fields carry. */
+    /** Every block's descriptor, for the fields it draws and when each is shown. */
     readonly catalog: readonly NodeDescriptor[];
 }
 
@@ -196,7 +198,11 @@ export function useFlowIssues({ guildId, flowId, graph, catalog }: FlowIssuesInp
             fields.add(field);
             edited.set(nodeId, fields);
         }
-        return visibleIssues(serverIssues, edited, liveFieldIssues(graph.nodes, catalog, edited));
+        return visibleIssues(
+            serverIssues,
+            edited,
+            liveFieldIssues(graph.nodes, catalog, edited, zFlowBlockFieldRules.shape)
+        );
     }, [serverIssues, edits, graph, catalog]);
 
     return { issues, setIssues, editMark, markEdited, recheck };

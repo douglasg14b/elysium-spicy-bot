@@ -33,7 +33,6 @@ function descriptorWith(outputs: BlockOutputDeclaration[], canSuspend = false): 
         group: 'actions',
         icon: '🎲',
         configFields: [],
-        fieldChecks: {},
         handles: [{ label: 'Next', tone: 'neutral' }],
         outputs,
         requires: [],

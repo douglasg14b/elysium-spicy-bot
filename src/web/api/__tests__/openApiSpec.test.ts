@@ -32,10 +32,10 @@ interface SpecOperation {
 }
 
 describe('OpenAPI spec drift', () => {
-    it('matches the document the routes build', () => {
+    it('matches the document the routes build', async () => {
         const committed: unknown = JSON.parse(readFileSync(resolve(process.cwd(), OPENAPI_SPEC_PATH), 'utf8'));
 
-        expect(buildOpenApiDocument(), REMEDY).toEqual(committed);
+        expect(await buildOpenApiDocument(), REMEDY).toEqual(committed);
     });
 
     /*
@@ -43,8 +43,8 @@ describe('OpenAPI spec drift', () => {
      * guild-scoped route has to declare its refusals itself. One that forgets generates a
      * client that believes the call cannot fail — and compiles, and passes the gate above.
      */
-    it('has every guild-scoped operation declare the refusals its middleware gives', () => {
-        const paths = buildOpenApiDocument().paths as Record<string, Record<string, SpecOperation>>;
+    it('has every guild-scoped operation declare the refusals its middleware gives', async () => {
+        const paths = (await buildOpenApiDocument()).paths as Record<string, Record<string, SpecOperation>>;
         const guildScoped = Object.entries(paths).filter(([path]) => path.startsWith('/api/guilds/{guildId}'));
         // A filter that matched nothing would leave nothing missing and pass for no reason.
         expect(guildScoped.length).toBeGreaterThan(0);

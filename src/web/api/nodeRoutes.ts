@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
 import type { BlockManifest } from '../../features/flows/blocks/manifest';
 import { listBlockDefinitions } from '../../features/flows/blocks/registry';
-import { fieldChecksOf, type FieldChecksByKey } from '../../features/flows/logic/fieldChecks';
 import type { AppEnv } from '../types';
 
 /**
@@ -19,18 +18,12 @@ export const NON_WIRE_MEMBERS = ['configSchema', 'run'] as const satisfies reado
 type NonWireMember = (typeof NON_WIRE_MEMBERS)[number];
 
 /**
- * Members the route adds that no manifest declares — computed from it instead.
- *
- * `fieldChecks` is read off `configSchema`, which never crosses the wire itself: the
- * browser gets the rules it can check as an author types, worded, and the schema stays
- * the server's. Derived rather than declared so a block author has nothing to remember;
- * see `features/flows/logic/fieldChecks.ts`.
- */
-export const DERIVED_MEMBERS = ['fieldChecks'] as const;
-
-/**
  * Everything about a block that crosses the wire: the whole manifest minus
- * {@link NON_WIRE_MEMBERS}, plus {@link DERIVED_MEMBERS}.
+ * {@link NON_WIRE_MEMBERS}.
+ *
+ * The rules the builder checks a field against as an author types are not here: they
+ * reach the browser at build time, generated from `configSchema` into the SDK
+ * (`FlowBlockFieldRules`, see `features/flows/logic/blockFieldRules.ts`).
  *
  * Expressed as a subtraction from {@link BlockManifest} rather than a hand-written
  * mirror of it, so a manifest field added for the builder is typed here the moment
@@ -44,9 +37,7 @@ export const DERIVED_MEMBERS = ['fieldChecks'] as const;
  * `__tests__/nodeDescriptorDrift.test.ts`, which fails naming any field one declares
  * and the other does not.
  */
-export type NodeDescriptor = Omit<BlockManifest, NonWireMember> & {
-    readonly fieldChecks: FieldChecksByKey;
-};
+export type NodeDescriptor = Omit<BlockManifest, NonWireMember>;
 
 /**
  * Strip the non-wire members off one manifest.
@@ -63,7 +54,7 @@ export type NodeDescriptor = Omit<BlockManifest, NonWireMember> & {
  */
 export const toDescriptor = (definition: BlockManifest) => {
     const { configSchema: _configSchema, run: _run, ...descriptor } = definition;
-    return { ...descriptor, fieldChecks: fieldChecksOf(definition) };
+    return descriptor;
 };
 
 /** What {@link toDescriptor} actually withholds, read back off its rest object. */

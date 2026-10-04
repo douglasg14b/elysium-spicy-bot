@@ -16,7 +16,6 @@ function descriptorWith(configFields: NodeDescriptor['configFields']): NodeDescr
         group: 'actions',
         icon: '🧪',
         configFields,
-        fieldChecks: {},
         handles: [{ label: 'Then', tone: 'neutral' }],
         outputs: [],
         requires: [],

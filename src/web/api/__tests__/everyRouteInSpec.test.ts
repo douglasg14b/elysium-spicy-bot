@@ -132,8 +132,8 @@ function servedOperations(): Set<string> {
 }
 
 /** Every method + path the spec describes. */
-function specOperations(): Set<string> {
-    const paths = buildOpenApiDocument().paths ?? {};
+async function specOperations(): Promise<Set<string>> {
+    const paths = (await buildOpenApiDocument()).paths ?? {};
     return new Set(
         Object.entries(paths).flatMap(([path, item]) =>
             Object.keys(item ?? {})
@@ -147,9 +147,9 @@ describe('every /api route is in the OpenAPI spec', () => {
     let served: Set<string>;
     let described: Set<string>;
 
-    beforeAll(() => {
+    beforeAll(async () => {
         served = servedOperations();
-        described = specOperations();
+        described = await specOperations();
     });
 
     it('reads a served set and a spec that both hold the guild routes', () => {

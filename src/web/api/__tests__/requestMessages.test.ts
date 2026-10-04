@@ -125,6 +125,16 @@ describe('attachRequestMessages', () => {
             });
         });
 
+        it('words a whole-number rule beside the `integer` type it emits', () => {
+            const document = documentForBody(z.object({ count: z.number().int('Whole numbers only.').gte(1, 'One or more.') }));
+
+            expect(bodyProperty(document, 'properties', 'count')).toEqual({
+                type: 'integer',
+                minimum: 1,
+                'x-messages': { integer: 'Whole numbers only.', minimum: 'One or more.' },
+            });
+        });
+
         it('words a pattern', () => {
             const document = documentForBody(z.object({ slug: z.string().regex(/^[a-z]+$/, 'Lowercase only.') }));
 
@@ -285,9 +295,9 @@ describe('attachRequestMessages', () => {
         expect(generate()).toEqual(once);
     });
 
-    it('is idempotent across apps: the real document builds the same twice over shared schemas', () => {
+    it('is idempotent across apps: the real document builds the same twice over shared schemas', async () => {
         // The second build walks schema objects the first already wrote to.
-        expect(buildOpenApiDocument()).toEqual(buildOpenApiDocument());
+        expect(await buildOpenApiDocument()).toEqual(await buildOpenApiDocument());
     });
 
     describe('fails loudly, naming the route and field', () => {
@@ -329,7 +339,8 @@ describe('attachRequestMessages', () => {
         });
 
         it('on a fixed sentence with no keyword to travel beside', () => {
-            const ruleFailure = failureFor(z.object({ count: z.number().int('Whole numbers only.') }));
+            // `z.int('…')` words a value that is not a number as well; `.int('…')` travels.
+            const ruleFailure = failureFor(z.object({ count: z.int('Whole numbers only.') }));
             const typeFailure = failureFor(z.object({ label: z.string('Text, please.') }));
             // zod-to-openapi drops an array's exact length from the spec altogether.
             const arrayLengthFailure = failureFor(z.object({ pair: z.array(z.string()).length(2, 'Two exactly.') }));

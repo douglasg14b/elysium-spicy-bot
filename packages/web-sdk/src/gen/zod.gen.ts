@@ -18,6 +18,118 @@ export const zErrorBody = z.object({
 });
 
 /**
+ * What the Flow Builder may check about each block's config fields as an author types, keyed by block type, each rule carrying the server's own sentence. Not the config's type: every field is optional here, and a field the browser cannot check faithfully is unknown. The server checks the rest when the flow is saved or re-checked.
+ */
+export const zFlowBlockFieldRules = z.object({
+    'action.assignRole': z.object({
+        roleId: z.string().min(1, 'Fill this in.').optional()
+    }),
+    'action.awardXp': z.object({
+        amount: z.unknown().optional()
+    }),
+    'action.closeTicket': z.object({
+        ticketId: z.string().min(1, 'Fill this in.').optional()
+    }),
+    'action.delay': z.object({
+        durationMs: z.number().int('Whole numbers only.').gt(0, 'Must be more than 0.').lte(2592000000, 'No more than 2592000000.').optional(),
+        quietChannelId: z.unknown().optional(),
+        timeoutCountsFrom: z.unknown().optional()
+    }),
+    'action.kickMember': z.object({
+        reason: z.string().min(1, 'Can\'t be empty.').max(512, 'No more than 512 characters.').optional()
+    }),
+    'action.openTicket': z.object({
+        reason: z.string().max(1000, 'No more than 1000 characters.').optional(),
+        ticketType: z.string().min(1, 'Fill this in.').optional(),
+        title: z.string().min(1, 'Fill this in.').max(100, 'No more than 100 characters.').optional()
+    }),
+    'action.pickRandom': z.object({
+        options: z.array(z.unknown()).min(1, 'Add at least 1 entry.').max(50, 'No more than 50 entries.').optional(),
+        outputKey: z.string().min(1, 'Fill this in.').max(64, 'No more than 64 characters.').regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'A name must start with a letter and use only letters, numbers and underscores — that is what {{var.name}} can address.').optional()
+    }),
+    'action.postEmbed': z.object({
+        authorName: z.string().min(1, 'Can\'t be empty.').max(256, 'No more than 256 characters.').optional(),
+        channelId: z.string().min(1, 'Fill this in.').optional(),
+        color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Colour must be a hex value like #00A2FF').optional(),
+        description: z.string().min(1, 'Fill this in.').max(4096, 'No more than 4096 characters.').optional(),
+        fields: z.array(z.unknown()).max(25, 'No more than 25 entries.').optional(),
+        footerText: z.string().min(1, 'Can\'t be empty.').max(2048, 'No more than 2048 characters.').optional(),
+        imageUrl: z.unknown().optional(),
+        showTimestamp: z.unknown().optional(),
+        thumbnailUrl: z.unknown().optional(),
+        title: z.string().min(1, 'Fill this in.').max(256, 'No more than 256 characters.').optional(),
+        url: z.unknown().optional()
+    }),
+    'action.prompt': z.object({
+        choices: z.array(z.unknown()).min(1, 'Add at least 1 entry.').max(5, 'No more than 5 entries.').optional(),
+        eligibility: z.unknown().optional(),
+        question: z.string().min(1, 'Fill this in.').max(2000, 'No more than 2000 characters.').optional(),
+        quietChannelId: z.unknown().optional(),
+        timeoutCountsFrom: z.unknown().optional(),
+        timeoutMs: z.number().int('Whole numbers only.').gt(0, 'Must be more than 0.').lte(2592000000, 'No more than 2592000000.').optional()
+    }),
+    'action.removeRole': z.object({
+        roleId: z.string().min(1, 'Fill this in.').optional()
+    }),
+    'action.sendDM': z.object({
+        message: z.string().min(1, 'Fill this in.').max(2000, 'No more than 2000 characters.').optional()
+    }),
+    'action.sendMessage': z.object({
+        channelId: z.string().min(1, 'Fill this in.').optional(),
+        message: z.string().min(1, 'Fill this in.').max(2000, 'No more than 2000 characters.').optional()
+    }),
+    'action.setVariable': z.object({
+        booleanValue: z.unknown().optional(),
+        numberValue: z.unknown().optional(),
+        textValue: z.string().max(1000, 'No more than 1000 characters.').optional(),
+        valueType: z.unknown().optional(),
+        variableName: z.string().min(1, 'Fill this in.').max(64, 'No more than 64 characters.').regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'A name must start with a letter and use only letters, numbers and underscores — that is what {{var.name}} can address.').optional()
+    }),
+    'action.waitForEvent': z.object({
+        eventKind: z.unknown().optional(),
+        quietChannelId: z.unknown().optional(),
+        timeoutCountsFrom: z.unknown().optional(),
+        timeoutMs: z.number().int('Whole numbers only.').gt(0, 'Must be more than 0.').lte(2592000000, 'No more than 2592000000.').optional()
+    }),
+    'condition.hasOpenTicket': z.object({
+        ticketType: z.string().min(1, 'Fill this in.').optional()
+    }),
+    'condition.hasRole': z.object({
+        roleId: z.string().min(1, 'Fill this in.').optional()
+    }),
+    'condition.inChannel': z.object({
+        channelId: z.string().min(1, 'Fill this in.').optional()
+    }),
+    'condition.isBooster': z.record(z.string(), z.unknown()),
+    'condition.levelAtLeast': z.object({
+        level: z.unknown().optional()
+    }),
+    'condition.timeSince': z.object({
+        channelId: z.unknown().optional(),
+        comparison: z.unknown().optional(),
+        durationMs: z.number().int('Whole numbers only.').gt(0, 'Must be more than 0.').lte(31536000000, 'No more than 31536000000.').optional(),
+        source: z.unknown().optional(),
+        timeVariable: z.string().max(64, 'No more than 64 characters.').regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'A name must start with a letter and use only letters, numbers and underscores — that is what {{var.name}} can address.').optional()
+    }),
+    'trigger.buttonClick': z.object({
+        channelId: z.string().min(1, 'Fill this in.').optional(),
+        eligibility: z.unknown().optional(),
+        label: z.string().min(1, 'Fill this in.').max(80, 'No more than 80 characters.').optional(),
+        style: z.unknown().optional()
+    }),
+    'trigger.levelReached': z.object({
+        level: z.unknown().optional()
+    }),
+    'trigger.memberJoin': z.record(z.string(), z.unknown()),
+    'trigger.memberLeave': z.record(z.string(), z.unknown()),
+    'trigger.reactionAdd': z.object({
+        channelId: z.string().min(1, 'Fill this in.').optional(),
+        emoji: z.string().min(1, 'Fill this in.').optional(),
+        messageId: z.string().min(1, 'Fill this in.').optional()
+    })
+});
+
+/**
  * One operator's draft of a flow, without its graph. `mine` is the caller's own; `flowSavedSince` means the flow was saved after the draft was started.
  */
 export const zFlowDraftSummary = z.object({

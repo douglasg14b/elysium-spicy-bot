@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { BlockManifest } from '../../../features/flows/blocks/manifest';
 import { ensureBlocksDiscovered, listBlockDefinitions } from '../../../features/flows/blocks/registry';
-import { DERIVED_MEMBERS, NON_WIRE_MEMBERS, type NodeDescriptor, nodeRoutes, toDescriptor } from '../nodeRoutes';
+import { NON_WIRE_MEMBERS, type NodeDescriptor, nodeRoutes, toDescriptor } from '../nodeRoutes';
 
 /**
  * The palette contract. The builder draws a node purely from what this route
@@ -148,7 +148,7 @@ describe('GET /api/nodes', () => {
         }
     });
 
-    it('serves exactly the manifest keys minus the non-wire members, plus the derived ones', () => {
+    it('serves exactly the manifest keys minus the non-wire members', () => {
         // The drift guard. Because the route subtracts rather than constructs, a
         // manifest field added tomorrow appears on the wire on its own — and if
         // someone rewrites the route as a hand-built object, this fails.
@@ -157,12 +157,10 @@ describe('GET /api/nodes', () => {
             // Undefined-valued keys are filtered out because `descriptor` has been
             // through JSON, which drops them: a manifest writing `startedBy:
             // undefined` explicitly would otherwise fail this and accuse the route.
-            const expected = [
-                ...Object.entries(manifest)
-                    .filter(([key, value]) => value !== undefined && !NON_WIRE_MEMBERS.some((member) => member === key))
-                    .map(([key]) => key),
-                ...DERIVED_MEMBERS,
-            ].sort();
+            const expected = Object.entries(manifest)
+                .filter(([key, value]) => value !== undefined && !NON_WIRE_MEMBERS.some((member) => member === key))
+                .map(([key]) => key)
+                .sort();
 
             expect(Object.keys(descriptor).sort()).toEqual(expected);
         }

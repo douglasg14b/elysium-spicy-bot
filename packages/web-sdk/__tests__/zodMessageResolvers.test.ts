@@ -83,6 +83,11 @@ const SPEC = {
                         maximum: 10,
                         'x-messages': { exclusiveMinimum: 'Above zero.', maximum: 'Ten at most.' },
                     },
+                    whole: {
+                        type: 'integer',
+                        minimum: 1,
+                        'x-messages': { integer: 'Whole numbers only.', minimum: 'One or more.' },
+                    },
                     choice: {
                         anyOf: [
                             { type: 'string', minLength: 1, 'x-messages': { minLength: 'The branch sentence.' } },
@@ -230,6 +235,10 @@ describe('zod message resolvers', () => {
         expect(ruleFor('count')).toBe("count: z.number().gt(0, 'Above zero.').lte(10, 'Ten at most.').optional()");
     });
 
+    it('words a whole-number rule on a plain number, so a non-number keeps zod’s own sentence', () => {
+        expect(ruleFor('whole')).toBe("whole: z.number().int('Whole numbers only.').gte(1, 'One or more.').optional()");
+    });
+
     it('keeps each union branch to its own sentences', () => {
         // The union spans several lines; compared with its whitespace collapsed.
         expect(zodSource.replace(/\s+/g, ' ')).toContain(
@@ -245,18 +254,21 @@ describe('zod message resolvers', () => {
      * The replacement nodes repeat hey-api's calls for the length and bound rules. With the
      * sentences taken back out, every line must be hey-api's own for the same spec — so an
      * upgrade that changes how hey-api writes a rule fails here, not in a browser.
-     * `split` is the one deliberate difference: two sentences need `.min` and `.max` where
-     * hey-api writes `.length(2)`.
+     * Two deliberate differences: `split`, where two sentences need `.min` and `.max` where
+     * hey-api writes `.length(2)`, and `whole`, where a worded whole-number rule is
+     * `z.number().int(…)` where hey-api writes `z.int()` (see the case above).
      */
     it('writes every rule exactly as hey-api does, but for the sentence', () => {
-        const isSplit = (line: string): boolean => line.trimStart().startsWith('split: ');
+        const isDeliberate = (line: string): boolean => /^\s*(split|whole): /.test(line);
         const worded = zodSource
             .split(/\r?\n/)
-            .filter((line) => !isSplit(line))
+            .filter((line) => !isDeliberate(line))
             .map((line) => line.replace(MESSAGE_ARGUMENT, ''));
-        const unworded = unwordedSource.split(/\r?\n/).filter((line) => !isSplit(line));
+        const unworded = unwordedSource.split(/\r?\n/).filter((line) => !isDeliberate(line));
 
         expect(worded).toEqual(unworded);
+        // Everything after the base of `whole` is hey-api's own.
+        expect(unwordedSource).toContain('whole: z.int().gte(1).optional()');
     });
 
     it('fails the generation when a union that is not a nullable pair carries sentences', async () => {
