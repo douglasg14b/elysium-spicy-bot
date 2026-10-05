@@ -53,6 +53,9 @@ export async function resumeWaitingRunsForEvent(
     }
 
     for (const run of waiting) {
+        // A run about nobody stores no member, so it never matches here — correctly, and
+        // unreachably: Wait for Event requires a member, so validation keeps one from
+        // parking on a path about nobody.
         if (run.contextSnapshot.userId !== event.userId) {
             continue;
         }

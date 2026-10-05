@@ -6,7 +6,7 @@ import type { FlowRunEntity } from '../data/flowRunsSchema';
 import { FlowsRepo, flowsRepo } from '../data/flowsRepo';
 import type { FlowResumeReason, FlowRunSeed } from '../blocks/types';
 import { emptyBagWith, executeFlowSegment, type NodeRunLog } from './executor';
-import { messageWaitIndex, parkOf } from './messageWaitIndex';
+import { checkMessageWaitHasMember, messageWaitIndex, parkOf } from './messageWaitIndex';
 import { asGuildTextChannel } from './runChannel';
 import { releaseWaitMessageControls } from './waitMessageControls';
 
@@ -33,6 +33,10 @@ export type ResumeOutcome =
  * the live client. `interaction` is always undefined on a resumed run — the
  * original interaction token is long expired — and so is `actor`, because a run
  * woken by the clock was not caused by anybody.
+ *
+ * **A run that stored no member is about nobody**, and resumes with no subject and no
+ * fetch. That is never how a departure reads: a run about someone who has since left
+ * stored their id, and fails here when the fetch finds nobody.
  *
  * **The channel is resolved from its stored id, not rebuilt from the trigger.**
  * Without this a resumed run could not answer "where am I", so `condition.inChannel`
@@ -82,14 +86,15 @@ export async function rebuildResumeContext(
         return { ok: false, reason: `Guild ${guildId} is no longer available to this bot` };
     }
 
-    let member: GuildMember | null = null;
-    try {
-        member = await guild.members.fetch(userId);
-    } catch {
-        member = null;
-    }
-    if (!member) {
-        return { ok: false, reason: `Member ${userId} is no longer in guild ${guildId}` };
+    // No stored member means a run about nobody — never one whose member left, which
+    // still stores the id and fails below when the fetch finds nobody. So there is no
+    // one to fetch, and the run resumes without a subject, exactly as it started.
+    let member: GuildMember | undefined;
+    if (userId) {
+        member = await guild.members.fetch(userId).catch(() => undefined);
+        if (!member) {
+            return { ok: false, reason: `Member ${userId} is no longer in guild ${guildId}` };
+        }
     }
 
     const resolved = await resolveSnapshotChannel(guild, channelId, run.runId);
@@ -111,6 +116,7 @@ export async function rebuildResumeContext(
         context: {
             client,
             guild,
+            // Undefined on a run about nobody, as it was when the run started.
             subject: member,
             // A resumed run has no actor: nobody caused this step, the clock did.
             // Reporting the subject here would make every resumed run look like
@@ -354,13 +360,25 @@ async function claimRun(
  * on, writes nothing: whatever moved it owns its entry.
  */
 async function releaseRun(runId: string, flowRunsRepo: ResumeFlowRunDependencies['flowRunsRepo']): Promise<void> {
+    let released: FlowRunEntity | null;
     try {
-        const released = await flowRunsRepo.releaseClaim(runId);
-        if (released) {
-            messageWaitIndex.record(parkOf(released));
-        }
+        released = await flowRunsRepo.releaseClaim(runId);
     } catch (releaseError) {
         console.error(`[flow-runs] Could not release the claim on run ${runId}:`, releaseError);
+        return;
+    }
+    if (!released) {
+        return;
+    }
+    // Logged apart from the release, which has succeeded: the claim is back, and only
+    // the in-memory index could not take the park it was given back on.
+    try {
+        messageWaitIndex.record(parkOf(released));
+    } catch (indexError) {
+        console.error(
+            `[flow-runs] Released the claim on run ${runId}, but could not index it as waiting on a message:`,
+            indexError
+        );
     }
 }
 
@@ -569,6 +587,13 @@ async function advanceClaimedRun(
 
     try {
         if (outcome.kind === 'suspended') {
+            // Refused before the write, so a regression in save-time validation leaves the
+            // run on the park it had rather than storing one nothing could ever wake.
+            checkMessageWaitHasMember({
+                runId: run.runId,
+                userId: run.contextSnapshot.userId,
+                waitConfig: outcome.suspension.waitConfig,
+            });
             await dependencies.flowRunsRepo.park(run.runId, outcome.suspension);
             // From what was parked rather than the row `park` returns, which is the
             // same park — and right after the write, so a message landing next finds it.

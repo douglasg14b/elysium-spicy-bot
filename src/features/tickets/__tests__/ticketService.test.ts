@@ -132,7 +132,7 @@ beforeEach(() => {
 /** A person's change, handed in by a button or the dashboard. */
 const BY_A_PERSON = { actorId: 'mod-1', chainDepth: 0 };
 /** A flow's change: nobody acted, three runs deep. */
-const BY_A_FLOW = { actorId: null, chainDepth: 3 };
+const BY_A_FLOW = { actorId: 'bot-1', chainDepth: 3 };
 
 describe('openTicket', () => {
     it('allocates the ticket number atomically before any channel exists', async () => {
@@ -418,7 +418,7 @@ describe('announcing changes', () => {
         expect(announced).toEqual([
             expect.objectContaining({
                 kind: 'opened',
-                actorId: null,
+                actorId: 'bot-1',
                 chainDepth: 3,
                 ticket: expect.objectContaining({ stateMessageId: 'state-9' }),
             }),
@@ -457,9 +457,9 @@ describe('announcing changes', () => {
         mockGetById.mockResolvedValue(ticket({ claimerId: null }));
 
         // A claim a flow made would name the bot as claimer; the bot is not a person.
-        await claimTicket(1, 'bot-1', null, { actorId: null, chainDepth: 2 });
+        await claimTicket(1, 'bot-1', null, { actorId: 'bot-1', chainDepth: 2 });
 
-        expect(announced).toEqual([expect.objectContaining({ kind: 'claimed', actorId: null, chainDepth: 2 })]);
+        expect(announced).toEqual([expect.objectContaining({ kind: 'claimed', actorId: 'bot-1', chainDepth: 2 })]);
     });
 
     it('announces unclaimed, closed, reopened and deleted with the actor and depth each was handed', async () => {
@@ -474,9 +474,9 @@ describe('announcing changes', () => {
 
         expect(announced.map(({ kind, actorId, chainDepth }) => ({ kind, actorId, chainDepth }))).toEqual([
             { kind: 'unclaimed', actorId: 'mod-1', chainDepth: 0 },
-            { kind: 'closed', actorId: null, chainDepth: 3 },
+            { kind: 'closed', actorId: 'bot-1', chainDepth: 3 },
             { kind: 'reopened', actorId: 'mod-1', chainDepth: 0 },
-            { kind: 'deleted', actorId: null, chainDepth: 3 },
+            { kind: 'deleted', actorId: 'bot-1', chainDepth: 3 },
         ]);
         // A deleted ticket names no channel, because the write cleared it.
         expect(announced[3]?.ticket.channelId).toBeNull();

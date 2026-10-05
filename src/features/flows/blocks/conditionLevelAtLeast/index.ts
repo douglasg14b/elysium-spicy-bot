@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { loadUserLevelProfile } from '../../../leveling';
 import type { BlockManifest } from '../manifest';
+import { requireSubject } from '../types';
 
 export const CONDITION_LEVEL_AT_LEAST = 'condition.levelAtLeast';
 
@@ -46,7 +47,7 @@ export const block: BlockManifest<LevelAtLeastConfig> = {
          * than absent, and a second opinion on that here would diverge the moment the
          * curve changed.
          */
-        const profile = await loadUserLevelProfile(context.guild.id, context.subject.id);
+        const profile = await loadUserLevelProfile(context.guild.id, requireSubject(context).id);
 
         return {
             kind: 'continue',

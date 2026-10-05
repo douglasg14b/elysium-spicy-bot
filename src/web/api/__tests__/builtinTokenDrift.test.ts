@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { RENDERABLE_TOKENS } from '../../../features/flows/engine/copyRendering';
+import { RENDERABLE_TOKENS, TOKEN_REQUIREMENTS } from '../../../features/flows/engine/copyRendering';
+import { REQUIREMENT_ABSENT_WHEN } from '../../../features/flows/engine/graphValidation';
 import { BUILTIN_TOKENS, BUILTIN_TOKEN_NAMES } from '../../../../web/src/flows/builtinTokens';
+import { REQUIREMENT_ABSENT_WHEN as REQUIREMENT_ABSENT_WHEN_BROWSER } from '../../../../web/src/flows/variables';
 
 /**
  * The drift gate between the engine's token vocabulary and the browser's copy of it.
@@ -23,8 +25,9 @@ import { BUILTIN_TOKENS, BUILTIN_TOKEN_NAMES } from '../../../../web/src/flows/b
  * thing that suggested it.
  *
  * The cross-workspace import is safe for the reason `nodeDescriptorDrift.test.ts`
- * sets out at length, and more simply here — `builtinTokens.ts` imports nothing at
- * all, so it costs the root program one leaf file and typechecks under either config.
+ * sets out at length, and more simply here — `builtinTokens.ts` imports only a type
+ * from `web/src/api/types.ts`, itself a leaf, so it costs the root program two leaf
+ * files and typechecks under either config.
  */
 
 const REMEDY =
@@ -73,11 +76,33 @@ describe('built-in token drift between engine and builder', () => {
         ).toEqual([]);
     });
 
-    /*
-     * Deliberately not asserted here: `lostAfterSuspend`. The server states that
-     * fact only in the optionality of `FlowRunSeed.actor` and in the failure message
-     * `copyRendering.ts` produces when a woken run reads the token — neither is a
-     * list this can be compared against. `builtinTokens.test.ts` pins the browser's
-     * side of it; a change in the engine's suspension model would not fail here.
-     */
+    it("declares each token's requirement exactly as the engine does", () => {
+        // The picker greys a chip whose requirement is unavailable at the node; save
+        // refuses the token there from the engine's own table. A browser copy that said
+        // `null` where the engine says `subject` would offer, ungreyed, a token every save
+        // on that path refuses — the builder suggesting the very thing it then marks red.
+        const drifted = BUILTIN_TOKENS.filter((token) => token.requires !== TOKEN_REQUIREMENTS[token.name]).map(
+            (token) => `${token.name} (browser ${String(token.requires)}, engine ${String(TOKEN_REQUIREMENTS[token.name])})`
+        );
+
+        expect(
+            drifted,
+            `These built-in tokens declare a different requirement in the browser: [${drifted.join(', ')}]. ` +
+                'Reconcile `requires` in `web/src/flows/builtinTokens.ts` with TOKEN_REQUIREMENTS in ' +
+                '`src/features/flows/engine/copyRendering.ts`.'
+        ).toEqual([]);
+    });
+
+    it('greys a requirement by exactly the routes save refuses it by', () => {
+        // The builder decides which chips and options to grey from its own copy of when
+        // each requirement can be absent. A flag that disagreed would grey a control save
+        // accepts — or, worse, offer one ungreyed that every save on that path refuses.
+        // Compared as data, so the token check above cannot stand in for it.
+        expect(
+            REQUIREMENT_ABSENT_WHEN_BROWSER,
+            'REQUIREMENT_ABSENT_WHEN in `web/src/flows/variables.ts` has drifted from the one ' +
+                '`src/features/flows/engine/graphValidation.ts` derives from CHECKED_REQUIREMENTS. ' +
+                'Reconcile the browser table with the routes save actually refuses by.'
+        ).toEqual(REQUIREMENT_ABSENT_WHEN);
+    });
 });

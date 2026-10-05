@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
+import { requireSubject } from '../types';
 
 export const ACTION_ASSIGN_ROLE = 'action.assignRole';
 
@@ -32,7 +33,7 @@ export const block: BlockManifest<AssignRoleConfig> = {
     capabilities: ['manageRoles'],
     canSuspend: false,
     async run(config, context) {
-        await context.subject.roles.add(config.roleId);
+        await requireSubject(context).roles.add(config.roleId);
         return { kind: 'continue' };
     },
 };

@@ -69,7 +69,7 @@ function variableHints(
             />
             <VariablePicker
                 variables={context.variables}
-                actorAvailable={context.actorAvailable}
+                requirements={context.requirements}
                 value={asText(value)}
                 onInsert={onAppend}
             />

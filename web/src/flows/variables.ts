@@ -12,7 +12,13 @@
  */
 
 import type { Edge } from '@xyflow/react';
-import type { BlockConfigField, BlockOutputDeclaration, BlockOutputValueKind, NodeDescriptor } from '../api/types';
+import type {
+    BlockConfigField,
+    BlockOutputDeclaration,
+    BlockOutputValueKind,
+    FlowContextRequirement,
+    NodeDescriptor,
+} from '../api/types';
 
 /** One variable an author can reference, and the block that produces it. */
 export interface AvailableVariable {
@@ -244,32 +250,186 @@ export function availableVariablesAt(
 }
 
 /**
- * Whether `{{actor.mention}}` can be relied on at this node.
+ * Whether the run reaching `nodeId` can be relied on to carry `requirement`.
  *
- * The actor is whoever caused the *current step*, not whoever started the run —
- * and a run the clock woke was caused by nobody. So the token stops resolving
- * after a block that parks the run, and the engine fails the step rather than
- * sending copy with a hole in it.
+ * Two ways a run arrives without one, the same two save-time validation walks:
  *
- * `canSuspend` is the closest thing the browser has to that question. It is looser
- * in one direction only: every *resumed* run genuinely has no actor — the resume
- * path hardcodes `actor: undefined` (`engine/flowRunResume.ts`), so a block that
- * actually parked always loses it — but a block that *can* suspend does not always
- * park, and a graph may route around it entirely. So this answers "could the run
- * reaching this node have been woken by the clock", which is the question worth
- * warning on, and the picker greys the chip rather than removing it.
+ * - **from a trigger that does not supply it.** A trigger's `requires` is what it
+ *   supplies, so a trigger leaving out `subject` starts runs about nobody, and one leaving
+ *   out `channel` happens nowhere in particular.
+ * - **after a block that parks**, for what a park loses: the actor (a run the clock woke
+ *   was caused by nobody — the resume path hardcodes `actor: undefined`) and the
+ *   interaction (its token expires). A park keeps the subject and the channel: resume
+ *   fetches both again.
  *
- * A block this build cannot draw counts as non-suspending. The same asymmetry
- * {@link ancestorsOf} takes with unknown blocks, and in the same direction: for
- * an aid that is advice rather than enforcement, a chip wrongly offered costs a
- * keystroke, and a chip wrongly withheld costs an author the token they needed.
+ * `canSuspend` is the closest the browser has to "parks". It is looser in one direction
+ * only: a block that *can* suspend does not always park, and a graph may route around it.
+ * So this answers "could the run reaching this node be missing it", which is the
+ * question worth greying on — the controls grey a chip or an option, and the server's
+ * check is what refuses.
+ *
+ * Built on {@link ancestorsOf}, which leaves out unreached nodes and the node itself, as
+ * the server's walk does: a block wired to nothing has no trigger above it and is never
+ * greyed by this. A block this build cannot draw counts as neither a trigger nor a park —
+ * the same asymmetry `ancestorsOf` takes with unknown blocks, in the same direction: for
+ * an aid that is advice rather than enforcement, an option wrongly offered costs a
+ * keystroke, and one wrongly withheld costs an author the choice they needed.
  */
-export function actorAvailableAt(
+export function requirementAvailableAt(
+    requirement: FlowContextRequirement,
     nodeId: string,
     nodes: readonly VariableSourceNode[],
     edges: readonly Edge[]
 ): boolean {
-    return !ancestorsOf(nodeId, nodes, edges).some((node) => node.data.descriptor?.canSuspend);
+    return requirementLossAt(requirement, nodeId, nodes, edges) === null;
+}
+
+/** How the run reaching a node can be without a requirement — the two routes save walks. */
+export type RequirementLoss = 'afterParking' | 'fromTrigger';
+
+/**
+ * Which route can cost the run reaching `nodeId` its `requirement`, or `null` when none
+ * can — {@link requirementAvailableAt} with the reason kept, so a greyed control can say
+ * which one applies.
+ *
+ * A park is reported in preference to a trigger when both apply, as the server reports it:
+ * the more specific fact, and the one an author can fix without changing how the flow
+ * starts. Which routes a requirement can be lost by at all is {@link REQUIREMENT_ABSENT_WHEN}.
+ */
+export function requirementLossAt(
+    requirement: FlowContextRequirement,
+    nodeId: string,
+    nodes: readonly VariableSourceNode[],
+    edges: readonly Edge[]
+): RequirementLoss | null {
+    const absentWhen = REQUIREMENT_ABSENT_WHEN[requirement];
+    const ancestors = ancestorsOf(nodeId, nodes, edges);
+
+    if (absentWhen.afterParking) {
+        // A block that parks is re-entered when the run wakes, and its own copy is checked
+        // again on that leg — so the node itself counts as well as everything above it.
+        const self = nodes.find((node) => node.id === nodeId)?.data.descriptor;
+        const parks = (descriptor: NodeDescriptor | undefined): boolean =>
+            descriptor !== undefined && descriptor.kind !== 'trigger' && descriptor.canSuspend;
+        if (parks(self) || ancestors.some((node) => parks(node.data.descriptor))) {
+            return 'afterParking';
+        }
+    }
+
+    if (
+        absentWhen.fromTrigger &&
+        ancestors.some(
+            ({ data: { descriptor } }) => descriptor?.kind === 'trigger' && !descriptor.requires.includes(requirement)
+        )
+    ) {
+        return 'fromTrigger';
+    }
+
+    return null;
+}
+
+/**
+ * Whether every run a flow can start is about nobody: it has a trigger, and none of its
+ * triggers supplies a member (`subject` in its `requires`). A flow with both kinds of
+ * trigger answers no — the palette stays open and the server marks whichever node a run
+ * about nobody reaches — and so does a flow with no trigger yet, which could still be
+ * given a member trigger. A node this build cannot draw counts as nothing.
+ */
+export function flowRunsAboutNobody(descriptors: readonly (NodeDescriptor | undefined)[]): boolean {
+    const triggers = descriptors.filter((descriptor) => descriptor?.kind === 'trigger');
+    return triggers.length > 0 && triggers.every((descriptor) => !descriptor?.requires.includes('subject'));
+}
+
+/**
+ * Which routes can cost a run each requirement: a park, a trigger that does not supply it,
+ * or both.
+ *
+ * A mirror of `REQUIREMENT_ABSENT_WHEN` in `src/features/flows/engine/graphValidation.ts`,
+ * which the server derives from the table save refuses by. Hand-written for the reason
+ * every mirror across this boundary is, and held to the server by
+ * `src/web/api/__tests__/builtinTokenDrift.test.ts` — a flag that disagreed would grey a
+ * control save accepts, or offer one save refuses. Keyed by requirement, so a new one
+ * fails to compile here until someone decides it.
+ */
+export const REQUIREMENT_ABSENT_WHEN: Readonly<
+    Record<FlowContextRequirement, { readonly afterParking: boolean; readonly fromTrigger: boolean }>
+> = {
+    // A park keeps the member — resume fetches them again — but a trigger about nobody
+    // never had one.
+    subject: { afterParking: false, fromTrigger: true },
+    // A resumed run has nobody acting on it; Member Leaves never says who acted.
+    actor: { afterParking: true, fromTrigger: true },
+    // A park keeps the channel; a member join happens nowhere in particular.
+    channel: { afterParking: false, fromTrigger: true },
+    // The token expires at a park; a gateway trigger never had one.
+    interaction: { afterParking: true, fromTrigger: true },
+};
+
+/**
+ * Every requirement at one node, for the controls to grey by: `null` where the run
+ * reaching it can be relied on to carry it, else the route that can cost it.
+ */
+export type RequirementAvailability = Readonly<Record<FlowContextRequirement, RequirementLoss | null>>;
+
+/** Everything available — what a control reads with no node selected, or in isolation. */
+export const ALL_REQUIREMENTS_AVAILABLE: RequirementAvailability = {
+    subject: null,
+    actor: null,
+    channel: null,
+    interaction: null,
+};
+
+/** {@link requirementLossAt} for every requirement at once. */
+export function requirementsAvailableAt(
+    nodeId: string,
+    nodes: readonly VariableSourceNode[],
+    edges: readonly Edge[]
+): RequirementAvailability {
+    return {
+        subject: requirementLossAt('subject', nodeId, nodes, edges),
+        actor: requirementLossAt('actor', nodeId, nodes, edges),
+        channel: requirementLossAt('channel', nodeId, nodes, edges),
+        interaction: requirementLossAt('interaction', nodeId, nodes, edges),
+    };
+}
+
+/**
+ * Why a greyed chip or option is greyed: what it needs, and which route the run reaching
+ * this node can lose it by — a pause, or a trigger that does not supply it.
+ */
+export function describeUnavailableRequirement(requirement: FlowContextRequirement, loss: RequirementLoss): string {
+    const afterParking = loss === 'afterParking';
+    switch (requirement) {
+        case 'subject':
+            return 'Needs a member — a run about nobody can reach this block, so there is no one to fill in.';
+        case 'actor':
+            return afterParking
+                ? 'Needs whoever caused this step — this block can be reached after a pause, or is one, and a ' +
+                      'run woken after a pause has nobody acting on it.'
+                : "Needs whoever caused this step — a trigger above this block doesn't say who caused it.";
+        case 'channel':
+            return 'Needs a channel — a run can reach this block from a trigger that happens nowhere in particular.';
+        case 'interaction':
+            return afterParking
+                ? 'Needs the button press that started the run — it expires when the run pauses.'
+                : 'Needs the button press that started the run — a trigger above this block has none.';
+        default: {
+            const illegal: never = requirement;
+            throw new Error(`Unknown requirement ${JSON.stringify(illegal)}.`);
+        }
+    }
+}
+
+/** The first requirement in `requires` the run reaching the node can lose, and how. */
+export function firstUnavailable(
+    requires: readonly FlowContextRequirement[] | undefined,
+    available: RequirementAvailability
+): { readonly requirement: FlowContextRequirement; readonly loss: RequirementLoss } | undefined {
+    for (const requirement of requires ?? []) {
+        const loss = available[requirement];
+        if (loss !== null) return { requirement, loss };
+    }
+    return undefined;
 }
 
 /** The token an author writes to read a variable, e.g. `{{var.pick}}`. */

@@ -18,7 +18,8 @@ import {
     renderCopy,
     resolvePickerVariable,
 } from './copyRendering';
-import { messageWaitIndex } from './messageWaitIndex';
+import { checkMessageWaitHasMember, messageWaitIndex } from './messageWaitIndex';
+import { describeMissingRequirement, missingRequirement, type RunLeg } from './nodeRequirements';
 import type { FlowStepOutcome, FlowStepSuspension } from './stepOutcome';
 import { releaseWaitMessageControls } from './waitMessageControls';
 
@@ -186,6 +187,9 @@ export async function executeFlowSegment(
     let currentNodeId: string | undefined = options.startNodeId;
     let visits = options.visitsUsed ?? 0;
     let pendingResume: FlowResume | undefined = options.resume;
+    // A segment carrying a resume was woken from a park, and every node in it runs on that
+    // leg — which is what explains a missing actor, as opposed to a trigger naming nobody.
+    const runLeg: RunLeg = options.resume ? 'resumed' : 'started';
     // Replaced wholesale rather than mutated, so the object a node was handed
     // stays the bag that node saw even after a later one writes.
     let variables: Readonly<Record<string, FlowVariableValue>> = emptyBagWith(options.variables);
@@ -225,6 +229,21 @@ export async function executeFlowSegment(
         visitedNodeIds.push(node.id);
 
         /*
+         * What the node needs from the run — its block's requirements, its picked
+         * options' and its copy tokens' — against what this run carries, before anything
+         * of it runs. Save-time validation keeps a live graph from getting here, so a
+         * miss is a graph saved before a rule, or an incomplete one a parked run resumed
+         * into; failing by name beats a block finding no member where it expected one.
+         * A trigger's `requires` is what it supplies, so triggers are not asked.
+         */
+        const missing = definition.kind === 'trigger' ? undefined : missingRequirement(definition, node.data, context);
+        if (missing) {
+            const message = describeMissingRequirement(node.id, node.type, missing, runLeg);
+            log.push({ nodeId: node.id, type: node.type, kind: definition.kind, status: 'error', error: message });
+            return fail(message);
+        }
+
+        /*
          * A field its `visibleWhen` hides does not exist for this run: it is left out
          * before the parse, so neither the schema nor `run` sees it, and it is never
          * rendered or resolved. A node keeps whatever a hidden field held — the builder
@@ -247,7 +266,8 @@ export async function executeFlowSegment(
         const rendered = renderNodeCopy(
             definition,
             isObjectValue(parsed.data) ? visibleNodeData(definition.configFields, parsed.data) : parsed.data,
-            { ...context, variables }
+            { ...context, variables },
+            runLeg
         );
         if (!rendered.ok) {
             const message = `Node ${node.id} (${node.type}): ${rendered.error}`;
@@ -515,6 +535,10 @@ async function persistNewSuspendedRun(
     context: FlowRunSeed,
     suspension: FlowSuspension
 ): Promise<void> {
+    // Refused before the row exists, so a regression in save-time validation fails this
+    // run with nothing written rather than storing a park nothing could ever wake.
+    checkMessageWaitHasMember({ runId, userId: context.subject?.id, waitConfig: suspension.waitConfig });
+
     await flowRunsRepo.create({
         // Supplied, not generated: a block that parked may already have posted a
         // component naming this id, so the row has to be the one it named.
@@ -523,7 +547,10 @@ async function persistNewSuspendedRun(
         guildId: context.guild.id,
         contextSnapshot: {
             guildId: context.guild.id,
-            userId: context.subject.id,
+            // Left out on a run about nobody, by the same spread as `channelId` below:
+            // absent is "this run has no member", never "the member left" — resume then
+            // fetches nobody rather than failing on a missing id.
+            ...(context.subject ? { userId: context.subject.id } : {}),
             // Spread rather than `channelId: context.channel?.id`, so a run with no
             // channel builds an object without the key rather than one holding an
             // explicit `undefined`. The stored JSON is identical either way —
@@ -553,7 +580,7 @@ async function persistNewSuspendedRun(
     messageWaitIndex.record({
         runId,
         guildId: context.guild.id,
-        userId: context.subject.id,
+        userId: context.subject?.id,
         waitConfig: suspension.waitConfig,
         wakeAt: suspension.wakeAt,
     });
@@ -665,7 +692,7 @@ type RenderedConfig = { ok: true; config: unknown } | { ok: false; error: string
  * "which fields say they carry copy" is one rule, where asking "is this
  * action.sendMessage" would be a branch per block and a gate failure.
  */
-function renderNodeCopy(block: BlockManifest, config: unknown, context: FlowRunSeed): RenderedConfig {
+function renderNodeCopy(block: BlockManifest, config: unknown, context: FlowRunSeed, leg: RunLeg): RenderedConfig {
     const copyFields = block.configFields.filter(isCopyField);
     const listFields = block.configFields.filter((field) => copyColumnsOf(field).length > 0);
     const pickerFields = block.configFields.filter(isVariablePickerField);
@@ -707,6 +734,7 @@ function renderNodeCopy(block: BlockManifest, config: unknown, context: FlowRunS
 
         const result = renderCopy(value, {
             context,
+            leg,
             fieldLabel: `"${field.label}"`,
             ...(field.maxLength === undefined ? {} : { maxLength: field.maxLength }),
         });
@@ -751,6 +779,7 @@ function renderNodeCopy(block: BlockManifest, config: unknown, context: FlowRunS
 
                 const result = renderCopy(value, {
                     context,
+                    leg,
                     // Names the row as an author sees it — one-based, because the
                     // form numbers rows from one and a message naming "entry 0"
                     // sends them to the wrong line.

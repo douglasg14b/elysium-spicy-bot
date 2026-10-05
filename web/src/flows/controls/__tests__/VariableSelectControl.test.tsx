@@ -2,7 +2,7 @@ import { screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { BlockConfigField } from '../../../api/types';
 import { renderWithProviders } from '../../../__tests__/support/renderWithProviders';
-import type { AvailableVariable } from '../../variables';
+import { ALL_REQUIREMENTS_AVAILABLE, type AvailableVariable } from '../../variables';
 import type { ControlContext } from '../types';
 import { VariableSelectControl } from '../VariableSelectControl';
 
@@ -44,7 +44,7 @@ function renderSelect(options: { variables: AvailableVariable[]; value?: string;
         channels: [],
         ticketTypes: [],
         variables: options.variables,
-        actorAvailable: true,
+        requirements: ALL_REQUIREMENTS_AVAILABLE,
         declaredResources: [],
         setConfigKey: vi.fn(),
     };

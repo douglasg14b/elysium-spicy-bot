@@ -2,7 +2,7 @@ import { screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { BlockConfigField } from '../../../api/types';
 import { renderWithProviders } from '../../../__tests__/support/renderWithProviders';
-import type { AvailableVariable } from '../../variables';
+import { ALL_REQUIREMENTS_AVAILABLE, type AvailableVariable } from '../../variables';
 import { ChannelPickerControl } from '../PickerControls';
 import type { ControlContext } from '../types';
 
@@ -35,7 +35,7 @@ function renderPicker(options: { variables: AvailableVariable[]; value?: string;
         channels: [{ id: 'c1', name: 'lobby', type: 'text', parentId: null, parentName: null }],
         ticketTypes: [],
         variables: options.variables,
-        actorAvailable: true,
+        requirements: ALL_REQUIREMENTS_AVAILABLE,
         declaredResources: [],
         setConfigKey,
     };

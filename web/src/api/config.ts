@@ -31,3 +31,11 @@ export function updateGuildSettings(
 ): Promise<GuildSettings> {
     return api.put<GuildSettings>(`/api/guilds/${guildId}/settings`, { staffRoleIds });
 }
+
+/**
+ * Sets the server's time zone. The server stores the spelling sent, trimmed, except that
+ * a case-only difference is tidied (`utc` → `UTC`) — read the zone back from the response.
+ */
+export function updateGuildTimeZone(guildId: string, timeZone: string): Promise<GuildSettings> {
+    return api.put<GuildSettings>(`/api/guilds/${guildId}/settings/time-zone`, { timeZone });
+}

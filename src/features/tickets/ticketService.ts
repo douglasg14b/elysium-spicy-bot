@@ -248,8 +248,8 @@ export async function recordTicketStateMessage(
  * Claims a ticket for `claimerId`.
  *
  * The announced actor is `change.actorId`, not the claimer: the two agree for every
- * claim made today, but a claim a flow made would name the bot as claimer, and the bot
- * is not a person who acted.
+ * claim made today. A claim a flow made would name the bot as claimer, and the bot as
+ * actor too — automation's changes are announced as the bot's.
  */
 export async function claimTicket(
     ticketId: number,

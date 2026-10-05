@@ -102,9 +102,27 @@ export const GUILD_ROLE_KEYS = [
     'position',
 ] as const satisfies readonly (keyof GuildRoleBody)[];
 
+/** The wire shape for guild settings, as every settings route answers it. */
+export interface GuildSettingsBody {
+    readonly staffRoleIds: string[];
+    readonly staffRoles: { id: string; name: string }[];
+    /** The picked zone (an IANA name), `null` until someone picks one. */
+    readonly timeZone: string | null;
+    /** What an unpicked zone means, so the dashboard can say so without its own copy. */
+    readonly defaultTimeZone: string;
+}
+
+export const GUILD_SETTINGS_KEYS = [
+    'staffRoleIds',
+    'staffRoles',
+    'timeZone',
+    'defaultTimeZone',
+] as const satisfies readonly (keyof GuildSettingsBody)[];
+
 type KeyListsComplete =
     | Exclude<keyof GuildChannelBody, (typeof GUILD_CHANNEL_KEYS)[number]>
-    | Exclude<keyof GuildRoleBody, (typeof GUILD_ROLE_KEYS)[number]>;
+    | Exclude<keyof GuildRoleBody, (typeof GUILD_ROLE_KEYS)[number]>
+    | Exclude<keyof GuildSettingsBody, (typeof GUILD_SETTINGS_KEYS)[number]>;
 
 /**
  * Do not delete as unused: removing this erases the guards above.

@@ -141,7 +141,12 @@ import { issuesByNode, problemCount, summarizeIssues } from '../flows/validation
 import { convergingTriggerCounts } from '../flows/convergingTriggers';
 import { unreachableNodeIds } from '../flows/unreachableNodes';
 import { exitWarningsShown, unconnectedWarnedExits } from '../flows/unconnectedExits';
-import { actorAvailableAt, availableVariablesAt } from '../flows/variables';
+import {
+    ALL_REQUIREMENTS_AVAILABLE,
+    availableVariablesAt,
+    flowRunsAboutNobody,
+    requirementsAvailableAt,
+} from '../flows/variables';
 import { NodePalette, NODE_DRAG_MIME } from '../flows/NodePalette';
 import { NodeInspector } from '../flows/NodeInspector';
 import { JourneyAttachmentControl } from '../flows/JourneyAttachmentControl';
@@ -632,6 +637,7 @@ function FlowBuilder() {
         editMark: graphEditMark,
         markEdited: markGraphEdited,
         recheck: recheckGraphIssues,
+        recheckAfterStructuralEdit: recheckGraphShape,
     } = useFlowIssues({ guildId: selected?.id, flowId, graph: canvasPayload.graph, catalog: nodeCatalog });
 
     /**
@@ -896,8 +902,11 @@ function FlowBuilder() {
             };
             setNodes((prev) => [...prev, node]);
             setSelectedNodeId(id);
+            // Every structural edit asks the server again shortly, so a node wired where
+            // it cannot run is marked without waiting for a save.
+            recheckGraphShape();
         },
-        [pushHistory, roles, channels, ticketTypes, setNodes]
+        [pushHistory, roles, channels, ticketTypes, setNodes, recheckGraphShape]
     );
 
     const onConnect: OnConnect = useCallback(
@@ -909,8 +918,9 @@ function FlowBuilder() {
                 (node) => node.id === connection.source
             )?.data.descriptor;
             setEdges((prev) => addEdge(styleEdge({ ...connection, id }, sourceDescriptor), prev));
+            recheckGraphShape();
         },
-        [pushHistory, setEdges]
+        [pushHistory, setEdges, recheckGraphShape]
     );
 
     const onDragOver = useCallback((event: React.DragEvent) => {
@@ -1163,8 +1173,9 @@ function FlowBuilder() {
         (edgeId: string) => {
             pushHistory();
             setEdges((prev) => prev.filter((edge) => edge.id !== edgeId));
+            recheckGraphShape();
         },
-        [pushHistory, setEdges]
+        [pushHistory, setEdges, recheckGraphShape]
     );
 
     /**
@@ -1184,7 +1195,8 @@ function FlowBuilder() {
             prev.filter((e) => e.source !== selectedNodeId && e.target !== selectedNodeId)
         );
         setSelectedNodeId(null);
-    }, [selectedNodeId, pushHistory, setNodes, setEdges]);
+        recheckGraphShape();
+    }, [selectedNodeId, pushHistory, setNodes, setEdges, recheckGraphShape]);
 
     /* ---------------------------- history ---------------------------- */
 
@@ -1625,15 +1637,23 @@ function FlowBuilder() {
      * list that did not follow it would offer the old name until the author
      * happened to move an edge.
      */
-    const { availableVariables, actorAvailable } = useMemo(
+    const { availableVariables, availableRequirements } = useMemo(
         () => ({
             availableVariables: selectedNodeId
                 ? availableVariablesAt(selectedNodeId, nodes, edges)
                 : [],
-            // True with nothing selected: no node means no copy field to advise.
-            actorAvailable: selectedNodeId ? actorAvailableAt(selectedNodeId, nodes, edges) : true,
+            // All available with nothing selected: no node means no field to advise.
+            availableRequirements: selectedNodeId
+                ? requirementsAvailableAt(selectedNodeId, nodes, edges)
+                : ALL_REQUIREMENTS_AVAILABLE,
         }),
         [selectedNodeId, nodes, edges]
+    );
+
+    /** Whether every run this flow can start is about nobody, for the palette to grey by. */
+    const runsAboutNobody = useMemo(
+        () => flowRunsAboutNobody(nodes.map((node) => node.data.descriptor)),
+        [nodes]
     );
 
     /**
@@ -1972,7 +1992,11 @@ function FlowBuilder() {
                         overflow: 'hidden',
                     }}
                 >
-                    <NodePalette nodeTypes={nodeCatalog} onAdd={(entry) => addNode(entry)} />
+                    <NodePalette
+                        nodeTypes={nodeCatalog}
+                        runsAboutNobody={runsAboutNobody}
+                        onAdd={(entry) => addNode(entry)}
+                    />
                 </div>
 
                 <ColumnResizeHandle
@@ -2025,9 +2049,10 @@ function FlowBuilder() {
                          * The ✕ on an edge does not reach here — it calls
                          * `deleteEdge`, which pushes before mutating.
                          */
-                        onDelete={({ nodes: removedNodes, edges: removedEdges }) =>
-                            pushHistory({ nodes: removedNodes, edges: removedEdges })
-                        }
+                        onDelete={({ nodes: removedNodes, edges: removedEdges }) => {
+                            pushHistory({ nodes: removedNodes, edges: removedEdges });
+                            recheckGraphShape();
+                        }}
                         fitView
                         proOptions={{ hideAttribution: true }}
                         defaultEdgeOptions={{ animated: true, type: FLOW_EDGE_TYPE }}
@@ -2112,7 +2137,7 @@ function FlowBuilder() {
                                 channels={channels}
                                 ticketTypes={ticketTypes}
                                 variables={availableVariables}
-                                actorAvailable={actorAvailable}
+                                requirements={availableRequirements}
                                 declaredResources={declaredResources}
                                 issues={issuesForNode.get(selectedNode.id) ?? []}
                                 unconnectedExits={selectedNode.data.unconnectedExits}

@@ -345,7 +345,7 @@ describe('applyTicketTransition', () => {
         // run's depth. The service announces whatever it is handed, so this is where the
         // two are kept apart.
         const { guild } = harness();
-        const flowChange = { actorId: null, chainDepth: 3 };
+        const flowChange = { actorId: 'bot-1', chainDepth: 3 };
         serviceMock.closeTicket.mockResolvedValue({ ok: true, value: ticketStub({ status: 'closed' }) });
         serviceMock.reopenTicket.mockResolvedValue({ ok: true, value: ticketStub() });
         serviceMock.unclaimTicket.mockResolvedValue({ ok: true, value: ticketStub() });

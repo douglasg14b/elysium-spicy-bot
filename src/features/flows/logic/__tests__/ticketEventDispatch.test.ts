@@ -173,7 +173,7 @@ describe('what a run started by a ticket change is handed', () => {
         await handleTicketChange(client, change('claimed', { chainDepth: 0 }));
 
         const [run] = started();
-        expect(run?.seed.subject.id).toBe(subject.id);
+        expect(run?.seed.subject?.id).toBe(subject.id);
         expect((run?.seed.subject as GuildMember | PartialGuildMember).partial).toBe(false);
         expect(run?.seed.actor?.id).toBe(moderator.id);
         expect(run?.seed.channel?.id).toBe(ticketChannel.id);
@@ -183,14 +183,30 @@ describe('what a run started by a ticket change is handed', () => {
         expect(run?.seed.chainDepth).toBe(1);
     });
 
-    it('nobody as the actor when a flow made the change, and the next depth down', async () => {
+    it('the bot as the actor when a flow made the change, and the next depth down', async () => {
         getByGuildId.mockResolvedValue([flowWith('flow-a', [{ id: 'closed', data: { event: 'closed' } }])]);
 
-        await handleTicketChange(client, change('closed', { actorId: null, chainDepth: 2 }));
+        await handleTicketChange(client, change('closed', { actorId: client.user.id, chainDepth: 2 }));
 
         const [run] = started();
-        expect(run?.seed.actor).toBeUndefined();
+        expect(run?.seed.actor?.id).toBe(client.user.id);
+        // Depth comes from the change, not from who made it.
         expect(run?.seed.chainDepth).toBe(3);
+    });
+
+    it('a partial actor, still named, when whoever made the change has left the server', async () => {
+        // The actor is resolved as the subject is, so a Ticket Event run always has one —
+        // which is what lets the trigger declare `actor`.
+        const leaver = guild.createMember({ username: 'rage_quit_mod' });
+        guild.removeMember(leaver);
+        getByGuildId.mockResolvedValue([flowWith('flow-a', [{ id: 'closed', data: { event: 'closed' } }])]);
+
+        await handleTicketChange(client, change('closed', { actorId: leaver.id }));
+
+        const actor = started()[0]?.seed.actor;
+        expect(actor?.id).toBe(leaver.id);
+        expect(actor?.partial).toBe(true);
+        expect(actor?.toString()).toBe(`<@${leaver.id}>`);
     });
 
     it('no channel and no channel variable for a deleted ticket', async () => {
@@ -280,10 +296,10 @@ describe('a chain of flows setting each other off', () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         getByGuildId.mockResolvedValue([flowWith('flow-loop', [{ id: 'closed', data: { event: 'closed' } }])]);
 
-        await handleTicketChange(client, change('closed', { actorId: null, chainDepth: FLOW_MAX_CHAIN_DEPTH - 1 }));
+        await handleTicketChange(client, change('closed', { actorId: moderator.id, chainDepth: FLOW_MAX_CHAIN_DEPTH - 1 }));
         expect(started().map((run) => run.seed.chainDepth)).toEqual([FLOW_MAX_CHAIN_DEPTH]);
 
-        await handleTicketChange(client, change('closed', { actorId: null, chainDepth: FLOW_MAX_CHAIN_DEPTH }));
+        await handleTicketChange(client, change('closed', { actorId: moderator.id, chainDepth: FLOW_MAX_CHAIN_DEPTH }));
 
         expect(startTriggeredRun).toHaveBeenCalledTimes(1);
         expect(warn).toHaveBeenCalledWith(expect.stringMatching(/Refused to start flow flow-loop .*ticket #34/));
@@ -318,7 +334,7 @@ describe('the subscriber flows registers with tickets', () => {
 
         const runA = async (): Promise<void> => {
             order.push('A closes the ticket');
-            await subscriber(change('closed', { actorId: null, chainDepth: 1 }));
+            await subscriber(change('closed', { actorId: moderator.id, chainDepth: 1 }));
             order.push('A sends its last message');
             await Promise.resolve();
             order.push('A ends');

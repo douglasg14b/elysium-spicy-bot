@@ -79,6 +79,42 @@ describe('MessageWaitIndex', () => {
         expect(index.get('run-2')?.channelId).toBe('dungeon');
     });
 
+    describe('a run about nobody', () => {
+        it('records nothing for a Delay park with no member, and does not throw', () => {
+            const index = new MessageWaitIndex();
+
+            expect(() =>
+                index.record({ runId: 'run-1', guildId: GUILD_ID, waitConfig: null, wakeAt: new Date() })
+            ).not.toThrow();
+            expect(index.runIds()).toEqual([]);
+        });
+
+        it('removes its old entry and then throws for a message wait with no member', () => {
+            const index = indexWith({ runId: 'run-1', waitConfig: messageWait() });
+
+            expect(() =>
+                index.record({ runId: 'run-1', guildId: GUILD_ID, waitConfig: messageWait(), wakeAt: null })
+            ).toThrow(/parked on a message wait but is about nobody/);
+            expect(index.get('run-1')).toBeUndefined();
+        });
+
+        it('loads every other stored run when one row has a message wait and no member', () => {
+            const index = new MessageWaitIndex();
+            const stored = (runId: string, userId?: string) =>
+                ({
+                    runId,
+                    guildId: GUILD_ID,
+                    contextSnapshot: { guildId: GUILD_ID, ...(userId ? { userId } : {}) },
+                    waitConfig: messageWait('dungeon'),
+                    wakeAt: null,
+                }) as FlowRunEntity;
+
+            index.addMissing([stored('before', 'member-1'), stored('bad'), stored('after', 'member-2')]);
+
+            expect(index.runIds().sort()).toEqual(['after', 'before']);
+        });
+    });
+
     it('removes the entry when the run parks on anything but a message', () => {
         const index = indexWith({ runId: 'run-1', waitConfig: messageWait() });
 

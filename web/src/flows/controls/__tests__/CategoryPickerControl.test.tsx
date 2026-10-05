@@ -2,6 +2,7 @@ import { screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { BlockConfigField, ResourceDeclaration } from '../../../api/types';
 import { renderWithProviders } from '../../../__tests__/support/renderWithProviders';
+import { ALL_REQUIREMENTS_AVAILABLE } from '../../variables';
 import { CategoryPickerControl } from '../PickerControls';
 import type { ControlContext } from '../types';
 
@@ -31,7 +32,7 @@ function renderPicker(options: { declaredResources?: ResourceDeclaration[]; conf
         ],
         ticketTypes: [],
         variables: [],
-        actorAvailable: true,
+        requirements: ALL_REQUIREMENTS_AVAILABLE,
         declaredResources: options.declaredResources ?? [],
         setConfigKey,
     };

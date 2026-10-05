@@ -14,15 +14,20 @@ describe('builtinToken', () => {
 });
 
 describe('BUILTIN_TOKENS', () => {
-    it('marks the actor token, and only it, as lost after a suspend', () => {
-        // The one entry that is a judgement rather than a mirror, and the one a
-        // copy-paste would get wrong. `subject` is carried on every resumed run;
-        // `actor` is the member who caused the *current* step, so a run the clock
-        // woke has none.
-        const lost = BUILTIN_TOKENS.filter((token) => token.lostAfterSuspend).map(
-            (token) => token.name
-        );
+    it('marks the actor token, and only it, as needing an actor', () => {
+        // `actor` is the member who caused the *current* step, so a run the clock woke
+        // has none. The engine's own table is compared in `builtinTokenDrift.test.ts`;
+        // this pins the browser's side where the web suite can see it.
+        const needsActor = BUILTIN_TOKENS.filter((token) => token.requires === 'actor').map((token) => token.name);
 
-        expect(lost).toEqual(['actor.mention']);
+        expect(needsActor).toEqual(['actor.mention']);
+    });
+
+    it('marks every subject token as needing a member, and the guild name as needing nothing', () => {
+        for (const token of BUILTIN_TOKENS) {
+            expect(token.requires, token.name).toBe(
+                token.name.startsWith('subject.') ? 'subject' : token.name === 'actor.mention' ? 'actor' : null
+            );
+        }
     });
 });

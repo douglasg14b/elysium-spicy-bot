@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GUILD_CHANNEL_KEYS, GUILD_CHANNEL_TYPES, GUILD_ROLE_KEYS } from '../guildBody';
+import { GUILD_CHANNEL_KEYS, GUILD_CHANNEL_TYPES, GUILD_ROLE_KEYS, GUILD_SETTINGS_KEYS } from '../guildBody';
 import * as browserTypes from '../../../../web/src/api/types';
 
 /**
@@ -29,6 +29,11 @@ const SHAPES = [
         browser: browserTypes.GUILD_CHANNEL_KEYS,
     },
     { name: 'GuildRole', server: GUILD_ROLE_KEYS, browser: browserTypes.GUILD_ROLE_KEYS },
+    {
+        name: 'GuildSettings',
+        server: GUILD_SETTINGS_KEYS,
+        browser: browserTypes.GUILD_SETTINGS_KEYS,
+    },
 ] as const satisfies readonly { name: string; server: readonly string[]; browser: readonly string[] }[];
 
 describe('guild wire shape drift between server and browser', () => {

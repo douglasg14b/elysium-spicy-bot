@@ -30,7 +30,14 @@ export type FlowWaitKind = 'memberJoin' | 'reactionAdd' | 'buttonClick' | 'messa
  */
 export interface FlowRunContextSnapshot {
     guildId: string;
-    userId: string;
+    /**
+     * The member the run is about, when it is about one.
+     *
+     * Absent on a run whose trigger supplies nobody — and only then. **Absent never means
+     * the member left**: a leaver's id is still written, and resume reports them gone when
+     * the fetch fails. Resume reads an absent id as a run about nobody and fetches no one.
+     */
+    userId?: string;
     /**
      * Where the run was operating when it parked, when it was anywhere at all.
      *

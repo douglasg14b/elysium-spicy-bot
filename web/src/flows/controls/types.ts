@@ -15,7 +15,7 @@ import type {
     ResourceDeclaration,
     TicketTypeView,
 } from '../../api/types';
-import type { AvailableVariable } from '../variables';
+import type { AvailableVariable, RequirementAvailability } from '../variables';
 
 /**
  * What a control needs from the page beyond its own declaration.
@@ -42,13 +42,14 @@ export interface ControlContext {
      */
     variables: AvailableVariable[];
     /**
-     * Whether `{{actor.mention}}` can be relied on at this node.
+     * Which run-context requirements can be relied on at this node.
      *
-     * A property of the node for the same reason `variables` is: the token resolves
-     * or not depending on what is wired above, and the copy fields grey the chip
-     * rather than removing it. See `actorAvailableAt` in `../variables.ts`.
+     * A property of the node for the same reason `variables` is: a member, an actor or a
+     * channel is there or not depending on what is wired above. The copy fields grey a
+     * token chip, and the choice controls disable an option, whose requirement is not —
+     * see `requirementAvailableAt` in `../variables.ts`. Save is what refuses.
      */
-    actorAvailable: boolean;
+    requirements: RequirementAvailability;
     /**
      * Resources this flow declares but that may not exist in the guild yet.
      *

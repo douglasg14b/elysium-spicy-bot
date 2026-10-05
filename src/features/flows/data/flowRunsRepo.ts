@@ -102,6 +102,13 @@ export interface ClaimedPark {
      * unless the park has a quiet window, whose stored deadline is provisional.
      */
     readonly eventAt?: Date;
+    /**
+     * The node the park is at and its deadline, exactly as the caller read them — for a
+     * caller acting on a row it read a moment earlier (the scheduler ending a park it
+     * found broken), so a run that has since woken and parked again is not the one ended.
+     */
+    readonly resumeNodeId?: string;
+    readonly wakeAt?: Date;
 }
 
 const nodeRunLogSchema = z.object({
@@ -141,10 +148,14 @@ const nodeRunLogSchema = z.object({
  * `chainDepth` too: a row parked before it existed reads back without one, which the
  * resume path reads as depth 1. A positive whole number only, so a corrupt depth fails
  * the read rather than quietly letting a chain of runs past its cap.
+ *
+ * `userId` is optional because a run about nobody records none. Present, it is still
+ * never empty: an empty id would read as a member nobody can fetch, failing the run as
+ * "left" when it was never about anyone.
  */
 const contextSnapshotSchema = z.object({
     guildId: z.string().min(1),
-    userId: z.string().min(1),
+    userId: z.string().min(1).optional(),
     channelId: z.string().min(1).optional(),
     startedAt: z.iso.datetime().optional(),
     chainDepth: z.number().int().positive().optional(),
@@ -436,9 +447,15 @@ export class FlowRunsRepo {
      * press can, because neither is something a member can repeat at will.
      */
     async claimForResume(runId: string, claimedPark: ClaimedPark = {}): Promise<FlowRunEntity | null> {
-        const { waitMessageId, waitKind, eventAt } = claimedPark;
+        const { waitMessageId, waitKind, eventAt, resumeNodeId, wakeAt } = claimedPark;
         return this.tryTransition(runId, 'claim', { claimedAt: new Date() }, (query) => {
             let narrowed = query;
+            if (resumeNodeId !== undefined) {
+                narrowed = narrowed.where('resumeNodeId', '=', resumeNodeId);
+            }
+            if (wakeAt !== undefined) {
+                narrowed = narrowed.where('wakeAt', '=', wakeAt);
+            }
             if (waitMessageId !== undefined) {
                 narrowed = narrowed.where('waitMessageId', '=', waitMessageId);
             }

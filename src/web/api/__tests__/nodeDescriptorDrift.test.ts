@@ -13,6 +13,7 @@ import {
 import type {
     BlockConfigColumn,
     BlockConfigField,
+    BlockConfigOption,
     BlockControlType,
     BlockOutputDeclaration,
     BlockOutputHandle,
@@ -132,6 +133,33 @@ const VOCABULARIES = [
  */
 const SHOWN = { field: 'f', equals: ['v'] } as const;
 
+/**
+ * One choice with every optional populated, for the reason the column fixture exists:
+ * an option is served inside a field's `options`, so the arm comparison only records
+ * that a `select` has options, and no shipped option need set `requires` for it to be
+ * part of the contract. The `select` and `segmented` samples below carry it, so the
+ * samples themselves are not `options: []` — an option-level member would drift
+ * unnoticed against an empty list.
+ *
+ * `satisfies` rejects a member this invents; {@link OptionFixtureIsExhaustive} rejects
+ * one it forgets.
+ */
+const CONFIG_OPTION_FIXTURE = {
+    value: 'v',
+    label: 'l',
+    requires: ['subject'],
+} as const satisfies BlockConfigOption;
+
+/** Fails to compile if {@link BlockConfigOption} gains a member the fixture omits. */
+type OptionFixtureIsExhaustive = Exclude<keyof BlockConfigOption, keyof typeof CONFIG_OPTION_FIXTURE>;
+
+/** Do not delete as unused: removing it erases the guard above. */
+const optionFixtureIsExhaustive: [OptionFixtureIsExhaustive] extends [never]
+    ? true
+    : ['CONFIG_OPTION_FIXTURE is missing', OptionFixtureIsExhaustive] = true;
+
+void optionFixtureIsExhaustive;
+
 const CONFIG_FIELD_FIXTURES = {
     rolePicker: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'rolePicker', defaultValue: '' },
     channelPicker: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'channelPicker', optional: true, defaultValue: '' },
@@ -140,8 +168,8 @@ const CONFIG_FIELD_FIXTURES = {
     text: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'text', optional: true, placeholder: '', maxLength: 1, defaultValue: '', rendersTokens: true },
     longText: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'longText', placeholder: '', maxLength: 1, defaultValue: '', rendersTokens: true },
     duration: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'duration', optional: true, placeholder: 'p', defaultValue: 1 },
-    segmented: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'segmented', options: [], defaultValue: '' },
-    select: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'select', options: [], defaultValue: '' },
+    segmented: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'segmented', options: [CONFIG_OPTION_FIXTURE], defaultValue: '' },
+    select: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'select', options: [CONFIG_OPTION_FIXTURE], defaultValue: '' },
     colour: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'colour', swatches: [], defaultValue: '' },
     textList: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'textList', placeholder: 'p', maxLength: 1, minEntries: 1, maxEntries: 1, addLabel: 'a', defaultValue: [] },
     objectList: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'objectList', columns: [], minEntries: 1, maxEntries: 1, addLabel: 'a', defaultValue: [] },
@@ -437,6 +465,24 @@ describe('node descriptor drift between server and browser', () => {
                 'records that an objectList has `columns`, not what one column holds — so a member ' +
                 'missing here is one the inspector is served and cannot read. `rendersTokens` is the ' +
                 'one that bites: the engine would expand tokens the control renders as literal braces.'
+        ).toEqual(serverMembers);
+    });
+
+    it('keeps the select/segmented option shape identical on both sides', () => {
+        // Read off the samples the arm fixtures actually carry, so an option fixture that
+        // gained a member without the samples using it cannot pass here either.
+        const served = [CONFIG_FIELD_FIXTURES.select.options, CONFIG_FIELD_FIXTURES.segmented.options].flat();
+        const serverMembers = [...new Set(served.flatMap((option) => Object.keys(option)))].sort();
+        const browserMembers = [...browserTypes.BLOCK_CONFIG_OPTION_KEYS].sort();
+
+        expect(serverMembers).toEqual(Object.keys(CONFIG_OPTION_FIXTURE).sort());
+        expect(
+            browserMembers,
+            `BlockConfigOption has drifted. Server: [${serverMembers.join(', ')}]; browser ` +
+                `(web/src/api/types.ts): [${browserMembers.join(', ')}]. An option is served inside a ` +
+                "field's `options`, below what the arm check compares, so a member missing here is one " +
+                'the choice controls never read — `requires` unread would offer a choice save refuses. ' +
+                'Reconcile BlockConfigOption and BLOCK_CONFIG_OPTION_KEYS.'
         ).toEqual(serverMembers);
     });
 

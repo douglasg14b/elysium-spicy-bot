@@ -98,8 +98,11 @@ export async function handleTicketChange(client: Client, event: TicketChangeEven
      * nothing about whether someone left, so it must not turn a present member into a
      * leaver, nor quietly drop the actor.
      */
-    const subject = await resolveSubject(guild, ticket.subjectId);
-    const actor = event.actorId ? await fetchUnlessGone(guild, event.actorId) : null;
+    const subject = await resolveMember(guild, ticket.subjectId);
+    // Every change names who made it — a person, or the bot for a flow's change — and one
+    // who has since left is resolved as a partial, like the subject, so the run always
+    // has an actor. That is what lets Ticket Event declare `actor`.
+    const actor = await resolveMember(guild, event.actorId);
     const channel = ticket.channelId
         ? asGuildTextChannel(await guild.channels.fetch(ticket.channelId).catch(() => null))
         : undefined;
@@ -110,9 +113,8 @@ export async function handleTicketChange(client: Client, event: TicketChangeEven
             client,
             guild,
             subject,
-            // Only when a person made the change and is still here to be named; a flow's
-            // change has nobody behind it.
-            ...(actor ? { actor } : {}),
+            // Whoever made the change: the person, or the bot when a flow did.
+            actor,
             // A deleted ticket names no channel, and a channel that is gone, or that the
             // bot cannot reach, resolves to none.
             ...(channel ? { channel } : {}),
@@ -195,13 +197,15 @@ async function fetchUnlessGone(guild: Guild, userId: string): Promise<GuildMembe
 }
 
 /**
- * The member a ticket is about, even when they have left the server.
+ * A member the change names — the ticket's subject, or whoever made the change — even
+ * when they have left the server.
  *
  * A leaver is not skipped, as Level Reached skips: the change still happened, and a
  * flow reacting to it — closing their other tickets, telling staff — needs no member to
  * act on. They get a **partial** member instead, the same object a Member Leaves run is
  * handed for an uncached leaver: an id and a user, no join date, no roles. Blocks that
- * need a full member then fail by name, as they already do on Member Leaves.
+ * need a full member then fail by name, as they already do on Member Leaves; copy that
+ * mentions them still renders, since a mention needs only the id.
  *
  * discord.js has no public way to build that object, so this does exactly what its own
  * `GuildMemberRemove` action does when the `GuildMember` partial is enabled
@@ -211,8 +215,8 @@ async function fetchUnlessGone(guild: Guild, userId: string): Promise<GuildMembe
  * Only Discord's `Unknown Member` makes someone a leaver; any other failure throws (see
  * the caller). A user Discord cannot fetch at all throws too, and starts nothing.
  */
-async function resolveSubject(guild: Guild, subjectId: string): Promise<GuildMember | PartialGuildMember> {
-    const member = await fetchUnlessGone(guild, subjectId);
+async function resolveMember(guild: Guild, userId: string): Promise<GuildMember | PartialGuildMember> {
+    const member = await fetchUnlessGone(guild, userId);
     if (member) {
         return member;
     }
@@ -220,6 +224,6 @@ async function resolveSubject(guild: Guild, subjectId: string): Promise<GuildMem
     // Fetched into the client's user cache, which `_add` relies on: it is handed only the
     // id, and the member's `user` is resolved from that cache — this fetch is what gives
     // the partial its name rather than a user with every field null.
-    const user = await guild.client.users.fetch(subjectId, { cache: true });
+    const user = await guild.client.users.fetch(userId, { cache: true });
     return guild.members['_add']({ user: { id: user.id } }, false);
 }

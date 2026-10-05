@@ -59,14 +59,14 @@ const ticket = { id: 7, guildId: 'guild-1', ticketNumber: 42, type: 'support', s
 
 function context(chainDepth = 1) {
     return {
-        guild: { id: 'guild-1' },
+        guild: { id: 'guild-1', client: { user: { id: 'bot-1' } } },
         client: { user: { id: 'bot-1' } },
         chainDepth,
     } as never;
 }
 
-/** What a flow's close says about itself: nobody acted, at the run's own depth. */
-const FLOW_CHANGE = { actorId: null, chainDepth: 1 };
+/** What a flow's close says about itself: the bot acted, at the run's own depth. */
+const FLOW_CHANGE = { actorId: 'bot-1', chainDepth: 1 };
 
 beforeEach(() => {
     vi.clearAllMocks();
@@ -107,7 +107,7 @@ describe('action.closeTicket', () => {
         await block.run({ ticketId: '7' }, context(3));
 
         expect(applyTicketTransition).toHaveBeenCalledWith(
-            expect.objectContaining({ change: { actorId: null, chainDepth: 3 } })
+            expect.objectContaining({ change: { actorId: 'bot-1', chainDepth: 3 } })
         );
     });
 

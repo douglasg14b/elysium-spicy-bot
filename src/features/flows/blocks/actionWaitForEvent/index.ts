@@ -118,7 +118,9 @@ export const block: BlockManifest<WaitForEventConfig> = {
         },
     ],
     outputs: [],
-    requires: [],
+    // Every wait kind waits for *this run's member* to do something — join, react, click,
+    // speak — so a run about nobody could park here and never wake.
+    requires: ['subject'],
     capabilities: [],
     canSuspend: true,
     run(config, context) {

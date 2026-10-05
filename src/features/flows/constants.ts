@@ -173,8 +173,13 @@ export const FLOW_MESSAGE_TRIGGER_READ_FAILURE_WINDOW_MS = 60_000;
  * binary would strip the key on read, and a run it resumed would forget how deep in a
  * chain it sits — so a change it made after waiting could start a chain past the cap. A
  * v4 row reads forwards cleanly as depth 1, which is what every such run was.
+ *
+ * **6** since the snapshot's `userId` became optional, for a run whose trigger supplies
+ * nobody. This direction refuses rather than strips: an older build's schema requires
+ * `userId`, so one such row would fail the whole `findWaiting`/`findDue` batch it is
+ * read in. A v5 row reads forwards cleanly — it always carries a member.
  */
-export const FLOW_RUN_ENTITY_VERSION = 5;
+export const FLOW_RUN_ENTITY_VERSION = 6;
 
 /**
  * How deep a chain of runs starting one another may go.

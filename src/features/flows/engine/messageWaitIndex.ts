@@ -25,7 +25,12 @@ export interface MessageWaitEntry {
 export interface MessageWaitPark {
     readonly runId: string;
     readonly guildId: string;
-    readonly userId: string;
+    /**
+     * The run's member, absent on a run about nobody. Every park is recorded — a Delay as
+     * much as a message wait — so absence is ordinary here; only a *message* wait without
+     * a member is refused, since nobody's message could ever wake it.
+     */
+    readonly userId?: string;
     readonly waitConfig: FlowRunWaitConfig | null | undefined;
     readonly wakeAt: Date | null | undefined;
 }
@@ -63,7 +68,15 @@ export class MessageWaitIndex {
     private readonly byRun = new Map<string, MessageWaitEntry>();
     private readonly byMember = new Map<string, Set<string>>();
 
-    /** Write the run's entry from its park, or remove it when the park is not a message wait. */
+    /**
+     * Write the run's entry from its park, or remove it when the park is not a message wait.
+     *
+     * Throws for a message wait on a run about nobody. Save-time validation refuses a
+     * wait there (Wait for Event requires a member), so reaching it means that check
+     * regressed — and an entry keyed by nobody would sit in the index forever, matching no
+     * message. The run's old entry is removed first either way, so the throw never leaves
+     * a stale one behind.
+     */
     record(park: MessageWaitPark): void {
         this.delete(park.runId);
 
@@ -72,10 +85,17 @@ export class MessageWaitIndex {
             return;
         }
 
+        checkMessageWaitHasMember(park);
+        const { userId } = park;
+        // Unreachable — the check above has thrown — but it narrows the type honestly.
+        if (!userId) {
+            return;
+        }
+
         const entry: MessageWaitEntry = {
             runId: park.runId,
             guildId: park.guildId,
-            userId: park.userId,
+            userId,
             ...(config.channelId ? { channelId: config.channelId } : {}),
             parkedAt: new Date(config.parkedAt),
             wakeAt: park.wakeAt ?? null,
@@ -139,13 +159,39 @@ export class MessageWaitIndex {
      * have parked or moved on since: the entry its own transition wrote is newer than
      * the row read before it. A row for a run that has since been claimed adds a stale
      * entry, which every message wake already tolerates.
+     *
+     * Each run is added on its own: one row the index refuses — a message wait with no
+     * member — is logged by run id and skipped, and every other run still loads. Letting
+     * it throw would leave the whole index empty, so no run would wake on a message.
      */
     addMissing(runs: readonly FlowRunEntity[]): void {
         for (const run of runs) {
-            if (!this.byRun.has(run.runId)) {
+            if (this.byRun.has(run.runId)) {
+                continue;
+            }
+            try {
                 this.record(parkOf(run));
+            } catch (error) {
+                console.error(`[flow-runs] Could not index run ${run.runId} as waiting on a message:`, error);
             }
         }
+    }
+}
+
+/**
+ * Throw for a message wait on a run about nobody — nobody's message could ever wake it.
+ *
+ * Save-time validation refuses a wait on such a path (Wait for Event requires a member),
+ * so this only fires if that check regressed. The executor and the resume path call it
+ * **before** writing the park, so the invariant fails with nothing written; the index
+ * calls it too, as the last line of defence for a row already stored.
+ */
+export function checkMessageWaitHasMember(park: Pick<MessageWaitPark, 'runId' | 'userId' | 'waitConfig'>): void {
+    if (park.waitConfig?.eventKind === 'message' && !park.userId) {
+        throw new Error(
+            `Run ${park.runId} parked on a message wait but is about nobody, so no message could ever ` +
+                'wake it. Save-time validation should have refused a wait on this path.'
+        );
     }
 }
 

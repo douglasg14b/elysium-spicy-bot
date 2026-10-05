@@ -76,7 +76,7 @@ const ticket = { id: TICKET_ID, guildId: GUILD_ID, ticketNumber: 34, type: 'afte
 function seed(chainDepth?: number): FlowRunSeed {
     return {
         client: {} as FlowRunSeed['client'],
-        guild: { id: GUILD_ID } as FlowRunSeed['guild'],
+        guild: { id: GUILD_ID, client: { user: { id: 'bot-1' } } } as unknown as FlowRunSeed['guild'],
         subject: { id: USER_ID } as FlowRunSeed['subject'],
         variables: { ticketId: TICKET_ID },
         ...(chainDepth === undefined ? {} : { chainDepth }),
@@ -137,7 +137,7 @@ describe('a run’s place in a chain of runs', () => {
         expect((await resume(parked.runId)).status).toBe('completed');
 
         // Close Ticket reported the run's own depth, and nobody as the actor.
-        expect(closeTicket).toHaveBeenCalledWith(TICKET_ID, { actorId: null, chainDepth: 3 });
+        expect(closeTicket).toHaveBeenCalledWith(TICKET_ID, { actorId: 'bot-1', chainDepth: 3 });
 
         // The announcement the service makes from that change starts the follow-on one deeper.
         const handed = closeTicket.mock.calls[0]?.[1] as TicketChange;
@@ -167,6 +167,6 @@ describe('a run’s place in a chain of runs', () => {
 
         expect((await resume(row.runId)).status).toBe('completed');
 
-        expect(closeTicket).toHaveBeenCalledWith(TICKET_ID, { actorId: null, chainDepth: 1 });
+        expect(closeTicket).toHaveBeenCalledWith(TICKET_ID, { actorId: 'bot-1', chainDepth: 1 });
     });
 });

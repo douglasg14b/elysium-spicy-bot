@@ -528,31 +528,56 @@ is only taken on waking cannot be read off a declaration, so that half is yours 
 
 `requires` says what your block needs to be present on the run:
 
-- `subject` — the member the run is **about**. Always present, so declaring it is documentation
-  rather than a constraint anything can violate. **On a run started by a departure
-  (`memberLeave`) they have already left**, and are typed `GuildMember | PartialGuildMember`
-  for it: an uncached leaver arrives with an id and a user, no roles. Acting on them fails at
-  Discord — though a block may decide that "already gone" is success, as Kick Member does — and
-  reading their roles or boost answers from what the bot last knew, not from the guild.
+- `subject` — the member the run is **about**. **Absent on a run whose trigger supplies
+  nobody** (see the trigger paragraph below) — and absent never means "the member left".
+  Declare it if you read the member, and read it through `requireSubject(context)` from
+  `blocks/types.ts`, never `context.subject` directly: the executor has already refused to
+  run your block without one, so the helper hands you the member, and throws a named error
+  only if that check ever regressed. **On a run started by a departure (`memberLeave`) they
+  have already left**, and are typed `GuildMember | PartialGuildMember` for it: an uncached
+  leaver arrives with an id and a user, no roles. Acting on them fails at Discord — though a
+  block may decide that "already gone" is success, as Kick Member does — and reading their
+  roles or boost answers from what the bot last knew, not from the guild. A park keeps the
+  subject: resume fetches the member again, and fails the run if they have left.
 - `actor` — the member who caused the **current step**, which is not always the subject and is
-  not always anybody. **Absent on a resumed run**: the clock woke it, so nobody acted.
+  not always anybody. **Absent on a resumed run**: the clock woke it, so nobody acted. **Absent
+  on a run from a trigger that does not say who acted** — Member Leaves, since Discord does not
+  say who kicked them. A ticket change always names someone: the person, or the bot when a flow
+  made it; one who has since left arrives as a partial member, as a departed subject does.
 - `channel` — where the run is operating. **Absent on a run started by a member joining or
   leaving**, which happens nowhere in particular, and absent on a resumed run, because a parked
   run does not yet remember where it was.
 - `interaction` — the interaction that started it. **Absent on any gateway-started run and on
   every resumed run**, because the token expires when the run parks.
 
-Declaring one of the three that can be absent lets a graph placing your block where it could
-never be satisfied be flagged at save time — marked on your node, naming the requirement, and
-held back from going live — instead of quietly taking the wrong branch.
+Every one of the four can be absent, so declaring one lets a graph placing your block where it
+could never be satisfied be flagged at save time — marked on your node, naming the requirement,
+and held back from going live — instead of quietly taking the wrong branch. The executor makes
+the same comparison before your `run`, and fails the step by name on a miss — except
+`channel`, which it leaves to you, because a channel deleted while a run was parked resumes as
+nowhere on purpose (In Channel? answers No).
+
+**A choice can need something your block does not.** A `select` or `segmented` option may
+declare its own `requires`: Time Since needs a member only for "The member's last message" and
+"When the member joined", so the block declares `requires: []` and those two options declare
+`['subject']`. While the field is shown and holds that option — stored, or its default — the
+node needs it, exactly as if the block had declared it; the builder disables the option where
+the run cannot carry it. A **built-in token** in your copy counts the same way: `{{subject.*}}`
+needs `subject`, `{{actor.mention}}` needs `actor`, `{{guild.name}}` nothing
+(`TOKEN_REQUIREMENTS` in `engine/copyRendering.ts`). A node's *effective requirements* are the
+three together, worked out once in `engine/nodeRequirements.ts` for the validator and the
+executor alike. Read the member only where your config says you need one — Time Since calls
+`requireSubject` on its member sources alone.
 
 **On a trigger, `requires` reads the other way round.** A trigger is never reached by an edge,
 so nothing upstream could fail to satisfy it — what it declares is what its own event
 **establishes**, and save-time validation reads it as the supply side when deciding whether a
 downstream block's requirement can be met on that path. A button click establishes an actor, a
-channel and an interaction; a member join establishes only an actor. If you add a trigger,
-declare everything its event genuinely provides: under-declaring rejects graphs that should be
-legal, and over-declaring accepts ones that will misbehave at runtime.
+channel and an interaction; a member join establishes only an actor. **A trigger that leaves
+`subject` out of `requires` starts runs about nobody** — no member, no stand-in — and nothing
+needing a member may sit where it reaches. If you add a trigger, declare everything its event
+genuinely provides: under-declaring rejects graphs that should be legal, and over-declaring
+accepts ones that will misbehave at runtime.
 
 If you find yourself reading something off `context` that you did not declare, declare it.
 
@@ -575,9 +600,11 @@ that would pass `FLOW_MAX_CHAIN_DEPTH` (5) is refused and logged, which is what 
 two flows setting each other off forever.
 
 **A block whose action can start other runs hands its depth on.** Today that is any
-block that changes a ticket: pass `{ actorId: null, chainDepth: context.chainDepth }` as
-the ticket service's `change` (Open Ticket, Close Ticket). `actorId` is null because a
-flow is nobody — even where the in-channel announcement names the bot. The service
+block that changes a ticket: pass `{ actorId: context.guild.client.user.id, chainDepth:
+context.chainDepth }` as the ticket service's `change` (Open Ticket, Close Ticket). A flow's
+change is the bot's change, so `actorId` is the bot's own id — never null — and a Ticket
+Event run that change starts has the bot as its actor. Depth comes from `chainDepth`, not
+from who acted. The service
 requires a `change` on every announcing call, so there is no default to fall back on by
 forgetting. Only a ticket change carries depth across today: Kick Member → Member Leaves
 goes through Discord's gateway, which cannot carry one, so that run restarts at the root.
@@ -706,7 +733,7 @@ Available in this slice, and nothing else:
 | --- | --- |
 | `{{subject.mention}}` | A ping for the member the run is about |
 | `{{subject.username}}` | Their username, unpinged |
-| `{{actor.mention}}` | Whoever caused this step. **Fails on a resumed run**, where nobody did |
+| `{{actor.mention}}` | Whoever caused this step. **Refused at save after a block that parks, in a parking block's own copy** (rendered again on waking), **and below a trigger that does not say who acted** (Member Leaves) |
 | `{{guild.name}}` | The server's name |
 | `{{var.<name>}}` | A value an earlier block recorded |
 

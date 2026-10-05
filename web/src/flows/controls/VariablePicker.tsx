@@ -21,14 +21,14 @@
 
 import { Group, Text, Tooltip, UnstyledButton } from '@mantine/core';
 import { BUILTIN_TOKENS, builtinToken } from '../builtinTokens';
-import type { AvailableVariable } from '../variables';
-import { referencedVariables, variableToken } from '../variables';
+import type { AvailableVariable, RequirementAvailability } from '../variables';
+import { describeUnavailableRequirement, referencedVariables, variableToken } from '../variables';
 
 interface VariablePickerProps {
     /** What upstream blocks write, in the order a run would write them. */
     variables: AvailableVariable[];
-    /** Whether `{{actor.mention}}` resolves at this node. */
-    actorAvailable: boolean;
+    /** Which requirements the run reaching this node can be relied on to carry. */
+    requirements: RequirementAvailability;
     /** The copy currently in the field, scanned for references. */
     value: string;
     /** Append a token to the field's value. */
@@ -74,13 +74,9 @@ const UNAVAILABLE_CHIP = {
     border: '1px dashed rgba(255,255,255,.12)',
 } as const;
 
-const UNAVAILABLE_NOTE =
-    'A block above this one can pause the run. If the clock wakes it instead of a person, ' +
-    'nobody caused this step and the token has nothing to fill in.';
-
 export function VariablePicker({
     variables,
-    actorAvailable,
+    requirements,
     value,
     onInsert,
 }: VariablePickerProps) {
@@ -94,7 +90,8 @@ export function VariablePicker({
                     Built in:
                 </Text>
                 {BUILTIN_TOKENS.map((token) => {
-                    const unavailable = token.lostAfterSuspend && !actorAvailable;
+                    const loss = token.requires === null ? null : requirements[token.requires];
+                    const unavailable = loss !== null;
 
                     return (
                         <Tooltip
@@ -105,11 +102,11 @@ export function VariablePicker({
                             label={
                                 <span>
                                     {token.description}
-                                    {unavailable ? (
+                                    {loss !== null && token.requires !== null ? (
                                         <>
                                             <br />
                                             <br />
-                                            {UNAVAILABLE_NOTE}
+                                            {describeUnavailableRequirement(token.requires, loss)}
                                         </>
                                     ) : null}
                                     <br />
@@ -120,6 +117,7 @@ export function VariablePicker({
                             <UnstyledButton
                                 onClick={() => onInsert(builtinToken(token.name))}
                                 style={unavailable ? UNAVAILABLE_CHIP : BUILTIN_CHIP}
+                                data-unavailable={unavailable || undefined}
                             >
                                 {token.name}
                             </UnstyledButton>

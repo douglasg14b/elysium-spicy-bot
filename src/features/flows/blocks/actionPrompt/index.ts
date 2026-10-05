@@ -162,8 +162,9 @@ export const block: BlockManifest<PromptConfig> = {
     outputs: [],
     // The question is posted where the run is operating, so a run that is nowhere
     // has nowhere to ask. Declared, so save-time validation says so on the canvas
-    // rather than letting the run fail in front of a member.
-    requires: ['channel'],
+    // rather than letting the run fail in front of a member. And only the run's member
+    // may answer (`flowChoiceDispatch`), so a run about nobody could never be answered.
+    requires: ['subject', 'channel'],
     capabilities: ['sendMessages', 'embedLinks'],
     canSuspend: true,
     async run(config, context) {

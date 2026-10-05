@@ -1,12 +1,16 @@
 import { ChannelType, type Guild } from 'discord.js';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { guildSettingsRepo } from '../../features-system/guild-settings';
+import {
+    DEFAULT_GUILD_TIME_ZONE,
+    guildSettingsRepo,
+    storableTimeZone,
+} from '../../features-system/guild-settings';
 import { warningsConfigRepo } from '../../features/warnings/data/warningsConfigRepo';
 import { setWarningsModChannel } from '../../features/warnings/logic/setWarningsModChannel';
 import type { AppEnv } from '../types';
 import { accessibleGuilds } from './guildAccess';
-import { guildChannelBodies } from './guildBody';
+import { guildChannelBodies, type GuildSettingsBody } from './guildBody';
 
 const warningsConfigBody = z.object({
     modChannelId: z.string().min(1, 'Pick a channel. Warning notices do not haunt the void.'),
@@ -20,6 +24,19 @@ const warningsConfigBody = z.object({
  */
 const guildSettingsBody = z.object({
     staffRoleIds: z.array(z.string().min(1)),
+});
+
+/**
+ * The time zone arrives as a name; whether `Intl` knows it is checked below by
+ * `storableTimeZone`, which also decides the spelling that gets stored.
+ */
+const guildTimeZoneBody = z.object({
+    // The longest IANA name is about 30 characters; the cap keeps a junk body from being
+    // fed to `Intl` and echoed back in the refusal.
+    timeZone: z
+        .string()
+        .min(1, 'Pick a time zone. "Whenever" is not one.')
+        .max(64, "That's not a time zone, that's an essay. Pick one from the list."),
 });
 
 /**
@@ -97,11 +114,18 @@ export function guildRoutes(): Hono<AppEnv> {
         return c.json(resolveWarningsConfig(guild, result.config.modChannelId));
     });
 
-    // Guild-wide settings owned by no single feature. Today: staff roles.
+    // Guild-wide settings owned by no single feature. Today: staff roles and time zone.
     app.get('/:guildId/settings', async (c) => {
         const guild = c.get('guild');
-        const staffRoleIds = await guildSettingsRepo.getStaffRoleIds(guild.id);
-        return c.json(resolveGuildSettings(guild, staffRoleIds));
+        // One read of the row, so both settings come from the same moment. A guild with
+        // no row has no staff and no picked zone.
+        const settings = await guildSettingsRepo.getByGuildId(guild.id);
+        return c.json(
+            resolveGuildSettings(guild, {
+                staffRoleIds: settings?.staffRoleIds ?? [],
+                timeZone: settings?.timeZone ?? null,
+            })
+        );
     });
 
     /*
@@ -145,33 +169,70 @@ export function guildRoutes(): Hono<AppEnv> {
         }
 
         const saved = await guildSettingsRepo.setStaffRoleIds(guild.id, staffRoleIds);
-        return c.json(resolveGuildSettings(guild, saved.staffRoleIds));
+        return c.json(resolveGuildSettings(guild, saved));
+    });
+
+    /*
+     * Set this guild's time zone.
+     *
+     * Its own route rather than a field on the staff-role PUT, so neither form can wipe
+     * the other by submitting what it does not show. Answers with the whole settings
+     * shape, like the staff-role PUT, so the page can take either response as the new
+     * saved state.
+     */
+    app.put('/:guildId/settings/time-zone', async (c) => {
+        const guild = c.get('guild');
+        const parsed = guildTimeZoneBody.safeParse(await c.req.json().catch(() => null));
+        if (!parsed.success) {
+            const message = parsed.error.issues[0]?.message ?? 'Invalid request body.';
+            return c.json({ error: message }, 400);
+        }
+
+        const timeZone = storableTimeZone(parsed.data.timeZone);
+        if (!timeZone) {
+            return c.json(
+                {
+                    error: `"${parsed.data.timeZone}" isn't a time zone, no matter how confidently you typed it. Pick one from the list.`,
+                },
+                400
+            );
+        }
+
+        const saved = await guildSettingsRepo.setTimeZone(guild.id, timeZone);
+        return c.json(resolveGuildSettings(guild, saved));
     });
 
     return app;
 }
 
+/** The stored settings the wire shape is built from. */
+interface StoredGuildSettings {
+    readonly staffRoleIds: readonly string[];
+    /** The picked zone, `null` until someone picks one. */
+    readonly timeZone: string | null;
+}
+
 /**
  * The wire shape for guild settings: stored ids plus their current names, so the
- * dashboard can render a role without a second round trip.
+ * dashboard can render a role without a second round trip, and the picked time zone
+ * beside the default it falls back to.
  *
  * A role deleted since it was saved resolves to no name and is dropped from
  * `staffRoles` while staying in `staffRoleIds` — the saved list is reported as saved,
  * rather than quietly rewritten by a read.
  */
-function resolveGuildSettings(
-    guild: Guild,
-    staffRoleIds: readonly string[]
-): {
-    staffRoleIds: string[];
-    staffRoles: { id: string; name: string }[];
-} {
-    const staffRoles = staffRoleIds
+function resolveGuildSettings(guild: Guild, settings: StoredGuildSettings): GuildSettingsBody {
+    const staffRoles = settings.staffRoleIds
         .map((roleId) => guild.roles.cache.get(roleId))
         .filter((role): role is NonNullable<typeof role> => !!role)
         .map((role) => ({ id: role.id, name: role.name }));
 
-    return { staffRoleIds: [...staffRoleIds], staffRoles };
+    return {
+        staffRoleIds: [...settings.staffRoleIds],
+        staffRoles,
+        timeZone: settings.timeZone,
+        defaultTimeZone: DEFAULT_GUILD_TIME_ZONE,
+    };
 }
 
 /**

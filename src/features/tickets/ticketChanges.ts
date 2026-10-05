@@ -35,8 +35,12 @@ export type TicketChangeKind = (typeof TICKET_CHANGE_KINDS)[number];
  * announcement is what decides how deep is too deep.
  */
 export interface TicketChange {
-    /** The Discord id of the person who made the change, or null when automation did. */
-    readonly actorId: string | null;
+    /**
+     * The Discord id of whoever made the change: the person, or — when automation did it —
+     * the bot's own user. Never absent, so a consumer always has someone to name; a flow
+     * that closes a ticket is the bot closing it.
+     */
+    readonly actorId: string;
     /** 0 for a person's change; the depth of the automation that made it otherwise. */
     readonly chainDepth: number;
 }

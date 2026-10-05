@@ -96,9 +96,10 @@ export const block: BlockManifest<CloseTicketConfig> = {
             ? getTicketTypeDefinition(configEntity.config, existing.type)
             : undefined;
 
-        // A flow made this change, so nobody acted — and it sits at this run's depth, so
-        // a flow the close starts is one link further down the chain and the cap holds.
-        const change = { actorId: null, chainDepth: context.chainDepth };
+        // A flow made this change, so the bot is who acted (`guild.client` is the ready
+        // client, so its user is never null) — and it sits at this run's depth, so a flow
+        // the close starts is one link further down the chain and the cap holds.
+        const change = { actorId: context.guild.client.user.id, chainDepth: context.chainDepth };
 
         if (!isTicketingConfigConfigured(configEntity) || !definition) {
             const closed = await closeTicket(ticketId, change);

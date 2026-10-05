@@ -96,6 +96,8 @@ export async function handleFlowChoiceInteraction(
         return replyWith(interaction, '❌ This question belongs to a different server.', 'error');
     }
 
+    // A run about nobody stores no member, so nobody can answer it — which is why Ask a
+    // Question requires a member, and validation keeps it off a path about nobody.
     if (run.contextSnapshot.userId !== interaction.user.id) {
         return replyWith(interaction, '❌ This question was not asked of you.', 'error');
     }

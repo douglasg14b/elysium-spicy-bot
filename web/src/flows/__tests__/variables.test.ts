@@ -8,10 +8,12 @@
 
 import { describe, expect, it } from 'vitest';
 import type { Edge } from '@xyflow/react';
-import type { BlockConfigField, BlockOutputDeclaration, NodeDescriptor } from '../../api/types';
+import type { BlockConfigField, BlockOutputDeclaration, FlowContextRequirement, NodeDescriptor } from '../../api/types';
 import {
-    actorAvailableAt,
     ancestorsOf,
+    requirementAvailableAt,
+    requirementLossAt,
+    requirementsAvailableAt,
     availableVariablesAt,
     effectiveFieldValue,
     isFieldVisible,
@@ -45,6 +47,12 @@ function descriptorWith(outputs: BlockOutputDeclaration[], canSuspend = false): 
 /** A block that parks the run — a delay, a prompt, a wait. */
 function suspendingNode(id: string): VariableSourceNode {
     return { id, data: { label: `Node ${id}`, config: {}, descriptor: descriptorWith([], true) } };
+}
+
+/** A trigger supplying exactly `requires`. */
+function triggerNode(id: string, requires: FlowContextRequirement[]): VariableSourceNode {
+    const descriptor: NodeDescriptor = { ...descriptorWith([]), kind: 'trigger', group: 'triggers', requires };
+    return { id, data: { label: `Node ${id}`, config: {}, descriptor } };
 }
 
 /** A block this build cannot draw, e.g. one the server added after this bundle. */
@@ -259,6 +267,9 @@ describe('the nodes that can run before a node', () => {
 });
 
 describe('whether the actor survives to a node', () => {
+    const actorAvailableAt = (nodeId: string, nodes: readonly VariableSourceNode[], edges: readonly Edge[]) =>
+        requirementAvailableAt('actor', nodeId, nodes, edges);
+
     it('is available when nothing runs before it', () => {
         expect(actorAvailableAt('a', [node('a', [])], [])).toBe(true);
     });
@@ -275,6 +286,37 @@ describe('whether the actor survives to a node', () => {
         const edges = [edge('wait', 'mid'), edge('mid', 'end')];
 
         expect(actorAvailableAt('end', nodes, edges)).toBe(false);
+    });
+
+    it("is lost in a parking block's own copy, which is rendered again on every wake", () => {
+        const nodes = [node('start', []), suspendingNode('ask')];
+
+        expect(actorAvailableAt('ask', nodes, [edge('start', 'ask')])).toBe(false);
+        // A park keeps the member, so a subject token there is still fine.
+        expect(requirementAvailableAt('subject', 'ask', nodes, [edge('start', 'ask')])).toBe(true);
+    });
+
+    it("is lost below a trigger that doesn't say who acted, as save refuses it there", () => {
+        // Member Leaves declares only `subject`: Discord does not say who kicked them.
+        const nodes = [triggerNode('leaves', ['subject']), node('end', [])];
+
+        expect(actorAvailableAt('end', nodes, [edge('leaves', 'end')])).toBe(false);
+        expect(requirementLossAt('actor', 'end', nodes, [edge('leaves', 'end')])).toBe('fromTrigger');
+    });
+
+    it('is kept below a trigger that names who acted', () => {
+        // Ticket Event declares `actor`: a change always names someone, the bot included.
+        const nodes = [triggerNode('ticket', ['subject', 'actor']), node('end', [])];
+
+        expect(actorAvailableAt('end', nodes, [edge('ticket', 'end')])).toBe(true);
+    });
+
+    it('reports the park, not the trigger, when both would cost it', () => {
+        const nodes = [triggerNode('leaves', ['subject']), suspendingNode('wait'), node('end', [])];
+
+        expect(requirementLossAt('actor', 'end', nodes, [edge('leaves', 'wait'), edge('wait', 'end')])).toBe(
+            'afterParking'
+        );
     });
 
     it('is lost when any branch above it parks, not only all of them', () => {
@@ -299,6 +341,46 @@ describe('whether the actor survives to a node', () => {
         const nodes = [unknownNode('mystery'), node('end', [])];
 
         expect(actorAvailableAt('end', nodes, [edge('mystery', 'end')])).toBe(true);
+    });
+});
+
+describe('whether the run reaching a node has a member', () => {
+    const subjectAvailableAt = (nodeId: string, nodes: readonly VariableSourceNode[], edges: readonly Edge[]) =>
+        requirementAvailableAt('subject', nodeId, nodes, edges);
+
+    it('is missing below a trigger whose runs are about nobody', () => {
+        const nodes = [triggerNode('nobody', []), node('mid', []), node('end', [])];
+
+        expect(subjectAvailableAt('end', nodes, [edge('nobody', 'mid'), edge('mid', 'end')])).toBe(false);
+    });
+
+    it('is missing when any trigger above it is about nobody, though another supplies a member', () => {
+        const nodes = [triggerNode('nobody', []), triggerNode('joined', ['subject', 'actor']), node('end', [])];
+
+        expect(subjectAvailableAt('end', nodes, [edge('nobody', 'end'), edge('joined', 'end')])).toBe(false);
+    });
+
+    it('survives a park, which keeps the member', () => {
+        const nodes = [triggerNode('joined', ['subject', 'actor']), suspendingNode('wait'), node('end', [])];
+
+        expect(subjectAvailableAt('end', nodes, [edge('joined', 'wait'), edge('wait', 'end')])).toBe(true);
+    });
+
+    it('is not missing at a block nothing is wired to, even in a flow of runs about nobody', () => {
+        const nodes = [triggerNode('nobody', []), node('loose', [])];
+
+        expect(subjectAvailableAt('loose', nodes, [])).toBe(true);
+    });
+
+    it('answers every requirement at once', () => {
+        const nodes = [triggerNode('nobody', []), node('end', [])];
+
+        expect(requirementsAvailableAt('end', nodes, [edge('nobody', 'end')])).toEqual({
+            subject: 'fromTrigger',
+            actor: 'fromTrigger',
+            channel: 'fromTrigger',
+            interaction: 'fromTrigger',
+        });
     });
 });
 

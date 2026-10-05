@@ -86,11 +86,11 @@ export interface ApplyTicketTransitionInput {
      * Who made the change and how deep in a chain of automated changes it sits, for
      * the announcement the service makes once the row commits.
      *
-     * **Separate from {@link actor}, and the two can disagree on purpose.** `actor` is
-     * how the change is *shown* — Close Ticket names the bot there, because "closed by"
-     * with nothing after it reads like a bug — while `change.actorId` is who *did* it,
-     * which for automation is nobody. Required rather than defaulted: every caller has
-     * both facts in hand, and a forgotten depth is what lets a chain of flows run on.
+     * **Separate from {@link actor}.** `actor` is how the change is *shown* in the
+     * channel — Close Ticket reads "an automated flow" there — while `change.actorId` is
+     * who *did* it, announced to subscribers: the person, or the bot's own id for
+     * automation. Required rather than defaulted: every caller has both facts in hand,
+     * and a forgotten depth is what lets a chain of flows run on.
      */
     readonly change: TicketChange;
     /**

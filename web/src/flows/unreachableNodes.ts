@@ -57,7 +57,7 @@ export interface ReachabilityNode {
  *
  *  - **No trigger at all.** Every node is then unreachable, which is true and useless:
  *    the flow cannot run for one reason, and stating it once per card is not how to say
- *    so. `actorAvailableAt` takes the same "advise nothing rather than advise
+ *    so. `requirementAvailableAt` takes the same "advise nothing rather than advise
  *    everything" position when there is no node selected.
  *  - **A node with no edges.** See the header.
  *

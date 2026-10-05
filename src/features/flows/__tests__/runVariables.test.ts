@@ -12,7 +12,7 @@ import {
 } from '../../../features-system/data-persistence/__tests__/support/flowRunsTestDb';
 import { discoverBlocks, ensureBlocksDiscovered, getBlockDefinition } from '../blocks/registry';
 import type { BlockManifest } from '../blocks/manifest';
-import { RESUME_TIMEOUT, type FlowRunSeed } from '../blocks/types';
+import { RESUME_TIMEOUT, requireSubject, type FlowRunSeed } from '../blocks/types';
 import { executeFlow, executeFlowSegment } from '../engine/executor';
 import { rebuildResumeContext, resumeFlowRun } from '../engine/flowRunResume';
 import { validateAuthoredGraph } from '../engine/graphValidation';
@@ -453,7 +453,7 @@ describe('a member’s own name cannot ping the guild', () => {
         (context as { client: unknown }).client = {
             channels: { fetch: vi.fn().mockResolvedValue(channel) },
         };
-        (context.subject.user as { username: string }).username = '@everyone';
+        (requireSubject(context).user as { username: string }).username = '@everyone';
 
         const result = await executeFlow('flow-1', channelPostingGraph('Welcome {{subject.username}}!'), 'trigger', context);
 

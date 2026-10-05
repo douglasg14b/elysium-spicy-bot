@@ -200,6 +200,13 @@ function checkVocabulary(label: string, block: Partial<Record<string, unknown>>)
     }
     for (const field of asArray(block.configFields)) {
         member('configFields.control', readProperty(field, 'control'), BLOCK_CONTROL_TYPES);
+        // An option's `requires` joins the node's requirements when it is picked, so a
+        // word outside the vocabulary would be a requirement nothing ever checks.
+        for (const option of asArray(readProperty(field, 'options'))) {
+            for (const requirement of asArray(readProperty(option, 'requires'))) {
+                member('configFields.options.requires', requirement, FLOW_CONTEXT_REQUIREMENTS);
+            }
+        }
     }
     for (const handle of asArray(block.handles)) {
         member('handles.tone', readProperty(handle, 'tone'), BLOCK_HANDLE_TONES);

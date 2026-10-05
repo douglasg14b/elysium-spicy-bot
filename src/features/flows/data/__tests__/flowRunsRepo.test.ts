@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { sql } from 'kysely';
 import type { DatabaseClient } from '../../../../features-system/data-persistence/database';
 import { createFlowRunsTestDb } from '../../../../features-system/data-persistence/__tests__/support/flowRunsTestDb';
+import { FLOW_RUN_ENTITY_VERSION } from '../../constants';
 import { IllegalFlowRunTransitionError } from '../flowRunLifecycle';
 import { FlowRunsRepo } from '../flowRunsRepo';
 
@@ -50,6 +51,41 @@ describe('FlowRunsRepo (sqlite)', () => {
 
         const fetched = await repo.getByRunId(created.runId);
         expect(fetched?.log[0]?.nodeId).toBe('trigger');
+    });
+
+    it('round-trips a run about nobody, with no member in its snapshot, at entity version 6', async () => {
+        // A trigger that supplies nobody parks runs with no `userId`. The key must stay
+        // absent through the write and the read — never `""`, never `undefined` written
+        // as a key — and the row is stamped with the version that can read it.
+        const created = await repo.create({
+            flowId: 'flow-1',
+            guildId: GUILD_ID,
+            contextSnapshot: { guildId: GUILD_ID },
+            resumeNodeId: 'delay',
+            wakeAt: new Date(Date.now() + 60_000),
+        });
+
+        const fetched = await repo.getByRunId(created.runId);
+
+        expect(FLOW_RUN_ENTITY_VERSION).toBe(6);
+        expect(fetched?.entityVersion).toBe(6);
+        expect(fetched?.contextSnapshot).toEqual({ guildId: GUILD_ID });
+        expect(Object.hasOwn(fetched?.contextSnapshot ?? {}, 'userId')).toBe(false);
+    });
+
+    it('claims only the park that was read, by its node and its deadline', async () => {
+        const wakeAt = new Date(Date.now() - 60_000);
+        const run = await repo.create({
+            flowId: 'flow-1',
+            guildId: GUILD_ID,
+            contextSnapshot: { guildId: GUILD_ID },
+            resumeNodeId: 'delay',
+            wakeAt,
+        });
+
+        expect(await repo.claimForResume(run.runId, { resumeNodeId: 'delay', wakeAt: new Date(0) })).toBeNull();
+        expect(await repo.claimForResume(run.runId, { resumeNodeId: 'elsewhere', wakeAt })).toBeNull();
+        expect((await repo.claimForResume(run.runId, { resumeNodeId: 'delay', wakeAt }))?.status).toBe('running');
     });
 
     it('findDue picks up an overdue run and not a future one', async () => {
@@ -306,7 +342,9 @@ describe('FlowRunsRepo (sqlite)', () => {
             resumeNodeId: 'dm',
         });
 
-        await sql`UPDATE flow_runs SET context_snapshot = ${'{"guildId":"g"}'} WHERE run_id = ${run.runId}`.execute(
+        // No guild: every snapshot names its guild. (A missing `userId` is no longer
+        // corrupt — it is a run about nobody.)
+        await sql`UPDATE flow_runs SET context_snapshot = ${'{"userId":"u"}'} WHERE run_id = ${run.runId}`.execute(
             db
         );
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     Alert,
     Button,
@@ -18,10 +18,17 @@ import { getGuildSettings, updateGuildSettings } from '../api/config';
 import { getGuildRoles } from '../api/flows';
 import type { GuildRole, GuildSettings } from '../api/types';
 import { useGuilds } from '../guilds/GuildContext';
+import { TimeZoneCard } from '../settings/TimeZoneCard';
 import { PAGE_MAX_WIDTH } from '../theme';
 
+/** The fields one form owns: what its save may write back into the page's settings. */
+type OwnedSettingsFields =
+    | Pick<GuildSettings, 'staffRoleIds' | 'staffRoles'>
+    | Pick<GuildSettings, 'timeZone'>;
+
 /**
- * Server-wide settings that belong to no single feature. Today: staff roles.
+ * Server-wide settings that belong to no single feature. Today: staff roles and the
+ * time zone.
  *
  * Staff roles are what a flow's `staff` audience compiles to when its journey is
  * installed, which is why this page unblocks installing a staff-gated flow from the
@@ -30,6 +37,9 @@ import { PAGE_MAX_WIDTH } from '../theme';
  * A multi-select rather than the flow builder's `RolePickerControl`: that one is
  * single-select and coupled to the builder's declared-resource mechanism, neither of
  * which applies to a plain guild-wide list.
+ *
+ * Each card is its own form with its own Save, backed by its own route, so saving one
+ * never submits — or wipes — what the other shows.
  */
 export function ServerSettingsPage() {
     const { selected, loading: guildsLoading } = useGuilds();
@@ -41,6 +51,12 @@ export function ServerSettingsPage() {
     const [error, setError] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
     const [lastSaved, setLastSaved] = useState<Date | null>(null);
+
+    // The guild on screen now, for a save's answer to check it still applies.
+    const selectedIdRef = useRef<string | null>(null);
+    useEffect(() => {
+        selectedIdRef.current = selected?.id ?? null;
+    }, [selected]);
 
     useEffect(() => {
         if (!selected) return;
@@ -97,12 +113,27 @@ export function ServerSettingsPage() {
     // An empty list is a legal save: it is how an operator says "nobody is staff yet".
     const canSave = !pristine && !saving;
 
+    /*
+     * Each save merges only the fields its own form owns. Both routes answer with the
+     * whole settings shape, but taking it whole would let a late answer from one form
+     * bring back an old value of the other's. An answer for a guild that is no longer
+     * the one on screen is dropped.
+     */
+    function mergeSaved(guildId: string, owned: OwnedSettingsFields): boolean {
+        if (selectedIdRef.current !== guildId) return false;
+        setSettings((current) => (current ? { ...current, ...owned } : current));
+        return true;
+    }
+
     async function handleSave() {
         if (!selected) return;
+        const guildId = selected.id;
         setSaving(true);
         try {
-            const updated = await updateGuildSettings(selected.id, staffRoleIds);
-            setSettings(updated);
+            const updated = await updateGuildSettings(guildId, staffRoleIds);
+            if (!mergeSaved(guildId, { staffRoleIds: updated.staffRoleIds, staffRoles: updated.staffRoles })) {
+                return;
+            }
             setStaffRoleIds(updated.staffRoleIds);
             setLastSaved(new Date());
             notifications.show({
@@ -225,6 +256,17 @@ export function ServerSettingsPage() {
                 )}
             </Card>
 
+            {/* Shown once settings are in hand: the staff card above already carries
+                the one loading spinner and the one load error for the page. */}
+            {!loading && !error && settings && (
+                <TimeZoneCard
+                    key={selected.id}
+                    guildId={selected.id}
+                    settings={settings}
+                    onSaved={(guildId, timeZone) => mergeSaved(guildId, { timeZone })}
+                />
+            )}
+
             <Card p="lg" maw={640} bg="dark.7">
                 <Group gap={8} mb={6}>
                     <IconSettings size={18} color="var(--mantine-color-dark-2)" />
@@ -234,7 +276,7 @@ export function ServerSettingsPage() {
                 </Group>
                 <Text size="13px" c="dimmed">
                     This page is where server-wide configuration lands as it gets built. Right now
-                    staff roles are the whole show.
+                    staff roles and the time zone are the whole show.
                 </Text>
             </Card>
         </Stack>

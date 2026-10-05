@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
+import { requireSubject } from '../types';
 
 export const CONDITION_IS_BOOSTER = 'condition.isBooster';
 
@@ -36,7 +37,7 @@ export const block: BlockManifest<IsBoosterConfig> = {
         // the member update. The `note` promises no more than that.
         return {
             kind: 'continue',
-            handle: context.subject.premiumSince ? 'true' : 'false',
+            handle: requireSubject(context).premiumSince ? 'true' : 'false',
         };
     },
 };

@@ -2,6 +2,7 @@ import { screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { BlockConfigField, TicketTypeView } from '../../../api/types';
 import { renderWithProviders } from '../../../__tests__/support/renderWithProviders';
+import { ALL_REQUIREMENTS_AVAILABLE } from '../../variables';
 import { TicketTypePickerControl } from '../TicketTypePickerControl';
 import type { ControlContext } from '../types';
 
@@ -34,7 +35,7 @@ function renderPicker(options: { field?: TicketTypeField; value?: string; ticket
         channels: [],
         ticketTypes: options.ticketTypes ?? TYPES,
         variables: [],
-        actorAvailable: true,
+        requirements: ALL_REQUIREMENTS_AVAILABLE,
         declaredResources: [],
         setConfigKey: vi.fn(),
     };

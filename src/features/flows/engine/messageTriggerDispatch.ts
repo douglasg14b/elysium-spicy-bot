@@ -1,12 +1,11 @@
 import type { GuildMember, Message } from 'discord.js';
 import type { MessageActivityEvent, RecordedActivityEvent } from '../../../features-system/activity';
 import { MESSAGE_SENT_VARIABLES } from '../blocks/triggerMessageSent';
-import type { FlowRunSeed } from '../blocks/types';
 import { messageActivityLimit } from './messageActivityLimit';
 import { messageTriggerIndex } from './messageTriggerIndex';
 import { wakeMessageWaits } from './messageWaitDispatch';
 import { asGuildTextChannel } from './runChannel';
-import { startTriggeredRun } from './triggeredRun';
+import { startTriggeredRun, type SubjectSeed } from './triggeredRun';
 
 /**
  * Everything flows does with one recorded message — the activity subscriber `initFlows`
@@ -68,8 +67,9 @@ export async function startMessageTriggers(event: MessageActivityEvent): Promise
 
     const channel = asGuildTextChannel(message.channel);
     for (const entry of matching) {
-        // A fresh seed per run, as every dispatcher builds one.
-        const seed: FlowRunSeed = {
+        // A fresh seed per run, as every dispatcher builds one. Names its member, since
+        // the flood limit counts starts per member.
+        const seed: SubjectSeed = {
             client: message.client,
             guild: event.guild,
             subject: member,

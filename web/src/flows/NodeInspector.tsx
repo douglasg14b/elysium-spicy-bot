@@ -22,7 +22,13 @@ import { KIND_STYLES } from './nodeMeta';
 import { ticketChannelNameFor } from './ticketChannelName';
 import { describeUnconnectedExit } from './unconnectedExits';
 import { describeUnplacedIssue, placeIssues } from './validationIssues';
-import { isFieldVisible, resolveOutputName, variableToken, type AvailableVariable } from './variables';
+import {
+    isFieldVisible,
+    resolveOutputName,
+    variableToken,
+    type AvailableVariable,
+    type RequirementAvailability,
+} from './variables';
 
 interface NodeInspectorProps {
     /** The block this node instantiates, absent when its type is unknown to this build. */
@@ -42,12 +48,13 @@ interface NodeInspectorProps {
      */
     variables: AvailableVariable[];
     /**
-     * Whether `{{actor.mention}}` resolves at this node.
+     * Which run-context requirements the run reaching this node can be relied on to
+     * carry — for greying token chips and disabling options that need what is missing.
      *
      * Computed by the page for the same reason `variables` is: it depends on what
      * is wired above this node, which the inspector cannot see.
      */
-    actorAvailable: boolean;
+    requirements: RequirementAvailability;
     /** What this flow declares but has not installed yet, for the pickers to offer. */
     declaredResources: ResourceDeclaration[];
     /**
@@ -77,7 +84,7 @@ export function NodeInspector({
     channels,
     ticketTypes,
     variables,
-    actorAvailable,
+    requirements,
     declaredResources,
     issues,
     unconnectedExits,
@@ -104,7 +111,7 @@ export function NodeInspector({
         channels,
         ticketTypes,
         variables,
-        actorAvailable,
+        requirements,
         declaredResources,
         // A picker's resource key is a sibling of its own field, so it patches the
         // node directly rather than going through its single-key `onChange`.

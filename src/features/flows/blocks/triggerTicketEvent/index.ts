@@ -83,7 +83,7 @@ export const block: BlockManifest<TicketEventConfig> = {
         "The member is whoever the ticket is about — even if they've already flounced out of the server, in which " +
         'case anything that acts on them fails, and a run that waits fails when it wakes, because there is nobody ' +
         "left to resume. Opened fires once the ticket's embed is up; a ticket whose embed never made it fires " +
-        'nothing. Whoever made the change is the actor when a person did it; when a flow did, nobody is. Flows ' +
+        'nothing. Whoever made the change is the actor — the bot, when a flow did it. Flows ' +
         'that keep setting each other off stop after five in a row.',
     handles: [{ label: 'Then', tone: 'neutral' }],
     /*
@@ -107,7 +107,9 @@ export const block: BlockManifest<TicketEventConfig> = {
             valueKind: 'channel',
         },
     ],
-    requires: ['subject'],
+    // Every change names who made it — a person, or the bot for a flow's change — and the
+    // dispatcher resolves one who has left as a partial, so a run always has an actor.
+    requires: ['subject', 'actor'],
     capabilities: [],
     startedBy: 'ticketChanged',
     canSuspend: false,

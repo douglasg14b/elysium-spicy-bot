@@ -3,9 +3,10 @@
  *
  * Two sources, merged by `visibleIssues`:
  *
- *  - **The server's last answer** — on open, from every save, and from the re-check
- *    asked whenever focus leaves the inspector. It is the authority, and the only one
- *    that sees everything: graph rules, declared resources, a block's `.refine()`.
+ *  - **The server's last answer** — on open, from every save, from the re-check asked
+ *    whenever focus leaves the inspector, and from the one asked shortly after the
+ *    graph's shape changes. It is the authority, and the only one that sees everything:
+ *    graph rules, declared resources, a block's `.refine()`.
  *  - **Live checks on the fields edited since** — the rules the server derived from
  *    each block's schema (`fieldChecks.ts`), run on every keystroke. They are what
  *    clear a mark as the author fixes it, rather than one blur later.
@@ -66,7 +67,20 @@ export interface FlowIssues {
      * without changing anything costs no request.
      */
     readonly recheck: () => void;
+    /**
+     * The author changed the graph's shape — added or removed a node, connected two, or
+     * removed a connection — so ask again shortly, once the edits stop.
+     *
+     * What a node needs depends on what reaches it: a block that needs a member is marked
+     * the moment it is wired where a run about nobody gets to, and only the server knows
+     * that, so it is asked rather than a second copy of its walk run here. Debounced, since
+     * one drag can be several edits, and the newest answer wins as for any re-check.
+     */
+    readonly recheckAfterStructuralEdit: () => void;
 }
+
+/** How long the graph's shape must sit still before a structural edit asks the server. */
+export const STRUCTURAL_RECHECK_DELAY_MS = 600;
 
 /** An edited field, as one string: node ids are free-form, so the separator is one no id holds. */
 const editKey = (nodeId: string, field: string): string => `${nodeId}\u0000${field}`;
@@ -145,6 +159,16 @@ export function useFlowIssues({ guildId, flowId, graph, catalog }: FlowIssuesInp
 
     const recheck = useCallback(() => setRecheckTick((tick) => tick + 1), []);
 
+    const structuralTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const recheckAfterStructuralEdit = useCallback(() => {
+        clearTimeout(structuralTimerRef.current);
+        structuralTimerRef.current = setTimeout(() => {
+            structuralTimerRef.current = undefined;
+            recheck();
+        }, STRUCTURAL_RECHECK_DELAY_MS);
+    }, [recheck]);
+    useEffect(() => () => clearTimeout(structuralTimerRef.current), []);
+
     useEffect(() => {
         if (recheckTick === 0) return;
         const { guildId: guild, flowId: flow, graph: canvas } = latestRef.current;
@@ -199,5 +223,5 @@ export function useFlowIssues({ guildId, flowId, graph, catalog }: FlowIssuesInp
         return visibleIssues(serverIssues, edited, liveFieldIssues(graph.nodes, catalog, edited));
     }, [serverIssues, edits, graph, catalog]);
 
-    return { issues, setIssues, editMark, markEdited, recheck };
+    return { issues, setIssues, editMark, markEdited, recheck, recheckAfterStructuralEdit };
 }

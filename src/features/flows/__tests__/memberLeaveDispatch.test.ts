@@ -112,7 +112,7 @@ describe('a member leaving', () => {
 
         expect(executeFlow).toHaveBeenCalledTimes(1);
         const [seed] = seeds();
-        expect(seed?.subject.id).toBe(member.id);
+        expect(seed?.subject?.id).toBe(member.id);
         expect((seed?.subject as GuildMember | PartialGuildMember).partial).toBe(true);
         expect(seed?.actor).toBeUndefined();
         expect(seed?.channel).toBeUndefined();

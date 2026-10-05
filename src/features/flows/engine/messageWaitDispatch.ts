@@ -57,6 +57,9 @@ export async function wakeMessageWaits(
     // park after leveling's own database write — so it is never in this snapshot and
     // never woken by the message that started it. An await before this line would
     // break that silently.
+    //
+    // A run about nobody is never among these: the index refuses a message wait with no
+    // member, and validation keeps one from parking on a path about nobody.
     const entries = messageWaitIndex.matching({
         guildId: event.guild.id,
         userId: event.userId,

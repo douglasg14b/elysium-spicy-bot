@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
+import { requireSubject } from '../types';
 
 export const CONDITION_HAS_ROLE = 'condition.hasRole';
 
@@ -37,7 +38,7 @@ export const block: BlockManifest<HasRoleConfig> = {
     run(config, context) {
         return {
             kind: 'continue',
-            handle: context.subject.roles.cache.has(config.roleId) ? 'true' : 'false',
+            handle: requireSubject(context).roles.cache.has(config.roleId) ? 'true' : 'false',
         };
     },
 };

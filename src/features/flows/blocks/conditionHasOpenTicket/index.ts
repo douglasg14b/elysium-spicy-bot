@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
+import { requireSubject } from '../types';
 import { findOpenTicket, TICKET_VARIABLES } from '../../../tickets';
 
 export const CONDITION_HAS_OPEN_TICKET = 'condition.hasOpenTicket';
@@ -78,7 +79,7 @@ export const block: BlockManifest<HasOpenTicketConfig> = {
     capabilities: [],
     canSuspend: false,
     async run(config, context) {
-        const ticket = await findOpenTicket(context.guild.id, context.subject.id, config.ticketType);
+        const ticket = await findOpenTicket(context.guild.id, requireSubject(context).id, config.ticketType);
         if (!ticket) {
             return { kind: 'continue', handle: 'false' };
         }

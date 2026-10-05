@@ -1,11 +1,17 @@
 /**
  * The two fixed-choice controls. `segmented` shows every option at once;
  * `select` drops down, for when the labels are too long to sit side by side.
+ *
+ * Both disable an option whose declared `requires` the run reaching this node cannot be
+ * relied on to carry — "The member's last message" where a run about nobody can arrive —
+ * and say why on hover. A value already picked stays shown: the server's issue sits
+ * beside it, and the author picks another.
  */
 
 import { SegmentedControl, Select, Text } from '@mantine/core';
 import { asText, type ControlProps } from './types';
-import type { BlockConfigField } from '../../api/types';
+import type { BlockConfigField, BlockConfigOption } from '../../api/types';
+import { describeUnavailableRequirement, firstUnavailable, type RequirementAvailability } from '../variables';
 
 type SegmentedField = Extract<BlockConfigField, { control: 'segmented' }>;
 type SelectField = Extract<BlockConfigField, { control: 'select' }>;
@@ -23,6 +29,12 @@ function displayedFallback(field: SegmentedField | SelectField): string {
     return field.defaultValue ?? field.options[0]?.value ?? '';
 }
 
+/** Why an option cannot be picked at this node, or undefined when it can. */
+function unavailableReason(option: BlockConfigOption, available: RequirementAvailability): string | undefined {
+    const missing = firstUnavailable(option.requires, available);
+    return missing ? describeUnavailableRequirement(missing.requirement, missing.loss) : undefined;
+}
+
 /**
  * A small set of choices, all visible.
  *
@@ -33,6 +45,7 @@ export function SegmentedChoiceControl({
     field,
     value,
     onChange,
+    context,
     error,
 }: ControlProps<SegmentedField>) {
     const fallback = displayedFallback(field);
@@ -46,10 +59,16 @@ export function SegmentedChoiceControl({
                 fullWidth
                 size="xs"
                 color="brand"
-                data={field.options.map((option) => ({
-                    value: option.value,
-                    label: option.label,
-                }))}
+                data={field.options.map((option) => {
+                    const reason = unavailableReason(option, context.requirements);
+                    return {
+                        value: option.value,
+                        // A native title: a disabled segment still takes hover, and the
+                        // reason is the whole of what an author needs from it.
+                        label: reason ? <span title={reason}>{option.label}</span> : option.label,
+                        disabled: reason !== undefined,
+                    };
+                })}
                 value={asText(value) || fallback}
                 onChange={(next) => onChange(next)}
             />
@@ -74,15 +93,26 @@ export function SegmentedChoiceControl({
 }
 
 /** A longer set of choices, in a dropdown. */
-export function SelectChoiceControl({ field, value, onChange, error }: ControlProps<SelectField>) {
+export function SelectChoiceControl({ field, value, onChange, context, error }: ControlProps<SelectField>) {
     const fallback = displayedFallback(field);
+    const reasons = new Map(
+        field.options.flatMap((option) => {
+            const reason = unavailableReason(option, context.requirements);
+            return reason ? [[option.value, reason] as const] : [];
+        })
+    );
 
     return (
         <Select
             label={field.label}
             description={field.description}
             error={error}
-            data={field.options.map((option) => ({ value: option.value, label: option.label }))}
+            data={field.options.map((option) => ({
+                value: option.value,
+                label: option.label,
+                disabled: reasons.has(option.value),
+            }))}
+            renderOption={({ option }) => <span title={reasons.get(option.value)}>{option.label}</span>}
             value={asText(value) || fallback}
             onChange={(next) => onChange(next ?? fallback)}
             allowDeselect={false}

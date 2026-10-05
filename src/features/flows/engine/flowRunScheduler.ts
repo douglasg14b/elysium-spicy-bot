@@ -9,7 +9,7 @@ import { FLOW_RUN_POLL_INTERVAL_MS } from '../constants';
 import { FlowRunsRepo, flowRunsRepo } from '../data/flowRunsRepo';
 import type { FlowRunEntity } from '../data/flowRunsSchema';
 import { RESUME_TIMEOUT } from '../blocks/types';
-import { resumeFlowRun } from './flowRunResume';
+import { failParkedRun, resumeFlowRun } from './flowRunResume';
 import { rebuildMessageWaitIndex, resumeMessageWaitsAfterBackfill } from './messageWaitDispatch';
 
 export type FlowRunSchedulerDependencies = {
@@ -213,7 +213,7 @@ export async function runFlowRunTick(
                 // A failed lookup throws into the catch below and leaves the run
                 // parked for the next tick. Timing out on a guess would end a run
                 // whose member may well still be talking.
-                if (await deferIfMessaged(run, now, dependencies)) {
+                if (await deferIfMessaged(client, run, now, dependencies)) {
                     continue;
                 }
 
@@ -264,8 +264,14 @@ export async function runFlowRunTick(
  *
  * Never reached while activity is backfilling: the tick does not fetch quiet-window
  * runs then (see {@link runFlowRunTick}).
+ *
+ * A window counting the member's messages on a run about nobody is ended here, failed by
+ * name, and also returns true. Save-time validation makes it unreachable — that option
+ * requires a member — but throwing instead would leave the run parked, retried every tick
+ * forever while holding a slot in the due batch.
  */
 async function deferIfMessaged(
+    client: Client,
     run: FlowRunEntity,
     now: Date,
     dependencies: FlowRunSchedulerDependencies
@@ -275,15 +281,37 @@ async function deferIfMessaged(
         return false;
     }
 
-    const lastMessageAt = await dependencies.activityEventsRepo.findLastMessageAt(
-        quiet.who === 'member'
-            ? {
-                  guildId: run.guildId,
-                  userId: run.contextSnapshot.userId,
-                  ...(quiet.channelId ? { channelId: quiet.channelId } : {}),
-              }
-            : { guildId: run.guildId, channelId: quiet.channelId }
-    );
+    let lastMessageAt: Date | null;
+    if (quiet.who === 'member') {
+        const { userId } = run.contextSnapshot;
+        if (!userId) {
+            const reason =
+                `Run ${run.runId} counts its time limit from the member's last message, but it is about ` +
+                'nobody, so there is no member whose messages to count.';
+            // Claimed on the park this tick read, so a run that has since woken and parked
+            // again is not the one ended.
+            const outcome = await failParkedRun(client, run, reason, {
+                wakeAt: run.wakeAt,
+                ...(run.resumeNodeId ? { resumeNodeId: run.resumeNodeId } : {}),
+            });
+            if (outcome.status === 'skipped') {
+                console.info(`[flow-runs] Did not end run ${run.runId}: it moved on before it could be claimed.`);
+            } else {
+                console.warn(`[flow-runs] Ended run ${run.runId}: ${reason}`);
+            }
+            return true;
+        }
+        lastMessageAt = await dependencies.activityEventsRepo.findLastMessageAt({
+            guildId: run.guildId,
+            userId,
+            ...(quiet.channelId ? { channelId: quiet.channelId } : {}),
+        });
+    } else {
+        lastMessageAt = await dependencies.activityEventsRepo.findLastMessageAt({
+            guildId: run.guildId,
+            channelId: quiet.channelId,
+        });
+    }
     if (!lastMessageAt) {
         return false;
     }

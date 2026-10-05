@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { awardFlowXp, type FlowXpRefusal } from '../../../leveling';
 import type { BlockManifest } from '../manifest';
+import { requireSubject } from '../types';
 
 export const ACTION_AWARD_XP = 'action.awardXp';
 
@@ -68,7 +69,7 @@ export const block: BlockManifest<AwardXpConfig> = {
         const result = await awardFlowXp({
             client: context.client,
             guild: context.guild,
-            userId: context.subject.id,
+            userId: requireSubject(context).id,
             xpAmount: config.amount,
         });
 

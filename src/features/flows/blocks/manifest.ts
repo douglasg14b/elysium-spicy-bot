@@ -172,6 +172,17 @@ export interface BlockConfigOption {
     /** The value persisted in `node.data`. Must satisfy the block's schema. */
     readonly value: string;
     readonly label: string;
+    /**
+     * Run context this choice cannot work without, on top of the block's own `requires`.
+     *
+     * For a block that only *sometimes* needs something: Time Since measures from the
+     * member's last message or from a channel's, and only the first needs a member. While
+     * the field is visible and holds this option — stored, or its default — the node's
+     * effective requirements include these, so save-time validation and the executor hold
+     * the choice to them exactly as they hold a block's own. Absent means the choice
+     * needs nothing extra. Conformance holds each entry to {@link FLOW_CONTEXT_REQUIREMENTS}.
+     */
+    readonly requires?: readonly FlowContextRequirement[];
 }
 
 /**
@@ -875,10 +886,15 @@ export function resolveOutputValueKind(
 /**
  * What a block needs to be present in the run context.
  *
- * Three of the four can genuinely be absent, which is what makes them checkable
- * at save time — `validateAuthoredGraph` rejects a block needing one on a path
- * that can never carry it, naming the node and the requirement:
+ * Every one can genuinely be absent, which is what makes them checkable at save
+ * time — `validateAuthoredGraph` rejects a node needing one on a path that can
+ * never carry it, naming the node and the requirement. A node needs what its block
+ * declares, plus what its picked options and its copy's tokens declare (see
+ * `engine/nodeRequirements.ts`):
  *
+ * * `subject` — a trigger that does not declare it starts runs about nobody, so a
+ *   path reachable from one has no member to act on. Parking keeps it: resume
+ *   fetches the member again.
  * * `interaction` — a run started by a gateway event has none, and neither does
  *   any resumed run, because the token is expired.
  * * `actor` — a resumed run has nobody who caused the step. A gateway trigger
@@ -886,10 +902,9 @@ export function resolveOutputValueKind(
  * * `channel` — a member join establishes none, so a path reachable only from
  *   one cannot answer a question about where it is.
  *
- * `subject` is always present, so declaring it is documentation rather than a
- * constraint anything can violate. `guild` is deliberately absent: nothing in a
- * graph can violate it either, and unlike `subject` no block has ever wanted to
- * say it — a requirement that cannot fail and nobody declares is noise.
+ * `guild` is deliberately absent: nothing in a graph can violate it, and no block
+ * has ever wanted to say it — a requirement that cannot fail and nobody declares
+ * is noise.
  */
 export const FLOW_CONTEXT_REQUIREMENTS = ['subject', 'actor', 'channel', 'interaction'] as const;
 
@@ -988,7 +1003,9 @@ export interface BlockManifest<TConfig = unknown> {
      * the supply side when deciding whether a downstream block's requirement can
      * be met on that path. A button click establishes an actor, a channel and an
      * interaction; a member join establishes only an actor, which is why a block
-     * asking where it is cannot sit on a join-rooted path.
+     * asking where it is cannot sit on a join-rooted path. A trigger leaving out
+     * `subject` starts runs about nobody, and no block needing a member may sit
+     * where it reaches.
      *
      * One member serving both readings is deliberate rather than overloaded: a
      * second `supplies` array would have to be kept consistent with this one by

@@ -188,7 +188,7 @@ describe('runs parked before M1', () => {
             throw new Error(`a pre-change row should still rebuild, but: ${rebuilt.reason}`);
         }
         expect(rebuilt.context.channel).toBeUndefined();
-        expect(rebuilt.context.subject.id).toBe(USER_ID);
+        expect(rebuilt.context.subject?.id).toBe(USER_ID);
     });
 
     it('resumes a delay-parked run at the node the delay pointed at', async () => {

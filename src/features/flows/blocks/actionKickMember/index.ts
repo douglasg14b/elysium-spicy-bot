@@ -2,6 +2,7 @@ import { PermissionFlagsBits, type Guild, type GuildMember } from 'discord.js';
 import { z } from 'zod';
 import { isUnknownMember } from '../../../../utils/isUnknownMember';
 import type { BlockManifest } from '../manifest';
+import { requireSubject } from '../types';
 
 export const ACTION_KICK_MEMBER = 'action.kickMember';
 
@@ -59,7 +60,7 @@ export const block: BlockManifest<KickMemberConfig> = {
     capabilities: ['kickMembers'],
     canSuspend: false,
     async run(config, context) {
-        const member = await fetchIfStillHere(context.guild, context.subject.id);
+        const member = await fetchIfStillHere(context.guild, requireSubject(context).id);
         if (!member) {
             return { kind: 'continue' };
         }

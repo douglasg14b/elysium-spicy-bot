@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { activityEventsRepo } from '../../../../features-system/activity';
 import type { BlockManifest } from '../manifest';
 import { checkChannelUsable } from '../quietTimeout';
-import type { FlowRunContext } from '../types';
+import { requireSubject, type FlowRunContext } from '../types';
 import { VARIABLE_NAME_MAX_LENGTH, VARIABLE_NAME_MESSAGE, VARIABLE_NAME_SHAPE } from '../variableName';
 
 export const CONDITION_TIME_SINCE = 'condition.timeSince';
@@ -136,7 +136,7 @@ async function referenceTime(config: TimeSinceConfig, context: FlowRunContext): 
             return found(
                 await activityEventsRepo.findLastMessageAt({
                     guildId: context.guild.id,
-                    userId: context.subject.id,
+                    userId: requireSubject(context).id,
                     ...(channelId ? { channelId } : {}),
                 })
             );
@@ -150,7 +150,7 @@ async function referenceTime(config: TimeSinceConfig, context: FlowRunContext): 
             return found(await activityEventsRepo.findLastMessageAt({ guildId: context.guild.id, channelId }));
         case 'memberJoined':
             // Null on a partial member — a leaver the bot never cached.
-            return found(context.subject.joinedAt);
+            return found(requireSubject(context).joinedAt);
         case 'runStarted':
             // Absent on a run parked before runs recorded their start. Never the row's
             // creation time, which is the first park, not the start.
@@ -225,10 +225,13 @@ export const block: BlockManifest<TimeSinceConfig> = {
             label: 'Since',
             control: 'select',
             defaultValue: 'memberMessage',
+            // Only the member's own sources need a member, so they say so here rather than
+            // the block saying it for every source: a run about nobody can still measure
+            // from a channel, its own start, or a saved time.
             options: [
-                { value: 'memberMessage', label: "The member's last message" },
+                { value: 'memberMessage', label: "The member's last message", requires: ['subject'] },
                 { value: 'channelMessage', label: "Anyone's last message in a channel" },
-                { value: 'memberJoined', label: 'When the member joined' },
+                { value: 'memberJoined', label: 'When the member joined', requires: ['subject'] },
                 { value: 'runStarted', label: 'When this run started' },
                 { value: 'variable', label: 'A saved time' },
             ],
@@ -298,7 +301,8 @@ export const block: BlockManifest<TimeSinceConfig> = {
         },
     ],
     outputs: [],
-    requires: ['subject'],
+    // Nothing for every source; the member's sources declare `subject` on their options.
+    requires: [],
     capabilities: [],
     canSuspend: false,
     async run(config, context) {

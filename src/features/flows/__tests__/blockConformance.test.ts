@@ -157,6 +157,32 @@ describe('a manifest using a word that is not in the vocabulary', () => {
             checkBlockConformance(manifestWith({ handles: [{ label: 'Next', tone: 'spicy' }] })).join()
         ).toMatch(/tone "spicy"/);
     });
+
+    it("checks a choice's own requirements against the same vocabulary", () => {
+        // An option's `requires` joins the node's requirements when picked, so a word
+        // outside the vocabulary would be a requirement nothing ever checks.
+        const withOption = (requires: readonly string[]) =>
+            manifestWith({
+                configSchema: z.object({ mode: z.enum(['plain', 'member']).default('plain') }),
+                configFields: [
+                    {
+                        key: 'mode',
+                        label: 'Mode',
+                        control: 'select',
+                        defaultValue: 'plain',
+                        options: [
+                            { value: 'plain', label: 'Plain' },
+                            { value: 'member', label: 'Member', requires },
+                        ],
+                    },
+                ],
+            });
+
+        expect(checkBlockConformance(withOption(['ticket'])).join()).toMatch(
+            /configFields\.options\.requires "ticket" is not in the vocabulary/
+        );
+        expect(checkBlockConformance(withOption(['subject']))).toEqual([]);
+    });
 });
 
 describe('a declared field and its schema disagreeing', () => {

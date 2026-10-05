@@ -105,7 +105,14 @@ export interface FlowRunSeed {
     client: Client;
     guild: Guild;
     /**
-     * The member the run is *about*. Always present.
+     * The member the run is *about* — absent on a run whose trigger supplies nobody.
+     *
+     * A trigger that leaves `subject` out of its `requires` starts runs about nobody,
+     * and every such run carries no member here: no stand-in, no bot, no placeholder
+     * id, any of which would make a block's `subject` requirement lie. **Absent never
+     * means the member left** — a departure still carries the leaver, below. A block
+     * that declares `subject` reads it through {@link requireSubject}; the executor has
+     * already refused to run it without one.
      *
      * Distinct from {@link actor} because the two genuinely diverge: a moderator
      * advancing someone else's run acts on a subject who is not themselves. Every
@@ -121,15 +128,20 @@ export interface FlowRunSeed {
      * Either way, acting on them fails at Discord and reading their roles or boost
      * answers from that last-known state, not from the guild.
      */
-    subject: GuildMember | PartialGuildMember;
+    subject?: GuildMember | PartialGuildMember;
     /**
      * The member who caused the *current step*, when a member caused it at all.
      *
      * Absent when the clock woke the run rather than a person — a resumed run has
-     * no actor, because nobody acted. Reporting the subject here instead would be
-     * a convenient lie, and the whole reason the two are separate fields.
+     * no actor, because nobody acted — and on a run whose trigger does not say who
+     * acted (a departure). Reporting the subject here instead would be a convenient
+     * lie, and the whole reason the two are separate fields.
+     *
+     * **May be a member who has already left**, as `subject` may: a ticket change
+     * names who made it, and one who left before the dispatch is handed over as a
+     * partial member. A mention still renders; acting on them fails at Discord.
      */
-    actor?: GuildMember;
+    actor?: GuildMember | PartialGuildMember;
     /**
      * Where the run is operating, when a step has established somewhere.
      *
@@ -263,5 +275,29 @@ export interface FlowRunContext extends FlowRunSeed {
      * rather than silently dropping one.
      */
     setOutput(key: string, value: FlowVariableValue): void;
+}
+
+/**
+ * The member a run is about, for a block that declared `subject`.
+ *
+ * The executor compares every node's requirements with the run before calling `run`,
+ * and fails the step by name when the subject is missing — so for a block whose
+ * `requires` (or picked option) says `subject`, this never throws. It throws a named
+ * programming error rather than handing back `undefined` because reaching it without a
+ * subject means that check regressed, and a `!` would turn that into a null dereference
+ * deep inside discord.js.
+ *
+ * One helper rather than a guard in each block: the guard is the executor's, tested
+ * once, and every block narrows the same way.
+ */
+export function requireSubject(context: FlowRunSeed): GuildMember | PartialGuildMember {
+    const { subject } = context;
+    if (!subject) {
+        throw new Error(
+            'This block needs the member the run is about, and this run is about nobody. The executor ' +
+                'should have refused to run it — the requirement check has regressed.'
+        );
+    }
+    return subject;
 }
 

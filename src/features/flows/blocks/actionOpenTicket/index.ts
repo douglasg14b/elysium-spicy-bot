@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
+import { requireSubject } from '../types';
 import { attachTicketChannel, openTicket, recordTicketStateMessage, TICKET_VARIABLES } from '../../../tickets';
 import { ticketingRepo } from '../../../tickets/data/ticketingRepo';
 import { isTicketingConfigConfigured } from '../../../tickets/data/ticketingSchema';
@@ -118,17 +119,18 @@ export const block: BlockManifest<OpenTicketConfig> = {
             );
         }
 
+        const subject = requireSubject(context);
         const ticketResult = await openTicket({
             guildId: context.guild.id,
             type: config.ticketType,
             definition,
-            subjectId: context.subject.id,
+            subjectId: subject.id,
             openerId: null,
             title: config.title,
             reason: config.reason || 'Opened automatically by a flow',
-            // `context.subject` is already a `GuildMember`, so this costs no fetch.
+            // The subject is already a `GuildMember`, so this costs no fetch.
             // The opener is null — a flow filed this — so there is no opener to name.
-            subjectIdentity: ticketIdentityFromMember(context.subject),
+            subjectIdentity: ticketIdentityFromMember(subject),
             openerIdentity: null,
         });
         if (!ticketResult.ok) throw ticketResult.error;
@@ -138,7 +140,7 @@ export const block: BlockManifest<OpenTicketConfig> = {
             guild: context.guild,
             ticket,
             config: configEntity.config,
-            subjectName: context.subject.user.username,
+            subjectName: subject.user.username,
             openerName: null,
         });
         // The record survives a channel that could not be created, holding
@@ -159,12 +161,12 @@ export const block: BlockManifest<OpenTicketConfig> = {
 
         // Recorded so a caller with no interaction can re-render this embed, and
         // recording it is what announces the ticket as opened, now its embed exists. A
-        // flow did it, so nobody acted, and the run's depth goes with it so a flow it
-        // starts sits one link further down. Logged rather than thrown: the row is the
+        // flow did it, so the bot is who acted, and the run's depth goes with it so a flow
+        // it starts sits one link further down. Logged rather than thrown: the row is the
         // ticket and the flow has already done the thing it was asked to do — though no
         // flow listening for "opened" will hear this one.
         const stateMessage = await recordTicketStateMessage(attached.value.id, message.id, {
-            actorId: null,
+            actorId: context.guild.client.user.id,
             chainDepth: context.chainDepth,
         });
         if (!stateMessage.ok) {

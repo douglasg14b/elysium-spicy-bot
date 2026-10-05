@@ -31,10 +31,29 @@ const GROUP_HEADINGS: Record<BlockPaletteGroup, string> = {
 
 interface NodePaletteProps {
     nodeTypes: NodeDescriptor[];
+    /**
+     * Whether every run this flow can start is about nobody — it has a trigger, and none
+     * supplies a member. The page decides it from the canvas; the palette only greys by it.
+     */
+    runsAboutNobody: boolean;
     onAdd: (nodeType: NodeDescriptor) => void;
 }
 
-export function NodePalette({ nodeTypes, onAdd }: NodePaletteProps) {
+/** The tooltip on a block greyed because this flow's runs are about nobody. */
+export const NEEDS_A_MEMBER_NOTE = "Needs a member — this flow's runs are about nobody.";
+
+/**
+ * Whether a palette entry is closed to this flow: a block that always needs a member, on
+ * a flow whose runs are all about nobody. Only the block's *own* `requires` — a block
+ * needing a member for some choices only (Time Since) stays usable, its choices disabled
+ * in the inspector instead. Triggers are never greyed, so an author can still add a
+ * member trigger and open the rest.
+ */
+function isGreyed(entry: NodeDescriptor, runsAboutNobody: boolean): boolean {
+    return runsAboutNobody && entry.kind !== 'trigger' && entry.requires.includes('subject');
+}
+
+export function NodePalette({ nodeTypes, runsAboutNobody, onAdd }: NodePaletteProps) {
     const [query, setQuery] = useState('');
 
     const filtered = useMemo(() => {
@@ -91,6 +110,7 @@ export function NodePalette({ nodeTypes, onAdd }: NodePaletteProps) {
                                         <PaletteItem
                                             key={entry.type}
                                             entry={entry}
+                                            greyed={isGreyed(entry, runsAboutNobody)}
                                             onAdd={onAdd}
                                         />
                                     ))}
@@ -112,22 +132,34 @@ export function NodePalette({ nodeTypes, onAdd }: NodePaletteProps) {
 
 function PaletteItem({
     entry,
+    greyed,
     onAdd,
 }: {
     entry: NodeDescriptor;
+    /** Closed to this flow: neither draggable nor clickable, and the tooltip says why. */
+    greyed: boolean;
     onAdd: (nodeType: NodeDescriptor) => void;
 }) {
     const style = KIND_STYLES[entry.kind];
 
     return (
         <UnstyledButton
-            draggable
+            draggable={!greyed}
+            // `aria-disabled` rather than `disabled`: a disabled button takes no pointer
+            // events, and the hover tooltip is the one thing a greyed entry has to say.
+            aria-disabled={greyed || undefined}
             onDragStart={(event) => {
+                if (greyed) {
+                    event.preventDefault();
+                    return;
+                }
                 event.dataTransfer.setData(NODE_DRAG_MIME, entry.type);
                 event.dataTransfer.effectAllowed = 'move';
             }}
-            onClick={() => onAdd(entry)}
-            title={`${entry.label} — drag onto the canvas, or click to add`}
+            onClick={() => {
+                if (!greyed) onAdd(entry);
+            }}
+            title={greyed ? NEEDS_A_MEMBER_NOTE : `${entry.label} — drag onto the canvas, or click to add`}
             style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -138,7 +170,8 @@ function PaletteItem({
                 padding: '9px 11px',
                 fontSize: 13,
                 fontWeight: 600,
-                cursor: 'grab',
+                cursor: greyed ? 'not-allowed' : 'grab',
+                opacity: greyed ? 0.45 : 1,
             }}
         >
             <span

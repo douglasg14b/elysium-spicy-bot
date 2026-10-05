@@ -4,9 +4,10 @@ import type { ColumnType, Generated, Insertable, JSONColumnType, Selectable, Upd
  * Server-wide configuration owned by no single feature.
  *
  * One row per guild, holding the settings that several features need to agree on.
- * Today that is the staff role list; the table exists as a home for the next such
- * setting rather than as a staff-roles table with a general name, which is why the
- * row is created on first write of *any* setting and read as a whole.
+ * Today that is the staff role list and the time zone; the table is a home for such
+ * settings rather than a staff-roles table with a general name, which is why the row
+ * is created on first write of *any* setting. Each setting is written alone, by its
+ * own repo method, so saving one never rewrites another.
  *
  * `staffRoleIds` is a **JSON column, not a join table**. The list is read whole,
  * written whole, and never queried across guilds ("which guilds have role X as
@@ -36,6 +37,16 @@ export interface GuildSettingsTable {
      * compiles to exactly these ids.
      */
     staffRoleIds: JSONColumnType<string[]>;
+
+    /**
+     * The server's time zone, as an IANA name in the operator's spelling
+     * (`America/New_York`, `Europe/Kyiv`, `UTC`) — see `storableTimeZone`.
+     *
+     * `null` means **not picked yet**, which reads as `DEFAULT_GUILD_TIME_ZONE` — kept
+     * distinct from a picked Pacific so the dashboard can keep asking until someone
+     * chooses. Read through `getTimeZone`, which does that resolution in one place.
+     */
+    timeZone: string | null;
 
     createdAt: ColumnType<Date, string, string>;
     updatedAt: ColumnType<Date, string, string>;

@@ -88,10 +88,19 @@ export const GUILD_ROLE_KEYS = [
     'position',
 ] as const satisfies readonly (keyof GuildRole)[];
 
+/** Mirrors `GUILD_SETTINGS_KEYS` in `src/web/api/guildBody.ts`. */
+export const GUILD_SETTINGS_KEYS = [
+    'staffRoleIds',
+    'staffRoles',
+    'timeZone',
+    'defaultTimeZone',
+] as const satisfies readonly (keyof GuildSettings)[];
+
 /** Fails to compile if a guild wire shape gains a member absent from its list above. */
 type GuildKeyListsAreComplete =
     | Exclude<keyof GuildChannel, (typeof GUILD_CHANNEL_KEYS)[number]>
-    | Exclude<keyof GuildRole, (typeof GUILD_ROLE_KEYS)[number]>;
+    | Exclude<keyof GuildRole, (typeof GUILD_ROLE_KEYS)[number]>
+    | Exclude<keyof GuildSettings, (typeof GUILD_SETTINGS_KEYS)[number]>;
 
 /** Do not delete as unused: removing it erases the guard above. */
 const guildKeyListsAreComplete: [GuildKeyListsAreComplete] extends [never]
@@ -120,6 +129,10 @@ export interface WarningsConfig {
 export interface GuildSettings {
     staffRoleIds: string[];
     staffRoles: { id: string; name: string }[];
+    /** The server's picked time zone (an IANA name), or `null` until someone picks one. */
+    timeZone: string | null;
+    /** The zone an unpicked server runs on. */
+    defaultTimeZone: string;
 }
 
 /** A role as returned by `GET /api/guilds/:guildId/roles`. */
@@ -237,6 +250,12 @@ export interface BlockConfigOption {
     /** The value persisted in `node.data`. */
     value: string;
     label: string;
+    /**
+     * Run context this choice needs on top of the block's own `requires` — Time Since's
+     * "the member's last message" needs a member, its channel source does not. The
+     * choice controls disable an option whose requirement cannot be met at the node.
+     */
+    requires?: FlowContextRequirement[];
 }
 
 /**
@@ -795,6 +814,26 @@ const outputDeclarationKeysAreComplete: [OutputDeclarationKeysAreComplete] exten
     : ['BLOCK_OUTPUT_DECLARATION_KEYS is missing', OutputDeclarationKeysAreComplete] = true;
 
 void outputDeclarationKeysAreComplete;
+
+/**
+ * Every member of {@link BlockConfigOption}, for the drift gate.
+ *
+ * An option is served inside a `select` or `segmented` field's `options`, so the arm
+ * lists only record that the field has options, not what one option holds. A member
+ * added on the server alone — `requires` is the one that bites — would be sent and never
+ * read, and the builder would offer a choice the server then refuses.
+ */
+export const BLOCK_CONFIG_OPTION_KEYS = ['value', 'label', 'requires'] as const satisfies readonly (keyof BlockConfigOption)[];
+
+/** Fails to compile if {@link BlockConfigOption} gains a member absent above. */
+type ConfigOptionKeysAreComplete = Exclude<keyof BlockConfigOption, (typeof BLOCK_CONFIG_OPTION_KEYS)[number]>;
+
+/** Do not delete as unused: removing it erases the guard above. */
+const configOptionKeysAreComplete: [ConfigOptionKeysAreComplete] extends [never]
+    ? true
+    : ['BLOCK_CONFIG_OPTION_KEYS is missing', ConfigOptionKeysAreComplete] = true;
+
+void configOptionKeysAreComplete;
 
 /**
  * Every member of {@link BlockConfigColumn}, for the drift gate.

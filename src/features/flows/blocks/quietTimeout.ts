@@ -67,7 +67,9 @@ export const quietTimeoutFields: readonly BlockConfigField[] = [
         defaultValue: 'waitStart',
         options: [
             { value: 'waitStart', label: 'When it started waiting' },
-            { value: 'memberMessage', label: "The member's last message" },
+            // Counting from the member's own messages needs a member: on a run about
+            // nobody the scheduler would have nobody's messages to look up.
+            { value: 'memberMessage', label: "The member's last message", requires: ['subject'] },
             { value: 'anyMessage', label: "Anyone's last message" },
         ],
     },
