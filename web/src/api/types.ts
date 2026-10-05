@@ -172,6 +172,7 @@ export const BLOCK_TRIGGER_SOURCES = [
     'memberLeave',
     'messageSent',
     'reactionAdd',
+    'scheduleDue',
     'ticketChanged',
 ] as const;
 
@@ -193,9 +194,16 @@ export const BLOCK_CONTROL_TYPES = [
     'objectList',
     'eligibility',
     'variableSelect',
+    'timeOfDay',
+    'daysOfWeek',
 ] as const;
 
 export type BlockControlType = (typeof BLOCK_CONTROL_TYPES)[number];
+
+/** The seven keys a `daysOfWeek` control stores, Monday first — the order it offers them in. */
+export const BLOCK_DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
+
+export type BlockDayKey = (typeof BLOCK_DAY_KEYS)[number];
 
 /**
  * The eligibility vocabularies, mirroring `src/features/flows/engine/eligibility.ts`.
@@ -431,6 +439,16 @@ export type BlockConfigField =
           control: 'variableSelect';
           valueKind?: BlockOutputValueKind;
           defaultValue?: string;
+      })
+    | (BlockConfigFieldBase & {
+          /** A 24-hour `HH:MM` in the server's time zone, shown on a 12-hour clock. */
+          control: 'timeOfDay';
+          defaultValue?: string;
+      })
+    | (BlockConfigFieldBase & {
+          /** A list of {@link BLOCK_DAY_KEYS}, offered Monday first. */
+          control: 'daysOfWeek';
+          defaultValue?: readonly BlockDayKey[];
       });
 
 /**
@@ -463,11 +481,51 @@ export type BlockCardSummaryPart =
           hideWhenEmpty?: boolean;
           /** When unset, render only this part's `emptyText` as the entire summary. */
           stopIfEmpty?: boolean;
+          /**
+           * Render this part only while a `select`/`segmented` field holds one of `equals`,
+           * read as a field's `visibleWhen` is. A part whose own field is hidden still
+           * renders nothing.
+           */
+          visibleWhen?: { field: string; equals: readonly string[] };
       }
     | {
           key?: undefined;
           text: string;
       };
+
+/** The field-reference arm of {@link BlockCardSummaryPart}. */
+type BlockCardSummaryFieldPart = Extract<BlockCardSummaryPart, { key: string }>;
+
+/** The literal arm of {@link BlockCardSummaryPart}. */
+type BlockCardSummaryTextPart = Extract<BlockCardSummaryPart, { text: string }>;
+
+/**
+ * Every member of each {@link BlockCardSummaryPart} arm, for the drift gate.
+ *
+ * A part is served inside `cardSummary`, so the descriptor-level list only records that a
+ * block has a summary, not what one part holds. A member added on the server alone —
+ * `visibleWhen` is the one that bites — would be sent and never read, and the card would
+ * print a part its block asked to hide.
+ */
+export const BLOCK_CARD_SUMMARY_PART_KEYS = {
+    field: ['key', 'text', 'prefix', 'suffix', 'quote', 'truncate', 'emptyText', 'hideWhenEmpty', 'stopIfEmpty', 'visibleWhen'],
+    literal: ['key', 'text'],
+} as const satisfies {
+    field: readonly (keyof BlockCardSummaryFieldPart)[];
+    literal: readonly (keyof BlockCardSummaryTextPart)[];
+};
+
+/** Fails to compile if either {@link BlockCardSummaryPart} arm gains a member absent above. */
+type CardSummaryPartKeysAreComplete =
+    | Exclude<keyof BlockCardSummaryFieldPart, (typeof BLOCK_CARD_SUMMARY_PART_KEYS)['field'][number]>
+    | Exclude<keyof BlockCardSummaryTextPart, (typeof BLOCK_CARD_SUMMARY_PART_KEYS)['literal'][number]>;
+
+/** Do not delete as unused: removing it erases the guard above. */
+const cardSummaryPartKeysAreComplete: [CardSummaryPartKeysAreComplete] extends [never]
+    ? true
+    : ['BLOCK_CARD_SUMMARY_PART_KEYS is missing', CardSummaryPartKeysAreComplete] = true;
+
+void cardSummaryPartKeysAreComplete;
 
 /** Meaning of an output handle. The builder maps a tone to a colour. */
 export const BLOCK_HANDLE_TONES = ['neutral', 'positive', 'negative', 'caution'] as const;
@@ -716,6 +774,8 @@ export const BLOCK_CONFIG_FIELD_KEYS = {
     objectList: ['key', 'label', 'description', 'visibleWhen', 'control', 'columns', 'minEntries', 'maxEntries', 'addLabel', 'defaultValue'],
     eligibility: ['key', 'label', 'description', 'visibleWhen', 'control', 'defaultValue'],
     variableSelect: ['key', 'label', 'description', 'visibleWhen', 'control', 'valueKind', 'defaultValue'],
+    timeOfDay: ['key', 'label', 'description', 'visibleWhen', 'control', 'defaultValue'],
+    daysOfWeek: ['key', 'label', 'description', 'visibleWhen', 'control', 'defaultValue'],
 } as const satisfies { [TControl in BlockControlType]: readonly (keyof Extract<BlockConfigField, { control: TControl }>)[] };
 
 /**
@@ -1126,6 +1186,31 @@ const flowKeyListsAreComplete: [FlowKeyListsAreComplete] extends [never]
     ? true
     : ['A flow wire-shape key list is missing', FlowKeyListsAreComplete] = true;
 void flowKeyListsAreComplete;
+
+/**
+ * When each of a flow's schedules next fires — `GET /flows/:flowId/next-runs`.
+ *
+ * `nextRuns` maps a node id to an ISO instant, and holds only nodes with a next time, so
+ * it is empty for a switched-off flow. The card shows an entry on whichever node has one,
+ * knowing nothing about schedules. `timeZone` is the zone the times were worked out in,
+ * for the exact-time tooltip.
+ */
+export interface FlowNextRuns {
+    timeZone: string;
+    nextRuns: Record<string, string>;
+}
+
+/** Mirrors `FLOW_NEXT_RUNS_KEYS` in `src/web/api/flowBody.ts`; `flowWireShapeDrift.test.ts` compares them. */
+export const FLOW_NEXT_RUNS_KEYS = ['timeZone', 'nextRuns'] as const satisfies readonly (keyof FlowNextRuns)[];
+
+/** Fails to compile if {@link FlowNextRuns} gains a member absent above. */
+type FlowNextRunsKeysAreComplete = Exclude<keyof FlowNextRuns, (typeof FLOW_NEXT_RUNS_KEYS)[number]>;
+
+/** Do not delete as unused: removing it erases the guard above. */
+const flowNextRunsKeysAreComplete: [FlowNextRunsKeysAreComplete] extends [never]
+    ? true
+    : ['FLOW_NEXT_RUNS_KEYS is missing', FlowNextRunsKeysAreComplete] = true;
+void flowNextRunsKeysAreComplete;
 
 /** One message a deploy posted. A flow gets one per destination channel. */
 export interface DeployedButtonMessage {

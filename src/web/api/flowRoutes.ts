@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { flowGraphSchema, FLOW_GRAPH_VERSION, type FlowGraph } from '../../features/flows/data/flowGraph';
+import { flowSchedulesRepo } from '../../features/flows/data/flowSchedulesRepo';
 import { flowsRepo, type FlowWriteDecision } from '../../features/flows/data/flowsRepo';
 import type { FlowEntity } from '../../features/flows/data/flowsSchema';
 import { validateFlowGraph } from '../../features/flows/engine/graphValidation';
@@ -21,6 +22,7 @@ import {
     flowDraft,
     flowDraftBaseSchema,
     flowNameSchema,
+    flowNextRuns,
     flowSummary,
     invalidGraphBody,
     type FlowSaveBody,
@@ -401,6 +403,29 @@ export function flowRoutes(): Hono<AppEnv> {
         }
 
         return c.json(flowDetail(flow, flowReadinessIssues(flow.graph, declared.keys)));
+    });
+
+    /*
+     * When each of this flow's schedules next fires, for the countdown on its cards.
+     *
+     * Read off `flow_schedules`, which reconcile keeps in step with the saved flow before a
+     * save returns — so the builder asking right after a save sees the new times. Only
+     * schedules with a next time are listed: none on a switched-off flow. The zone is the
+     * one the times were worked out in.
+     */
+    app.get('/:guildId/flows/:flowId/next-runs', async (c) => {
+        const guildId = c.get('guild').id;
+        const flow = await flowsRepo.getByFlowId(c.req.param('flowId'));
+        // Guild mismatch is a 404, not a 403 — never confirm another guild's flow exists.
+        if (!flow || flow.guildId !== guildId) {
+            return c.json({ error: 'Flow not found.' }, 404);
+        }
+
+        const [{ effective: timeZone }, nextRuns] = await Promise.all([
+            guildSettingsRepo.getTimeZone(guildId),
+            flowSchedulesRepo.nextRunsForFlow(flow.flowId),
+        ]);
+        return c.json(flowNextRuns(timeZone, nextRuns));
     });
 
     /*

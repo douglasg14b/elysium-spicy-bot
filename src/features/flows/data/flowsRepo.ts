@@ -63,11 +63,20 @@ export interface UpdateFlowInput {
 
 /**
  * Told after any write to a flow row has committed — a create, an update, a write
- * through `mutate`, or a delete. Takes nothing: whoever holds something derived from
- * flows drops it and reads again, which is simpler than reasoning about which write
- * touched what.
+ * through `mutate`, or a delete — with the guild whose flows it wrote. Whoever holds
+ * something derived from flows drops it, or re-derives that guild's share, and reads
+ * again, which is simpler than reasoning about which write touched what.
+ *
+ * May return a promise, which the write awaits before it returns — outside its
+ * transaction — so a caller reading what the callback derives right after the write (the
+ * builder asking for a flow's next scheduled runs after a save) sees it.
  */
-export type AfterFlowWrite = () => void;
+export type AfterFlowWrite = (written: AfterFlowWriteContext) => void | Promise<void>;
+
+/** What an {@link AfterFlowWrite} callback is told about the write. */
+export interface AfterFlowWriteContext {
+    readonly guildId: string;
+}
 
 /**
  * Persistence for flows. The graph is validated (shape + structure) on every write
@@ -89,12 +98,14 @@ export class FlowsRepo {
     /**
      * Be told after every committed write to a flow row.
      *
-     * For the engine's in-memory index of Message Sent triggers, registered from
-     * `initFlows` so `data/` never imports `engine/` — the `registerResourceWriteBack`
-     * shape. Each is called **after** the write commits, never inside a transaction, so
-     * a reload it starts reads what was written; one that throws is logged and the rest
-     * still run. A `mutate` that kept a draft, refused or found no row wrote nothing to
-     * a flow, so it tells no one.
+     * For the engine's in-memory index of Message Sent triggers and for the guild's
+     * schedules, registered from `initFlows` so `data/` never imports `engine/` or
+     * `logic/` — the `registerResourceWriteBack` shape. Each is called **after** the write
+     * commits, never inside a transaction — SQLite has one connection, so a callback's
+     * query inside one would deadlock — and awaited in turn, so a reload it starts reads
+     * what was written and has finished by the time the write returns. One that throws or
+     * rejects is logged and the rest still run; the write still stands. A `mutate` that
+     * kept a draft, refused or found no row wrote nothing to a flow, so it tells no one.
      *
      * Only this process's writes: `seedOnboardingFlow` runs in a process of its own, so
      * the running bot sees what it wrote only after a restart.
@@ -146,7 +157,7 @@ export class FlowsRepo {
                 updatedAt: now,
             })
             .execute();
-        this.tellAfterWrites();
+        await this.tellAfterWrites({ guildId: input.guildId });
 
         const saved = await this.getByFlowId(flowId);
         if (!saved) {
@@ -158,13 +169,15 @@ export class FlowsRepo {
 
     async update(flowId: string, input: UpdateFlowInput): Promise<FlowEntity> {
         await this.writeUpdate(this.db, flowId, input);
-        this.tellAfterWrites();
 
+        // Read back before telling, because the callbacks need the guild and only the row
+        // knows it.
         const saved = await this.getByFlowId(flowId);
         if (!saved) {
             throw new Error(`Flow update succeeded but row was not found for flowId ${flowId}`);
         }
 
+        await this.tellAfterWrites({ guildId: saved.guildId });
         return saved;
     }
 
@@ -252,7 +265,7 @@ export class FlowsRepo {
 
         // Outside the transaction, so it has committed: a reload started now reads it.
         if (outcome.kind === 'written') {
-            this.tellAfterWrites();
+            await this.tellAfterWrites({ guildId: outcome.flow.guildId });
         }
         return outcome;
     }
@@ -281,18 +294,32 @@ export class FlowsRepo {
      */
     async deleteByFlowId(flowId: string): Promise<void> {
         // One transaction, so a failure cannot leave the flow gone and its drafts behind.
-        await this.db.transaction().execute(async (transaction) => {
+        // The guild is read inside it, before the row goes, because the callbacks need it.
+        const guildId = await this.db.transaction().execute(async (transaction) => {
+            const row = await transaction
+                .selectFrom('flows')
+                .select('guildId')
+                .where('flowId', '=', flowId)
+                .executeTakeFirst();
             await new FlowDraftsRepo(transaction).deleteByFlowId(flowId);
             await transaction.deleteFrom('flows').where('flowId', '=', flowId).execute();
+            return row?.guildId;
         });
-        this.tellAfterWrites();
+
+        // No row means nothing was written, so there is nobody to tell.
+        if (guildId) {
+            await this.tellAfterWrites({ guildId });
+        }
     }
 
-    /** Tell every {@link registerAfterWrite} caller that a write has committed. */
-    private tellAfterWrites(): void {
+    /**
+     * Tell every {@link registerAfterWrite} caller that a write has committed, one after
+     * another. Never throws: a failing callback is logged and the rest still run.
+     */
+    private async tellAfterWrites(written: AfterFlowWriteContext): Promise<void> {
         for (const afterWrite of this.afterWrites) {
             try {
-                afterWrite();
+                await afterWrite(written);
             } catch (error) {
                 console.error('[flows] A follow-up to a flow write failed:', error);
             }

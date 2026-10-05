@@ -35,6 +35,12 @@ vi.mock('../../../features/warnings/logic/setWarningsModChannel', () => ({
     setWarningsModChannel: vi.fn(),
 }));
 
+// The time-zone PUT reschedules the guild; what rescheduling does is reconcile's own test.
+const reconcileGuildSchedules = vi.fn().mockResolvedValue(undefined);
+vi.mock('../../../features/flows/logic/reconcileGuildSchedules', () => ({
+    reconcileGuildSchedules: (...args: unknown[]) => reconcileGuildSchedules(...args),
+}));
+
 const { guildRoutes } = await import('../guildRoutes');
 
 const GUILD_ID = 'guild-1';
@@ -322,12 +328,30 @@ describe('PUT /:guildId/settings/time-zone', () => {
         expect(guildSettingsRepoMock.setTimeZone).toHaveBeenCalledWith(GUILD_ID, 'Asia/Kolkata');
     });
 
+    it("reschedules the guild's schedules once the zone is saved", async () => {
+        const order: string[] = [];
+        guildSettingsRepoMock.setTimeZone.mockImplementationOnce(async () => {
+            order.push('save');
+            return { staffRoleIds: [], timeZone: 'Asia/Tokyo' };
+        });
+        reconcileGuildSchedules.mockImplementationOnce(async () => {
+            order.push('reconcile');
+        });
+
+        const response = await putTimeZone({ timeZone: 'Asia/Tokyo' });
+
+        expect(response.status).toBe(200);
+        expect(reconcileGuildSchedules).toHaveBeenCalledWith(GUILD_ID);
+        expect(order).toEqual(['save', 'reconcile']);
+    });
+
     it('refuses a zone Intl has never heard of, storing nothing', async () => {
         const response = await putTimeZone({ timeZone: 'Mars/Olympus_Mons' });
 
         expect(response.status).toBe(400);
         expect(((await response.json()) as ErrorBody).error).toContain('Mars/Olympus_Mons');
         expect(guildSettingsRepoMock.setTimeZone).not.toHaveBeenCalled();
+        expect(reconcileGuildSchedules).not.toHaveBeenCalled();
     });
 
     it('refuses a raw offset, which is not a zone', async () => {

@@ -478,7 +478,9 @@ describe('loading a guild', () => {
         den.receiveMessage({ from: first, content: 'try me' });
         await botReplies(guild, den, `retried|${den.id}|${den.id}|unlucky`);
         expect(botSaid(guild, den)).toHaveLength(1);
-        expect(guildReads()).toHaveLength(2);
+        // The failed load, the save's own reconcile of the guild's schedules (`initFlows`
+        // reconciles after every flow write), and the index's reload on the next message.
+        expect(guildReads()).toHaveLength(3);
         reads.mockRestore();
         error.mockRestore();
     });

@@ -54,6 +54,7 @@ const SHIPPED_BLOCK_TYPES = [
     'trigger.memberLeave',
     'trigger.messageSent',
     'trigger.reactionAdd',
+    'trigger.schedule',
     'trigger.ticketEvent',
 ] as const;
 

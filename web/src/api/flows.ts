@@ -7,6 +7,7 @@ import type {
     FlowDraft,
     FlowDraftSummary,
     FlowGraph,
+    FlowNextRuns,
     FlowSaveResult,
     FlowSummary,
     FlowValidationIssue,
@@ -39,6 +40,11 @@ export function listFlows(guildId: string): Promise<FlowSummary[]> {
 
 export function getFlow(guildId: string, flowId: string): Promise<Flow> {
     return api.get<Flow>(`/api/guilds/${guildId}/flows/${flowId}`);
+}
+
+/** When each of a saved flow's schedules next fires, by node id — empty while it is switched off. */
+export function getFlowNextRuns(guildId: string, flowId: string): Promise<FlowNextRuns> {
+    return api.get<FlowNextRuns>(`/api/guilds/${guildId}/flows/${flowId}/next-runs`);
 }
 
 export function createFlow(guildId: string, name: string, graph?: FlowGraph): Promise<Flow> {

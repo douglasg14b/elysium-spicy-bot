@@ -3,6 +3,7 @@ import {
     FLOW_DETAIL_KEYS,
     FLOW_DRAFT_KEYS,
     FLOW_DRAFT_SUMMARY_KEYS,
+    FLOW_NEXT_RUNS_KEYS,
     FLOW_SAVE_TARGETS,
     FLOW_SAVED_AS_DRAFT_KEYS,
     FLOW_SAVED_TO_FLOW_KEYS,
@@ -37,6 +38,8 @@ const SHAPES = [
     { name: 'FlowDraft', server: FLOW_DRAFT_KEYS, browser: browserTypes.FLOW_DRAFT_KEYS },
     { name: "FlowSaveResult (savedAs: 'flow')", server: FLOW_SAVED_TO_FLOW_KEYS, browser: browserTypes.FLOW_SAVED_TO_FLOW_KEYS },
     { name: "FlowSaveResult (savedAs: 'draft')", server: FLOW_SAVED_AS_DRAFT_KEYS, browser: browserTypes.FLOW_SAVED_AS_DRAFT_KEYS },
+    // The card's countdown reads both: a renamed `nextRuns` would blank every countdown.
+    { name: 'FlowNextRuns', server: FLOW_NEXT_RUNS_KEYS, browser: browserTypes.FLOW_NEXT_RUNS_KEYS },
     // A vocabulary rather than a key list: a third `savedAs` the page does not branch on
     // would be a save it reports as neither.
     { name: 'savedAs', server: FLOW_SAVE_TARGETS, browser: browserTypes.FLOW_SAVE_TARGETS },

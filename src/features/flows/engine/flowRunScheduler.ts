@@ -5,6 +5,7 @@ import {
     isBackfillPending,
     whenBackfillFinished,
 } from '../../../features-system/activity';
+import { isMissingTableError } from '../../../features-system/data-persistence/missingTable';
 import { FLOW_RUN_POLL_INTERVAL_MS } from '../constants';
 import { FlowRunsRepo, flowRunsRepo } from '../data/flowRunsRepo';
 import type { FlowRunEntity } from '../data/flowRunsSchema';
@@ -23,6 +24,17 @@ export type FlowRunSchedulerDependencies = {
     isBackfillPending: () => boolean;
     /** Call back once activity's startup backfill is over, however it ended — straight away if it already is. */
     afterBackfill: (callback: () => void) => void;
+    /**
+     * More work to do on every tick, after the due runs: `initFlows` hands in the schedule
+     * firing here, so the engine never names schedules.
+     *
+     * Called on **every** tick that gets past the ready check — not only one that found due
+     * runs, and also when `flow_runs` is missing — still inside the one-tick-at-a-time
+     * guard, so it never overlaps itself or a resume. It runs inline: a long run started
+     * here delays the next resumes, which is accepted at this scale. A throw is logged and
+     * the next tick calls it again.
+     */
+    onTick?: (client: Client) => Promise<void>;
 };
 
 const defaultDependencies: FlowRunSchedulerDependencies = {
@@ -54,24 +66,29 @@ let messageWaitsHeld = false;
  * first reclaims every resume claim left over from an earlier process — a run left
  * at `running` by a SIGKILL matches neither parked-run query, so nothing else would
  * ever find it.
+ *
+ * `dependencies` replaces only the defaults it names — `initFlows` passes just its
+ * `onTick`.
  */
 export function startFlowRunScheduler(
     client: Client,
     intervalMs: number = FLOW_RUN_POLL_INTERVAL_MS,
-    dependencies: FlowRunSchedulerDependencies = defaultDependencies
+    dependencies: Partial<FlowRunSchedulerDependencies> = {}
 ): void {
     if (flowRunInterval) {
         return;
     }
 
+    const resolved: FlowRunSchedulerDependencies = { ...defaultDependencies, ...dependencies };
+
     messageWaitsHeld = true;
     flowRunInterval = setInterval(() => {
-        void runFlowRunTick(client, dependencies);
+        void runFlowRunTick(client, resolved);
     }, intervalMs);
 
     console.info(`[flow-runs] Scheduler started with interval ${intervalMs}ms`);
 
-    void runStartupSweep(client, dependencies).catch((error: unknown) => {
+    void runStartupSweep(client, resolved).catch((error: unknown) => {
         console.error('[flow-runs] Startup sweep failed:', error);
     });
 }
@@ -137,7 +154,7 @@ export async function reclaimStrandedFlowRuns(
         }
         return reclaimed;
     } catch (error) {
-        if (isMissingFlowRunsTableError(error)) {
+        if (isMissingTableError(error, 'flow_runs')) {
             // The tick that follows reports this once, with the fix.
             return 0;
         }
@@ -171,6 +188,9 @@ export function stopFlowRunScheduler(): void {
  *
  * A due run carrying a quiet window may not be due after all: see
  * {@link deferIfMessaged}, which runs first and can push its deadline back instead.
+ *
+ * Then the dependencies' `onTick`, if any — after the due runs however that went (none
+ * due, `flow_runs` missing, a failure), and before the next tick may start.
  */
 export async function runFlowRunTick(
     client: Client,
@@ -188,6 +208,35 @@ export async function runFlowRunTick(
 
     isTickRunning = true;
 
+    try {
+        await resumeDueRuns(client, dependencies);
+        await runOnTick(client, dependencies);
+    } finally {
+        isTickRunning = false;
+    }
+}
+
+/**
+ * The tick's `onTick`, isolated: a throw is logged and the next tick calls it again. Its
+ * own failures are its business to word — this only stops one escaping the tick.
+ */
+async function runOnTick(client: Client, dependencies: FlowRunSchedulerDependencies): Promise<void> {
+    if (!dependencies.onTick) {
+        return;
+    }
+
+    try {
+        await dependencies.onTick(client);
+    } catch (error) {
+        console.error('[flow-runs] Extra work on this tick failed:', error);
+    }
+}
+
+/**
+ * Resume every due parked run. Never throws: each run's failure is logged by itself, and a
+ * failure to look them up is logged once — with the fix, when it is the missing table.
+ */
+async function resumeDueRuns(client: Client, dependencies: FlowRunSchedulerDependencies): Promise<void> {
     try {
         const now = new Date();
         // While activity is still backfilling messages missed during an outage, "when did
@@ -226,7 +275,7 @@ export async function runFlowRunTick(
             }
         }
     } catch (error) {
-        if (isMissingFlowRunsTableError(error)) {
+        if (isMissingTableError(error, 'flow_runs')) {
             // Almost always an un-migrated database rather than a real fault, and
             // the tick repeats every 15s — so say what to do instead of dumping a
             // stack trace on a loop.
@@ -237,8 +286,6 @@ export async function runFlowRunTick(
             return;
         }
         console.error('[flow-runs] Tick failed while looking for due runs:', error);
-    } finally {
-        isTickRunning = false;
     }
 }
 
@@ -323,21 +370,6 @@ async function deferIfMessaged(
 
     await dependencies.flowRunsRepo.deferWake(run.runId, run.wakeAt, nextWakeAt);
     return true;
-}
-
-/**
- * True only for "the `flow_runs` table is not there" from SQLite or Postgres —
- * i.e. the schema has not been migrated yet.
- *
- * Deliberately requires the table name. A bare "does not exist" match would also
- * swallow a missing *column* from a half-applied migration, and this predicate
- * decides whether an error is reported at all.
- */
-function isMissingFlowRunsTableError(error: unknown): boolean {
-    if (!(error instanceof Error)) return false;
-    const message = error.message.toLowerCase();
-    if (!message.includes('flow_runs')) return false;
-    return message.includes('no such table') || message.includes('does not exist');
 }
 
 export function resetFlowRunSchedulerForTests(): void {

@@ -92,9 +92,21 @@ export function isFieldVisible(
     fields: readonly BlockConfigField[],
     config: Record<string, unknown>
 ): boolean {
-    const when = field.visibleWhen;
-    if (!when) return true;
+    return field.visibleWhen ? isShownBy(field.visibleWhen, fields, config) : true;
+}
 
+/**
+ * Whether a `visibleWhen` holds on this node: its choice's stored value, or that field's
+ * default, is one of `equals`. A choice it cannot find counts as holding, as on the server.
+ *
+ * The one reading for a field's `visibleWhen` and a card-summary part's, so the two
+ * cannot come to disagree about what an untouched node shows.
+ */
+export function isShownBy(
+    when: { readonly field: string; readonly equals: readonly string[] },
+    fields: readonly BlockConfigField[],
+    config: Record<string, unknown>
+): boolean {
     const source = fields.find((candidate) => candidate.key === when.field);
     if (!source) return true;
 

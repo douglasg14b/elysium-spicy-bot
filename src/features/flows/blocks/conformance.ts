@@ -5,6 +5,7 @@ import {
     BLOCK_CAPABILITIES,
     BLOCK_COLUMN_CONTROLS,
     BLOCK_CONTROL_TYPES,
+    BLOCK_DAY_KEYS,
     BLOCK_HANDLE_TONES,
     BLOCK_KINDS,
     BLOCK_OUTPUT_VALUE_KINDS,
@@ -103,7 +104,7 @@ export function checkBlockConformance(candidate: unknown): readonly string[] {
     issues.push(...checkOutputs(label, block.outputs, block.configFields, block.handles));
     issues.push(...checkConfigFields(label, block.configFields, block.configSchema));
     issues.push(...checkVisibleWhen(label, block.configFields, block.configSchema));
-    issues.push(...checkCardSummary(label, block.cardSummary, block.configFields));
+    issues.push(...checkCardSummary(label, block.cardSummary, block.configFields, block.configSchema));
     issues.push(...checkEligibilityEnforced(label, block));
 
     return issues;
@@ -598,52 +599,7 @@ function checkVisibleWhen(label: string, configFields: unknown, configSchema: un
 
         const key = String(readProperty(field, 'key'));
         const where = `${label}: the field "${key}"`;
-        const sourceKey = readProperty(when, 'field');
-        const equals = readProperty(when, 'equals');
-        if (
-            typeof sourceKey !== 'string' ||
-            !Array.isArray(equals) ||
-            equals.length === 0 ||
-            !equals.every((value) => typeof value === 'string')
-        ) {
-            issues.push(`${where} declares visibleWhen without a field name and a non-empty list of values to show for.`);
-            continue;
-        }
-
-        const source = configFields.find((candidate) => readProperty(candidate, 'key') === sourceKey);
-        const choices = choiceValuesOf(source);
-        if (!choices) {
-            issues.push(
-                `${where} is shown by "${sourceKey}", which is not a select or segmented field of this block. ` +
-                    'Only a fixed set of choices can decide whether a field applies.'
-            );
-            continue;
-        }
-
-        if (readProperty(source, 'visibleWhen') !== undefined) {
-            issues.push(
-                `${where} is shown by "${sourceKey}", which is itself conditional. One level only — a chain ` +
-                    'would hide a field for a reason the form never shows.'
-            );
-        }
-
-        const declaredDefault = readProperty(source, 'defaultValue');
-        const sourceSchema = shape?.[sourceKey];
-        const withoutValue = sourceSchema?.safeParse(undefined);
-        const schemaDefault = withoutValue?.success ? withoutValue.data : undefined;
-        if (declaredDefault === undefined || declaredDefault !== schemaDefault) {
-            issues.push(
-                `${where} is shown by "${sourceKey}", which needs a declared default matching a schema ` +
-                    `.default() (field says ${JSON.stringify(declaredDefault)}, schema says ` +
-                    `${JSON.stringify(schemaDefault)}), so every reader agrees what an untouched node shows.`
-            );
-        }
-
-        for (const value of equals as readonly string[]) {
-            if (!choices.includes(value)) {
-                issues.push(`${where} is shown when "${sourceKey}" is "${value}", which it never offers.`);
-            }
-        }
+        issues.push(...checkVisibleWhenSource(where, when, configFields, shape));
 
         const fieldSchema = shape?.[key];
         if (fieldSchema && !fieldSchema.safeParse(undefined).success) {
@@ -653,6 +609,142 @@ function checkVisibleWhen(label: string, configFields: unknown, configSchema: un
                     'in a visibility-gated superRefine.'
             );
         }
+    }
+
+    return issues;
+}
+
+/**
+ * The half of a `visibleWhen` that is about the choice deciding it, shared by a field's
+ * and a card-summary part's — one set of rules, so the two cannot come to disagree about
+ * what may show or hide something.
+ *
+ * `where` names what carries the declaration, for the messages.
+ */
+function checkVisibleWhenSource(
+    where: string,
+    when: unknown,
+    configFields: readonly unknown[],
+    shape: Record<string, ZodType> | null
+): readonly string[] {
+    const sourceKey = readProperty(when, 'field');
+    const equals = readProperty(when, 'equals');
+    if (
+        typeof sourceKey !== 'string' ||
+        !Array.isArray(equals) ||
+        equals.length === 0 ||
+        !equals.every((value) => typeof value === 'string')
+    ) {
+        return [`${where} declares visibleWhen without a field name and a non-empty list of values to show for.`];
+    }
+
+    const source = configFields.find((candidate) => readProperty(candidate, 'key') === sourceKey);
+    const choices = choiceValuesOf(source);
+    if (!choices) {
+        return [
+            `${where} is shown by "${sourceKey}", which is not a select or segmented field of this block. ` +
+                'Only a fixed set of choices can decide whether something applies.',
+        ];
+    }
+
+    const issues: string[] = [];
+    if (readProperty(source, 'visibleWhen') !== undefined) {
+        issues.push(
+            `${where} is shown by "${sourceKey}", which is itself conditional. One level only — a chain ` +
+                'would hide something for a reason the form never shows.'
+        );
+    }
+
+    const declaredDefault = readProperty(source, 'defaultValue');
+    const sourceSchema = shape?.[sourceKey];
+    const withoutValue = sourceSchema?.safeParse(undefined);
+    const schemaDefault = withoutValue?.success ? withoutValue.data : undefined;
+    if (declaredDefault === undefined || declaredDefault !== schemaDefault) {
+        issues.push(
+            `${where} is shown by "${sourceKey}", which needs a declared default matching a schema ` +
+                `.default() (field says ${JSON.stringify(declaredDefault)}, schema says ` +
+                `${JSON.stringify(schemaDefault)}), so every reader agrees what an untouched node shows.`
+        );
+    }
+
+    for (const value of equals as readonly string[]) {
+        if (!choices.includes(value)) {
+            issues.push(`${where} is shown when "${sourceKey}" is "${value}", which it never offers.`);
+        }
+    }
+
+    return issues;
+}
+
+/**
+ * What a control stores, as values its field's schema must take and values it must refuse
+ * — for the controls whose stored shape is fixed by the control rather than by the block.
+ *
+ * A time-of-day control writes `HH:MM` and a days-of-week control writes `'mon'` …
+ * `'sun'`, whatever block asks for one. A schema looser than that would save a value the
+ * control can never draw (and the reader of the value would have to guess at it); a
+ * stricter one would refuse a value the control offers. Probed, like every other schema
+ * check here, so the check holds however the schema is written.
+ */
+interface ControlShapeProbes {
+    readonly accepts: readonly unknown[];
+    readonly refuses: readonly unknown[];
+    /** What the control stores, for the message. */
+    readonly description: string;
+}
+
+function controlShapeProbes(control: unknown): ControlShapeProbes | undefined {
+    switch (control) {
+        case 'timeOfDay':
+            return {
+                accepts: ['00:00', '23:59'],
+                refuses: ['24:00', '9:00'],
+                description: 'a 24-hour HH:MM (00:00 to 23:59, always two digits for the hour)',
+            };
+        case 'daysOfWeek':
+            return {
+                accepts: BLOCK_DAY_KEYS.map((day) => [day]),
+                refuses: [['Mon'], ['monday'], ['someday'], 'mon'],
+                description: `a list of the seven day keys, ${BLOCK_DAY_KEYS.map((day) => `'${day}'`).join(', ')}`,
+            };
+        default:
+            return undefined;
+    }
+}
+
+/**
+ * A control with a fixed stored shape must sit over a schema that takes exactly that
+ * shape — see {@link controlShapeProbes}.
+ */
+function checkControlShape(
+    label: string,
+    key: string,
+    field: Partial<BlockConfigField>,
+    fieldSchema: ZodType
+): readonly string[] {
+    const probes = controlShapeProbes(field.control);
+    if (!probes) {
+        return [];
+    }
+
+    const missing = probes.accepts.filter((probe) => !fieldSchema.safeParse(probe).success);
+    const notRefused = probes.refuses.filter((probe) => fieldSchema.safeParse(probe).success);
+    const issues: string[] = [];
+
+    if (missing.length > 0) {
+        issues.push(
+            `${label}: the ${String(field.control)} field "${key}" stores ${probes.description}, but its ` +
+                `configSchema refuses ${missing.map((probe) => JSON.stringify(probe)).join(', ')}, so the ` +
+                'control would offer a value the save then refuses.'
+        );
+    }
+
+    if (notRefused.length > 0) {
+        issues.push(
+            `${label}: the ${String(field.control)} field "${key}" stores ${probes.description}, but its ` +
+                `configSchema accepts ${notRefused.map((probe) => JSON.stringify(probe)).join(', ')} — a value ` +
+                'the control can never draw. Tighten the schema to what the control stores.'
+        );
     }
 
     return issues;
@@ -760,6 +852,7 @@ function checkConfigFields(label: string, configFields: unknown, configSchema: u
         issues.push(...checkFieldEntryBounds(label, key, field, fieldSchema));
         issues.push(...checkFieldColumns(label, key, field, fieldSchema));
         issues.push(...checkVariableNameField(label, key, field, fieldSchema));
+        issues.push(...checkControlShape(label, key, field, fieldSchema));
     }
 
     for (const key of Object.keys(shape)) {
@@ -782,7 +875,12 @@ function checkConfigFields(label: string, configFields: unknown, configSchema: u
  * nothing worth summarising (`trigger.memberJoin` aside, which still summarises
  * with a literal) simply leaves the card to fall back to "Click to configure".
  */
-function checkCardSummary(label: string, cardSummary: unknown, configFields: unknown): readonly string[] {
+function checkCardSummary(
+    label: string,
+    cardSummary: unknown,
+    configFields: unknown,
+    configSchema: unknown
+): readonly string[] {
     if (cardSummary === undefined) {
         return [];
     }
@@ -790,6 +888,8 @@ function checkCardSummary(label: string, cardSummary: unknown, configFields: unk
     if (!Array.isArray(cardSummary)) {
         return [`${label}: cardSummary must be an array of parts when declared.`];
     }
+
+    const shape = isZodType(configSchema) ? objectShape(configSchema) : null;
 
     const declaredKeys = new Set(
         asArray(configFields)
@@ -852,6 +952,13 @@ function checkCardSummary(label: string, cardSummary: unknown, configFields: unk
                 `${label}: ${where} sets stopIfEmpty without emptyText, so the empty case would render ` +
                     'nothing — the whole point of stopping early is to show emptyText in place of the rest.'
             );
+        }
+
+        // Held to a field's own `visibleWhen` rules, so a part can only be shown by a
+        // choice every reader resolves the same way.
+        const when = readProperty(part, 'visibleWhen');
+        if (when !== undefined) {
+            issues.push(...checkVisibleWhenSource(`${label}: ${where}`, when, asArray(configFields), shape));
         }
     }
 

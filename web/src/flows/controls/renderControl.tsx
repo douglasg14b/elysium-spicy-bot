@@ -10,6 +10,7 @@
 import type { ReactElement } from 'react';
 import { Text } from '@mantine/core';
 import type { BlockConfigField } from '../../api/types';
+import { DaysOfWeekControl, TimeOfDayControl } from './ClockControls';
 import { EligibilityControl } from './EligibilityControl';
 import { CategoryPickerControl, ChannelPickerControl, RolePickerControl } from './PickerControls';
 import { ColourControl } from './ColourControl';
@@ -73,6 +74,10 @@ export function renderControl(
             return <EligibilityControl field={field} {...props} />;
         case 'variableSelect':
             return <VariableSelectControl field={field} {...props} />;
+        case 'timeOfDay':
+            return <TimeOfDayControl field={field} {...props} />;
+        case 'daysOfWeek':
+            return <DaysOfWeekControl field={field} {...props} />;
         default: {
             // Adding a member to `BLOCK_CONTROL_TYPES` without implementing it here
             // is a compile error, by design.

@@ -361,6 +361,11 @@ const GENERIC_VOCABULARY = [
     // `NUMBER_SHAPE` and `trimmed` became `text`, since `shape` and `text` were already
     // here; and the walk's "never enter this node" parameter is `without`, not `excluded`.
     'parse', 'number', 'exact',
+    // `isLiveRunStatus` in `data/flowRunLifecycle.ts`: whether a run is still going —
+    // parked or being resumed — as opposed to over. A property of the lifecycle, on the
+    // footing of `running` and `completed`; asked by the schedule fire so one schedule's
+    // runs never overlap. Folds onto no proven rejection.
+    'live',
 ];
 
 /**

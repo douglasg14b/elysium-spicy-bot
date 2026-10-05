@@ -1,4 +1,4 @@
-import { Events } from 'discord.js';
+import { Events, type Client } from 'discord.js';
 import { interactionsRegistry } from '../../features-system/commands';
 import { DISCORD_CLIENT } from '../../discordClient';
 import { registerActivitySubscriber } from '../../features-system/activity';
@@ -6,6 +6,8 @@ import { registerLevelUpSubscriber } from '../leveling';
 import { registerResourceWriteBack } from '../provisioning';
 import { registerTicketSubscriber } from '../tickets';
 import { applyResourcesToFlows } from './logic/applyResourcesToFlows';
+import { fireDueSchedules } from './logic/fireDueSchedules';
+import { reconcileGuildSchedules, registerScheduleReconcile } from './logic/reconcileGuildSchedules';
 import { ticketChangeSubscriber } from './logic/ticketEventDispatch';
 import { ensureBlocksDiscovered } from './blocks/registry';
 import { flowDeployCommand, handleFlowDeployCommand } from './commands/flowDeployCommand';
@@ -88,6 +90,11 @@ async function initializeFlows(): Promise<void> {
     // without a restart. Registered from this side so `data/` never imports `engine/`.
     flowsRepo.registerAfterWrite(() => messageTriggerIndex.invalidate());
 
+    // Bring the written guild's schedules in line after every committed flow write, and
+    // finish before the write returns, so the builder's next-runs fetch after a save sees
+    // the new times. Drafts never get here: only the saved flow schedules anything.
+    registerScheduleReconcile(flowsRepo);
+
     // Admin slash command to post a flow's trigger button(s) to a channel.
     interactionsRegistry.register(flowDeployCommand, handleFlowDeployCommand);
 
@@ -147,7 +154,28 @@ async function initializeFlows(): Promise<void> {
     // ClientReady (not here) because resuming needs a usable client — and the
     // scheduler sweeps once immediately so delays that elapsed while the bot was
     // down fire straight away. Mirrors the birthday scheduler's lifecycle.
+    //
+    // Every guild's schedules are reconciled first, so the first tick cannot fire a row
+    // reconcile has yet to look at — and flows saved before schedules existed get their
+    // rows. A schedule missed while the bot was down keeps its overdue time through this
+    // and fires once on the first tick. Then the scheduler, which fires due schedules on
+    // every tick through `onTick` — however every reconcile went.
     DISCORD_CLIENT.once(Events.ClientReady, (readyClient) => {
-        startFlowRunScheduler(readyClient);
+        void startFlowsOnReady(readyClient);
     });
+}
+
+/**
+ * Reconcile every guild the bot is in, one at a time, then start the run scheduler with
+ * schedule firing as its extra tick work. Each guild is isolated — reconcile logs its own
+ * failure and never throws — so one bad guild cannot hold the scheduler back.
+ */
+async function startFlowsOnReady(readyClient: Client<true>): Promise<void> {
+    try {
+        for (const guildId of readyClient.guilds.cache.keys()) {
+            await reconcileGuildSchedules(guildId);
+        }
+    } finally {
+        startFlowRunScheduler(readyClient, undefined, { onTick: fireDueSchedules });
+    }
 }

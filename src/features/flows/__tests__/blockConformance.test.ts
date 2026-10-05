@@ -7,7 +7,6 @@ import type { BlockManifest } from '../blocks/manifest';
 import { discoverBlocks, ensureBlocksDiscovered, listBlockDefinitions } from '../blocks/registry';
 import type { FlowRunContext } from '../blocks/types';
 import { block as fixtureBlock, FIXTURE_BLOCK_TYPE } from './fixtures/blocks/conforming/fixtureBlock';
-
 const FIXTURE_ROOT = path.join(
     path.dirname(fileURLToPath(import.meta.url)),
     'fixtures',
@@ -1159,6 +1158,91 @@ describe('a field reading a variable by name', () => {
         const issues = checkBlockConformance(variableManifest({}, z.string().optional())).join('\n');
 
         expect(issues).toMatch(/must take one in the shared spelling/);
+    });
+});
+
+describe('a control whose stored shape the control decides', () => {
+    const TIME_SHAPE = /^([01]\d|2[0-3]):[0-5]\d$/;
+    const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
+    const timeManifest = (schema: z.ZodType) =>
+        manifestWith({
+            configSchema: z.object({ at: schema }),
+            configFields: [{ key: 'at', label: 'Time', control: 'timeOfDay', defaultValue: '09:00' }],
+        });
+    const daysManifest = (schema: z.ZodType) =>
+        manifestWith({
+            configSchema: z.object({ on: schema }),
+            configFields: [{ key: 'on', label: 'Days', control: 'daysOfWeek', defaultValue: ['mon'] }],
+        });
+
+    it('accepts a timeOfDay over a 24-hour HH:MM schema', () => {
+        expect(checkBlockConformance(timeManifest(z.string().regex(TIME_SHAPE).optional()))).toEqual([]);
+    });
+
+    it('catches a timeOfDay schema that is too loose', () => {
+        const issues = checkBlockConformance(timeManifest(z.string().regex(/^\d{1,2}:\d\d$/).optional())).join('\n');
+
+        expect(issues).toMatch(/the timeOfDay field "at" stores a 24-hour HH:MM .* accepts "24:00", "9:00"/);
+    });
+
+    it('catches a timeOfDay schema that refuses what the control stores', () => {
+        const issues = checkBlockConformance(timeManifest(z.string().regex(/^0\d:\d\d$/).optional())).join('\n');
+
+        expect(issues).toMatch(/configSchema refuses "23:59"/);
+    });
+
+    it('accepts a daysOfWeek over exactly the seven keys', () => {
+        expect(checkBlockConformance(daysManifest(z.array(z.enum(DAYS)).min(1).optional()))).toEqual([]);
+    });
+
+    it('catches a daysOfWeek schema that takes any string', () => {
+        const issues = checkBlockConformance(daysManifest(z.array(z.string()).optional())).join('\n');
+
+        expect(issues).toMatch(/the daysOfWeek field "on" stores a list of the seven day keys.* accepts \["Mon"\]/);
+    });
+
+    it('catches a daysOfWeek schema missing a day', () => {
+        const issues = checkBlockConformance(daysManifest(z.array(z.enum(['mon', 'tue'])).optional())).join('\n');
+
+        expect(issues).toMatch(/configSchema refuses \["wed"\]/);
+    });
+});
+
+describe('a card-summary part shown only while a choice holds a value', () => {
+    const summaryManifest = (visibleWhen: unknown) =>
+        manifestWith({
+            ...choiceManifest({}),
+            cardSummary: [{ key: 'valueType', visibleWhen }, { key: 'note' }],
+        });
+
+    it('accepts a part shown by a defaulted choice it offers', () => {
+        expect(checkBlockConformance(summaryManifest({ field: 'valueType', equals: ['text'] }))).toEqual([]);
+    });
+
+    it('holds it to the same rules as a field: a choice, offering each value', () => {
+        expect(checkBlockConformance(summaryManifest({ field: 'note', equals: ['x'] })).join('\n')).toMatch(
+            /cardSummary\[0\] is shown by "note", which is not a select or segmented field/
+        );
+        expect(checkBlockConformance(summaryManifest({ field: 'valueType', equals: ['number'] })).join('\n')).toMatch(
+            /cardSummary\[0\] is shown when "valueType" is "number", which it never offers/
+        );
+        expect(checkBlockConformance(summaryManifest({ field: 'valueType', equals: [] })).join('\n')).toMatch(
+            /cardSummary\[0\] declares visibleWhen without a field name/
+        );
+    });
+
+    it('catches a part shown by a choice with no default', () => {
+        const manifest = manifestWith({
+            ...choiceManifest({
+                valueType: { defaultValue: undefined },
+                schema: z.object({ valueType: z.enum(['text', 'time']), note: z.string().optional() }),
+            }),
+            cardSummary: [{ key: 'valueType', visibleWhen: { field: 'valueType', equals: ['text'] } }],
+        });
+
+        expect(checkBlockConformance(manifest).join('\n')).toMatch(
+            /cardSummary\[0\] is shown by "valueType", which needs a declared default/
+        );
     });
 });
 

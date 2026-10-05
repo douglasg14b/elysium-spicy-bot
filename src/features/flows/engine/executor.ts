@@ -40,8 +40,20 @@ export interface NodeRunLog {
 
 export interface FlowRunResult {
     flowId: string;
+    /**
+     * The run's durable id — the one a parked run's `flow_runs` row carries, and the one
+     * every block saw as `context.runId`. Minted for every fresh run, parked or not.
+     */
+    runId: string;
     triggerNodeId: string;
     status: 'success' | 'error';
+    /**
+     * True when the run stopped because it parked and its row was written, rather than
+     * because it ran out of graph or failed. Said here so a caller that must know — a
+     * schedule remembering which of its runs may still be waiting — never has to guess
+     * from `status`, which is `success` either way.
+     */
+    parked: boolean;
     visitedNodeIds: string[];
     log: NodeRunLog[];
     error?: string;
@@ -161,7 +173,7 @@ export async function executeFlowSegment(
     const triggerNodeId = options.triggerNodeId ?? options.startNodeId;
     const completed = (result: FlowRunResult): ExecOutcome => ({ kind: 'completed', result });
     const fail = (error: string): ExecOutcome =>
-        completed(failResult(flowId, triggerNodeId, log, visitedNodeIds, error));
+        completed(failResult(flowId, options.runId, triggerNodeId, log, visitedNodeIds, error));
 
     const nodesById = new Map<string, FlowNode>(graph.nodes.map((n) => [n.id, n]));
     const edgesBySource = new Map<string, FlowEdge[]>();
@@ -377,7 +389,7 @@ export async function executeFlowSegment(
                 // path that knows both that the message exists and that nothing
                 // will wake to tidy it.
                 await releaseWaitMessageControls(context.channel, outcome.suspension.waitMessageId);
-                return completed(successResult(flowId, triggerNodeId, log, visitedNodeIds));
+                return completed(successResult(flowId, options.runId, triggerNodeId, log, visitedNodeIds));
             }
 
             return {
@@ -430,7 +442,7 @@ export async function executeFlowSegment(
         currentNodeId = next.ok ? next.target : undefined;
     }
 
-    return completed(successResult(flowId, triggerNodeId, log, visitedNodeIds));
+    return completed(successResult(flowId, options.runId, triggerNodeId, log, visitedNodeIds));
 }
 
 /**
@@ -493,6 +505,7 @@ export async function executeFlow(
         const message = error instanceof Error ? error.message : 'Unknown suspension-persistence error';
         return failResult(
             flowId,
+            runId,
             triggerNodeId,
             suspension.log,
             suspension.visitedNodeIds,
@@ -506,8 +519,10 @@ export async function executeFlow(
 
     return {
         flowId,
+        runId,
         triggerNodeId,
         status: 'success',
+        parked: true,
         visitedNodeIds: suspension.visitedNodeIds,
         log: suspension.log,
     };
@@ -900,6 +915,7 @@ function resolveNextNode(
 
 function successResult(
     flowId: string,
+    runId: string,
     triggerNodeId: string,
     log: NodeRunLog[],
     visitedNodeIds: string[]
@@ -910,8 +926,10 @@ function successResult(
 
     return {
         flowId,
+        runId,
         triggerNodeId,
         status: 'success',
+        parked: false,
         visitedNodeIds,
         log,
     };
@@ -919,6 +937,7 @@ function successResult(
 
 function failResult(
     flowId: string,
+    runId: string,
     triggerNodeId: string,
     log: NodeRunLog[],
     visitedNodeIds: string[],
@@ -927,8 +946,10 @@ function failResult(
     console.error(`[flows] Flow ${flowId} run failed (trigger ${triggerNodeId}): ${error}`);
     return {
         flowId,
+        runId,
         triggerNodeId,
         status: 'error',
+        parked: false,
         visitedNodeIds,
         log,
         error,

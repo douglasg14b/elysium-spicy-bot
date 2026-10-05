@@ -80,6 +80,10 @@ export class GuildSettingsRepo {
      *
      * Expects a zone already vetted by `storableTimeZone`: this is persistence,
      * and the route is where an operator's input is judged.
+     *
+     * Every flows schedule in the guild is read in this zone, so a caller must reconcile
+     * the guild's schedules afterwards (`reconcileGuildSchedules`, as the time-zone route
+     * does). It is not done here because guild settings stays feature-free.
      */
     async setTimeZone(guildId: string, timeZone: string): Promise<GuildSettings> {
         return this.writeSetting(guildId, { timeZone });

@@ -6,6 +6,7 @@ import {
     guildSettingsRepo,
     storableTimeZone,
 } from '../../features-system/guild-settings';
+import { reconcileGuildSchedules } from '../../features/flows/logic/reconcileGuildSchedules';
 import { warningsConfigRepo } from '../../features/warnings/data/warningsConfigRepo';
 import { setWarningsModChannel } from '../../features/warnings/logic/setWarningsModChannel';
 import type { AppEnv } from '../types';
@@ -199,6 +200,10 @@ export function guildRoutes(): Hono<AppEnv> {
         }
 
         const saved = await guildSettingsRepo.setTimeZone(guild.id, timeZone);
+        // Every schedule in the guild is read in this zone, so each gets a fresh next time.
+        // Called from here rather than from guild-settings, which stays feature-free. It
+        // never throws: a failure is logged, and the zone is saved either way.
+        await reconcileGuildSchedules(guild.id);
         return c.json(resolveGuildSettings(guild, saved));
     });
 

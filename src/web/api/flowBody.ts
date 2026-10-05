@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { FlowDraftEntity } from '../../features/flows/data/flowDraftsSchema';
 import type { FlowGraph } from '../../features/flows/data/flowGraph';
+import type { FlowScheduleNextRun } from '../../features/flows/data/flowSchedulesRepo';
 import type { FlowEntity } from '../../features/flows/data/flowsSchema';
 import { describeIssue, type FlowValidationIssue } from '../../features/flows/engine/nodeDataValidation';
 import { flowReadinessIssues } from '../../features/flows/logic/flowReadiness';
@@ -142,6 +143,27 @@ export type FlowSaveBody =
           readonly uninstalled: readonly string[];
       });
 
+/**
+ * The body of `GET /flows/:flowId/next-runs`: when each of the flow's schedules next fires.
+ *
+ * `nextRuns` is keyed by node id, an ISO instant each, and holds only schedules with a next
+ * time — so it is empty for a switched-off flow. The builder shows an entry on whichever
+ * card has one, without knowing what a schedule is. `timeZone` is the zone those times
+ * were worked out in, so the card's exact-time tooltip needs no second fetch.
+ */
+export interface FlowNextRunsBody {
+    readonly timeZone: string;
+    readonly nextRuns: Readonly<Record<string, string>>;
+}
+
+/** A flow's schedules' next times as {@link FlowNextRunsBody}, in the zone they were worked out in. */
+export function flowNextRuns(timeZone: string, nextRuns: readonly FlowScheduleNextRun[]): FlowNextRunsBody {
+    return {
+        timeZone,
+        nextRuns: Object.fromEntries(nextRuns.map((entry) => [entry.nodeId, entry.nextRunAt.toISOString()])),
+    };
+}
+
 /** A stored flow as {@link FlowDetailBody}, with the readiness issues its caller computed. */
 export function flowDetail(flow: FlowEntity, issues: readonly FlowValidationIssue[]): FlowDetailBody {
     return {
@@ -269,8 +291,11 @@ export const FLOW_SAVED_AS_DRAFT_KEYS = [
     'uninstalled',
 ] as const satisfies readonly (keyof Extract<FlowSaveBody, { savedAs: 'draft' }>)[];
 
+export const FLOW_NEXT_RUNS_KEYS = ['timeZone', 'nextRuns'] as const satisfies readonly (keyof FlowNextRunsBody)[];
+
 /** Fails to compile if a flow wire shape gains a member absent from its list above. */
 type FlowKeyListsAreComplete =
+    | Exclude<keyof FlowNextRunsBody, (typeof FLOW_NEXT_RUNS_KEYS)[number]>
     | Exclude<keyof FlowDetailBody, (typeof FLOW_DETAIL_KEYS)[number]>
     | Exclude<keyof FlowSummaryBody, (typeof FLOW_SUMMARY_KEYS)[number]>
     | Exclude<keyof FlowDraftSummaryBody, (typeof FLOW_DRAFT_SUMMARY_KEYS)[number]>

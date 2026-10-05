@@ -17,7 +17,7 @@ import type {
     TicketTypeView,
 } from '../api/types';
 import { renderControl } from './controls/renderControl';
-import type { ControlContext } from './controls/types';
+import type { ControlContext, ServerTimeZone } from './controls/types';
 import { KIND_STYLES } from './nodeMeta';
 import { ticketChannelNameFor } from './ticketChannelName';
 import { describeUnconnectedExit } from './unconnectedExits';
@@ -58,6 +58,11 @@ interface NodeInspectorProps {
     /** What this flow declares but has not installed yet, for the pickers to offer. */
     declaredResources: ResourceDeclaration[];
     /**
+     * The server's time zone, for a control whose value is on the server's clock. Absent
+     * until the page's fetch answers, or after it failed.
+     */
+    serverTimeZone?: ServerTimeZone;
+    /**
      * What the server last found wrong with this node — at the last save, or the last
      * re-check as focus left a field.
      *
@@ -86,6 +91,7 @@ export function NodeInspector({
     variables,
     requirements,
     declaredResources,
+    serverTimeZone,
     issues,
     unconnectedExits,
     onChange,
@@ -116,6 +122,7 @@ export function NodeInspector({
         // A picker's resource key is a sibling of its own field, so it patches the
         // node directly rather than going through its single-key `onChange`.
         setConfigKey: (key, value) => onChange({ [key]: value }),
+        ...(serverTimeZone ? { serverTimeZone } : {}),
     };
 
     return (

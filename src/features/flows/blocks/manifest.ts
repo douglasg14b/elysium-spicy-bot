@@ -72,6 +72,12 @@ export type BlockPaletteGroup = (typeof BLOCK_PALETTE_GROUPS)[number];
  * interpreter code branches on either. The gate exists to stop the engine declaring a
  * use case in its own identifiers, and every identifier that handles a ticket change
  * lives outside the gated files (`logic/ticketEventDispatch.ts`, the block directory).
+ *
+ * `scheduleDue` is a schedule coming due — the clock reaching a time an author picked,
+ * not anything a member did. Named for what happened, as the rest are, rather than
+ * `schedule`. Its runs are about nobody, and nothing on the gateway announces one: the
+ * shared run tick finds due schedules through a hook `initFlows` wires in, and every
+ * identifier that knows what a schedule repeats on lives in `logic/`, outside the gate.
  */
 export const BLOCK_TRIGGER_SOURCES = [
     'buttonClick',
@@ -80,6 +86,7 @@ export const BLOCK_TRIGGER_SOURCES = [
     'memberLeave',
     'messageSent',
     'reactionAdd',
+    'scheduleDue',
     'ticketChanged',
 ] as const;
 
@@ -163,9 +170,39 @@ export const BLOCK_CONTROL_TYPES = [
      * means. Deliberately not in {@link PICKER_VALUE_KINDS} for exactly that reason.
      */
     'variableSelect',
+    /**
+     * A time of day, stored as 24-hour `HH:MM` and shown on a 12-hour clock.
+     *
+     * Always in the server's time zone, so the control says which zone that is (and
+     * asks for one when the server has not picked any). Conformance holds the field's
+     * schema to the stored shape: it must take `00:00` and `23:59`, and refuse `24:00`
+     * and `9:00`.
+     */
+    'timeOfDay',
+    /**
+     * Any of the seven days of the week, stored as a list of `'mon'` … `'sun'` and
+     * offered Monday first, so Mon–Fri sits together. Conformance holds the field's
+     * schema to exactly those seven keys.
+     */
+    'daysOfWeek',
 ] as const;
 
 export type BlockControlType = (typeof BLOCK_CONTROL_TYPES)[number];
+
+/**
+ * The seven keys a `daysOfWeek` control stores, Monday first — the order the control
+ * offers them in. Declared once: a block's schema takes its day enum from here, the
+ * conformance check holds every `daysOfWeek` field's schema to exactly these, and the
+ * browser mirrors the list under the vocabulary drift gate.
+ *
+ * Named `DAY_KEYS` rather than after weekdays: the engine vocabulary gate keeps time words
+ * out of this file's identifiers, and `day` is too short for it to read — the keys are a
+ * control's stored values, on the footing of the control names above, not a concept the
+ * interpreter reasons about.
+ */
+export const BLOCK_DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
+
+export type BlockDayKey = (typeof BLOCK_DAY_KEYS)[number];
 
 /** One choice offered by a `segmented` or `select` control. */
 export interface BlockConfigOption {
@@ -508,6 +545,19 @@ export type BlockConfigField =
            */
           readonly valueKind?: BlockOutputValueKind;
           readonly defaultValue?: string;
+      })
+    | (BlockConfigFieldBase & {
+          /** A 24-hour `HH:MM`, in the server's time zone. */
+          readonly control: 'timeOfDay';
+          readonly defaultValue?: string;
+      })
+    | (BlockConfigFieldBase & {
+          /**
+           * A list of {@link BLOCK_DAY_KEYS}. Its own `defaultValue` type, like `textList`'s,
+           * because the value is a list rather than a scalar.
+           */
+          readonly control: 'daysOfWeek';
+          readonly defaultValue?: readonly BlockDayKey[];
       });
 
 /**
@@ -563,6 +613,17 @@ export type BlockCardSummaryPart =
            * button has no style worth showing either.
            */
           readonly stopIfEmpty?: boolean;
+          /**
+           * Render this part only while a `select` or `segmented` field holds one of
+           * `equals` — the same shape and the same one-level rules as a field's
+           * `visibleWhen`, read the same way (the stored value or its default).
+           *
+           * For a part that reads well under one choice and not another: a schedule's
+           * "Every day" belongs on the card only while it repeats daily, where a field
+           * that is never hidden would otherwise always print its label. A part shown
+           * by this but whose own field is hidden still renders nothing.
+           */
+          readonly visibleWhen?: { readonly field: string; readonly equals: readonly string[] };
       }
     | {
           readonly key?: undefined;

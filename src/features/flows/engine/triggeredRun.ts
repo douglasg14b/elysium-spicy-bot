@@ -1,7 +1,7 @@
 import type { BlockTriggerSource } from '../blocks/manifest';
 import type { FlowRunSeed } from '../blocks/types';
 import type { FlowGraph } from '../data/flowGraph';
-import { executeFlow } from './executor';
+import { executeFlow, type FlowRunResult } from './executor';
 import type { MessageActivityLimit } from './messageActivityLimit';
 
 /** A seed that names the member a run is about — the only kind the flood limit can count. */
@@ -55,18 +55,24 @@ export type TriggeredRun = TriggeredRunBase &
  * or one bad entry point into a flow, cannot strand the triggers after it. A run the
  * flood limit refuses is dropped silently here; the limit sums its refusals into its own
  * log line.
+ *
+ * Hands back what the run did — including its `runId` and whether it parked — for the one
+ * caller that needs it (a schedule remembering a run that may still be waiting). Undefined
+ * when no run happened: the flood limit refused it, or it threw and was logged. Every
+ * other caller ignores it.
  */
-export async function startTriggeredRun(run: TriggeredRun): Promise<void> {
+export async function startTriggeredRun(run: TriggeredRun): Promise<FlowRunResult | undefined> {
     if (run.limit && !run.limit.take(run.seed.guild.id, run.seed.subject.id, 'start')) {
-        return;
+        return undefined;
     }
 
     try {
-        await executeFlow(run.flowId, run.graph, run.triggerNodeId, run.seed);
+        return await executeFlow(run.flowId, run.graph, run.triggerNodeId, run.seed);
     } catch (error) {
         console.error(
             `[flows] Unexpected error running ${run.source} flow ${run.flowId} from ${run.triggerNodeId}:`,
             error
         );
+        return undefined;
     }
 }

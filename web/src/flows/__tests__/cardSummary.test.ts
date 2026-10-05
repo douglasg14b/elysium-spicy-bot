@@ -295,3 +295,89 @@ describe('a summary part for a field that is hidden', () => {
         expect(summarize(descriptor, { mode: 'copy' })).toBe('no message');
     });
 });
+
+describe('the clock-shaped controls, and a part shown only under some choices', () => {
+    // The shape a repeating schedule declares: a choice that is never hidden, whose label
+    // belongs on the card under one option only.
+    const descriptor = descriptorWith(
+        [
+            {
+                key: 'repeat',
+                label: 'Repeat',
+                control: 'select',
+                defaultValue: 'daily',
+                options: [
+                    { value: 'daily', label: 'Every day' },
+                    { value: 'days', label: 'On certain days' },
+                    { value: 'interval', label: 'Every so often' },
+                ],
+            },
+            { key: 'days', label: 'Days', control: 'daysOfWeek', visibleWhen: { field: 'repeat', equals: ['days'] } },
+            { key: 'time', label: 'Time', control: 'timeOfDay', visibleWhen: { field: 'repeat', equals: ['daily', 'days'] } },
+            {
+                key: 'every',
+                label: 'How often',
+                control: 'select',
+                visibleWhen: { field: 'repeat', equals: ['interval'] },
+                options: [
+                    { value: '30m', label: 'Every 30 minutes' },
+                    { value: '1h', label: 'Every hour' },
+                ],
+            },
+        ],
+        [
+            { key: 'repeat', visibleWhen: { field: 'repeat', equals: ['daily'] } },
+            { key: 'days', emptyText: 'no days picked' },
+            { key: 'time', prefix: ' at ', emptyText: 'no time picked' },
+            { key: 'every', emptyText: 'no interval picked' },
+        ]
+    );
+
+    it('reads "Every day at 9:00 AM", the repeat label shown by its own visibleWhen', () => {
+        expect(summarize(descriptor, { repeat: 'daily', time: '09:00', days: ['mon'], every: '1h' })).toBe(
+            'Every day at 9:00 AM'
+        );
+    });
+
+    it("reads an unset choice as its default, the way a field's visibleWhen does", () => {
+        const shouting = descriptorWith(
+            [
+                {
+                    key: 'mode',
+                    label: 'Mode',
+                    control: 'segmented',
+                    defaultValue: 'loud',
+                    options: [
+                        { value: 'loud', label: 'Loud' },
+                        { value: 'quiet', label: 'Quiet' },
+                    ],
+                },
+                { key: 'note', label: 'Note', control: 'text' },
+            ],
+            [{ key: 'note', visibleWhen: { field: 'mode', equals: ['loud'] } }]
+        );
+
+        expect(summarize(shouting, { note: 'HEY' })).toBe('HEY');
+        expect(summarize(shouting, { mode: 'quiet', note: 'HEY' })).toBe('Click to configure');
+    });
+
+    it('reads "Mon, Wed, Fri at 9:00 AM", hiding the repeat label', () => {
+        expect(summarize(descriptor, { repeat: 'days', time: '09:00', days: ['fri', 'mon', 'wed'] })).toBe(
+            'Mon, Wed, Fri at 9:00 AM'
+        );
+    });
+
+    it('reads all seven days as every day', () => {
+        expect(
+            summarize(descriptor, { repeat: 'days', time: '12:00', days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] })
+        ).toBe('Every day at 12:00 PM');
+    });
+
+    it('reads "Every 30 minutes" with nothing else', () => {
+        expect(summarize(descriptor, { repeat: 'interval', time: '09:00', every: '30m' })).toBe('Every 30 minutes');
+    });
+
+    it('keeps the empty copy for an unset time or day list', () => {
+        expect(summarize(descriptor, { repeat: 'days', days: [] })).toBe('no days picked at no time picked');
+    });
+});

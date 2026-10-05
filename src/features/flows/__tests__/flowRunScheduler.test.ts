@@ -247,4 +247,76 @@ describe('flow run scheduler', () => {
             resetFlowRunSchedulerForTests();
         }
     });
+
+    describe('the onTick hook', () => {
+        it('runs on a tick with zero due parked runs — the normal state', async () => {
+            const onTick = vi.fn().mockResolvedValue(undefined);
+
+            await runFlowRunTick(READY_CLIENT, { ...makeDeps(vi.fn().mockResolvedValue([])), onTick });
+
+            expect(onTick).toHaveBeenCalledWith(READY_CLIENT);
+        });
+
+        it('runs when flow_runs is missing, and when the due-run lookup fails', async () => {
+            vi.spyOn(console, 'error').mockImplementation(() => undefined);
+            const onTick = vi.fn().mockResolvedValue(undefined);
+            const missing = vi.fn().mockRejectedValue(new Error('SqliteError: no such table: flow_runs'));
+            const broken = vi.fn().mockRejectedValue(new Error('db down'));
+
+            await runFlowRunTick(READY_CLIENT, { ...makeDeps(missing), onTick });
+            await runFlowRunTick(READY_CLIENT, { ...makeDeps(broken), onTick });
+
+            expect(onTick).toHaveBeenCalledTimes(2);
+        });
+
+        it('runs after the due runs have resumed, inside the same tick', async () => {
+            const order: string[] = [];
+            resumeFlowRun.mockImplementation(async () => {
+                order.push('resume');
+                return { status: 'completed' };
+            });
+            const onTick = vi.fn().mockImplementation(async () => {
+                order.push('onTick');
+            });
+
+            await runFlowRunTick(READY_CLIENT, { ...makeDeps(vi.fn().mockResolvedValue([makeRun('run-1')])), onTick });
+
+            expect(order).toEqual(['resume', 'onTick']);
+        });
+
+        it('holds the next tick off while it runs', async () => {
+            vi.spyOn(console, 'info').mockImplementation(() => undefined);
+            let finish: () => void = () => undefined;
+            const onTick = vi.fn().mockImplementation(() => new Promise<void>((resolve) => (finish = resolve)));
+            const deps = { ...makeDeps(vi.fn().mockResolvedValue([])), onTick };
+
+            const first = runFlowRunTick(READY_CLIENT, deps);
+            await vi.waitFor(() => expect(onTick).toHaveBeenCalledTimes(1));
+            await runFlowRunTick(READY_CLIENT, deps);
+            finish();
+            await first;
+
+            expect(onTick).toHaveBeenCalledTimes(1);
+        });
+
+        it('keeps a throw inside the tick, and is called again next tick', async () => {
+            const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+            const onTick = vi.fn().mockRejectedValueOnce(new Error('schedules exploded')).mockResolvedValue(undefined);
+            const deps = { ...makeDeps(vi.fn().mockResolvedValue([])), onTick };
+
+            await expect(runFlowRunTick(READY_CLIENT, deps)).resolves.toBeUndefined();
+            await runFlowRunTick(READY_CLIENT, deps);
+
+            expect(onTick).toHaveBeenCalledTimes(2);
+            expect(error).toHaveBeenCalledWith('[flow-runs] Extra work on this tick failed:', expect.any(Error));
+        });
+
+        it('is passed through by startFlowRunScheduler alongside the default dependencies', async () => {
+            const onTick = vi.fn().mockResolvedValue(undefined);
+
+            startFlowRunScheduler(READY_CLIENT, 60 * 60_000, { ...makeDeps(vi.fn().mockResolvedValue([])), onTick });
+
+            await vi.waitFor(() => expect(onTick).toHaveBeenCalledWith(READY_CLIENT));
+        });
+    });
 });

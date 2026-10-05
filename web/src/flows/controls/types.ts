@@ -12,6 +12,7 @@ import type {
     BlockConfigField,
     GuildChannel,
     GuildRole,
+    GuildSettings,
     ResourceDeclaration,
     TicketTypeView,
 } from '../../api/types';
@@ -72,7 +73,19 @@ export interface ControlContext {
      * express something a sibling key already says.
      */
     setConfigKey: (key: string, value: string | undefined) => void;
+    /**
+     * The server's time zone — the one it picked, or `null`, beside the zone an unpicked
+     * server runs on — for a control whose value is a time on the server's clock.
+     *
+     * Fetched once by the page rather than by the control (no control fetches), and only
+     * there once that fetch has answered: absent while it is on its way or after it
+     * failed, when such a control simply says nothing about the zone.
+     */
+    serverTimeZone?: ServerTimeZone;
 }
+
+/** A server's time zone setting, as the guild-settings endpoint reports it. */
+export type ServerTimeZone = Pick<GuildSettings, 'timeZone' | 'defaultTimeZone'>;
 
 /** The config key holding a picker's resource key, beside the snowflake itself. */
 export function resourceKeyFieldFor(fieldKey: string): string {

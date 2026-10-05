@@ -3,6 +3,7 @@ import {
     BLOCK_CAPABILITIES,
     BLOCK_COLUMN_CONTROLS,
     BLOCK_CONTROL_TYPES,
+    BLOCK_DAY_KEYS,
     BLOCK_HANDLE_TONES,
     BLOCK_KINDS,
     BLOCK_OUTPUT_VALUE_KINDS,
@@ -11,6 +12,7 @@ import {
     FLOW_CONTEXT_REQUIREMENTS,
 } from '../../../features/flows/blocks/manifest';
 import type {
+    BlockCardSummaryPart,
     BlockConfigColumn,
     BlockConfigField,
     BlockConfigOption,
@@ -81,6 +83,9 @@ const VOCABULARIES = [
     { name: 'BlockPaletteGroup', server: BLOCK_PALETTE_GROUPS, browser: browserTypes.BLOCK_PALETTE_GROUPS },
     { name: 'BlockTriggerSource', server: BLOCK_TRIGGER_SOURCES, browser: browserTypes.BLOCK_TRIGGER_SOURCES },
     { name: 'BlockControlType', server: BLOCK_CONTROL_TYPES, browser: browserTypes.BLOCK_CONTROL_TYPES },
+    // The values a `daysOfWeek` control stores and offers. Conformance holds every such
+    // field's schema to the server's list; the control draws the browser's.
+    { name: 'BlockDayKey', server: BLOCK_DAY_KEYS, browser: browserTypes.BLOCK_DAY_KEYS },
     // A vocabulary of its own rather than a subset of the one above: a column is
     // not a field and cannot ask for a picker. Gated here because the inspector
     // switches on it, so a member on one side alone is a column it cannot draw.
@@ -175,6 +180,8 @@ const CONFIG_FIELD_FIXTURES = {
     objectList: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'objectList', columns: [], minEntries: 1, maxEntries: 1, addLabel: 'a', defaultValue: [] },
     eligibility: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'eligibility', defaultValue: { principal: 'anyone' } },
     variableSelect: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'variableSelect', valueKind: 'time', defaultValue: '' },
+    timeOfDay: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'timeOfDay', defaultValue: '09:00' },
+    daysOfWeek: { key: 'k', label: 'l', description: 'd', visibleWhen: SHOWN, control: 'daysOfWeek', defaultValue: ['mon'] },
 } as const satisfies { [TControl in BlockControlType]: Extract<BlockConfigField, { control: TControl }> };
 
 /** Fails to compile if an arm gains a member {@link CONFIG_FIELD_FIXTURES} omits. */
@@ -341,6 +348,53 @@ void outputFixturesAreExhaustive;
 const OUTPUT_DECLARATION_ARMS = (Object.keys(OUTPUT_DECLARATION_FIXTURES) as OutputNaming[]).map((naming) => ({
     naming,
     members: Object.keys(OUTPUT_DECLARATION_FIXTURES[naming]),
+}));
+
+/** Each {@link BlockCardSummaryPart} arm, by the name the browser's key table uses. */
+interface CardSummaryPartArms {
+    field: Extract<BlockCardSummaryPart, { key: string }>;
+    literal: Extract<BlockCardSummaryPart, { text: string }>;
+}
+
+type CardSummaryPartArm = keyof CardSummaryPartArms;
+
+/**
+ * One card-summary part per arm, every member populated, for the reason the field
+ * fixtures exist: a part is served inside `cardSummary`, an optional member is absent from
+ * any part that does not use it, and `visibleWhen` may sit on one shipped block or none.
+ */
+const CARD_SUMMARY_PART_FIXTURES = {
+    field: {
+        key: 'k',
+        text: undefined,
+        prefix: 'p',
+        suffix: 's',
+        quote: true,
+        truncate: 1,
+        emptyText: 'e',
+        hideWhenEmpty: true,
+        stopIfEmpty: true,
+        visibleWhen: SHOWN,
+    },
+    literal: { key: undefined, text: 't' },
+} as const satisfies { [TArm in CardSummaryPartArm]: CardSummaryPartArms[TArm] };
+
+/** Fails to compile if either part arm gains a member its fixture omits. */
+type CardSummaryFixturesAreExhaustive = {
+    [TArm in CardSummaryPartArm]: Exclude<keyof CardSummaryPartArms[TArm], keyof (typeof CARD_SUMMARY_PART_FIXTURES)[TArm]>;
+}[CardSummaryPartArm];
+
+/** Do not delete as unused: removing it erases the guard above. */
+const cardSummaryFixturesAreExhaustive: [CardSummaryFixturesAreExhaustive] extends [never]
+    ? true
+    : ['CARD_SUMMARY_PART_FIXTURES is missing', CardSummaryFixturesAreExhaustive] = true;
+
+void cardSummaryFixturesAreExhaustive;
+
+/** Each part arm paired with the members the server declares on it. */
+const CARD_SUMMARY_PART_ARMS = (Object.keys(CARD_SUMMARY_PART_FIXTURES) as CardSummaryPartArm[]).map((arm) => ({
+    arm,
+    members: Object.keys(CARD_SUMMARY_PART_FIXTURES[arm]),
 }));
 
 /** Each arm's control paired with the members the server declares on it. */
@@ -525,6 +579,21 @@ describe('node descriptor drift between server and browser', () => {
                 '`warnIfUnconnected`, below what the handle check compares, so a member missing here is ' +
                 'one the builder never reads when deciding whether to warn. Reconcile ExitWarningCondition ' +
                 'and EXIT_WARNING_CONDITION_KEYS.'
+        ).toEqual(serverMembers);
+    });
+
+    it.each(CARD_SUMMARY_PART_ARMS)('keeps the $arm card-summary part arm identical on both sides', ({ arm, members }) => {
+        const serverMembers = [...members].sort();
+        const browserArm = browserTypes.BLOCK_CARD_SUMMARY_PART_KEYS[arm] as readonly string[] | undefined;
+        const browserMembers = [...(browserArm ?? [])].sort();
+
+        expect(
+            browserMembers,
+            `The \`${arm}\` arm of BlockCardSummaryPart has drifted. Server: [${serverMembers.join(', ')}]; ` +
+                `browser (web/src/api/types.ts): [${browserMembers.join(', ')}]. A part is served inside ` +
+                '`cardSummary`, below what the descriptor check compares, so a member missing here is one ' +
+                'the card never reads — `visibleWhen` unread would print a part its block asked to hide. ' +
+                'Reconcile BlockCardSummaryPart and BLOCK_CARD_SUMMARY_PART_KEYS.'
         ).toEqual(serverMembers);
     });
 

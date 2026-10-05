@@ -15,8 +15,9 @@ import type {
     NodeDescriptor,
     TicketTypeView,
 } from '../api/types';
+import { formatDaysOfWeek, formatTimeOfDay } from './clockValues';
 import { formatDuration } from './nodeMeta';
-import { isFieldVisible, pickerVariableOf } from './variables';
+import { isFieldVisible, isShownBy, pickerVariableOf } from './variables';
 
 /** Shown when a block declares no `cardSummary` at all. */
 const NO_SUMMARY = 'Click to configure';
@@ -225,6 +226,12 @@ function resolveValue(
                 }
             }
         }
+        // On a 12-hour clock: `09:00` reads `9:00 AM`.
+        case 'timeOfDay':
+            return formatTimeOfDay(raw);
+        // In week order, and `Every day` once all seven are picked.
+        case 'daysOfWeek':
+            return formatDaysOfWeek(raw);
         default: {
             const unhandled: never = field;
             void unhandled;
@@ -298,6 +305,10 @@ export function summarizeFromDescriptor(
         // `emptyText`, and never a cut-short line. The node may well still hold a
         // value for it, which is exactly what must not reach the card.
         if (!isFieldVisible(field, descriptor.configFields, config)) continue;
+
+        // A part may also ask to show only under some choices, read the way a field's
+        // own `visibleWhen` is — and it then renders nothing, the same way.
+        if (part.visibleWhen && !isShownBy(part.visibleWhen, descriptor.configFields, config)) continue;
 
         const value = resolveValue(field, config[part.key], context);
 

@@ -228,6 +228,31 @@ describe('save refuses what needs a member where a run about nobody reaches', ()
     });
 });
 
+describe('the Schedule trigger, the first shipped trigger about nobody', () => {
+    const schedule = (): FlowNode => node('trigger', 'trigger.schedule', { repeat: 'daily', time: '09:00' });
+
+    it('refuses a block that acts on the member below it, with the same wording', () => {
+        const graph = graphFrom(schedule(), node('target', 'action.assignRole', { roleId: 'role-1' }));
+
+        expect(subjectIssuesOn(graph, 'target')).toHaveLength(1);
+    });
+
+    it('refuses {{subject.mention}} in copy below it', () => {
+        const graph = graphFrom(
+            schedule(),
+            node('target', 'action.sendMessage', { channelId: CHANNEL_ID, message: 'Morning, {{subject.mention}}' })
+        );
+
+        expect(subjectIssuesOn(graph, 'target')).toHaveLength(1);
+    });
+
+    it('accepts Send Message to a picked channel', () => {
+        const graph = graphFrom(schedule(), node('target', 'action.sendMessage', { channelId: CHANNEL_ID, message: 'Rise and grind, {{guild.name}}.' }));
+
+        expect(authoredGraphIssues(graph)).toEqual([]);
+    });
+});
+
 describe('{{actor.mention}} is held to the same rule', () => {
     const ACTOR_ISSUE = /needs "actor" from the run for \{\{actor\.mention\}\} in "Message", but it can be reached after a block that parks the run/;
 
@@ -415,6 +440,17 @@ describe('a run about nobody parks and resumes with nobody', () => {
         expect(authoredGraphIssues(graph)).toEqual([]);
     });
 
+    it('reports a run that finished without parking as not parked, still naming its run', async () => {
+        const env = world();
+        const straight = graphFrom(nobody(), node('only', 'action.sendMessage', { channelId: CHANNEL_ID, message: 'Done.' }));
+
+        const result = await executeFlow('flow-1', straight, 'trigger', seedAboutNobody(env));
+
+        expect(result).toMatchObject({ status: 'success', parked: false });
+        expect(result.runId).toMatch(/^[0-9a-f-]{36}$/);
+        expect(await testDb.db.selectFrom('flow_runs').select('runId').execute()).toEqual([]);
+    });
+
     it('parks with no member in its snapshot, and resumes to the end without fetching one', async () => {
         const env = world();
 
@@ -423,6 +459,9 @@ describe('a run about nobody parks and resumes with nobody', () => {
 
         const [parked] = await testDb.db.selectFrom('flow_runs').select('runId').execute();
         if (!parked) throw new Error('the run did not park');
+        // Said by the result itself, so a caller never guesses from `success`.
+        expect(first.parked).toBe(true);
+        expect(first.runId).toBe(parked.runId);
         const row = await repo.getByRunId(parked.runId);
         if (!row) throw new Error('the parked run disappeared');
         expect(row.contextSnapshot.guildId).toBe(GUILD_ID);

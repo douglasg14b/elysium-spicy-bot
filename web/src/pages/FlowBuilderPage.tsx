@@ -60,7 +60,7 @@ import {
 } from '@tabler/icons-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../api/client';
-import { getGuildChannels } from '../api/config';
+import { getGuildChannels, getGuildSettings } from '../api/config';
 import {
     deployFlow,
     discardFlowDraft,
@@ -149,6 +149,9 @@ import {
 } from '../flows/variables';
 import { NodePalette, NODE_DRAG_MIME } from '../flows/NodePalette';
 import { NodeInspector } from '../flows/NodeInspector';
+import type { ServerTimeZone } from '../flows/controls/types';
+import { nextRunForNode, sameNextRun } from '../flows/nextRun';
+import { useFlowNextRuns } from '../flows/useFlowNextRuns';
 import { JourneyAttachmentControl } from '../flows/JourneyAttachmentControl';
 import { INSTALL_QUERY_PARAM } from '../flows/installStateChip';
 import { ResourcesDialog } from '../flows/ResourcesDialog';
@@ -217,6 +220,16 @@ function styleEdge(edge: Edge, sourceDescriptor: NodeDescriptor | undefined): Ed
     };
 }
 
+/**
+ * A saved node's config as the canvas holds it: every field whose default was declared
+ * after the graph was written backfilled, stored values winning — see `putGraphOnCanvas`.
+ * Also how the saved config the next-run line compares against is read, so a node the
+ * load backfilled does not read as edited.
+ */
+function backfilledConfig(node: FlowGraph['nodes'][number], descriptor: NodeDescriptor | undefined): Record<string, unknown> {
+    return descriptor ? { ...defaultDataFor(descriptor), ...(node.data ?? {}) } : node.data ?? {};
+}
+
 /** A graph snapshot for the undo stack. */
 interface Snapshot {
     nodes: FlowCardNode[];
@@ -254,6 +267,9 @@ function snapshot(source: Snapshot): Snapshot {
                 // graph rather than a verdict about an older one.
                 convergingTriggers: node.data.convergingTriggers,
                 unconnectedExits: node.data.unconnectedExits,
+                // Carried too: whether the restored config is the saved one is a fact
+                // about the restored graph, and the effect re-derives it either way.
+                nextRun: node.data.nextRun,
             },
         })),
         edges: structuredClone(source.edges),
@@ -447,6 +463,23 @@ function FlowBuilder() {
      */
     const [drafts, setDrafts] = useState<FlowDraft[]>([]);
     const [draftPickerOpen, setDraftPickerOpen] = useState(false);
+
+    /**
+     * The server's time zone, for the time-of-day controls' zone line. Absent until its
+     * fetch answers, and after one that failed: the controls then say nothing about it.
+     */
+    const [serverTimeZone, setServerTimeZone] = useState<ServerTimeZone | undefined>(undefined);
+    /**
+     * The cards' countdown: when the saved flow's nodes next run, and each saved node's
+     * config — a card whose config differs says its next run is worked out when you save.
+     */
+    const {
+        nextRuns,
+        savedNodeData,
+        refresh: refreshNextRuns,
+        invalidate: invalidateNextRuns,
+        markSaved: markNodesSaved,
+    } = useFlowNextRuns(selected?.id, flowId);
 
     const [deployOpen, setDeployOpen] = useState(false);
     const [deploying, setDeploying] = useState(false);
@@ -705,9 +738,7 @@ function FlowBuilder() {
                              * The draft autosave agrees: its baseline is taken
                              * after this backfill, so it is not an edit to it either.
                              */
-                            config: descriptor
-                                ? { ...defaultDataFor(descriptor), ...(node.data ?? {}) }
-                                : node.data ?? {},
+                            config: backfilledConfig(node, descriptor),
                             descriptor,
                             roles: directory.roles,
                             channels: directory.channels,
@@ -719,6 +750,8 @@ function FlowBuilder() {
                             unreachable: false,
                             convergingTriggers: 0,
                             unconnectedExits: [],
+                            // And this once the next-runs fetch answers.
+                            nextRun: null,
                         } satisfies FlowNodeCardData,
                     };
                 })
@@ -756,6 +789,8 @@ function FlowBuilder() {
         void (async () => {
             setLoading(true);
             setError(null);
+            // Not another guild's zone, should this flow's settings fetch fail.
+            setServerTimeZone(undefined);
             try {
                 const [flow, catalog, guildRoles, guildChannels, guildTicketTypes, flowResources] = await Promise.all([
                     getFlow(selected.id, flowId),
@@ -782,6 +817,12 @@ function FlowBuilder() {
                 setDraftOnlySave(null);
                 setDrafts([]);
                 setDraftPickerOpen(false);
+                markNodesSaved(
+                    (flow.graph ?? emptyGraph()).nodes.map((node) => ({
+                        id: node.id,
+                        data: backfilledConfig(node, catalog.find((entry) => entry.type === node.type)),
+                    }))
+                );
 
                 rebaseDraft();
                 putGraphOnCanvas(flow.graph ?? emptyGraph(), {
@@ -798,6 +839,21 @@ function FlowBuilder() {
             } finally {
                 if (!cancelled) setLoading(false);
             }
+
+            /*
+             * Then what the cards' countdown and the time controls' zone line read —
+             * beside the drafts, and for the same reason never instead of the flow: either
+             * failing leaves the builder as it is, with no countdown or no zone line.
+             */
+            void refreshNextRuns();
+            getGuildSettings(selected.id).then(
+                (settings) => {
+                    if (!cancelled) {
+                        setServerTimeZone({ timeZone: settings.timeZone, defaultTimeZone: settings.defaultTimeZone });
+                    }
+                },
+                () => undefined
+            );
 
             /*
              * Then the drafts, after the flow is on screen and never instead of it: a
@@ -824,7 +880,7 @@ function FlowBuilder() {
         return () => {
             cancelled = true;
         };
-    }, [selected, flowId, rebaseDraft, putGraphOnCanvas, setGraphIssues]);
+    }, [selected, flowId, rebaseDraft, putGraphOnCanvas, setGraphIssues, refreshNextRuns]);
 
     /**
      * Load a draft from the picker: onto the canvas the way the flow loads, with the
@@ -898,6 +954,8 @@ function FlowBuilder() {
                     convergingTriggers: 0,
                     // An unwired node is never warned about — see `unconnectedWarnedExits`.
                     unconnectedExits: [],
+                    // Not in the saved flow, so nothing has a time for it yet.
+                    nextRun: null,
                 },
             };
             setNodes((prev) => [...prev, node]);
@@ -1284,6 +1342,10 @@ function FlowBuilder() {
             setCanvasBase(updated.updatedAt);
             setDraftOnlySave(null);
             draftAutosave.markSavedToFlow(sent);
+            // What was sent is now the saved flow, and its schedules were brought up to
+            // date before the save answered — so the countdown is asked for again.
+            markNodesSaved(sent.graph.nodes);
+            invalidateNextRuns();
             // Stored, finished or not: a switched-off flow may hold an incomplete
             // graph, and its issues come back so the cards stay honest about it.
             setGraphIssues(updated.issues, sentAsOf);
@@ -1413,6 +1475,9 @@ function FlowBuilder() {
         try {
             const updated = await updateFlow(selected.id, flowId, { enabled: next });
             setStoredIssueCount(updated.issues.length);
+            // Switching on or off starts or stops the flow's schedules — its own request,
+            // not a save, so the countdown is asked for again here too.
+            invalidateNextRuns();
             // The cards too, but only while the canvas *is* the stored graph. With
             // unsaved edits on it — or a draft-only save, which is not the stored graph
             // either — these issues describe something else, and the cards are marking
@@ -1600,25 +1665,29 @@ function FlowBuilder() {
                     failed: count > 0,
                     unreachable,
                 });
+                // Compared per node against the saved flow, so an edit to one schedule
+                // does not withdraw another's countdown.
+                const nextRun = nextRunForNode(node.id, node.data.config, nextRuns, savedNodeData);
                 if (
                     node.data.issueCount === count &&
                     node.data.unreachable === unreachable &&
                     node.data.convergingTriggers === convergingTriggers &&
                     // By content: the map is rebuilt on every edit, so its lists are
                     // new arrays even when they say the same thing.
-                    node.data.unconnectedExits.join('\u0000') === unconnectedExits.join('\u0000')
+                    node.data.unconnectedExits.join('\u0000') === unconnectedExits.join('\u0000') &&
+                    sameNextRun(node.data.nextRun, nextRun)
                 ) {
                     return node;
                 }
                 changed = true;
                 return {
                     ...node,
-                    data: { ...node.data, issueCount: count, unreachable, convergingTriggers, unconnectedExits },
+                    data: { ...node.data, issueCount: count, unreachable, convergingTriggers, unconnectedExits, nextRun },
                 };
             });
             return changed ? next : prev;
         });
-    }, [issuesForNode, unreachableIds, convergingCounts, forgottenExits, nodes, setNodes]);
+    }, [issuesForNode, unreachableIds, convergingCounts, forgottenExits, nextRuns, savedNodeData, nodes, setNodes]);
 
     /**
      * What the selection's ancestry implies for the copy fields in it.
@@ -2139,6 +2208,7 @@ function FlowBuilder() {
                                 variables={availableVariables}
                                 requirements={availableRequirements}
                                 declaredResources={declaredResources}
+                                serverTimeZone={serverTimeZone}
                                 issues={issuesForNode.get(selectedNode.id) ?? []}
                                 unconnectedExits={selectedNode.data.unconnectedExits}
                                 onChange={updateNodeConfig}

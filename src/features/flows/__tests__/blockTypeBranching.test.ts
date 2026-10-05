@@ -177,6 +177,10 @@ const DECLARED_BLOCK_DEPENDENTS: Readonly<Record<string, string>> = {
         'Residual: reads triggerButtonClick\'s schema to render its button and read its destination.',
     'src/features/flows/logic/ticketEventDispatch.ts':
         'Residual: reads triggerTicketEvent\'s schema to match a ticket change by event and type — in logic/ rather than engine/ because `ticket` is a proven rejection of the engine vocabulary gate.',
+    'src/features/flows/logic/reconcileGuildSchedules.ts':
+        'Residual: reads triggerSchedule\'s schema to key each Schedule node and work out its next time — in logic/ because time words are kept out of the engine; fireDueSchedules reads nodes through it rather than importing the block itself.',
+    'src/features/flows/logic/scheduleTimes.ts':
+        'Residual: takes triggerSchedule\'s config type and its table of interval lengths — the time math is the block\'s own rules, kept in logic/ so the block-dependents check can see the import.',
 };
 
 /**

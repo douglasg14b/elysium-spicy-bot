@@ -75,7 +75,7 @@ marks it optional; arrays are declared empty rather than omitted, so a reader ca
 | `outputs` | Values your block writes for later blocks to read, via `context.setOutput`. Read by the builder to offer an author the variables in scope. Discriminated on `naming` — `fixed` carries the name, `authored` names the config field holding it. See [Run variables](#run-variables). |
 | `requires` | Run context you cannot work without. See [Context requirements](#context-requirements). |
 | `capabilities` | Discord permissions the bot needs for your block to work. Declared, not yet enforced. |
-| `startedBy` | **Optional. Triggers only.** What fires you: `buttonClick`, `levelUp`, `memberJoin`, `memberLeave`, `messageSent`, `reactionAdd`, or `ticketChanged`. The gateway dispatchers select on this, so a new trigger for an existing source needs no dispatcher edit. Every dispatcher but the button's starts each run through one function, `startTriggeredRun` in `engine/triggeredRun.ts`, which isolates and logs a failure per run and is the only place a run start can be limited — only `messageSent` passes the flood limit. `ticketChanged` is a committed ticket change the ticket service announces through its subscriber seam; its dispatcher lives in `logic/ticketEventDispatch.ts` rather than `engine/`, because `ticket` is a word the engine vocabulary gate rejects, and it is the one source whose runs can be started by another run — see [How deep in a chain](#how-deep-in-a-chain--contextchaindepth). Leave it off any condition or action. |
+| `startedBy` | **Optional. Triggers only.** What fires you: `buttonClick`, `levelUp`, `memberJoin`, `memberLeave`, `messageSent`, `reactionAdd`, `scheduleDue`, or `ticketChanged`. `scheduleDue` is a schedule coming due: nothing on the gateway announces it, so `logic/reconcileGuildSchedules.ts` keeps a `flow_schedules` row per node with its next time and `logic/fireDueSchedules.ts` starts the due ones from the shared run tick, through an `onTick` hook `initFlows` hands the scheduler — the engine never names schedules. Its runs are about nobody, carry no channel, and are never limited. The gateway dispatchers select on this, so a new trigger for an existing source needs no dispatcher edit. Every dispatcher but the button's starts each run through one function, `startTriggeredRun` in `engine/triggeredRun.ts`, which isolates and logs a failure per run and is the only place a run start can be limited — only `messageSent` passes the flood limit. `ticketChanged` is a committed ticket change the ticket service announces through its subscriber seam; its dispatcher lives in `logic/ticketEventDispatch.ts` rather than `engine/`, because `ticket` is a word the engine vocabulary gate rejects, and it is the one source whose runs can be started by another run — see [How deep in a chain](#how-deep-in-a-chain--contextchaindepth). Leave it off any condition or action. |
 | `canSuspend` | Whether `run` may park the run. State it truthfully; conformance holds you to it. |
 | `run` | The entry point. See [The entry point](#the-entry-point). |
 
@@ -280,6 +280,8 @@ only renders** — never the other way round.
 | `objectList` | `Record<string, unknown>[]` | an ordered list of **records** — `textList` one dimension up. Needs `columns`; also takes `minEntries`, `maxEntries`, `addLabel`. See below. |
 | `eligibility` | an `Eligibility` object | who is allowed. Declares no options: the principals are a closed vocabulary the control reads from `engine/eligibility.ts`. |
 | `variableSelect` | a bare variable name | one variable an earlier block records, picked by name. `valueKind` narrows it to one kind; leave it off to take any variable. See [Reading a variable by name](#reading-a-variable-by-name). |
+| `timeOfDay` | `HH:MM`, 24-hour | a time of day on the server's clock. Drawn as hour, minute (any minute, searchable) and AM/PM, with the server's zone under it — or the ask to pick one, linking to Server Settings, while none is picked. Conformance holds the schema to the stored shape: it must take `00:00` and `23:59` and refuse `24:00` and `9:00` — `z.string().regex(/^([01]\d\|2[0-3]):[0-5]\d$/, '…')`. |
+| `daysOfWeek` | `BlockDayKey[]` (`'mon'` … `'sun'`) | any of the seven days, offered Monday first as chips and written in week order. The keys are declared once, as `BLOCK_DAY_KEYS` in `blocks/manifest.ts` (mirrored in the browser under the vocabulary drift gate) — build your enum from them. Conformance holds the schema to exactly those seven keys. Its own `defaultValue: readonly string[]`, like `textList`'s. Refuse repeats with `.refine()`, not `uniqueItems`, and sort with a `.transform()` inside the field if order must not matter to you (`trigger.schedule`). |
 
 ### Fields that only sometimes apply — `visibleWhen`
 
@@ -441,9 +443,17 @@ way that field's own `control` already implies:
 | `objectList` | a count plus the field's own label, e.g. `3 fields` — a record has no one string to show |
 | `eligibility` | a short phrase, or nothing at all when the gate is open |
 | `variableSelect` | the bare variable name |
+| `timeOfDay` | the 12-hour clock: `9:00 AM` |
+| `daysOfWeek` | the days in week order, `Mon, Wed, Fri` — or `Every day` when all seven are picked |
 
 A part whose field is currently hidden by its `visibleWhen` renders **nothing** — not its
 value, not its `emptyText`, and its `stopIfEmpty` does not cut the line short.
+
+A part may carry its **own** `visibleWhen`, with the same shape and the same one-level rules
+as a field's, and it then renders nothing — the same way — while that choice holds none of
+`equals`. For a field that is never hidden but whose value reads well under one choice only:
+`trigger.schedule`'s `repeat` prints "Every day" only while it repeats daily, so its card
+reads "Every day at 9:00 AM", "Mon, Wed, Fri at 9:00 AM" or "Every 30 minutes".
 
 `cardSummary` never repeats that resolution logic; it only says which field, what surrounds it,
 and what to show in its place when it's unset:
@@ -461,8 +471,9 @@ and what to show in its place when it's unset:
 part, the second discards the whole line, and a part cannot mean both.
 
 Conformance checks that every `key` here names a real `configFields` entry, that `truncate` is
-a positive whole number when set, and that a part is well-formed (exactly one of `key`/`text`,
-`hideWhenEmpty` and `stopIfEmpty` not both set). It does **not** check that the composed text
+a positive whole number when set, that a part is well-formed (exactly one of `key`/`text`,
+`hideWhenEmpty` and `stopIfEmpty` not both set), and that a part's `visibleWhen` names a
+defaulted, unconditional choice offering each `equals` value — the field rules, shared. It does **not** check that the composed text
 reads well — that's a judgement call, same as `label` and `description`.
 
 ## Output handles
@@ -577,7 +588,10 @@ channel and an interaction; a member join establishes only an actor. **A trigger
 `subject` out of `requires` starts runs about nobody** — no member, no stand-in — and nothing
 needing a member may sit where it reaches. If you add a trigger, declare everything its event
 genuinely provides: under-declaring rejects graphs that should be legal, and over-declaring
-accepts ones that will misbehave at runtime.
+accepts ones that will misbehave at runtime. `trigger.schedule` is the shipped example of a
+trigger about nobody: it declares `requires: []`, because the clock started the run — no
+member, no actor, no channel — so a block that picks its own channel (Send Message, Post Embed)
+works below it and one that acts on the member is refused.
 
 If you find yourself reading something off `context` that you did not declare, declare it.
 
@@ -880,7 +894,8 @@ control's arm and not the other side fails, because a member the browser does no
 the inspector cannot read off a field it is being sent. Exits and outputs are held the same way:
 `BLOCK_OUTPUT_HANDLE_KEYS`, `EXIT_WARNING_CONDITION_KEYS` (one list per object form of
 `warnIfUnconnected`) and `BLOCK_OUTPUT_DECLARATION_KEYS` (one list per naming arm) in the
-browser file, against exhaustive fixtures in the drift test.
+browser file, against exhaustive fixtures in the drift test. Card-summary parts too:
+`BLOCK_CARD_SUMMARY_PART_KEYS`, one list per arm (field reference, literal).
 
 One gap to know about: the test derives what is served from the blocks that actually exist, so a
 **new optional top-level member no block sets yet** is served-as-absent and the test stays quiet
@@ -904,6 +919,7 @@ and each copy carries its own gate:
 | `web/src/flows/builtinTokens.ts` | `RENDERABLE_TOKENS` in `engine/copyRendering.ts` | `src/web/api/__tests__/builtinTokenDrift.test.ts` |
 | `web/src/flows/ticketChannelName.ts` | `buildTicketChannelNameForType` in `tickets/logic/ticketTypes.ts` | `src/features/tickets/logic/__tests__/ticketChannelNamePreviewDrift.test.ts` |
 | `web/src/flows/fieldChecks.ts` (the evaluator) | `failedFieldCheck` in `flows/logic/fieldChecks.ts` | `src/features/flows/logic/__tests__/fieldChecks.test.ts` — runs both over every block's fields, and fails if the browser ever flags a value the server accepts |
+| `FlowNextRuns` in `web/src/api/types.ts` (the card's countdown) | `FlowNextRunsBody` in `src/web/api/flowBody.ts` | `src/web/api/__tests__/flowWireShapeDrift.test.ts` (`FLOW_NEXT_RUNS_KEYS`) |
 
 **A gate lives beside its authority, not beside the copy.** The first two answer to something
 under `src/web/api/`; the third answers to the ticketing feature, so it sits there. A gate placed
