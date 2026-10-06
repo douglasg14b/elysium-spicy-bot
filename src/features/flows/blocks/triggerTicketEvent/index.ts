@@ -111,6 +111,7 @@ export const block: BlockManifest<TicketEventConfig> = {
     // dispatcher resolves one who has left as a partial, so a run always has an actor.
     requires: ['subject', 'actor'],
     capabilities: [],
+    emits: [],
     startedBy: 'ticketChanged',
     canSuspend: false,
     run() {

@@ -1,4 +1,4 @@
-import type { ZodType } from 'zod';
+import type { ZodSafeParseResult, ZodType } from 'zod';
 import type { Eligibility } from '../engine/eligibility';
 import type { FlowStepOutcome } from '../engine/stepOutcome';
 import type { FlowRunContext } from './types';
@@ -916,6 +916,30 @@ export function visibleNodeData(
 }
 
 /**
+ * A node's config as the executor hands it to `run`, before copy is rendered: parsed
+ * through {@link visibleNodeData}, then stripped of hidden fields again, since a schema
+ * `.default()` can put one back.
+ *
+ * The one statement of that sequence, so the executor and the cross-flow cycle finder —
+ * which must read an emitting node exactly as its run would — cannot come to disagree.
+ */
+export function parseNodeConfig(
+    definition: BlockManifest,
+    nodeData: Readonly<Record<string, unknown>>
+): ZodSafeParseResult<unknown> {
+    const parsed = definition.configSchema.safeParse(visibleNodeData(definition.configFields, nodeData));
+    if (!parsed.success || !isObjectValue(parsed.data)) {
+        return parsed;
+    }
+    return { ...parsed, data: visibleNodeData(definition.configFields, parsed.data) };
+}
+
+/** Whether a parsed config is a record, as an object schema always produces. */
+export function isObjectValue(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
  * What kind of value one declared output writes on one node, or undefined for a
  * plain value.
  *
@@ -984,6 +1008,39 @@ export const BLOCK_CAPABILITIES = ['manageRoles', 'sendMessages', 'embedLinks', 
 export type BlockCapability = (typeof BLOCK_CAPABILITIES)[number];
 
 /**
+ * A value an event a block causes is known to carry, compared against the listening
+ * trigger's own config: a literal (`{ value }`, e.g. the kind of change), or whatever the
+ * causing node holds in one of its own config fields (`{ fromField }`).
+ *
+ * A `fromField` that is unset on the node is **unknown**, and unknown matches anything.
+ * Conformance keeps `fromField` off any field that can hold a `{{var}}`: a written token
+ * compares unequal to everything, which would quietly drop a link that is really there.
+ */
+export type BlockEmissionValue =
+    | { readonly value: string; readonly fromField?: never }
+    | { readonly fromField: string; readonly value?: never };
+
+/**
+ * One event a block's action causes that can start a trigger — the half of loop refusal a
+ * manifest can state. See {@link BlockManifest.emits}.
+ */
+export interface BlockEmission {
+    /** The trigger source this block's action fires. */
+    readonly startedBy: BlockTriggerSource;
+    /**
+     * What the caused event is known to carry, keyed by the **listening trigger's** config
+     * field. A field left out is unknown: it could be anything, so it matches whatever the
+     * listener holds. Absent means nothing is known, and every trigger on the source listens.
+     *
+     * Conformance holds every key to a field some trigger on `startedBy` declares, and every
+     * literal to that field's options when it has any — a typo'd key would otherwise match
+     * everything, and a typo'd literal nothing, which is the worse way round: the check
+     * would miss a loop that is really there.
+     */
+    readonly carries?: Readonly<Record<string, BlockEmissionValue>>;
+}
+
+/**
  * Everything a block declares, plus the single entry point it implements.
  *
  * `TConfig` is the block's **validated** config — what `configSchema` produces
@@ -992,7 +1049,7 @@ export type BlockCapability = (typeof BLOCK_CAPABILITIES)[number];
  * parsing them in the conformance suite, which catches a wrong type, an
  * out-of-range value, and disagreement with a schema `.default()` alike.
  *
- * **Every member here except `configSchema` and `run` is served to the browser**
+ * **Every member here except `configSchema`, `run` and `emits` is served to the browser**
  * by `GET /api/nodes`, so that the builder can draw a node from what this declares
  * rather than from a copy. Adding a member therefore publishes it to every
  * authenticated dashboard user by default. A server-only member must be added to
@@ -1083,6 +1140,33 @@ export interface BlockManifest<TConfig = unknown> {
      * extends the vocabulary and writes the dispatcher once, for everyone.
      */
     readonly startedBy?: BlockTriggerSource;
+    /**
+     * What this block's action causes that can start a trigger — in this flow or another.
+     *
+     * Read by `findFlowCycleThrough` (`engine/flowCycles.ts`), which refuses to let a flow
+     * go live into a loop of flows starting one another. A trigger node U listens to
+     * emission E from node N when:
+     *
+     *  1. U's block is a trigger started by `E.startedBy`, and U's raw `node.data` parses
+     *     against its schema — a listener whose config does not parse matches nothing, as
+     *     the dispatchers treat one;
+     *  2. for every key in `E.carries`, U's parsed value there is unset (`undefined`, `null`
+     *     or `''`: any) or strictly equals E's value — a `fromField` read off N's config as
+     *     the executor parses it, where unset is unknown and unknown matches;
+     *  3. a field of U's that E does not carry matches whatever it holds.
+     *
+     * **Required, so the author of every new block decides.** Most declare `[]`, and a
+     * trigger always does: it is the event, not an action. What declares nothing, and why:
+     *
+     *  - Anything that posts — a message, an embed, a question, a DM. A bot's message never
+     *    reaches a trigger: the activity recorder drops `message.author.bot`, so it starts
+     *    no Message Sent run and earns no XP towards a Level Reached.
+     *  - Award XP. `awardFlowXp` announces a level but never notifies level-up subscribers,
+     *    so XP a flow awards sets off no Level Reached — if that ever changes, it becomes an
+     *    emission here.
+     *  - Roles, waits and delays, which no trigger listens for.
+     */
+    readonly emits: readonly BlockEmission[];
     /** Discord permissions the bot needs for this block. */
     readonly capabilities: readonly BlockCapability[];
     /**

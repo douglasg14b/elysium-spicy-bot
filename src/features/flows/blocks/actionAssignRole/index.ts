@@ -31,6 +31,7 @@ export const block: BlockManifest<AssignRoleConfig> = {
     outputs: [],
     requires: ['subject'],
     capabilities: ['manageRoles'],
+    emits: [],
     canSuspend: false,
     async run(config, context) {
         await requireSubject(context).roles.add(config.roleId);

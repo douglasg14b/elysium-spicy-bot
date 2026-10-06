@@ -63,6 +63,7 @@ export const block: BlockManifest<DelayConfig> = {
     outputs: [],
     requires: [],
     capabilities: [],
+    emits: [],
     canSuspend: true,
     run(config, context) {
         // Woken by the clock, which is the only thing this block waits on.

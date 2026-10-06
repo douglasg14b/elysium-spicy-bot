@@ -52,6 +52,13 @@ export const block: BlockManifest<CloseTicketConfig> = {
     // Closing moves the channel to the closed category and rewrites its
     // permission overwrites, both of which need `manageChannels`.
     capabilities: ['manageChannels'],
+    /*
+     * The ticket it closes is announced as closed. Its type is not carried: the ticket is
+     * a `{{var}}` the run fills in, so which type it is cannot be known before it runs —
+     * left unknown, it starts every Ticket Event listening for closed, whatever type that
+     * trigger filters on. Over-refusing is the accepted cost of not missing a loop.
+     */
+    emits: [{ startedBy: 'ticketChanged', carries: { event: { value: 'closed' } } }],
     canSuspend: false,
     async run(config, context) {
         const ticketId = Number(config.ticketId);

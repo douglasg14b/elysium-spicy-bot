@@ -53,6 +53,7 @@ export const block: BlockManifest<RecordValueConfig> = {
     outputs: [{ naming: 'authored', fromField: 'outputKey', label: 'The recorded value' }],
     requires: ['subject'],
     capabilities: [],
+    emits: [],
     canSuspend: false,
     run(config, context) {
         context.setOutput(config.outputKey, config.value);

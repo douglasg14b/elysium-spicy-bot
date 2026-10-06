@@ -77,6 +77,7 @@ export const block: BlockManifest<HasOpenTicketConfig> = {
     ],
     requires: ['subject'],
     capabilities: [],
+    emits: [],
     canSuspend: false,
     async run(config, context) {
         const ticket = await findOpenTicket(context.guild.id, requireSubject(context).id, config.ticketType);

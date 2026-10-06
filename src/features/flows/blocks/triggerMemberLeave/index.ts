@@ -39,6 +39,7 @@ export const block: BlockManifest<MemberLeaveConfig> = {
     outputs: [],
     requires: ['subject'],
     capabilities: [],
+    emits: [],
     startedBy: 'memberLeave',
     canSuspend: false,
     run() {

@@ -39,6 +39,7 @@ export const block: BlockManifest<InChannelConfig> = {
     // this question, and save-time validation says so before it runs.
     requires: ['channel'],
     capabilities: [],
+    emits: [],
     canSuspend: false,
     run(config, context) {
         // The run's own channel, not the originating interaction's. Reading the

@@ -218,6 +218,7 @@ export const block: BlockManifest<ScheduleConfig> = {
     // The clock started it: no member, no actor, no channel.
     requires: [],
     capabilities: [],
+    emits: [],
     startedBy: 'scheduleDue',
     canSuspend: false,
     run() {

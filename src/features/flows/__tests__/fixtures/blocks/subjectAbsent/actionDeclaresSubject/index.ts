@@ -26,6 +26,7 @@ export const block: BlockManifest<ActionDeclaresSubjectConfig> = {
     outputs: [],
     requires: ['subject'],
     capabilities: [],
+    emits: [],
     canSuspend: false,
     run() {
         return { kind: 'continue' };

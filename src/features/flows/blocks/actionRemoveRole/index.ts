@@ -31,6 +31,7 @@ export const block: BlockManifest<RemoveRoleConfig> = {
     outputs: [],
     requires: ['subject'],
     capabilities: ['manageRoles'],
+    emits: [],
     canSuspend: false,
     async run(config, context) {
         await requireSubject(context).roles.remove(config.roleId);

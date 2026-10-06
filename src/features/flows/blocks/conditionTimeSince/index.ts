@@ -304,6 +304,7 @@ export const block: BlockManifest<TimeSinceConfig> = {
     // Nothing for every source; the member's sources declare `subject` on their options.
     requires: [],
     capabilities: [],
+    emits: [],
     canSuspend: false,
     async run(config, context) {
         const reference = await referenceTime(config, context);

@@ -60,8 +60,11 @@ export function createFlow(guildId: string, name: string, graph?: FlowGraph): Pr
  * `baseUpdatedAt` is the flow version the sent graph was edited from, which that draft
  * records. What is refused arrives as an `ApiError`: a structurally broken graph (400,
  * with `issues`), `enabled: true` on a flow whose graph is incomplete (400, with
- * `issues`), and `enabled: true` on one still waiting on its install (400, a sentence
- * and no `issues` — nothing on the canvas is wrong).
+ * `issues`), `enabled: true` on one still waiting on its install (400, a sentence
+ * and no `issues` — nothing on the canvas is wrong), and going live — switched on, or a
+ * graph saved while on — into a loop with the guild's other live flows (400, a sentence
+ * naming every step of the loop and no `issues`). A save that would go live only because
+ * another request switched the flow on or off meanwhile is refused too (400, "save again").
  */
 export function updateFlow(
     guildId: string,

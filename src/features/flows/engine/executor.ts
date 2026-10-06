@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { FLOW_MAX_NODE_VISITS, FLOW_MAX_VARIABLES_SIZE, FLOW_ROOT_CHAIN_DEPTH } from '../constants';
 import type { FlowEdge, FlowGraph, FlowNode } from '../data/flowGraph';
 import { flowRunsRepo } from '../data/flowRunsRepo';
-import { visibleNodeData, type BlockKind, type BlockManifest } from '../blocks/manifest';
+import { parseNodeConfig, type BlockKind, type BlockManifest } from '../blocks/manifest';
 import { getBlockDefinition } from '../blocks/registry';
 import type {
     FlowResume,
@@ -262,9 +262,10 @@ export async function executeFlowSegment(
          * seeds every default and switching the sibling clears nothing — so a stale
          * `{{var.x}}` or an over-long value in one would otherwise fail a run over a
          * field the author cannot see. Stripped again after the parse, because a
-         * schema `.default()` can put a hidden key back.
+         * schema `.default()` can put a hidden key back — both inside `parseNodeConfig`,
+         * which the cross-flow cycle finder shares so it reads a node as its run does.
          */
-        const parsed = definition.configSchema.safeParse(visibleNodeData(definition.configFields, node.data));
+        const parsed = parseNodeConfig(definition, node.data);
         if (!parsed.success) {
             const message = `Invalid config for ${node.type}: ${parsed.error.issues
                 .map((issue) => issue.message)
@@ -277,7 +278,7 @@ export async function executeFlowSegment(
         // than a context: there is no node running yet to own a write channel.
         const rendered = renderNodeCopy(
             definition,
-            isObjectValue(parsed.data) ? visibleNodeData(definition.configFields, parsed.data) : parsed.data,
+            parsed.data,
             { ...context, variables },
             runLeg
         );
@@ -684,11 +685,6 @@ function drainWrites(
  */
 function chainDepthOf(context: FlowRunSeed): number {
     return context.chainDepth ?? FLOW_ROOT_CHAIN_DEPTH;
-}
-
-/** Whether a parsed config is a record, as an object schema always produces. */
-function isObjectValue(value: unknown): value is Record<string, unknown> {
-    return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 /** A node's config with its copy fields expanded, or why they could not be. */

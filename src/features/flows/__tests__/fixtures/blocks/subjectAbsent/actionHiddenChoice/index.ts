@@ -58,6 +58,7 @@ export const block: BlockManifest<ActionHiddenChoiceConfig> = {
     outputs: [],
     requires: [],
     capabilities: [],
+    emits: [],
     canSuspend: false,
     run() {
         return { kind: 'continue' };

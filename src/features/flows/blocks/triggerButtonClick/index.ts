@@ -118,6 +118,7 @@ export const block: BlockManifest<ButtonClickConfig> = {
     outputs: [],
     requires: ['subject', 'actor', 'channel', 'interaction'],
     capabilities: [],
+    emits: [],
     startedBy: 'buttonClick',
     canSuspend: false,
     run() {

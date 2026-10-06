@@ -97,6 +97,18 @@ export const block: BlockManifest<OpenTicketConfig> = {
     // create its category. The most channel-hungry block in the tree, so it is
     // the one that would silently pass when capability checking lands.
     capabilities: ['sendMessages', 'embedLinks', 'manageChannels'],
+    /*
+     * The ticket it opens is announced as opened, of the type picked here — a fixed key,
+     * since the type picker takes no `{{var}}`. Never as claimed: `openerId` is null
+     * below, so the service's auto-claim has nobody to claim it for, and even a person's
+     * auto-claimed ticket announces only `opened`.
+     */
+    emits: [
+        {
+            startedBy: 'ticketChanged',
+            carries: { event: { value: 'opened' }, ticketType: { fromField: 'ticketType' } },
+        },
+    ],
     // The builder previews the channel name from this; `title` does not decide it.
     createsChannel: true,
     canSuspend: false,

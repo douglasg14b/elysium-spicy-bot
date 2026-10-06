@@ -70,6 +70,7 @@ export const block: BlockManifest<SometimesConfig> = {
     outputs: [],
     requires: [],
     capabilities: [],
+    emits: [],
     canSuspend: false,
     run() {
         return { kind: 'continue' };

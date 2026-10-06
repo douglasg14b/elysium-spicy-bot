@@ -249,6 +249,9 @@ recurse on the stack.
 
 ## Step 2 sketch (not planned in detail yet)
 
+> **Superseded** by [cross-flow-loop-refusal.md](cross-flow-loop-refusal.md), which planned and
+> built step 2. Where the two differ, that plan is what shipped.
+
 - **Actions declare what they cause:** `emits: [{ source, match }]`.
   - Open Ticket emits opened, and claimed only if its type auto-claims; conservatively,
     both.

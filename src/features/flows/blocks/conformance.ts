@@ -1,4 +1,5 @@
 import { z, type ZodType } from 'zod';
+import { isCopyField, isVariablePickerField } from '../engine/copyRendering';
 import { ELIGIBILITY_CONFIG_KEY, ELIGIBILITY_ENFORCED_SOURCES } from '../engine/eligibility';
 import { FLOW_STEP_OUTCOME_KINDS } from '../engine/stepOutcome';
 import {
@@ -10,6 +11,7 @@ import {
     BLOCK_KINDS,
     BLOCK_OUTPUT_VALUE_KINDS,
     BLOCK_PALETTE_GROUPS,
+    BLOCK_TRIGGER_SOURCES,
     FLOW_CONTEXT_REQUIREMENTS,
     type BlockConfigColumn,
     type BlockConfigField,
@@ -37,6 +39,10 @@ import type { FlowResumeKind, FlowResumeReason, FlowRunContext } from './types';
  * manifest and so can run over every registered block. {@link checkBlockOutcome}
  * has to actually run the block, which needs a config and a context only the
  * block's own test can supply.
+ *
+ * {@link checkEmissionTargets} is the one exception to "from the declaration alone":
+ * whether what a block emits means anything depends on the triggers listening for it,
+ * so it takes the whole registry.
  */
 
 /** Names of every manifest member that must be present, with the shape expected. */
@@ -57,6 +63,7 @@ const REQUIRED_ARRAYS = [
     'outputs',
     'requires',
     'capabilities',
+    'emits',
 ] as const;
 
 /**
@@ -106,6 +113,173 @@ export function checkBlockConformance(candidate: unknown): readonly string[] {
     issues.push(...checkVisibleWhen(label, block.configFields, block.configSchema));
     issues.push(...checkCardSummary(label, block.cardSummary, block.configFields, block.configSchema));
     issues.push(...checkEligibilityEnforced(label, block));
+    issues.push(...checkEmits(label, block));
+
+    return issues;
+}
+
+/**
+ * What a block says it causes must be readable by the loop check, and only an action may
+ * say it.
+ *
+ * A trigger is the event, not an action, so it declares `emits: []`. Each emission names
+ * its source (held to the vocabulary by {@link checkVocabulary}), and each carried value is
+ * exactly `{ value }` or `{ fromField }`. A `fromField` names one of the block's own config
+ * fields — any other resolves to nothing on every node, so the link it describes is always
+ * unknown — and never one that can hold a `{{var}}`: a written token compares unequal to
+ * everything, which would quietly drop a link that is really there. Unknown is the right
+ * answer for such a field, and leaving it out of `carries` is how to say it.
+ *
+ * Whether a carried key is one a listening trigger has is a question about *other* blocks,
+ * so it is {@link checkEmissionTargets}' job, not this one's.
+ */
+function checkEmits(label: string, block: Partial<Record<string, unknown>>): readonly string[] {
+    const { emits } = block;
+    if (!Array.isArray(emits) || emits.length === 0) {
+        return [];
+    }
+
+    if (block.kind === 'trigger') {
+        return [
+            `${label}: is a trigger, but declares what it emits. A trigger is the event that starts a run, ` +
+                'not an action that causes one — declare emits: [].',
+        ];
+    }
+
+    const fields = asArray(block.configFields);
+    const issues: string[] = [];
+    for (const emission of emits) {
+        const startedBy = readProperty(emission, 'startedBy');
+        if (typeof startedBy !== 'string') {
+            issues.push(
+                `${label}: an emission must name the trigger source it fires, found ${JSON.stringify(startedBy) ?? typeof startedBy}.`
+            );
+            continue;
+        }
+
+        const carries = readProperty(emission, 'carries');
+        if (carries === undefined) {
+            continue;
+        }
+        if (!carries || typeof carries !== 'object' || Array.isArray(carries)) {
+            issues.push(
+                `${label}: its "${startedBy}" emission carries ${JSON.stringify(carries)}. Declare a record of ` +
+                    "the listening trigger's fields, or leave carries off when nothing about the event is known."
+            );
+            continue;
+        }
+
+        for (const [key, carried] of Object.entries(carries as Record<string, unknown>)) {
+            const where = `${label}: its "${startedBy}" emission carries "${key}"`;
+            // The exact key set, so a value carrying both shapes' keys matches neither.
+            const keys = carried && typeof carried === 'object' ? Object.keys(carried).sort().join(',') : '';
+            const value = readProperty(carried, 'value');
+            const fromField = readProperty(carried, 'fromField');
+
+            if (keys === 'value' && typeof value === 'string') {
+                continue;
+            }
+            if (keys !== 'fromField' || typeof fromField !== 'string') {
+                issues.push(
+                    `${where} as ${JSON.stringify(carried)}. Carry { value: "<literal>" }, or { fromField: "<field>" } ` +
+                        'to carry what one of its own fields holds.'
+                );
+                continue;
+            }
+
+            const field = fields.find((candidate) => readProperty(candidate, 'key') === fromField);
+            if (!field) {
+                issues.push(
+                    `${where} from "${fromField}", which is not one of its config fields — it would be unknown on ` +
+                        'every node.'
+                );
+            } else if (isTokenField(field)) {
+                issues.push(
+                    `${where} from "${fromField}", which can hold a {{var}}. A written token compares unequal to ` +
+                        'everything, so the loop check would miss a link that is there. Leave the key out of carries: ' +
+                        'unknown matches anything.'
+                );
+            }
+        }
+    }
+
+    return issues;
+}
+
+/**
+ * Whether a field's stored value can be a `{{var}}` rather than the value itself: copy the
+ * executor renders, or a picker that takes a variable in place of a choice — asked through
+ * the executor's own predicates, so a new token-holding shape is caught here the day it is
+ * taught to them.
+ */
+function isTokenField(field: unknown): boolean {
+    if (typeof readProperty(field, 'control') !== 'string') {
+        return false;
+    }
+    // A record with a string `control`, which is all the two predicates read.
+    const declared = field as BlockConfigField;
+    return isCopyField(declared) || isVariablePickerField(declared);
+}
+
+/**
+ * Every value an emission carries must be one some listening trigger can hold.
+ *
+ * **The one conformance check that is not about a single declaration**, and it has to be:
+ * whether a carried key means anything depends on the triggers started by that source,
+ * which are other blocks. Run over the whole registry by the shipped-blocks suite.
+ *
+ * Two mistakes, each silent at run time:
+ *
+ *  - **A key no trigger on that source declares.** A listener holds nothing under it, and
+ *    nothing reads as "any", so the key matches every listener — a typo that quietly
+ *    turns a narrow link into a broad one.
+ *  - **A literal outside the options of the field it is compared with**, when that field
+ *    offers a fixed set. It equals nothing a listener can hold, so it matches no listener
+ *    that names one — the worse direction, because the loop check would then miss a loop
+ *    that is really there.
+ *
+ * A `fromField` value is not held to the listener's options: what a node holds is the
+ * author's, and an emitter's own field and a listener's are free text alike today.
+ */
+export function checkEmissionTargets(definitions: readonly BlockManifest[]): readonly string[] {
+    const issues: string[] = [];
+
+    for (const block of definitions) {
+        for (const emission of block.emits) {
+            const triggers = definitions.filter(
+                (candidate) => candidate.kind === 'trigger' && candidate.startedBy === emission.startedBy
+            );
+
+            for (const [key, carried] of Object.entries(emission.carries ?? {})) {
+                const where = `${block.type}: its "${emission.startedBy}" emission carries "${key}"`;
+                const fields = triggers.flatMap((trigger) =>
+                    trigger.configFields.filter((field) => field.key === key)
+                );
+                if (fields.length === 0) {
+                    const names = triggers.map((trigger) => trigger.type).join(', ') || 'none';
+                    issues.push(
+                        `${where}, but no trigger started by "${emission.startedBy}" has that field (triggers: ` +
+                            `${names}). It would match every one of them. Name a field the listening trigger declares.`
+                    );
+                    continue;
+                }
+
+                const { value } = carried;
+                if (value === undefined) {
+                    continue;
+                }
+                const choices = fields
+                    .map((field) => choiceValuesOf(field))
+                    .filter((values): values is readonly string[] => values !== undefined);
+                if (choices.length > 0 && !choices.some((values) => values.includes(value))) {
+                    issues.push(
+                        `${where} as "${value}", which that field never offers (${[...new Set(choices.flat())].join(', ')}). ` +
+                            'It would match no trigger that picks one, and the loop check would miss a real loop.'
+                    );
+                }
+            }
+        }
+    }
 
     return issues;
 }
@@ -211,6 +385,11 @@ function checkVocabulary(label: string, block: Partial<Record<string, unknown>>)
     }
     for (const handle of asArray(block.handles)) {
         member('handles.tone', readProperty(handle, 'tone'), BLOCK_HANDLE_TONES);
+    }
+    // A source outside the vocabulary is one no trigger can declare, so the emission
+    // would link to nothing and the loop check would miss what it causes.
+    for (const emission of asArray(block.emits)) {
+        member('emits.startedBy', readProperty(emission, 'startedBy'), BLOCK_TRIGGER_SOURCES);
     }
 
     return issues;

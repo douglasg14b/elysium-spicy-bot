@@ -28,6 +28,7 @@ export const block: BlockManifest<RecordStartConfig> = {
     outputs: [{ naming: 'fixed', key: RECORDED_START, label: 'When the run started', valueKind: 'time' }],
     requires: [],
     capabilities: [],
+    emits: [],
     canSuspend: false,
     run(_config, context) {
         context.setOutput(RECORDED_START, context.startedAt ? context.startedAt.toISOString() : null);

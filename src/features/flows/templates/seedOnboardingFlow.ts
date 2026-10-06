@@ -1,9 +1,13 @@
 import { database } from '../../../features-system/data-persistence/database';
 import { ensureBlocksDiscovered } from '../blocks/registry';
 import { flowsRepo } from '../data/flowsRepo';
+import { describeFlowCycle, findFlowCycleThrough } from '../engine/flowCycles';
 import { describeIssue } from '../engine/nodeDataValidation';
 import { flowReadinessIssues } from '../logic/flowReadiness';
 import { buildOnboardingFlowGraph } from './onboardingFlow';
+
+/** The seeded flow's id in the loop check, before it has a real one. Never a UUID, so never a stored flow's. */
+const UNSAVED_FLOW_ID = 'unsaved-onboarding-flow';
 
 /**
  * Seed the canonical onboarding flow for a guild:
@@ -51,9 +55,20 @@ async function main(): Promise<void> {
         );
     }
 
+    // And the other question every switch-on asks: would it close a loop with the guild's
+    // live flows? The template causes nothing today, so this cannot fail yet — it is here
+    // so a template that learns to cannot slip past. The new flow has no id until it is
+    // written, so it is judged under a placeholder no stored flow can hold.
+    const name = 'Onboarding: Agree to Rules';
+    const liveFlows = (await flowsRepo.getByGuildId(guildId)).filter((flow) => flow.enabled);
+    const cycle = findFlowCycleThrough([...liveFlows, { flowId: UNSAVED_FLOW_ID, name, graph }], UNSAVED_FLOW_ID);
+    if (cycle) {
+        throw new Error(`The onboarding template cannot go live here. ${describeFlowCycle(cycle)}`);
+    }
+
     const flow = await flowsRepo.create({
         guildId,
-        name: 'Onboarding: Agree to Rules',
+        name,
         graph,
         enabled: true,
     });

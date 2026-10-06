@@ -177,6 +177,7 @@ export const block: BlockManifest<MessageSentConfig> = {
     // and who caused it, and the place posted in is the run's channel.
     requires: ['subject', 'actor', 'channel'],
     capabilities: [],
+    emits: [],
     startedBy: 'messageSent',
     canSuspend: false,
     run() {

@@ -87,6 +87,14 @@ export async function applyResourcesToFlows(
         // Only the graph is written. A flow's name and enabled state are the
         // operator's, and an install must not quietly flip a flow on because it
         // finally has its channels.
+        //
+        // Exempt from the loop check a live flow's save faces (`findFlowCycleThrough`),
+        // and safely so: this writes a Discord snowflake into a `*Key`-companioned field,
+        // and a snowflake never equals an event kind or a ticket type key — so a write
+        // here can only remove a link between flows, never add one. The one exception
+        // is contrived: an API caller pointing an emitting field and a listening field at
+        // the same resource, which no builder control offers (neither the event select
+        // nor the ticket type picker has a sidecar).
         await flowsRepo.update(flow.flowId, { graph: result.graph });
         updatedFlowIds.push(flow.flowId);
         writtenCount += written;

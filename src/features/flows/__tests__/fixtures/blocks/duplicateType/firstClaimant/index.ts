@@ -15,6 +15,7 @@ export const block: BlockManifest<Record<string, never>> = {
     outputs: [],
     requires: [],
     capabilities: [],
+    emits: [],
     canSuspend: false,
     run() {
         return { kind: 'continue' };

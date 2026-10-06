@@ -58,6 +58,9 @@ export const block: BlockManifest<KickMemberConfig> = {
     outputs: [],
     requires: ['subject'],
     capabilities: ['kickMembers'],
+    // A kick reaches Discord's member-removed event, which starts every Member Leaves
+    // trigger — including one in this flow, about the member it just kicked.
+    emits: [{ startedBy: 'memberLeave' }],
     canSuspend: false,
     async run(config, context) {
         const member = await fetchIfStillHere(context.guild, requireSubject(context).id);

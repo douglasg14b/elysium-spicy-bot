@@ -332,6 +332,7 @@ export const block: BlockManifest<PostEmbedConfig> = {
     outputs: [],
     requires: [],
     capabilities: ['sendMessages', 'embedLinks'],
+    emits: [],
     canSuspend: false,
     async run(config, context) {
         /*

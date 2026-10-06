@@ -1364,10 +1364,11 @@ function FlowBuilder() {
             );
             return true;
         } catch (err) {
-            // A 400 is a graph too broken to store (dangling edges, duplicate ids). It
-            // stored nothing, so the canvas stays dirty — and the autosave keeps it as
-            // the operator's draft meanwhile. Cycles are allowed now — loops are
-            // guarded by the visit cap.
+            // A 400 stored nothing: a graph too broken to store (dangling edges, duplicate
+            // ids), or — on a live flow — one that would start a loop with other live
+            // flows, which carries a sentence naming the loop and no issues. Either way
+            // the canvas stays dirty, and the autosave keeps it as the operator's draft
+            // meanwhile. Cycles inside one graph are allowed — the visit cap guards those.
             const message =
                 err instanceof ApiError ? err.message : "Couldn't save. Try again in a second.";
             // Only a refusal with issues is an answer about the canvas. A failure

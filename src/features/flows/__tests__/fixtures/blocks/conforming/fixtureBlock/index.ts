@@ -46,6 +46,7 @@ export const block: BlockManifest<FixtureConfig> = {
     outputs: [],
     requires: ['subject'],
     capabilities: [],
+    emits: [],
     canSuspend: false,
     run() {
         return { kind: 'continue' };

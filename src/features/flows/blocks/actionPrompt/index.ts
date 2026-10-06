@@ -166,6 +166,7 @@ export const block: BlockManifest<PromptConfig> = {
     // may answer (`flowChoiceDispatch`), so a run about nobody could never be answered.
     requires: ['subject', 'channel'],
     capabilities: ['sendMessages', 'embedLinks'],
+    emits: [],
     canSuspend: true,
     async run(config, context) {
         if (context.resume) {

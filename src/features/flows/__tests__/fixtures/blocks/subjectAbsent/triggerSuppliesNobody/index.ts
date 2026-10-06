@@ -25,6 +25,7 @@ export const block: BlockManifest<TriggerSuppliesNobodyConfig> = {
     outputs: [],
     requires: [],
     capabilities: [],
+    emits: [],
     canSuspend: false,
     run() {
         return { kind: 'continue' };

@@ -2,7 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { checkBlockConformance, checkBlockOutcome } from '../blocks/conformance';
+import { checkBlockConformance, checkBlockOutcome, checkEmissionTargets } from '../blocks/conformance';
 import type { BlockManifest } from '../blocks/manifest';
 import { discoverBlocks, ensureBlocksDiscovered, listBlockDefinitions } from '../blocks/registry';
 import type { FlowRunContext } from '../blocks/types';
@@ -66,6 +66,7 @@ function validManifest(): Record<string, unknown> {
         outputs: [],
         requires: [],
         capabilities: [],
+        emits: [],
         canSuspend: false,
         run: () => ({ kind: 'continue' }),
     };
@@ -120,6 +121,7 @@ describe('a manifest omitting a required field', () => {
             'outputs',
             'requires',
             'capabilities',
+            'emits',
         ]) {
             const issues = checkBlockConformance(manifestWithout(field));
 
@@ -1346,6 +1348,105 @@ describe('an exit marked worth a warning', () => {
     });
 });
 
+describe('what a block says it causes', () => {
+    /** An action whose emission carries `carried` under `ticketType`, over the given fields. */
+    const emitting = (carried: unknown, fields?: readonly Record<string, unknown>[]) =>
+        manifestWith({
+            configSchema: z.object({ roleId: z.string().min(1), note: z.string().optional() }),
+            configFields: fields ?? [
+                { key: 'roleId', label: 'Role', control: 'rolePicker' },
+                { key: 'note', label: 'Note', control: 'text', rendersTokens: true },
+            ],
+            emits: [{ startedBy: 'ticketChanged', carries: { ticketType: carried } }],
+        });
+
+    it('passes an action carrying a literal or one of its own plain fields', () => {
+        expect(checkBlockConformance(emitting({ value: 'opened' }))).toEqual([]);
+        expect(checkBlockConformance(emitting({ fromField: 'roleId' }))).toEqual([]);
+        expect(checkBlockConformance(manifestWith({ emits: [{ startedBy: 'memberLeave' }] }))).toEqual([]);
+    });
+
+    it('catches a trigger declaring an emission, since a trigger is the event and not an action', () => {
+        const issues = checkBlockConformance(
+            manifestWith({ kind: 'trigger', group: 'triggers', startedBy: 'memberLeave', emits: [{ startedBy: 'memberLeave' }] })
+        );
+
+        expect(issues.join()).toMatch(/is a trigger, but declares what it emits/);
+    });
+
+    it('catches a fromField that is not one of its own config fields', () => {
+        expect(checkBlockConformance(emitting({ fromField: 'ticketKind' })).join()).toMatch(
+            /from "ticketKind", which is not one of its config fields/
+        );
+    });
+
+    it('catches a fromField naming a field that renders tokens, or a picker that takes a variable', () => {
+        expect(checkBlockConformance(emitting({ fromField: 'note' })).join()).toMatch(/from "note", which can hold a \{\{var\}\}/);
+
+        const picker = manifestWith({
+            configSchema: z.object({ channelId: z.string().min(1) }),
+            configFields: [{ key: 'channelId', label: 'Channel', control: 'channelPicker' }],
+            emits: [{ startedBy: 'ticketChanged', carries: { ticketType: { fromField: 'channelId' } } }],
+        });
+        expect(checkBlockConformance(picker).join()).toMatch(/from "channelId", which can hold a \{\{var\}\}/);
+    });
+
+    it('catches a carried value of neither shape, and a source outside the vocabulary', () => {
+        expect(checkBlockConformance(emitting({ value: 'opened', fromField: 'roleId' })).join()).toMatch(
+            /Carry \{ value: "<literal>" \}, or \{ fromField: "<field>" \}/
+        );
+        expect(checkBlockConformance(manifestWith({ emits: [{ startedBy: 'ticketExploded' }] })).join()).toMatch(
+            /emits\.startedBy "ticketExploded" is not in the vocabulary/
+        );
+    });
+});
+
+describe('what an emission carries, against the triggers listening for it', () => {
+    /** A trigger on `ticketChanged` with a select `event` and a free-text `ticketType`. */
+    const listener = asManifest(
+        manifestWith({
+            type: 'fixture.listener',
+            kind: 'trigger',
+            group: 'triggers',
+            startedBy: 'ticketChanged',
+            configSchema: z.object({ event: z.enum(['opened', 'closed']).default('opened'), ticketType: z.string().optional() }),
+            configFields: [
+                {
+                    key: 'event',
+                    label: 'Event',
+                    control: 'select',
+                    defaultValue: 'opened',
+                    options: [
+                        { value: 'opened', label: 'Opened' },
+                        { value: 'closed', label: 'Closed' },
+                    ],
+                },
+                { key: 'ticketType', label: 'Type', control: 'text' },
+            ],
+        })
+    );
+    const emitter = (carries: Record<string, unknown>) =>
+        asManifest(manifestWith({ emits: [{ startedBy: 'ticketChanged', carries }] }));
+
+    it('passes carried keys the listener declares, and literals among its options', () => {
+        expect(checkEmissionTargets([listener, emitter({ event: { value: 'closed' }, ticketType: { fromField: 'roleId' } })])).toEqual(
+            []
+        );
+    });
+
+    it('catches a carried key no trigger on that source declares, which would match every one', () => {
+        expect(checkEmissionTargets([listener, emitter({ ticketKind: { value: 'support' } })]).join()).toMatch(
+            /carries "ticketKind", but no trigger started by "ticketChanged" has that field/
+        );
+    });
+
+    it('catches a literal outside the options of the field it is compared with, which would match none', () => {
+        expect(checkEmissionTargets([listener, emitter({ event: { value: 'exploded' } })]).join()).toMatch(
+            /carries "event" as "exploded", which that field never offers \(opened, closed\)/
+        );
+    });
+});
+
 describe('the contract fixture blocks', () => {
     it('each conform, so what they prove is the contract and not a stub of it', async () => {
         const discovered = await discoverBlocks<BlockManifest>(
@@ -1512,6 +1613,12 @@ describe('every block that ships', () => {
         const offenders = shipped.flatMap((block) => checkBlockConformance(block));
 
         expect(offenders).toEqual([]);
+    });
+
+    it('emits only what some trigger listening for it can hold', () => {
+        // The one check across blocks: a carried key or literal is only meaningful
+        // against the triggers on its source, so it runs over the whole registry.
+        expect(checkEmissionTargets(shipped)).toEqual([]);
     });
 
     it('declares a suspending block honestly', () => {

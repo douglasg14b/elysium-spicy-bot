@@ -4,6 +4,7 @@ import { flowGraphSchema, FLOW_GRAPH_VERSION, type FlowGraph } from '../../featu
 import { flowSchedulesRepo } from '../../features/flows/data/flowSchedulesRepo';
 import { flowsRepo, type FlowWriteDecision } from '../../features/flows/data/flowsRepo';
 import type { FlowEntity } from '../../features/flows/data/flowsSchema';
+import { describeFlowCycle, findFlowCycleThrough } from '../../features/flows/engine/flowCycles';
 import { validateFlowGraph } from '../../features/flows/engine/graphValidation';
 import type { FlowValidationIssue } from '../../features/flows/engine/nodeDataValidation';
 import { readDeclaredKeys } from '../../features/flows/logic/declaredResourceKeys';
@@ -77,7 +78,11 @@ const checkFlowBody = z.object({
 /** Why a PUT was refused before it could go live: the `{ error, issues }` body of a 400. */
 interface ReadinessRefusal {
     readonly error: string;
-    /** Empty for the install refusal, where nothing on the canvas is wrong. */
+    /**
+     * Empty for the install refusal and the loop refusal, where nothing on this canvas is
+     * wrong — issues would lock the builder's switch and mark cards by node ids, and a
+     * loop's nodes are partly in other flows.
+     */
     readonly issues: readonly FlowValidationIssue[];
 }
 
@@ -129,17 +134,31 @@ interface FlowSaver {
  *    switch only, so re-sending `enabled: true` to a flow already live is not suddenly
  *    refused. Ready is about the canvas and says nothing about the guild; see
  *    `uninstalledResourceKeys` for why this is its own check with its own sentence.
+ *  - **A flow cannot go live into a loop with other live flows** (400, a sentence naming
+ *    every step and no `issues`). Asked whenever the write leaves the flow on and either
+ *    switches it on or carries a graph — a live flow's saved graph runs at once — and
+ *    judged on the flow as it will be (the graph it would run, its new name) against
+ *    `otherLiveFlows`. A switch-off, a rename, and `enabled: true` re-sent to a flow
+ *    already on are never asked; nor is a drafted save, which returned above.
  *  - Otherwise the row is written, and a graph arriving supersedes the saver's draft.
  *
  * `declaredKeys` is `null` exactly when the request could not have been refused — no
  * graph and no switch-on — because the caller reads the declarations only when they
  * can decide something.
+ *
+ * `otherLiveFlows` is every *other* flow of the guild that is on — this flow's own stored
+ * row left out, or its old graph would refuse the very edit that breaks a loop. `null`
+ * when the caller did not read them, because the write did not go live as it saw the
+ * row. If it goes live as the row stands now — another request switched the flow on or
+ * off in between — the check is owed and cannot be made, so the write is refused with a
+ * "save again" rather than let through unchecked.
  */
 function decidePut(
     current: FlowEntity,
     request: FlowPutRequest,
     saver: FlowSaver,
-    declaredKeys: ReadonlySet<string> | null
+    declaredKeys: ReadonlySet<string> | null,
+    otherLiveFlows: readonly FlowEntity[] | null
 ): FlowWriteDecision<ReadinessRefusal> {
     if (declaredKeys) {
         const runs = request.graph ?? current.graph;
@@ -176,6 +195,32 @@ function decidePut(
         }
     }
 
+    if (goesLive(current.enabled, request)) {
+        // The caller read the other flows only if this write went live as *it* saw the
+        // row. One that goes live only as the row stands now — switched on, or off, by
+        // another request in between — was never checked, so it is refused rather than
+        // let through unchecked.
+        if (!otherLiveFlows) {
+            return {
+                kind: 'refuse',
+                refusal: {
+                    error: 'This flow was switched on or off while you were saving. Save again.',
+                    issues: [],
+                },
+            };
+        }
+        const cycle = findFlowCycleThrough(
+            [
+                ...otherLiveFlows,
+                { flowId: current.flowId, name: request.name ?? current.name, graph: request.graph ?? current.graph },
+            ],
+            current.flowId
+        );
+        if (cycle) {
+            return { kind: 'refuse', refusal: { error: describeFlowCycle(cycle), issues: [] } };
+        }
+    }
+
     return {
         kind: 'write',
         input: { name: request.name, enabled: request.enabled, graph: request.graph },
@@ -183,6 +228,17 @@ function decidePut(
         // switch included — leaves a draft they are still working on where it is.
         discardDraftOf: request.graph !== undefined ? saver.id : undefined,
     };
+}
+
+/**
+ * Whether a PUT takes a flow live, judged against the flow's `enabled` as it stands: it
+ * ends on, and either switches it on or carries a graph — a live flow's saved graph runs
+ * at once. The one condition both the route's read and `decidePut`'s loop check ask, so
+ * the two cannot disagree about which writes are checked.
+ */
+function goesLive(enabled: boolean, request: FlowPutRequest): boolean {
+    const endsOn = request.enabled ?? enabled;
+    return endsOn && (!enabled || request.graph !== undefined);
 }
 
 /**
@@ -499,8 +555,9 @@ export function flowRoutes(): Hono<AppEnv> {
      * `decidePut`, against the row as it stands inside the write's own transaction: an
      * incomplete graph is stored on a flow that is off, kept as the saver's draft on one
      * that is live (`savedAs: 'draft'`, flow untouched), and a switch-on is refused (400)
-     * when the graph it would run is incomplete or still waiting on its install.
-     * Switching off, or renaming, is never refused for readiness.
+     * when the graph it would run is incomplete or still waiting on its install. Going
+     * live — switched on, or a graph saved while on — is refused (400) when it would close
+     * a loop with the guild's other live flows. Switching off, or renaming, is never refused.
      */
     app.put('/:guildId/flows/:flowId', async (c) => {
         const guildId = c.get('guild').id;
@@ -547,8 +604,25 @@ export function flowRoutes(): Hono<AppEnv> {
             return c.json({ error: declared.error }, 500);
         }
 
+        /*
+         * The guild's other live flows, for the loop check — read here for the same reason
+         * as the declarations, and only when this write takes the flow live as this read of
+         * the row sees it (`goesLive`; `decidePut` refuses one that goes live only as the row
+         * stands inside the transaction). The flow's own stored row is left out; `decidePut`
+         * judges it in the shape this write leaves it in.
+         *
+         * Two PUTs on two flows of one guild, landing together, each check against the
+         * other's old row and could both pass. Accepted rather than locked: it takes two
+         * operators closing one loop from both ends within milliseconds, and what gets
+         * through is still bounded at run time — a ticket chain stops at
+         * `FLOW_MAX_CHAIN_DEPTH`, and a loop through a kick removes one member per lap.
+         */
+        const otherLiveFlows = goesLive(existing.enabled, request)
+            ? (await flowsRepo.getByGuildId(guildId)).filter((flow) => flow.enabled && flow.flowId !== flowId)
+            : null;
+
         const outcome = await flowsRepo.mutate(flowId, (current) =>
-            decidePut(current, request, saver, declared.ok ? declared.keys : null)
+            decidePut(current, request, saver, declared.ok ? declared.keys : null, otherLiveFlows)
         );
 
         if (outcome.kind === 'missing') {

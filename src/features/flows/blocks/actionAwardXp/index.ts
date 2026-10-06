@@ -64,6 +64,9 @@ export const block: BlockManifest<AwardXpConfig> = {
     outputs: [],
     requires: ['subject'],
     capabilities: [],
+    // XP a flow awards never sets off Level Reached: `awardFlowXp` announces the level
+    // but notifies no level-up subscriber. If that ever changes, it becomes an emission.
+    emits: [],
     canSuspend: false,
     async run(config, context) {
         const result = await awardFlowXp({

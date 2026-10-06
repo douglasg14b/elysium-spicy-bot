@@ -292,6 +292,7 @@ export const block: BlockManifest<SetVariableConfig> = {
     // adding, the variable it adds to — which every run carries.
     requires: [],
     capabilities: [],
+    emits: [],
     canSuspend: false,
     run(config, context) {
         const planned = plannedWrite(config, context.variables);

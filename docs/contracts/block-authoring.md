@@ -75,12 +75,13 @@ marks it optional; arrays are declared empty rather than omitted, so a reader ca
 | `outputs` | Values your block writes for later blocks to read, via `context.setOutput`. Read by the builder to offer an author the variables in scope. Discriminated on `naming` — `fixed` carries the name, `authored` names the config field holding it. See [Run variables](#run-variables). |
 | `requires` | Run context you cannot work without. See [Context requirements](#context-requirements). |
 | `capabilities` | Discord permissions the bot needs for your block to work. Declared, not yet enforced. |
+| `emits` | What your action causes that can start a trigger — usually `[]`, and always `[]` on a trigger. Server-only. See [What a block causes](#what-a-block-causes--emits). |
 | `startedBy` | **Optional. Triggers only.** What fires you: `buttonClick`, `levelUp`, `memberJoin`, `memberLeave`, `messageSent`, `reactionAdd`, `scheduleDue`, or `ticketChanged`. `scheduleDue` is a schedule coming due: nothing on the gateway announces it, so `logic/reconcileGuildSchedules.ts` keeps a `flow_schedules` row per node with its next time and `logic/fireDueSchedules.ts` starts the due ones from the shared run tick, through an `onTick` hook `initFlows` hands the scheduler — the engine never names schedules. Its runs are about nobody, carry no channel, and are never limited. The gateway dispatchers select on this, so a new trigger for an existing source needs no dispatcher edit. Every dispatcher but the button's starts each run through one function, `startTriggeredRun` in `engine/triggeredRun.ts`, which isolates and logs a failure per run and is the only place a run start can be limited — only `messageSent` passes the flood limit. `ticketChanged` is a committed ticket change the ticket service announces through its subscriber seam; its dispatcher lives in `logic/ticketEventDispatch.ts` rather than `engine/`, because `ticket` is a word the engine vocabulary gate rejects, and it is the one source whose runs can be started by another run — see [How deep in a chain](#how-deep-in-a-chain--contextchaindepth). Leave it off any condition or action. |
 | `canSuspend` | Whether `run` may park the run. State it truthfully; conformance holds you to it. |
 | `run` | The entry point. See [The entry point](#the-entry-point). |
 
 **Your manifest is served to the browser.** `GET /api/nodes` sends every member except
-`configSchema` and `run`, so the builder can draw your node — palette entry, card, and
+`configSchema`, `run` and `emits`, so the builder can draw your node — palette entry, card, and
 inspector form — from what you declare rather than from a copy of it. That is a subtraction,
 not a list: a member added to `BlockManifest` is public to every authenticated dashboard user
 the moment it exists. A server-only member must be named in `NON_WIRE_MEMBERS` in
@@ -624,6 +625,46 @@ forgetting. Only a ticket change carries depth across today: Kick Member → Mem
 goes through Discord's gateway, which cannot carry one, so that run restarts at the root.
 Award XP is not a second such path — XP a flow awards never sets off Level Reached.
 
+### What a block causes — `emits`
+
+The depth cap stops a chain at run time; `emits` is how a flow is stopped from going live
+into one at all. When a flow is switched on, or saved while on, `findFlowCycleThrough`
+(`engine/flowCycles.ts`) refuses it if it would close a loop with the guild's other live
+flows — one flow's action starting another, which (perhaps through more) starts the first
+again. It knows what your block causes only from what you declare here:
+
+```ts
+// action.openTicket: the ticket it opens is announced as opened, of the type picked here.
+emits: [{ startedBy: 'ticketChanged', carries: { event: { value: 'opened' }, ticketType: { fromField: 'ticketType' } } }]
+
+// action.kickMember: a kick is a departure, so it starts every Member Leaves trigger.
+emits: [{ startedBy: 'memberLeave' }]
+```
+
+`startedBy` is the trigger source your action fires. `carries` says what the caused event is
+known to carry, keyed by the **listening trigger's** config field: `{ value }` is a literal,
+`{ fromField }` whatever your node holds in one of your own fields. A trigger node listens to
+your emission when it is started by that source, its raw `node.data` parses against its
+schema (one that does not parse matches nothing, as its dispatcher treats it), and for every
+carried key its value is unset — any — or equals yours.
+
+**Unknown matches.** A key you leave out of `carries`, or a `fromField` unset on the node,
+could be anything, so it matches whatever the listener holds. That is how to say "I can't
+know": Close Ticket closes a `{{var}}` ticket, so it carries `event: closed` and no type, and
+starts every Ticket Event listening for closed. Over-refusing is the accepted cost of never
+missing a loop.
+
+**When to declare.** Whenever your action can reach a trigger: changing a ticket, kicking a
+member, anything a dispatcher listens for. Declare `[]` when it cannot — and say why in a
+comment when a reader might wonder. Posting never reaches a trigger (the activity recorder
+drops bot authors, so a bot's message starts no Message Sent run and earns no XP), and Award XP
+never sets off Level Reached (`awardFlowXp` notifies no level-up subscriber — if that changes,
+it becomes an emission). A trigger always declares `[]`: it is the event, not an action.
+
+`emits` is server-only (`NON_WIRE_MEMBERS`) — nothing in the builder reads it. Conformance
+holds it to the rules under [Conformance](#conformance), including the one check that looks
+across blocks.
+
 ## Run variables
 
 `context.variables` is a read-only bag of named values earlier blocks produced. It is scalar
@@ -813,6 +854,14 @@ outage:
 
 New rule? It is almost always the second one.
 
+One rule is neither, because it is not about one graph: **a loop between flows** —
+`findFlowCycleThrough` in `engine/flowCycles.ts`. It is a conflict between a flow and the
+guild's other live flows, so it is asked only as a flow goes live (`decidePut` in
+`src/web/api/flowRoutes.ts`, and the seed script), and it stays out of `flowReadinessIssues`:
+its message names other flows, and a refusal carrying issues would lock the builder's switch
+and mark cards by node ids that are not on this canvas. A rule like it — about how flows
+relate rather than how one is built — goes beside it, not into either function above.
+
 ## Conformance
 
 ```bash
@@ -841,9 +890,20 @@ that has not caught up fails by name. It checks, from your declaration alone, th
   one at all
 - your `cardSummary`, if you declared one, only references fields that exist and is otherwise
   well formed — see [Card summary](#card-summary)
+- your `emits` is `[]` on a trigger; each emission names a source in the vocabulary; each
+  carried value is exactly `{ value }` or `{ fromField }`; and a `fromField` names one of your
+  own fields that cannot hold a `{{var}}` — not `rendersTokens`, not a picker in
+  `PICKER_VALUE_KINDS` — since a written token would compare unequal to everything and hide a
+  loop
 
 and, when driven with a config and a context, that `run` returns a declared outcome and
 continues only by a handle you declared.
+
+**One check is not from your declaration alone:** `checkEmissionTargets`, run over the whole
+registry. Whether what you carry means anything depends on the triggers listening for it, so
+it checks that every carried key is a field some trigger on that source declares (a typo would
+match every listener) and that every `{ value }` literal is one of that field's options when it
+has any (a typo would match none, and the loop check would miss a real loop).
 
 One thing it does **not** check: that a handle you declared is actually reachable. Proving that
 means driving a block down every path, which needs a config and a context per path that only
@@ -903,7 +963,7 @@ about it. That is the one case you have to carry yourself — declare it in the 
 it, not when the first block sets it. (It does not apply to the config-field arms, exits or
 outputs, which are compared against exhaustive fixtures rather than live blocks.)
 
-Everything a manifest declares except `configSchema` and `run` is served to the browser by
+Everything a manifest declares except `configSchema`, `run` and `emits` is served to the browser by
 `GET /api/nodes`, so a new member is published to every authenticated dashboard user by
 default. That is the reason the second option has to be a deliberate act.
 

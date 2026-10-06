@@ -185,6 +185,15 @@ const DOMAIN_VOCABULARY = [
     // is for — the ticket change that carries a depth today is named only outside the
     // gated files. Folds onto no proven rejection.
     'chain',
+    // The other half of chain protection: a block's manifest says what its action causes —
+    // it `emits` an `emission` that `carries` values a listening trigger is compared against
+    // — and the cycle finder (`engine/flowCycles.ts`) calls the node that does it the
+    // `emitter`. Causation stated by the contract, on the footing of `trigger` and `chain`:
+    // none says what a flow is for, every ticket word stays inside the block directories as
+    // string literals, and none folds onto a proven rejection. `loop` and `cross` were
+    // renamed onto the allowed `cycle` rather than admitted, and `BlockEmittedValue` became
+    // `BlockEmissionValue` so `emitted` was not needed.
+    'emit', 'emission', 'carries', 'emitter',
 ];
 
 /**
@@ -366,6 +375,11 @@ const GENERIC_VOCABULARY = [
     // footing of `running` and `completed`; asked by the schedule fire so one schedule's
     // runs never overlap. Folds onto no proven rejection.
     'live',
+    // `findFlowCycleThrough` in `engine/flowCycles.ts`: a cycle of runs passing *through*
+    // the flow being saved, as opposed to one among other flows only. A preposition, as
+    // domain-free as `from` and `onto`. The finder's other words are contract words, on
+    // the domain list beside `chain`.
+    'through',
 ];
 
 /**

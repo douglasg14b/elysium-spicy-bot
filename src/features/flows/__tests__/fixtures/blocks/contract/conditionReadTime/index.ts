@@ -41,6 +41,7 @@ export const block: BlockManifest<ReadTimeConfig> = {
     outputs: [{ naming: 'fixed', key: CHECKED_AT, label: 'When it checked', valueKind: 'time', handle: 'true' }],
     requires: [],
     capabilities: [],
+    emits: [],
     canSuspend: false,
     run(config, context) {
         const name = config.timeVariable;

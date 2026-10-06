@@ -39,6 +39,7 @@ export const block: BlockManifest<LevelAtLeastConfig> = {
     outputs: [],
     requires: ['subject'],
     capabilities: [],
+    emits: [],
     canSuspend: false,
     async run(config, context) {
         /*

@@ -122,6 +122,7 @@ export const block: BlockManifest<WaitForEventConfig> = {
     // speak — so a run about nobody could park here and never wake.
     requires: ['subject'],
     capabilities: [],
+    emits: [],
     canSuspend: true,
     run(config, context) {
         if (context.resume) {

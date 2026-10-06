@@ -26,6 +26,7 @@ export const block: BlockManifest<IsBoosterConfig> = {
     outputs: [],
     requires: ['subject'],
     capabilities: [],
+    emits: [],
     canSuspend: false,
     run(_config, context) {
         // `premiumSince` is null both for a member who has never boosted and for one

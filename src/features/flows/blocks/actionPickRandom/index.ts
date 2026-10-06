@@ -161,6 +161,7 @@ export const block: BlockManifest<PickRandomConfig> = {
     // than the role blocks.
     requires: [],
     capabilities: [],
+    emits: [],
     canSuspend: false,
     run(config, context) {
         // The schema's `.min(1)` makes this unreachable through the executor,

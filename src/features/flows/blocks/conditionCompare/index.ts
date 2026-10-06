@@ -208,6 +208,7 @@ export const block: BlockManifest<CompareConfig> = {
     outputs: [],
     requires: [],
     capabilities: [],
+    emits: [],
     canSuspend: false,
     run(config, context) {
         const name = config.variableName;

@@ -418,7 +418,7 @@ function writesOnPath(
 }
 
 /** Each node's outgoing targets, for {@link walkFrom}. */
-function outgoingTargets(graph: FlowGraph): ReadonlyMap<string, readonly string[]> {
+export function outgoingTargets(graph: FlowGraph): ReadonlyMap<string, readonly string[]> {
     const outgoing = new Map<string, string[]>();
     for (const edge of graph.edges) {
         outgoing.set(edge.source, [...(outgoing.get(edge.source) ?? []), edge.target]);
@@ -431,7 +431,7 @@ function outgoingTargets(graph: FlowGraph): ReadonlyMap<string, readonly string[
  * given `without` never enters that node, so it answers "reachable without passing
  * through it".
  */
-function walkFrom(
+export function walkFrom(
     outgoing: ReadonlyMap<string, readonly string[]>,
     starts: readonly string[],
     without?: string

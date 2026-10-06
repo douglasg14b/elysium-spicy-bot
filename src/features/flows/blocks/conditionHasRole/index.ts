@@ -34,6 +34,7 @@ export const block: BlockManifest<HasRoleConfig> = {
     outputs: [],
     requires: ['subject'],
     capabilities: [],
+    emits: [],
     canSuspend: false,
     run(config, context) {
         return {

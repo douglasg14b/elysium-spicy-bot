@@ -36,6 +36,7 @@ export const block: BlockManifest<SendDMConfig> = {
     outputs: [],
     requires: ['subject'],
     capabilities: [],
+    emits: [],
     canSuspend: false,
     async run(config, context) {
         // Pinned to users for the same reason as `action.sendMessage`. A DM is 1:1

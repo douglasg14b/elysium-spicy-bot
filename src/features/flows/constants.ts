@@ -188,7 +188,8 @@ export const FLOW_RUN_ENTITY_VERSION = 6;
  * depth-N run made is depth N+1. A start that would reach depth 6 is refused and
  * logged, so two flows that close and reopen one ticket at each other stop on their
  * own instead of running forever. This is the runtime half of loop protection; the
- * other half checks the flows themselves when one is switched on.
+ * other half checks the flows themselves when one goes live (switched on, or saved while
+ * on) — `findFlowCycleThrough` in `engine/flowCycles.ts`.
  *
  * Only a ticket change carries a depth across today. Kick Member → Member Leaves goes
  * through Discord's gateway, which cannot carry one, so that run starts at the root again.

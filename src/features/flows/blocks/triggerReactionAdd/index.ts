@@ -57,6 +57,7 @@ export const block: BlockManifest<ReactionAddConfig> = {
     outputs: [],
     requires: ['subject', 'actor', 'channel'],
     capabilities: [],
+    emits: [],
     startedBy: 'reactionAdd',
     canSuspend: false,
     run() {
