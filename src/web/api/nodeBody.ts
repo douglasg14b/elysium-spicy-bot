@@ -2,6 +2,7 @@ import { z } from '@hono/zod-openapi';
 import {
     BLOCK_CAPABILITIES,
     BLOCK_COLUMN_CONTROLS,
+    BLOCK_DAY_KEYS,
     BLOCK_HANDLE_TONES,
     BLOCK_KINDS,
     BLOCK_OUTPUT_VALUE_KINDS,
@@ -11,6 +12,7 @@ import {
     type BlockCardSummaryPart,
     type BlockConfigColumn,
     type BlockConfigField,
+    type BlockConfigOption,
     type BlockControlType,
     type BlockOutputDeclaration,
     type BlockOutputHandle,
@@ -18,6 +20,7 @@ import {
     type ExitWarningWhenFieldSet,
 } from '../../features/flows/blocks/manifest';
 import { ELIGIBILITY_PERMISSIONS, eligibilitySchema, type Eligibility } from '../../features/flows/engine/eligibility';
+import { RESOURCE_PICKER_CONTROL_TYPES } from '../../features/flows/logic/resourceTargets';
 import type { NodeDescriptor } from './nodeRoutes';
 import type { ChecksHold, MismatchedChecks, SchemaMatches } from './openApi';
 
@@ -81,13 +84,40 @@ const EligibilitySchema = z
         description: 'Who may do something, by principal. Each principal carries only what it needs.',
     });
 
+/** A run-context requirement: what a block, a choice or a token needs present in the run. */
+const FlowContextRequirementSchema = z.enum(FLOW_CONTEXT_REQUIREMENTS).openapi('FlowContextRequirement');
+
 const BlockConfigOptionSchema = z
     .object({
         /** The value persisted in `node.data`. */
         value: z.string(),
         label: z.string(),
+        /**
+         * Run context this choice needs on top of the block's own `requires` — Time Since's
+         * "the member's last message" needs a member, its channel source does not.
+         */
+        requires: z.array(FlowContextRequirementSchema).readonly().optional(),
     })
-    .openapi('BlockConfigOption');
+    .openapi('BlockConfigOption', {
+        description:
+            'One choice of a `select` or `segmented` field. `requires` is the run context the choice needs ' +
+            "beyond the block's own, while the field is shown and holds it.",
+    });
+
+/** Named so the days control offers the server's own keys, Monday first, off the generated enum. */
+const BlockDayKeySchema = z.enum(BLOCK_DAY_KEYS).openapi('BlockDayKey');
+
+/**
+ * The controls that write a `<field>Key` sidecar when a declared resource is picked — so an
+ * empty one beside a sidecar is waiting on install, and its emptiness is the server's to
+ * judge. No route sends it; it is registered as a component (`openApiDocument.ts`) so the
+ * builder's live checks read the server's own list (`collectResourceTargets` asks it).
+ */
+export const ResourcePickerControlSchema = z.enum(RESOURCE_PICKER_CONTROL_TYPES).openapi('ResourcePickerControl', {
+    description:
+        'The config-field controls that write a `<field>Key` resource sidecar. An empty field of one of ' +
+        'these beside a sidecar waits on install; whether that is fine is the server’s call.',
+});
 
 const BlockConfigColumnSchema = z
     .object({
@@ -123,6 +153,13 @@ const CONFIG_FIELD_ARMS = {
     channelPicker: z.object({
         ...fieldBase,
         control: z.literal('channelPicker'),
+        optional: z.boolean().optional(),
+        defaultValue: z.string().optional(),
+    }),
+    categoryPicker: z.object({ ...fieldBase, control: z.literal('categoryPicker'), defaultValue: z.string().optional() }),
+    ticketTypePicker: z.object({
+        ...fieldBase,
+        control: z.literal('ticketTypePicker'),
         optional: z.boolean().optional(),
         defaultValue: z.string().optional(),
     }),
@@ -195,8 +232,15 @@ const CONFIG_FIELD_ARMS = {
     variableSelect: z.object({
         ...fieldBase,
         control: z.literal('variableSelect'),
-        valueKind: BlockOutputValueKindSchema,
+        /** Absent means any variable in scope, of any kind or none. */
+        valueKind: BlockOutputValueKindSchema.optional(),
         defaultValue: z.string().optional(),
+    }),
+    timeOfDay: z.object({ ...fieldBase, control: z.literal('timeOfDay'), defaultValue: z.string().optional() }),
+    daysOfWeek: z.object({
+        ...fieldBase,
+        control: z.literal('daysOfWeek'),
+        defaultValue: z.array(BlockDayKeySchema).readonly().optional(),
     }),
 } satisfies { [Control in BlockControlType]: z.ZodObject };
 
@@ -204,6 +248,8 @@ const BlockConfigFieldSchema = z
     .discriminatedUnion('control', [
         CONFIG_FIELD_ARMS.rolePicker,
         CONFIG_FIELD_ARMS.channelPicker,
+        CONFIG_FIELD_ARMS.categoryPicker,
+        CONFIG_FIELD_ARMS.ticketTypePicker,
         CONFIG_FIELD_ARMS.text,
         CONFIG_FIELD_ARMS.longText,
         CONFIG_FIELD_ARMS.duration,
@@ -214,6 +260,8 @@ const BlockConfigFieldSchema = z
         CONFIG_FIELD_ARMS.objectList,
         CONFIG_FIELD_ARMS.eligibility,
         CONFIG_FIELD_ARMS.variableSelect,
+        CONFIG_FIELD_ARMS.timeOfDay,
+        CONFIG_FIELD_ARMS.daysOfWeek,
     ])
     .openapi('BlockConfigField', {
         description: 'One editable config field, in the order the inspector renders it, discriminated on `control`.',
@@ -229,6 +277,11 @@ const FieldSummaryPartSchema = z.object({
     emptyText: z.string().optional(),
     hideWhenEmpty: z.boolean().optional(),
     stopIfEmpty: z.boolean().optional(),
+    /**
+     * Render this part only while a `select` or `segmented` field holds one of `equals`, read
+     * as a field's `visibleWhen` is. A part whose own field is hidden still renders nothing.
+     */
+    visibleWhen: VisibleWhenSchema.optional(),
 });
 
 /** A card summary part that is literal text. */
@@ -305,7 +358,7 @@ export const NodeDescriptorSchema = z
         note: z.string().optional(),
         handles: z.array(BlockOutputHandleSchema).readonly(),
         outputs: z.array(BlockOutputDeclarationSchema).readonly(),
-        requires: z.array(z.enum(FLOW_CONTEXT_REQUIREMENTS)).readonly(),
+        requires: z.array(FlowContextRequirementSchema).readonly(),
         startedBy: BlockTriggerSourceSchema.optional(),
         capabilities: z.array(z.enum(BLOCK_CAPABILITIES)).readonly(),
         createsChannel: z.boolean().optional(),
@@ -326,8 +379,9 @@ type AssignableBothWays<Schema extends z.ZodType, Domain> = [z.infer<Schema>] ex
 /**
  * Every schema above against the manifest type it states, `true` where they match.
  *
- * Each object is checked on its own, members and all — every config-field arm, both output
- * arms, both exit-warning forms, the nested `visibleWhen` and `valueKindFrom` — because
+ * Each object is checked on its own, members and all — every config-field arm, a `select`'s
+ * option, both output arms, both exit-warning forms, the nested `visibleWhen` (a field's and
+ * a card-summary part's) and `valueKindFrom` — because
  * `SchemaMatches` compares member names one level deep and a union's `keyof` names only
  * what its arms share: an optional member added to one arm would pass a check of the whole.
  * The unions are checked as wholes too, which is what catches an arm added or dropped.
@@ -345,6 +399,11 @@ type NodeBodyChecks = ChecksHold<{
     NodeDescriptor: SchemaMatches<typeof NodeDescriptorSchema, NodeDescriptor>;
     BlockConfigField: AssignableBothWays<typeof BlockConfigFieldSchema, BlockConfigField>;
     visibleWhen: SchemaMatches<typeof VisibleWhenSchema, NonNullable<BlockConfigField['visibleWhen']>>;
+    BlockConfigOption: SchemaMatches<typeof BlockConfigOptionSchema, BlockConfigOption>;
+    'BlockCardSummaryPart.visibleWhen': SchemaMatches<
+        typeof VisibleWhenSchema,
+        NonNullable<Extract<BlockCardSummaryPart, { key: string }>['visibleWhen']>
+    >;
     BlockConfigColumn: SchemaMatches<typeof BlockConfigColumnSchema, BlockConfigColumn>;
     Eligibility: AssignableBothWays<typeof EligibilitySchema, Eligibility>;
     'Eligibility.discordPermission': SchemaMatches<

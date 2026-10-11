@@ -42,6 +42,7 @@ export const block: BlockManifest<SendMessageConfig> = {
     outputs: [],
     requires: [],
     capabilities: ['sendMessages'],
+    emits: [],
     canSuspend: false,
     async run(config, context) {
         const channel = await context.client.channels.fetch(config.channelId);

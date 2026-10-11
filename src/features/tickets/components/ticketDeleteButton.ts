@@ -133,7 +133,7 @@ export function TicketConfirmDeleteButtonComponent() {
             components: [],
         });
 
-        const result = await deleteTicket(ticket.id);
+        const result = await deleteTicket(ticket.id, { actorId: interaction.user.id, chainDepth: 0 });
         if (!result.ok) return editDeleteFailure(interaction, `❌ ${ticketErrorMessage(result.error)}`);
 
         try {

@@ -9,6 +9,7 @@ import type { TicketEntity } from '../../src/features/tickets/data/ticketsSchema
 import { registerTicketChannelCleanup } from '../../src/features/tickets/logic/ticketChannelCleanup';
 import { TicketTypeKeySchema } from '../../src/features/tickets/logic/ticketTypeRules';
 import { getTicket } from '../../src/features/tickets/ticketService';
+import type { TicketingConfigView } from '@brattybot/web-sdk';
 import {
     TestDiscord,
     type OverwriteView,
@@ -132,16 +133,16 @@ async function guildWithTickets(): Promise<TicketGuild> {
     if (liveDesk?.type !== ChannelType.GuildText) throw new Error('The client holds no ticket desk.');
     const panel = await liveDesk.send({ content: 'Need a hand, a hug or a referee? Open a ticket.' });
 
+    // No categories: the settings PUT below creates them and records the slot rows.
     await ticketingRepo.upsert({
         guildId: guild.id,
-        config: JSON.stringify({
+        config: {
             modTicketsDeployed: true,
             modTicketsDeployedChannelId: desk.id,
             modTicketsDeployedMessageId: panel.id,
-            categories: { open: null, claimed: null, closed: null },
             moderationRoles: [],
             ticketTypes: defaultTicketTypes(),
-        }),
+        },
         ticketNumberInc: 0,
         entityVersion: 1,
     });
@@ -150,7 +151,7 @@ async function guildWithTickets(): Promise<TicketGuild> {
     const api = createSeedApi(buildDashboardApp({ client, operator, onFault: (fault) => faults.push(fault) }), discord);
     const guildPath = `/api/guilds/${guild.id}`;
     // Named, so the real route creates all three in Discord on save.
-    await api.send('PUT', `${guildPath}/config/tickets`, {
+    const saved = await api.send<TicketingConfigView>('PUT', `${guildPath}/config/tickets`, {
         categories: {
             open: { name: CATEGORIES.open },
             claimed: { name: CATEGORIES.claimed },
@@ -158,6 +159,10 @@ async function guildWithTickets(): Promise<TicketGuild> {
         },
         moderationRoles: [moderators.id],
     });
+    // The response is the slots as saved — read back from their binding rows, not echoed
+    // from the request — so each carries the id of the category just made.
+    expect(saved.categories.open).toMatchObject({ name: CATEGORIES.open, provenance: 'created' });
+    expect(saved.categories.open?.discordId).toMatch(/^\d+$/);
     await api.send('PUT', `${guildPath}/config/tickets/types/${TYPE_KEY}`, {
         label: TYPE_LABEL,
         nameTemplate: 'aftercare-{{####}}-{{subject}}',
@@ -192,6 +197,7 @@ async function openTicket(ticketGuild: TicketGuild, title: string, ticketType: s
             variables: {},
             runId: `e2e-${title}`,
             nodeId: 'open-ticket',
+            chainDepth: 1,
             setOutput: (key, value) => outputs.set(key, value),
         }
     );

@@ -1,7 +1,7 @@
 import type { GuildMember } from 'discord.js';
 import { flowsRepo } from '../data/flowsRepo';
 import { isTriggerStartedBy } from '../blocks/registry';
-import { executeFlow } from './executor';
+import { startTriggeredRun } from './triggeredRun';
 import { resumeWaitingRunsForEvent } from './waitingRunDispatch';
 import type { FlowRunSeed } from '../blocks/types';
 
@@ -41,7 +41,7 @@ export async function handleMemberJoin(member: GuildMember): Promise<void> {
              * guarantee rather than this file's — and two runs' isolation should not
              * rest on a property stated somewhere else.
              */
-            const context: FlowRunSeed = {
+            const seed: FlowRunSeed = {
                 client: member.client,
                 guild: member.guild,
                 // A join *is* caused by the member joining, so they are the actor as
@@ -54,17 +54,15 @@ export async function handleMemberJoin(member: GuildMember): Promise<void> {
                 variables: {},
             };
 
-            try {
-                await executeFlow(flow.flowId, flow.graph, triggerNode.id, context);
-            } catch (error) {
-                // Per trigger, not just per flow: two entry points into one graph are
-                // as independent as two flows, so one throwing must not strand the
-                // other.
-                console.error(
-                    `[flows] Unexpected error running memberJoin flow ${flow.flowId} from ${triggerNode.id}:`,
-                    error
-                );
-            }
+            // Isolated per trigger, not just per flow: two entry points into one graph
+            // are as independent as two flows, so one throwing must not strand the other.
+            await startTriggeredRun({
+                flowId: flow.flowId,
+                graph: flow.graph,
+                triggerNodeId: triggerNode.id,
+                source: 'memberJoin',
+                seed,
+            });
         }
     }
 }

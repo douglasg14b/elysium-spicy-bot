@@ -52,6 +52,13 @@ export const block: BlockManifest<CloseTicketConfig> = {
     // Closing moves the channel to the closed category and rewrites its
     // permission overwrites, both of which need `manageChannels`.
     capabilities: ['manageChannels'],
+    /*
+     * The ticket it closes is announced as closed. Its type is not carried: the ticket is
+     * a `{{var}}` the run fills in, so which type it is cannot be known before it runs —
+     * left unknown, it starts every Ticket Event listening for closed, whatever type that
+     * trigger filters on. Over-refusing is the accepted cost of not missing a loop.
+     */
+    emits: [{ startedBy: 'ticketChanged', carries: { event: { value: 'closed' } } }],
     canSuspend: false,
     async run(config, context) {
         const ticketId = Number(config.ticketId);
@@ -96,8 +103,13 @@ export const block: BlockManifest<CloseTicketConfig> = {
             ? getTicketTypeDefinition(configEntity.config, existing.type)
             : undefined;
 
+        // A flow made this change, so the bot is who acted (`guild.client` is the ready
+        // client, so its user is never null) — and it sits at this run's depth, so a flow
+        // the close starts is one link further down the chain and the cap holds.
+        const change = { actorId: context.guild.client.user.id, chainDepth: context.chainDepth };
+
         if (!isTicketingConfigConfigured(configEntity) || !definition) {
-            const closed = await closeTicket(ticketId);
+            const closed = await closeTicket(ticketId, change);
             if (!closed.ok) throw closed.error;
             return { kind: 'continue' };
         }
@@ -112,6 +124,7 @@ export const block: BlockManifest<CloseTicketConfig> = {
             // blank, because the in-channel announcement is read by the people in the
             // ticket and "closed by" with nothing after it reads like a bug.
             actor: { id: context.client.user?.id ?? 'flow', mention: 'an automated flow', identity: null },
+            change,
         });
 
         // Thrown rather than swallowed: the block's contract is that the ticket is

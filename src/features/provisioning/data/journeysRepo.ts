@@ -78,6 +78,49 @@ export class JourneysRepo {
         return rows.map((row) => this.assertValidDeclaration(row));
     }
 
+    /**
+     * Each journey's key and display name, and nothing else.
+     *
+     * For naming an owner in a refusal or a picker. Deliberately **not** validated, unlike
+     * every other read here: a name is all it hands out, and validating the declarations
+     * would let one malformed journey break the channel directory, every ticket settings
+     * save, and every other journey's install — none of which read its resources.
+     */
+    async listNamesByGuildId(guildId: string): Promise<{ journeyKey: string; name: string }[]> {
+        return this.db
+            .selectFrom('journeys')
+            .select(['journeyKey', 'name'])
+            .where('guildId', '=', guildId)
+            .execute();
+    }
+
+    /**
+     * Each journey's key, display name and the ticket type keys it declares.
+     *
+     * For the ticket feature's delete refusal, which counts a journey as holding a type only
+     * while the journey still exists and still declares it — a binding row left behind by a
+     * deleted, emptied or merged-away journey must not lock a type nobody can release.
+     * Unvalidated, for `listNamesByGuildId`'s reason: one malformed journey must not break
+     * every ticket type delete; a row whose resources are not a list declares nothing.
+     */
+    async listTicketTypeDeclarations(
+        guildId: string
+    ): Promise<{ journeyKey: string; name: string; ticketTypeKeys: readonly string[] }[]> {
+        const rows = await this.db
+            .selectFrom('journeys')
+            .select(['journeyKey', 'name', 'resources'])
+            .where('guildId', '=', guildId)
+            .execute();
+
+        return rows.map((row) => ({
+            journeyKey: row.journeyKey,
+            name: row.name,
+            ticketTypeKeys: Array.isArray(row.resources)
+                ? row.resources.filter((resource) => resource?.kind === 'ticketType').map((resource) => resource.key)
+                : [],
+        }));
+    }
+
     async getByKey(guildId: string, journeyKey: string): Promise<JourneyEntity | null> {
         const row = await this.db
             .selectFrom('journeys')

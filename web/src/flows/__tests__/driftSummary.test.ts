@@ -28,6 +28,7 @@ function drifted(overrides: Partial<DriftedResource> = {}): DriftedResource {
         kind: 'textChannel',
         drift: [{ kind: 'renamed', explanation: 'Renamed from **questions** to **general**.' }],
         repairable: true,
+        withheldReason: null,
         ...overrides,
     };
 }
@@ -164,20 +165,18 @@ describe('whyNotRepairable', () => {
         expect(whyNotRepairable(drifted())).toBeNull();
     });
 
-    it('distinguishes a wrong type from an adoption', () => {
-        const wrongType = whyNotRepairable(
-            drifted({
-                repairable: false,
-                drift: [{ kind: 'wrongType', explanation: 'Points at a category now.' }],
-            })
+    it('shows the server\'s reason, rather than deriving its own', () => {
+        // The browser used to pick the sentence and fell through to "adopted" for
+        // anything that was not `wrongType` — wrong for a category another owner shares.
+        const shared = whyNotRepairable(
+            drifted({ repairable: false, withheldReason: 'Left alone — the ticket system uses this too.' })
         );
-        const adopted = whyNotRepairable(drifted({ repairable: false }));
 
-        // One is a job to do and the other is a promise being kept. Collapsing them
-        // into "cannot be repaired" would hide which.
-        expect(wrongType).toContain('decide');
-        expect(adopted).toContain('adopted');
-        expect(wrongType).not.toEqual(adopted);
+        expect(shared).toBe('Left alone — the ticket system uses this too.');
+    });
+
+    it('ignores a stray reason on a resource that is repairable', () => {
+        expect(whyNotRepairable(drifted({ withheldReason: 'stale' }))).toBeNull();
     });
 });
 

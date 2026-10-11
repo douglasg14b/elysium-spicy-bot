@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { FlowValidationIssue, NodeDescriptor } from '@brattybot/web-sdk';
 import { renderWithProviders } from '../../__tests__/support/renderWithProviders';
 import { NodeInspector } from '../NodeInspector';
+import { ALL_REQUIREMENTS_AVAILABLE } from '../variables';
 
 /**
  * The inspector draws only the fields that apply, places a hidden field's issue at node
@@ -53,8 +54,9 @@ function renderInspector(options: {
             config={options.config}
             roles={[]}
             channels={[]}
+            ticketTypes={[]}
             variables={[]}
-            actorAvailable
+            requirements={ALL_REQUIREMENTS_AVAILABLE}
             declaredResources={[]}
             issues={options.issues ?? []}
             unconnectedExits={options.unconnectedExits ?? []}

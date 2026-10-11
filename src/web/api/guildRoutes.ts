@@ -1,6 +1,12 @@
 import { createRoute, z, type OpenAPIHono } from '@hono/zod-openapi';
 import type { Guild } from 'discord.js';
-import { guildSettingsRepo } from '../../features-system/guild-settings';
+import {
+    DEFAULT_GUILD_TIME_ZONE,
+    guildSettingsRepo,
+    storableTimeZone,
+} from '../../features-system/guild-settings';
+import { reconcileGuildSchedules } from '../../features/flows/logic/reconcileGuildSchedules';
+import { loadGuildOwnership } from '../../features/provisioning';
 import { warningsConfigRepo } from '../../features/warnings/data/warningsConfigRepo';
 import { setWarningsModChannel } from '../../features/warnings/logic/setWarningsModChannel';
 import type { AppEnv } from '../types';
@@ -8,16 +14,19 @@ import { accessibleGuilds } from './guildAccess';
 import {
     GuildChannelSchema,
     guildChannelBodies,
+    guildObjectOwner,
     GuildRoleSchema,
     GuildSchema,
     GuildSettingsSchema,
     WarningsConfigSchema,
+    type GuildRoleBody,
     type GuildSettingsBody,
     type WarningsConfigBody,
 } from './guildBody';
 import {
     apiRouter,
     AUTHED_ERRORS,
+    errorBodyResponse,
     GUILD_SCOPED_BODY_ERRORS,
     GUILD_SCOPED_ERRORS,
     GuildPathSchema,
@@ -53,6 +62,22 @@ const GuildSettingsUpdateSchema = z
     })
     .openapi('GuildSettingsUpdate');
 
+/**
+ * The time zone arrives as a name; whether `Intl` knows it is checked in the handler by
+ * `storableTimeZone`, which also decides the spelling that gets stored. That check needs
+ * the runtime's zone database and names the bad value, so it stays the server's.
+ */
+const GuildTimeZoneUpdateSchema = z
+    .object({
+        // The longest IANA name is about 30 characters; the cap keeps a junk body from being
+        // fed to `Intl` and echoed back in the refusal.
+        timeZone: z
+            .string()
+            .min(1, 'Pick a time zone. "Whenever" is not one.')
+            .max(64, "That's not a time zone, that's an essay. Pick one from the list."),
+    })
+    .openapi('GuildTimeZoneUpdate');
+
 const listGuildsRoute = createRoute({
     method: 'get',
     path: '/',
@@ -73,7 +98,10 @@ const getGuildChannelsRoute = createRoute({
     summary: "The guild's text channels and categories",
     request: { params: GuildPathSchema },
     responses: {
-        200: jsonResponse('The channel directory.', z.object({ channels: z.array(GuildChannelSchema) })),
+        200: jsonResponse(
+            'The channel directory, each with the owner already holding it, if any.',
+            z.object({ channels: z.array(GuildChannelSchema) })
+        ),
         ...GUILD_SCOPED_ERRORS,
     },
 });
@@ -86,7 +114,10 @@ const getGuildRolesRoute = createRoute({
     summary: "The guild's assignable roles",
     request: { params: GuildPathSchema },
     responses: {
-        200: jsonResponse('Assignable roles, highest first.', z.object({ roles: z.array(GuildRoleSchema) })),
+        200: jsonResponse(
+            'Assignable roles, highest first, each with the owner already holding it, if any.',
+            z.object({ roles: z.array(GuildRoleSchema) })
+        ),
         ...GUILD_SCOPED_ERRORS,
     },
 });
@@ -122,7 +153,7 @@ const getGuildSettingsRoute = createRoute({
     path: '/{guildId}/settings',
     operationId: 'getGuildSettings',
     tags: ['guilds'],
-    summary: 'Server-wide settings: staff roles',
+    summary: 'Server-wide settings: staff roles and the time zone',
     request: { params: GuildPathSchema },
     responses: {
         200: jsonResponse('The guild settings.', GuildSettingsSchema),
@@ -140,6 +171,25 @@ const updateGuildSettingsRoute = createRoute({
     responses: {
         200: jsonResponse('The guild settings as saved.', GuildSettingsSchema),
         ...GUILD_SCOPED_BODY_ERRORS,
+    },
+});
+
+const updateGuildTimeZoneRoute = createRoute({
+    method: 'put',
+    path: '/{guildId}/settings/time-zone',
+    operationId: 'updateGuildTimeZone',
+    tags: ['guilds'],
+    summary: "Set the guild's time zone",
+    description:
+        'Stores the zone as sent, trimmed, except that a case-only difference is tidied (`utc` → `UTC`): ' +
+        'read the zone back from the response. Every schedule in the guild is given a fresh next time.',
+    request: { params: GuildPathSchema, body: jsonBody(GuildTimeZoneUpdateSchema) },
+    responses: {
+        200: jsonResponse('The guild settings as saved.', GuildSettingsSchema),
+        ...GUILD_SCOPED_BODY_ERRORS,
+        400: errorBodyResponse(
+            'The body was refused, the zone is not one this server knows, or the server id is missing.'
+        ),
     },
 });
 
@@ -172,24 +222,36 @@ export function guildRoutes(): OpenAPIHono<AppEnv> {
          * the list rather than filtered out here: a consumer that must not offer one as a
          * place to post filters on `type`, and doing it at the endpoint made that
          * invariant invisible to the code depending on it.
+         *
+         * Carries each channel's `owner` too, so a picker can disable what a journey or the
+         * ticket system already holds. That costs two reads — the guild's bindings and its
+         * journeys' names — where this used to be cache-only.
          */
-        router.openapi(getGuildChannelsRoute, (c) => {
-            return c.json({ channels: guildChannelBodies(c.get('guild')) }, 200);
+        router.openapi(getGuildChannelsRoute, async (c) => {
+            const guild = c.get('guild');
+            const ownership = await loadGuildOwnership(guild.id);
+            return c.json({ channels: guildChannelBodies(guild, ownership) }, 200);
         });
 
         // Assignable roles for a guild (role-picker display). Excludes @everyone and
-        // managed (bot/integration) roles — neither can be assigned by a flow.
-        router.openapi(getGuildRolesRoute, (c) => {
+        // managed (bot/integration) roles — neither can be assigned by a flow. Each carries
+        // its `owner`, like a channel, so the role adopt picker disables another owner's
+        // role instead of offering an adoption install would block.
+        router.openapi(getGuildRolesRoute, async (c) => {
             const guild = c.get('guild');
+            const ownership = await loadGuildOwnership(guild.id);
             const roles = [...guild.roles.cache.values()]
                 .filter((role) => isAssignableRole(guild, role.id))
                 .sort((a, b) => b.position - a.position)
-                .map((role) => ({
-                    id: role.id,
-                    name: role.name,
-                    color: role.color,
-                    position: role.position,
-                }));
+                .map(
+                    (role): GuildRoleBody => ({
+                        id: role.id,
+                        name: role.name,
+                        color: role.color,
+                        position: role.position,
+                        owner: guildObjectOwner(ownership, role.id),
+                    })
+                );
 
             return c.json({ roles }, 200);
         });
@@ -215,11 +277,19 @@ export function guildRoutes(): OpenAPIHono<AppEnv> {
             return c.json(resolveWarningsConfig(guild, result.config.modChannelId), 200);
         });
 
-        // Guild-wide settings owned by no single feature. Today: staff roles.
+        // Guild-wide settings owned by no single feature. Today: staff roles and time zone.
         router.openapi(getGuildSettingsRoute, async (c) => {
             const guild = c.get('guild');
-            const staffRoleIds = await guildSettingsRepo.getStaffRoleIds(guild.id);
-            return c.json(resolveGuildSettings(guild, staffRoleIds), 200);
+            // One read of the row, so both settings come from the same moment. A guild with
+            // no row has no staff and no picked zone.
+            const settings = await guildSettingsRepo.getByGuildId(guild.id);
+            return c.json(
+                resolveGuildSettings(guild, {
+                    staffRoleIds: settings?.staffRoleIds ?? [],
+                    timeZone: settings?.timeZone ?? null,
+                }),
+                200
+            );
         });
 
         /*
@@ -258,26 +328,69 @@ export function guildRoutes(): OpenAPIHono<AppEnv> {
             }
 
             const saved = await guildSettingsRepo.setStaffRoleIds(guild.id, staffRoleIds);
-            return c.json(resolveGuildSettings(guild, saved.staffRoleIds), 200);
+            return c.json(resolveGuildSettings(guild, saved), 200);
+        });
+
+        /*
+         * Set this guild's time zone.
+         *
+         * Its own route rather than a field on the staff-role PUT, so neither form can wipe
+         * the other by submitting what it does not show. Answers with the whole settings
+         * shape, like the staff-role PUT, so the page can take either response as the new
+         * saved state.
+         */
+        router.openapi(updateGuildTimeZoneRoute, async (c) => {
+            const guild = c.get('guild');
+            const requested = c.req.valid('json').timeZone;
+
+            const timeZone = storableTimeZone(requested);
+            if (!timeZone) {
+                return c.json(
+                    {
+                        error: `"${requested}" isn't a time zone, no matter how confidently you typed it. Pick one from the list.`,
+                    },
+                    400
+                );
+            }
+
+            const saved = await guildSettingsRepo.setTimeZone(guild.id, timeZone);
+            // Every schedule in the guild is read in this zone, so each gets a fresh next time.
+            // Called from here rather than from guild-settings, which stays feature-free. It
+            // never throws: a failure is logged, and the zone is saved either way.
+            await reconcileGuildSchedules(guild.id);
+            return c.json(resolveGuildSettings(guild, saved), 200);
         });
     });
 }
 
+/** The stored settings the wire shape is built from. */
+interface StoredGuildSettings {
+    readonly staffRoleIds: readonly string[];
+    /** The picked zone, `null` until someone picks one. */
+    readonly timeZone: string | null;
+}
+
 /**
  * The wire shape for guild settings: stored ids plus their current names, so the
- * dashboard can render a role without a second round trip.
+ * dashboard can render a role without a second round trip, and the picked time zone
+ * beside the default it falls back to.
  *
  * A role deleted since it was saved resolves to no name and is dropped from
  * `staffRoles` while staying in `staffRoleIds` — the saved list is reported as saved,
  * rather than quietly rewritten by a read.
  */
-function resolveGuildSettings(guild: Guild, staffRoleIds: readonly string[]): GuildSettingsBody {
-    const staffRoles = staffRoleIds
+function resolveGuildSettings(guild: Guild, settings: StoredGuildSettings): GuildSettingsBody {
+    const staffRoles = settings.staffRoleIds
         .map((roleId) => guild.roles.cache.get(roleId))
         .filter((role): role is NonNullable<typeof role> => !!role)
         .map((role) => ({ id: role.id, name: role.name }));
 
-    return { staffRoleIds: [...staffRoleIds], staffRoles };
+    return {
+        staffRoleIds: [...settings.staffRoleIds],
+        staffRoles,
+        timeZone: settings.timeZone,
+        defaultTimeZone: DEFAULT_GUILD_TIME_ZONE,
+    };
 }
 
 /**
@@ -307,4 +420,3 @@ function resolveWarningsConfig(guild: Guild, modChannelId: string | null): Warni
         : null;
     return { modChannelId, modChannelName };
 }
-

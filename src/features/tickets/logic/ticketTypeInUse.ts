@@ -1,3 +1,12 @@
+import type { DatabaseClient } from '../../../features-system/data-persistence/database';
+import {
+    describeOwner,
+    journeyOwner,
+    journeysRepo,
+    resourceBindingsRepo,
+    type JourneysRepo,
+    type ResourceBindingsRepo,
+} from '../../provisioning';
 import { ticketsRepo, type TicketsExecutor, type TicketsRepo } from '../data/ticketsRepo';
 import type { TicketStatus } from '../data/ticketsSchema';
 
@@ -148,4 +157,93 @@ export function ticketTypeInUseRefusal(input: {
     sentences.push('Retype them or let them age out first; this one is not going quietly.');
 
     return sentences.join(' ');
+}
+
+/**
+ * Injectable for the unit tests, as {@link TicketTypeUsageDeps} is. Production reads the
+ * binding table and the journeys through provisioning's barrel.
+ */
+export interface TicketTypeHoldersDeps {
+    readonly bindings?: Pick<ResourceBindingsRepo, 'listByGuild'>;
+    readonly journeys?: Pick<JourneysRepo, 'listTicketTypeDeclarations'>;
+}
+
+/** Each journey's display name and the ticket type keys it still declares. */
+export type JourneyTicketTypeDeclarations = ReadonlyMap<
+    string,
+    { readonly name: string; readonly ticketTypeKeys: ReadonlySet<string> }
+>;
+
+/**
+ * The journeys and what ticket types they declare, read **before** a transaction opens.
+ *
+ * It runs on the database singleton, so asking it from inside `mutateConfig` would
+ * deadlock SQLite's one connection. The binding rows themselves are read on the
+ * transaction ({@link journeysHoldingTicketType}).
+ */
+export async function loadJourneyTicketTypeDeclarations(
+    guildId: string,
+    deps?: TicketTypeHoldersDeps
+): Promise<JourneyTicketTypeDeclarations> {
+    const journeys = await (deps?.journeys ?? journeysRepo).listTicketTypeDeclarations(guildId);
+    return new Map(
+        journeys.map(
+            (journey) =>
+                [journey.journeyKey, { name: journey.name, ticketTypeKeys: new Set(journey.ticketTypeKeys) }] as const
+        )
+    );
+}
+
+/**
+ * The journeys that installed this ticket type and still hold it, named for an operator.
+ *
+ * A journey's install creates or adopts a type and records a `ticketType` binding keyed by
+ * it; uninstall only forgets that row and never removes the type. While the journey still
+ * **declares** the type its flows are wired to it, and deleting the type would break them
+ * out from under it.
+ *
+ * A row alone is not enough. Deleting a journey, emptying it into another by grouping, or
+ * dropping the type from its resources all leave the row behind, and a row nobody can see
+ * any more would lock the type for good — the refusal's own advice, uninstall or take it
+ * out, would be impossible or already done. So a holder is a row whose journey still
+ * exists and still declares this key as a ticket type.
+ *
+ * Read on the caller's executor — `deleteTicketType` asks inside `mutateConfig`'s
+ * transaction, where a singleton query deadlocks.
+ */
+export async function journeysHoldingTicketType(
+    guildId: string,
+    type: string,
+    declarations: JourneyTicketTypeDeclarations,
+    executor: DatabaseClient | undefined,
+    deps?: TicketTypeHoldersDeps
+): Promise<readonly string[]> {
+    const rows = await (deps?.bindings ?? resourceBindingsRepo).listByGuild(guildId, executor);
+    const names = new Map([...declarations].map(([journeyKey, journey]) => [journeyKey, journey.name] as const));
+    return rows
+        .filter(
+            (row) =>
+                row.ownerKind === 'journey' &&
+                row.kind === 'ticketType' &&
+                row.state !== 'intended' &&
+                row.discordId === type &&
+                (declarations.get(row.ownerKey)?.ticketTypeKeys.has(row.resourceKey) ?? false)
+        )
+        .map((row) => describeOwner(journeyOwner(row.ownerKey), names));
+}
+
+/** The refusal shown when a journey still holds a type the dashboard is asked to delete. */
+export function ticketTypeHeldByJourneyRefusal(input: {
+    readonly label: string;
+    readonly type: string;
+    readonly holders: readonly string[];
+}): string {
+    const { label, type, holders } = input;
+    const named =
+        holders.length === 1 ? holders[0] : `${holders.slice(0, -1).join(', ')} and ${holders.at(-1)}`;
+    const which = holders.length === 1 ? 'that journey' : 'those journeys';
+    return (
+        `**${label}** (\`${type}\`) was installed by ${named}, and flows are wired to it — so it stays. ` +
+        `Uninstall ${which}, or take the type out of it, first.`
+    );
 }

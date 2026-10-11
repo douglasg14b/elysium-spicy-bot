@@ -2,7 +2,7 @@ import type { LevelUpEvent } from '../../leveling';
 import { flowsRepo } from '../data/flowsRepo';
 import { isTriggerStartedBy } from '../blocks/registry';
 import { LEVEL_REACHED_VARIABLES, levelReachedConfigSchema } from '../blocks/triggerLevelReached';
-import { executeFlow } from './executor';
+import { startTriggeredRun } from './triggeredRun';
 import type { FlowRunSeed } from '../blocks/types';
 
 /**
@@ -66,7 +66,7 @@ export async function handleLevelUp(event: LevelUpEvent): Promise<void> {
              * re-bags `variables` on the way in, but that is the executor's guarantee
              * rather than this file's.
              */
-            const context: FlowRunSeed = {
+            const seed: FlowRunSeed = {
                 client: event.guild.client,
                 guild: event.guild,
                 // Levelling up is something the member did, so they are the actor as well
@@ -91,16 +91,15 @@ export async function handleLevelUp(event: LevelUpEvent): Promise<void> {
                 },
             };
 
-            try {
-                await executeFlow(flow.flowId, flow.graph, triggerNode.id, context);
-            } catch (error) {
-                // Per trigger, not just per flow: two entry points into one graph are as
-                // independent as two flows, so one throwing must not strand the other.
-                console.error(
-                    `[flows] Unexpected error running levelUp flow ${flow.flowId} from ${triggerNode.id}:`,
-                    error
-                );
-            }
+            // Per trigger, not just per flow: two entry points into one graph are as
+            // independent as two flows, so one throwing must not strand the other.
+            await startTriggeredRun({
+                flowId: flow.flowId,
+                graph: flow.graph,
+                triggerNodeId: triggerNode.id,
+                source: 'levelUp',
+                seed,
+            });
         }
     }
 }

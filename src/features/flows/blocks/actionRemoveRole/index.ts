@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
+import { requireSubject } from '../types';
 
 export const ACTION_REMOVE_ROLE = 'action.removeRole';
 
@@ -30,9 +31,10 @@ export const block: BlockManifest<RemoveRoleConfig> = {
     outputs: [],
     requires: ['subject'],
     capabilities: ['manageRoles'],
+    emits: [],
     canSuspend: false,
     async run(config, context) {
-        await context.subject.roles.remove(config.roleId);
+        await requireSubject(context).roles.remove(config.roleId);
         return { kind: 'continue' };
     },
 };

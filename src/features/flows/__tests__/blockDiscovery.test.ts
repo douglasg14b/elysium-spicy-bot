@@ -41,6 +41,7 @@ const SHIPPED_BLOCK_TYPES = [
     'action.sendMessage',
     'action.setVariable',
     'action.waitForEvent',
+    'condition.compare',
     'condition.hasOpenTicket',
     'condition.hasRole',
     'condition.inChannel',
@@ -51,7 +52,10 @@ const SHIPPED_BLOCK_TYPES = [
     'trigger.levelReached',
     'trigger.memberJoin',
     'trigger.memberLeave',
+    'trigger.messageSent',
     'trigger.reactionAdd',
+    'trigger.schedule',
+    'trigger.ticketEvent',
 ] as const;
 
 describe('scanning the blocks tree', () => {

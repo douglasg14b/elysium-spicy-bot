@@ -24,6 +24,7 @@ import { FlowTable } from '../../features/flows/data/flowsSchema';
 import { FlowRunTable } from '../../features/flows/data/flowRunsSchema';
 import { FlowButtonMessageTable } from '../../features/flows/data/flowButtonMessagesSchema';
 import { FlowDraftTable } from '../../features/flows/data/flowDraftsSchema';
+import { FlowScheduleTable } from '../../features/flows/data/flowSchedulesSchema';
 import { ResourceBindingTable } from '../../features/provisioning/data/resourceBindingsSchema';
 import { JourneyTable } from '../../features/provisioning/data/journeysSchema';
 import { FlowJourneyLinkTable } from '../../features/provisioning/data/flowJourneyLinksSchema';
@@ -48,6 +49,7 @@ export interface Database {
     flow_runs: FlowRunTable;
     flow_button_messages: FlowButtonMessageTable;
     flow_drafts: FlowDraftTable;
+    flow_schedules: FlowScheduleTable;
     resource_bindings: ResourceBindingTable;
     journeys: JourneyTable;
     flow_journey_links: FlowJourneyLinkTable;
@@ -103,6 +105,8 @@ function getDatabaseClient() {
                 flow_runs: ['wakeAt', 'claimedAt', 'createdAt', 'updatedAt'],
                 flow_button_messages: ['createdAt', 'updatedAt'],
                 flow_drafts: ['baseUpdatedAt', 'createdAt', 'updatedAt'],
+                // No boolean or JSON columns, so absent from both sqlite-only plugins below.
+                flow_schedules: ['nextRunAt', 'createdAt', 'updatedAt'],
                 resource_bindings: ['createdAt', 'updatedAt'],
                 journeys: ['createdAt', 'updatedAt'],
                 // `flow_journey_links` is absent from the two sqlite-only plugins below

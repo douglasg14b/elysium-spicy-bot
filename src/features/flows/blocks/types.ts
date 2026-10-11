@@ -105,7 +105,14 @@ export interface FlowRunSeed {
     client: Client;
     guild: Guild;
     /**
-     * The member the run is *about*. Always present.
+     * The member the run is *about* — absent on a run whose trigger supplies nobody.
+     *
+     * A trigger that leaves `subject` out of its `requires` starts runs about nobody,
+     * and every such run carries no member here: no stand-in, no bot, no placeholder
+     * id, any of which would make a block's `subject` requirement lie. **Absent never
+     * means the member left** — a departure still carries the leaver, below. A block
+     * that declares `subject` reads it through {@link requireSubject}; the executor has
+     * already refused to run it without one.
      *
      * Distinct from {@link actor} because the two genuinely diverge: a moderator
      * advancing someone else's run acts on a subject who is not themselves. Every
@@ -121,15 +128,20 @@ export interface FlowRunSeed {
      * Either way, acting on them fails at Discord and reading their roles or boost
      * answers from that last-known state, not from the guild.
      */
-    subject: GuildMember | PartialGuildMember;
+    subject?: GuildMember | PartialGuildMember;
     /**
      * The member who caused the *current step*, when a member caused it at all.
      *
      * Absent when the clock woke the run rather than a person — a resumed run has
-     * no actor, because nobody acted. Reporting the subject here instead would be
-     * a convenient lie, and the whole reason the two are separate fields.
+     * no actor, because nobody acted — and on a run whose trigger does not say who
+     * acted (a departure). Reporting the subject here instead would be a convenient
+     * lie, and the whole reason the two are separate fields.
+     *
+     * **May be a member who has already left**, as `subject` may: a ticket change
+     * names who made it, and one who left before the dispatch is handed over as a
+     * partial member. A mention still renders; acting on them fails at Discord.
      */
-    actor?: GuildMember;
+    actor?: GuildMember | PartialGuildMember;
     /**
      * Where the run is operating, when a step has established somewhere.
      *
@@ -159,6 +171,30 @@ export interface FlowRunSeed {
     variables: Readonly<Record<string, FlowVariableValue>>;
     /** The originating interaction, when the trigger was an interaction. */
     interaction?: ButtonInteraction;
+    /**
+     * How many runs deep this run sits in a chain of runs that started one another,
+     * when a dispatcher knows: a run started by a person's act is 1, and a run started
+     * by a change a depth-N run made is N+1. Absent means 1 — every source but a ticket
+     * change starts a fresh chain, and a run parked before depth was recorded reads as 1.
+     *
+     * Read it through {@link FlowRunContext.chainDepth}, where the executor has already
+     * settled the default. A block whose action can start other runs hands that number
+     * on, so whoever dispatches those runs can refuse one that would go too deep.
+     */
+    chainDepth?: number;
+    /**
+     * When the event that started or woke this leg happened, **by Discord's clock** —
+     * set only where the event carries its own timestamp, which today is a message.
+     * A ticket change sets it too, from the bot's clock as the change committed: it has
+     * no Discord timestamp, and the later-of-the-two rule below makes that harmless.
+     *
+     * For a block that records "look for events from now on", as a message wait records
+     * where its catch-up starts: the bot's clock and Discord's can disagree by a little,
+     * and starting from the bot's alone could put the very message that caused this leg
+     * inside the range, counting it as a reply to itself. Such a block starts after the
+     * later of the two. Absent on every other run, where there is nothing to be after.
+     */
+    eventAt?: Date;
     /**
      * Why you are waking, set only on the node that actually parked this run.
      *
@@ -212,6 +248,15 @@ export interface FlowRunContext extends FlowRunSeed {
      */
     readonly startedAt?: Date;
     /**
+     * How many runs deep this run sits in a chain of runs that started one another — 1
+     * unless it was started by a change another run made. See {@link FlowRunSeed.chainDepth}.
+     *
+     * Required here, unlike on the seed: the executor settles the default once, so no
+     * block ever writes `?? 1` of its own. Carried across every park in the run's
+     * snapshot, so a run that waits and then acts still hands on the depth it started at.
+     */
+    readonly chainDepth: number;
+    /**
      * Record a value for later blocks to read, under a key this block declared.
      *
      * A method rather than a slot on the step outcome because a suspending block
@@ -230,5 +275,29 @@ export interface FlowRunContext extends FlowRunSeed {
      * rather than silently dropping one.
      */
     setOutput(key: string, value: FlowVariableValue): void;
+}
+
+/**
+ * The member a run is about, for a block that declared `subject`.
+ *
+ * The executor compares every node's requirements with the run before calling `run`,
+ * and fails the step by name when the subject is missing — so for a block whose
+ * `requires` (or picked option) says `subject`, this never throws. It throws a named
+ * programming error rather than handing back `undefined` because reaching it without a
+ * subject means that check regressed, and a `!` would turn that into a null dereference
+ * deep inside discord.js.
+ *
+ * One helper rather than a guard in each block: the guard is the executor's, tested
+ * once, and every block narrows the same way.
+ */
+export function requireSubject(context: FlowRunSeed): GuildMember | PartialGuildMember {
+    const { subject } = context;
+    if (!subject) {
+        throw new Error(
+            'This block needs the member the run is about, and this run is about nobody. The executor ' +
+                'should have refused to run it — the requirement check has regressed.'
+        );
+    }
+    return subject;
 }
 

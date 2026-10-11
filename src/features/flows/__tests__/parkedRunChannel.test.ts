@@ -56,6 +56,7 @@ function makeGuild(options: { channelIds: readonly string[]; send?: ReturnType<t
                 id,
                 isDMBased: () => false,
                 isTextBased: () => true,
+                isThread: () => false,
             } as unknown as GuildTextBasedChannel,
         ])
     );
@@ -213,7 +214,7 @@ describe('the channel a run parked in', () => {
 
         const parked = await repo.getByRunId('run-1');
 
-        expect(parked?.entityVersion).toBe(3);
+        expect(parked?.entityVersion).toBe(6);
         // Pinned to the constant as well, so a future bump cannot leave this
         // asserting a number the writer no longer uses.
         expect(parked?.entityVersion).toBe(FLOW_RUN_ENTITY_VERSION);
@@ -584,6 +585,7 @@ describe('the snapshot the executor writes when a run parks', () => {
             userId: USER_ID,
             channelId: PARKED_CHANNEL_ID,
             startedAt: expect.any(String),
+            chainDepth: 1,
         });
     });
 
@@ -594,7 +596,7 @@ describe('the snapshot the executor writes when a run parks', () => {
         // `channelId: context.channel?.id` it deliberately avoids.
         const snapshot = await snapshotFor(undefined);
 
-        expect(snapshot).toEqual({ guildId: GUILD_ID, userId: USER_ID, startedAt: expect.any(String) });
+        expect(snapshot).toEqual({ guildId: GUILD_ID, userId: USER_ID, startedAt: expect.any(String), chainDepth: 1 });
         expect(Object.hasOwn(snapshot, 'channelId')).toBe(false);
     });
 });

@@ -667,3 +667,143 @@ describe('buildInstallPlan', () => {
         });
     });
 });
+
+/**
+ * A declared ticket type, planned by its key against the ticket settings the provider
+ * read. Never against the guild cache, and never by name.
+ */
+describe('buildInstallPlan for a ticket type', () => {
+    const SETTINGS = {
+        nameTemplate: 'verify-{{####}}',
+        permissions: {
+            subject: { view: true, send: true, readHistory: true, manageMessages: false },
+            opener: { view: true, send: true, readHistory: true, manageMessages: false },
+            staff: { view: true, send: true, readHistory: true, manageMessages: true },
+        },
+        autoClaimOnOpen: false,
+    };
+
+    const TYPE_JOURNEY: JourneyDeclaration = {
+        journeyKey: 'onboarding',
+        name: 'Onboarding',
+        resources: [{ key: 'verification', kind: 'ticketType', defaultName: 'Verify me', ticketType: SETTINGS }],
+    };
+
+    function reading(types: Record<string, string>, notReadyNote: string | null = null) {
+        return {
+            status: 'ok' as const,
+            ready: notReadyNote === null,
+            notReadyNote,
+            types: new Map(Object.entries(types).map(([key, label]) => [key, { label }])),
+        };
+    }
+
+    const typeRow = binding({
+        resourceKey: 'verification',
+        kind: 'ticketType',
+        state: 'adopted',
+        discordId: 'verification',
+        name: 'Verification',
+        ownerKind: 'journey',
+        ownerKey: 'onboarding',
+    } as Partial<ResourceBindingEntity>);
+
+    it('blocks the whole install, in the provider’s words, when there are no ticket settings', () => {
+        const plan = buildInstallPlan({
+            guild: makeGuild(),
+            journey: TYPE_JOURNEY,
+            existingBindings: [],
+            ticketTypes: { status: 'no-config', blockedReason: 'No ticket settings here.' },
+        });
+
+        expect(plan.items[0]).toMatchObject({ action: 'blocked', reason: 'No ticket settings here.' });
+        expect(isPlanApplicable(plan)).toBe(false);
+    });
+
+    it('adopts a type that is already there, under its own label, and says it is used as it is', () => {
+        const plan = buildInstallPlan({
+            guild: makeGuild(),
+            journey: TYPE_JOURNEY,
+            existingBindings: [],
+            ticketTypes: reading({ verification: 'Verification' }),
+        });
+
+        expect(plan.items[0]).toMatchObject({
+            action: 'adopt',
+            discordId: 'verification',
+            name: 'Verification',
+        });
+        expect(plan.items[0]?.reason).toMatch(/used as it is/);
+    });
+
+    it('reuses a type this journey already recorded', () => {
+        const plan = buildInstallPlan({
+            guild: makeGuild(),
+            journey: TYPE_JOURNEY,
+            existingBindings: [typeRow],
+            ticketTypes: reading({ verification: 'Verification' }),
+        });
+
+        expect(plan.items[0]).toMatchObject({ action: 'reuse', discordId: 'verification' });
+    });
+
+    it('creates a missing type, and says so when this journey had it before', () => {
+        const fresh = buildInstallPlan({
+            guild: makeGuild(),
+            journey: TYPE_JOURNEY,
+            existingBindings: [],
+            ticketTypes: reading({}),
+        });
+        expect(fresh.items[0]).toEqual({ resourceKey: 'verification', kind: 'ticketType', name: 'Verify me', parentKey: undefined, action: 'create' });
+
+        const again = buildInstallPlan({
+            guild: makeGuild(),
+            journey: TYPE_JOURNEY,
+            existingBindings: [typeRow],
+            ticketTypes: reading({}),
+        });
+        expect(again.items[0]).toMatchObject({ action: 'create' });
+        expect(again.items[0]?.reason).toMatch(/removed .* made again/);
+    });
+
+    it('carries the not-set-up note on every ticket type item, and still applies', () => {
+        const plan = buildInstallPlan({
+            guild: makeGuild(),
+            journey: TYPE_JOURNEY,
+            existingBindings: [],
+            ticketTypes: reading({}, 'Not set up yet.'),
+        });
+
+        expect(plan.items[0]).toMatchObject({ action: 'create', note: 'Not set up yet.' });
+        expect(isPlanApplicable(plan)).toBe(true);
+    });
+
+    it('asks nothing of the bot’s channel or role permissions for a type', () => {
+        const plan = buildInstallPlan({
+            guild: makeGuild({ permissions: [] }),
+            journey: TYPE_JOURNEY,
+            existingBindings: [],
+            ticketTypes: reading({}),
+        });
+
+        expect(plan.blockers).toEqual([]);
+    });
+
+    it('blocks a type over a row of another kind under the same key, rather than forgetting it', () => {
+        const plan = buildInstallPlan({
+            guild: makeGuild(),
+            journey: TYPE_JOURNEY,
+            existingBindings: [binding({ resourceKey: 'verification', kind: 'textChannel', discordId: 'chan-1' })],
+            ticketTypes: reading({ verification: 'Verification' }),
+        });
+
+        expect(plan.items[0]).toMatchObject({ action: 'blocked' });
+        expect(plan.items[0]?.reason).toMatch(/still holds a channel/);
+    });
+
+    it('throws when a journey declares a type and nobody read the ticket settings', () => {
+        expect(() =>
+            buildInstallPlan({ guild: makeGuild(), journey: TYPE_JOURNEY, existingBindings: [] })
+        ).toThrow(/without reading the server's ticket types/);
+    });
+});

@@ -1,18 +1,26 @@
-import { Events } from 'discord.js';
+import { Events, type Client } from 'discord.js';
 import { interactionsRegistry } from '../../features-system/commands';
 import { DISCORD_CLIENT } from '../../discordClient';
+import { registerActivitySubscriber } from '../../features-system/activity';
 import { registerLevelUpSubscriber } from '../leveling';
 import { registerResourceWriteBack } from '../provisioning';
+import { registerTicketSubscriber } from '../tickets';
 import { applyResourcesToFlows } from './logic/applyResourcesToFlows';
+import { fireDueSchedules } from './logic/fireDueSchedules';
+import { reconcileGuildSchedules, registerScheduleReconcile } from './logic/reconcileGuildSchedules';
+import { ticketChangeSubscriber } from './logic/ticketEventDispatch';
 import { ensureBlocksDiscovered } from './blocks/registry';
 import { flowDeployCommand, handleFlowDeployCommand } from './commands/flowDeployCommand';
 import { FLOW_CHOICE_CUSTOM_ID_PREFIX, FLOW_CUSTOM_ID_PREFIX } from './constants';
+import { flowsRepo } from './data/flowsRepo';
 import { handleFlowChoiceInteraction } from './engine/flowChoiceDispatch';
 import { startFlowRunScheduler } from './engine/flowRunScheduler';
 import { handleFlowButtonInteraction } from './engine/flowTriggerDispatch';
 import { handleLevelUp } from './engine/levelUpDispatch';
 import { handleMemberJoin } from './engine/memberJoinDispatch';
 import { handleMemberLeave } from './engine/memberLeaveDispatch';
+import { handleMessage } from './engine/messageTriggerDispatch';
+import { messageTriggerIndex } from './engine/messageTriggerIndex';
 import { handleReactionAdd } from './engine/reactionAddDispatch';
 
 let initialization: Promise<void> | undefined;
@@ -58,6 +66,34 @@ async function initializeFlows(): Promise<void> {
     // consulted when a level-up actually arrives — long after `ensureBlocksDiscovered`
     // above has completed.
     registerLevelUpSubscriber(handleLevelUp);
+
+    // Tell activity to hand us every message it records: to wake runs waiting on one, then
+    // to start Message Sent runs — in that order, inside one subscriber, so a run this
+    // message starts is never woken by the same message.
+    //
+    // A subscriber rather than a `MessageCreate` listener of our own, so the activity row
+    // is written before a woken or started run reads the record. The message-wait index
+    // is empty until the scheduler's startup sweep loads it, which is after ClientReady —
+    // and no message arrives before that anyway. The trigger index loads each guild on
+    // its first message.
+    registerActivitySubscriber(handleMessage);
+
+    // Tell tickets to announce every committed change to us, to start Ticket Event runs.
+    //
+    // Registered from this side for the reason leveling's is: tickets is a base capability
+    // and must not know flows exist. The subscriber only schedules its dispatch, so a flow
+    // whose own block changed a ticket is never left running another flow inside itself.
+    registerTicketSubscriber(ticketChangeSubscriber(DISCORD_CLIENT));
+
+    // Drop the in-memory Message Sent triggers after every committed flow write — a save,
+    // a switch on or off, a delete, an install writing ids back — so what fires changes
+    // without a restart. Registered from this side so `data/` never imports `engine/`.
+    flowsRepo.registerAfterWrite(() => messageTriggerIndex.invalidate());
+
+    // Bring the written guild's schedules in line after every committed flow write, and
+    // finish before the write returns, so the builder's next-runs fetch after a save sees
+    // the new times. Drafts never get here: only the saved flow schedules anything.
+    registerScheduleReconcile(flowsRepo);
 
     // Admin slash command to post a flow's trigger button(s) to a channel.
     interactionsRegistry.register(flowDeployCommand, handleFlowDeployCommand);
@@ -118,7 +154,28 @@ async function initializeFlows(): Promise<void> {
     // ClientReady (not here) because resuming needs a usable client — and the
     // scheduler sweeps once immediately so delays that elapsed while the bot was
     // down fire straight away. Mirrors the birthday scheduler's lifecycle.
+    //
+    // Every guild's schedules are reconciled first, so the first tick cannot fire a row
+    // reconcile has yet to look at — and flows saved before schedules existed get their
+    // rows. A schedule missed while the bot was down keeps its overdue time through this
+    // and fires once on the first tick. Then the scheduler, which fires due schedules on
+    // every tick through `onTick` — however every reconcile went.
     DISCORD_CLIENT.once(Events.ClientReady, (readyClient) => {
-        startFlowRunScheduler(readyClient);
+        void startFlowsOnReady(readyClient);
     });
+}
+
+/**
+ * Reconcile every guild the bot is in, one at a time, then start the run scheduler with
+ * schedule firing as its extra tick work. Each guild is isolated — reconcile logs its own
+ * failure and never throws — so one bad guild cannot hold the scheduler back.
+ */
+async function startFlowsOnReady(readyClient: Client<true>): Promise<void> {
+    try {
+        for (const guildId of readyClient.guilds.cache.keys()) {
+            await reconcileGuildSchedules(guildId);
+        }
+    } finally {
+        startFlowRunScheduler(readyClient, undefined, { onTick: fireDueSchedules });
+    }
 }

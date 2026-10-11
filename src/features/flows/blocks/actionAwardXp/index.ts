@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { awardFlowXp, type FlowXpRefusal } from '../../../leveling';
 import type { BlockManifest } from '../manifest';
+import { requireSubject } from '../types';
 
 export const ACTION_AWARD_XP = 'action.awardXp';
 
@@ -63,12 +64,15 @@ export const block: BlockManifest<AwardXpConfig> = {
     outputs: [],
     requires: ['subject'],
     capabilities: [],
+    // XP a flow awards never sets off Level Reached: `awardFlowXp` announces the level
+    // but notifies no level-up subscriber. If that ever changes, it becomes an emission.
+    emits: [],
     canSuspend: false,
     async run(config, context) {
         const result = await awardFlowXp({
             client: context.client,
             guild: context.guild,
-            userId: context.subject.id,
+            userId: requireSubject(context).id,
             xpAmount: config.amount,
         });
 

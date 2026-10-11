@@ -3,6 +3,8 @@ import { ensureBlocksDiscovered } from '../../features/flows/blocks/registry';
 import type { AppEnv } from '../types';
 import { FLOW_BLOCK_FIELD_RULES, flowBlockFieldRulesSchema } from './flowBlockFieldRules';
 import { registerApiRoutes } from './index';
+import { DiscordResourceKindSchema } from './journeyBody';
+import { ResourcePickerControlSchema } from './nodeBody';
 import { attachRequestMessages } from './requestMessages';
 
 /** Where the committed spec lives, relative to the repo root. The SDK is generated from it. */
@@ -25,7 +27,9 @@ export type OpenApiDocument = ReturnType<OpenAPIHono['getOpenAPI31Document']>;
  *
  * Also carries `FlowBlockFieldRules`, the Flow Builder's rules for every block's config
  * fields (`flowBlockFieldRules.ts`). They are read off the block registry, so this awaits
- * block discovery first, as `initFlows` does before the web server starts.
+ * block discovery first, as `initFlows` does before the web server starts. And two
+ * vocabularies no route sends on its own that the browser branches on:
+ * `DiscordResourceKind` (`journeyBody.ts`) and `ResourcePickerControl` (`nodeBody.ts`).
  *
  * Keys are sorted at every depth so the committed file, and the SDK generated from it, do
  * not churn when routers are mounted or registered in a different order. The price is
@@ -38,6 +42,8 @@ export async function buildOpenApiDocument(): Promise<OpenApiDocument> {
     const app = new OpenAPIHono<AppEnv>();
     registerApiRoutes(app);
     app.openAPIRegistry.register(FLOW_BLOCK_FIELD_RULES, flowBlockFieldRulesSchema());
+    app.openAPIRegistry.register('DiscordResourceKind', DiscordResourceKindSchema);
+    app.openAPIRegistry.register('ResourcePickerControl', ResourcePickerControlSchema);
     attachRequestMessages(app.openAPIRegistry.definitions);
 
     const document = app.getOpenAPI31Document({

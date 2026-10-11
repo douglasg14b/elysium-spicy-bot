@@ -85,8 +85,11 @@ export const UnpublishResultSchema = z
 
 /**
  * One line of an install plan. `discordId` is set for `adopt`, `recover` and `reuse`,
- * and on a `blocked` name collision; `reason` says why an item is blocked, why a create
- * replaces something deleted, or what an interrupted install left for a `recover`.
+ * and on a `blocked` name collision — for a `ticketType` it is the type's key, never a
+ * snowflake; `reason` says why an item is blocked, why a create replaces something
+ * deleted, what an interrupted install left for a `recover`, or that a ticket type is used
+ * as it is; `note` is something worth knowing that blocks nothing — today the ticket
+ * feature's "not fully set up yet" on a ticket type item.
  */
 const InstallPlanItemSchema = z
     .object({
@@ -96,6 +99,7 @@ const InstallPlanItemSchema = z
         name: z.string(),
         discordId: z.string().optional(),
         reason: z.string().optional(),
+        note: z.string().optional(),
     })
     .openapi('InstallPlanItem');
 
@@ -179,8 +183,9 @@ export const InstallResultSchema = z
  * The wire shape for an install plan.
  *
  * `reason` carries both the blocker's explanation and the note on a create that replaces
- * something deleted, so a client shows it without asking which kind it is. Items are
- * copied field by field so `parentKey`, which the plan uses to order creates, stays off
+ * something deleted, so a client shows it without asking which kind it is. `note` is what
+ * blocks nothing — the ticket feature not being fully set up, on a ticket type item. Items
+ * are copied field by field so `parentKey`, which the plan uses to order creates, stays off
  * the wire.
  */
 export function installPlanBody(plan: InstallPlan): z.infer<typeof InstallPlanSchema> {
@@ -195,6 +200,7 @@ export function installPlanBody(plan: InstallPlan): z.infer<typeof InstallPlanSc
             name: item.name,
             discordId: item.discordId,
             reason: item.reason,
+            note: item.note,
         })),
     };
 }

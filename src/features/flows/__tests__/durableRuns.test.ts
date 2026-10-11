@@ -271,7 +271,7 @@ describe('action.delay', () => {
             await runsRepo.create({
                 flowId: 'flow-1',
                 guildId: context.guild.id,
-                contextSnapshot: { guildId: context.guild.id, userId: context.subject.id },
+                contextSnapshot: { guildId: context.guild.id, userId: context.subject?.id },
                 resumeNodeId: suspension.resumeNodeId,
                 wakeAt: suspension.wakeAt ?? null,
                 visitsUsed: suspension.visitsUsed,

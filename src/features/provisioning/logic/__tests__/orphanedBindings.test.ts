@@ -16,7 +16,8 @@ function binding(overrides: Partial<ResourceBindingEntity> = {}): ResourceBindin
     return {
         id: nextId++,
         guildId: 'guild-1',
-        journeyKey: 'journey-1',
+        ownerKind: 'journey',
+        ownerKey: 'journey-1',
         resourceKey: 'welcome-channel',
         kind: 'textChannel',
         state: 'created',
@@ -174,5 +175,23 @@ describe('describeOrphan', () => {
         });
 
         expect(describeOrphan(orphan!)).toMatch(/already gone/);
+    });
+});
+
+describe('a ticket type no longer declared', () => {
+    it('is offered as a forget only, never asking the guild about its key, with its own "stays" sentence', () => {
+        const asked: string[] = [];
+        const [orphan] = findOrphanedBindings({
+            journey: journey([]),
+            bindings: [binding({ resourceKey: 'verify', kind: 'ticketType', state: 'created', discordId: 'verify', name: 'Verify' })],
+            existsInGuild: (kind, discordId) => {
+                asked.push(`${kind}:${discordId}`);
+                return false;
+            },
+        });
+
+        expect(asked).toEqual([]);
+        expect(orphan).toMatchObject({ kind: 'ticketType', mayDelete: false, neverSettled: false, stillInGuild: true });
+        expect(describeOrphan(orphan!)).toMatch(/ticket type stays in your ticket settings/);
     });
 });

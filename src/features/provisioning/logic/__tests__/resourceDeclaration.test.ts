@@ -383,3 +383,56 @@ describe('orderResourcesForApply', () => {
         expect(ordered.map((resource) => resource.key)).toEqual(['approval-room']);
     });
 });
+
+/**
+ * A ticket type's shape. Structural only — the template and label rules are the ticket
+ * feature's, checked on save — so these hold on every read of a stored journey.
+ */
+describe('validateJourneyDeclaration for a ticket type', () => {
+    const SETTINGS: NonNullable<ResourceDeclaration['ticketType']> = {
+        nameTemplate: 'verify-{{####}}',
+        permissions: {
+            subject: { view: true, send: true, readHistory: true, manageMessages: false },
+            opener: { view: true, send: true, readHistory: true, manageMessages: false },
+            staff: { view: true, send: true, readHistory: true, manageMessages: true },
+        },
+        autoClaimOnOpen: false,
+    };
+    const TYPE: ResourceDeclaration = { key: 'verify', kind: 'ticketType', defaultName: 'Verify', ticketType: SETTINGS };
+
+    it('accepts a ticket type with its settings, beside a channel', () => {
+        expect(() =>
+            validateJourneyDeclaration(journey([TYPE, { key: 'chan', kind: 'textChannel', defaultName: 'welcome' }]))
+        ).not.toThrow();
+    });
+
+    it('requires the settings', () => {
+        expect(() => validateJourneyDeclaration(journey([{ ...TYPE, ticketType: undefined }]))).toThrow(
+            /no settings to create it with/
+        );
+    });
+
+    it('refuses ticket type settings on any other kind', () => {
+        expect(() =>
+            validateJourneyDeclaration(journey([{ key: 'chan', kind: 'textChannel', defaultName: 'welcome', ticketType: SETTINGS }]))
+        ).toThrow(/Only a ticket type has those/);
+    });
+
+    it.each([
+        ['a parent', { parentKey: 'cat' }, /declares a parent/],
+        ['channel permissions', { permissions: [{ audience: 'everyone', access: 'hidden' }] }, /channel permissions/],
+        ['something to adopt', { adoptDiscordId: '123456789012345678' }, /found by its key/],
+    ] as const)('refuses %s', (_label, extra, message) => {
+        expect(() =>
+            validateJourneyDeclaration(
+                journey([{ key: 'cat', kind: 'category', defaultName: 'Arrivals' }, { ...TYPE, ...extra }])
+            )
+        ).toThrow(message);
+    });
+
+    it('refuses a ticket type as a channel’s parent', () => {
+        expect(() =>
+            validateJourneyDeclaration(journey([TYPE, { key: 'chan', kind: 'textChannel', defaultName: 'welcome', parentKey: 'verify' }]))
+        ).toThrow(ResourceDeclarationError);
+    });
+});

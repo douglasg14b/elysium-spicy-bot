@@ -1,7 +1,13 @@
 import { ChannelType, PermissionFlagsBits, type Guild } from 'discord.js';
 import { describe, expect, it } from 'vitest';
 import type { ResourceBindingEntity } from '../../data/resourceBindingsSchema';
-import { buildJourneyDriftPlan } from '../journeyDriftPlan';
+import type { GuildOwnership } from '../bindingOwner';
+import {
+    buildJourneyDriftPlan,
+    type BuildJourneyDriftPlanInput,
+    type JourneyDriftPlan,
+} from '../journeyDriftPlan';
+import { describeWithheldRepair } from '../resourceDrift';
 import type { JourneyDeclaration, ResourceDeclaration } from '../resourceDeclaration';
 
 /**
@@ -117,7 +123,8 @@ function binding(overrides: Partial<ResourceBindingEntity> = {}): ResourceBindin
     return {
         id: nextBindingId++,
         guildId: 'guild-1',
-        journeyKey: 'journey-1',
+        ownerKind: 'journey',
+        ownerKey: 'journey-1',
         resourceKey: 'welcome-channel',
         kind: 'textChannel',
         state: 'created',
@@ -135,9 +142,19 @@ function journey(resources: readonly ResourceDeclaration[]): JourneyDeclaration 
 
 const permissionContext = { staffRoleIds: [STAFF_ROLE] } as const;
 
+/** The plan, for a guild whose only bindings are the journey's own unless `ownership` says otherwise. */
+function driftPlanFor(
+    input: Omit<BuildJourneyDriftPlanInput, 'ownership'> & { readonly ownership?: GuildOwnership }
+): JourneyDriftPlan {
+    return buildJourneyDriftPlan({
+        ...input,
+        ownership: input.ownership ?? { bindings: input.bindings, journeyNames: new Map() },
+    });
+}
+
 describe('buildJourneyDriftPlan', () => {
     it('reports a clean journey with nothing drifted', () => {
-        const plan = buildJourneyDriftPlan({
+        const plan = driftPlanFor({
             guild: makeGuild([textChannel('channel-1', 'welcome')]),
             journey: journey([
                 { key: 'welcome-channel', kind: 'textChannel', defaultName: 'welcome' },
@@ -151,7 +168,7 @@ describe('buildJourneyDriftPlan', () => {
     });
 
     it('reports a renamed channel', () => {
-        const plan = buildJourneyDriftPlan({
+        const plan = driftPlanFor({
             guild: makeGuild([textChannel('channel-1', 'lobby')]),
             journey: journey([
                 { key: 'welcome-channel', kind: 'textChannel', defaultName: 'welcome' },
@@ -167,13 +184,37 @@ describe('buildJourneyDriftPlan', () => {
         expect(plan.cleanKeys).toEqual([]);
     });
 
+    it('withholds repair of a created channel the ticket system also holds, and says who', () => {
+        // A repair would put the object back to this journey's declaration and strip
+        // whatever the other owner set on it — the ticket moderation overwrites, say.
+        const ours = binding();
+        const ticketRow = binding({
+            ownerKind: 'tickets',
+            ownerKey: 'tickets',
+            resourceKey: 'open',
+            state: 'adopted',
+            discordId: 'channel-1',
+        });
+        const plan = driftPlanFor({
+            guild: makeGuild([textChannel('channel-1', 'lobby')]),
+            journey: journey([{ key: 'welcome-channel', kind: 'textChannel', defaultName: 'welcome' }]),
+            bindings: [ours],
+            ownership: { bindings: [ours, ticketRow], journeyNames: new Map() },
+            permissionContext,
+        });
+
+        const [report] = plan.drifted;
+        expect(report).toMatchObject({ repairable: false, sharedWith: 'the ticket system' });
+        expect(report && describeWithheldRepair(report)).toContain('the ticket system uses this too');
+    });
+
     /**
      * `buildInstallPlan` already detects this and plans a recreate, naming it in the
      * item's reason. Reporting it here too would give the operator two surfaces for
      * one situation and two buttons that appear to differ.
      */
     it('does not report a binding whose object is gone — that is install\'s subject', () => {
-        const plan = buildJourneyDriftPlan({
+        const plan = driftPlanFor({
             guild: makeGuild([]),
             journey: journey([
                 { key: 'welcome-channel', kind: 'textChannel', defaultName: 'welcome' },
@@ -187,7 +228,7 @@ describe('buildJourneyDriftPlan', () => {
     });
 
     it('does not report a resource that was never installed', () => {
-        const plan = buildJourneyDriftPlan({
+        const plan = driftPlanFor({
             guild: makeGuild([]),
             journey: journey([
                 { key: 'welcome-channel', kind: 'textChannel', defaultName: 'welcome' },
@@ -201,7 +242,7 @@ describe('buildJourneyDriftPlan', () => {
     });
 
     it('does not report an intended binding that never reached the guild', () => {
-        const plan = buildJourneyDriftPlan({
+        const plan = driftPlanFor({
             guild: makeGuild([textChannel('channel-1', 'something-else')]),
             journey: journey([
                 { key: 'welcome-channel', kind: 'textChannel', defaultName: 'welcome' },
@@ -219,7 +260,7 @@ describe('buildJourneyDriftPlan', () => {
      * meaningless; it is a teardown question and belongs to that surface.
      */
     it('skips a binding whose key the journey no longer declares', () => {
-        const plan = buildJourneyDriftPlan({
+        const plan = driftPlanFor({
             guild: makeGuild([textChannel('channel-9', 'abandoned')]),
             journey: journey([]),
             bindings: [binding({ resourceKey: 'removed-channel', discordId: 'channel-9' })],
@@ -232,7 +273,7 @@ describe('buildJourneyDriftPlan', () => {
 
     describe('parents', () => {
         it('reports a channel dragged out of its declared category', () => {
-            const plan = buildJourneyDriftPlan({
+            const plan = driftPlanFor({
                 guild: makeGuild([
                     category('category-1', 'Journey'),
                     textChannel('channel-1', 'welcome', null),
@@ -265,7 +306,7 @@ describe('buildJourneyDriftPlan', () => {
         });
 
         it('does not compare a parent that has no binding yet', () => {
-            const plan = buildJourneyDriftPlan({
+            const plan = driftPlanFor({
                 guild: makeGuild([textChannel('channel-1', 'welcome', null)]),
                 journey: journey([
                     { key: 'journey-category', kind: 'category', defaultName: 'Journey' },
@@ -298,7 +339,7 @@ describe('buildJourneyDriftPlan', () => {
         const roles = [{ id: STAFF_ROLE, name: 'Staff' }];
 
         it('reports nothing when the live overwrites still satisfy the declaration', () => {
-            const plan = buildJourneyDriftPlan({
+            const plan = driftPlanFor({
                 guild: makeGuild(
                     [
                         textChannel('channel-1', 'welcome', null, [
@@ -322,7 +363,7 @@ describe('buildJourneyDriftPlan', () => {
 
         /** The case the whole feature exists for: a staff-only channel gone public. */
         it('reports a staff-only channel whose everyone-deny was removed', () => {
-            const plan = buildJourneyDriftPlan({
+            const plan = driftPlanFor({
                 guild: makeGuild(
                     [
                         textChannel('channel-1', 'welcome', null, [
@@ -367,7 +408,7 @@ describe('buildJourneyDriftPlan', () => {
          * going permanently unchecked, with a misleading reason.
          */
         it('resolves a permission naming a role this journey declares', () => {
-            const plan = buildJourneyDriftPlan({
+            const plan = driftPlanFor({
                 guild: makeGuild(
                     [
                         textChannel('channel-1', 'welcome', null, [
@@ -421,7 +462,7 @@ describe('buildJourneyDriftPlan', () => {
          * so `unchecked` is a third answer rather than a rounding of the other two.
          */
         it('reports a declaration it could not compile as unchecked, not clean', () => {
-            const plan = buildJourneyDriftPlan({
+            const plan = driftPlanFor({
                 guild: makeGuild([textChannel('channel-1', 'welcome')], roles),
                 journey: journey([
                     {
@@ -452,7 +493,7 @@ describe('buildJourneyDriftPlan', () => {
          * would drop whichever it tested second.
          */
         it('reports a resource that both drifted and went unchecked in both lists', () => {
-            const plan = buildJourneyDriftPlan({
+            const plan = driftPlanFor({
                 guild: makeGuild([textChannel('channel-1', 'renamed')], roles),
                 journey: journey([
                     {
@@ -474,7 +515,7 @@ describe('buildJourneyDriftPlan', () => {
 
     describe('the adoption promise', () => {
         it('detects drift on an adopted resource but marks it unrepairable', () => {
-            const plan = buildJourneyDriftPlan({
+            const plan = driftPlanFor({
                 guild: makeGuild([textChannel('channel-1', 'renamed-by-hand')]),
                 journey: journey([
                     { key: 'welcome-channel', kind: 'textChannel', defaultName: 'welcome' },
@@ -489,7 +530,7 @@ describe('buildJourneyDriftPlan', () => {
     });
 
     it('reports a binding that now points at a different kind of object', () => {
-        const plan = buildJourneyDriftPlan({
+        const plan = driftPlanFor({
             guild: makeGuild([category('channel-1', 'welcome')]),
             journey: journey([
                 { key: 'welcome-channel', kind: 'textChannel', defaultName: 'welcome' },
@@ -501,5 +542,35 @@ describe('buildJourneyDriftPlan', () => {
         expect(plan.drifted[0]?.drift).toEqual([
             { kind: 'wrongType', declared: 'textChannel', actual: 'category' },
         ]);
+    });
+});
+
+describe('a ticket type', () => {
+    it('is never compared, even when its key is all digits and names a channel', () => {
+        // Install uses an existing type as it is and never changes one, so a difference
+        // is nobody's drift to repair — and its key must not be read as a snowflake.
+        const plan = driftPlanFor({
+            guild: makeGuild([textChannel('123456789012345678', 'lobby')]),
+            journey: journey([
+                {
+                    key: 'desk',
+                    kind: 'ticketType',
+                    defaultName: 'Desk',
+                    ticketType: {
+                        nameTemplate: 'desk-{{####}}',
+                        permissions: {
+                            subject: { view: true, send: true, readHistory: true, manageMessages: false },
+                            opener: { view: true, send: true, readHistory: true, manageMessages: false },
+                            staff: { view: true, send: true, readHistory: true, manageMessages: true },
+                        },
+                        autoClaimOnOpen: false,
+                    },
+                },
+            ]),
+            bindings: [binding({ resourceKey: 'desk', kind: 'ticketType', discordId: '123456789012345678', name: 'Desk' })],
+            permissionContext,
+        });
+
+        expect(plan).toMatchObject({ drifted: [], cleanKeys: [], unchecked: [] });
     });
 });

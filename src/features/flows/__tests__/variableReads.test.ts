@@ -16,7 +16,8 @@ import { CHECKED_AT, FIXTURE_READ_TIME } from './fixtures/blocks/contract/condit
  *
  * Save refuses a name nothing records, a name recorded only where it cannot have run
  * first, and a name any recording node records as another kind — a kindless one
- * included, since the bag carries no types and the last writer wins. The channel
+ * included, since the bag carries no types and the last writer wins. A field declaring
+ * no kind takes any variable, so only the path rule applies to it. The channel
  * picker's `{{var}}` is now held to the same "every recording node agrees" rule.
  */
 
@@ -171,6 +172,47 @@ describe('a variable read by name', () => {
 
         expect(spy.mock.calls[0]?.[0]).toEqual({ timeVariable: 'seenAt' });
         expect(outcome.kind === 'completed' && outcome.result.log.at(-1)).toMatchObject({ nodeId: 'read', branch: 'true' });
+    });
+});
+
+describe('a variable read by name, of any kind', () => {
+    // Compare's `variableName` declares no kind, so it takes whatever is recorded.
+    const compareText = (id: string, name = 'seenAt') =>
+        node(id, 'condition.compare', { variableName: name, operator: 'is', value: 'x' });
+
+    it('saves when a node before it records the name as plain text', () => {
+        const graph = graphOf(
+            [trigger, recordText('record'), compareText('read')],
+            [edge('trigger', 'record'), edge('record', 'read')]
+        );
+
+        expect(refusals(graph)).toEqual([]);
+    });
+
+    it('saves when the nodes recording the name disagree on its kind', () => {
+        const graph = graphOf(
+            [trigger, recordTime('record'), recordText('text'), compareText('read')],
+            [edge('trigger', 'record'), edge('record', 'text'), edge('text', 'read')]
+        );
+
+        expect(refusals(graph)).toEqual([]);
+    });
+
+    it('is still refused when the name is only recorded after it', () => {
+        const graph = graphOf(
+            [trigger, compareText('read'), recordText('record')],
+            [edge('trigger', 'read'), edge('read', 'record', 'true')]
+        );
+
+        expect(refusals(graph)).toEqual([expect.stringMatching(/only blocks after it or on another branch record it/)]);
+    });
+
+    it('is refused as recorded by nothing, rather than as recorded later, when nothing records it', () => {
+        const graph = graphOf([trigger, compareText('read')], [edge('trigger', 'read')]);
+
+        expect(refusals(graph)).toEqual([
+            expect.stringMatching(/"Variable" set to "seenAt", but no block in this flow records anything by that name\.$/),
+        ]);
     });
 });
 

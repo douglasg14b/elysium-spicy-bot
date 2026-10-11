@@ -8,15 +8,29 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { GuildChannel, GuildRole, NodeDescriptor } from '@brattybot/web-sdk';
+import type { GuildChannel, GuildRole, NodeDescriptor, ResourceDeclaration, TicketTypeView } from '@brattybot/web-sdk';
 import { summarizeFromDescriptor } from '../cardSummary';
 
-const ROLES: GuildRole[] = [{ id: 'r1', name: 'Moderator', color: 0, position: 1 }];
+const ROLES: GuildRole[] = [{ id: 'r1', name: 'Moderator', color: 0, position: 1, owner: null }];
+/** A type the guild declared itself, so nothing about the seeded two is assumed. */
+const TICKET_TYPES: TicketTypeView[] = [
+    {
+        type: 'aftercare',
+        label: 'Aftercare Check-in',
+        nameTemplate: 'aftercare-{{####}}',
+        permissions: {
+            subject: { view: true, send: true, readHistory: true, manageMessages: false },
+            opener: { view: true, send: true, readHistory: true, manageMessages: false },
+            staff: { view: true, send: true, readHistory: true, manageMessages: true },
+        },
+        autoClaimOnOpen: false,
+    },
+];
 const CHANNELS: GuildChannel[] = [
-    { id: 'c1', name: 'general', type: 'text', parentId: null, parentName: null },
+    { id: 'c1', name: 'general', type: 'text', parentId: null, parentName: null, owner: null },
     // A card may still be asked to name a category: an older config could hold one,
     // and blanking the card would hide it rather than show it as wrong.
-    { id: 'cat1', name: 'Support', type: 'category', parentId: null, parentName: null },
+    { id: 'cat1', name: 'Support', type: 'category', parentId: null, parentName: null, owner: null },
 ];
 
 /** A descriptor carrying only what the summary reads. */
@@ -41,10 +55,24 @@ function descriptorWith(
     };
 }
 
+/** A journey's declared ticket type, waiting on install. */
+const DECLARED: ResourceDeclaration[] = [
+    {
+        key: 'front-desk',
+        kind: 'ticketType',
+        defaultName: 'Front desk',
+        ticketType: {
+            nameTemplate: 'desk-{{####}}',
+            permissions: TICKET_TYPES[0].permissions,
+            autoClaimOnOpen: false,
+        },
+    },
+];
+
 const summarize = (
     descriptor: NodeDescriptor,
     config: Record<string, unknown>
-): string => summarizeFromDescriptor(descriptor, config, ROLES, CHANNELS);
+): string => summarizeFromDescriptor(descriptor, config, ROLES, CHANNELS, TICKET_TYPES, DECLARED);
 
 describe('summarizeFromDescriptor', () => {
     it('falls back to generic copy when a block declares no summary', () => {
@@ -67,6 +95,41 @@ describe('summarizeFromDescriptor', () => {
         expect(summarize(descriptor, { roleId: 'r1', channelId: 'c1' })).toBe(
             '@Moderator in #general'
         );
+    });
+
+    it('names a category bare, with no #, and reads an unknown one as unset', () => {
+        const descriptor = descriptorWith(
+            [{ key: 'categoryId', label: 'Category', control: 'categoryPicker' }],
+            [{ key: 'categoryId', prefix: 'In ', emptyText: 'no category picked' }]
+        );
+        expect(summarize(descriptor, { categoryId: 'cat1' })).toBe('In Support');
+        expect(summarize(descriptor, { categoryId: 'deleted-category' })).toBe('In no category picked');
+    });
+
+    it('names a ticket type by its label, shows a key the guild dropped as the key, and empty as empty', () => {
+        const descriptor = descriptorWith(
+            [{ key: 'ticketType', label: 'Ticket type', control: 'ticketTypePicker', optional: true }],
+            [{ text: 'Ticket' }, { key: 'ticketType', prefix: ' · ', emptyText: 'any type' }]
+        );
+        expect(summarize(descriptor, { ticketType: 'aftercare' })).toBe('Ticket · Aftercare Check-in');
+        // Readable, unlike a stale snowflake — and "any type" would misstate a node that names one.
+        expect(summarize(descriptor, { ticketType: 'retired-type' })).toBe('Ticket · retired-type');
+        expect(summarize(descriptor, {})).toBe('Ticket · any type');
+    });
+
+    it('names a declared ticket type still waiting on install, rather than "any type"', () => {
+        const descriptor = descriptorWith(
+            [{ key: 'ticketType', label: 'Ticket type', control: 'ticketTypePicker', optional: true }],
+            [{ text: 'Ticket' }, { key: 'ticketType', prefix: ' · ', emptyText: 'any type' }]
+        );
+
+        expect(summarize(descriptor, { ticketTypeKey: 'front-desk' })).toBe('Ticket · Front desk (after install)');
+        // Installed: the key is filled in, and the guild's own label wins.
+        expect(summarize(descriptor, { ticketType: 'aftercare', ticketTypeKey: 'aftercare' })).toBe(
+            'Ticket · Aftercare Check-in'
+        );
+        // A sidecar naming nothing declared is not a waiting type.
+        expect(summarize(descriptor, { ticketTypeKey: 'never-declared' })).toBe('Ticket · any type');
     });
 
     it('keeps prefix and suffix around emptyText when a field is unset', () => {
@@ -258,5 +321,91 @@ describe('a summary part for a field that is hidden', () => {
             'Copy · "Hi" since joinedAt'
         );
         expect(summarize(descriptor, { mode: 'copy' })).toBe('no message');
+    });
+});
+
+describe('the clock-shaped controls, and a part shown only under some choices', () => {
+    // The shape a repeating schedule declares: a choice that is never hidden, whose label
+    // belongs on the card under one option only.
+    const descriptor = descriptorWith(
+        [
+            {
+                key: 'repeat',
+                label: 'Repeat',
+                control: 'select',
+                defaultValue: 'daily',
+                options: [
+                    { value: 'daily', label: 'Every day' },
+                    { value: 'days', label: 'On certain days' },
+                    { value: 'interval', label: 'Every so often' },
+                ],
+            },
+            { key: 'days', label: 'Days', control: 'daysOfWeek', visibleWhen: { field: 'repeat', equals: ['days'] } },
+            { key: 'time', label: 'Time', control: 'timeOfDay', visibleWhen: { field: 'repeat', equals: ['daily', 'days'] } },
+            {
+                key: 'every',
+                label: 'How often',
+                control: 'select',
+                visibleWhen: { field: 'repeat', equals: ['interval'] },
+                options: [
+                    { value: '30m', label: 'Every 30 minutes' },
+                    { value: '1h', label: 'Every hour' },
+                ],
+            },
+        ],
+        [
+            { key: 'repeat', visibleWhen: { field: 'repeat', equals: ['daily'] } },
+            { key: 'days', emptyText: 'no days picked' },
+            { key: 'time', prefix: ' at ', emptyText: 'no time picked' },
+            { key: 'every', emptyText: 'no interval picked' },
+        ]
+    );
+
+    it('reads "Every day at 9:00 AM", the repeat label shown by its own visibleWhen', () => {
+        expect(summarize(descriptor, { repeat: 'daily', time: '09:00', days: ['mon'], every: '1h' })).toBe(
+            'Every day at 9:00 AM'
+        );
+    });
+
+    it("reads an unset choice as its default, the way a field's visibleWhen does", () => {
+        const shouting = descriptorWith(
+            [
+                {
+                    key: 'mode',
+                    label: 'Mode',
+                    control: 'segmented',
+                    defaultValue: 'loud',
+                    options: [
+                        { value: 'loud', label: 'Loud' },
+                        { value: 'quiet', label: 'Quiet' },
+                    ],
+                },
+                { key: 'note', label: 'Note', control: 'text' },
+            ],
+            [{ key: 'note', visibleWhen: { field: 'mode', equals: ['loud'] } }]
+        );
+
+        expect(summarize(shouting, { note: 'HEY' })).toBe('HEY');
+        expect(summarize(shouting, { mode: 'quiet', note: 'HEY' })).toBe('Click to configure');
+    });
+
+    it('reads "Mon, Wed, Fri at 9:00 AM", hiding the repeat label', () => {
+        expect(summarize(descriptor, { repeat: 'days', time: '09:00', days: ['fri', 'mon', 'wed'] })).toBe(
+            'Mon, Wed, Fri at 9:00 AM'
+        );
+    });
+
+    it('reads all seven days as every day', () => {
+        expect(
+            summarize(descriptor, { repeat: 'days', time: '12:00', days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] })
+        ).toBe('Every day at 12:00 PM');
+    });
+
+    it('reads "Every 30 minutes" with nothing else', () => {
+        expect(summarize(descriptor, { repeat: 'interval', time: '09:00', every: '30m' })).toBe('Every 30 minutes');
+    });
+
+    it('keeps the empty copy for an unset time or day list', () => {
+        expect(summarize(descriptor, { repeat: 'days', days: [] })).toBe('no days picked at no time picked');
     });
 });

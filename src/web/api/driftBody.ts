@@ -2,6 +2,7 @@ import { z } from '@hono/zod-openapi';
 import {
     describeDrift,
     describeOrphan,
+    describeWithheldRepair,
     type JourneyDriftPlan,
     type OrphanedBinding,
 } from '../../features/provisioning';
@@ -63,6 +64,12 @@ const DriftDetailSchema = z
  * already decided by the time they find out. A display hint only: `repairDrift`
  * re-derives the same fact from the database via `withAdoptionReasserted` and does not
  * trust what comes back over the wire.
+ *
+ * `withheldReason` is why repair is withheld, in words for the operator; null when
+ * `repairable`. Server-authored since 2026-10-10, when a third reason arrived — another
+ * owner also holds the object — that, like adoption, is invisible in the drift kinds. The
+ * browser had derived the sentence and fell through to "adopted" for everything but
+ * `wrongType`, so it would have called a shared category this journey made "adopted".
  */
 const DriftedResourceSchema = z
     .object({
@@ -72,6 +79,8 @@ const DriftedResourceSchema = z
         kind: z.string(),
         drift: z.array(DriftDetailSchema),
         repairable: z.boolean(),
+        /** Server-authored; null when `repairable`. Shown as it is, never reworded. */
+        withheldReason: z.string().nullable(),
     })
     .openapi('DriftedResource');
 
@@ -149,6 +158,7 @@ export function driftBody(
                 explanation: describeDrift(detail, report.kind),
             })),
             repairable: report.repairable,
+            withheldReason: describeWithheldRepair(report) ?? null,
         })),
         cleanKeys: plan.cleanKeys,
         unchecked: plan.unchecked.map((entry) => ({

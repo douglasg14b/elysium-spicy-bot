@@ -70,7 +70,8 @@ export interface ResourceRowEntry {
  *
  *  1. each category, followed by the channels parented to it;
  *  2. channels with no parent, or whose parent does not exist;
- *  3. roles, which are neither containers nor contained.
+ *  3. roles, which are neither containers nor contained;
+ *  4. ticket types, which are not Discord objects at all.
  *
  * An orphan — a channel whose `parentKey` names nothing — lands in group 2 rather than
  * vanishing. It is exactly the state item 7's rename fix exists to prevent, and a row
@@ -83,10 +84,10 @@ export function orderResourceRows(
 
     const categories = entries.filter(({ resource }) => resource.kind === 'category');
     const roles = entries.filter(({ resource }) => resource.kind === 'role');
-
-    const channels = entries.filter(
-        ({ resource }) => resource.kind !== 'category' && resource.kind !== 'role'
-    );
+    // Named rather than "whatever is left", which is what this used to do: a ticket type
+    // would have been filed with the channels, as one with no category.
+    const channels = entries.filter(({ resource }) => resource.kind === 'textChannel');
+    const ticketTypes = entries.filter(({ resource }) => resource.kind === 'ticketType');
 
     const rows: ResourceRowEntry[] = [];
     /**
@@ -124,6 +125,10 @@ export function orderResourceRows(
 
     for (const role of roles) {
         rows.push({ ...role, depth: 0, isFilterContext: false });
+    }
+
+    for (const ticketType of ticketTypes) {
+        rows.push({ ...ticketType, depth: 0, isFilterContext: false });
     }
 
     return rows;

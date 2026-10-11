@@ -271,6 +271,20 @@ export function GroupConflictDialog({
                           ))}
                 </Stack>
 
+                {/*
+                 * Said rather than left to the merge to do quietly: the moving flow's
+                 * settings for these are dropped, and an operator who tuned them should
+                 * know that before choosing.
+                 */}
+                {canMerge && preview.sharedTicketTypes.length > 0 && (
+                    <Text size="12.5px" c="dimmed" style={{ lineHeight: 1.6 }}>
+                        <BoldNames names={preview.sharedTicketTypes.map((shared) => shared.destinationName)} />{' '}
+                        {preview.sharedTicketTypes.length === 1 ? 'is a ticket type' : 'are ticket types'} both
+                        declare — one type each, so {preview.destinationName}&apos;s settings are kept and this
+                        flow&apos;s copy is dropped. The ticket type itself isn&apos;t touched.
+                    </Text>
+                )}
+
                 {!canMerge && (
                     <>
                         <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />}>

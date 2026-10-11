@@ -71,10 +71,12 @@ import {
     getFlowResources,
     getGuildChannelsOptions,
     getGuildRolesOptions,
+    getGuildSettingsOptions,
     getInstallPlan,
     getNodeTypesOptions,
     getPublishedStateOptions,
     getPublishedStateQueryKey,
+    getTicketsConfigOptions,
     installFlow,
     listFlowDrafts,
     listJourneys,
@@ -90,6 +92,7 @@ import {
     type JourneySummary,
     type NodeDescriptor,
     type ResourceDeclaration,
+    type TicketTypeView,
 } from '@brattybot/web-sdk';
 import { FLOW_GRAPH_VERSION } from '../flows/contractValues';
 import { FlowNodeCard, type FlowCardNode, type FlowNodeCardData } from '../flows/FlowNodeCard';
@@ -137,9 +140,17 @@ import { issuesByNode, problemCount, summarizeIssues } from '../flows/validation
 import { convergingTriggerCounts } from '../flows/convergingTriggers';
 import { unreachableNodeIds } from '../flows/unreachableNodes';
 import { exitWarningsShown, unconnectedWarnedExits } from '../flows/unconnectedExits';
-import { actorAvailableAt, availableVariablesAt } from '../flows/variables';
+import {
+    ALL_REQUIREMENTS_AVAILABLE,
+    availableVariablesAt,
+    flowRunsAboutNobody,
+    requirementsAvailableAt,
+} from '../flows/variables';
 import { NodePalette, NODE_DRAG_MIME } from '../flows/NodePalette';
 import { NodeInspector } from '../flows/NodeInspector';
+import type { ServerTimeZone } from '../flows/controls/types';
+import { nextRunForNode, sameNextRun } from '../flows/nextRun';
+import { useFlowNextRuns } from '../flows/useFlowNextRuns';
 import { JourneyAttachmentControl } from '../flows/JourneyAttachmentControl';
 import { INSTALL_QUERY_PARAM } from '../flows/installStateChip';
 import { ResourcesDialog } from '../flows/ResourcesDialog';
@@ -170,6 +181,9 @@ const HISTORY_LIMIT = 50;
 
 /** A card with no forgotten exits, shared so the ordinary case allocates nothing. */
 const NO_EXITS: readonly string[] = [];
+
+/** A card's declarations before the effect that carries them has run. */
+const NO_DECLARED_RESOURCES: ResourceDeclaration[] = [];
 
 /** The status line's colour per tone — yellow for unsaved, orange for "look at this". */
 const STATUS_TONE_COLOUR: Record<BuilderStatus['tone'], string> = {
@@ -208,6 +222,16 @@ function styleEdge(edge: Edge, sourceDescriptor: NodeDescriptor | undefined): Ed
     };
 }
 
+/**
+ * A saved node's config as the canvas holds it: every field whose default was declared
+ * after the graph was written backfilled, stored values winning — see `putGraphOnCanvas`.
+ * Also how the saved config the next-run line compares against is read, so a node the
+ * load backfilled does not read as edited.
+ */
+function backfilledConfig(node: FlowGraph['nodes'][number], descriptor: NodeDescriptor | undefined): Record<string, unknown> {
+    return descriptor ? { ...defaultDataFor(descriptor), ...(node.data ?? {}) } : node.data ?? {};
+}
+
 /** A graph snapshot for the undo stack. */
 interface Snapshot {
     nodes: FlowCardNode[];
@@ -217,8 +241,8 @@ interface Snapshot {
 /**
  * Clone a graph for the undo stack, deep-copying only what can actually change.
  *
- * `config` is the mutable part and is cloned. `descriptor`, `roles` and `channels`
- * are shared immutable catalogue data riding along on each node: deep-cloning them
+ * `config` is the mutable part and is cloned. `descriptor`, `roles`, `channels` and
+ * `ticketTypes` are shared immutable catalogue data riding along on each node: deep-cloning them
  * would copy every block's full manifest once per node per snapshot, fifty deep, and
  * would break referential identity with the live catalogue for no benefit.
  */
@@ -245,6 +269,9 @@ function snapshot(source: Snapshot): Snapshot {
                 // graph rather than a verdict about an older one.
                 convergingTriggers: node.data.convergingTriggers,
                 unconnectedExits: node.data.unconnectedExits,
+                // Carried too: whether the restored config is the saved one is a fact
+                // about the restored graph, and the effect re-derives it either way.
+                nextRun: node.data.nextRun,
             },
         })),
         edges: structuredClone(source.edges),
@@ -344,6 +371,8 @@ function FlowBuilder() {
     const [nodeCatalog, setNodeCatalog] = useState<NodeDescriptor[]>([]);
     const [roles, setRoles] = useState<GuildRole[]>([]);
     const [channels, setChannels] = useState<GuildChannel[]>([]);
+    /** The guild's own declared ticket types, for the ticket-type picker and the cards. */
+    const [ticketTypes, setTicketTypes] = useState<TicketTypeView[]>([]);
     /**
      * What this flow declares but has not installed.
      *
@@ -436,6 +465,23 @@ function FlowBuilder() {
      */
     const [drafts, setDrafts] = useState<FlowDraft[]>([]);
     const [draftPickerOpen, setDraftPickerOpen] = useState(false);
+
+    /**
+     * The server's time zone, for the time-of-day controls' zone line. Absent until its
+     * fetch answers, and after one that failed: the controls then say nothing about it.
+     */
+    const [serverTimeZone, setServerTimeZone] = useState<ServerTimeZone | undefined>(undefined);
+    /**
+     * The cards' countdown: when the saved flow's nodes next run, and each saved node's
+     * config — a card whose config differs says its next run is worked out when you save.
+     */
+    const {
+        nextRuns,
+        savedNodeData,
+        refresh: refreshNextRuns,
+        invalidate: invalidateNextRuns,
+        markSaved: markNodesSaved,
+    } = useFlowNextRuns(selected?.id, flowId);
 
     const [deployOpen, setDeployOpen] = useState(false);
     const [deploying, setDeploying] = useState(false);
@@ -599,6 +645,7 @@ function FlowBuilder() {
         editMark: graphEditMark,
         markEdited: markGraphEdited,
         recheck: recheckGraphIssues,
+        recheckAfterStructuralEdit: recheckGraphShape,
     } = useFlowIssues({ guildId: selected?.id, flowId, graph: canvasPayload.graph, catalog: nodeCatalog });
 
     /**
@@ -631,6 +678,7 @@ function FlowBuilder() {
                 readonly catalog: NodeDescriptor[];
                 readonly roles: GuildRole[];
                 readonly channels: GuildChannel[];
+                readonly ticketTypes: TicketTypeView[];
             }
         ) => {
             const { catalog } = directory;
@@ -665,12 +713,13 @@ function FlowBuilder() {
                              * The draft autosave agrees: its baseline is taken
                              * after this backfill, so it is not an edit to it either.
                              */
-                            config: descriptor
-                                ? { ...defaultDataFor(descriptor), ...(node.data ?? {}) }
-                                : node.data ?? {},
+                            config: backfilledConfig(node, descriptor),
                             descriptor,
                             roles: directory.roles,
                             channels: directory.channels,
+                            ticketTypes: directory.ticketTypes,
+                            // Kept current by the effect that carries the declarations.
+                            declaredResources: NO_DECLARED_RESOURCES,
                             // Filled from the flow's own `issues` by the effect
                             // that carries `graphIssues` onto the cards.
                             issueCount: 0,
@@ -678,6 +727,8 @@ function FlowBuilder() {
                             unreachable: false,
                             convergingTriggers: 0,
                             unconnectedExits: [],
+                            // And this once the next-runs fetch answers.
+                            nextRun: null,
                         } satisfies FlowNodeCardData,
                     };
                 })
@@ -724,12 +775,16 @@ function FlowBuilder() {
         void (async () => {
             setLoading(true);
             setError(null);
+            // Not another guild's zone, should this flow's settings fetch fail.
+            setServerTimeZone(undefined);
             try {
                 const [
                     { data: flow },
                     { nodes: catalog },
                     { roles: guildRoles },
                     { channels: guildChannels },
+                    // A guild that never set tickets up answers with no types, not an error.
+                    { types: guildTicketTypes },
                     {
                         data: { resources: flowResources },
                     },
@@ -738,6 +793,7 @@ function FlowBuilder() {
                     queryClient.fetchQuery({ ...getNodeTypesOptions(), staleTime: 0 }),
                     queryClient.fetchQuery({ ...getGuildRolesOptions({ path: guildPath }), staleTime: 0 }),
                     queryClient.fetchQuery({ ...getGuildChannelsOptions({ path: guildPath }), staleTime: 0 }),
+                    queryClient.fetchQuery({ ...getTicketsConfigOptions({ path: guildPath }), staleTime: 0 }),
                     getFlowResources({ path: { guildId: selected.id, flowId } }),
                 ]);
                 if (cancelled) return;
@@ -745,6 +801,7 @@ function FlowBuilder() {
                 setNodeCatalog(catalog);
                 setRoles(guildRoles);
                 setChannels(guildChannels);
+                setTicketTypes(guildTicketTypes);
                 setDeclaredResources(flowResources);
                 setName(flow.name);
                 setEnabled(flow.enabled);
@@ -755,12 +812,19 @@ function FlowBuilder() {
                 setDraftOnlySave(null);
                 setDrafts([]);
                 setDraftPickerOpen(false);
+                markNodesSaved(
+                    (flow.graph ?? emptyGraph()).nodes.map((node) => ({
+                        id: node.id,
+                        data: backfilledConfig(node, catalog.find((entry) => entry.type === node.type)),
+                    }))
+                );
 
                 rebaseDraft();
                 putGraphOnCanvas(flow.graph ?? emptyGraph(), {
                     catalog,
                     roles: guildRoles,
                     channels: guildChannels,
+                    ticketTypes: guildTicketTypes,
                 });
                 setDirty(false);
             } catch (err) {
@@ -770,6 +834,21 @@ function FlowBuilder() {
             } finally {
                 if (!cancelled) setLoading(false);
             }
+
+            /*
+             * Then what the cards' countdown and the time controls' zone line read —
+             * beside the drafts, and for the same reason never instead of the flow: either
+             * failing leaves the builder as it is, with no countdown or no zone line.
+             */
+            void refreshNextRuns();
+            queryClient.fetchQuery({ ...getGuildSettingsOptions({ path: guildPath }), staleTime: 0 }).then(
+                (settings) => {
+                    if (!cancelled) {
+                        setServerTimeZone({ timeZone: settings.timeZone, defaultTimeZone: settings.defaultTimeZone });
+                    }
+                },
+                () => undefined
+            );
 
             /*
              * Then the drafts, after the flow is on screen and never instead of it: a
@@ -798,7 +877,7 @@ function FlowBuilder() {
         return () => {
             cancelled = true;
         };
-    }, [selected, flowId, queryClient, rebaseDraft, putGraphOnCanvas, setGraphIssues]);
+    }, [selected, flowId, queryClient, rebaseDraft, putGraphOnCanvas, setGraphIssues, refreshNextRuns]);
 
     /**
      * Load a draft from the picker: onto the canvas the way the flow loads, with the
@@ -814,14 +893,14 @@ function FlowBuilder() {
             rebaseDraft({ mineSavedAt: draft.mine ? draft.updatedAt : undefined });
             setCanvasBase(draft.baseUpdatedAt);
             setName(draft.name);
-            putGraphOnCanvas(draft.graph, { catalog: nodeCatalog, roles, channels });
+            putGraphOnCanvas(draft.graph, { catalog: nodeCatalog, roles, channels, ticketTypes });
             setGraphIssues(draft.issues);
             setSelectedNodeId(null);
             setDraftOnlySave(null);
             setDirty(true);
             setDraftPickerOpen(false);
         },
-        [rebaseDraft, putGraphOnCanvas, setGraphIssues, nodeCatalog, roles, channels]
+        [rebaseDraft, putGraphOnCanvas, setGraphIssues, nodeCatalog, roles, channels, ticketTypes]
     );
 
     /** Throw a draft away — anyone's. The picker closes itself once none are left. */
@@ -863,6 +942,8 @@ function FlowBuilder() {
                     descriptor: entry,
                     roles,
                     channels,
+                    ticketTypes,
+                    declaredResources,
                     // Nothing has judged it yet; the next save will.
                     issueCount: 0,
                     // A block just dropped from the palette has no edges, and an
@@ -873,12 +954,17 @@ function FlowBuilder() {
                     convergingTriggers: 0,
                     // An unwired node is never warned about — see `unconnectedWarnedExits`.
                     unconnectedExits: [],
+                    // Not in the saved flow, so nothing has a time for it yet.
+                    nextRun: null,
                 },
             };
             setNodes((prev) => [...prev, node]);
             setSelectedNodeId(id);
+            // Every structural edit asks the server again shortly, so a node wired where
+            // it cannot run is marked without waiting for a save.
+            recheckGraphShape();
         },
-        [pushHistory, roles, channels, setNodes]
+        [pushHistory, roles, channels, ticketTypes, declaredResources, setNodes, recheckGraphShape]
     );
 
     const onConnect: OnConnect = useCallback(
@@ -890,8 +976,9 @@ function FlowBuilder() {
                 (node) => node.id === connection.source
             )?.data.descriptor;
             setEdges((prev) => addEdge(styleEdge({ ...connection, id }, sourceDescriptor), prev));
+            recheckGraphShape();
         },
-        [pushHistory, setEdges]
+        [pushHistory, setEdges, recheckGraphShape]
     );
 
     const onDragOver = useCallback((event: React.DragEvent) => {
@@ -1153,8 +1240,9 @@ function FlowBuilder() {
         (edgeId: string) => {
             pushHistory();
             setEdges((prev) => prev.filter((edge) => edge.id !== edgeId));
+            recheckGraphShape();
         },
-        [pushHistory, setEdges]
+        [pushHistory, setEdges, recheckGraphShape]
     );
 
     /**
@@ -1174,7 +1262,8 @@ function FlowBuilder() {
             prev.filter((e) => e.source !== selectedNodeId && e.target !== selectedNodeId)
         );
         setSelectedNodeId(null);
-    }, [selectedNodeId, pushHistory, setNodes, setEdges]);
+        recheckGraphShape();
+    }, [selectedNodeId, pushHistory, setNodes, setEdges, recheckGraphShape]);
 
     /* ---------------------------- history ---------------------------- */
 
@@ -1262,6 +1351,10 @@ function FlowBuilder() {
             setCanvasBase(updated.updatedAt);
             setDraftOnlySave(null);
             draftAutosave.markSavedToFlow(sent);
+            // What was sent is now the saved flow, and its schedules were brought up to
+            // date before the save answered — so the countdown is asked for again.
+            markNodesSaved(sent.graph.nodes);
+            invalidateNextRuns();
             // Stored, finished or not: a switched-off flow may hold an incomplete
             // graph, and its issues come back so the cards stay honest about it.
             setGraphIssues(updated.issues, sentAsOf);
@@ -1280,10 +1373,11 @@ function FlowBuilder() {
             );
             return true;
         } catch (err) {
-            // A 400 is a graph too broken to store (dangling edges, duplicate ids). It
-            // stored nothing, so the canvas stays dirty — and the autosave keeps it as
-            // the operator's draft meanwhile. Cycles are allowed now — loops are
-            // guarded by the visit cap.
+            // A 400 stored nothing: a graph too broken to store (dangling edges, duplicate
+            // ids), or — on a live flow — one that would start a loop with other live
+            // flows, which carries a sentence naming the loop and no issues. Either way
+            // the canvas stays dirty, and the autosave keeps it as the operator's draft
+            // meanwhile. Cycles inside one graph are allowed — the visit cap guards those.
             const message =
                 err instanceof ApiError ? err.message : "Couldn't save. Try again in a second.";
             // Only a refusal with issues is an answer about the canvas. A failure
@@ -1399,6 +1493,9 @@ function FlowBuilder() {
                 body: { enabled: next },
             });
             setStoredIssueCount(updated.issues.length);
+            // Switching on or off starts or stops the flow's schedules — its own request,
+            // not a save, so the countdown is asked for again here too.
+            invalidateNextRuns();
             // The cards too, but only while the canvas *is* the stored graph. With
             // unsaved edits on it — or a draft-only save, which is not the stored graph
             // either — these issues describe something else, and the cards are marking
@@ -1588,25 +1685,47 @@ function FlowBuilder() {
                     failed: count > 0,
                     unreachable,
                 });
+                // Compared per node against the saved flow, so an edit to one schedule
+                // does not withdraw another's countdown.
+                const nextRun = nextRunForNode(node.id, node.data.config, nextRuns, savedNodeData);
                 if (
                     node.data.issueCount === count &&
                     node.data.unreachable === unreachable &&
                     node.data.convergingTriggers === convergingTriggers &&
                     // By content: the map is rebuilt on every edit, so its lists are
                     // new arrays even when they say the same thing.
-                    node.data.unconnectedExits.join('\u0000') === unconnectedExits.join('\u0000')
+                    node.data.unconnectedExits.join('\u0000') === unconnectedExits.join('\u0000') &&
+                    sameNextRun(node.data.nextRun, nextRun)
                 ) {
                     return node;
                 }
                 changed = true;
                 return {
                     ...node,
-                    data: { ...node.data, issueCount: count, unreachable, convergingTriggers, unconnectedExits },
+                    data: { ...node.data, issueCount: count, unreachable, convergingTriggers, unconnectedExits, nextRun },
                 };
             });
             return changed ? next : prev;
         });
-    }, [issuesForNode, unreachableIds, convergingCounts, forgottenExits, nodes, setNodes]);
+    }, [issuesForNode, unreachableIds, convergingCounts, forgottenExits, nextRuns, savedNodeData, nodes, setNodes]);
+
+    /**
+     * Carry the journey's declarations onto every card, so a picker waiting on install can
+     * say what it waits for. Its own effect, unlike the facts above: it changes when the
+     * Resources panel saves, not when the graph does — and not through `pushHistory`, for
+     * the same reason they are not. Returns `prev` once every card holds this array.
+     */
+    useEffect(() => {
+        setNodes((prev) =>
+            prev.every((node) => node.data.declaredResources === declaredResources)
+                ? prev
+                : prev.map((node) =>
+                      node.data.declaredResources === declaredResources
+                          ? node
+                          : { ...node, data: { ...node.data, declaredResources } }
+                  )
+        );
+    }, [declaredResources, nodes, setNodes]);
 
     /**
      * What the selection's ancestry implies for the copy fields in it.
@@ -1625,15 +1744,23 @@ function FlowBuilder() {
      * list that did not follow it would offer the old name until the author
      * happened to move an edge.
      */
-    const { availableVariables, actorAvailable } = useMemo(
+    const { availableVariables, availableRequirements } = useMemo(
         () => ({
             availableVariables: selectedNodeId
                 ? availableVariablesAt(selectedNodeId, nodes, edges)
                 : [],
-            // True with nothing selected: no node means no copy field to advise.
-            actorAvailable: selectedNodeId ? actorAvailableAt(selectedNodeId, nodes, edges) : true,
+            // All available with nothing selected: no node means no field to advise.
+            availableRequirements: selectedNodeId
+                ? requirementsAvailableAt(selectedNodeId, nodes, edges)
+                : ALL_REQUIREMENTS_AVAILABLE,
         }),
         [selectedNodeId, nodes, edges]
+    );
+
+    /** Whether every run this flow can start is about nobody, for the palette to grey by. */
+    const runsAboutNobody = useMemo(
+        () => flowRunsAboutNobody(nodes.map((node) => node.data.descriptor)),
+        [nodes]
     );
 
     /**
@@ -1972,7 +2099,11 @@ function FlowBuilder() {
                         overflow: 'hidden',
                     }}
                 >
-                    <NodePalette nodeTypes={nodeCatalog} onAdd={(entry) => addNode(entry)} />
+                    <NodePalette
+                        nodeTypes={nodeCatalog}
+                        runsAboutNobody={runsAboutNobody}
+                        onAdd={(entry) => addNode(entry)}
+                    />
                 </div>
 
                 <ColumnResizeHandle
@@ -2025,9 +2156,10 @@ function FlowBuilder() {
                          * The ✕ on an edge does not reach here — it calls
                          * `deleteEdge`, which pushes before mutating.
                          */
-                        onDelete={({ nodes: removedNodes, edges: removedEdges }) =>
-                            pushHistory({ nodes: removedNodes, edges: removedEdges })
-                        }
+                        onDelete={({ nodes: removedNodes, edges: removedEdges }) => {
+                            pushHistory({ nodes: removedNodes, edges: removedEdges });
+                            recheckGraphShape();
+                        }}
                         fitView
                         proOptions={{ hideAttribution: true }}
                         defaultEdgeOptions={{ animated: true, type: FLOW_EDGE_TYPE }}
@@ -2110,9 +2242,11 @@ function FlowBuilder() {
                                 config={selectedNode.data.config}
                                 roles={roles}
                                 channels={channels}
+                                ticketTypes={ticketTypes}
                                 variables={availableVariables}
-                                actorAvailable={actorAvailable}
+                                requirements={availableRequirements}
                                 declaredResources={declaredResources}
+                                serverTimeZone={serverTimeZone}
                                 issues={issuesForNode.get(selectedNode.id) ?? []}
                                 unconnectedExits={selectedNode.data.unconnectedExits}
                                 onChange={updateNodeConfig}
@@ -2239,6 +2373,13 @@ function FlowBuilder() {
                                     {planSummary.unchanged.map((item) => item.name).join(', ')}.
                                 </Text>
                             )}
+
+                            {/* Worth knowing, and nothing to sort out before installing. */}
+                            {planSummary.notes.map((note) => (
+                                <Text key={note} size="12px" c="yellow">
+                                    {note}
+                                </Text>
+                            ))}
 
                             {planSummary.problems.length > 0 && (
                                 <Alert

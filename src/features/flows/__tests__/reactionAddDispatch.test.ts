@@ -27,6 +27,7 @@ vi.mock('../engine/waitingRunDispatch', () => ({
 
 // Imported after the mocks so the dispatcher picks them up.
 const { handleReactionAdd } = await import('../engine/reactionAddDispatch');
+const { messageActivityLimit } = await import('../engine/messageActivityLimit');
 
 // The dispatcher asks the registry which trigger a reaction starts, rather than
 // comparing against an imported type constant, so it needs the blocks discovered.
@@ -159,6 +160,17 @@ describe('handleReactionAdd', () => {
 
         expect(executeFlow).toHaveBeenCalledTimes(1);
         expect(executeFlow).toHaveBeenCalledWith('flow-reaction', expect.anything(), 'trigger', expect.anything());
+    });
+
+    it('never draws from the message flood limit — a reaction is a one-off, and dropping one loses it', async () => {
+        getByGuildId.mockResolvedValue([reactionFlow()]);
+        const take = vi.spyOn(messageActivityLimit, 'take').mockReturnValue(false);
+
+        await handleReactionAdd(aReaction(), USER);
+
+        expect(executeFlow).toHaveBeenCalledTimes(1);
+        expect(take).not.toHaveBeenCalled();
+        take.mockRestore();
     });
 
     it('ignores a reaction on a different message', async () => {

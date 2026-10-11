@@ -11,7 +11,7 @@
  */
 
 import type { GuildChannel, TicketCategoryView, TicketingConfigView, TicketsConfigUpdate } from '@brattybot/web-sdk';
-import { channelOptionLabel } from '../flows/resourceAdoption';
+import { channelOptionLabel, heldByLabel } from '../flows/resourceAdoption';
 
 /** The three places a ticket channel can sit, by where the ticket is in its life. */
 export type TicketCategorySlot = keyof TicketingConfigView['categories'];
@@ -79,22 +79,43 @@ export function categorySlotProblem(draft: CategorySlotDraft): string | undefine
     return undefined;
 }
 
+/** One entry in a slot's picker. `disabled` when an owner other than the ticket system holds the category. */
+export interface CategorySlotOption {
+    readonly value: string;
+    readonly label: string;
+    readonly disabled?: boolean;
+}
+
 /**
  * The picker's options: "create one", then the guild's categories.
  *
  * A bound category Discord no longer has is kept as an option of its own, so the slot
  * does not render blank and the operator can see what will happen: the bot remakes it
  * under its expected name the next time a ticket needs it.
+ *
+ * A category **any other owner** holds — today, a journey — is listed disabled, naming it: a category
+ * belongs to one owner, and the save would refuse it. Ones the ticket system holds stay
+ * pickable — two slots sharing a category is one owner. So does the slot's own current
+ * category, whoever else turns out to hold it (a cross-claim from before the rule), or
+ * the operator could not re-save the page at all.
  */
 export function categorySlotOptions(
     channels: readonly GuildChannel[],
     view: TicketCategoryView | null
-): { value: string; label: string }[] {
+): CategorySlotOption[] {
     const categories = channels
         .filter((channel) => channel.type === 'category')
-        .map((channel) => ({ value: channel.id, label: channelOptionLabel(channel) }));
+        .map((channel): CategorySlotOption => {
+            const label = channelOptionLabel(channel);
+            const owner = channel.owner;
+            // Anyone but the ticket system itself, so a future owner kind is disabled by
+            // default rather than offered.
+            return owner && owner.kind !== 'tickets' && channel.id !== view?.discordId
+                ? { value: channel.id, label: heldByLabel(label, owner.label), disabled: true }
+                : { value: channel.id, label };
+        });
 
-    const options = [{ value: CREATE_NEW_CATEGORY, label: 'Create a new category…' }, ...categories];
+    const options: CategorySlotOption[] = [{ value: CREATE_NEW_CATEGORY, label: 'Create a new category…' }, ...categories];
 
     if (view?.discordId && !categories.some((option) => option.value === view.discordId)) {
         options.push({

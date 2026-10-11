@@ -10,14 +10,16 @@
 import type { ReactElement } from 'react';
 import { Text } from '@mantine/core';
 import type { BlockConfigField } from '@brattybot/web-sdk';
+import { DaysOfWeekControl, TimeOfDayControl } from './ClockControls';
 import { EligibilityControl } from './EligibilityControl';
-import { ChannelPickerControl, RolePickerControl } from './PickerControls';
+import { CategoryPickerControl, ChannelPickerControl, RolePickerControl } from './PickerControls';
 import { ColourControl } from './ColourControl';
 import { DurationControl } from './DurationControl';
 import { SegmentedChoiceControl, SelectChoiceControl } from './ChoiceControls';
 import { LongTextControl, TextControl } from './TextControls';
 import { ObjectListControl } from './ObjectListControl';
 import { TextListControl } from './TextListControl';
+import { TicketTypePickerControl } from './TicketTypePickerControl';
 import { VariableSelectControl } from './VariableSelectControl';
 import type { ControlChange, ControlContext } from './types';
 
@@ -48,6 +50,10 @@ export function renderControl(
             return <RolePickerControl field={field} {...props} />;
         case 'channelPicker':
             return <ChannelPickerControl field={field} {...props} />;
+        case 'categoryPicker':
+            return <CategoryPickerControl field={field} {...props} />;
+        case 'ticketTypePicker':
+            return <TicketTypePickerControl field={field} {...props} />;
         case 'text':
             return <TextControl field={field} {...props} />;
         case 'longText':
@@ -68,6 +74,10 @@ export function renderControl(
             return <EligibilityControl field={field} {...props} />;
         case 'variableSelect':
             return <VariableSelectControl field={field} {...props} />;
+        case 'timeOfDay':
+            return <TimeOfDayControl field={field} {...props} />;
+        case 'daysOfWeek':
+            return <DaysOfWeekControl field={field} {...props} />;
         default: {
             // Adding a member to `BLOCK_CONTROL_TYPES` without implementing it here
             // is a compile error, by design.

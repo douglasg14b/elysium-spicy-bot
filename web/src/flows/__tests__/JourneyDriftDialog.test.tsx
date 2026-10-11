@@ -15,6 +15,8 @@ import { JourneyDriftDialog } from '../JourneyDriftDialog';
  */
 
 const DRIFT_PATH = '/api/guilds/g1/journeys/onboarding/drift';
+/** The server's sentence for an adopted resource (`describeWithheldRepair`). */
+const ADOPTED = 'Left alone — this was adopted rather than created here, so it is never modified.';
 const REPAIR_PATH = '/api/guilds/g1/journeys/onboarding/repair';
 
 function drifted(overrides: Partial<DriftedResource> & Pick<DriftedResource, 'resourceKey'>): DriftedResource {
@@ -23,6 +25,7 @@ function drifted(overrides: Partial<DriftedResource> & Pick<DriftedResource, 're
         kind: 'textChannel',
         drift: [{ kind: 'renamed', explanation: `Renamed in Discord.` }],
         repairable: true,
+        withheldReason: null,
         ...overrides,
     };
 }
@@ -58,7 +61,7 @@ describe('JourneyDriftDialog', () => {
             body: report({
                 drifted: [
                     drifted({ resourceKey: 'welcome' }),
-                    drifted({ resourceKey: 'rules', repairable: false }),
+                    drifted({ resourceKey: 'rules', repairable: false, withheldReason: ADOPTED }),
                 ],
                 cleanKeys: ['staff'],
             }),
@@ -67,7 +70,7 @@ describe('JourneyDriftDialog', () => {
             // The server's next answer is the repaired guild.
             api.on('GET', DRIFT_PATH, () => ({
                 body: report({
-                    drifted: [drifted({ resourceKey: 'rules', repairable: false })],
+                    drifted: [drifted({ resourceKey: 'rules', repairable: false, withheldReason: ADOPTED })],
                     cleanKeys: ['staff', 'welcome'],
                 }),
             }));
@@ -108,7 +111,7 @@ describe('JourneyDriftDialog', () => {
     it('offers no repair when everything drifted was adopted', async () => {
         const api = installFakeApi();
         api.on('GET', DRIFT_PATH, () => ({
-            body: report({ drifted: [drifted({ resourceKey: 'rules', repairable: false })] }),
+            body: report({ drifted: [drifted({ resourceKey: 'rules', repairable: false, withheldReason: ADOPTED })] }),
         }));
 
         renderDialog();

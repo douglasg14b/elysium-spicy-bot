@@ -1,6 +1,6 @@
 # Flow primitives for time and messages
 
-> **Status**: Approved 2026-10-02 — §8 answered; §5.1 and §5.2 built 2026-10-02 (not yet run on a real guild), §5.3 and §5.4 not started
+> **Status**: Approved 2026-10-02 — §8 answered; §5.1 and §5.2 built 2026-10-02, §5.3 and §5.4 built 2026-10-03 (none yet run on a real guild; TestDiscord end-to-end tests stand in) — see [message-sent-and-message-wait.md](../plans/message-sent-and-message-wait.md)
 > **Owner**: Douglas
 > **Parent**: [Flow Engine v2](flow-engine-v2-journeys-and-provisioning.md) — this extends its block contract; it does not replace any of it
 > **Built so far**: [activity-events.md](../plans/activity-events.md), [quiet-timeouts-and-kick-member.md](../plans/quiet-timeouts-and-kick-member.md), [set-variable-and-time-since.md](../plans/set-variable-and-time-since.md)
@@ -79,12 +79,13 @@ Other flows the same primitives make possible (all examples):
   Discord refuses to resume mid-process (events lost without a restart), reactions (Discord keeps
   no history of when one was added), threads archived during the outage, and prioritising the
   channels parked runs watch.
-- "This member in this channel" lookups walk a busy channel's history on SQLite; a composite
-  index would fix it.
+- ~~"This member in this channel" lookups walk a busy channel's history on SQLite~~ —
+  **resolved 2026-10-03** by `(guild_id, channel_id | parent_channel_id, user_id, occurred_at)`
+  indexes.
 - Webhook and proxied messages never count as activity.
 - The block card cannot show a non-default "count from".
-- The activity subscriber is a **single slot**: a second consumer would silently evict leveling
-  (see §5.4).
+- ~~The activity subscriber is a **single slot**~~ — **resolved 2026-10-03**: a list, notified
+  in parallel, each failure isolated (see §5.4).
 - Commits must stage only this work's hunks: `manifest.ts`, `web/src/api/types.ts`,
   `executor.ts`, `PickerControls.tsx`, `FlowBuilderPage.tsx`, `NodeInspector.tsx` and the block
   contract also carry other sessions' uncommitted edits.
@@ -134,33 +135,41 @@ The general way to put a value in the run's variable bag.
 
 ### 5.3 Message event on Wait for Event
 
-- [ ] New wait kind: **a message**, from **the run's member** (the existing rule for every wait
+- [x] New wait kind: **a message**, from **the run's member** (the existing rule for every wait
   kind), optionally in one channel (`{{var}}` allowed; thread replies count toward the parent).
-- [ ] Works with the existing time limit and its *Timed out* exit.
-- [ ] Waking on a message must not cost a database read per message for guilds with no run
+- [x] Works with the existing time limit and its *Timed out* exit.
+- [x] Waking on a message must not cost a database read per message for guilds with no run
   parked on one. Parked message waits are indexed in memory by guild, channel and member
   (§8.5), so only a message from a waiting member in a watched channel goes further.
+- [x] *Added in planning:* a reply sent while the bot was down wakes the wait once the backfill
+  has restored it; the scheduler holds message waits until then.
 
 ### 5.4 Message Sent (trigger)
 
-- [ ] Starts a run when someone posts. The author is the subject **and** the actor; the
+- [x] Starts a run when someone posts. The author is the subject **and** the actor; the
   channel posted in is the run's channel.
-- [ ] **Where**: anywhere, one channel, or **every channel in a category**. Thread replies count
+- [x] **Where**: anywhere, one channel, or **every channel in a category**. Thread replies count
   toward their parent channel. The category option is what makes channels created on the fly
   (such as ticket channels) reachable, since a trigger cannot hold a `{{var}}`.
   *Vocabulary gap:* no picker offers a category today — either a category picker control or a
   channel-kind option on the channel picker (the guild API already sends categories with a
-  `type`).
-- [ ] **Contains**: an optional text filter, case-insensitive. No other match modes (§8.4).
-- [ ] **Never fires for bots, webhooks or system messages** — so a flow's own Send Message can
+  `type`). *(Closed by a `categoryPicker` control.)*
+- [x] **Contains**: an optional text filter, case-insensitive. No other match modes (§8.4).
+- [x] **Never fires for bots, webhooks or system messages** — so a flow's own Send Message can
   never re-trigger it.
-- [ ] Records the channel posted in as an output of kind `channel`, so later blocks can pick it.
-- [ ] **No database read per message for guilds with no enabled Message Sent trigger.** Every
+- [x] Records the channel posted in as an output of kind `channel`, so later blocks can pick it.
+  *Decided 2026-10-03 (Douglas):* **threads give both values.** A message hands later blocks the
+  channel it belongs to (a thread's parent) **and** the place it was actually posted (the
+  thread itself); neither is chosen for the other, and both are always set. "In Channel" now
+  counts a thread toward its channel too.
+- [x] **No database read per message for guilds with no enabled Message Sent trigger.** Every
   message in every guild passes through this; the matching set must be cached and invalidated
   when a flow is saved, enabled or disabled. The cache is indexed by where each trigger listens
   (channel, category, anywhere), so a message only meets the triggers that could match it
-  (§8.5). No per-member cooldown.
-- [ ] **The activity record is written before flows see the message**, so a Time Since right
+  (§8.5). ~~No per-member cooldown.~~ *Amended 2026-10-03:* a fixed, engine-wide flood limit
+  applies — see §8.5. Each guild is read once, on its first message, and dropped after any
+  flow write this process makes.
+- [x] **The activity record is written before flows see the message**, so a Time Since right
   after this trigger sees the triggering message. That rules out flows adding its own listener
   in parallel, and means **the activity subscriber stops being a single slot** — a second
   registration today silently evicts leveling.
@@ -171,7 +180,9 @@ The general way to put a value in the run's variable bag.
   largest open option; revisit when a flow needs to act on something no run is holding.
 - No expression language. Time Since compares one span against one duration.
 - No keyword filter beyond "contains" (§8.4).
-- No per-member cooldown on Message Sent (§8.5).
+- ~~No per-member cooldown on Message Sent (§8.5).~~ *Amended 2026-10-03:* there is an
+  engine-wide flood limit on message activity, per guild and per member, with fixed defaults
+  (§8.5). Still no per-flow or operator-set cooldown.
 
 ## 7) Constraints
 
@@ -191,11 +202,23 @@ The general way to put a value in the run's variable bag.
    some flow. This covers a member who never posted (or only before the record began) and a
    partial member with no join time.
 4. **Message Sent matches "contains", case-insensitive, only.**
-5. **No per-member cooldown.** The guard against cost is filtering, not throttling: a message
+5. ~~**No per-member cooldown.**~~ The guard against cost is filtering: a message
    must be matched against only the triggers and waits that could care about it. Index the
    enabled Message Sent triggers and parked message waits by guild, then by channel/category
    (and, for waits, by member), so a message in a channel nobody is listening to costs a map
    lookup and nothing else. See §5.3 and §5.4.
+
+   *Amended 2026-10-03 (Douglas): filtering **and** a basic flood limit.* Filtering alone does
+   not stop the bot spamming itself — "Message Sent → reply → wait for a message → reply" wakes
+   every earlier copy on every message — or keep a busy guild under Discord's rate limits. So
+   message activity draws from an in-memory token count, per guild (a burst of 30, one back per
+   second) and per guild + member (a burst of 5, one back every ten seconds), both checked
+   before either is spent. It limits **only** Message Sent run starts (one token per run
+   started, checked after a trigger matched) and live message-wait wake-ups (one per run woken;
+   a skipped run stays parked). Catch-up wakes after an outage, joins, leaves, reactions,
+   level-ups and button clicks are never limited: each is a one-off event, and dropping one
+   loses it for good. Refusals log one summary line per guild per minute. Fixed defaults in
+   `constants.ts`; not per flow and not operator-set.
 6. **Wait for Event's message kind waits on the run's member only.** It keeps the rule that
    every wait is about the run's member.
 
@@ -208,7 +231,8 @@ One step at a time, each planned, built and verified before the next is planned:
 2. **Step A** — Set Variable, the `time` value kind (the contract change in §5.1) and Time
    Since (§5.2).
 3. **Step B** — Message Sent (§5.4) and the message event on Wait for Event (§5.3), which also
-   turn the activity subscriber into a list and add a category picker.
+   turn the activity subscriber into a list and add a category picker. **Built 2026-10-03**,
+   not yet run on a real guild.
 
 ## 9) Acceptance criteria
 
@@ -218,5 +242,8 @@ One step at a time, each planned, built and verified before the next is planned:
 - [ ] Each §3 "other flows" example builds and runs.
 - [ ] Conformance passes for every new block with no special case.
 - [ ] The per-message path performs no database read in a guild with no Message Sent trigger and
-      no run waiting on a message.
+      no run waiting on a message. *Amended 2026-10-03:* this is **flows' share** of the path —
+      after a guild's one lazy load, flows reads nothing per message there. Activity still writes
+      a row per message and leveling still reads its config per message; neither is flows'.
+      (Covered by `messageSent.test.ts`; still to be checked on a real guild.)
 - [ ] Leveling still awards message XP with a second activity consumer registered.

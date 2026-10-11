@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import type { GuildChannel, GuildRole, ResourceDeclaration } from '@brattybot/web-sdk';
+import type { GuildChannel, GuildRole, ResourceDeclaration, TicketTypeView } from '@brattybot/web-sdk';
 import { renderWithProviders } from '../../__tests__/support/renderWithProviders';
 import { ResourcesPanel } from '../ResourcesPanel';
 
@@ -20,6 +20,7 @@ interface PanelSetup {
     readonly channels?: GuildChannel[];
     readonly roles?: GuildRole[];
     readonly installedKeys?: ReadonlySet<string>;
+    readonly ticketTypes?: TicketTypeView[];
 }
 
 /**
@@ -42,6 +43,7 @@ function renderPanel(setup: PanelSetup) {
                 channels={setup.channels ?? []}
                 roles={setup.roles ?? []}
                 installedKeys={setup.installedKeys}
+                ticketTypes={setup.ticketTypes}
             />
         );
     }
@@ -51,11 +53,11 @@ function renderPanel(setup: PanelSetup) {
 }
 
 function channel(id: string, name: string): GuildChannel {
-    return { id, name, type: 'text', parentId: null, parentName: null };
+    return { id, name, type: 'text', parentId: null, parentName: null, owner: null };
 }
 
 function role(id: string, name: string): GuildRole {
-    return { id, name, color: 0, position: 1 };
+    return { id, name, color: 0, position: 1, owner: null };
 }
 
 /** Open a row by the name it shows, and return its Name combobox. */
@@ -136,7 +138,7 @@ describe('ResourcesPanel', () => {
             resources: [
                 { key: 'general', kind: 'textChannel', defaultName: 'general', adoptDiscordId: 'c1' },
             ],
-            channels: [{ id: 'c1', name: 'general', type: 'text', parentId: 'p1', parentName: 'Support' }],
+            channels: [{ id: 'c1', name: 'general', type: 'text', parentId: 'p1', parentName: 'Support', owner: null }],
         });
 
         const name = await openRow(user, 'general');
@@ -240,5 +242,82 @@ describe('ResourcesPanel', () => {
         // one's field would let a test type into a row the operator cannot see.
         expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull();
         expect(within(document.body).getAllByRole('button', { name: /^Expand/ })).toHaveLength(2);
+    });
+
+    describe('a ticket type', () => {
+        const PERMISSIONS = {
+            subject: { view: true, send: true, readHistory: true, manageMessages: false },
+            opener: { view: true, send: true, readHistory: true, manageMessages: false },
+            staff: { view: true, send: true, readHistory: true, manageMessages: true },
+        };
+        const VERIFICATION: TicketTypeView = {
+            type: 'verification',
+            label: 'Verification',
+            nameTemplate: 'V{{####}}-{{subject}}',
+            permissions: PERMISSIONS,
+            autoClaimOnOpen: false,
+        };
+
+        it('is added with the tickets page’s starting settings, and its label is edited without moving its key', async () => {
+            const { user, current } = renderPanel({ resources: [] });
+
+            await user.click(screen.getByRole('button', { name: 'Ticket type' }));
+            const added = current()[0];
+            expect(added).toMatchObject({ kind: 'ticketType', key: 'new-ticket-type', defaultName: 'New ticket type' });
+            expect(added?.ticketType?.nameTemplate).toBe('T{{####}}-{{subject}}');
+
+            const label = screen.getByRole('textbox', { name: 'Label' });
+            await user.clear(label);
+            await user.type(label, 'Front Desk');
+
+            // The key names the type, so a rename never carries it along.
+            expect(current()[0]).toMatchObject({ defaultName: 'Front Desk', key: 'new-ticket-type' });
+            // And nothing a channel has: no category, no channel rules.
+            expect(screen.queryByRole('textbox', { name: 'Inside category' })).toBeNull();
+            expect(screen.queryByText('Who can see it')).toBeNull();
+        });
+
+        it('writes the template and the permission grid into the declaration', async () => {
+            const { user, current } = renderPanel({
+                resources: [
+                    {
+                        key: 'front-desk',
+                        kind: 'ticketType',
+                        defaultName: 'Front desk',
+                        ticketType: { nameTemplate: 'desk-{{####}}', permissions: PERMISSIONS, autoClaimOnOpen: false },
+                    },
+                ],
+            });
+
+            await user.click(screen.getByRole('button', { name: 'Expand Front desk' }));
+            const template = screen.getByRole('textbox', { name: 'Channel name template' });
+            await user.clear(template);
+            await user.type(template, 'fd-{{{{####}}');
+            await user.click(screen.getByRole('checkbox', { name: 'Opener can manage' }));
+
+            expect(current()[0]?.ticketType).toEqual({
+                nameTemplate: 'fd-{{####}}',
+                permissions: { ...PERMISSIONS, opener: { ...PERMISSIONS.opener, manageMessages: true } },
+                autoClaimOnOpen: false,
+            });
+        });
+
+        it('says when the server already has the key, and stays quiet once this journey installed it', () => {
+            const resources: ResourceDeclaration[] = [
+                {
+                    key: 'verification',
+                    kind: 'ticketType',
+                    defaultName: 'Verify',
+                    ticketType: { nameTemplate: 'v-{{####}}', permissions: PERMISSIONS, autoClaimOnOpen: false },
+                },
+            ];
+
+            const fresh = renderPanel({ resources, ticketTypes: [VERIFICATION] });
+            expect(screen.getByText('Already here')).toBeTruthy();
+            fresh.unmount();
+
+            renderPanel({ resources, ticketTypes: [VERIFICATION], installedKeys: new Set(['verification']) });
+            expect(screen.queryByText('Already here')).toBeNull();
+        });
     });
 });

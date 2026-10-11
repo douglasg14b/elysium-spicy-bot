@@ -77,9 +77,10 @@ describe('a session that runs out mid-edit', () => {
         const { user } = renderDashboard(`/flows/${seeded.flowId}`);
         expect(await screen.findByText('All changes saved')).toBeTruthy();
 
-        dashboard.expireSession();
         // A card added and selected — so a Backspace that reached the canvas would delete
-        // it — then the name edited, and typing paused.
+        // it — while the session is still live, and what that edit asks the server allowed
+        // to land: the re-check of the graph's new shape and the draft autosave. Either,
+        // held, would open the panel mid-typing below instead of the save this case is about.
         await user.click(screen.getByTitle(ADD_SEND_DM));
         await waitFor(() => expect(cardsOnCanvas()).toHaveLength(3));
         const added = [...cardsOnCanvas()].at(-1);
@@ -89,6 +90,13 @@ describe('a session that runs out mid-edit', () => {
         added.focus();
         await user.keyboard('{Enter}');
         await waitFor(() => expect(added.classList.contains('selected')).toBe(true));
+        expect(await screen.findByText(/^Unsaved changes · draft saved \d\d:\d\d$/)).toBeTruthy();
+        await waitFor(() =>
+            expect(dashboard.requests).toContainEqual({ method: 'POST', path: `${seeded.flowPath}/check` })
+        );
+
+        // Then the session runs out, the name is edited, and typing pauses.
+        dashboard.expireSession();
         const nameBox = screen.getByRole('textbox', { name: 'Flow name' }) as HTMLInputElement;
         await user.type(nameBox, ', after hours');
 
@@ -99,7 +107,12 @@ describe('a session that runs out mid-edit', () => {
         await user.keyboard('{Backspace}');
         expect(cardsOnCanvas()).toHaveLength(3);
         expect(screen.getByText(/^Unsaved changes/)).toBeTruthy();
-        expect((await seeded.api.send<{ drafts: StoredGraph[] }>('GET', `${seeded.flowPath}/drafts`)).drafts).toEqual([]);
+        // Nothing written while it is held: the draft is still the one from before the session ran out.
+        expect(
+            (await seeded.api.send<{ drafts: StoredGraph[] }>('GET', `${seeded.flowPath}/drafts`)).drafts.map(
+                (draft) => draft.name
+            )
+        ).toEqual(['Doorman']);
 
         dashboard.restoreSession();
         await user.click(within(panel).getByRole('button', { name: "I've signed in" }));

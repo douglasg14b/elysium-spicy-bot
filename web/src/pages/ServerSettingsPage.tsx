@@ -20,14 +20,17 @@ import {
     getGuildSettingsOptions,
     getGuildSettingsQueryKey,
     updateGuildSettingsMutation,
+    type GuildSettings,
 } from '@brattybot/web-sdk';
 import { useSaveInFlight } from '../api/useSaveInFlight';
 import { writeSavedAnswer } from '../api/writeSavedAnswer';
 import { useGuilds } from '../guilds/GuildContext';
+import { TimeZoneCard } from '../settings/TimeZoneCard';
 import { PAGE_MAX_WIDTH } from '../theme';
 
 /**
- * Server-wide settings that belong to no single feature. Today: staff roles.
+ * Server-wide settings that belong to no single feature. Today: staff roles and the
+ * time zone.
  *
  * Staff roles are what a flow's `staff` audience compiles to when its journey is
  * installed, which is why this page unblocks installing a staff-gated flow from the
@@ -36,6 +39,12 @@ import { PAGE_MAX_WIDTH } from '../theme';
  * A multi-select rather than the flow builder's `RolePickerControl`: that one is
  * single-select and coupled to the builder's declared-resource mechanism, neither of
  * which applies to a plain guild-wide list.
+ *
+ * Each card is its own form with its own Save, backed by its own route, so saving one
+ * never submits — or wipes — what the other shows. Both read the one cached settings entry
+ * and write their answer back into it, each only the fields it owns: both routes answer
+ * with the whole shape, and taking it whole would let a late answer from one form bring
+ * back an old value of the other's.
  */
 export function ServerSettingsPage() {
     const { selected, loading: guildsLoading } = useGuilds();
@@ -90,6 +99,10 @@ export function ServerSettingsPage() {
                 <StaffRolesForm key={selected.id} guildId={selected.id} />
             </Card>
 
+            {/* Keyed by server, as the staff form is. Shown once settings are in hand: the
+                staff card above carries the one loading spinner and load error for both. */}
+            <TimeZoneCard key={selected.id} guildId={selected.id} />
+
             <Card p="lg" maw={640} bg="dark.7">
                 <Group gap={8} mb={6}>
                     <IconSettings size={18} color="var(--mantine-color-dark-2)" />
@@ -99,7 +112,7 @@ export function ServerSettingsPage() {
                 </Group>
                 <Text size="13px" c="dimmed">
                     This page is where server-wide configuration lands as it gets built. Right now
-                    staff roles are the whole show.
+                    staff roles and the time zone are the whole show.
                 </Text>
             </Card>
         </Stack>
@@ -116,6 +129,9 @@ function StaffRolesForm({ guildId }: StaffRolesFormProps) {
     const settings = useQuery(getGuildSettingsOptions({ path: { guildId } }));
     const roles = useQuery(getGuildRolesOptions({ path: { guildId } }));
     const settingsKey = getGuildSettingsQueryKey({ path: { guildId } });
+    // This form's own key under the entry it writes, so this form remounted mid-save still
+    // sees it, and a time-zone save beside it does not read as this one.
+    const saveKey = [...settingsKey, 'staffRoles'] as const;
 
     // `undefined` until the operator edits: the picker shows what is saved.
     const [draftRoleIds, setDraftRoleIds] = useState<string[]>();
@@ -123,11 +139,13 @@ function StaffRolesForm({ guildId }: StaffRolesFormProps) {
 
     const save = useMutation({
         ...updateGuildSettingsMutation(),
-        // Keyed by the entry it writes, so this form remounted mid-save still sees it.
-        mutationKey: settingsKey,
+        mutationKey: saveKey,
         onSuccess: async (updated) => {
-            // Over any GET still in flight, which would otherwise put the old list back.
-            await writeSavedAnswer(queryClient, settingsKey, updated);
+            // Over any GET still in flight, which would otherwise put the old list back —
+            // and only the staff roles, which are this form's (see `ServerSettingsPage`).
+            await writeSavedAnswer(queryClient, settingsKey, (current: GuildSettings | undefined) =>
+                current ? { ...current, staffRoleIds: updated.staffRoleIds, staffRoles: updated.staffRoles } : updated
+            );
             setDraftRoleIds(undefined);
             setLastSaved(new Date());
             notifications.show({
@@ -171,8 +189,8 @@ function StaffRolesForm({ guildId }: StaffRolesFormProps) {
     const savedSet = new Set(savedIds);
     const pristine =
         draftSet.size === savedSet.size && [...draftSet].every((roleId) => savedSet.has(roleId));
-    // Any save of this server's settings, this mount's or one an earlier mount left in flight.
-    const saving = useSaveInFlight(settingsKey);
+    // This form's save, this mount's or one an earlier mount left in flight.
+    const saving = useSaveInFlight(saveKey);
     // An empty list is a legal save: it is how an operator says "nobody is staff yet".
     const canSave = !pristine && !saving;
 

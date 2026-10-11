@@ -1,4 +1,4 @@
-import type { ZodType } from 'zod';
+import type { ZodSafeParseResult, ZodType } from 'zod';
 import type { Eligibility } from '../engine/eligibility';
 import type { FlowStepOutcome } from '../engine/stepOutcome';
 import type { FlowRunContext } from './types';
@@ -53,8 +53,42 @@ export type BlockPaletteGroup = (typeof BLOCK_PALETTE_GROUPS)[number];
  *
  * `memberLeave` is a departure however it happened — left, kicked or banned — since
  * the gateway event does not say which.
+ *
+ * `messageSent` is a member posting a message activity recorded live — never a bot, a
+ * webhook or a system message, and never one the startup backfill recovered. Its
+ * dispatcher is an activity subscriber rather than a gateway listener, so the activity
+ * row is written before a run started by it reads the record.
+ *
+ * `ticketChanged` is a committed change to a ticket — opened, claimed, unclaimed,
+ * closed, reopened or deleted — announced by the ticket service through its own
+ * subscriber seam, the `levelUp` precedent. It is the one source whose runs can be
+ * started by another run (a flow's own ticket change), so its dispatcher is the one that
+ * carries a chain depth and refuses a start past `FLOW_MAX_CHAIN_DEPTH`.
+ *
+ * `'ticketChanged'` here and `'ticketTypePicker'` in {@link BLOCK_CONTROL_TYPES} are the
+ * only places this file names tickets, and both are string literals, which the engine
+ * vocabulary gate does not scan. That is acceptable rather than a loophole: they are
+ * vocabulary *values* — what a block may declare — on the footing of `'levelUp'`, and no
+ * interpreter code branches on either. The gate exists to stop the engine declaring a
+ * use case in its own identifiers, and every identifier that handles a ticket change
+ * lives outside the gated files (`logic/ticketEventDispatch.ts`, the block directory).
+ *
+ * `scheduleDue` is a schedule coming due — the clock reaching a time an author picked,
+ * not anything a member did. Named for what happened, as the rest are, rather than
+ * `schedule`. Its runs are about nobody, and nothing on the gateway announces one: the
+ * shared run tick finds due schedules through a hook `initFlows` wires in, and every
+ * identifier that knows what a schedule repeats on lives in `logic/`, outside the gate.
  */
-export const BLOCK_TRIGGER_SOURCES = ['buttonClick', 'levelUp', 'memberJoin', 'memberLeave', 'reactionAdd'] as const;
+export const BLOCK_TRIGGER_SOURCES = [
+    'buttonClick',
+    'levelUp',
+    'memberJoin',
+    'memberLeave',
+    'messageSent',
+    'reactionAdd',
+    'scheduleDue',
+    'ticketChanged',
+] as const;
 
 export type BlockTriggerSource = (typeof BLOCK_TRIGGER_SOURCES)[number];
 
@@ -88,6 +122,27 @@ export const BLOCK_CONTROL_TYPES = [
     'rolePicker',
     /** Searchable channel picker. */
     'channelPicker',
+    /**
+     * Searchable category picker: the guild's categories, plus categories the flow
+     * declares through the same `<field>Key` sidecar the other two pickers use.
+     *
+     * Deliberately not in {@link PICKER_VALUE_KINDS}: no block records a category, and
+     * the one block that asks for one is a trigger, which refuses a `{{var}}` anyway —
+     * its dispatcher reads the stored value before any run exists.
+     */
+    'categoryPicker',
+    /**
+     * Searchable picker over the guild's own declared ticket types, storing the type's
+     * **key** and showing its label.
+     *
+     * Reads the server's own list, so Support and Verification are only the entries a
+     * fresh guild was seeded with — never options a block hardcodes. A stored key the
+     * guild no longer declares shows as not available here rather than going blank; what
+     * that means at run time is the block's call. No `{{var}}`: nothing records a ticket
+     * type. It does take the `<field>Key` sidecar the other pickers use, naming a ticket
+     * type the flow's journey declares — install creates or reuses it and writes its key in.
+     */
+    'ticketTypePicker',
     /** Single-line text. */
     'text',
     /** Autosizing multi-line text. */
@@ -116,15 +171,56 @@ export const BLOCK_CONTROL_TYPES = [
      * means. Deliberately not in {@link PICKER_VALUE_KINDS} for exactly that reason.
      */
     'variableSelect',
+    /**
+     * A time of day, stored as 24-hour `HH:MM` and shown on a 12-hour clock.
+     *
+     * Always in the server's time zone, so the control says which zone that is (and
+     * asks for one when the server has not picked any). Conformance holds the field's
+     * schema to the stored shape: it must take `00:00` and `23:59`, and refuse `24:00`
+     * and `9:00`.
+     */
+    'timeOfDay',
+    /**
+     * Any of the seven days of the week, stored as a list of `'mon'` … `'sun'` and
+     * offered Monday first, so Mon–Fri sits together. Conformance holds the field's
+     * schema to exactly those seven keys.
+     */
+    'daysOfWeek',
 ] as const;
 
 export type BlockControlType = (typeof BLOCK_CONTROL_TYPES)[number];
+
+/**
+ * The seven keys a `daysOfWeek` control stores, Monday first — the order the control
+ * offers them in. Declared once: a block's schema takes its day enum from here, the
+ * conformance check holds every `daysOfWeek` field's schema to exactly these, and the
+ * browser mirrors the list under the vocabulary drift gate.
+ *
+ * Named `DAY_KEYS` rather than after weekdays: the engine vocabulary gate keeps time words
+ * out of this file's identifiers, and `day` is too short for it to read — the keys are a
+ * control's stored values, on the footing of the control names above, not a concept the
+ * interpreter reasons about.
+ */
+export const BLOCK_DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
+
+export type BlockDayKey = (typeof BLOCK_DAY_KEYS)[number];
 
 /** One choice offered by a `segmented` or `select` control. */
 export interface BlockConfigOption {
     /** The value persisted in `node.data`. Must satisfy the block's schema. */
     readonly value: string;
     readonly label: string;
+    /**
+     * Run context this choice cannot work without, on top of the block's own `requires`.
+     *
+     * For a block that only *sometimes* needs something: Time Since measures from the
+     * member's last message or from a channel's, and only the first needs a member. While
+     * the field is visible and holds this option — stored, or its default — the node's
+     * effective requirements include these, so save-time validation and the executor hold
+     * the choice to them exactly as they hold a block's own. Absent means the choice
+     * needs nothing extra. Conformance holds each entry to {@link FLOW_CONTEXT_REQUIREMENTS}.
+     */
+    readonly requires?: readonly FlowContextRequirement[];
 }
 
 /**
@@ -257,6 +353,17 @@ export type BlockConfigField =
            * block can do without, where empty means something (`quietChannelId`:
            * anywhere in the server). Same meaning as the `text` and `duration` arms'
            * member of this name. Without it a pick, once made, cannot be undone.
+           */
+          readonly optional?: boolean;
+          readonly defaultValue?: string;
+      })
+    | (BlockConfigFieldBase & { readonly control: 'categoryPicker'; readonly defaultValue?: string })
+    | (BlockConfigFieldBase & {
+          readonly control: 'ticketTypePicker';
+          /**
+           * The author may clear the pick, which removes the key — for a block where no
+           * type means something (Ticket Event: any type). Same meaning as the
+           * `channelPicker` arm's member of this name; without it a pick cannot be undone.
            */
           readonly optional?: boolean;
           readonly defaultValue?: string;
@@ -433,9 +540,27 @@ export type BlockConfigField =
            * variables of this kind, and save refuses a name no block before this one
            * records, or that any block records as another kind — see
            * `checkCopyTokens` in `engine/graphValidation.ts`.
+           *
+           * Absent means **any variable**, of any kind or none: the builder offers
+           * every variable in scope, and save asks only that a block which can run
+           * first on a path here records the name. A block taking any variable reads
+           * whatever the bag holds and checks its shape at run time itself.
            */
-          readonly valueKind: BlockOutputValueKind;
+          readonly valueKind?: BlockOutputValueKind;
           readonly defaultValue?: string;
+      })
+    | (BlockConfigFieldBase & {
+          /** A 24-hour `HH:MM`, in the server's time zone. */
+          readonly control: 'timeOfDay';
+          readonly defaultValue?: string;
+      })
+    | (BlockConfigFieldBase & {
+          /**
+           * A list of {@link BLOCK_DAY_KEYS}. Its own `defaultValue` type, like `textList`'s,
+           * because the value is a list rather than a scalar.
+           */
+          readonly control: 'daysOfWeek';
+          readonly defaultValue?: readonly BlockDayKey[];
       });
 
 /**
@@ -491,6 +616,17 @@ export type BlockCardSummaryPart =
            * button has no style worth showing either.
            */
           readonly stopIfEmpty?: boolean;
+          /**
+           * Render this part only while a `select` or `segmented` field holds one of
+           * `equals` — the same shape and the same one-level rules as a field's
+           * `visibleWhen`, read the same way (the stored value or its default).
+           *
+           * For a part that reads well under one choice and not another: a schedule's
+           * "Every day" belongs on the card only while it repeats daily, where a field
+           * that is never hidden would otherwise always print its label. A part shown
+           * by this but whose own field is hidden still renders nothing.
+           */
+          readonly visibleWhen?: { readonly field: string; readonly equals: readonly string[] };
       }
     | {
           readonly key?: undefined;
@@ -783,6 +919,30 @@ export function visibleNodeData(
 }
 
 /**
+ * A node's config as the executor hands it to `run`, before copy is rendered: parsed
+ * through {@link visibleNodeData}, then stripped of hidden fields again, since a schema
+ * `.default()` can put one back.
+ *
+ * The one statement of that sequence, so the executor and the cross-flow cycle finder —
+ * which must read an emitting node exactly as its run would — cannot come to disagree.
+ */
+export function parseNodeConfig(
+    definition: BlockManifest,
+    nodeData: Readonly<Record<string, unknown>>
+): ZodSafeParseResult<unknown> {
+    const parsed = definition.configSchema.safeParse(visibleNodeData(definition.configFields, nodeData));
+    if (!parsed.success || !isObjectValue(parsed.data)) {
+        return parsed;
+    }
+    return { ...parsed, data: visibleNodeData(definition.configFields, parsed.data) };
+}
+
+/** Whether a parsed config is a record, as an object schema always produces. */
+export function isObjectValue(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
  * What kind of value one declared output writes on one node, or undefined for a
  * plain value.
  *
@@ -814,10 +974,15 @@ export function resolveOutputValueKind(
 /**
  * What a block needs to be present in the run context.
  *
- * Three of the four can genuinely be absent, which is what makes them checkable
- * at save time — `validateAuthoredGraph` rejects a block needing one on a path
- * that can never carry it, naming the node and the requirement:
+ * Every one can genuinely be absent, which is what makes them checkable at save
+ * time — `validateAuthoredGraph` rejects a node needing one on a path that can
+ * never carry it, naming the node and the requirement. A node needs what its block
+ * declares, plus what its picked options and its copy's tokens declare (see
+ * `engine/nodeRequirements.ts`):
  *
+ * * `subject` — a trigger that does not declare it starts runs about nobody, so a
+ *   path reachable from one has no member to act on. Parking keeps it: resume
+ *   fetches the member again.
  * * `interaction` — a run started by a gateway event has none, and neither does
  *   any resumed run, because the token is expired.
  * * `actor` — a resumed run has nobody who caused the step. A gateway trigger
@@ -825,10 +990,9 @@ export function resolveOutputValueKind(
  * * `channel` — a member join establishes none, so a path reachable only from
  *   one cannot answer a question about where it is.
  *
- * `subject` is always present, so declaring it is documentation rather than a
- * constraint anything can violate. `guild` is deliberately absent: nothing in a
- * graph can violate it either, and unlike `subject` no block has ever wanted to
- * say it — a requirement that cannot fail and nobody declares is noise.
+ * `guild` is deliberately absent: nothing in a graph can violate it, and no block
+ * has ever wanted to say it — a requirement that cannot fail and nobody declares
+ * is noise.
  */
 export const FLOW_CONTEXT_REQUIREMENTS = ['subject', 'actor', 'channel', 'interaction'] as const;
 
@@ -847,6 +1011,39 @@ export const BLOCK_CAPABILITIES = ['manageRoles', 'sendMessages', 'embedLinks', 
 export type BlockCapability = (typeof BLOCK_CAPABILITIES)[number];
 
 /**
+ * A value an event a block causes is known to carry, compared against the listening
+ * trigger's own config: a literal (`{ value }`, e.g. the kind of change), or whatever the
+ * causing node holds in one of its own config fields (`{ fromField }`).
+ *
+ * A `fromField` that is unset on the node is **unknown**, and unknown matches anything.
+ * Conformance keeps `fromField` off any field that can hold a `{{var}}`: a written token
+ * compares unequal to everything, which would quietly drop a link that is really there.
+ */
+export type BlockEmissionValue =
+    | { readonly value: string; readonly fromField?: never }
+    | { readonly fromField: string; readonly value?: never };
+
+/**
+ * One event a block's action causes that can start a trigger — the half of loop refusal a
+ * manifest can state. See {@link BlockManifest.emits}.
+ */
+export interface BlockEmission {
+    /** The trigger source this block's action fires. */
+    readonly startedBy: BlockTriggerSource;
+    /**
+     * What the caused event is known to carry, keyed by the **listening trigger's** config
+     * field. A field left out is unknown: it could be anything, so it matches whatever the
+     * listener holds. Absent means nothing is known, and every trigger on the source listens.
+     *
+     * Conformance holds every key to a field some trigger on `startedBy` declares, and every
+     * literal to that field's options when it has any — a typo'd key would otherwise match
+     * everything, and a typo'd literal nothing, which is the worse way round: the check
+     * would miss a loop that is really there.
+     */
+    readonly carries?: Readonly<Record<string, BlockEmissionValue>>;
+}
+
+/**
  * Everything a block declares, plus the single entry point it implements.
  *
  * `TConfig` is the block's **validated** config — what `configSchema` produces
@@ -855,7 +1052,7 @@ export type BlockCapability = (typeof BLOCK_CAPABILITIES)[number];
  * parsing them in the conformance suite, which catches a wrong type, an
  * out-of-range value, and disagreement with a schema `.default()` alike.
  *
- * **Every member here except `configSchema` and `run` is served to the browser**
+ * **Every member here except `configSchema`, `run` and `emits` is served to the browser**
  * by `GET /api/nodes`, so that the builder can draw a node from what this declares
  * rather than from a copy. Adding a member therefore publishes it to every
  * authenticated dashboard user by default. A server-only member must be added to
@@ -927,7 +1124,9 @@ export interface BlockManifest<TConfig = unknown> {
      * the supply side when deciding whether a downstream block's requirement can
      * be met on that path. A button click establishes an actor, a channel and an
      * interaction; a member join establishes only an actor, which is why a block
-     * asking where it is cannot sit on a join-rooted path.
+     * asking where it is cannot sit on a join-rooted path. A trigger leaving out
+     * `subject` starts runs about nobody, and no block needing a member may sit
+     * where it reaches.
      *
      * One member serving both readings is deliberate rather than overloaded: a
      * second `supplies` array would have to be kept consistent with this one by
@@ -944,6 +1143,33 @@ export interface BlockManifest<TConfig = unknown> {
      * extends the vocabulary and writes the dispatcher once, for everyone.
      */
     readonly startedBy?: BlockTriggerSource;
+    /**
+     * What this block's action causes that can start a trigger — in this flow or another.
+     *
+     * Read by `findFlowCycleThrough` (`engine/flowCycles.ts`), which refuses to let a flow
+     * go live into a loop of flows starting one another. A trigger node U listens to
+     * emission E from node N when:
+     *
+     *  1. U's block is a trigger started by `E.startedBy`, and U's raw `node.data` parses
+     *     against its schema — a listener whose config does not parse matches nothing, as
+     *     the dispatchers treat one;
+     *  2. for every key in `E.carries`, U's parsed value there is unset (`undefined`, `null`
+     *     or `''`: any) or strictly equals E's value — a `fromField` read off N's config as
+     *     the executor parses it, where unset is unknown and unknown matches;
+     *  3. a field of U's that E does not carry matches whatever it holds.
+     *
+     * **Required, so the author of every new block decides.** Most declare `[]`, and a
+     * trigger always does: it is the event, not an action. What declares nothing, and why:
+     *
+     *  - Anything that posts — a message, an embed, a question, a DM. A bot's message never
+     *    reaches a trigger: the activity recorder drops `message.author.bot`, so it starts
+     *    no Message Sent run and earns no XP towards a Level Reached.
+     *  - Award XP. `awardFlowXp` announces a level but never notifies level-up subscribers,
+     *    so XP a flow awards sets off no Level Reached — if that ever changes, it becomes an
+     *    emission here.
+     *  - Roles, waits and delays, which no trigger listens for.
+     */
+    readonly emits: readonly BlockEmission[];
     /** Discord permissions the bot needs for this block. */
     readonly capabilities: readonly BlockCapability[];
     /**

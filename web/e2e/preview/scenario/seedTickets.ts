@@ -12,6 +12,7 @@ import {
     openTicket,
     unclaimTicket,
 } from '../../../../src/features/tickets/ticketService';
+import type { TicketChange } from '../../../../src/features/tickets/ticketChanges';
 import type { Result } from '../../../../src/shared';
 import type { PreviewPage, SeedContext } from './seedScenario';
 
@@ -93,6 +94,13 @@ interface TicketPlan {
  * asking for a state the product would not produce, so it stops seeding rather than
  * carrying on with the ticket as it was.
  */
+/**
+ * Who the service is told made each seeded change: nobody, at the root of a chain. The
+ * service requires one on every change it announces; a seed is no person, and no flow
+ * runs in a preview guild to hear it anyway.
+ */
+const SEEDED_CHANGE: TicketChange = { actorId: null, chainDepth: 0 };
+
 function must<T>(result: Result<T>, what: string): T {
     if (!result.ok) {
         const reason = result.error instanceof Error ? result.error.message : String(result.error);
@@ -105,9 +113,14 @@ function must<T>(result: Result<T>, what: string): T {
 async function ensureClaimer(ticket: TicketEntity, desired: Person | null): Promise<TicketEntity> {
     if (ticket.claimerId === (desired?.id ?? null)) return ticket;
 
-    const released = ticket.claimerId ? must(await unclaimTicket(ticket.id), `release #${ticket.ticketNumber}`) : ticket;
+    const released = ticket.claimerId
+        ? must(await unclaimTicket(ticket.id, SEEDED_CHANGE), `release #${ticket.ticketNumber}`)
+        : ticket;
     if (desired === null) return released;
-    return must(await claimTicket(released.id, desired.id, desired.identity), `claim #${ticket.ticketNumber}`);
+    return must(
+        await claimTicket(released.id, desired.id, desired.identity, SEEDED_CHANGE),
+        `claim #${ticket.ticketNumber}`
+    );
 }
 
 async function runPlan(context: SeedContext, plan: TicketPlan, defaultClaimer: Person): Promise<TicketEntity> {
@@ -143,11 +156,11 @@ async function runPlan(context: SeedContext, plan: TicketPlan, defaultClaimer: P
     ticket = await ensureClaimer(ticket, desiredClaimer);
 
     if (plan.end === 'closed' || plan.end === 'deleted') {
-        ticket = must(await closeTicket(ticket.id), `close #${ticket.ticketNumber}`);
+        ticket = must(await closeTicket(ticket.id, SEEDED_CHANGE), `close #${ticket.ticketNumber}`);
     }
 
     if (plan.end === 'deleted') {
-        ticket = must(await deleteTicket(ticket.id), `delete #${ticket.ticketNumber}`);
+        ticket = must(await deleteTicket(ticket.id, SEEDED_CHANGE), `delete #${ticket.ticketNumber}`);
     }
 
     return ticket;
@@ -178,16 +191,17 @@ export async function seedTickets(context: SeedContext): Promise<PreviewPage[]> 
     // Deploys the ticket system the way `/deploy-ticket-system` does: a config row with
     // the two shipped types, aimed at a real channel. No dashboard route creates this row
     // — see the file doc — so this is the one direct repo write in this seed.
+    // No categories: those are slot rows, which the config route below writes as it
+    // creates each category.
     await ticketingRepo.upsert({
         guildId,
-        config: JSON.stringify({
+        config: {
             modTicketsDeployed: true,
             modTicketsDeployedChannelId: guild.channels.modLog.id,
             modTicketsDeployedMessageId: '1100000000000000001',
-            categories: { open: null, claimed: null, closed: null },
             moderationRoles: [],
             ticketTypes: defaultTicketTypes(),
-        }),
+        },
         ticketNumberInc: 0,
         entityVersion: 1,
     });

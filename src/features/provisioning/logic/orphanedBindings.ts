@@ -1,5 +1,10 @@
 import type { ResourceBindingEntity } from '../data/resourceBindingsSchema';
-import type { JourneyDeclaration, ResourceKind } from './resourceDeclaration';
+import {
+    isDiscordResource,
+    type DiscordResourceKind,
+    type JourneyDeclaration,
+    type ResourceKind,
+} from './resourceDeclaration';
 
 /**
  * Resources this journey installed and no longer declares.
@@ -64,14 +69,20 @@ export interface OrphanedBinding {
 
 export interface FindOrphanedBindingsInput {
     readonly journey: JourneyDeclaration;
+    /**
+     * This journey's own rows (`listByJourney`, which names `owner_kind = 'journey'`).
+     * Never the guild's: the ticket feature's slot rows declare nothing here and would
+     * all read as orphans.
+     */
     readonly bindings: readonly ResourceBindingEntity[];
     /**
      * Whether a bound object is still present in the guild.
      *
      * A predicate rather than a `Guild` so this stays pure and testable — the same
-     * split `detectResourceDrift` takes, for the same reason.
+     * split `detectResourceDrift` takes, for the same reason. Asked of Discord objects
+     * only; a ticket type is branched off before it.
      */
-    readonly existsInGuild: (kind: ResourceKind, discordId: string) => boolean;
+    readonly existsInGuild: (kind: DiscordResourceKind, discordId: string) => boolean;
 }
 
 /**
@@ -89,33 +100,54 @@ export function findOrphanedBindings(
 
     return input.bindings
         .filter((binding) => !declaredKeys.has(binding.resourceKey))
-        .map((binding) => ({
-            bindingId: binding.id,
-            resourceKey: binding.resourceKey,
-            kind: binding.kind,
-            name: binding.name,
-            ...(binding.discordId ? { discordId: binding.discordId } : {}),
+        .map((binding) => {
             /*
-             * Asked whenever there is an id to ask about, **including for an
-             * `intended` row**.
-             *
-             * The first version excluded `intended`, reasoning that such a row never
-             * reached the guild. That is the usual case and not the dangerous one: a
-             * crash between creating the channel and settling the row leaves
-             * `intended` with a live object behind it — the exact state the schema's
-             * crash-safety note describes. Excluding it made the report say "already
-             * gone from the server" about a channel sitting right there, so an
-             * operator forgetting the row would create precisely the invisible
-             * permanent object this module exists to eliminate, by the one route it
-             * was not looking at.
+             * A ticket type no longer declared: only its row can go. The type itself stays
+             * in the ticket settings, as it does on uninstall, so it is never deletable.
+             * Read as still there without asking the ticket feature: removing a type a
+             * journey holds is refused (`deleteTicketType`), and a row about a type that
+             * did vanish is forgotten all the same.
              */
-            stillInGuild:
-                !!binding.discordId && input.existsInGuild(binding.kind, binding.discordId),
-            // The adoption promise survives the declaration that referenced it, and an
-            // `intended` row is not ours to delete either — only `created` is.
-            mayDelete: binding.state === 'created',
-            neverSettled: binding.state === 'intended',
-        }));
+            if (!isDiscordResource(binding)) {
+                return {
+                    bindingId: binding.id,
+                    resourceKey: binding.resourceKey,
+                    kind: binding.kind,
+                    name: binding.name,
+                    stillInGuild: true,
+                    mayDelete: false,
+                    neverSettled: false,
+                };
+            }
+
+            return {
+                bindingId: binding.id,
+                resourceKey: binding.resourceKey,
+                kind: binding.kind,
+                name: binding.name,
+                ...(binding.discordId ? { discordId: binding.discordId } : {}),
+                /*
+                 * Asked whenever there is an id to ask about, **including for an
+                 * `intended` row**.
+                 *
+                 * The first version excluded `intended`, reasoning that such a row never
+                 * reached the guild. That is the usual case and not the dangerous one: a
+                 * crash between creating the channel and settling the row leaves
+                 * `intended` with a live object behind it — the exact state the schema's
+                 * crash-safety note describes. Excluding it made the report say "already
+                 * gone from the server" about a channel sitting right there, so an
+                 * operator forgetting the row would create precisely the invisible
+                 * permanent object this module exists to eliminate, by the one route it
+                 * was not looking at.
+                 */
+                stillInGuild:
+                    !!binding.discordId && input.existsInGuild(binding.kind, binding.discordId),
+                // The adoption promise survives the declaration that referenced it, and an
+                // `intended` row is not ours to delete either — only `created` is.
+                mayDelete: binding.state === 'created',
+                neverSettled: binding.state === 'intended',
+            };
+        });
 }
 
 /**
@@ -127,6 +159,12 @@ export function findOrphanedBindings(
  */
 export function describeOrphan(orphan: OrphanedBinding): string {
     const label = KIND_LABEL[orphan.kind];
+
+    // First, because none of the sentences below is about a setting: a ticket type is
+    // never gone from the server by our hand and never deletable.
+    if (orphan.kind === 'ticketType') {
+        return `**${orphan.name}** is no longer declared by this journey. The ticket type stays in your ticket settings, and flows that use it keep working — only the record can be removed.`;
+    }
 
     if (!orphan.stillInGuild) {
         return `**${orphan.name}** is no longer declared by this journey, and the ${label} is already gone from the server. Only the leftover record remains.`;
@@ -150,4 +188,5 @@ const KIND_LABEL: Record<ResourceKind, string> = {
     category: 'category',
     textChannel: 'channel',
     role: 'role',
+    ticketType: 'ticket type',
 };

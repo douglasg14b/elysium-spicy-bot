@@ -1,5 +1,5 @@
 import type { ResourceBindingEntity } from '../data/resourceBindingsSchema';
-import type { ResourceDeclaration } from './resourceDeclaration';
+import { isDiscordResourceKind, type ResourceDeclaration } from './resourceDeclaration';
 
 /**
  * What moving a flow between journeys would do to the resources it declares.
@@ -8,9 +8,10 @@ import type { ResourceDeclaration } from './resourceDeclaration';
  * part that is not obvious is what *stays behind*. A flow's journey link is one row and
  * moves cleanly. Its declarations and its `resource_bindings` do not:
  *
- *  - a binding is keyed `(guildId, journeyKey, resourceKey)` and nothing in this repo
- *    has ever written `journeyKey` after insert, so "move the binding" is a re-key that
- *    collides outright when the destination already claims that key, and
+ *  - a binding is keyed `(guildId, ownerKind, ownerKey, resourceKey)` — the owner being
+ *    the journey — and nothing in this repo has ever written `ownerKey` after insert, so
+ *    "move the binding" is a re-key that collides outright when the destination already
+ *    claims that key, and
  *  - a graph stores a **bare** resource key with no journey qualifier
  *    (`resourceTargets.ts`), so a flow that changes journey silently changes which
  *    resource its nodes mean.
@@ -22,7 +23,7 @@ import type { ResourceDeclaration } from './resourceDeclaration';
  *
  * **Why a collision is refused rather than resolved.** Merging two sets that both claim
  * `welcome-channel` would put one key against two live channels inside a single journey,
- * which the unique index on `(guildId, journeyKey, resourceKey)` cannot represent — one
+ * which the unique index on `(guildId, ownerKind, ownerKey, resourceKey)` cannot represent — one
  * of the two bindings simply could not exist. Renaming a key to dodge that is not this
  * function's call to make: the key is what a graph *means*, and every node pointing at
  * the old one would need rewriting. So the operator is told which keys clash and asked
@@ -50,6 +51,22 @@ export interface MovingResource {
     readonly live: { readonly discordId: string; readonly name: string } | null;
 }
 
+/**
+ * A ticket type both journeys declare under one key.
+ *
+ * Not a collision: a ticket type's key *is* its identity in the ticket settings, so the
+ * two declarations name the same type. Merging keeps the destination's declaration and
+ * drops the moving copy ({@link mergeDeclarations}); the type itself is untouched either
+ * way, since install never changes an existing type.
+ */
+export interface SharedTicketType {
+    readonly key: string;
+    /** The moving journey's label for it, which is dropped. */
+    readonly movingName: string;
+    /** The destination's label, which is kept. */
+    readonly destinationName: string;
+}
+
 /** A key both journeys declare, and what each of them means by it. */
 export interface KeyCollision {
     readonly key: string;
@@ -74,14 +91,45 @@ export interface JourneyMergePlan {
     readonly canMerge: boolean;
     /** Why not, when `canMerge` is false. Empty otherwise. */
     readonly collisions: readonly KeyCollision[];
+    /** Ticket types both sides declare, which a merge folds into one — the destination's. */
+    readonly sharedTicketTypes: readonly SharedTicketType[];
     /**
      * The resources that would be orphaned by "leave them behind" — live in the guild,
      * with nothing left that knows this bot created them.
      *
      * This is the loud half of the dialog. A declaration with no live binding is not
-     * here: dropping the record of something that was never built costs nothing.
+     * here: dropping the record of something that was never built costs nothing. Nor is a
+     * ticket type: it stays in the ticket settings whatever happens to its record, and
+     * nothing ever deletes one for a journey.
      */
     readonly orphaned: readonly MovingResource[];
+}
+
+/** Whether two declarations under one key are the same ticket type rather than a clash. */
+function isSameTicketType(moving: ResourceDeclaration, destination: ResourceDeclaration): boolean {
+    return moving.kind === 'ticketType' && destination.kind === 'ticketType';
+}
+
+/**
+ * The destination's declarations with the moving ones appended — minus any ticket type
+ * the destination already declares under that key, whose settings are kept.
+ *
+ * The write half of {@link planJourneyMerge}, so the route cannot append a second
+ * declaration of one key and have `validateJourneyDeclaration` refuse the save. Assumes
+ * the plan said `canMerge`.
+ */
+export function mergeDeclarations(
+    destination: readonly ResourceDeclaration[],
+    moving: readonly ResourceDeclaration[]
+): ResourceDeclaration[] {
+    const destinationByKey = new Map(destination.map((declaration) => [declaration.key, declaration] as const));
+    return [
+        ...destination,
+        ...moving.filter((declaration) => {
+            const existing = destinationByKey.get(declaration.key);
+            return !(existing && isSameTicketType(declaration, existing));
+        }),
+    ];
 }
 
 /**
@@ -129,21 +177,21 @@ export function planJourneyMerge(input: {
     );
 
     const collisions: KeyCollision[] = [];
+    const sharedTicketTypes: SharedTicketType[] = [];
     for (const declaration of input.movingDeclarations) {
         const clash = destinationByKey.get(declaration.key);
-        if (clash) {
-            collisions.push({
-                key: declaration.key,
-                movingName: declaration.defaultName,
-                destinationName: clash.defaultName,
-            });
-        }
+        if (!clash) continue;
+
+        const pair = { key: declaration.key, movingName: declaration.defaultName, destinationName: clash.defaultName };
+        if (isSameTicketType(declaration, clash)) sharedTicketTypes.push(pair);
+        else collisions.push(pair);
     }
 
     return {
         moving,
         canMerge: collisions.length === 0,
         collisions,
-        orphaned: moving.filter((resource) => resource.live !== null),
+        sharedTicketTypes,
+        orphaned: moving.filter((resource) => resource.live !== null && isDiscordResourceKind(resource.kind)),
     };
 }

@@ -15,7 +15,7 @@ import { apiRouter, AUTHED_ERRORS, jsonResponse } from './openApi';
  * until the handler's destructure peels it off too. It surfaces in `tsc`, not in the
  * test suite, so read the typecheck rather than the tests when changing this.
  */
-export const NON_WIRE_MEMBERS = ['configSchema', 'run'] as const satisfies readonly (keyof BlockManifest)[];
+export const NON_WIRE_MEMBERS = ['configSchema', 'run', 'emits'] as const satisfies readonly (keyof BlockManifest)[];
 
 type NonWireMember = (typeof NON_WIRE_MEMBERS)[number];
 
@@ -53,7 +53,7 @@ export type NodeDescriptor = Omit<BlockManifest, NonWireMember>;
  * site pins the public shape instead.
  */
 export const toDescriptor = (definition: BlockManifest) => {
-    const { configSchema: _configSchema, run: _run, ...descriptor } = definition;
+    const { configSchema: _configSchema, run: _run, emits: _emits, ...descriptor } = definition;
     return descriptor;
 };
 
@@ -110,8 +110,10 @@ const getNodeTypesRoute = createRoute({
  *
  * Everything the builder needs to draw a node — its palette entry, its card, and
  * its inspector form — is served here, so the whole manifest crosses the wire bar
- * {@link NON_WIRE_MEMBERS}: `run` is a function, and `configSchema` is a Zod schema
- * that stays server-authoritative as the sole authority on `node.data`.
+ * {@link NON_WIRE_MEMBERS}: `run` is a function, `configSchema` is a Zod schema
+ * that stays server-authoritative as the sole authority on `node.data`, and `emits`
+ * is read only by the loop check a flow faces as it goes live — nothing in the
+ * builder draws from it.
  *
  * The browser types the response from the spec (`NodeDescriptor` in the dashboard SDK),
  * which states it in `nodeBody.ts`.

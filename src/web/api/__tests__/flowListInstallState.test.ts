@@ -118,7 +118,8 @@ function bindingRow(
     return {
         id: 1,
         guildId: GUILD_ID,
-        journeyKey,
+        ownerKind: 'journey',
+        ownerKey: journeyKey,
         resourceKey,
         kind: 'textChannel',
         state: 'created',
@@ -221,6 +222,24 @@ describe('GET /flows — install state', () => {
 
         expect(byId.get('flow-a')?.journey).toMatchObject({ installState: 'all' });
         expect(byId.get('flow-b')?.journey).toMatchObject({ installState: 'none' });
+    });
+
+    it('does not credit a journey keyed `tickets` with the ticket system\'s categories', async () => {
+        // Sabotage-verified: dropping the owner-kind filter in `groupBindingsByJourney`
+        // reports this journey as fully installed on the strength of the ticket slots.
+        flowsRepoMock.getByGuildId.mockResolvedValue([flowRow('flow-a', 'A')]);
+        flowJourneyLinksRepoMock.listLinksForGuild.mockResolvedValue([
+            { flowId: 'flow-a', journeyKey: 'tickets' },
+        ]);
+        journeysRepoMock.listByGuildId.mockResolvedValue([journeyRow('tickets', ['open', 'closed'])]);
+        resourceBindingsRepoMock.listByGuild.mockResolvedValue([
+            bindingRow('tickets', 'open', { ownerKind: 'tickets', kind: 'category' }),
+            bindingRow('tickets', 'closed', { id: 2, ownerKind: 'tickets', kind: 'category', discordId: '901' }),
+        ]);
+
+        const { flows } = await listFlows();
+
+        expect(flows[0]?.journey).toMatchObject({ installState: 'none', installedCount: 0 });
     });
 
     it('does not count an `intended` binding, which is a failed install', async () => {

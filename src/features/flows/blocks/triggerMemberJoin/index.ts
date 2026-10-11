@@ -23,6 +23,7 @@ export const block: BlockManifest<MemberJoinConfig> = {
     outputs: [],
     requires: ['subject', 'actor'],
     capabilities: [],
+    emits: [],
     startedBy: 'memberJoin',
     canSuspend: false,
     run() {

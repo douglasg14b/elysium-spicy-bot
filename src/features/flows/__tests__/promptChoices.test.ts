@@ -90,7 +90,7 @@ describe('answering a question', () => {
             undefined,
             // The park the press names, handed to the claim so the conditional
             // write itself refuses a button from an earlier asking.
-            MESSAGE_ID
+            { waitMessageId: MESSAGE_ID }
         );
     });
 
@@ -469,6 +469,7 @@ function runContext(): FlowRunContext {
         subject: {} as FlowRunContext['subject'],
         runId: RUN_ID,
         nodeId: NODE_ID,
+        chainDepth: 1,
         variables: {},
         setOutput: () => {},
     };

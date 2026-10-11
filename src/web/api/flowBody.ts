@@ -1,6 +1,7 @@
 import { z } from '@hono/zod-openapi';
 import type { FlowDraftEntity } from '../../features/flows/data/flowDraftsSchema';
 import { flowEdgeSchema, flowGraphSchema, flowNodeSchema, type FlowGraph } from '../../features/flows/data/flowGraph';
+import type { FlowScheduleNextRun } from '../../features/flows/data/flowSchedulesRepo';
 import type { FlowEntity } from '../../features/flows/data/flowsSchema';
 import { describeIssue, type FlowValidationIssue } from '../../features/flows/engine/nodeDataValidation';
 import { flowReadinessIssues } from '../../features/flows/logic/flowReadiness';
@@ -113,7 +114,8 @@ export const FlowValidationIssuesSchema = z.array(FlowValidationIssueSchema).rea
  * missing name, a malformed graph — with the sentence alone. The route refuses a graph
  * too broken to store, or a switch-on the graph is not ready for, with `issues` as well.
  * `issues` is empty when nothing on the canvas is wrong — the install refusal, where the
- * flow waits on its resources rather than on a fix.
+ * flow waits on its resources rather than on a fix, and the loop refusal, where the
+ * conflict is with other flows and its nodes are partly in them.
  */
 export const FlowRefusalSchema = ErrorBodySchema.extend({
     issues: FlowValidationIssuesSchema.optional(),
@@ -348,6 +350,38 @@ export const FlowSaveResultSchema = z
     .openapi('FlowSaveResult');
 
 export type FlowSaveBody = z.infer<typeof FlowSaveResultSchema>;
+
+/**
+ * The body of `GET /flows/:flowId/next-runs`: when each of the flow's schedules next fires.
+ *
+ * `nextRuns` is keyed by node id, an ISO instant each, and holds only schedules with a next
+ * time — so it is empty for a switched-off flow. The builder shows an entry on whichever
+ * card has one, without knowing what a schedule is. `timeZone` is the zone those times
+ * were worked out in, so the card's exact-time tooltip needs no second fetch.
+ */
+export const FlowNextRunsSchema = z
+    .object({
+        /** The IANA zone the times were worked out in. */
+        timeZone: z.string(),
+        /** Node id → the ISO instant that schedule next fires. */
+        nextRuns: z.record(z.string(), z.string()).readonly(),
+    })
+    .openapi('FlowNextRuns', {
+        description:
+            "When each of the flow's schedules next fires, keyed by node id (an ISO instant each). Only " +
+            'schedules with a next time are listed, so it is empty for a switched-off flow. `timeZone` is ' +
+            'the zone the times were worked out in.',
+    });
+
+export type FlowNextRunsBody = z.infer<typeof FlowNextRunsSchema>;
+
+/** A flow's schedules' next times as {@link FlowNextRunsBody}, in the zone they were worked out in. */
+export function flowNextRuns(timeZone: string, nextRuns: readonly FlowScheduleNextRun[]): FlowNextRunsBody {
+    return {
+        timeZone,
+        nextRuns: Object.fromEntries(nextRuns.map((entry) => [entry.nodeId, entry.nextRunAt.toISOString()])),
+    };
+}
 
 /** A stored flow as {@link FlowDetailBody}, with the readiness issues its caller computed. */
 export function flowDetail(flow: FlowEntity, issues: readonly FlowValidationIssue[]): FlowDetailBody {

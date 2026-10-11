@@ -1,9 +1,16 @@
-import type { TicketPermissionModel, TicketTypeUpdate, TicketTypeView } from '@brattybot/web-sdk';
+import {
+    zSaveTicketTypeBody,
+    zSaveTicketTypePath,
+    type TicketPermissionModel,
+    type TicketTypeUpdate,
+    type TicketTypeView,
+} from '@brattybot/web-sdk';
+import { fieldProblems } from '../api/fieldProblems';
 
 /**
- * The ticket-type editor's draft, and the request it becomes.
+ * The ticket-type editor's draft, the request it becomes, and what its rules say about it.
  *
- * There are no rules here. The editor checks a draft against the SDK's generated zod for
+ * There are no rules written here. A draft is checked against the SDK's generated zod for
  * the save route — the server's own rules, refusing with the server's own sentences — so
  * nothing in the browser restates them. The two template rules that need the server's
  * renderer (that it renders to something, and that its longest render fits) are not in
@@ -41,6 +48,28 @@ export function ticketTypeRequest(draft: TicketTypeDraft): TicketTypeRequest {
             permissions: draft.permissions,
             autoClaimOnOpen: draft.autoClaimOnOpen,
         },
+    };
+}
+
+/** What the server's declared rules refuse about a draft, per field, in its own words. */
+export type TicketTypeDraftProblems = Readonly<Partial<Record<keyof TicketTypeDraft, string>>>;
+
+/**
+ * What the save route's declared rules would refuse about a draft, per field — the key
+ * against its path rule, the rest against the body — checked as sent ({@link ticketTypeRequest}).
+ *
+ * Both the tickets page's editor and a journey's declared ticket type (the
+ * `invalidTicketType` chip) ask this, so the two refuse with the same sentences, and both
+ * are the server's. Every field at once, so fixing a template does not reveal on the next
+ * try that the label was blank too. Empty means nothing the spec carries objects; the
+ * template's rendered length needs the server's renderer and arrives as its refusal.
+ */
+export function validateTicketTypeDraft(draft: TicketTypeDraft): TicketTypeDraftProblems {
+    const request = ticketTypeRequest(draft);
+    const keyProblem = fieldProblems(zSaveTicketTypePath.shape.type.safeParse(request.type))[''];
+    return {
+        ...(keyProblem ? { type: keyProblem } : {}),
+        ...fieldProblems(zSaveTicketTypeBody.safeParse(request.body)),
     };
 }
 

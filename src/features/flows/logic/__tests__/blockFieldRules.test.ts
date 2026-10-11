@@ -11,6 +11,7 @@ import { toDescriptor } from '../../../../web/api/nodeRoutes';
 import type { NodeDescriptor as BrowserNodeDescriptor } from '@brattybot/web-sdk';
 import { resourceKeyFieldFor } from '../../../../../web/src/flows/controls/types';
 import { fieldIssue } from '../../../../../web/src/flows/liveFieldIssues';
+import { RESOURCE_PICKER_CONTROLS } from '../resourceTargets';
 import { zFlowBlockFieldRules } from '../../../../../packages/web-sdk/src/gen/zod.gen';
 
 /**
@@ -192,9 +193,13 @@ describe('field rules derived from every block', () => {
         // and a sidecar. The server forgives the emptiness — every rule about it — so the
         // browser must say nothing either.
         //
-        // Every field, not only pickers: the server finds a sidecar by its name, whatever
-        // control wrote it, so the browser cannot be allowed to assume which ones do.
+        // Every field is probed, not only pickers. The server counts a `<field>Key` as a
+        // sidecar only on a picker field (`collectResourceTargets`, since Pick Random's
+        // `outputKey` was misread as one), so on any other field the sidecar forgives
+        // nothing on either side — and whatever the browser says there, the server must
+        // say too.
         const flagged: string[] = [];
+        const disagreements: string[] = [];
         let pickers = 0;
 
         for (const definition of listBlockDefinitions()) {
@@ -205,11 +210,15 @@ describe('field rules derived from every block', () => {
                     if (value !== undefined) data[field.key] = value;
 
                     const said = browserSays(descriptor, field, data);
-                    if (said) flagged.push(`${definition.type} › ${field.key} = ${JSON.stringify(value)}: "${said}"`);
+                    const server = serverMessages(definition.type, data, field.key, new Set(['declared-thing']));
+                    const probe = `${definition.type} › ${field.key} = ${JSON.stringify(value)}`;
 
-                    if (field.control === 'rolePicker' || field.control === 'channelPicker') {
+                    if (RESOURCE_PICKER_CONTROLS.has(field.control)) {
                         pickers += 1;
-                        expect(serverMessages(definition.type, data, field.key, new Set(['declared-thing']))).toEqual([]);
+                        expect(server, probe).toEqual([]);
+                        if (said) flagged.push(`${probe}: "${said}"`);
+                    } else if (said && !server.includes(said)) {
+                        disagreements.push(`${probe}: browser says "${said}", server says ${JSON.stringify(server)}`);
                     }
                 }
             }
@@ -217,6 +226,7 @@ describe('field rules derived from every block', () => {
 
         expect(pickers, 'No block has a picker, so the server half proves nothing.').toBeGreaterThan(0);
         expect(flagged).toEqual([]);
+        expect(disagreements).toEqual([]);
     });
 });
 

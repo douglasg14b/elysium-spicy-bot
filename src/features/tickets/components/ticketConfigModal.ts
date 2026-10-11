@@ -1,7 +1,7 @@
 import { ModalBuilder, ModalSubmitInteraction, RoleSelectMenuBuilder, LabelBuilder } from 'discord.js';
 import { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { ticketingRepo } from '../data/ticketingRepo';
-import { TicketingConfig } from '../data/ticketingSchema';
+import type { StoredTicketingConfig, TicketingConfig } from '../data/ticketingSchema';
 import { updateDeployedTicketMessage } from '../utils/updateDeployedMessage';
 import { defaultTicketTypes } from '../data/defaultTicketTypes';
 
@@ -68,24 +68,24 @@ export function TicketConfigModalComponent() {
             // Three layers, and the order is the whole point.
             //
             // 1. Defaults, which only apply when no row exists — deployment state belongs
-            //    to `/deploy-ticket-system`, and categories to the dashboard, so a config
-            //    written before either says "not deployed" and "nothing chosen" rather
-            //    than guessing.
+            //    to `/deploy-ticket-system`, so a config written before it says "not
+            //    deployed" rather than guessing. No categories: those are binding rows the
+            //    dashboard writes, and the repo assembles them on read.
             // 2. ⚠️ **The spread**, which is load-bearing. This was a complete object
             //    literal with no spread, so it silently dropped every config member it
             //    did not list — which made it a destructor the moment `ticketTypes`
             //    joined the shape. Anything added to `TicketingConfig` later survives a
-            //    save here only because of this line, `categories` included.
+            //    save here only because of this line. (The assembled `categories` it
+            //    carries is dropped by the repo's serializer.)
             // 3. The one member this modal actually owns, plus the type seed.
             //
             // Through `mutateConfig`, so the spread is of the row as it is *now*: a
-            // separate read then write would put back category bindings that a dashboard
-            // save or a recreate wrote in between, and those ids cannot be re-derived.
-            const withRoles = (current: TicketingConfig | undefined): TicketingConfig => ({
+            // separate read then write would put back whatever a dashboard save wrote in
+            // between.
+            const withRoles = (current: StoredTicketingConfig | undefined): StoredTicketingConfig => ({
                 modTicketsDeployed: false,
                 modTicketsDeployedChannelId: null,
                 modTicketsDeployedMessageId: null,
-                categories: { open: null, claimed: null, closed: null },
 
                 ...current,
 
@@ -97,12 +97,15 @@ export function TicketConfigModalComponent() {
                 ticketTypes: current?.ticketTypes ?? defaultTicketTypes(),
             });
 
-            let newConfig = await ticketingRepo.mutateConfig(interaction.guild.id, (row) => withRoles(row.config));
+            let newConfig: StoredTicketingConfig | null = await ticketingRepo.mutateConfig(
+                interaction.guild.id,
+                (row) => withRoles(row.config)
+            );
             if (!newConfig) {
                 newConfig = withRoles(undefined);
                 await ticketingRepo.upsert({
                     guildId: interaction.guild.id,
-                    config: JSON.stringify(newConfig),
+                    config: newConfig,
                     ticketNumberInc: 0,
                     entityVersion: 1,
                 });

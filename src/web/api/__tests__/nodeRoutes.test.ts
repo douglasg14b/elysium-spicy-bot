@@ -75,6 +75,7 @@ describe('GET /api/nodes', () => {
         expect(descriptor.configFields).toEqual(manifest.configFields);
         expect(descriptor.configFields.map((field) => field.key)).toEqual([
             'eventKind',
+            'messageChannelId',
             'timeoutMs',
             'timeoutCountsFrom',
             'quietChannelId',

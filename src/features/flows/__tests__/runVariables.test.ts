@@ -12,7 +12,7 @@ import {
 } from '../../../features-system/data-persistence/__tests__/support/flowRunsTestDb';
 import { discoverBlocks, ensureBlocksDiscovered, getBlockDefinition } from '../blocks/registry';
 import type { BlockManifest } from '../blocks/manifest';
-import { RESUME_TIMEOUT, type FlowRunSeed } from '../blocks/types';
+import { RESUME_TIMEOUT, requireSubject, type FlowRunSeed } from '../blocks/types';
 import { executeFlow, executeFlowSegment } from '../engine/executor';
 import { rebuildResumeContext, resumeFlowRun } from '../engine/flowRunResume';
 import { validateAuthoredGraph } from '../engine/graphValidation';
@@ -160,6 +160,20 @@ describe('a block consumes a value another block produced', () => {
 
         expect(result.status).toBe('success');
         expect(sentCopy(userSend)).toEqual(['Your ticket is <#998877>. Behave.']);
+    });
+
+    it('reads a value the dispatcher seeded, from the first block on', async () => {
+        // A trigger's fixed outputs — the level a Level Reached run hit, the channel a
+        // Message Sent run was posted in — are seeded by the dispatcher, never written by
+        // a block. The executor once started every fresh run from an empty bag, so a
+        // seeded value never reached anything.
+        const { context, userSend } = makeSeed();
+        const graph = producerThenDm({ outputKey: 'unused', value: 'x', message: 'Level {{var.level}}, finally.' });
+
+        const result = await executeFlow('flow-1', graph, 'trigger', { ...context, variables: { level: 7 } });
+
+        expect(result.status).toBe('success');
+        expect(sentCopy(userSend)).toEqual(['Level 7, finally.']);
     });
 
     it('addresses the subject in copy', async () => {
@@ -439,7 +453,7 @@ describe('a member’s own name cannot ping the guild', () => {
         (context as { client: unknown }).client = {
             channels: { fetch: vi.fn().mockResolvedValue(channel) },
         };
-        (context.subject.user as { username: string }).username = '@everyone';
+        (requireSubject(context).user as { username: string }).username = '@everyone';
 
         const result = await executeFlow('flow-1', channelPostingGraph('Welcome {{subject.username}}!'), 'trigger', context);
 

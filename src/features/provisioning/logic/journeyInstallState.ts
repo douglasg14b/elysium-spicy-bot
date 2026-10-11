@@ -113,6 +113,10 @@ export function summariseJourneyInstall(input: {
  *
  * Here rather than inline in the route so the flows list can resolve every row from a
  * single query — the N+1 `loadFlowJourneyIndex` exists to avoid, one table across.
+ *
+ * **Journey rows only.** `listByGuild` also returns the ticket feature's category rows,
+ * keyed `tickets`; grouping on the key alone would hand them to a journey an operator
+ * happened to call `tickets`, and its chip would count the ticket categories as its own.
  */
 export function groupBindingsByJourney(
     bindings: readonly ResourceBindingEntity[]
@@ -120,9 +124,10 @@ export function groupBindingsByJourney(
     const byJourney = new Map<string, ResourceBindingEntity[]>();
 
     for (const binding of bindings) {
-        const existing = byJourney.get(binding.journeyKey);
+        if (binding.ownerKind !== 'journey') continue;
+        const existing = byJourney.get(binding.ownerKey);
         if (existing) existing.push(binding);
-        else byJourney.set(binding.journeyKey, [binding]);
+        else byJourney.set(binding.ownerKey, [binding]);
     }
 
     return byJourney;

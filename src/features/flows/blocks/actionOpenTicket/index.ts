@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
+import { requireSubject } from '../types';
 import { attachTicketChannel, openTicket, recordTicketStateMessage, TICKET_VARIABLES } from '../../../tickets';
 import { ticketingRepo } from '../../../tickets/data/ticketingRepo';
 import { isTicketingConfigConfigured } from '../../../tickets/data/ticketingSchema';
@@ -12,10 +13,9 @@ export const ACTION_OPEN_TICKET = 'action.openTicket';
 
 export const openTicketConfigSchema = z.object({
     // Free text rather than an enum: a ticket type is a row in the guild's
-    // `ticketing_config` now, so a closed union in source would reject every type an
-    // operator declares. The `options` below stay the two seeded keys until the
-    // picker learns to read the guild's own list — `checkFieldChoices` requires a
-    // `select` to offer non-empty options, so they cannot simply be emptied here.
+    // `ticketing_config`, so a closed union in source would reject every type an
+    // operator declares. The picker offers the guild's own list; a key it no longer
+    // declares fails the run by name below.
     ticketType: z.string().min(1),
     title: z.string().min(1).max(100),
     // Optional rather than defaulted: a schema default the builder does not also
@@ -53,11 +53,7 @@ export const block: BlockManifest<OpenTicketConfig> = {
             key: 'ticketType',
             label: 'Ticket type',
             description: 'Decides the category, the channel name, and who can see it.',
-            control: 'select',
-            options: [
-                { value: 'support', label: 'Support' },
-                { value: 'verification', label: 'Verification' },
-            ],
+            control: 'ticketTypePicker',
         },
         {
             key: 'title',
@@ -101,6 +97,18 @@ export const block: BlockManifest<OpenTicketConfig> = {
     // create its category. The most channel-hungry block in the tree, so it is
     // the one that would silently pass when capability checking lands.
     capabilities: ['sendMessages', 'embedLinks', 'manageChannels'],
+    /*
+     * The ticket it opens is announced as opened, of the type picked here — a fixed key,
+     * since the type picker takes no `{{var}}`. Never as claimed: `openerId` is null
+     * below, so the service's auto-claim has nobody to claim it for, and even a person's
+     * auto-claimed ticket announces only `opened`.
+     */
+    emits: [
+        {
+            startedBy: 'ticketChanged',
+            carries: { event: { value: 'opened' }, ticketType: { fromField: 'ticketType' } },
+        },
+    ],
     // The builder previews the channel name from this; `title` does not decide it.
     createsChannel: true,
     canSuspend: false,
@@ -123,17 +131,18 @@ export const block: BlockManifest<OpenTicketConfig> = {
             );
         }
 
+        const subject = requireSubject(context);
         const ticketResult = await openTicket({
             guildId: context.guild.id,
             type: config.ticketType,
             definition,
-            subjectId: context.subject.id,
+            subjectId: subject.id,
             openerId: null,
             title: config.title,
             reason: config.reason || 'Opened automatically by a flow',
-            // `context.subject` is already a `GuildMember`, so this costs no fetch.
+            // The subject is already a `GuildMember`, so this costs no fetch.
             // The opener is null — a flow filed this — so there is no opener to name.
-            subjectIdentity: ticketIdentityFromMember(context.subject),
+            subjectIdentity: ticketIdentityFromMember(subject),
             openerIdentity: null,
         });
         if (!ticketResult.ok) throw ticketResult.error;
@@ -143,7 +152,7 @@ export const block: BlockManifest<OpenTicketConfig> = {
             guild: context.guild,
             ticket,
             config: configEntity.config,
-            subjectName: context.subject.user.username,
+            subjectName: subject.user.username,
             openerName: null,
         });
         // The record survives a channel that could not be created, holding
@@ -162,10 +171,16 @@ export const block: BlockManifest<OpenTicketConfig> = {
             allowedMentions: { parse: ['users'] },
         });
 
-        // Recorded so a caller with no interaction can re-render this embed. Logged
-        // rather than thrown: the row is the ticket and the flow has already done the
-        // thing it was asked to do.
-        const stateMessage = await recordTicketStateMessage(attached.value.id, message.id);
+        // Recorded so a caller with no interaction can re-render this embed, and
+        // recording it is what announces the ticket as opened, now its embed exists. A
+        // flow did it, so the bot is who acted, and the run's depth goes with it so a flow
+        // it starts sits one link further down. Logged rather than thrown: the row is the
+        // ticket and the flow has already done the thing it was asked to do — though no
+        // flow listening for "opened" will hear this one.
+        const stateMessage = await recordTicketStateMessage(attached.value.id, message.id, {
+            actorId: context.guild.client.user.id,
+            chainDepth: context.chainDepth,
+        });
         if (!stateMessage.ok) {
             console.error('[action.openTicket] Failed to record ticket state message id:', stateMessage.error);
         }

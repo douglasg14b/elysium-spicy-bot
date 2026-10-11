@@ -33,6 +33,8 @@ export type AuthUser = {
     username: string;
 };
 
+export type BindingOwnerKind = 'journey' | 'tickets';
+
 export type BlockCardSummaryPart = {
     emptyText?: string;
     hideWhenEmpty?: boolean;
@@ -42,6 +44,10 @@ export type BlockCardSummaryPart = {
     stopIfEmpty?: boolean;
     suffix?: string;
     truncate?: number;
+    visibleWhen?: {
+        equals: Array<string>;
+        field: string;
+    };
 } | {
     text: string;
 };
@@ -73,6 +79,27 @@ export type BlockConfigField = {
     };
 } | {
     control: 'channelPicker';
+    defaultValue?: string;
+    description?: string;
+    key: string;
+    label: string;
+    optional?: boolean;
+    visibleWhen?: {
+        equals: Array<string>;
+        field: string;
+    };
+} | {
+    control: 'categoryPicker';
+    defaultValue?: string;
+    description?: string;
+    key: string;
+    label: string;
+    visibleWhen?: {
+        equals: Array<string>;
+        field: string;
+    };
+} | {
+    control: 'ticketTypePicker';
     defaultValue?: string;
     description?: string;
     key: string;
@@ -201,17 +228,43 @@ export type BlockConfigField = {
     description?: string;
     key: string;
     label: string;
-    valueKind: BlockOutputValueKind;
+    valueKind?: BlockOutputValueKind;
+    visibleWhen?: {
+        equals: Array<string>;
+        field: string;
+    };
+} | {
+    control: 'timeOfDay';
+    defaultValue?: string;
+    description?: string;
+    key: string;
+    label: string;
+    visibleWhen?: {
+        equals: Array<string>;
+        field: string;
+    };
+} | {
+    control: 'daysOfWeek';
+    defaultValue?: Array<BlockDayKey>;
+    description?: string;
+    key: string;
+    label: string;
     visibleWhen?: {
         equals: Array<string>;
         field: string;
     };
 };
 
+/**
+ * One choice of a `select` or `segmented` field. `requires` is the run context the choice needs beyond the block's own, while the field is shown and holds it.
+ */
 export type BlockConfigOption = {
     label: string;
+    requires?: Array<FlowContextRequirement>;
     value: string;
 };
+
+export type BlockDayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 
 export type BlockHandleTone = 'neutral' | 'positive' | 'negative' | 'caution';
 
@@ -300,6 +353,11 @@ export type DetachResult = {
     detached: boolean;
 };
 
+/**
+ * The resource kinds that are objects in the Discord guild, each with a snowflake. A `ticketType` is not one: it lives in the ticket settings, named by its key.
+ */
+export type DiscordResourceKind = 'category' | 'textChannel' | 'role';
+
 export type DriftDetail = {
     explanation: string;
     kind: 'renamed' | 'reparented' | 'wrongType' | 'permissions';
@@ -315,6 +373,7 @@ export type DriftedResource = {
     name: string;
     repairable: boolean;
     resourceKey: string;
+    withheldReason: string | null;
 };
 
 /**
@@ -437,9 +496,15 @@ export type FlowBlockFieldRules = {
     };
     'action.waitForEvent': {
         eventKind?: unknown;
+        messageChannelId?: unknown;
         quietChannelId?: unknown;
         timeoutCountsFrom?: unknown;
         timeoutMs?: number;
+    };
+    'condition.compare': {
+        operator?: unknown;
+        value?: string;
+        variableName?: string;
     };
     'condition.hasOpenTicket': {
         ticketType?: string;
@@ -478,16 +543,34 @@ export type FlowBlockFieldRules = {
     'trigger.memberLeave': {
         [key: string]: unknown;
     };
+    'trigger.messageSent': {
+        categoryId?: string;
+        channelId?: string;
+        contains?: string;
+        where?: unknown;
+    };
     'trigger.reactionAdd': {
         channelId?: string;
         emoji?: string;
         messageId?: string;
+    };
+    'trigger.schedule': {
+        days?: Array<unknown>;
+        every?: unknown;
+        repeat?: unknown;
+        time?: string;
+    };
+    'trigger.ticketEvent': {
+        event?: unknown;
+        ticketType?: string;
     };
 };
 
 export type FlowCheck = {
     graph: FlowGraph;
 };
+
+export type FlowContextRequirement = 'subject' | 'actor' | 'channel' | 'interaction';
 
 export type FlowCreate = {
     graph?: FlowGraph;
@@ -567,6 +650,16 @@ export type FlowJourneyMembership = {
     memberCount: number;
     name: string;
     resourceCount: number;
+};
+
+/**
+ * When each of the flow's schedules next fires, keyed by node id (an ISO instant each). Only schedules with a next time are listed, so it is empty for a switched-off flow. `timeZone` is the zone the times were worked out in.
+ */
+export type FlowNextRuns = {
+    nextRuns: {
+        [key: string]: string;
+    };
+    timeZone: string;
 };
 
 export type FlowNode = {
@@ -652,7 +745,7 @@ export type ForgottenOrphan = {
 };
 
 /**
- * What grouping would do. `destination` is null when the target flow is on no journey yet, so one would be created. `orphaned` are the live resources "leave" would strand.
+ * What grouping would do. `destination` is null when the target flow is on no journey yet, so one would be created. `orphaned` are the live resources "leave" would strand. `sharedTicketTypes` are ticket types both sides declare, which a merge folds into the destination's.
  */
 export type GroupPreview = {
     canMerge: boolean;
@@ -665,6 +758,7 @@ export type GroupPreview = {
     moving: Array<MovingResource>;
     movingFlowName: string;
     orphaned: Array<MovingResource>;
+    sharedTicketTypes: Array<SharedTicketType>;
 };
 
 export type GroupResolution = 'merge' | 'leave';
@@ -679,31 +773,48 @@ export type Guild = {
 export type GuildChannel = {
     id: string;
     name: string;
+    owner: GuildObjectOwner | null;
     parentId: string | null;
     parentName: string | null;
     type: 'text' | 'category';
+};
+
+/**
+ * Who already holds a channel, category or role: a journey (by key) or the ticket system. `label` names the owner for the operator.
+ */
+export type GuildObjectOwner = {
+    key: string;
+    kind: BindingOwnerKind;
+    label: string;
 };
 
 export type GuildRole = {
     color: number;
     id: string;
     name: string;
+    owner: GuildObjectOwner | null;
     position: number;
 };
 
 /**
- * Staff roles, as saved. `staffRoles` names the ids that still resolve to a role and can be shorter than `staffRoleIds`, since a deleted role stays saved: render from `staffRoleIds`, label from `staffRoles`.
+ * Staff roles, as saved. `staffRoles` names the ids that still resolve to a role and can be shorter than `staffRoleIds`, since a deleted role stays saved: render from `staffRoleIds`, label from `staffRoles`. `timeZone` is the picked IANA zone, null until someone picks one; `defaultTimeZone` is the zone an unpicked server runs on.
  */
 export type GuildSettings = {
+    defaultTimeZone: string;
     staffRoleIds: Array<string>;
     staffRoles: Array<{
         id: string;
         name: string;
     }>;
+    timeZone: string | null;
 };
 
 export type GuildSettingsUpdate = {
     staffRoleIds: Array<string>;
+};
+
+export type GuildTimeZoneUpdate = {
+    timeZone: string;
 };
 
 /**
@@ -728,8 +839,9 @@ export type InstallPlan = {
 export type InstallPlanItem = {
     action: 'create' | 'adopt' | 'recover' | 'reuse' | 'blocked';
     discordId?: string;
-    kind: 'category' | 'textChannel' | 'role';
+    kind: 'category' | 'textChannel' | 'role' | 'ticketType';
     name: string;
+    note?: string;
     reason?: string;
     resourceKey: string;
 };
@@ -1010,8 +1122,8 @@ export type NodeDescriptor = {
     label: string;
     note?: string;
     outputs: Array<BlockOutputDeclaration>;
-    requires: Array<'subject' | 'actor' | 'channel' | 'interaction'>;
-    startedBy?: 'buttonClick' | 'levelUp' | 'memberJoin' | 'memberLeave' | 'reactionAdd';
+    requires: Array<FlowContextRequirement>;
+    startedBy?: 'buttonClick' | 'levelUp' | 'memberJoin' | 'memberLeave' | 'messageSent' | 'reactionAdd' | 'scheduleDue' | 'ticketChanged';
     type: string;
 };
 
@@ -1045,11 +1157,12 @@ export type PublishedButtonMessage = {
 };
 
 /**
- * What a flow or a journey has live in the guild. An empty `buttonMessages` does not mean nothing is posted while `mayHaveUnrecordedButtons` is true: buttons posted before they were recorded cannot be found.
+ * What a flow or a journey has live in the guild. An empty `buttonMessages` does not mean nothing is posted while `mayHaveUnrecordedButtons` is true: buttons posted before they were recorded cannot be found. `keptSettings` are settings (ticket types) that uninstalling forgets and leaves standing.
  */
 export type PublishedFlowState = {
     buttonMessages: Array<PublishedButtonMessage>;
     deletableResources: Array<PublishedResource>;
+    keptSettings: Array<PublishedResource>;
     mayHaveUnrecordedButtons: boolean;
     refusedResources: Array<PublishedResource>;
 };
@@ -1079,7 +1192,7 @@ export type RepairedResource = {
 };
 
 /**
- * A resource a journey needs, named by a key stable across servers. `defaultName` is stored as Discord will hold it: a text channel lowercased, whitespace hyphenated. `adoptDiscordId` adopts something that already exists instead of creating it.
+ * A resource a journey needs, named by a key stable across servers. `defaultName` is stored as Discord will hold it: a text channel lowercased, whitespace hyphenated; for a `ticketType` it is the type's label, trimmed. `adoptDiscordId` adopts something that already exists instead of creating it. `ticketType` holds a ticket type's settings, and only a `ticketType` resource carries it.
  */
 export type ResourceDeclaration = {
     adoptDiscordId?: string;
@@ -1089,9 +1202,21 @@ export type ResourceDeclaration = {
     kind: ResourceKind;
     parentKey?: string;
     permissions?: Array<PermissionIntent>;
+    ticketType?: TicketTypeSettings;
 };
 
-export type ResourceKind = 'category' | 'textChannel' | 'role';
+export type ResourceKind = 'category' | 'textChannel' | 'role' | 'ticketType';
+
+/**
+ * The config-field controls that write a `<field>Key` resource sidecar. An empty field of one of these beside a sidecar waits on install; whether that is fine is the server’s call.
+ */
+export type ResourcePickerControl = 'rolePicker' | 'channelPicker' | 'categoryPicker' | 'ticketTypePicker';
+
+export type SharedTicketType = {
+    destinationName: string;
+    key: string;
+    movingName: string;
+};
 
 /**
  * The window a member’s stats cover, shortest first.
@@ -1192,6 +1317,15 @@ export type TicketSummary = {
 };
 
 /**
+ * A ticket type's settings without its key and label: the channel-name template, who may do what in a ticket channel, and whether the opener claims it on open.
+ */
+export type TicketTypeSettings = {
+    autoClaimOnOpen: boolean;
+    nameTemplate: string;
+    permissions: TicketPermissionModel;
+};
+
+/**
  * A ticket type, without its key: that is the path.
  */
 export type TicketTypeUpdate = {
@@ -1278,7 +1412,7 @@ export type UnpublishResult = {
 
 export type UnpublishedResource = {
     explanation?: string;
-    kind: 'category' | 'textChannel' | 'role';
+    kind: 'category' | 'textChannel' | 'role' | 'ticketType';
     name: string;
     outcome: 'deleted' | 'forgotten' | 'refused' | 'failed';
     resourceKey: string;
@@ -1496,7 +1630,7 @@ export type GetGuildChannelsError = GetGuildChannelsErrors[keyof GetGuildChannel
 
 export type GetGuildChannelsResponses = {
     /**
-     * The channel directory.
+     * The channel directory, each with the owner already holding it, if any.
      */
     200: {
         channels: Array<GuildChannel>;
@@ -1575,7 +1709,7 @@ export type UpdateTicketsConfigErrors = {
      */
     404: ErrorBody;
     /**
-     * The server has no ticket config yet: tickets have to be deployed in Discord first.
+     * The server has no ticket config yet: tickets have to be deployed in Discord first. Or a journey claimed a picked category while the save ran: that slot was declined, everything else was saved, so re-read the settings.
      */
     409: ErrorBody;
     /**
@@ -1639,7 +1773,7 @@ export type DeleteTicketTypeErrors = {
      */
     404: ErrorBody;
     /**
-     * The server has no ticket config yet, or tickets still hold the type — deleted ones included. The sentence names how many, and some of their numbers.
+     * The server has no ticket config yet; tickets still hold the type — deleted ones included, and the sentence names how many and some of their numbers; or a journey installed the type, and the sentence names it: uninstalling the journey lets go of it.
      */
     409: ErrorBody;
     /**
@@ -2001,7 +2135,7 @@ export type UpdateFlowData = {
 
 export type UpdateFlowErrors = {
     /**
-     * The body was refused; the graph is too broken to store; the flow cannot be switched on because its graph is incomplete (`issues` lists why) or waits on its install (`issues` empty); or the server id is missing.
+     * The body was refused; the graph is too broken to store; the flow cannot be switched on because its graph is incomplete (`issues` lists why) or waits on its install (`issues` empty); going live — switched on, or a graph saved while on — would make a loop with the guild's other live flows (a sentence naming every step of the loop, `issues` empty); the save would go live only because another request switched the flow on or off meanwhile ("save again", `issues` empty); or the server id is missing.
      */
     400: FlowRefusal;
     /**
@@ -2610,6 +2744,50 @@ export type GetInstallPlanResponses = {
 
 export type GetInstallPlanResponse = GetInstallPlanResponses[keyof GetInstallPlanResponses];
 
+export type GetFlowNextRunsData = {
+    body?: never;
+    path: {
+        guildId: string;
+        flowId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flows/{flowId}/next-runs';
+};
+
+export type GetFlowNextRunsErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the flow is not in it.
+     */
+    404: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type GetFlowNextRunsError = GetFlowNextRunsErrors[keyof GetFlowNextRunsErrors];
+
+export type GetFlowNextRunsResponses = {
+    /**
+     * The next time of each schedule that has one, by node id. Empty while the flow is switched off.
+     */
+    200: FlowNextRuns;
+};
+
+export type GetFlowNextRunsResponse = GetFlowNextRunsResponses[keyof GetFlowNextRunsResponses];
+
 export type GetPublishedStateData = {
     body?: never;
     path: {
@@ -2712,7 +2890,7 @@ export type SaveFlowResourcesData = {
 
 export type SaveFlowResourcesErrors = {
     /**
-     * The body was refused, a `roles` permission names no role, the declarations disagree with each other (a duplicate key, a parent or role reference naming nothing), or the server id is missing.
+     * The body was refused, a `roles` permission names no role, a declared ticket type breaks the ticket feature's own rules (its label over 45 characters, or a template that renders to nothing or too long for a channel name), the declarations disagree with each other (a duplicate key, a parent or role reference naming nothing, ticket settings on something that is not a ticket type), or the server id is missing.
      */
     400: ErrorBody;
     /**
@@ -2902,7 +3080,7 @@ export type CreateJourneyData = {
 
 export type CreateJourneyErrors = {
     /**
-     * The body was refused, a `roles` permission names no role, the declarations disagree with each other (a duplicate key, a parent or role reference naming nothing), or the server id is missing.
+     * The body was refused, a `roles` permission names no role, a declared ticket type breaks the ticket feature's own rules (its label over 45 characters, or a template that renders to nothing or too long for a channel name), the declarations disagree with each other (a duplicate key, a parent or role reference naming nothing, ticket settings on something that is not a ticket type), or the server id is missing.
      */
     400: ErrorBody;
     /**
@@ -3046,7 +3224,7 @@ export type UpdateJourneyData = {
 
 export type UpdateJourneyErrors = {
     /**
-     * The body was refused, a `roles` permission names no role, the declarations disagree with each other (a duplicate key, a parent or role reference naming nothing), or the server id is missing.
+     * The body was refused, a `roles` permission names no role, a declared ticket type breaks the ticket feature's own rules (its label over 45 characters, or a template that renders to nothing or too long for a channel name), the declarations disagree with each other (a duplicate key, a parent or role reference naming nothing, ticket settings on something that is not a ticket type), or the server id is missing.
      */
     400: ErrorBody;
     /**
@@ -3534,7 +3712,7 @@ export type GetGuildRolesError = GetGuildRolesErrors[keyof GetGuildRolesErrors];
 
 export type GetGuildRolesResponses = {
     /**
-     * Assignable roles, highest first.
+     * Assignable roles, highest first, each with the owner already holding it, if any.
      */
     200: {
         roles: Array<GuildRole>;
@@ -3632,6 +3810,53 @@ export type UpdateGuildSettingsResponses = {
 };
 
 export type UpdateGuildSettingsResponse = UpdateGuildSettingsResponses[keyof UpdateGuildSettingsResponses];
+
+export type UpdateGuildTimeZoneData = {
+    body: GuildTimeZoneUpdate;
+    path: {
+        guildId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/settings/time-zone';
+};
+
+export type UpdateGuildTimeZoneErrors = {
+    /**
+     * The body was refused, the zone is not one this server knows, or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+    /**
+     * The body was not sent as JSON.
+     */
+    415: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type UpdateGuildTimeZoneError = UpdateGuildTimeZoneErrors[keyof UpdateGuildTimeZoneErrors];
+
+export type UpdateGuildTimeZoneResponses = {
+    /**
+     * The guild settings as saved.
+     */
+    200: GuildSettings;
+};
+
+export type UpdateGuildTimeZoneResponse = UpdateGuildTimeZoneResponses[keyof UpdateGuildTimeZoneResponses];
 
 export type ListTicketsData = {
     body?: never;

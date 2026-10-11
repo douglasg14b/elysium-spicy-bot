@@ -7,7 +7,7 @@ import type {
     GuildRole as BrowserGuildRole,
     ResourceDeclaration as BrowserResourceDeclaration,
 } from '@brattybot/web-sdk';
-import { ResourceDeclarationSchema, rolesWithoutIdsRefusal } from '../../../../web/api/journeyBody';
+import { declarationsRefusal, ResourceDeclarationSchema } from '../../../../web/api/journeyBody';
 import { declaredRoleReference } from '../declaredRoleReference';
 import { buildInstallPlan } from '../installPlan';
 import { validateJourneyDeclaration, type JourneyDeclaration } from '../resourceDeclaration';
@@ -49,11 +49,12 @@ function serverVerdict(resources: readonly BrowserResourceDeclaration[]): Server
         parsed.push(result.data);
     }
 
-    // Gate two: a `roles` permission naming no role. Asked by the handler once the
-    // schema has passed, because it spans two fields the spec cannot relate.
-    const rolesRefusal = rolesWithoutIdsRefusal(parsed);
-    if (rolesRefusal) {
-        return { accepted: false, reason: rolesRefusal };
+    // Gate two: a `roles` permission naming no role, and a declared ticket type the ticket
+    // feature would refuse. Asked by the handler once the schema has passed, because each
+    // spans fields the spec cannot relate (or needs the renderer).
+    const listRefusal = declarationsRefusal(parsed);
+    if (listRefusal) {
+        return { accepted: false, reason: listRefusal };
     }
 
     // Gate three: the whole-journey invariants, which are the ones no single resource
@@ -85,6 +86,31 @@ function channel(
     return { key: 'questions', kind: 'textChannel', defaultName: 'questions', ...overrides };
 }
 
+const TICKET_PERMISSIONS = {
+    subject: { view: true, send: true, readHistory: true, manageMessages: false },
+    opener: { view: true, send: true, readHistory: true, manageMessages: false },
+    staff: { view: true, send: true, readHistory: true, manageMessages: true },
+};
+
+/**
+ * A declared ticket type. Its content is judged on the server by the ticket feature's own
+ * rules — the template's tokens in `ResourceDeclarationSchema` (its `TicketTypeSettings`),
+ * the rest by `ticketTypeDefinitionProblem` through `declarationsRefusal`, never through a
+ * provider — and in the browser by `validateTicketTypeDraft`.
+ */
+function ticketType(
+    overrides: Partial<BrowserResourceDeclaration> = {},
+    nameTemplate = 'desk-{{####}}-{{subject}}'
+): BrowserResourceDeclaration {
+    return {
+        key: 'front-desk',
+        kind: 'ticketType',
+        defaultName: 'Front desk',
+        ticketType: { nameTemplate, permissions: TICKET_PERMISSIONS, autoClaimOnOpen: false },
+        ...overrides,
+    };
+}
+
 /**
  * Declarations the server refuses, each named by the chip that should have warned.
  *
@@ -109,6 +135,12 @@ const REJECTED: readonly { chip: string; resources: BrowserResourceDeclaration[]
     { chip: 'invalidKey (too long)', resources: [channel({ key: 'a'.repeat(65) })] },
     { chip: 'invalidKey (empty name)', resources: [channel({ defaultName: '' })] },
     { chip: 'invalidKey (name too long)', resources: [channel({ defaultName: 'x'.repeat(101) })] },
+    { chip: 'invalidTicketType (unknown token)', resources: [ticketType({}, 'desk-{{user}}')] },
+    { chip: 'invalidTicketType (unclosed brace)', resources: [ticketType({}, 'desk-{{subject}')] },
+    { chip: 'invalidTicketType (label past 45)', resources: [ticketType({ defaultName: 'x'.repeat(46) })] },
+    { chip: 'invalidTicketType (label of spaces)', resources: [ticketType({ defaultName: '   ' })] },
+    { chip: 'invalidTicketType (empty template)', resources: [ticketType({}, '   ')] },
+    { chip: 'invalidKey (ticket type with no label)', resources: [ticketType({ defaultName: '' })] },
     {
         chip: 'ruleNamesNoRole (no ids)',
         resources: [
@@ -213,6 +245,9 @@ const ACCEPTED: readonly { name: string; resources: BrowserResourceDeclaration[]
         name: 'a name at exactly the 100-character cap',
         resources: [channel({ defaultName: 'x'.repeat(100) })],
     },
+    { name: 'a declared ticket type', resources: [ticketType(), channel()] },
+    { name: 'a ticket type label at exactly 45 characters', resources: [ticketType({ defaultName: 'x'.repeat(45) })] },
+    { name: 'a ticket type keyed like the seeded verification', resources: [ticketType({ key: 'verification' })] },
 ];
 
 describe('red chips agree with the server', () => {
@@ -322,6 +357,7 @@ describe('install-blocking chips agree with the install planner', () => {
                 type: 'text' as const,
                 parentId: null,
                 parentName: null,
+                owner: null,
             },
         ],
         roles: [],
@@ -450,5 +486,54 @@ describe('install-blocking chips agree with the install planner', () => {
                 entry.chips.some((chip) => RESOURCE_CHIPS[chip.id].tone === 'blocksInstall')
             )
         ).toBe(false);
+    });
+
+    it('never flags a ticket type for a channel or role carrying its label', () => {
+        // A ticket type is found by its key; the install never name-matches one.
+        const labelled = [ticketType({ defaultName: COLLIDING_NAME })];
+        const plan = buildInstallPlan({
+            guild: guildWith([COLLIDING_NAME], [COLLIDING_NAME]),
+            journey: { journeyKey: 'flow-1', name: 'Flow 1', resources: labelled as JourneyDeclaration['resources'] },
+            existingBindings: [],
+            ticketTypes: { status: 'ok', ready: true, notReadyNote: null, types: new Map() },
+        });
+
+        expect(plan.items[0]?.action).toBe('create');
+        expect(browserSeesInstallBlocker(labelled, { ...browserGuild, roles: [] })).toBe(false);
+    });
+});
+
+/**
+ * `ticketTypeHere` is info, so it makes no claim about refusing anything — but it does
+ * claim what install will do: use the existing type as it is. That half is checked against
+ * the real planner, read through a provider reading rather than the provider itself.
+ */
+describe('the "Already here" chip agrees with the install planner', () => {
+    const resources = [ticketType({ key: 'verification' })];
+    const serverTypes = new Map([['verification', { label: 'Verification' }]]);
+
+    function chipped(guild: Parameters<typeof detectResourceProblems>[1]): boolean {
+        return detectResourceProblems(resources, guild).some((entry) =>
+            entry.chips.some((chip) => chip.id === 'ticketTypeHere')
+        );
+    }
+
+    it('shows where the planner adopts the existing type as it is', () => {
+        const plan = buildInstallPlan({
+            guild: guildWith([], []),
+            journey: { journeyKey: 'flow-1', name: 'Flow 1', resources: resources as JourneyDeclaration['resources'] },
+            existingBindings: [],
+            ticketTypes: { status: 'ok', ready: true, notReadyNote: null, types: serverTypes },
+        });
+
+        expect(plan.items[0]).toMatchObject({ action: 'adopt', name: 'Verification' });
+        expect(chipped({ channels: [], roles: [], ticketTypes: [{ type: 'verification' }] })).toBe(true);
+    });
+
+    it('is quiet on a key this journey installed, and when the server’s types are not known', () => {
+        expect(
+            chipped({ channels: [], roles: [], ticketTypes: [{ type: 'verification' }], installedKeys: new Set(['verification']) })
+        ).toBe(false);
+        expect(chipped({ channels: [], roles: [] })).toBe(false);
     });
 });

@@ -5,21 +5,22 @@
  * knows no block types.
  */
 
-import { Fragment } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import { Text } from '@mantine/core';
+import { Text, Tooltip } from '@mantine/core';
 import { IconAlertTriangle } from '@tabler/icons-react';
-import type { GuildChannel, GuildRole, NodeDescriptor } from '@brattybot/web-sdk';
+import type { GuildChannel, GuildRole, NodeDescriptor, ResourceDeclaration, TicketTypeView } from '@brattybot/web-sdk';
 import { summarizeFromDescriptor } from './cardSummary';
 import { describeConvergence } from './convergingTriggers';
+import { describeNextRun, formatNextRunExact, NEXT_RUN_AFTER_SAVE, type NodeNextRun } from './nextRun';
 import { handlesAreLabelled, HANDLE_TONE_COLORS, KIND_STYLES } from './nodeMeta';
 import { describeUnconnectedExit } from './unconnectedExits';
 
 /**
  * What we stash on each React Flow node. `config` is the node's engine `data`;
  * `descriptor` is the block it instantiates, absent when the saved graph names a
- * type this build has no block for. `roles`/`channels` ride along so the card can
- * resolve IDs to names.
+ * type this build has no block for. `roles`/`channels`/`ticketTypes` ride along so the
+ * card can resolve IDs and keys to names.
  */
 export interface FlowNodeCardData extends Record<string, unknown> {
     nodeType: string;
@@ -28,6 +29,13 @@ export interface FlowNodeCardData extends Record<string, unknown> {
     descriptor: NodeDescriptor | undefined;
     roles: GuildRole[];
     channels: GuildChannel[];
+    ticketTypes: TicketTypeView[];
+    /**
+     * What the flow's journey declares, so a picker still waiting on install can name what
+     * it waits for — "Front desk (after install)" rather than its empty copy. Carried onto
+     * the cards by an effect in `FlowBuilderPage`, as the issue count is.
+     */
+    declaredResources: ResourceDeclaration[];
     /**
      * How many things the server last found wrong with this node — when the flow was
      * opened, or at the last save.
@@ -68,6 +76,12 @@ export interface FlowNodeCardData extends Record<string, unknown> {
      * empty behind a failure or on an unreachable node, and is rendered as it comes.
      */
     unconnectedExits: readonly string[];
+    /**
+     * When this node next starts a run, if the server listed a time for it — or that the
+     * time is worked out when the canvas is saved, because the node has been edited since.
+     * `null` for the ordinary node, which nothing schedules; see `nextRunForNode`.
+     */
+    nextRun: NodeNextRun | null;
 }
 
 export type FlowCardNode = Node<FlowNodeCardData, 'flowCard'>;
@@ -89,10 +103,13 @@ export function FlowNodeCard({ data, selected }: NodeProps<FlowCardNode>) {
         descriptor,
         roles,
         channels,
+        ticketTypes,
+        declaredResources,
         issueCount,
         unreachable,
         convergingTriggers,
         unconnectedExits,
+        nextRun,
     } = data;
 
     if (!descriptor) {
@@ -210,8 +227,9 @@ export function FlowNodeCard({ data, selected }: NodeProps<FlowCardNode>) {
 
             <div style={{ padding: 12 }}>
                 <Text size="12px" c="dark.1" lineClamp={2}>
-                    {summarizeFromDescriptor(descriptor, config, roles, channels)}
+                    {summarizeFromDescriptor(descriptor, config, roles, channels, ticketTypes, declaredResources)}
                 </Text>
+                {nextRun ? <NextRunLine nextRun={nextRun} /> : null}
                 {failed ? (
                     // Counted in problems rather than fields: two rules can fail on
                     // one control, and promising "3 fields" over two would be a lie
@@ -301,6 +319,43 @@ export function FlowNodeCard({ data, selected }: NodeProps<FlowCardNode>) {
             )}
         </div>
     );
+}
+
+/**
+ * The muted next-run line: a countdown that moves on once a minute, with the exact time
+ * on hover — or, while the node has unsaved edits, that the time comes with the save.
+ *
+ * Its own component so the minute tick re-renders this line and not the card.
+ */
+function NextRunLine({ nextRun }: { nextRun: NodeNextRun }) {
+    const now = useMinuteClock();
+
+    if (nextRun.kind === 'afterSave') {
+        return (
+            <Text size="11px" c="dimmed" mt={4}>
+                {NEXT_RUN_AFTER_SAVE}
+            </Text>
+        );
+    }
+
+    const at = new Date(nextRun.at);
+    return (
+        <Tooltip label={formatNextRunExact(at, nextRun.timeZone)} withArrow openDelay={300}>
+            <Text size="11px" c="dimmed" mt={4} style={{ cursor: 'default' }}>
+                {describeNextRun(at, now)}
+            </Text>
+        </Tooltip>
+    );
+}
+
+/** The current time, refreshed once a minute while the component is mounted. */
+function useMinuteClock(): Date {
+    const [now, setNow] = useState(() => new Date());
+    useEffect(() => {
+        const timer = setInterval(() => setNow(new Date()), 60_000);
+        return () => clearInterval(timer);
+    }, []);
+    return now;
 }
 
 /** Card border, with failure outranking selection. */

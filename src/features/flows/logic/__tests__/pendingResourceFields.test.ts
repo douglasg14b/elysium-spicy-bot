@@ -48,7 +48,15 @@ type PickerCase = [label: string, type: string, fieldKey: string, otherData: Rec
 function pickerFields(): PickerCase[] {
     return listBlockDefinitions().flatMap((block) =>
         block.configFields
-            .filter((field) => field.control === 'rolePicker' || field.control === 'channelPicker')
+            .filter(
+                (field) =>
+                    field.control === 'rolePicker' ||
+                    field.control === 'channelPicker' ||
+                    field.control === 'categoryPicker' ||
+                    // A journey may declare a ticket type since 2026-10-10, and its picker
+                    // writes the same sidecar.
+                    field.control === 'ticketTypePicker'
+            )
             .map((field): PickerCase => [
                 `${block.type}.${field.key}`,
                 block.type,
@@ -152,7 +160,10 @@ function placeholderFor(field: BlockConfigField | undefined): unknown {
     switch (field?.control) {
         case 'rolePicker':
         case 'channelPicker':
+        case 'categoryPicker':
             return '123456789012345678';
+        case 'ticketTypePicker':
+            return 'support';
         case 'duration':
             return 1000;
         default:
@@ -222,8 +233,27 @@ describe('a picker field left empty because a declared resource fills it', () =>
 describe('pendingResourceFields', () => {
     it('covers every picker in the registry', () => {
         // The tables above are generated, so an empty registry would report green
-        // while testing nothing at all.
-        expect(pickerFields().length).toBeGreaterThanOrEqual(7);
+        // while testing nothing at all. Ten: seven snowflake pickers, three ticket type.
+        expect(pickerFields().length).toBeGreaterThanOrEqual(10);
+    });
+
+    /*
+     * The regression behind restricting sidecars to picker fields. Pick Random's
+     * `outputKey` names the variable it records; read as a sidecar for a field `output`,
+     * it was "a resource this flow doesn't declare", and no Pick Random flow could be
+     * switched on.
+     */
+    it('does not blame Pick Random for its own outputKey', () => {
+        const graph = graphWith([
+            {
+                id: 'pick',
+                type: 'action.pickRandom',
+                position: { x: 0, y: 0 },
+                data: { options: ['heads', 'tails'], outputKey: 'winner' },
+            },
+        ]);
+
+        expect(saveIssues(graph, [])).toEqual([]);
     });
 
     it('leaves an installed field alone even when its key is no longer declared', () => {

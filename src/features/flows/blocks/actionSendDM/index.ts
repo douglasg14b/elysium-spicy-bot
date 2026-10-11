@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
+import { requireSubject } from '../types';
 
 export const ACTION_SEND_DM = 'action.sendDM';
 
@@ -35,12 +36,13 @@ export const block: BlockManifest<SendDMConfig> = {
     outputs: [],
     requires: ['subject'],
     capabilities: [],
+    emits: [],
     canSuspend: false,
     async run(config, context) {
         // Pinned to users for the same reason as `action.sendMessage`. A DM is 1:1
         // so `@everyone` is inert here, but stating it keeps every send path in
         // this feature answering the question the same way.
-        await context.subject.user.send({
+        await requireSubject(context).user.send({
             content: config.message,
             allowedMentions: { parse: ['users'] },
         });

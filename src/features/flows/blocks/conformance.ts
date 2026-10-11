@@ -1,14 +1,17 @@
 import { z, type ZodType } from 'zod';
+import { isCopyField, isVariablePickerField } from '../engine/copyRendering';
 import { ELIGIBILITY_CONFIG_KEY, ELIGIBILITY_ENFORCED_SOURCES } from '../engine/eligibility';
 import { FLOW_STEP_OUTCOME_KINDS } from '../engine/stepOutcome';
 import {
     BLOCK_CAPABILITIES,
     BLOCK_COLUMN_CONTROLS,
     BLOCK_CONTROL_TYPES,
+    BLOCK_DAY_KEYS,
     BLOCK_HANDLE_TONES,
     BLOCK_KINDS,
     BLOCK_OUTPUT_VALUE_KINDS,
     BLOCK_PALETTE_GROUPS,
+    BLOCK_TRIGGER_SOURCES,
     FLOW_CONTEXT_REQUIREMENTS,
     type BlockConfigColumn,
     type BlockConfigField,
@@ -36,6 +39,10 @@ import type { FlowResumeKind, FlowResumeReason, FlowRunContext } from './types';
  * manifest and so can run over every registered block. {@link checkBlockOutcome}
  * has to actually run the block, which needs a config and a context only the
  * block's own test can supply.
+ *
+ * {@link checkEmissionTargets} is the one exception to "from the declaration alone":
+ * whether what a block emits means anything depends on the triggers listening for it,
+ * so it takes the whole registry.
  */
 
 /** Names of every manifest member that must be present, with the shape expected. */
@@ -56,6 +63,7 @@ const REQUIRED_ARRAYS = [
     'outputs',
     'requires',
     'capabilities',
+    'emits',
 ] as const;
 
 /**
@@ -103,8 +111,175 @@ export function checkBlockConformance(candidate: unknown): readonly string[] {
     issues.push(...checkOutputs(label, block.outputs, block.configFields, block.handles));
     issues.push(...checkConfigFields(label, block.configFields, block.configSchema));
     issues.push(...checkVisibleWhen(label, block.configFields, block.configSchema));
-    issues.push(...checkCardSummary(label, block.cardSummary, block.configFields));
+    issues.push(...checkCardSummary(label, block.cardSummary, block.configFields, block.configSchema));
     issues.push(...checkEligibilityEnforced(label, block));
+    issues.push(...checkEmits(label, block));
+
+    return issues;
+}
+
+/**
+ * What a block says it causes must be readable by the loop check, and only an action may
+ * say it.
+ *
+ * A trigger is the event, not an action, so it declares `emits: []`. Each emission names
+ * its source (held to the vocabulary by {@link checkVocabulary}), and each carried value is
+ * exactly `{ value }` or `{ fromField }`. A `fromField` names one of the block's own config
+ * fields — any other resolves to nothing on every node, so the link it describes is always
+ * unknown — and never one that can hold a `{{var}}`: a written token compares unequal to
+ * everything, which would quietly drop a link that is really there. Unknown is the right
+ * answer for such a field, and leaving it out of `carries` is how to say it.
+ *
+ * Whether a carried key is one a listening trigger has is a question about *other* blocks,
+ * so it is {@link checkEmissionTargets}' job, not this one's.
+ */
+function checkEmits(label: string, block: Partial<Record<string, unknown>>): readonly string[] {
+    const { emits } = block;
+    if (!Array.isArray(emits) || emits.length === 0) {
+        return [];
+    }
+
+    if (block.kind === 'trigger') {
+        return [
+            `${label}: is a trigger, but declares what it emits. A trigger is the event that starts a run, ` +
+                'not an action that causes one — declare emits: [].',
+        ];
+    }
+
+    const fields = asArray(block.configFields);
+    const issues: string[] = [];
+    for (const emission of emits) {
+        const startedBy = readProperty(emission, 'startedBy');
+        if (typeof startedBy !== 'string') {
+            issues.push(
+                `${label}: an emission must name the trigger source it fires, found ${JSON.stringify(startedBy) ?? typeof startedBy}.`
+            );
+            continue;
+        }
+
+        const carries = readProperty(emission, 'carries');
+        if (carries === undefined) {
+            continue;
+        }
+        if (!carries || typeof carries !== 'object' || Array.isArray(carries)) {
+            issues.push(
+                `${label}: its "${startedBy}" emission carries ${JSON.stringify(carries)}. Declare a record of ` +
+                    "the listening trigger's fields, or leave carries off when nothing about the event is known."
+            );
+            continue;
+        }
+
+        for (const [key, carried] of Object.entries(carries as Record<string, unknown>)) {
+            const where = `${label}: its "${startedBy}" emission carries "${key}"`;
+            // The exact key set, so a value carrying both shapes' keys matches neither.
+            const keys = carried && typeof carried === 'object' ? Object.keys(carried).sort().join(',') : '';
+            const value = readProperty(carried, 'value');
+            const fromField = readProperty(carried, 'fromField');
+
+            if (keys === 'value' && typeof value === 'string') {
+                continue;
+            }
+            if (keys !== 'fromField' || typeof fromField !== 'string') {
+                issues.push(
+                    `${where} as ${JSON.stringify(carried)}. Carry { value: "<literal>" }, or { fromField: "<field>" } ` +
+                        'to carry what one of its own fields holds.'
+                );
+                continue;
+            }
+
+            const field = fields.find((candidate) => readProperty(candidate, 'key') === fromField);
+            if (!field) {
+                issues.push(
+                    `${where} from "${fromField}", which is not one of its config fields — it would be unknown on ` +
+                        'every node.'
+                );
+            } else if (isTokenField(field)) {
+                issues.push(
+                    `${where} from "${fromField}", which can hold a {{var}}. A written token compares unequal to ` +
+                        'everything, so the loop check would miss a link that is there. Leave the key out of carries: ' +
+                        'unknown matches anything.'
+                );
+            }
+        }
+    }
+
+    return issues;
+}
+
+/**
+ * Whether a field's stored value can be a `{{var}}` rather than the value itself: copy the
+ * executor renders, or a picker that takes a variable in place of a choice — asked through
+ * the executor's own predicates, so a new token-holding shape is caught here the day it is
+ * taught to them.
+ */
+function isTokenField(field: unknown): boolean {
+    if (typeof readProperty(field, 'control') !== 'string') {
+        return false;
+    }
+    // A record with a string `control`, which is all the two predicates read.
+    const declared = field as BlockConfigField;
+    return isCopyField(declared) || isVariablePickerField(declared);
+}
+
+/**
+ * Every value an emission carries must be one some listening trigger can hold.
+ *
+ * **The one conformance check that is not about a single declaration**, and it has to be:
+ * whether a carried key means anything depends on the triggers started by that source,
+ * which are other blocks. Run over the whole registry by the shipped-blocks suite.
+ *
+ * Two mistakes, each silent at run time:
+ *
+ *  - **A key no trigger on that source declares.** A listener holds nothing under it, and
+ *    nothing reads as "any", so the key matches every listener — a typo that quietly
+ *    turns a narrow link into a broad one.
+ *  - **A literal outside the options of the field it is compared with**, when that field
+ *    offers a fixed set. It equals nothing a listener can hold, so it matches no listener
+ *    that names one — the worse direction, because the loop check would then miss a loop
+ *    that is really there.
+ *
+ * A `fromField` value is not held to the listener's options: what a node holds is the
+ * author's, and an emitter's own field and a listener's are free text alike today.
+ */
+export function checkEmissionTargets(definitions: readonly BlockManifest[]): readonly string[] {
+    const issues: string[] = [];
+
+    for (const block of definitions) {
+        for (const emission of block.emits) {
+            const triggers = definitions.filter(
+                (candidate) => candidate.kind === 'trigger' && candidate.startedBy === emission.startedBy
+            );
+
+            for (const [key, carried] of Object.entries(emission.carries ?? {})) {
+                const where = `${block.type}: its "${emission.startedBy}" emission carries "${key}"`;
+                const fields = triggers.flatMap((trigger) =>
+                    trigger.configFields.filter((field) => field.key === key)
+                );
+                if (fields.length === 0) {
+                    const names = triggers.map((trigger) => trigger.type).join(', ') || 'none';
+                    issues.push(
+                        `${where}, but no trigger started by "${emission.startedBy}" has that field (triggers: ` +
+                            `${names}). It would match every one of them. Name a field the listening trigger declares.`
+                    );
+                    continue;
+                }
+
+                const { value } = carried;
+                if (value === undefined) {
+                    continue;
+                }
+                const choices = fields
+                    .map((field) => choiceValuesOf(field))
+                    .filter((values): values is readonly string[] => values !== undefined);
+                if (choices.length > 0 && !choices.some((values) => values.includes(value))) {
+                    issues.push(
+                        `${where} as "${value}", which that field never offers (${[...new Set(choices.flat())].join(', ')}). ` +
+                            'It would match no trigger that picks one, and the loop check would miss a real loop.'
+                    );
+                }
+            }
+        }
+    }
 
     return issues;
 }
@@ -200,9 +375,21 @@ function checkVocabulary(label: string, block: Partial<Record<string, unknown>>)
     }
     for (const field of asArray(block.configFields)) {
         member('configFields.control', readProperty(field, 'control'), BLOCK_CONTROL_TYPES);
+        // An option's `requires` joins the node's requirements when it is picked, so a
+        // word outside the vocabulary would be a requirement nothing ever checks.
+        for (const option of asArray(readProperty(field, 'options'))) {
+            for (const requirement of asArray(readProperty(option, 'requires'))) {
+                member('configFields.options.requires', requirement, FLOW_CONTEXT_REQUIREMENTS);
+            }
+        }
     }
     for (const handle of asArray(block.handles)) {
         member('handles.tone', readProperty(handle, 'tone'), BLOCK_HANDLE_TONES);
+    }
+    // A source outside the vocabulary is one no trigger can declare, so the emission
+    // would link to nothing and the loop check would miss what it causes.
+    for (const emission of asArray(block.emits)) {
+        member('emits.startedBy', readProperty(emission, 'startedBy'), BLOCK_TRIGGER_SOURCES);
     }
 
     return issues;
@@ -591,52 +778,7 @@ function checkVisibleWhen(label: string, configFields: unknown, configSchema: un
 
         const key = String(readProperty(field, 'key'));
         const where = `${label}: the field "${key}"`;
-        const sourceKey = readProperty(when, 'field');
-        const equals = readProperty(when, 'equals');
-        if (
-            typeof sourceKey !== 'string' ||
-            !Array.isArray(equals) ||
-            equals.length === 0 ||
-            !equals.every((value) => typeof value === 'string')
-        ) {
-            issues.push(`${where} declares visibleWhen without a field name and a non-empty list of values to show for.`);
-            continue;
-        }
-
-        const source = configFields.find((candidate) => readProperty(candidate, 'key') === sourceKey);
-        const choices = choiceValuesOf(source);
-        if (!choices) {
-            issues.push(
-                `${where} is shown by "${sourceKey}", which is not a select or segmented field of this block. ` +
-                    'Only a fixed set of choices can decide whether a field applies.'
-            );
-            continue;
-        }
-
-        if (readProperty(source, 'visibleWhen') !== undefined) {
-            issues.push(
-                `${where} is shown by "${sourceKey}", which is itself conditional. One level only — a chain ` +
-                    'would hide a field for a reason the form never shows.'
-            );
-        }
-
-        const declaredDefault = readProperty(source, 'defaultValue');
-        const sourceSchema = shape?.[sourceKey];
-        const withoutValue = sourceSchema?.safeParse(undefined);
-        const schemaDefault = withoutValue?.success ? withoutValue.data : undefined;
-        if (declaredDefault === undefined || declaredDefault !== schemaDefault) {
-            issues.push(
-                `${where} is shown by "${sourceKey}", which needs a declared default matching a schema ` +
-                    `.default() (field says ${JSON.stringify(declaredDefault)}, schema says ` +
-                    `${JSON.stringify(schemaDefault)}), so every reader agrees what an untouched node shows.`
-            );
-        }
-
-        for (const value of equals as readonly string[]) {
-            if (!choices.includes(value)) {
-                issues.push(`${where} is shown when "${sourceKey}" is "${value}", which it never offers.`);
-            }
-        }
+        issues.push(...checkVisibleWhenSource(where, when, configFields, shape));
 
         const fieldSchema = shape?.[key];
         if (fieldSchema && !fieldSchema.safeParse(undefined).success) {
@@ -652,8 +794,145 @@ function checkVisibleWhen(label: string, configFields: unknown, configSchema: un
 }
 
 /**
- * A `variableSelect` must name a real kind, and its schema must take a variable name
- * in the shared spelling.
+ * The half of a `visibleWhen` that is about the choice deciding it, shared by a field's
+ * and a card-summary part's — one set of rules, so the two cannot come to disagree about
+ * what may show or hide something.
+ *
+ * `where` names what carries the declaration, for the messages.
+ */
+function checkVisibleWhenSource(
+    where: string,
+    when: unknown,
+    configFields: readonly unknown[],
+    shape: Record<string, ZodType> | null
+): readonly string[] {
+    const sourceKey = readProperty(when, 'field');
+    const equals = readProperty(when, 'equals');
+    if (
+        typeof sourceKey !== 'string' ||
+        !Array.isArray(equals) ||
+        equals.length === 0 ||
+        !equals.every((value) => typeof value === 'string')
+    ) {
+        return [`${where} declares visibleWhen without a field name and a non-empty list of values to show for.`];
+    }
+
+    const source = configFields.find((candidate) => readProperty(candidate, 'key') === sourceKey);
+    const choices = choiceValuesOf(source);
+    if (!choices) {
+        return [
+            `${where} is shown by "${sourceKey}", which is not a select or segmented field of this block. ` +
+                'Only a fixed set of choices can decide whether something applies.',
+        ];
+    }
+
+    const issues: string[] = [];
+    if (readProperty(source, 'visibleWhen') !== undefined) {
+        issues.push(
+            `${where} is shown by "${sourceKey}", which is itself conditional. One level only — a chain ` +
+                'would hide something for a reason the form never shows.'
+        );
+    }
+
+    const declaredDefault = readProperty(source, 'defaultValue');
+    const sourceSchema = shape?.[sourceKey];
+    const withoutValue = sourceSchema?.safeParse(undefined);
+    const schemaDefault = withoutValue?.success ? withoutValue.data : undefined;
+    if (declaredDefault === undefined || declaredDefault !== schemaDefault) {
+        issues.push(
+            `${where} is shown by "${sourceKey}", which needs a declared default matching a schema ` +
+                `.default() (field says ${JSON.stringify(declaredDefault)}, schema says ` +
+                `${JSON.stringify(schemaDefault)}), so every reader agrees what an untouched node shows.`
+        );
+    }
+
+    for (const value of equals as readonly string[]) {
+        if (!choices.includes(value)) {
+            issues.push(`${where} is shown when "${sourceKey}" is "${value}", which it never offers.`);
+        }
+    }
+
+    return issues;
+}
+
+/**
+ * What a control stores, as values its field's schema must take and values it must refuse
+ * — for the controls whose stored shape is fixed by the control rather than by the block.
+ *
+ * A time-of-day control writes `HH:MM` and a days-of-week control writes `'mon'` …
+ * `'sun'`, whatever block asks for one. A schema looser than that would save a value the
+ * control can never draw (and the reader of the value would have to guess at it); a
+ * stricter one would refuse a value the control offers. Probed, like every other schema
+ * check here, so the check holds however the schema is written.
+ */
+interface ControlShapeProbes {
+    readonly accepts: readonly unknown[];
+    readonly refuses: readonly unknown[];
+    /** What the control stores, for the message. */
+    readonly description: string;
+}
+
+function controlShapeProbes(control: unknown): ControlShapeProbes | undefined {
+    switch (control) {
+        case 'timeOfDay':
+            return {
+                accepts: ['00:00', '23:59'],
+                refuses: ['24:00', '9:00'],
+                description: 'a 24-hour HH:MM (00:00 to 23:59, always two digits for the hour)',
+            };
+        case 'daysOfWeek':
+            return {
+                accepts: BLOCK_DAY_KEYS.map((day) => [day]),
+                refuses: [['Mon'], ['monday'], ['someday'], 'mon'],
+                description: `a list of the seven day keys, ${BLOCK_DAY_KEYS.map((day) => `'${day}'`).join(', ')}`,
+            };
+        default:
+            return undefined;
+    }
+}
+
+/**
+ * A control with a fixed stored shape must sit over a schema that takes exactly that
+ * shape — see {@link controlShapeProbes}.
+ */
+function checkControlShape(
+    label: string,
+    key: string,
+    field: Partial<BlockConfigField>,
+    fieldSchema: ZodType
+): readonly string[] {
+    const probes = controlShapeProbes(field.control);
+    if (!probes) {
+        return [];
+    }
+
+    const missing = probes.accepts.filter((probe) => !fieldSchema.safeParse(probe).success);
+    const notRefused = probes.refuses.filter((probe) => fieldSchema.safeParse(probe).success);
+    const issues: string[] = [];
+
+    if (missing.length > 0) {
+        issues.push(
+            `${label}: the ${String(field.control)} field "${key}" stores ${probes.description}, but its ` +
+                `configSchema refuses ${missing.map((probe) => JSON.stringify(probe)).join(', ')}, so the ` +
+                'control would offer a value the save then refuses.'
+        );
+    }
+
+    if (notRefused.length > 0) {
+        issues.push(
+            `${label}: the ${String(field.control)} field "${key}" stores ${probes.description}, but its ` +
+                `configSchema accepts ${notRefused.map((probe) => JSON.stringify(probe)).join(', ')} — a value ` +
+                'the control can never draw. Tighten the schema to what the control stores.'
+        );
+    }
+
+    return issues;
+}
+
+/**
+ * A `variableSelect` that declares a kind must name a real one, and its schema must take
+ * a variable name in the shared spelling. Declaring no kind is allowed — it takes any
+ * variable — so only a kind that is present is judged.
  *
  * Probed rather than compared by identity, like every other schema check here: a
  * well-formed name must parse and a dotted one must not. The dotted probe is the one
@@ -673,7 +952,7 @@ function checkVariableNameField(
     const issues: string[] = [];
     const valueKinds: readonly unknown[] = BLOCK_OUTPUT_VALUE_KINDS;
     const valueKind: unknown = 'valueKind' in field ? field.valueKind : undefined;
-    if (!valueKinds.includes(valueKind)) {
+    if (valueKind !== undefined && !valueKinds.includes(valueKind)) {
         issues.push(
             `${label}: the variableSelect field "${key}" offers variables of the kind ` +
                 `${JSON.stringify(valueKind)}, which is not a value kind (${BLOCK_OUTPUT_VALUE_KINDS.join(', ')}).`
@@ -752,6 +1031,7 @@ function checkConfigFields(label: string, configFields: unknown, configSchema: u
         issues.push(...checkFieldEntryBounds(label, key, field, fieldSchema));
         issues.push(...checkFieldColumns(label, key, field, fieldSchema));
         issues.push(...checkVariableNameField(label, key, field, fieldSchema));
+        issues.push(...checkControlShape(label, key, field, fieldSchema));
     }
 
     for (const key of Object.keys(shape)) {
@@ -774,7 +1054,12 @@ function checkConfigFields(label: string, configFields: unknown, configSchema: u
  * nothing worth summarising (`trigger.memberJoin` aside, which still summarises
  * with a literal) simply leaves the card to fall back to "Click to configure".
  */
-function checkCardSummary(label: string, cardSummary: unknown, configFields: unknown): readonly string[] {
+function checkCardSummary(
+    label: string,
+    cardSummary: unknown,
+    configFields: unknown,
+    configSchema: unknown
+): readonly string[] {
     if (cardSummary === undefined) {
         return [];
     }
@@ -782,6 +1067,8 @@ function checkCardSummary(label: string, cardSummary: unknown, configFields: unk
     if (!Array.isArray(cardSummary)) {
         return [`${label}: cardSummary must be an array of parts when declared.`];
     }
+
+    const shape = isZodType(configSchema) ? objectShape(configSchema) : null;
 
     const declaredKeys = new Set(
         asArray(configFields)
@@ -844,6 +1131,13 @@ function checkCardSummary(label: string, cardSummary: unknown, configFields: unk
                 `${label}: ${where} sets stopIfEmpty without emptyText, so the empty case would render ` +
                     'nothing — the whole point of stopping early is to show emptyText in place of the rest.'
             );
+        }
+
+        // Held to a field's own `visibleWhen` rules, so a part can only be shown by a
+        // choice every reader resolves the same way.
+        const when = readProperty(part, 'visibleWhen');
+        if (when !== undefined) {
+            issues.push(...checkVisibleWhenSource(`${label}: ${where}`, when, asArray(configFields), shape));
         }
     }
 

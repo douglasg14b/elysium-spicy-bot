@@ -35,6 +35,9 @@
  *   channel, and `pendingResourceFields` refuses the graph save because the sidecar names a
  *   key nothing declares. So the freeze is not conservatism; unfreezing it corrupts.
  *
+ * A **ticket type** is the exception to all of this: its key never follows, because the
+ * key decides whether install reuses an existing type or makes one (`keyForRenamedResource`).
+ *
  * ## Why installed-ness is passed in rather than looked up
  *
  * This module is pure and the panel is handed a list of declarations, not a guild. The
@@ -161,6 +164,14 @@ export interface KeyFollowInput {
  */
 export function keyForRenamedResource(input: KeyFollowInput): string | undefined {
     const { resource, nextName, resources, installedKeys } = input;
+
+    /*
+     * A ticket type's key never follows its label. The key *is* the type: install reuses a
+     * type of that key if the server has one and creates it otherwise, so a rename that
+     * moved the key would silently switch the row from "use Verification" to "make a new
+     * type" — or the reverse — with nothing on screen saying so.
+     */
+    if (resource.kind === 'ticketType') return undefined;
 
     // Identity, not a label, the moment anything in the guild points at it.
     if (installedKeys?.has(resource.key)) return undefined;

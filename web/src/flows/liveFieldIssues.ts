@@ -20,6 +20,7 @@
 
 import type { BlockConfigField, FlowNode, FlowValidationIssue, NodeDescriptor } from '@brattybot/web-sdk';
 import { fieldProblems, type FieldCheck } from '../api/fieldProblems';
+import { RESOURCE_PICKER_CONTROLS } from './contractValues';
 import { resourceKeyFieldFor } from './controls/types';
 import { isFieldVisible } from './variables';
 
@@ -52,12 +53,13 @@ function problemsWith(
  *
  * A picker left empty because it names a resource the flow declares but has not
  * installed is ready, not missing — and whether the key is really declared is the
- * server's call (`pendingResourceFields`). The server finds sidecars by their name alone,
- * whatever control wrote them (`collectResourceTargets`), so this does too: asking which
- * controls write one would be a second, narrower copy of a rule that is not about
- * controls.
+ * server's call (`pendingResourceFields`). The server counts a `<field>Key` as a sidecar
+ * only when the field is a picker (`collectResourceTargets`) — it used to go by the name
+ * alone, which read Pick Random's `outputKey` as one — so this asks the same list, read
+ * off the spec (`ResourcePickerControl`).
  */
 function emptinessIsTheServers(field: BlockConfigField, config: Record<string, unknown>): boolean {
+    if (!RESOURCE_PICKER_CONTROLS.has(field.control)) return false;
     const sidecar = config[resourceKeyFieldFor(field.key)];
     return typeof sidecar === 'string' && sidecar !== '';
 }

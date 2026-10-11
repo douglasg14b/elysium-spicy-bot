@@ -2,10 +2,11 @@ import SqliteDatabase from 'better-sqlite3';
 import { CamelCasePlugin, Kysely, SqliteDialect } from 'kysely';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SqliteJsonPlugin } from '../../../../features-system/data-persistence/plugins/sqliteJsonPlugin';
-import { up as createTicketingConfig } from '../../../../features-system/data-persistence/migrations/2025-11-10-Create_Ticketing_Config';
 import { up as createTickets } from '../../../../features-system/data-persistence/migrations/2026-09-17-Create_Tickets_Table';
+import type { ResourceBindingTable } from '../../../provisioning/data/resourceBindingsSchema';
+import { createTicketTestTables, seedTicketCategorySlots } from '../../__tests__/support/ticketTestTables';
 import { defaultTicketTypes } from '../../data/defaultTicketTypes';
-import type { TicketingConfig, TicketingConfigTable } from '../../data/ticketingSchema';
+import type { StoredTicketingConfig, TicketingConfigTable } from '../../data/ticketingSchema';
 import type { TicketTable } from '../../data/ticketsSchema';
 
 /**
@@ -39,6 +40,7 @@ import type { TicketTable } from '../../data/ticketsSchema';
 interface TestDatabase {
     ticketing_config: TicketingConfigTable;
     tickets: TicketTable;
+    resource_bindings: ResourceBindingTable;
 }
 
 const sqliteFile = new SqliteDatabase(':memory:');
@@ -47,6 +49,10 @@ const db = new Kysely<TestDatabase>({
     dialect: new SqliteDialect({ database: sqliteFile }),
     plugins: [new CamelCasePlugin(), new SqliteJsonPlugin<TestDatabase>({ ticketing_config: ['config'] })],
 });
+// The config's tables (its blob, and the category slot rows the repo assembles it with),
+// and the tickets the delete counts.
+await createTicketTestTables(db as never);
+await createTickets(db as never);
 
 vi.mock('../../../../features-system/data-persistence/database', () => ({
     get database() {
@@ -82,16 +88,11 @@ async function withinTimeout<T>(work: Promise<T>, label: string): Promise<T> {
     return result as T;
 }
 
-function baseConfig(): TicketingConfig {
+function baseConfig(): StoredTicketingConfig {
     return {
         modTicketsDeployed: true,
         modTicketsDeployedChannelId: 'panel-channel',
         modTicketsDeployedMessageId: 'panel-message',
-        categories: {
-            open: { name: 'Support', discordId: '900000000000000001', provenance: 'adopted' },
-            claimed: { name: 'Claimed', discordId: '900000000000000002', provenance: 'adopted' },
-            closed: { name: 'Closed', discordId: '900000000000000003', provenance: 'adopted' },
-        },
         moderationRoles: ['role-1'],
         ticketTypes: defaultTicketTypes(),
     };
@@ -100,6 +101,7 @@ function baseConfig(): TicketingConfig {
 async function seedConfig(): Promise<void> {
     await db.deleteFrom('ticketing_config').execute();
     await db.deleteFrom('tickets').execute();
+    await db.deleteFrom('resource_bindings').execute();
     await db
         .insertInto('ticketing_config')
         .values({
@@ -111,6 +113,12 @@ async function seedConfig(): Promise<void> {
             entityVersion: 1,
         })
         .execute();
+    // A configured guild, so the slots the transaction assembles are real rows.
+    await seedTicketCategorySlots(GUILD_ID, {
+        open: { name: 'Support', discordId: '900000000000000001', provenance: 'adopted' },
+        claimed: { name: 'Claimed', discordId: '900000000000000002', provenance: 'adopted' },
+        closed: { name: 'Closed', discordId: '900000000000000003', provenance: 'adopted' },
+    });
 }
 
 async function seedTicket(type: string, status: 'open' | 'closed' | 'deleted', ticketNumber: number): Promise<void> {
@@ -133,8 +141,6 @@ async function seedTicket(type: string, status: 'open' | 'closed' | 'deleted', t
 }
 
 beforeEach(async () => {
-    await createTicketingConfig(db as never).catch(() => undefined);
-    await createTickets(db as never).catch(() => undefined);
     await seedConfig();
 });
 
@@ -156,7 +162,7 @@ describe('deleteTicketType against real sqlite', () => {
             .where('guildId', '=', GUILD_ID)
             .executeTakeFirstOrThrow();
 
-        const types = (row.config as unknown as TicketingConfig).ticketTypes ?? {};
+        const types = row.config.ticketTypes ?? {};
         expect(Object.keys(types)).toEqual(['support']);
     });
 

@@ -8,15 +8,26 @@ import { z } from '@hono/zod-openapi';
 import type { JourneyEntity } from '../../features/provisioning/data/journeysSchema';
 import { REPAIR_OUTCOMES, type RepairedResource } from '../../features/provisioning/logic/applyDriftRepair';
 import { DECLARED_ROLE_PREFIX } from '../../features/provisioning/logic/declaredRoleReference';
-import type { JourneyMergePlan, KeyCollision, MovingResource } from '../../features/provisioning/logic/journeyMergePlan';
+import type {
+    JourneyMergePlan,
+    KeyCollision,
+    MovingResource,
+    SharedTicketType,
+} from '../../features/provisioning/logic/journeyMergePlan';
 import {
     PERMISSION_ACCESS_LEVELS,
     PERMISSION_AUDIENCES,
     type PermissionIntent,
 } from '../../features/provisioning/logic/permissionIntent';
-import { RESOURCE_KINDS, type ResourceDeclaration } from '../../features/provisioning/logic/resourceDeclaration';
+import {
+    DISCORD_RESOURCE_KINDS,
+    RESOURCE_KINDS,
+    type ResourceDeclaration,
+} from '../../features/provisioning/logic/resourceDeclaration';
 import { RESOURCE_DRIFT_KINDS } from '../../features/provisioning/logic/resourceDrift';
 import { normaliseResourceName } from '../../features/provisioning/logic/resourceName';
+import { ticketTypeDefinitionProblem } from '../../features/tickets/logic/setTicketTypes';
+import { TicketTypeSettingsSchema } from './ticketBody';
 import {
     errorBodyResponse,
     GUILD_SCOPED_ERRORS,
@@ -97,8 +108,26 @@ export const PermissionRoleIdSchema = z
         'A declared role reference must name a valid resource key (lowercase letters, numbers and single hyphens).'
     );
 
-/** What kind of guild object a declared resource is. */
+/**
+ * What kind of thing a declared resource is: a category, channel or role in the guild, or a
+ * ticket type in the guild's ticket settings.
+ */
 const ResourceKindSchema = z.enum(RESOURCE_KINDS).openapi('ResourceKind');
+
+/**
+ * The kinds of resource that are objects in the Discord guild — categories, channels and
+ * roles, each with a snowflake. The fourth kind, `ticketType`, is a row in the ticket
+ * settings named by its key: no parent, no channel permissions, nothing to adopt by id.
+ *
+ * No route sends it on its own; it is registered as a component (`openApiDocument.ts`) so
+ * the browser branches on the server's own list before reaching for the channel or role
+ * directory, rather than on a copy of it.
+ */
+export const DiscordResourceKindSchema = z.enum(DISCORD_RESOURCE_KINDS).openapi('DiscordResourceKind', {
+    description:
+        'The resource kinds that are objects in the Discord guild, each with a snowflake. A `ticketType` ' +
+        'is not one: it lives in the ticket settings, named by its key.',
+});
 
 /** Who a permission intent is about. `roles` names its roles in `roleIds`. */
 const PermissionAudienceSchema = z.enum(PERMISSION_AUDIENCES).openapi('PermissionAudience');
@@ -152,27 +181,44 @@ const discordIdSchema = z.string().regex(/^\d{17,20}$/, 'A channel or role id is
  * normalises as the operator types, so a browser save is unchanged by this; it is here
  * because the browser is a client, not the authority. The spec describes the object the
  * transform reads, which is also the shape it writes.
+ *
+ * A ticket type's label is trimmed instead, as the ticket feature trims it on create, so the
+ * declaration, the binding's name and the type itself say the same thing — not run through
+ * `normaliseResourceName`, which the panel runs as the operator types.
  */
 export const ResourceDeclarationSchema = z
     .object({
         key: resourceKeySchema,
         kind: ResourceKindSchema,
+        /** For a `ticketType`, the type's label. */
         defaultName: z.string().min(1, 'Give the resource a name.').max(100, 'Resource names cap at 100 characters.'),
         parentKey: resourceKeySchema.optional(),
         permissions: z.array(PermissionIntentSchema).readonly().optional(),
         description: z.string().max(500, 'Descriptions cap at 500 characters.').optional(),
         /** Set when the operator picked something that already exists instead of declaring a new one. */
         adoptDiscordId: discordIdSchema.optional(),
+        /**
+         * A ticket type's settings: what install creates the type with when the server has
+         * none of this key (an existing type is used as it is). Which kinds may carry it is
+         * `validateJourneyDeclaration`'s call; the rules that span the label or need the
+         * renderer are {@link ticketTypeDeclarationRefusal}'s.
+         */
+        ticketType: TicketTypeSettingsSchema.optional(),
     })
     .transform((resource) => ({
         ...resource,
-        defaultName: normaliseResourceName(resource.kind, resource.defaultName),
+        defaultName:
+            resource.kind === 'ticketType'
+                ? resource.defaultName.trim()
+                : normaliseResourceName(resource.kind, resource.defaultName),
     }))
     .openapi('ResourceDeclaration', {
         description:
             'A resource a journey needs, named by a key stable across servers. `defaultName` is ' +
-            'stored as Discord will hold it: a text channel lowercased, whitespace hyphenated. ' +
-            '`adoptDiscordId` adopts something that already exists instead of creating it.',
+            'stored as Discord will hold it: a text channel lowercased, whitespace hyphenated; for a ' +
+            '`ticketType` it is the type\'s label, trimmed. `adoptDiscordId` adopts something that ' +
+            'already exists instead of creating it. `ticketType` holds a ticket type\'s settings, and ' +
+            'only a `ticketType` resource carries it.',
     });
 
 const ResourceDeclarationsSchema = z.array(ResourceDeclarationSchema).readonly();
@@ -199,6 +245,45 @@ export function rolesWithoutIdsRefusal(resources: readonly ResourceDeclaration[]
         resource.permissions?.some((intent) => intent.audience === 'roles' && !intent.roleIds?.length)
     );
     return namesNoRole ? 'A `roles` permission must name at least one role.' : undefined;
+}
+
+/**
+ * Why a list of declarations is refused for a declared ticket type the ticket feature would
+ * not create, or `undefined` when every one passes.
+ *
+ * The ticket feature's own rules (`ticketTypeDefinitionProblem`) — the label's 45-character
+ * cap, the template's tokens, its rendered length — so a journey cannot store a type that
+ * install's create would then refuse. Its key is the resource key, already a subset of what
+ * a type key allows; its label is the resource's name, trimmed.
+ *
+ * Asked where {@link rolesWithoutIdsRefusal} is, for the same reason: the label cap spans
+ * two fields (`kind` and `defaultName`) and the rendered length needs the renderer, so
+ * neither can travel in the spec, and the request-rule emit would refuse it as a
+ * `.superRefine()`. The template's tokens do travel, through `TicketTypeSettings`, so the
+ * schema refuses those first with the same sentence. The browser warns about the rest with
+ * its `invalidTicketType` chip.
+ */
+export function ticketTypeDeclarationRefusal(resources: readonly ResourceDeclaration[]): string | undefined {
+    for (const resource of resources) {
+        if (resource.kind !== 'ticketType' || !resource.ticketType) continue;
+
+        const problem = ticketTypeDefinitionProblem({
+            type: resource.key,
+            label: resource.defaultName.trim(),
+            ...resource.ticketType,
+        });
+        if (problem) return problem;
+    }
+    return undefined;
+}
+
+/**
+ * What the routes that take resources refuse a valid-shaped list for, beyond the schema:
+ * {@link rolesWithoutIdsRefusal}, then {@link ticketTypeDeclarationRefusal}. One call, so the
+ * three routes cannot ask a different set.
+ */
+export function declarationsRefusal(resources: readonly ResourceDeclaration[]): string | undefined {
+    return rolesWithoutIdsRefusal(resources) ?? ticketTypeDeclarationRefusal(resources);
 }
 
 /** The path of every route about one journey. */
@@ -422,11 +507,27 @@ const KeyCollisionSchema = z
     })
     .openapi('KeyCollision');
 
+/**
+ * A ticket type both journeys declare under one key. Not a collision — the key is the type,
+ * so the two are one type; merging keeps the destination's declaration and drops the moving
+ * one's label.
+ */
+const SharedTicketTypeSchema = z
+    .object({
+        key: z.string(),
+        /** The moving journey's label for it, which is dropped. */
+        movingName: z.string(),
+        /** The destination's label, which is kept. */
+        destinationName: z.string(),
+    })
+    .openapi('SharedTicketType');
+
 /** `planJourneyMerge`'s answer, which the preview sends as it is. Not a component of its own. */
 const journeyMergePlanSchema = z.object({
     moving: z.array(MovingResourceSchema).readonly(),
     canMerge: z.boolean(),
     collisions: z.array(KeyCollisionSchema).readonly(),
+    sharedTicketTypes: z.array(SharedTicketTypeSchema).readonly(),
     orphaned: z.array(MovingResourceSchema).readonly(),
 });
 
@@ -446,7 +547,9 @@ export const GroupPreviewSchema = journeyMergePlanSchema
     .openapi('GroupPreview', {
         description:
             'What grouping would do. `destination` is null when the target flow is on no journey ' +
-            'yet, so one would be created. `orphaned` are the live resources "leave" would strand.',
+            'yet, so one would be created. `orphaned` are the live resources "leave" would strand. ' +
+            '`sharedTicketTypes` are ticket types both sides declare, which a merge folds into the ' +
+            "destination's.",
     });
 
 /**
@@ -474,6 +577,7 @@ type JourneyBodyChecks = ChecksHold<{
     ResourceDeclaration: SchemaMatches<typeof ResourceDeclarationSchema, ResourceDeclaration>;
     MovingResource: SchemaMatches<typeof MovingResourceSchema, MovingResource>;
     KeyCollision: SchemaMatches<typeof KeyCollisionSchema, KeyCollision>;
+    SharedTicketType: SchemaMatches<typeof SharedTicketTypeSchema, SharedTicketType>;
     JourneyMergePlan: SchemaMatches<typeof journeyMergePlanSchema, JourneyMergePlan>;
     RepairedResource: SchemaMatches<typeof RepairedResourceSchema, RepairedResource>;
 }>;

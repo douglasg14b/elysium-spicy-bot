@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { sql } from 'kysely';
 import type { DatabaseClient } from '../../../../features-system/data-persistence/database';
 import { createFlowRunsTestDb } from '../../../../features-system/data-persistence/__tests__/support/flowRunsTestDb';
+import { FLOW_RUN_ENTITY_VERSION } from '../../constants';
 import { IllegalFlowRunTransitionError } from '../flowRunLifecycle';
 import { FlowRunsRepo } from '../flowRunsRepo';
 
@@ -50,6 +51,41 @@ describe('FlowRunsRepo (sqlite)', () => {
 
         const fetched = await repo.getByRunId(created.runId);
         expect(fetched?.log[0]?.nodeId).toBe('trigger');
+    });
+
+    it('round-trips a run about nobody, with no member in its snapshot, at entity version 6', async () => {
+        // A trigger that supplies nobody parks runs with no `userId`. The key must stay
+        // absent through the write and the read — never `""`, never `undefined` written
+        // as a key — and the row is stamped with the version that can read it.
+        const created = await repo.create({
+            flowId: 'flow-1',
+            guildId: GUILD_ID,
+            contextSnapshot: { guildId: GUILD_ID },
+            resumeNodeId: 'delay',
+            wakeAt: new Date(Date.now() + 60_000),
+        });
+
+        const fetched = await repo.getByRunId(created.runId);
+
+        expect(FLOW_RUN_ENTITY_VERSION).toBe(6);
+        expect(fetched?.entityVersion).toBe(6);
+        expect(fetched?.contextSnapshot).toEqual({ guildId: GUILD_ID });
+        expect(Object.hasOwn(fetched?.contextSnapshot ?? {}, 'userId')).toBe(false);
+    });
+
+    it('claims only the park that was read, by its node and its deadline', async () => {
+        const wakeAt = new Date(Date.now() - 60_000);
+        const run = await repo.create({
+            flowId: 'flow-1',
+            guildId: GUILD_ID,
+            contextSnapshot: { guildId: GUILD_ID },
+            resumeNodeId: 'delay',
+            wakeAt,
+        });
+
+        expect(await repo.claimForResume(run.runId, { resumeNodeId: 'delay', wakeAt: new Date(0) })).toBeNull();
+        expect(await repo.claimForResume(run.runId, { resumeNodeId: 'elsewhere', wakeAt })).toBeNull();
+        expect((await repo.claimForResume(run.runId, { resumeNodeId: 'delay', wakeAt }))?.status).toBe('running');
     });
 
     it('findDue picks up an overdue run and not a future one', async () => {
@@ -156,6 +192,109 @@ describe('FlowRunsRepo (sqlite)', () => {
         expect(found[0]?.waitConfig).toEqual({ eventKind: 'memberJoin', timeoutMs: 60_000 });
     });
 
+    describe('a message wait', () => {
+        const PARKED_AT = '2026-10-03T09:00:00.000Z';
+
+        function parkOnMessage(flowId: string, wakeAt: Date | null) {
+            return repo.create({
+                flowId,
+                guildId: GUILD_ID,
+                contextSnapshot: { guildId: GUILD_ID, userId: USER_ID },
+                resumeNodeId: 'wait',
+                wakeAt,
+                waitKind: 'message',
+                waitConfig: { eventKind: 'message', timeoutMs: 60_000, channelId: 'channel-1', parkedAt: PARKED_AT },
+            });
+        }
+
+        it('round-trips its channel and the time it parked', async () => {
+            const parked = await parkOnMessage('flow-message', null);
+
+            const [found] = await repo.findWaiting({ waitKind: 'message' });
+
+            expect(found?.runId).toBe(parked.runId);
+            expect(found?.waitConfig).toEqual({
+                eventKind: 'message',
+                timeoutMs: 60_000,
+                channelId: 'channel-1',
+                parkedAt: PARKED_AT,
+            });
+        });
+
+        it('fails the read by name when the time it parked is not an instant', async () => {
+            const parked = await parkOnMessage('flow-message', null);
+            await sql`UPDATE flow_runs SET wait_config = ${JSON.stringify({ eventKind: 'message', parkedAt: 'soon' })}`.execute(db);
+
+            await expect(repo.getByRunId(parked.runId)).rejects.toThrow(/invalid stored waitConfig/);
+        });
+
+        it('is held out of findDue while every other due run, plain delays included, still comes back', async () => {
+            const overdue = new Date(Date.now() - 60_000);
+            const delay = await repo.create({
+                flowId: 'flow-delay',
+                guildId: GUILD_ID,
+                contextSnapshot: { guildId: GUILD_ID, userId: USER_ID },
+                resumeNodeId: 'dm',
+                wakeAt: overdue,
+            });
+            const join = await repo.create({
+                flowId: 'flow-join',
+                guildId: GUILD_ID,
+                contextSnapshot: { guildId: GUILD_ID, userId: USER_ID },
+                resumeNodeId: 'wait',
+                wakeAt: overdue,
+                waitKind: 'memberJoin',
+                waitConfig: { eventKind: 'memberJoin', timeoutMs: 60_000 },
+            });
+            const message = await parkOnMessage('flow-message', overdue);
+
+            const held = await repo.findDue(new Date(), { withoutMessageWaits: true });
+            const all = await repo.findDue(new Date());
+
+            expect(held.map((run) => run.runId).sort()).toEqual([delay.runId, join.runId].sort());
+            expect(all.map((run) => run.runId)).toContain(message.runId);
+        });
+
+        it('is the only park a claim narrowed to message waits will take', async () => {
+            const delay = await repo.create({
+                flowId: 'flow-delay',
+                guildId: GUILD_ID,
+                contextSnapshot: { guildId: GUILD_ID, userId: USER_ID },
+                resumeNodeId: 'delay',
+                wakeAt: new Date(Date.now() + 60_000),
+            });
+            const message = await parkOnMessage('flow-message', null);
+
+            expect(await repo.claimForResume(delay.runId, { waitKind: 'message' })).toBeNull();
+            expect((await repo.getByRunId(delay.runId))?.status).toBe('suspended');
+            expect((await repo.claimForResume(message.runId, { waitKind: 'message' }))?.status).toBe('running');
+        });
+
+        it('is not claimed for an event sent after its deadline, unless that deadline is a quiet window', async () => {
+            const deadline = new Date(Date.now() - 60_000);
+            const late = await parkOnMessage('flow-late', deadline);
+            const inTime = await parkOnMessage('flow-in-time', deadline);
+            const quiet = await repo.create({
+                flowId: 'flow-quiet',
+                guildId: GUILD_ID,
+                contextSnapshot: { guildId: GUILD_ID, userId: USER_ID },
+                resumeNodeId: 'wait',
+                wakeAt: deadline,
+                waitKind: 'message',
+                waitConfig: { eventKind: 'message', timeoutMs: 60_000, parkedAt: PARKED_AT },
+                quietWindow: { durationMs: 60_000, who: 'member' },
+            });
+            const afterDeadline = new Date();
+
+            expect(await repo.claimForResume(late.runId, { waitKind: 'message', eventAt: afterDeadline })).toBeNull();
+            expect((await repo.getByRunId(late.runId))?.status).toBe('suspended');
+            expect(
+                (await repo.claimForResume(inTime.runId, { eventAt: new Date(deadline.getTime() - 1) }))?.status
+            ).toBe('running');
+            expect((await repo.claimForResume(quiet.runId, { eventAt: afterDeadline }))?.status).toBe('running');
+        });
+    });
+
     it('complete, fail and cancel clear the wake/wait fields so a run is never re-picked', async () => {
         const base = {
             guildId: GUILD_ID,
@@ -203,7 +342,9 @@ describe('FlowRunsRepo (sqlite)', () => {
             resumeNodeId: 'dm',
         });
 
-        await sql`UPDATE flow_runs SET context_snapshot = ${'{"guildId":"g"}'} WHERE run_id = ${run.runId}`.execute(
+        // No guild: every snapshot names its guild. (A missing `userId` is no longer
+        // corrupt — it is a run about nobody.)
+        await sql`UPDATE flow_runs SET context_snapshot = ${'{"userId":"u"}'} WHERE run_id = ${run.runId}`.execute(
             db
         );
 

@@ -1,7 +1,9 @@
 import {
     PICKER_VALUE_KINDS,
+    isFieldVisible,
     type BlockConfigColumn,
     type BlockConfigField,
+    type FlowContextRequirement,
     type VariablePickerControl,
 } from '../blocks/manifest';
 import type { FlowRunSeed, FlowVariableValue } from '../blocks/types';
@@ -76,25 +78,98 @@ export type RenderableToken = (typeof RENDERABLE_TOKENS)[number];
  * Flat rather than nested by namespace so the whole vocabulary is one readable
  * list and save-time validation can check membership with a single lookup. A
  * resolver returning `undefined` means "this run has nobody/nothing here", which
- * is a *runtime* absence (a resumed run has no actor) rather than an authoring
- * mistake, and is reported differently from an unknown token.
+ * is a *runtime* absence (a resumed run has no actor, a run about nobody has no
+ * subject) rather than an authoring mistake, and is reported differently from an
+ * unknown token.
  */
 const RESOLVERS: Readonly<Record<RenderableToken, TokenResolver>> = {
-    'subject.mention': (context) => context.subject.toString(),
-    'subject.username': (context) => context.subject.user.username,
+    'subject.mention': (context) => context.subject?.toString(),
+    'subject.username': (context) => context.subject?.user.username,
     // discord.js's own fallback chain: server nickname, then global display
     // name, then username. What the member list shows them as.
-    'subject.displayName': (context) => context.subject.displayName,
-    'subject.id': (context) => context.subject.id,
+    'subject.displayName': (context) => context.subject?.displayName,
+    'subject.id': (context) => context.subject?.id,
     // Read at render time, not when the run started: after a three-day wait the
     // account is three days older, and the copy should say so.
-    'subject.accountAge': (context) => formatElapsed(Date.now() - context.subject.user.createdTimestamp),
+    'subject.accountAge': (context) =>
+        context.subject ? formatElapsed(Date.now() - context.subject.user.createdTimestamp) : undefined,
     // Their server avatar if they set one, else their account avatar, else
     // Discord's default. Never empty, so it is always safe to send as an image.
-    'subject.avatarUrl': (context) => context.subject.displayAvatarURL(),
+    'subject.avatarUrl': (context) => context.subject?.displayAvatarURL(),
     'actor.mention': (context) => context.actor?.toString(),
     'guild.name': (context) => context.guild.name,
 };
+
+/**
+ * What each token needs the run to carry, or `null` for one every run can fill in.
+ *
+ * Keyed by {@link RenderableToken}, beside {@link RESOLVERS}, so a token added without
+ * deciding its requirement is a compile error rather than one save-time validation and
+ * the executor silently treat as free. Declared rather than read off the namespace
+ * prefix, because the prefix is spelling: `guild.name` would have to be special-cased.
+ *
+ * A token's requirement joins the node's effective requirements wherever it is used in
+ * visible copy (`engine/nodeRequirements.ts`), so `{{subject.mention}}` on a path about
+ * nobody, or `{{actor.mention}}` after a park, is refused at save rather than failing
+ * the run that reaches it. Mirrored in `web/src/flows/builtinTokens.ts`.
+ */
+export const TOKEN_REQUIREMENTS: Readonly<Record<RenderableToken, FlowContextRequirement | null>> = {
+    'subject.mention': 'subject',
+    'subject.username': 'subject',
+    'subject.displayName': 'subject',
+    'subject.id': 'subject',
+    'subject.accountAge': 'subject',
+    'subject.avatarUrl': 'subject',
+    'actor.mention': 'actor',
+    'guild.name': null,
+};
+
+/**
+ * The requirement of a built-in token, `null` for one needing nothing, or `undefined`
+ * for anything that is not a built-in token — a `{{var.…}}`, or a typo that
+ * save-time validation reports separately.
+ */
+export function tokenRequirement(token: string): FlowContextRequirement | null | undefined {
+    return isDeclaredToken(token) ? TOKEN_REQUIREMENTS[token] : undefined;
+}
+
+/**
+ * Why a built-in token rendered nothing, worded for what the run is missing.
+ *
+ * One sentence per cause, because the fix differs: an actor lost by waiting means the
+ * block moves before the wait, and an actor the trigger never named means the path
+ * starts from a trigger where someone acts — `leg` says which; a subject was never
+ * there, because the trigger starts runs about nobody, so the token goes or the path
+ * starts elsewhere.
+ *
+ * A backstop inside the executor: its requirement check runs first, over the same
+ * visible copy, and fails the step by name before rendering. This is what a caller
+ * rendering copy outside the executor sees.
+ */
+function absentTokenMessage(fieldLabel: string, token: RenderableToken, leg: RunLeg): string {
+    const requirement = TOKEN_REQUIREMENTS[token];
+    switch (requirement) {
+        case 'actor':
+            return leg === 'resumed'
+                ? `${fieldLabel} uses {{${token}}}, but nobody caused this step — the run was woken after a ` +
+                      'wait, with nobody acting on it. Move this block before the wait.'
+                : `${fieldLabel} uses {{${token}}}, but nobody caused this step — this run's trigger doesn't ` +
+                      'say who caused it. Start this path from a trigger where someone acts.';
+        case 'subject':
+            return (
+                `${fieldLabel} uses {{${token}}}, but this run is about nobody — its trigger supplies no ` +
+                'member. Remove the token, or start this path from a trigger about a member.'
+            );
+        case 'channel':
+        case 'interaction':
+        case null:
+            return `${fieldLabel} uses {{${token}}}, but this run has nothing to fill it in with.`;
+        default: {
+            const illegal: never = requirement;
+            throw new Error(`Unknown token requirement ${JSON.stringify(illegal)}.`);
+        }
+    }
+}
 
 /**
  * Whether a string is one of the tokens above.
@@ -121,9 +196,21 @@ export type CopyRenderResult =
     | { readonly ok: true; readonly text: string }
     | { readonly ok: false; readonly error: string };
 
+/**
+ * Where the run being rendered or checked came from: woken from a park on this leg, or
+ * started by its trigger. Decides how an absent actor is explained — the two causes send
+ * an author to different fixes.
+ */
+export type RunLeg = 'resumed' | 'started';
+
 export interface RenderCopyOptions {
     /** The run the tokens are resolved against. */
     readonly context: FlowRunSeed;
+    /**
+     * Which leg of the run this is, so a missing actor is blamed on the right thing.
+     * Absent reads as `started`.
+     */
+    readonly leg?: RunLeg;
     /**
      * The field's declared `maxLength`, when it has one.
      *
@@ -185,9 +272,7 @@ export function renderCopy(template: string, options: RenderCopyOptions): CopyRe
 
         const resolved = RESOLVERS[token](context);
         if (resolved === undefined) {
-            failure =
-                `${fieldLabel} uses {{${token}}}, but this run has no ${token.split('.')[0]} — ` +
-                'a run woken by the clock was not caused by anybody. Move this block before the wait.';
+            failure = absentTokenMessage(fieldLabel, token, options.leg ?? 'started');
             return whole;
         }
 
@@ -286,6 +371,70 @@ export function copyColumnsOf(field: BlockConfigField): readonly BlockConfigColu
         return [];
     }
     return field.columns.filter((column) => column.rendersTokens === true);
+}
+
+/** One authored string a node's tokens are expanded in, and where an author finds it. */
+export interface CopyString {
+    /** The field holding it — the copy field itself, or the `objectList` it sits inside. */
+    readonly field: BlockConfigField;
+    /**
+     * Where it is, as the author reads it: `"Message"`, or `"Fields" Text on entry 2` —
+     * one-based, because the form numbers rows from one.
+     */
+    readonly where: string;
+    readonly value: string;
+}
+
+/**
+ * Every string on a node whose tokens the engine would expand: its visible copy fields
+ * ({@link isCopyField}) and the copy columns ({@link copyColumnsOf}) of its visible lists.
+ *
+ * The one walk save-time validation reads copy through — for unknown tokens, and for
+ * what the tokens a node uses need from the run — so neither reader can skip a hidden
+ * field the other honours, or miss the copy one level down that the other finds. Hidden
+ * fields are skipped because the executor neither renders nor hands them to `run`.
+ */
+export function visibleCopyStrings(
+    fields: readonly BlockConfigField[],
+    nodeData: Readonly<Record<string, unknown>>
+): readonly CopyString[] {
+    const strings: CopyString[] = [];
+    for (const field of fields) {
+        if (!isFieldVisible(field, fields, nodeData)) {
+            continue;
+        }
+
+        if (isCopyField(field)) {
+            const value = nodeData[field.key];
+            if (typeof value === 'string') {
+                strings.push({ field, where: `"${field.label}"`, value });
+            }
+            continue;
+        }
+
+        const columns = copyColumnsOf(field);
+        const entries = nodeData[field.key];
+        if (columns.length === 0 || !Array.isArray(entries)) {
+            continue;
+        }
+        for (const [index, entry] of entries.entries()) {
+            if (entry === null || typeof entry !== 'object') {
+                continue;
+            }
+            const row = entry as Record<string, unknown>;
+            for (const column of columns) {
+                const value = row[column.key];
+                if (typeof value === 'string') {
+                    strings.push({
+                        field,
+                        where: `"${field.label}" ${column.label} on entry ${index + 1}`,
+                        value,
+                    });
+                }
+            }
+        }
+    }
+    return strings;
 }
 
 /**

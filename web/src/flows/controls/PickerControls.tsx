@@ -1,8 +1,8 @@
 /**
- * The two snowflake pickers. Nobody ever types a raw id, per the block contract's
- * `rolePicker`/`channelPicker` entries.
+ * The snowflake pickers. Nobody ever types a raw id, per the block contract's
+ * `rolePicker`/`channelPicker`/`categoryPicker` entries.
  *
- * Both offer two kinds of thing: objects that exist in the guild, and resources this
+ * Each offers two kinds of thing: objects that exist in the guild, and resources this
  * flow *declares* but that provisioning has not created yet. Declared resources are
  * the point of the provisioning step — an author builds the whole flow and installs
  * the structure afterwards, instead of creating channels by hand to have something to
@@ -31,6 +31,7 @@ import { pickerVariableOf, variableToken, type AvailableVariable } from '../vari
 
 type RolePickerField = Extract<BlockConfigField, { control: 'rolePicker' }>;
 type ChannelPickerField = Extract<BlockConfigField, { control: 'channelPicker' }>;
+type CategoryPickerField = Extract<BlockConfigField, { control: 'categoryPicker' }>;
 
 /**
  * Option values for declared resources are namespaced.
@@ -244,6 +245,69 @@ export function ChannelPickerControl({
                           'the run will stop here. Wire in the block that finds it, or pick another channel.'}
                 </Text>
             )}
+        </>
+    );
+}
+
+/**
+ * Searchable category picker: the guild's categories, and categories this flow declares.
+ *
+ * The same `/channels` list the channel picker reads, filtered the other way — a
+ * category is exactly what that picker refuses to offer. No "From earlier blocks"
+ * group: no block records a category, and the block asking for one is a trigger, which
+ * could not take a `{{var}}` anyway.
+ */
+export function CategoryPickerControl({
+    field,
+    value,
+    onChange,
+    context,
+    config,
+    error,
+}: ControlProps<CategoryPickerField>) {
+    const resourceKeyField = resourceKeyFieldFor(field.key);
+    const current = currentValue(value, config?.[resourceKeyField]);
+
+    const options = useMemo(() => {
+        const existing = context.channels
+            .filter((channel) => channel.type === 'category')
+            .map((channel) => ({ value: channel.id, label: channel.name }));
+
+        const declared = declaredGroup({
+            resources: context.declaredResources,
+            kinds: ['category'],
+            prefix: '',
+        });
+
+        return declared ? [declared, { group: 'Categories in this server', items: existing }] : existing;
+    }, [context.channels, context.declaredResources]);
+
+    const declaredKey = asText(config?.[resourceKeyField]);
+
+    return (
+        <>
+            <Select
+                label={field.label}
+                description={field.description}
+                placeholder="Pick a category"
+                error={error}
+                data={options}
+                value={current}
+                onChange={(next) => {
+                    const resourceKey = next ? parseDeclaredOption(next) : undefined;
+                    if (resourceKey) {
+                        context.setConfigKey(resourceKeyField, resourceKey);
+                        onChange('');
+                        return;
+                    }
+                    context.setConfigKey(resourceKeyField, undefined);
+                    onChange(next ?? '');
+                }}
+                searchable
+                nothingFoundMessage="No categories found"
+                allowDeselect={false}
+            />
+            {declaredKey && <PendingHint />}
         </>
     );
 }

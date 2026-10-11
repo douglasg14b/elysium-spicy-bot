@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_TICKET_TYPES } from '../../data/defaultTicketTypes';
 import type { TicketingConfig, TicketTypeDefinition } from '../../data/ticketingSchema';
-import { buildTicketChannelName, getTicketTypeDefinition } from '../ticketTypes';
+import { buildTicketChannelName, getTicketTypeDefinition, listTicketTypes } from '../ticketTypes';
 
 /**
  * The lookup and the renderer, which used to be one function reading a source
@@ -53,6 +53,47 @@ describe('getTicketTypeDefinition', () => {
         const found = getTicketTypeDefinition(config({ ticketTypes: { custom: mine } }), 'custom');
 
         expect(found).toEqual(mine);
+    });
+
+    it.each(['constructor', 'toString', '__proto__', 'hasOwnProperty'])(
+        'does not resolve the inherited `%s` as a declared type',
+        (inherited) => {
+            // The key can arrive from a modal submit, and a plain index returns a truthy
+            // function or `Object.prototype` for these.
+            expect(getTicketTypeDefinition(config(), inherited)).toBeUndefined();
+        }
+    );
+});
+
+describe('listTicketTypes', () => {
+    it('lists by label, not by key or by the order the record holds them', () => {
+        const types = listTicketTypes(
+            config({
+                ticketTypes: {
+                    'aa-reports': { ...definition('R{{####}}'), type: 'aa-reports', label: 'Reports' },
+                    'zz-appeals': { ...definition('A{{####}}'), type: 'zz-appeals', label: 'Appeals' },
+                },
+            })
+        );
+
+        expect(types.map((type) => type.type)).toEqual(['zz-appeals', 'aa-reports']);
+    });
+
+    it('breaks a tie on label by key, so the order is the same every time', () => {
+        const types = listTicketTypes(
+            config({
+                ticketTypes: {
+                    'zz-twin': { ...definition('Z{{####}}'), type: 'zz-twin', label: 'Twin' },
+                    'aa-twin': { ...definition('A{{####}}'), type: 'aa-twin', label: 'Twin' },
+                },
+            })
+        );
+
+        expect(types.map((type) => type.type)).toEqual(['aa-twin', 'zz-twin']);
+    });
+
+    it('is empty for a guild with no ticketTypes member', () => {
+        expect(listTicketTypes(config({ ticketTypes: undefined }))).toEqual([]);
     });
 });
 

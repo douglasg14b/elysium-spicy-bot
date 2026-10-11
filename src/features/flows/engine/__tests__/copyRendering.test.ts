@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FlowRunSeed, FlowVariableValue } from '../../blocks/types';
-import { isRenderableToken, renderCopy, tokensIn } from '../copyRendering';
+import { RENDERABLE_TOKENS, TOKEN_REQUIREMENTS, isRenderableToken, renderCopy, tokensIn } from '../copyRendering';
 
 /**
  * The renderer in isolation: no Discord, no registry, no graph.
@@ -130,8 +130,41 @@ describe('the copy renderer', () => {
 
             expect(result.ok).toBe(false);
             if (result.ok) throw new Error('unreachable');
-            expect(result.error).toContain('actor');
+            expect(result.error).toMatch(/nobody caused this step — this run's trigger doesn't say who caused it/);
         });
+
+        it('blames the wait for a missing actor on a resumed leg', () => {
+            const result = renderCopy('{{actor.mention}} approved you', {
+                context: makeContext(),
+                leg: 'resumed',
+                fieldLabel: '"Message"',
+            });
+
+            expect(result.ok).toBe(false);
+            if (result.ok) throw new Error('unreachable');
+            expect(result.error).toMatch(/woken after a wait, with nobody acting on it\. Move this block before the wait\./);
+        });
+
+        it.each(RENDERABLE_TOKENS.filter((token) => TOKEN_REQUIREMENTS[token] === 'subject'))(
+            'says {{%s}} has nobody to fill it in on a run about nobody, rather than rendering "undefined"',
+            (token) => {
+                // A run whose trigger supplies no member carries no subject. Every subject
+                // token resolves to nothing there, and the failure says why — not the
+                // actor's "woken by the clock", which would send the author to move the
+                // block before a wait that does not exist.
+                const context: FlowRunSeed = { ...makeContext(), subject: undefined };
+
+                const result = render(`Hello {{${token}}}`, context);
+
+                expect(result.ok).toBe(false);
+                if (result.ok) throw new Error('unreachable');
+                expect(result.error).toBe(
+                    `"Message" uses {{${token}}}, but this run is about nobody — its trigger supplies no member. ` +
+                        'Remove the token, or start this path from a trigger about a member.'
+                );
+                expect(result.error).not.toContain('undefined');
+            }
+        );
 
         // Every one of these was accepted before the prototype chain was closed
         // off, and two of them rendered `[object Object]` into a Discord message

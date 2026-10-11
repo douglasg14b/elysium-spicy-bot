@@ -80,12 +80,13 @@ marks it optional; arrays are declared empty rather than omitted, so a reader ca
 | `outputs` | Values your block writes for later blocks to read, via `context.setOutput`. Read by the builder to offer an author the variables in scope. Discriminated on `naming` — `fixed` carries the name, `authored` names the config field holding it. See [Run variables](#run-variables). |
 | `requires` | Run context you cannot work without. See [Context requirements](#context-requirements). |
 | `capabilities` | Discord permissions the bot needs for your block to work. Declared, not yet enforced. |
-| `startedBy` | **Optional. Triggers only.** What fires you: `buttonClick`, `levelUp`, `memberJoin`, `memberLeave`, or `reactionAdd`. The gateway dispatchers select on this, so a new trigger for an existing source needs no dispatcher edit. Leave it off any condition or action. |
+| `emits` | What your action causes that can start a trigger — usually `[]`, and always `[]` on a trigger. Server-only. See [What a block causes](#what-a-block-causes--emits). |
+| `startedBy` | **Optional. Triggers only.** What fires you: `buttonClick`, `levelUp`, `memberJoin`, `memberLeave`, `messageSent`, `reactionAdd`, `scheduleDue`, or `ticketChanged`. `scheduleDue` is a schedule coming due: nothing on the gateway announces it, so `logic/reconcileGuildSchedules.ts` keeps a `flow_schedules` row per node with its next time and `logic/fireDueSchedules.ts` starts the due ones from the shared run tick, through an `onTick` hook `initFlows` hands the scheduler — the engine never names schedules. Its runs are about nobody, carry no channel, and are never limited. The gateway dispatchers select on this, so a new trigger for an existing source needs no dispatcher edit. Every dispatcher but the button's starts each run through one function, `startTriggeredRun` in `engine/triggeredRun.ts`, which isolates and logs a failure per run and is the only place a run start can be limited — only `messageSent` passes the flood limit. `ticketChanged` is a committed ticket change the ticket service announces through its subscriber seam; its dispatcher lives in `logic/ticketEventDispatch.ts` rather than `engine/`, because `ticket` is a word the engine vocabulary gate rejects, and it is the one source whose runs can be started by another run — see [How deep in a chain](#how-deep-in-a-chain--contextchaindepth). Leave it off any condition or action. |
 | `canSuspend` | Whether `run` may park the run. State it truthfully; conformance holds you to it. |
 | `run` | The entry point. See [The entry point](#the-entry-point). |
 
 **Your manifest is served to the browser.** `GET /api/nodes` sends every member except
-`configSchema` and `run`, so the builder can draw your node — palette entry, card, and
+`configSchema`, `run` and `emits`, so the builder can draw your node — palette entry, card, and
 inspector form — from what you declare rather than from a copy of it. That is a subtraction,
 not a list: a member added to `BlockManifest` is public to every authenticated dashboard user
 the moment it exists. A server-only member must be named in `NON_WIRE_MEMBERS` in
@@ -160,12 +161,28 @@ persists anything itself — the executor owns where to resume, the visit budget
 
 ```ts
 { kind: 'suspend', suspension: { wakeAt: new Date(Date.now() + config.durationMs) } }
-{ kind: 'suspend', suspension: { waitKind: 'reactionAdd', waitConfig: config } }
+{ kind: 'suspend', suspension: { waitKind: 'reactionAdd', waitConfig: { eventKind: 'reactionAdd' } } }
 ```
 
 Include `wakeAt` to be woken by time, `waitKind`/`waitConfig` to be woken by a Discord event,
 or both when an event-wait also has a timeout. A parked run survives a restart, so assume
 nothing about what is still in memory when you wake.
+
+The wait kinds are `memberJoin`, `reactionAdd`, `buttonClick` and `message`, always for the
+run's own member. They live in three copies kept together — `flowWaitKindSchema` in
+`actionWaitForEvent`, `FlowWaitKind` in `data/flowRunsSchema.ts` and `waitConfigSchema` in
+`data/flowRunsRepo.ts` — and a new kind goes into all three, with a `FLOW_RUN_ENTITY_VERSION`
+bump. `message` is woken differently from the others: not by a query per event, but from the
+engine's in-memory index of parked message waits, which every park, claim and release keeps
+current. Its `waitConfig` carries the resolved `channelId` (threads under it count; absent is
+anywhere) and a required `parkedAt`, where the catch-up for replies sent while the bot was down
+starts looking. The scheduler holds due message waits until that catch-up has run. A reply in a
+private thread the bot has not been added to never reaches it — Discord does not send the bot
+those messages — so it is never heard, live or by the catch-up. `parkedAt` is now or just after
+`context.eventAt`, whichever is later: `eventAt` is Discord's timestamp for the message that
+started or woke this leg, and starting after it keeps that message from counting as a reply to
+the wait it caused when Discord's clock runs ahead of the bot's. Live wake-ups draw from the
+message flood limit (`engine/messageActivityLimit.ts`); a refused one stays parked.
 
 #### Counting a time limit from the last message — `quietWindow`
 
@@ -265,6 +282,8 @@ only renders** — never the other way round.
 | --- | --- | --- |
 | `rolePicker` | role id | any role. Never make someone type a snowflake. |
 | `channelPicker` | channel id, or one `{{var.<name>}}` | any channel. Same. Also offers channels earlier blocks record — see [A picker holding a variable](#a-picker-holding-a-variable). Set `optional: true` when the block can do without one and empty means something (`quietChannelId` in `blocks/quietTimeout.ts`: anywhere) — the pick becomes clearable, and clearing removes the key. Without it a pick cannot be undone, and a required picker writes `''` on change. |
+| `categoryPicker` | category id | a category: the guild's own, plus categories the flow declares, through the same `<field>Key` sidecar install fills in. No `{{var}}` — nothing records a category. A required pick writes `''` on change, so a schema that needs one while shown takes `z.string().min(1).optional()` and refuses only an absent id in its refinement: an empty pick naming a declared, uninstalled category is the *too short* complaint save forgives (`trigger.messageSent`). |
+| `ticketTypePicker` | ticket type key | one of the guild's own declared ticket types, offered by label from its ticket config. Never hardcode the seeded `support`/`verification` as options — they are only what a fresh guild starts with. A stored key the guild no longer declares shows as not available here; what it means at run time is your call (Open Ticket fails by name, Has Open Ticket still answers from the records, Ticket Event matches nothing). Also offers the ticket types the flow's journey declares, through the same `<field>Key` sidecar install fills in with the type's key. Picking one removes the field until then; save forgives the missing value while the declared type waits, as it forgives an empty snowflake. No `{{var}}` — nothing records a ticket type. Set `optional: true` when no type means something (Ticket Event: any type) — clearing removes the key, and a declared type waiting on install keeps the flow from going live, so "any type" never runs in its place. |
 | `text` | string | one line. `maxLength`, `placeholder`, `rendersTokens`. Set `optional: true` when the schema is `.optional()` over a non-empty floor (`z.string().min(1).optional()`, a url) — clearing the box then removes the key instead of writing `''`, which such a schema rejects and `validateNodeData` then holds the whole flow back from going live over. A field whose description says "leave empty for none" needs it. |
 | `longText` | string | a message body. `maxLength`, `placeholder`, `rendersTokens`. |
 | `duration` | milliseconds | any span. Shows a number plus a unit, so nobody hand-computes `604800000`. Set `optional: true` when absence is meaningful — clearing it removes the key rather than writing a zero. `placeholder` hints the empty number box — worth having chiefly on an `optional` field (e.g. `'No limit'`), where an empty box is a real setting rather than a blank. A field with a `defaultValue` is never empty, so a hint for it could never render. |
@@ -274,7 +293,9 @@ only renders** — never the other way round.
 | `textList` | `string[]` | an ordered list of short strings an author types. `placeholder`, `maxLength` (of **one entry**), `minEntries`, `maxEntries`, `addLabel`. |
 | `objectList` | `Record<string, unknown>[]` | an ordered list of **records** — `textList` one dimension up. Needs `columns`; also takes `minEntries`, `maxEntries`, `addLabel`. See below. |
 | `eligibility` | an `Eligibility` object | who is allowed. Declares no options: the principals are a closed vocabulary the control reads from `engine/eligibility.ts`. |
-| `variableSelect` | a bare variable name | one variable an earlier block records, picked by name. Needs `valueKind`; see [Reading a variable by name](#reading-a-variable-by-name). |
+| `variableSelect` | a bare variable name | one variable an earlier block records, picked by name. `valueKind` narrows it to one kind; leave it off to take any variable. See [Reading a variable by name](#reading-a-variable-by-name). |
+| `timeOfDay` | `HH:MM`, 24-hour | a time of day on the server's clock. Drawn as hour, minute (any minute, searchable) and AM/PM, with the server's zone under it — or the ask to pick one, linking to Server Settings, while none is picked. Conformance holds the schema to the stored shape: it must take `00:00` and `23:59` and refuse `24:00` and `9:00` — `z.string().regex(/^([01]\d\|2[0-3]):[0-5]\d$/, '…')`. |
+| `daysOfWeek` | `BlockDayKey[]` (`'mon'` … `'sun'`) | any of the seven days, offered Monday first as chips and written in week order. The keys are declared once, as `BLOCK_DAY_KEYS` in `blocks/manifest.ts` (mirrored in the browser under the vocabulary drift gate) — build your enum from them. Conformance holds the schema to exactly those seven keys. Its own `defaultValue: readonly string[]`, like `textList`'s. Refuse repeats with `.refine()`, not `uniqueItems`, and sort with a `.transform()` inside the field if order must not matter to you (`trigger.schedule`). |
 
 ### Fields that only sometimes apply — `visibleWhen`
 
@@ -309,10 +330,20 @@ There is no clearing on switch, and none is needed: a value nobody reads cannot 
 
 ### Reading a variable by name
 
-A `variableSelect` field stores a **bare name** — never a `{{var.…}}` token — and declares
-the `valueKind` it can use. The builder offers the variables in scope at the node whose
-kind matches, shows a stored name that is no longer offered as "not available here", and
-says so when there is nothing to pick.
+A `variableSelect` field stores a **bare name** — never a `{{var.…}}` token — and may
+declare the `valueKind` it can use. The builder offers the variables in scope at the node
+whose kind matches, when one is declared, shows a stored name that is no longer offered as
+"not available here", and says so when there is nothing to pick.
+
+Leave `valueKind` off and the field takes **any variable**, of any kind or none: the
+builder offers every variable in scope ("Pick a variable"), and save drops the kind rule
+below — the path refusals still apply. `condition.compare` is the worked example: it
+compares whatever the variable holds, so a Set Variable's text or number, which carry no
+kind, are fair game. A block taking any variable has the most shape-checking to do at run
+time, since nothing at save narrowed what it can be handed. Read a number — typed into a
+field or held in a variable — with `parseAuthoredNumber` or `readNumber` from
+`blocks/authoredNumber.ts`, never `Number()`: they refuse hex, exponents, blank, and
+anything too big to hold exactly, so a snowflake ID stays text.
 
 The executor passes the name through untouched, unlike a [picker holding a
 variable](#a-picker-holding-a-variable), whose token it resolves and fails on when unset.
@@ -329,9 +360,14 @@ Save refuses a name that:
 - is recorded only by blocks that cannot run first on a path here — after this block, or on
   a branch that cannot lead to it (the builder's own over-approximation, so this rule never
   refuses a name the builder offers)
+- is recorded only by blocks a run can reach **through** this one — a loop that checks
+  first and counts after, so the first visit always finds it unset. This one *can* refuse
+  a name the builder offered: the builder offers by ancestry, while save asks whether the
+  value can be set before the block's first visit
 - **any** recording block records as another kind, a kindless one included — the message
   names both blocks. This one *can* refuse a name the builder offered: the builder offers
-  the nearest producer's kind, while the bag keeps whichever block wrote last, anywhere
+  the nearest producer's kind, while the bag keeps whichever block wrote last, anywhere.
+  Only a field that declares a kind is held to it.
 
 ### A list of records — `objectList`
 
@@ -412,6 +448,8 @@ way that field's own `control` already implies:
 | --- | --- |
 | `rolePicker` | `@name` |
 | `channelPicker` | `#name` |
+| `categoryPicker` | the category's bare name — no `#`, since nobody posts in one |
+| `ticketTypePicker` | the type's label; a key the guild no longer declares shows as the key itself, since "no type picked" would misstate a node that names one; a declared type still waiting on install shows as "‹label› (after install)" rather than the part's empty copy |
 | `duration` | `5m` (via the same formatter the inspector uses) |
 | `segmented` / `select` | the matching option's `label`, not the raw stored value — `action.waitForEvent`'s `eventKind: 'buttonClick'` renders as "They click a flow button", never `buttonClick` |
 | `text` / `longText` / `colour` | the raw string value |
@@ -419,9 +457,17 @@ way that field's own `control` already implies:
 | `objectList` | a count plus the field's own label, e.g. `3 fields` — a record has no one string to show |
 | `eligibility` | a short phrase, or nothing at all when the gate is open |
 | `variableSelect` | the bare variable name |
+| `timeOfDay` | the 12-hour clock: `9:00 AM` |
+| `daysOfWeek` | the days in week order, `Mon, Wed, Fri` — or `Every day` when all seven are picked |
 
 A part whose field is currently hidden by its `visibleWhen` renders **nothing** — not its
 value, not its `emptyText`, and its `stopIfEmpty` does not cut the line short.
+
+A part may carry its **own** `visibleWhen`, with the same shape and the same one-level rules
+as a field's, and it then renders nothing — the same way — while that choice holds none of
+`equals`. For a field that is never hidden but whose value reads well under one choice only:
+`trigger.schedule`'s `repeat` prints "Every day" only while it repeats daily, so its card
+reads "Every day at 9:00 AM", "Mon, Wed, Fri at 9:00 AM" or "Every 30 minutes".
 
 `cardSummary` never repeats that resolution logic; it only says which field, what surrounds it,
 and what to show in its place when it's unset:
@@ -439,8 +485,9 @@ and what to show in its place when it's unset:
 part, the second discards the whole line, and a part cannot mean both.
 
 Conformance checks that every `key` here names a real `configFields` entry, that `truncate` is
-a positive whole number when set, and that a part is well-formed (exactly one of `key`/`text`,
-`hideWhenEmpty` and `stopIfEmpty` not both set). It does **not** check that the composed text
+a positive whole number when set, that a part is well-formed (exactly one of `key`/`text`,
+`hideWhenEmpty` and `stopIfEmpty` not both set), and that a part's `visibleWhen` names a
+defaulted, unconditional choice offering each `equals` value — the field rules, shared. It does **not** check that the composed text
 reads well — that's a judgement call, same as `label` and `description`.
 
 ## Output handles
@@ -506,31 +553,59 @@ is only taken on waking cannot be read off a declaration, so that half is yours 
 
 `requires` says what your block needs to be present on the run:
 
-- `subject` — the member the run is **about**. Always present, so declaring it is documentation
-  rather than a constraint anything can violate. **On a run started by a departure
-  (`memberLeave`) they have already left**, and are typed `GuildMember | PartialGuildMember`
-  for it: an uncached leaver arrives with an id and a user, no roles. Acting on them fails at
-  Discord — though a block may decide that "already gone" is success, as Kick Member does — and
-  reading their roles or boost answers from what the bot last knew, not from the guild.
+- `subject` — the member the run is **about**. **Absent on a run whose trigger supplies
+  nobody** (see the trigger paragraph below) — and absent never means "the member left".
+  Declare it if you read the member, and read it through `requireSubject(context)` from
+  `blocks/types.ts`, never `context.subject` directly: the executor has already refused to
+  run your block without one, so the helper hands you the member, and throws a named error
+  only if that check ever regressed. **On a run started by a departure (`memberLeave`) they
+  have already left**, and are typed `GuildMember | PartialGuildMember` for it: an uncached
+  leaver arrives with an id and a user, no roles. Acting on them fails at Discord — though a
+  block may decide that "already gone" is success, as Kick Member does — and reading their
+  roles or boost answers from what the bot last knew, not from the guild. A park keeps the
+  subject: resume fetches the member again, and fails the run if they have left.
 - `actor` — the member who caused the **current step**, which is not always the subject and is
-  not always anybody. **Absent on a resumed run**: the clock woke it, so nobody acted.
+  not always anybody. **Absent on a resumed run**: the clock woke it, so nobody acted. **Absent
+  on a run from a trigger that does not say who acted** — Member Leaves, since Discord does not
+  say who kicked them. A ticket change always names someone: the person, or the bot when a flow
+  made it; one who has since left arrives as a partial member, as a departed subject does.
 - `channel` — where the run is operating. **Absent on a run started by a member joining or
   leaving**, which happens nowhere in particular, and absent on a resumed run, because a parked
   run does not yet remember where it was.
 - `interaction` — the interaction that started it. **Absent on any gateway-started run and on
   every resumed run**, because the token expires when the run parks.
 
-Declaring one of the three that can be absent lets a graph placing your block where it could
-never be satisfied be flagged at save time — marked on your node, naming the requirement, and
-held back from going live — instead of quietly taking the wrong branch.
+Every one of the four can be absent, so declaring one lets a graph placing your block where it
+could never be satisfied be flagged at save time — marked on your node, naming the requirement,
+and held back from going live — instead of quietly taking the wrong branch. The executor makes
+the same comparison before your `run`, and fails the step by name on a miss — except
+`channel`, which it leaves to you, because a channel deleted while a run was parked resumes as
+nowhere on purpose (In Channel? answers No).
+
+**A choice can need something your block does not.** A `select` or `segmented` option may
+declare its own `requires`: Time Since needs a member only for "The member's last message" and
+"When the member joined", so the block declares `requires: []` and those two options declare
+`['subject']`. While the field is shown and holds that option — stored, or its default — the
+node needs it, exactly as if the block had declared it; the builder disables the option where
+the run cannot carry it. A **built-in token** in your copy counts the same way: `{{subject.*}}`
+needs `subject`, `{{actor.mention}}` needs `actor`, `{{guild.name}}` nothing
+(`TOKEN_REQUIREMENTS` in `engine/copyRendering.ts`). A node's *effective requirements* are the
+three together, worked out once in `engine/nodeRequirements.ts` for the validator and the
+executor alike. Read the member only where your config says you need one — Time Since calls
+`requireSubject` on its member sources alone.
 
 **On a trigger, `requires` reads the other way round.** A trigger is never reached by an edge,
 so nothing upstream could fail to satisfy it — what it declares is what its own event
 **establishes**, and save-time validation reads it as the supply side when deciding whether a
 downstream block's requirement can be met on that path. A button click establishes an actor, a
-channel and an interaction; a member join establishes only an actor. If you add a trigger,
-declare everything its event genuinely provides: under-declaring rejects graphs that should be
-legal, and over-declaring accepts ones that will misbehave at runtime.
+channel and an interaction; a member join establishes only an actor. **A trigger that leaves
+`subject` out of `requires` starts runs about nobody** — no member, no stand-in — and nothing
+needing a member may sit where it reaches. If you add a trigger, declare everything its event
+genuinely provides: under-declaring rejects graphs that should be legal, and over-declaring
+accepts ones that will misbehave at runtime. `trigger.schedule` is the shipped example of a
+trigger about nobody: it declares `requires: []`, because the clock started the run — no
+member, no actor, no channel — so a block that picks its own channel (Send Message, Post Embed)
+works below it and one that acts on the member is refused.
 
 If you find yourself reading something off `context` that you did not declare, declare it.
 
@@ -541,6 +616,67 @@ into the run's snapshot at the first park and never rewritten, so a run resumed 
 number of waits reports the same instant. It is **undefined on a run parked before the
 snapshot recorded it** — treat that as "no record", and never substitute the row's
 `createdAt`, which is when the run first parked, not when it began.
+
+### How deep in a chain — `context.chainDepth`
+
+Every run carries `context.chainDepth`, a whole number: `FLOW_ROOT_CHAIN_DEPTH` (1) for a
+run started by a person's act or any ordinary event, and N+1 for a run started by a change
+a depth-N run made. The executor settles an absent depth as the root in one place. It
+is written into the snapshot at the first park like `startedAt`, so a run that waits and
+then acts keeps its place; a run parked before depth was recorded reads as the root. A start
+that would pass `FLOW_MAX_CHAIN_DEPTH` (5) is refused and logged, which is what stops
+two flows setting each other off forever.
+
+**A block whose action can start other runs hands its depth on.** Today that is any
+block that changes a ticket: pass `{ actorId: context.guild.client.user.id, chainDepth:
+context.chainDepth }` as the ticket service's `change` (Open Ticket, Close Ticket). A flow's
+change is the bot's change, so `actorId` is the bot's own id — never null — and a Ticket
+Event run that change starts has the bot as its actor. Depth comes from `chainDepth`, not
+from who acted. The service
+requires a `change` on every announcing call, so there is no default to fall back on by
+forgetting. Only a ticket change carries depth across today: Kick Member → Member Leaves
+goes through Discord's gateway, which cannot carry one, so that run restarts at the root.
+Award XP is not a second such path — XP a flow awards never sets off Level Reached.
+
+### What a block causes — `emits`
+
+The depth cap stops a chain at run time; `emits` is how a flow is stopped from going live
+into one at all. When a flow is switched on, or saved while on, `findFlowCycleThrough`
+(`engine/flowCycles.ts`) refuses it if it would close a loop with the guild's other live
+flows — one flow's action starting another, which (perhaps through more) starts the first
+again. It knows what your block causes only from what you declare here:
+
+```ts
+// action.openTicket: the ticket it opens is announced as opened, of the type picked here.
+emits: [{ startedBy: 'ticketChanged', carries: { event: { value: 'opened' }, ticketType: { fromField: 'ticketType' } } }]
+
+// action.kickMember: a kick is a departure, so it starts every Member Leaves trigger.
+emits: [{ startedBy: 'memberLeave' }]
+```
+
+`startedBy` is the trigger source your action fires. `carries` says what the caused event is
+known to carry, keyed by the **listening trigger's** config field: `{ value }` is a literal,
+`{ fromField }` whatever your node holds in one of your own fields. A trigger node listens to
+your emission when it is started by that source, its raw `node.data` parses against its
+schema (one that does not parse matches nothing, as its dispatcher treats it), and for every
+carried key its value is unset — any — or equals yours.
+
+**Unknown matches.** A key you leave out of `carries`, or a `fromField` unset on the node,
+could be anything, so it matches whatever the listener holds. That is how to say "I can't
+know": Close Ticket closes a `{{var}}` ticket, so it carries `event: closed` and no type, and
+starts every Ticket Event listening for closed. Over-refusing is the accepted cost of never
+missing a loop.
+
+**When to declare.** Whenever your action can reach a trigger: changing a ticket, kicking a
+member, anything a dispatcher listens for. Declare `[]` when it cannot — and say why in a
+comment when a reader might wonder. Posting never reaches a trigger (the activity recorder
+drops bot authors, so a bot's message starts no Message Sent run and earns no XP), and Award XP
+never sets off Level Reached (`awardFlowXp` notifies no level-up subscriber — if that changes,
+it becomes an emission). A trigger always declares `[]`: it is the event, not an action.
+
+`emits` is server-only (`NON_WIRE_MEMBERS`) — nothing in the builder reads it. Conformance
+holds it to the rules under [Conformance](#conformance), including the one check that looks
+across blocks.
 
 ## Run variables
 
@@ -570,7 +706,9 @@ Four things follow from how that is wired, and each of them has bitten somebody:
   last-writer-wins today; nothing rejects it yet, so pick names that say what they hold.
   Sharing a name **on purpose** is fine when both blocks mean the same thing by it:
   `action.openTicket` and `condition.hasOpenTicket` both write `ticketChannelId` (from
-  `TICKET_VARIABLES` in the tickets feature), so either branch can feed one later block.
+  `TICKET_VARIABLES` in the tickets feature), so either branch can feed one later block —
+  and `trigger.ticketEvent`'s dispatcher seeds the same two names, so Close Ticket works on
+  the ticket that started the run with nothing to wire.
 - **Your writes land after you return.** You cannot read back what you just wrote — you already
   have the value, and a bag that changed mid-`run` would make "what this node was handed" depend
   on where in the function you looked. A block that throws records nothing.
@@ -663,7 +801,7 @@ Available in this slice, and nothing else:
 | --- | --- |
 | `{{subject.mention}}` | A ping for the member the run is about |
 | `{{subject.username}}` | Their username, unpinged |
-| `{{actor.mention}}` | Whoever caused this step. **Fails on a resumed run**, where nobody did |
+| `{{actor.mention}}` | Whoever caused this step. **Refused at save after a block that parks, in a parking block's own copy** (rendered again on waking), **and below a trigger that does not say who acted** (Member Leaves) |
 | `{{guild.name}}` | The server's name |
 | `{{var.<name>}}` | A value an earlier block recorded |
 
@@ -729,6 +867,14 @@ outage:
 
 New rule? It is almost always the second one.
 
+One rule is neither, because it is not about one graph: **a loop between flows** —
+`findFlowCycleThrough` in `engine/flowCycles.ts`. It is a conflict between a flow and the
+guild's other live flows, so it is asked only as a flow goes live (`decidePut` in
+`src/web/api/flowRoutes.ts`, and the seed script), and it stays out of `flowReadinessIssues`:
+its message names other flows, and a refusal carrying issues would lock the builder's switch
+and mark cards by node ids that are not on this canvas. A rule like it — about how flows
+relate rather than how one is built — goes beside it, not into either function above.
+
 ## Conformance
 
 ```bash
@@ -753,12 +899,24 @@ that has not caught up fails by name. It checks, from your declaration alone, th
 - every `visibleWhen` names a defaulted, unconditional choice offering each `equals` value,
   over a field the schema leaves optional — see [Fields that only sometimes
   apply](#fields-that-only-sometimes-apply--visiblewhen)
-- every `variableSelect` names a real kind over a schema taking the shared name spelling
+- every `variableSelect` takes the shared name spelling, and names a real kind if it names
+  one at all
 - your `cardSummary`, if you declared one, only references fields that exist and is otherwise
   well formed — see [Card summary](#card-summary)
+- your `emits` is `[]` on a trigger; each emission names a source in the vocabulary; each
+  carried value is exactly `{ value }` or `{ fromField }`; and a `fromField` names one of your
+  own fields that cannot hold a `{{var}}` — not `rendersTokens`, not a picker in
+  `PICKER_VALUE_KINDS` — since a written token would compare unequal to everything and hide a
+  loop
 
 and, when driven with a config and a context, that `run` returns a declared outcome and
 continues only by a handle you declared.
+
+**One check is not from your declaration alone:** `checkEmissionTargets`, run over the whole
+registry. Whether what you carry means anything depends on the triggers listening for it, so
+it checks that every carried key is a field some trigger on that source declares (a typo would
+match every listener) and that every `{ value }` literal is one of that field's options when it
+has any (a typo would match none, and the loop check would miss a real loop).
 
 One thing it does **not** check: that a handle you declared is actually reachable. Proving that
 means driving a block down every path, which needs a config and a context per path that only
@@ -808,7 +966,7 @@ Then pick one of two fixes:
 A new control also fails web `tsc -b` in `controls/renderControl.tsx` once the SDK is
 regenerated, until the builder implements it.
 
-Everything a manifest declares except `configSchema` and `run` is served to the browser by
+Everything a manifest declares except `configSchema`, `run` and `emits` is served to the browser by
 `GET /api/nodes`, so a new member is published to every authenticated dashboard user by
 default. That is the reason the second option has to be a deliberate act.
 
@@ -820,11 +978,13 @@ whole bot tree into `tsc -b` and break `pnpm build:web` — and each copy carrie
 
 | Browser copy | Authority in `src/` | Gate |
 | --- | --- | --- |
-| `web/src/flows/builtinTokens.ts` | `RENDERABLE_TOKENS` in `engine/copyRendering.ts` | `src/web/api/__tests__/builtinTokenDrift.test.ts` |
+| `web/src/flows/builtinTokens.ts` | `RENDERABLE_TOKENS` and `TOKEN_REQUIREMENTS` in `engine/copyRendering.ts` | `src/web/api/__tests__/builtinTokenDrift.test.ts` |
+| `REQUIREMENT_ABSENT_WHEN` in `web/src/flows/variables.ts` | `REQUIREMENT_ABSENT_WHEN` in `engine/graphValidation.ts` | `src/web/api/__tests__/builtinTokenDrift.test.ts` |
 | `web/src/flows/ticketChannelName.ts` | `buildTicketChannelNameForType` in `tickets/logic/ticketTypes.ts` | `src/features/tickets/logic/__tests__/ticketChannelNamePreviewDrift.test.ts` |
 
-**A gate lives beside its authority, not beside the copy.** The first answers to something
-under `src/web/api/`; the second answers to the ticketing feature, so it sits there. A gate placed
+**A gate lives beside its authority, not beside the copy.** The token gates answer to
+something under `src/web/api/`; the channel-name one to the ticketing feature, so it sits there.
+A gate placed
 beside the browser copy would run in the workspace that cannot import the authority.
 
 Two things a gate of this kind must do, both learned the hard way:

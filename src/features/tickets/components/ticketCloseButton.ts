@@ -51,6 +51,8 @@ export function TicketCloseButtonComponent() {
             definition,
             transition: 'close',
             actor: { id: member.id, mention: member.toString(), identity: ticketIdentityFromMember(member) },
+            // A person pressed it, so this starts a chain rather than continuing one.
+            change: { actorId: member.id, chainDepth: 0 },
             message: interaction.message,
         });
 

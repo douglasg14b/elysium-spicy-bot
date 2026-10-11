@@ -7,8 +7,16 @@
  * the block contract defines as its extension point.
  */
 
-import type { BlockConfigField, Eligibility, GuildChannel, GuildRole, ResourceDeclaration } from '@brattybot/web-sdk';
-import type { AvailableVariable } from '../variables';
+import type {
+    BlockConfigField,
+    Eligibility,
+    GuildChannel,
+    GuildRole,
+    GuildSettings,
+    ResourceDeclaration,
+    TicketTypeView,
+} from '@brattybot/web-sdk';
+import type { AvailableVariable, RequirementAvailability } from '../variables';
 
 /**
  * What a control needs from the page beyond its own declaration.
@@ -21,6 +29,12 @@ export interface ControlContext {
     roles: GuildRole[];
     channels: GuildChannel[];
     /**
+     * The guild's own declared ticket types, for the ticket-type picker. Read from the
+     * same config the tickets page edits, so a type an operator adds there is offered
+     * here without anything in the builder knowing its name.
+     */
+    ticketTypes: TicketTypeView[];
+    /**
      * Variables some upstream block writes, for the copy fields to offer.
      *
      * A property of the *node*, not of the field, which is why it arrives through
@@ -29,13 +43,14 @@ export interface ControlContext {
      */
     variables: AvailableVariable[];
     /**
-     * Whether `{{actor.mention}}` can be relied on at this node.
+     * Which run-context requirements can be relied on at this node.
      *
-     * A property of the node for the same reason `variables` is: the token resolves
-     * or not depending on what is wired above, and the copy fields grey the chip
-     * rather than removing it. See `actorAvailableAt` in `../variables.ts`.
+     * A property of the node for the same reason `variables` is: a member, an actor or a
+     * channel is there or not depending on what is wired above. The copy fields grey a
+     * token chip, and the choice controls disable an option, whose requirement is not —
+     * see `requirementAvailableAt` in `../variables.ts`. Save is what refuses.
      */
-    actorAvailable: boolean;
+    requirements: RequirementAvailability;
     /**
      * Resources this flow declares but that may not exist in the guild yet.
      *
@@ -58,7 +73,19 @@ export interface ControlContext {
      * express something a sibling key already says.
      */
     setConfigKey: (key: string, value: string | undefined) => void;
+    /**
+     * The server's time zone — the one it picked, or `null`, beside the zone an unpicked
+     * server runs on — for a control whose value is a time on the server's clock.
+     *
+     * Fetched once by the page rather than by the control (no control fetches), and only
+     * there once that fetch has answered: absent while it is on its way or after it
+     * failed, when such a control simply says nothing about the zone.
+     */
+    serverTimeZone?: ServerTimeZone;
 }
+
+/** A server's time zone setting, as the guild-settings endpoint reports it. */
+export type ServerTimeZone = Pick<GuildSettings, 'timeZone' | 'defaultTimeZone'>;
 
 /** The config key holding a picker's resource key, beside the snowflake itself. */
 export function resourceKeyFieldFor(fieldKey: string): string {

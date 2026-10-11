@@ -59,7 +59,8 @@ function graph(options: { noBranchChannel?: string; triggerChannel?: string } = 
                 position: { x: 0, y: 0 },
                 data: { channelId: options.triggerChannel ?? 'lobby', label: 'Go' },
             },
-            { id: 'check', type: 'condition.hasOpenTicket', position: { x: 1, y: 0 }, data: { ticketType: 'support' } },
+            // A type the guild declared itself: the seeded two are never special.
+            { id: 'check', type: 'condition.hasOpenTicket', position: { x: 1, y: 0 }, data: { ticketType: 'punishment-review' } },
             {
                 id: 'yes',
                 type: 'action.sendMessage',
@@ -94,7 +95,7 @@ describe('a channel picked from what an earlier block found', () => {
 
         expect(result.status).toBe('success');
         expect(sentTo.get('ticket-channel-7')).toEqual(['Back again, <@user-1>?']);
-        expect(mockFindOpenTicket).toHaveBeenCalledWith('guild-1', 'user-1', 'support');
+        expect(mockFindOpenTicket).toHaveBeenCalledWith('guild-1', 'user-1', 'punishment-review');
     });
 
     it('takes the No branch, recording nothing, when there is no open ticket', async () => {

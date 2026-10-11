@@ -1,27 +1,62 @@
 import type { Client } from 'discord.js';
-import { type ActivityEventsRepo, activityEventsRepo, isBackfillPending } from '../../../features-system/activity';
+import {
+    type ActivityEventsRepo,
+    activityEventsRepo,
+    isBackfillPending,
+    whenBackfillFinished,
+} from '../../../features-system/activity';
+import { isMissingTableError } from '../../../features-system/data-persistence/missingTable';
 import { FLOW_RUN_POLL_INTERVAL_MS } from '../constants';
 import { FlowRunsRepo, flowRunsRepo } from '../data/flowRunsRepo';
 import type { FlowRunEntity } from '../data/flowRunsSchema';
 import { RESUME_TIMEOUT } from '../blocks/types';
-import { resumeFlowRun } from './flowRunResume';
+import { failParkedRun, resumeFlowRun } from './flowRunResume';
+import { rebuildMessageWaitIndex, resumeMessageWaitsAfterBackfill } from './messageWaitDispatch';
 
 export type FlowRunSchedulerDependencies = {
-    flowRunsRepo: Pick<FlowRunsRepo, 'findDue' | 'reclaimAbandonedClaims' | 'deferWake'>;
-    /** Where a quiet-window park asks when the last qualifying message was sent. */
-    activityEventsRepo: Pick<ActivityEventsRepo, 'findLastMessageAt'>;
+    flowRunsRepo: Pick<FlowRunsRepo, 'findDue' | 'reclaimAbandonedClaims' | 'deferWake' | 'findWaiting'>;
+    /**
+     * Where a quiet-window park asks when the last qualifying message was sent, and a
+     * message wait whether its member replied while the bot was down.
+     */
+    activityEventsRepo: Pick<ActivityEventsRepo, 'findLastMessageAt' | 'findLastMessageBetween'>;
     /** True while activity is still restoring messages missed during an outage; quiet-window runs wait. */
     isBackfillPending: () => boolean;
+    /** Call back once activity's startup backfill is over, however it ended — straight away if it already is. */
+    afterBackfill: (callback: () => void) => void;
+    /**
+     * More work to do on every tick, after the due runs: `initFlows` hands in the schedule
+     * firing here, so the engine never names schedules.
+     *
+     * Called on **every** tick that gets past the ready check — not only one that found due
+     * runs, and also when `flow_runs` is missing — still inside the one-tick-at-a-time
+     * guard, so it never overlaps itself or a resume. It runs inline: a long run started
+     * here delays the next resumes, which is accepted at this scale. A throw is logged and
+     * the next tick calls it again.
+     */
+    onTick?: (client: Client) => Promise<void>;
 };
 
 const defaultDependencies: FlowRunSchedulerDependencies = {
     flowRunsRepo,
     activityEventsRepo,
     isBackfillPending,
+    afterBackfill: whenBackfillFinished,
 };
 
 let flowRunInterval: ReturnType<typeof setInterval> | null = null;
 let isTickRunning = false;
+
+/**
+ * True from the moment the scheduler starts until the outage catch-up has looked for
+ * every message wait's reply. While it is, due message waits are held — not fetched,
+ * not timed out — because a reply the catch-up has yet to find would have woken them
+ * by their event exit.
+ *
+ * Raised by {@link startFlowRunScheduler} itself rather than by the sweep, so no tick
+ * can ever run ahead of it.
+ */
+let messageWaitsHeld = false;
 
 /**
  * Start polling for durable flow runs whose `wakeAt` has passed.
@@ -31,37 +66,73 @@ let isTickRunning = false;
  * first reclaims every resume claim left over from an earlier process — a run left
  * at `running` by a SIGKILL matches neither parked-run query, so nothing else would
  * ever find it.
+ *
+ * `dependencies` replaces only the defaults it names — `initFlows` passes just its
+ * `onTick`.
  */
 export function startFlowRunScheduler(
     client: Client,
     intervalMs: number = FLOW_RUN_POLL_INTERVAL_MS,
-    dependencies: FlowRunSchedulerDependencies = defaultDependencies
+    dependencies: Partial<FlowRunSchedulerDependencies> = {}
 ): void {
     if (flowRunInterval) {
         return;
     }
 
+    const resolved: FlowRunSchedulerDependencies = { ...defaultDependencies, ...dependencies };
+
+    messageWaitsHeld = true;
     flowRunInterval = setInterval(() => {
-        void runFlowRunTick(client, dependencies);
+        void runFlowRunTick(client, resolved);
     }, intervalMs);
 
     console.info(`[flow-runs] Scheduler started with interval ${intervalMs}ms`);
 
-    void runStartupSweep(client, dependencies).catch((error: unknown) => {
+    void runStartupSweep(client, resolved).catch((error: unknown) => {
         console.error('[flow-runs] Startup sweep failed:', error);
     });
 }
 
 /**
- * Reclaim abandoned claims, then resume anything already due.
+ * Reclaim abandoned claims, load the message-wait index, arrange the outage catch-up,
+ * then resume anything already due.
  *
- * The order is load-bearing: a run stranded at `running` by a killed process
- * matches neither parked-run query, so it only becomes visible to `findDue` once
- * its claim has been handed back.
+ * The order is load-bearing. A run stranded at `running` by a killed process matches
+ * neither parked-run query, so it only becomes visible to `findDue` — and to the index
+ * rebuild — once its claim has been handed back. And the catch-up is arranged only once
+ * the index is loaded, because it reads its runs from there; it starts looking from each
+ * run's park, so a message that arrived live before the index existed is found too.
  */
 async function runStartupSweep(client: Client, dependencies: FlowRunSchedulerDependencies): Promise<void> {
-    await reclaimStrandedFlowRuns(dependencies);
+    try {
+        await reclaimStrandedFlowRuns(dependencies);
+        await rebuildMessageWaitIndex(dependencies.flowRunsRepo);
+    } finally {
+        // Arranged however the steps above went: the catch-up is what lifts the hold on
+        // message waits, and without it they would never time out in this process.
+        dependencies.afterBackfill(() => {
+            void resumeMessageWaitsAndRelease(client, dependencies);
+        });
+    }
     await runFlowRunTick(client, dependencies);
+}
+
+/**
+ * Run the outage catch-up for message waits, then lift the hold on them however it
+ * went. The catch-up logs each run's failure itself; the `catch` is for one that fails
+ * outright, whose runs are then left to their time limits rather than held forever.
+ */
+async function resumeMessageWaitsAndRelease(
+    client: Client,
+    dependencies: FlowRunSchedulerDependencies
+): Promise<void> {
+    try {
+        await resumeMessageWaitsAfterBackfill(client, dependencies.activityEventsRepo);
+    } catch (error) {
+        console.error('[flow-runs] Looking for replies sent while the bot was down failed:', error);
+    } finally {
+        messageWaitsHeld = false;
+    }
 }
 
 /**
@@ -83,7 +154,7 @@ export async function reclaimStrandedFlowRuns(
         }
         return reclaimed;
     } catch (error) {
-        if (isMissingFlowRunsTableError(error)) {
+        if (isMissingTableError(error, 'flow_runs')) {
             // The tick that follows reports this once, with the fix.
             return 0;
         }
@@ -117,6 +188,9 @@ export function stopFlowRunScheduler(): void {
  *
  * A due run carrying a quiet window may not be due after all: see
  * {@link deferIfMessaged}, which runs first and can push its deadline back instead.
+ *
+ * Then the dependencies' `onTick`, if any — after the due runs however that went (none
+ * due, `flow_runs` missing, a failure), and before the next tick may start.
  */
 export async function runFlowRunTick(
     client: Client,
@@ -135,14 +209,47 @@ export async function runFlowRunTick(
     isTickRunning = true;
 
     try {
+        await resumeDueRuns(client, dependencies);
+        await runOnTick(client, dependencies);
+    } finally {
+        isTickRunning = false;
+    }
+}
+
+/**
+ * The tick's `onTick`, isolated: a throw is logged and the next tick calls it again. Its
+ * own failures are its business to word — this only stops one escaping the tick.
+ */
+async function runOnTick(client: Client, dependencies: FlowRunSchedulerDependencies): Promise<void> {
+    if (!dependencies.onTick) {
+        return;
+    }
+
+    try {
+        await dependencies.onTick(client);
+    } catch (error) {
+        console.error('[flow-runs] Extra work on this tick failed:', error);
+    }
+}
+
+/**
+ * Resume every due parked run. Never throws: each run's failure is logged by itself, and a
+ * failure to look them up is logged once — with the fix, when it is the missing table.
+ */
+async function resumeDueRuns(client: Client, dependencies: FlowRunSchedulerDependencies): Promise<void> {
+    try {
         const now = new Date();
         // While activity is still backfilling messages missed during an outage, "when did
         // they last speak" is not answerable yet, so runs with a quiet window are held:
         // not even fetched, so not resumed, their `wakeAt` untouched, and the next tick
         // asks again. The startup sweep runs the moment the bot is ready, which is exactly
-        // when that history is missing. Runs without a quiet window are unaffected.
+        // when that history is missing. Message waits are held for longer — until the
+        // catch-up has looked for their replies too — because timing one out now would
+        // end a wait whose member answered in time. Every other run is unaffected.
+        const backfillPending = dependencies.isBackfillPending();
         const dueRuns = await dependencies.flowRunsRepo.findDue(now, {
-            withoutQuietWindows: dependencies.isBackfillPending(),
+            withoutQuietWindows: backfillPending,
+            withoutMessageWaits: backfillPending || messageWaitsHeld,
         });
         if (dueRuns.length === 0) {
             return;
@@ -155,7 +262,7 @@ export async function runFlowRunTick(
                 // A failed lookup throws into the catch below and leaves the run
                 // parked for the next tick. Timing out on a guess would end a run
                 // whose member may well still be talking.
-                if (await deferIfMessaged(run, now, dependencies)) {
+                if (await deferIfMessaged(client, run, now, dependencies)) {
                     continue;
                 }
 
@@ -168,7 +275,7 @@ export async function runFlowRunTick(
             }
         }
     } catch (error) {
-        if (isMissingFlowRunsTableError(error)) {
+        if (isMissingTableError(error, 'flow_runs')) {
             // Almost always an un-migrated database rather than a real fault, and
             // the tick repeats every 15s — so say what to do instead of dumping a
             // stack trace on a loop.
@@ -179,8 +286,6 @@ export async function runFlowRunTick(
             return;
         }
         console.error('[flow-runs] Tick failed while looking for due runs:', error);
-    } finally {
-        isTickRunning = false;
     }
 }
 
@@ -206,8 +311,14 @@ export async function runFlowRunTick(
  *
  * Never reached while activity is backfilling: the tick does not fetch quiet-window
  * runs then (see {@link runFlowRunTick}).
+ *
+ * A window counting the member's messages on a run about nobody is ended here, failed by
+ * name, and also returns true. Save-time validation makes it unreachable — that option
+ * requires a member — but throwing instead would leave the run parked, retried every tick
+ * forever while holding a slot in the due batch.
  */
 async function deferIfMessaged(
+    client: Client,
     run: FlowRunEntity,
     now: Date,
     dependencies: FlowRunSchedulerDependencies
@@ -217,15 +328,37 @@ async function deferIfMessaged(
         return false;
     }
 
-    const lastMessageAt = await dependencies.activityEventsRepo.findLastMessageAt(
-        quiet.who === 'member'
-            ? {
-                  guildId: run.guildId,
-                  userId: run.contextSnapshot.userId,
-                  ...(quiet.channelId ? { channelId: quiet.channelId } : {}),
-              }
-            : { guildId: run.guildId, channelId: quiet.channelId }
-    );
+    let lastMessageAt: Date | null;
+    if (quiet.who === 'member') {
+        const { userId } = run.contextSnapshot;
+        if (!userId) {
+            const reason =
+                `Run ${run.runId} counts its time limit from the member's last message, but it is about ` +
+                'nobody, so there is no member whose messages to count.';
+            // Claimed on the park this tick read, so a run that has since woken and parked
+            // again is not the one ended.
+            const outcome = await failParkedRun(client, run, reason, {
+                wakeAt: run.wakeAt,
+                ...(run.resumeNodeId ? { resumeNodeId: run.resumeNodeId } : {}),
+            });
+            if (outcome.status === 'skipped') {
+                console.info(`[flow-runs] Did not end run ${run.runId}: it moved on before it could be claimed.`);
+            } else {
+                console.warn(`[flow-runs] Ended run ${run.runId}: ${reason}`);
+            }
+            return true;
+        }
+        lastMessageAt = await dependencies.activityEventsRepo.findLastMessageAt({
+            guildId: run.guildId,
+            userId,
+            ...(quiet.channelId ? { channelId: quiet.channelId } : {}),
+        });
+    } else {
+        lastMessageAt = await dependencies.activityEventsRepo.findLastMessageAt({
+            guildId: run.guildId,
+            channelId: quiet.channelId,
+        });
+    }
     if (!lastMessageAt) {
         return false;
     }
@@ -239,25 +372,11 @@ async function deferIfMessaged(
     return true;
 }
 
-/**
- * True only for "the `flow_runs` table is not there" from SQLite or Postgres —
- * i.e. the schema has not been migrated yet.
- *
- * Deliberately requires the table name. A bare "does not exist" match would also
- * swallow a missing *column* from a half-applied migration, and this predicate
- * decides whether an error is reported at all.
- */
-function isMissingFlowRunsTableError(error: unknown): boolean {
-    if (!(error instanceof Error)) return false;
-    const message = error.message.toLowerCase();
-    if (!message.includes('flow_runs')) return false;
-    return message.includes('no such table') || message.includes('does not exist');
-}
-
 export function resetFlowRunSchedulerForTests(): void {
     if (flowRunInterval) {
         clearInterval(flowRunInterval);
     }
     flowRunInterval = null;
     isTickRunning = false;
+    messageWaitsHeld = false;
 }

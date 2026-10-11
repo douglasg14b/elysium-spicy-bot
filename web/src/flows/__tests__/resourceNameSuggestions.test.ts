@@ -19,18 +19,40 @@ function textChannel(id: string, name: string, parentName: string | null = null)
         type: 'text',
         parentId: parentName ? `parent-of-${id}` : null,
         parentName,
+        owner: null,
     };
 }
 
 function category(id: string, name: string): GuildChannel {
-    return { id, name, type: 'category', parentId: null, parentName: null };
+    return { id, name, type: 'category', parentId: null, parentName: null, owner: null };
 }
 
 function role(id: string, name: string): GuildRole {
-    return { id, name, color: 0, position: 1 };
+    return { id, name, color: 0, position: 1, owner: null };
 }
 
 describe('rankSuggestions', () => {
+    it('never suggests a disabled option ahead of a pickable one, even an exact match', () => {
+        // Another owner holds `#welcome`. It is still listed, so the operator learns why
+        // it cannot be picked — but after what they can pick, and still disabled.
+        const held: ExistingChannelOption = { value: '1', label: '#welcome', disabled: true, heldBy: 'the ticket system' };
+        const ranked = rankSuggestions([held, option('2', '#welcome-back')], 'welcome');
+
+        expect(ranked.map((entry) => [entry.option.value, entry.rank, entry.option.disabled ?? false])).toEqual([
+            ['2', 'prefix', false],
+            ['1', 'exact', true],
+        ]);
+    });
+
+    it('keeps an option disabled through disambiguation', () => {
+        const [first] = disambiguateOptions([
+            { value: '1', label: '#general', disabled: true, heldBy: 'journey "Onboarding"' },
+            option('2', '#general'),
+        ]);
+
+        expect(first).toEqual({ value: '1', label: '#general (1)', disabled: true, heldBy: 'journey "Onboarding"' });
+    });
+
     it('puts an exact match above a prefix match above a substring match', () => {
         const ranked = rankSuggestions(
             [

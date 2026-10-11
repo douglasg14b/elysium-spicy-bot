@@ -85,6 +85,7 @@ export const block: BlockManifest<LevelReachedConfig> = {
     // No `channel`: levelling up happens nowhere in particular, same as a join.
     requires: ['subject', 'actor'],
     capabilities: [],
+    emits: [],
     startedBy: 'levelUp',
     canSuspend: false,
     run() {

@@ -1,15 +1,15 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
+import { requireSubject } from '../types';
 import { findOpenTicket, TICKET_VARIABLES } from '../../../tickets';
 
 export const CONDITION_HAS_OPEN_TICKET = 'condition.hasOpenTicket';
 
 export const hasOpenTicketConfigSchema = z.object({
     // Free text rather than an enum: a ticket type is a row in the guild's
-    // `ticketing_config` now, so a closed union in source would reject every type an
-    // operator declares. The `options` below stay the two seeded keys until the
-    // picker learns to read the guild's own list — `checkFieldChoices` requires a
-    // `select` to offer non-empty options, so they cannot simply be emptied here.
+    // `ticketing_config`, so a closed union in source would reject every type an
+    // operator declares. The picker offers the guild's own list; a key it no longer
+    // declares is still answered from the records, which may hold tickets of it.
     ticketType: z.string().min(1),
 });
 
@@ -45,11 +45,7 @@ export const block: BlockManifest<HasOpenTicketConfig> = {
             key: 'ticketType',
             label: 'Ticket type',
             description: 'Which kind of ticket to look for. Only open tickets count.',
-            control: 'select',
-            options: [
-                { value: 'support', label: 'Support' },
-                { value: 'verification', label: 'Verification' },
-            ],
+            control: 'ticketTypePicker',
         },
     ],
     cardSummary: [{ key: 'ticketType', prefix: 'Open ', emptyText: 'no type picked' }],
@@ -81,9 +77,10 @@ export const block: BlockManifest<HasOpenTicketConfig> = {
     ],
     requires: ['subject'],
     capabilities: [],
+    emits: [],
     canSuspend: false,
     async run(config, context) {
-        const ticket = await findOpenTicket(context.guild.id, context.subject.id, config.ticketType);
+        const ticket = await findOpenTicket(context.guild.id, requireSubject(context).id, config.ticketType);
         if (!ticket) {
             return { kind: 'continue', handle: 'false' };
         }

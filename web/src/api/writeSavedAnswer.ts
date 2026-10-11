@@ -11,11 +11,19 @@ import type { QueryClient, QueryKey } from '@tanstack/react-query';
  * first (left as it was before that read), then the answer is written.
  *
  * Called from the mutation's own `onSuccess`, so the save is still in flight while it runs.
- * The saves that use it carry the entry's query key as their `mutationKey` too, so a
+ * The saves that use it carry the entry's query key, or a key under it, as their `mutationKey`, so a
  * remounted form sees the save in flight (`useSaveInFlight`) and cannot start a second one
  * over it.
+ *
+ * `answer` may be a function of what the entry holds once the reads are cancelled, as
+ * `setQueryData` takes one: for two forms sharing one entry, each writing back only the
+ * fields it owns (`TimeZoneCard`).
  */
-export async function writeSavedAnswer(queryClient: QueryClient, queryKey: QueryKey, answer: unknown): Promise<void> {
+export async function writeSavedAnswer<Answer>(
+    queryClient: QueryClient,
+    queryKey: QueryKey,
+    answer: Answer | ((current: Answer | undefined) => Answer)
+): Promise<void> {
     await queryClient.cancelQueries({ queryKey });
-    queryClient.setQueryData(queryKey, answer);
+    queryClient.setQueryData<Answer>(queryKey, answer);
 }

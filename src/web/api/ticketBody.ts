@@ -9,9 +9,11 @@ import {
     type TicketingConfig,
     type TicketPermissionModel,
     type TicketRolePermissions,
+    type TicketTypeSettings,
 } from '../../features/tickets/data/ticketingSchema';
 import { TICKET_STATUSES, type TicketEntity } from '../../features/tickets/data/ticketsSchema';
-import { getTicketTypeDefinition } from '../../features/tickets/logic/ticketTypes';
+import { TicketNameTemplateSchema } from '../../features/tickets/logic/ticketTypeRules';
+import { getTicketTypeDefinition, listTicketTypes } from '../../features/tickets/logic/ticketTypes';
 import type { ChecksHold, MismatchedChecks, SchemaMatches } from './openApi';
 
 /**
@@ -166,12 +168,35 @@ export const TicketPermissionModelSchema = z
     });
 
 /**
+ * A ticket type's settings: everything but its key and its label.
+ *
+ * Its own component because a journey declares a ticket type with exactly this
+ * (`ResourceDeclaration.ticketType`: the key is the resource key, the label the resource's
+ * name), and the type editor's body is this plus a label. One statement of the template
+ * rule (`TicketNameTemplateSchema`) for both, so the browser checks a journey's ticket type
+ * with the sentences the editor shows. The rules that need the renderer or span the label
+ * stay the server's: the journey routes ask `declarationsRefusal` (`journeyBody.ts`).
+ */
+export const TicketTypeSettingsSchema = z
+    .object({
+        nameTemplate: TicketNameTemplateSchema,
+        permissions: TicketPermissionModelSchema,
+        autoClaimOnOpen: z.boolean(),
+    })
+    .openapi('TicketTypeSettings', {
+        description:
+            "A ticket type's settings without its key and label: the channel-name template, who may do " +
+            'what in a ticket channel, and whether the opener claims it on open.',
+    });
+
+/**
  * Each schema above that states a domain type the routes send as it is, against that type.
  * Gathered here so `__tests__/ticketBody.test-d.ts` can assert them; see {@link SchemaMatches}.
  */
 type TicketBodyChecks = ChecksHold<{
     TicketRolePermissions: SchemaMatches<typeof TicketRolePermissionsSchema, TicketRolePermissions>;
     TicketPermissionModel: SchemaMatches<typeof TicketPermissionModelSchema, TicketPermissionModel>;
+    TicketTypeSettings: SchemaMatches<typeof TicketTypeSettingsSchema, TicketTypeSettings>;
 }>;
 
 /** The checks in {@link TicketBodyChecks} that fail, or `never`. Asserted `never` in `__tests__/ticketBody.test-d.ts`. */
@@ -319,16 +344,12 @@ export function ticketingConfigView(guild: Guild, config: TicketingConfig | null
             .map((roleId) => guild.roles.cache.get(roleId))
             .filter((role): role is NonNullable<typeof role> => !!role)
             .map((role) => ({ id: role.id, name: role.name })),
-        // Sorted by label so the editor's row order does not depend on JSON key order,
-        // which is insertion-ordered and would shuffle when a type is replaced.
-        types: Object.values(config?.ticketTypes ?? {})
-            .map((definition) => ({
-                type: definition.type,
-                label: definition.label,
-                nameTemplate: definition.nameTemplate,
-                permissions: definition.permissions,
-                autoClaimOnOpen: definition.autoClaimOnOpen,
-            }))
-            .sort((left, right) => left.label.localeCompare(right.label)),
+        types: (config ? listTicketTypes(config) : []).map((definition) => ({
+            type: definition.type,
+            label: definition.label,
+            nameTemplate: definition.nameTemplate,
+            permissions: definition.permissions,
+            autoClaimOnOpen: definition.autoClaimOnOpen,
+        })),
     };
 }

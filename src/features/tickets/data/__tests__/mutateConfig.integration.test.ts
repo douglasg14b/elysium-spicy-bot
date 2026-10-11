@@ -2,8 +2,10 @@ import SqliteDatabase from 'better-sqlite3';
 import { CamelCasePlugin, Kysely, SqliteDialect } from 'kysely';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SqliteJsonPlugin } from '../../../../features-system/data-persistence/plugins/sqliteJsonPlugin';
-import { up as createTicketingConfig } from '../../../../features-system/data-persistence/migrations/2025-11-10-Create_Ticketing_Config';
-import type { TicketingConfig, TicketingConfigTable } from '../ticketingSchema';
+import { withinDeadlockTimeout } from '../../../provisioning/__tests__/support/provisioningTestDb';
+import type { ResourceBindingTable } from '../../../provisioning/data/resourceBindingsSchema';
+import { createTicketTestTables, seedTicketCategorySlots } from '../../__tests__/support/ticketTestTables';
+import type { StoredTicketingConfig, TicketingConfig, TicketingConfigTable } from '../ticketingSchema';
 
 /**
  * `mutateConfig` against real SQLite, on the migration's own table.
@@ -23,6 +25,10 @@ import type { TicketingConfig, TicketingConfigTable } from '../ticketingSchema';
  *     refusal rather than a message attached to a completed write;
  *   - the blob round-trips through `SqliteJsonPlugin` as an object, not a JSON string.
  *
+ * And since the category slots moved into `resource_bindings` (2026-10-10): the mutator
+ * is handed them assembled on the transaction, the result is re-assembled from the rows,
+ * and **no write puts `categories` back into the blob** — read off the raw column.
+ *
  * In-memory, so it costs nothing and cannot touch the dev database. **Only the sqlite arm
  * runs**; the postgres `FOR UPDATE` path stays hand-reviewed and unexercised, which is
  * recorded honestly rather than claimed as covered.
@@ -30,6 +36,7 @@ import type { TicketingConfig, TicketingConfigTable } from '../ticketingSchema';
 
 interface TestDatabase {
     ticketing_config: TicketingConfigTable;
+    resource_bindings: ResourceBindingTable;
 }
 
 const sqliteFile = new SqliteDatabase(':memory:');
@@ -54,16 +61,17 @@ const { ticketingRepo } = await import('../ticketingRepo');
 
 const GUILD_ID = 'guild-1';
 
-function baseConfig(): TicketingConfig {
+const SLOTS: TicketingConfig['categories'] = {
+    open: { name: 'Tickets', discordId: '900000000000000001', provenance: 'adopted' },
+    claimed: { name: 'Claimed', discordId: '900000000000000002', provenance: 'adopted' },
+    closed: { name: 'Closed', discordId: '900000000000000003', provenance: 'adopted' },
+};
+
+function baseConfig(): StoredTicketingConfig {
     return {
         modTicketsDeployed: true,
         modTicketsDeployedChannelId: 'panel-channel',
         modTicketsDeployedMessageId: 'panel-message',
-        categories: {
-            open: { name: 'Tickets', discordId: '900000000000000001', provenance: 'adopted' },
-            claimed: { name: 'Claimed', discordId: '900000000000000002', provenance: 'adopted' },
-            closed: { name: 'Closed', discordId: '900000000000000003', provenance: 'adopted' },
-        },
         moderationRoles: ['mod-role'],
         ticketTypes: {
             support: {
@@ -81,19 +89,25 @@ function baseConfig(): TicketingConfig {
     };
 }
 
-/** The row as the database holds it, re-read rather than taken from a return value. */
-async function storedConfig(): Promise<TicketingConfig | null> {
+/**
+ * The blob as the database holds it — the **raw** column, re-read rather than taken from a
+ * return value, with nothing assembled into it.
+ */
+async function storedConfig(): Promise<Record<string, unknown> | null> {
     const row = await db
         .selectFrom('ticketing_config')
         .selectAll()
         .where('guildId', '=', GUILD_ID)
         .executeTakeFirst();
-    return (row?.config as TicketingConfig | undefined) ?? null;
+    return (row?.config as Record<string, unknown> | undefined) ?? null;
 }
 
+// The config's two tables, once: its blob, and the category slot rows.
+await createTicketTestTables(db as unknown as Kysely<unknown>);
+
 beforeEach(async () => {
-    await db.schema.dropTable('ticketing_config').ifExists().execute();
-    await createTicketingConfig(db as unknown as Kysely<unknown>);
+    await db.deleteFrom('ticketing_config').execute();
+    await db.deleteFrom('resource_bindings').execute();
     await db
         .insertInto('ticketing_config')
         .values({
@@ -105,6 +119,7 @@ beforeEach(async () => {
             entityVersion: 1,
         })
         .execute();
+    await seedTicketCategorySlots(GUILD_ID, SLOTS);
 });
 
 afterAll(async () => {
@@ -182,5 +197,65 @@ describe('ticketingRepo.mutateConfig against real sqlite', () => {
         // The transaction rolls back, so a mutator that fails halfway cannot leave a
         // partially-written blob behind.
         expect(await storedConfig()).toEqual(baseConfig());
+    });
+});
+
+describe('the category slots, which live in resource_bindings', () => {
+    it('hands the mutator the slots, assembled from the rows on its transaction', async () => {
+        let seen: unknown = 'not called';
+        await withinDeadlockTimeout(
+            ticketingRepo.mutateConfig(GUILD_ID, (current) => {
+                seen = current.config.categories;
+                return current.config;
+            }),
+            'mutateConfig'
+        );
+
+        expect(seen).toEqual(SLOTS);
+    });
+
+    it('never writes `categories` into the blob, through a spread mutateConfig or upsert', async () => {
+        // Sabotage-verified: removing the strip in `serializeStoredConfig` puts the
+        // assembled slots back into the raw column on both paths.
+        await withinDeadlockTimeout(
+            ticketingRepo.mutateConfig(GUILD_ID, (current) => ({ ...current.config, moderationRoles: ['other-role'] })),
+            'mutateConfig'
+        );
+        expect(await storedConfig()).not.toHaveProperty('categories');
+
+        const assembled = await ticketingRepo.get(GUILD_ID);
+        if (!assembled) throw new Error('config row vanished');
+        await ticketingRepo.upsert({ guildId: GUILD_ID, config: assembled.config, ticketNumberInc: 0, entityVersion: 1 });
+        expect(await storedConfig()).not.toHaveProperty('categories');
+        expect(await storedConfig()).toMatchObject({ moderationRoles: ['other-role'] });
+    });
+
+    it('returns the slots as the mutator left them, re-read from the rows', async () => {
+        const replacement = { name: 'Fresh', discordId: '900000000000000099', provenance: 'created' as const };
+
+        const result = await withinDeadlockTimeout(
+            ticketingRepo.mutateConfig(GUILD_ID, async (current, transaction) => {
+                await ticketingRepo.writeCategorySlots(GUILD_ID, { open: replacement }, transaction);
+                return current.config;
+            }),
+            'mutateConfig'
+        );
+
+        // What the settings PUT renders, so it must show the slot as saved.
+        expect(result?.categories.open).toEqual(replacement);
+        expect(result?.categories.claimed).toEqual(SLOTS.claimed);
+    });
+
+    it('reads a slot with no row as null, and an unbound one as a name with no category', async () => {
+        await db.deleteFrom('resource_bindings').execute();
+        await seedTicketCategorySlots(GUILD_ID, { open: { name: 'Remembered', discordId: null } });
+
+        const entity = await ticketingRepo.get(GUILD_ID);
+
+        expect(entity?.config.categories).toEqual({
+            open: { name: 'Remembered', discordId: null },
+            claimed: null,
+            closed: null,
+        });
     });
 });

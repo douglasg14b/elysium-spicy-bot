@@ -1,5 +1,9 @@
 import type { Guild } from 'discord.js';
+import { journeysRepo } from './data/journeysRepo';
 import { resourceBindingsRepo } from './data/resourceBindingsRepo';
+import type { ResourceBindingEntity } from './data/resourceBindingsSchema';
+import { requireTicketTypeProvider } from './ticketTypeProvider';
+import { isJourneyBinding, type GuildOwnership } from './logic/bindingOwner';
 import { applyInstallPlan, type ApplyInstallPlanResult } from './logic/applyInstallPlan';
 import {
     applyUnpublishPlan,
@@ -21,12 +25,13 @@ import {
 import {
     applyDriftRepair,
     withAdoptionReasserted,
+    withSharingReasserted,
     type ApplyDriftRepairResult,
     type PermissionOverwriteWrite,
 } from './logic/applyDriftRepair';
 import { buildUnpublishPlan, type UnpublishPlan } from './logic/unpublishPlan';
 import { journeyBusyMessage, withJourneyLock } from './logic/journeyOperationLock';
-import type { JourneyDeclaration } from './logic/resourceDeclaration';
+import { isDiscordResource, type JourneyDeclaration } from './logic/resourceDeclaration';
 
 export interface PreviewInstallInput {
     readonly guild: Guild;
@@ -45,27 +50,74 @@ export interface PreviewInstallInput {
  * applicable plan for a journey that cannot actually be installed.
  */
 export async function previewInstall(input: PreviewInstallInput): Promise<InstallPlan> {
-    // One read serves both: this journey's rows decide reuse, and every row in the guild
-    // fences crash recovery off objects another journey owns.
-    const guildBindings = await resourceBindingsRepo.listByGuild(input.guild.id);
-    const existingBindings = guildBindings.filter(
-        (binding) => binding.journeyKey === input.journey.journeyKey
-    );
+    // One read serves all three: this journey's rows decide reuse, every row in the guild
+    // fences crash recovery off objects another owner holds, and the same rows name the
+    // owner when an adopt would take something already held.
+    const { rows, ownership } = await readGuildBindings(input.guild.id);
+    // Filtered on owner kind as well as key: a journey keyed `tickets` must not take the
+    // ticket feature's category rows as its own. Every kind, ticket types included —
+    // those decide reuse too, and only the ownership fences must not see them.
+    const existingBindings = rows.filter((binding) => isJourneyBinding(binding, input.journey.journeyKey));
     const boundInGuild = new Set(
-        guildBindings.flatMap((binding) => (binding.discordId ? [binding.discordId] : []))
+        ownership.bindings.flatMap((binding) => (binding.discordId ? [binding.discordId] : []))
     );
+
+    // Read only when the journey declares one, so a journey that does not can install
+    // without the ticket feature wired at all.
+    const ticketTypes = input.journey.resources.some((resource) => resource.kind === 'ticketType')
+        ? await requireTicketTypeProvider().read(input.guild.id)
+        : undefined;
 
     return buildInstallPlan({
         guild: input.guild,
         journey: input.journey,
         existingBindings,
         boundInGuild,
+        ownership,
+        ticketTypes,
         choices: input.choices,
         permissionContext: {
             subjectId: input.subjectId,
             staffRoleIds: input.staffRoleIds,
         },
     });
+}
+
+/**
+ * Every binding in a guild, with the journey names to describe their owners by.
+ *
+ * The one read behind every "who already holds this?" question — install's adopt fence,
+ * uninstall's forget-instead-of-delete, drift's repair fence, the ticket settings save and
+ * the channel directory's `owner` — so each asks it the same way and names owners in the
+ * same words.
+ *
+ * **Discord objects only.** A journey's `ticketType` rows are left out here, once, so no
+ * fence built on this — `ownerOf`, `describeOtherHolder`, `boundInGuild`, the uninstall
+ * plan's `guildBoundIds`, the channel and role directories' `owner` — can read a type key
+ * as a snowflake. A type key may be all digits.
+ */
+export async function loadGuildOwnership(guildId: string): Promise<GuildOwnership> {
+    return (await readGuildBindings(guildId)).ownership;
+}
+
+/**
+ * One read of a guild's bindings: every row, for a caller that also needs one journey's
+ * own rows of every kind, and the {@link loadGuildOwnership} view of the same rows.
+ */
+async function readGuildBindings(
+    guildId: string
+): Promise<{ readonly rows: readonly ResourceBindingEntity[]; readonly ownership: GuildOwnership }> {
+    const [rows, journeys] = await Promise.all([
+        resourceBindingsRepo.listByGuild(guildId),
+        journeysRepo.listNamesByGuildId(guildId),
+    ]);
+    return {
+        rows,
+        ownership: {
+            bindings: rows.filter((row) => isDiscordResource(row)),
+            journeyNames: new Map(journeys.map((journey) => [journey.journeyKey, journey.name] as const)),
+        },
+    };
 }
 
 export interface InstallJourneyInput extends PreviewInstallInput {
@@ -128,8 +180,13 @@ export async function previewUnpublish(
     guild: Guild,
     journeyKey: string
 ): Promise<UnpublishPlan> {
-    const bindings = await resourceBindingsRepo.listByJourney(guild.id, journeyKey);
-    return buildUnpublishPlan({ guild, journeyKey, bindings });
+    // The whole guild, not just this journey: an interrupted create must not be pinned on
+    // an object another owner holds, and a `created` object another owner also uses is
+    // forgotten rather than deleted. `bindings` stays this journey's own, of every kind:
+    // its ticket type rows are forgotten like the rest.
+    const { rows, ownership } = await readGuildBindings(guild.id);
+    const bindings = rows.filter((binding) => isJourneyBinding(binding, journeyKey));
+    return buildUnpublishPlan({ guild, journeyKey, bindings, ownership });
 }
 
 export interface PreviewDriftInput {
@@ -163,15 +220,18 @@ export interface PreviewDriftInput {
 export async function previewDrift(input: PreviewDriftInput): Promise<JourneyDriftPlan> {
     await input.guild.channels.fetch();
 
-    const bindings = await resourceBindingsRepo.listByJourney(
-        input.guild.id,
-        input.journey.journeyKey
+    // The guild's rows rather than this journey's alone, so a resource another owner also
+    // holds can be reported without a repair that would undo that owner's setup.
+    const ownership = await loadGuildOwnership(input.guild.id);
+    const bindings = ownership.bindings.filter((binding) =>
+        isJourneyBinding(binding, input.journey.journeyKey)
     );
 
     return buildJourneyDriftPlan({
         guild: input.guild,
         journey: input.journey,
         bindings,
+        ownership,
         permissionContext: {
             subjectId: input.subjectId,
             staffRoleIds: input.staffRoleIds,
@@ -199,6 +259,7 @@ export async function previewOrphans(input: {
     return findOrphanedBindings({
         journey: input.journey,
         bindings,
+        // Discord objects only; `findOrphanedBindings` branches a ticket type off first.
         existsInGuild: (kind, discordId) => existsInGuildAs(input.guild, kind, discordId),
     });
 }
@@ -253,11 +314,13 @@ async function repairUnderLock(input: RepairDriftInput): Promise<ApplyDriftRepai
      * alternative — trusting a boolean that travelled — is the shape of defect this
      * repo has shipped before.
      */
-    const bindings = await resourceBindingsRepo.listByJourney(
-        input.guild.id,
-        input.journey.journeyKey
+    // The guild's rows, so sharing is re-derived alongside adoption: an object another
+    // owner holds is never reshaped, whatever the plan that travelled here says.
+    const ownership = await loadGuildOwnership(input.guild.id);
+    const bindings = ownership.bindings.filter((binding) =>
+        isJourneyBinding(binding, input.journey.journeyKey)
     );
-    const plan = withAdoptionReasserted(input.approvedPlan, bindings);
+    const plan = withSharingReasserted(withAdoptionReasserted(input.approvedPlan, bindings), ownership);
     const bindingByKey = new Map(
         bindings.map((binding) => [binding.resourceKey, binding] as const)
     );
@@ -359,6 +422,10 @@ export interface ResolvedJourneyResources {
  * An `intended` row is skipped entirely — it names a resource that does not exist
  * yet, and its id is null. A settled row whose object has since been deleted is
  * surfaced in `stale` instead, so no caller can mistake it for live.
+ *
+ * A ticket type resolves to its **key**, which is what a `ticketTypePicker` field holds,
+ * for as long as the ticket settings still list it; removed, it is `stale` like a deleted
+ * channel. The settings are read once, and only when the journey holds a type.
  */
 export async function resolveJourneyResources(
     guild: Guild,
@@ -368,13 +435,18 @@ export async function resolveJourneyResources(
     const live = new Map<string, string>();
     const stale: string[] = [];
 
+    const ticketTypes = bindings.some((binding) => binding.kind === 'ticketType')
+        ? await requireTicketTypeProvider().read(guild.id)
+        : undefined;
+
     for (const binding of bindings) {
         if (!binding.discordId || binding.state === 'intended') continue;
 
-        const exists =
-            binding.kind === 'role'
+        const exists = isDiscordResource(binding)
+            ? binding.kind === 'role'
                 ? guild.roles.cache.has(binding.discordId)
-                : guild.channels.cache.has(binding.discordId);
+                : guild.channels.cache.has(binding.discordId)
+            : ticketTypes?.status === 'ok' && ticketTypes.types.has(binding.discordId);
 
         if (exists) {
             live.set(binding.resourceKey, binding.discordId);

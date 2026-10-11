@@ -2,23 +2,28 @@ import SqliteDatabase from 'better-sqlite3';
 import { CamelCasePlugin, Kysely, SqliteDialect } from 'kysely';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SqliteJsonPlugin } from '../../../../features-system/data-persistence/plugins/sqliteJsonPlugin';
-import { up as createTicketingConfig } from '../../../../features-system/data-persistence/migrations/2025-11-10-Create_Ticketing_Config';
+import { withinDeadlockTimeout } from '../../../provisioning/__tests__/support/provisioningTestDb';
 import { TestDiscord, type ServerGuild } from '../../../../shared/__tests__/support/testDiscord';
+import { createTicketTestTables, seedTicketCategorySlots } from '../../__tests__/support/ticketTestTables';
 import type { TicketingConfig } from '../../data/ticketingSchema';
 
 /**
  * Saving the dashboard's ticket settings, which can now create categories.
  *
- * Real discord.js against TestDiscord and a real `ticketing_config` row, so "was a
- * category made" is read from Discord's side and "was it recorded" from the database.
+ * Real discord.js against TestDiscord and a real `ticketing_config` row with real slot
+ * rows in `resource_bindings`, so "was a category made" is read from Discord's side and
+ * "was it recorded" from the database.
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = new Kysely<any>({
     dialect: new SqliteDialect({ database: new SqliteDatabase(':memory:') }),
-    plugins: [new CamelCasePlugin(), new SqliteJsonPlugin({ ticketing_config: ['config'] })],
+    plugins: [
+        new CamelCasePlugin(),
+        new SqliteJsonPlugin({ ticketing_config: ['config'], journeys: ['resources'] }),
+    ],
 });
-await createTicketingConfig(db);
+await createTicketTestTables(db);
 
 vi.mock('../../../../features-system/data-persistence/database', () => ({
     get database() {
@@ -26,13 +31,25 @@ vi.mock('../../../../features-system/data-persistence/database', () => ({
     },
 }));
 
-const { setTicketSettings } = await import('../setTicketSettings');
+const { setTicketSettings: setTicketSettingsUnguarded } = await import('../setTicketSettings');
 const { ticketingRepo } = await import('../../data/ticketingRepo');
+
+/**
+ * Every save runs a transaction on the one sqlite connection, so a singleton query from
+ * inside it would hang — reported as a deadlock rather than a bare timeout.
+ */
+function setTicketSettings(
+    input: Parameters<typeof setTicketSettingsUnguarded>[0]
+): ReturnType<typeof setTicketSettingsUnguarded> {
+    return withinDeadlockTimeout(setTicketSettingsUnguarded(input), 'setTicketSettings');
+}
 
 const running: TestDiscord[] = [];
 
 beforeEach(async () => {
     await db.deleteFrom('ticketing_config').execute();
+    await db.deleteFrom('resource_bindings').execute();
+    await db.deleteFrom('journeys').execute();
 });
 
 afterEach(async () => {
@@ -57,17 +74,65 @@ async function startScenario(categories: TicketingConfig['categories']): Promise
     const moderator = guild.createRole({ name: 'Moderators' });
     await discord.start();
 
-    const config: TicketingConfig = {
-        modTicketsDeployed: true,
-        modTicketsDeployedChannelId: 'panel-channel',
-        modTicketsDeployedMessageId: 'panel-message',
-        categories,
-        moderationRoles: [moderator.id],
-        ticketTypes: {},
-    };
-    await ticketingRepo.upsert({ guildId: guild.id, config: JSON.stringify(config), ticketNumberInc: 0, entityVersion: 1 });
+    await ticketingRepo.upsert({
+        guildId: guild.id,
+        config: {
+            modTicketsDeployed: true,
+            modTicketsDeployedChannelId: 'panel-channel',
+            modTicketsDeployedMessageId: 'panel-message',
+            moderationRoles: [moderator.id],
+            ticketTypes: {},
+        },
+        ticketNumberInc: 0,
+        entityVersion: 1,
+    });
+    await seedTicketCategorySlots(guild.id, categories);
 
     return { discord, guild, moderatorRoleId: moderator.id };
+}
+
+/** A journey in this guild, holding `discordId` under `resourceKey`. */
+async function journeyHolding(guildId: string, journey: { key: string; name: string }, discordId: string): Promise<void> {
+    const now = new Date().toISOString();
+    await db
+        .insertInto('journeys')
+        .values({
+            journeyKey: journey.key,
+            guildId,
+            name: journey.name,
+            description: null,
+            resources: JSON.stringify([{ key: 'lobby', kind: 'category', defaultName: 'Lobby' }]),
+            createdForFlowId: null,
+            createdAt: now,
+            updatedAt: now,
+        })
+        .execute();
+    await db
+        .insertInto('resource_bindings')
+        .values({
+            guildId,
+            ownerKind: 'journey',
+            ownerKey: journey.key,
+            resourceKey: 'lobby',
+            kind: 'category',
+            state: 'created',
+            discordId,
+            name: 'Lobby',
+            createdAt: now,
+            updatedAt: now,
+        })
+        .execute();
+}
+
+/** The ticket feature's slot rows, read raw. */
+async function slotRows(guildId: string): Promise<{ resourceKey: string; state: string; discordId: string | null }[]> {
+    return db
+        .selectFrom('resource_bindings')
+        .select(['resourceKey', 'state', 'discordId'])
+        .where('guildId', '=', guildId)
+        .where('ownerKind', '=', 'tickets')
+        .orderBy('resourceKey')
+        .execute();
 }
 
 async function stored(guildId: string): Promise<TicketingConfig> {
@@ -105,6 +170,13 @@ describe('saving the ticket category slots', () => {
         expect(created).toMatchObject({ name: 'Tickets', provenance: 'created' });
         expect(saved.categories.claimed).toEqual(created);
         expect(saved.categories.closed).toEqual({ name: 'Support', discordId: existing.id, provenance: 'adopted' });
+        // Recorded as rows, one per slot, and the response is what was saved.
+        expect(await slotRows(scenario.guild.id)).toEqual([
+            { resourceKey: 'claimed', state: 'created', discordId: created?.discordId },
+            { resourceKey: 'closed', state: 'adopted', discordId: existing.id },
+            { resourceKey: 'open', state: 'created', discordId: created?.discordId },
+        ]);
+        expect(result.ok && result.config.categories).toEqual(saved.categories);
 
         // Made on Discord's side, hidden from everyone, open to the moderators.
         const made = scenario.guild.channel(created?.discordId ?? '');
@@ -117,10 +189,7 @@ describe('saving the ticket category slots', () => {
         const discordSide = { name: 'Tickets', provenance: 'created' as const };
         const scenario = await startScenario({ open: null, claimed: null, closed: null });
         const category = scenario.guild.createCategory({ name: 'Renamed In Discord' });
-        await ticketingRepo.mutateConfig(scenario.guild.id, (row) => ({
-            ...row.config,
-            categories: { ...row.config.categories, open: { ...discordSide, discordId: category.id } },
-        }));
+        await seedTicketCategorySlots(scenario.guild.id, { open: { ...discordSide, discordId: category.id } });
 
         const result = await setTicketSettings({
             guild: scenario.discord.clientGuild(scenario.guild),
@@ -169,6 +238,70 @@ describe('saving the ticket category slots', () => {
         expect(saved.categories.open).toMatchObject({ name: 'Tickets', provenance: 'created' });
         expect(saved.categories.claimed).toBeNull();
         expect(scenario.guild.channel(saved.categories.open?.discordId ?? '').exists).toBe(true);
+    });
+
+    it('refuses to adopt a category a journey holds, naming the journey, and changes nothing', async () => {
+        // Sabotage-verified: removing the step-1 `describeOtherHolder` check lets this
+        // save adopt the journey's category.
+        const scenario = await startScenario({ open: null, claimed: null, closed: null });
+        const lobby = scenario.guild.createCategory({ name: 'Lobby' });
+        await journeyHolding(scenario.guild.id, { key: 'onboarding', name: 'Onboarding' }, lobby.id);
+
+        const result = await setTicketSettings({
+            guild: scenario.discord.clientGuild(scenario.guild),
+            categories: { open: { discordId: lobby.id }, claimed: { name: 'Claimed' }, closed: null },
+            moderationRoles: [scenario.moderatorRoleId],
+        });
+
+        expect(result).toMatchObject({ ok: false, reason: 'invalid-input' });
+        expect(result.ok ? '' : result.message).toContain('journey "Onboarding"');
+        expect(categoryCreates(scenario.discord)).toEqual([]);
+        expect(await slotRows(scenario.guild.id)).toEqual([]);
+    });
+
+    it('lets two slots share one existing category — that is one owner', async () => {
+        const scenario = await startScenario({ open: null, claimed: null, closed: null });
+        const tickets = scenario.guild.createCategory({ name: 'Tickets' });
+
+        const result = await setTicketSettings({
+            guild: scenario.discord.clientGuild(scenario.guild),
+            categories: { open: { discordId: tickets.id }, claimed: { discordId: tickets.id }, closed: null },
+            moderationRoles: [scenario.moderatorRoleId],
+        });
+
+        expect(result.ok).toBe(true);
+        expect((await slotRows(scenario.guild.id)).map((row) => row.discordId)).toEqual([tickets.id, tickets.id]);
+    });
+
+    it('re-checks on the write, so a journey that adopted the category meanwhile still wins', async () => {
+        // Step 1 passes; then, while this save is creating, a journey takes the category
+        // it is about to adopt. The write's own re-check refuses that slot and saves the
+        // rest, so the category this save made is still recorded.
+        const scenario = await startScenario({ open: null, claimed: null, closed: null });
+        const lobby = scenario.guild.createCategory({ name: 'Lobby' });
+        const guild = scenario.discord.clientGuild(scenario.guild);
+        const realCreate = guild.channels.create.bind(guild.channels);
+        vi.spyOn(guild.channels, 'create').mockImplementationOnce(async (options) => {
+            await journeyHolding(scenario.guild.id, { key: 'onboarding', name: 'Onboarding' }, lobby.id);
+            return realCreate(options);
+        });
+
+        const result = await setTicketSettings({
+            guild,
+            categories: { open: { discordId: lobby.id }, claimed: { name: 'Claimed' }, closed: null },
+            moderationRoles: [scenario.moderatorRoleId],
+        });
+
+        expect(result).toMatchObject({ ok: false, reason: 'taken-meanwhile' });
+        const message = result.ok ? '' : result.message;
+        // Named by key: the display names were read in step 1, before this journey
+        // existed — the fallback `describeOwner` gives a journey it has no name for.
+        expect(message).toContain('journey "onboarding"');
+        const [claimedRow, ...others] = await slotRows(scenario.guild.id);
+        expect(others).toEqual([]);
+        expect(claimedRow).toMatchObject({ resourceKey: 'claimed', state: 'created' });
+        // And the result is what was saved, so the page shows the open slot unchanged.
+        expect(!result.ok && 'config' in result && result.config.categories.open).toBeNull();
     });
 
     it('refuses a second save while the first is still creating', async () => {

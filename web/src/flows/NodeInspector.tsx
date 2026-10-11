@@ -14,14 +14,21 @@ import type {
     GuildRole,
     NodeDescriptor,
     ResourceDeclaration,
+    TicketTypeView,
 } from '@brattybot/web-sdk';
 import { renderControl } from './controls/renderControl';
-import type { ControlContext } from './controls/types';
+import type { ControlContext, ServerTimeZone } from './controls/types';
 import { KIND_STYLES } from './nodeMeta';
 import { ticketChannelNameFor } from './ticketChannelName';
 import { describeUnconnectedExit } from './unconnectedExits';
 import { describeUnplacedIssue, placeIssues } from './validationIssues';
-import { isFieldVisible, resolveOutputName, variableToken, type AvailableVariable } from './variables';
+import {
+    isFieldVisible,
+    resolveOutputName,
+    variableToken,
+    type AvailableVariable,
+    type RequirementAvailability,
+} from './variables';
 
 interface NodeInspectorProps {
     /** The block this node instantiates, absent when its type is unknown to this build. */
@@ -31,6 +38,8 @@ interface NodeInspectorProps {
     config: Record<string, unknown>;
     roles: GuildRole[];
     channels: GuildChannel[];
+    /** The guild's declared ticket types, for the ticket-type picker. */
+    ticketTypes: TicketTypeView[];
     /**
      * Variables blocks upstream of this node write, for its copy fields to offer.
      *
@@ -39,14 +48,20 @@ interface NodeInspectorProps {
      */
     variables: AvailableVariable[];
     /**
-     * Whether `{{actor.mention}}` resolves at this node.
+     * Which run-context requirements the run reaching this node can be relied on to
+     * carry — for greying token chips and disabling options that need what is missing.
      *
      * Computed by the page for the same reason `variables` is: it depends on what
      * is wired above this node, which the inspector cannot see.
      */
-    actorAvailable: boolean;
+    requirements: RequirementAvailability;
     /** What this flow declares but has not installed yet, for the pickers to offer. */
     declaredResources: ResourceDeclaration[];
+    /**
+     * The server's time zone, for a control whose value is on the server's clock. Absent
+     * until the page's fetch answers, or after it failed.
+     */
+    serverTimeZone?: ServerTimeZone;
     /**
      * What the server last found wrong with this node — at the last save, or the last
      * re-check as focus left a field.
@@ -72,9 +87,11 @@ export function NodeInspector({
     config,
     roles,
     channels,
+    ticketTypes,
     variables,
-    actorAvailable,
+    requirements,
     declaredResources,
+    serverTimeZone,
     issues,
     unconnectedExits,
     onChange,
@@ -98,12 +115,14 @@ export function NodeInspector({
     const context: ControlContext = {
         roles,
         channels,
+        ticketTypes,
         variables,
-        actorAvailable,
+        requirements,
         declaredResources,
         // A picker's resource key is a sibling of its own field, so it patches the
         // node directly rather than going through its single-key `onChange`.
         setConfigKey: (key, value) => onChange({ [key]: value }),
+        ...(serverTimeZone ? { serverTimeZone } : {}),
     };
 
     return (

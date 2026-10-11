@@ -3,7 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { database } from '../../data-persistence/database';
 import { migrateTestDatabase } from '../../data-persistence/__tests__/support/migrateTestDatabase';
 import { TestDiscord } from '../../../shared/__tests__/support/testDiscord';
-import { isBackfillPending } from '../backfillState';
+import { isBackfillPending, markBackfillPending, whenBackfillFinished } from '../backfillState';
 import { RECORDER_HEARTBEAT_INTERVAL_MS } from '../backfillGaps';
 import type { UnfilledRecorderSession } from '../data/activityRecorderSessionsRepo';
 import { activityRecorderSessionsRepo } from '../data/activityRecorderSessionsRepo';
@@ -128,6 +128,43 @@ describe('startRecorderSession', () => {
 
         expect(isBackfillPending()).toBe(false);
         expect(dependencies.sessionsRepo.findUnfilled).not.toHaveBeenCalled();
+    });
+
+    it('tells a waiting caller the backfill is over once it has finished, and only once', async () => {
+        const finished = vi.fn();
+        markBackfillPending();
+        whenBackfillFinished(finished);
+        expect(finished).not.toHaveBeenCalled();
+
+        await startRecorderSession(NO_GUILDS);
+        expect(finished).toHaveBeenCalledOnce();
+
+        // The next session raises and lowers the flag again; the caller was already told.
+        await startRecorderSession(NO_GUILDS);
+        expect(finished).toHaveBeenCalledOnce();
+    });
+
+    it('tells a waiting caller the backfill is over when it failed', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const finished = vi.fn();
+        markBackfillPending();
+        whenBackfillFinished(finished);
+
+        await startRecorderSession(
+            NO_GUILDS,
+            stubbedDependencies({ findUnfilled: vi.fn().mockRejectedValue(new Error('db down')) })
+        );
+
+        expect(finished).toHaveBeenCalledOnce();
+    });
+
+    it('tells a caller registering after the backfill is over straight away', async () => {
+        await startRecorderSession(NO_GUILDS);
+        const finished = vi.fn();
+
+        whenBackfillFinished(finished);
+
+        expect(finished).toHaveBeenCalledOnce();
     });
 
     it('logs a failed heartbeat and keeps beating', async () => {

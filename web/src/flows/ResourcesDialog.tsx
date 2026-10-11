@@ -42,9 +42,11 @@ import {
     ApiError,
     getGuildChannelsOptions,
     getGuildRolesOptions,
+    getTicketsConfigOptions,
     type GuildChannel,
     type GuildRole,
     type ResourceDeclaration,
+    type TicketTypeView,
 } from '@brattybot/web-sdk';
 import { ResourcesPanel } from './ResourcesPanel';
 import { loadResources, resourceTargetIdentity, type ResourceSaveTarget } from './resourceSaveTarget';
@@ -135,7 +137,7 @@ export function ResourcesDialog({
 }: ResourcesDialogProps) {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const { roles, channels } = useGuildDirectory(guildId, opened);
+    const { roles, channels, ticketTypes } = useGuildDirectory(guildId, opened);
 
     useResourceAutosave({
         guildId,
@@ -188,6 +190,8 @@ export function ResourcesDialog({
                         onChange={onChange}
                         roles={roles}
                         channels={channels}
+                        ticketTypes={ticketTypes}
+                        journeyKey={journeyKey}
                         installedKeys={installedKeys}
                         // Derived from the target rather than taken as a prop: the scope of
                         // the copy and the scope of the endpoint are the same fact, and
@@ -204,7 +208,8 @@ export function ResourcesDialog({
 }
 
 /**
- * The guild's real roles and channels, for the adopt and permission pickers.
+ * The guild's real roles and channels, for the adopt and permission pickers, and its
+ * ticket types, for a declared ticket type.
  *
  * Fetched here rather than passed in because both callers would otherwise have to fetch
  * them for this dialog alone — the flows page has no other use for either list, and making
@@ -224,12 +229,23 @@ export function ResourcesDialog({
 function useGuildDirectory(
     guildId: string,
     active: boolean
-): { roles: GuildRole[]; channels: GuildChannel[] } {
+): { roles: GuildRole[]; channels: GuildChannel[]; ticketTypes: TicketTypeView[] | undefined } {
     const path = { guildId };
     const roles = useQuery({ ...getGuildRolesOptions({ path }), enabled: active });
     const channels = useQuery({ ...getGuildChannelsOptions({ path }), enabled: active });
+    /*
+     * The server's ticket types, for a declared ticket type's key suggestions and its
+     * "already here" chip. Its own query, so a ticket config that will not load costs the
+     * pickers nothing; `undefined` until read — and left so when the read fails — so the
+     * chip stays quiet rather than calling every key new on the strength of nothing.
+     */
+    const ticketsConfig = useQuery({ ...getTicketsConfigOptions({ path }), enabled: active });
 
-    return { roles: roles.data?.roles ?? NO_ROLES, channels: channels.data?.channels ?? NO_CHANNELS };
+    return {
+        roles: roles.data?.roles ?? NO_ROLES,
+        channels: channels.data?.channels ?? NO_CHANNELS,
+        ticketTypes: ticketsConfig.data?.types,
+    };
 }
 
 /** Stand-ins until a directory has loaded, one instance each so the panel sees no change per render. */

@@ -1,9 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { ensureBlocksDiscovered } from '../../blocks/registry';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../data/flowGraph';
 import { RESOURCE_KEY_SUFFIX, collectResourceTargets } from '../resourceTargets';
+
+// The scan asks each node's block which fields are pickers, so it needs the registry.
+beforeAll(async () => {
+    await ensureBlocksDiscovered();
+});
 
 /**
  * Finding which node configs are waiting on a provisioned id.
@@ -15,12 +21,15 @@ import { RESOURCE_KEY_SUFFIX, collectResourceTargets } from '../resourceTargets'
  * for it.
  */
 
-function graphWith(nodes: { id: string; data: Record<string, unknown> }[]): FlowGraph {
+/** A block type no build has, which the scan reads as it stands — every `*Key` counts. */
+const UNKNOWN_BLOCK = 'fixture.notInThisBuild';
+
+function graphWith(nodes: { id: string; data: Record<string, unknown>; type?: string }[]): FlowGraph {
     return {
         version: FLOW_GRAPH_VERSION,
         nodes: nodes.map((node) => ({
             id: node.id,
-            type: 'action.assignRole',
+            type: node.type ?? 'action.assignRole',
             position: { x: 0, y: 0 },
             data: node.data,
         })),
@@ -51,11 +60,13 @@ describe('collectResourceTargets', () => {
 
     it('finds several targets on one node', () => {
         // A block with both a channel and a role picker keeps them apart, which is
-        // why the sidecar is derived per field rather than being one shared key.
+        // why the sidecar is derived per field rather than being one shared key. No
+        // shipped block has both, so an unknown one stands in.
         const targets = collectResourceTargets(
             graphWith([
                 {
                     id: 'node-1',
+                    type: UNKNOWN_BLOCK,
                     data: {
                         channelId: '',
                         channelIdKey: 'qa-channel',
@@ -102,11 +113,44 @@ describe('collectResourceTargets', () => {
         const targets = collectResourceTargets(
             graphWith([
                 { id: 'node-1', data: { roleId: '', roleIdKey: 'member-role' } },
-                { id: 'node-2', data: { channelId: '', channelIdKey: 'qa-channel' } },
+                { id: 'node-2', type: 'action.sendMessage', data: { channelId: '', channelIdKey: 'qa-channel' } },
             ])
         );
 
         expect(targets.map((target) => target.nodeId).sort()).toEqual(['node-1', 'node-2']);
+    });
+
+    /*
+     * The regression. Pick Random's `outputKey` is the name of the variable it records,
+     * not a sidecar — there is no field `output`. Read lexically, it named "a resource
+     * this flow doesn't declare", and readiness refused to switch on every Pick Random flow.
+     */
+    it('does not read a non-picker field that happens to end in Key as a sidecar', () => {
+        const targets = collectResourceTargets(
+            graphWith([
+                { id: 'node-1', type: 'action.pickRandom', data: { options: ['a', 'b'], outputKey: 'winner' } },
+            ])
+        );
+
+        expect(targets).toEqual([]);
+    });
+
+    it('does not read a sidecar for a field the block does not have', () => {
+        const targets = collectResourceTargets(
+            graphWith([{ id: 'node-1', data: { roleId: '', roleIdKey: 'member-role', channelIdKey: 'qa-channel' } }])
+        );
+
+        expect(targets).toEqual([{ nodeId: 'node-1', configKey: 'roleId', resourceKey: 'member-role' }]);
+    });
+
+    it('finds a ticket type picker’s sidecar', () => {
+        const targets = collectResourceTargets(
+            graphWith([
+                { id: 'node-1', type: 'action.openTicket', data: { title: 'Verify', ticketTypeKey: 'verify-type' } },
+            ])
+        );
+
+        expect(targets).toEqual([{ nodeId: 'node-1', configKey: 'ticketType', resourceKey: 'verify-type' }]);
     });
 });
 

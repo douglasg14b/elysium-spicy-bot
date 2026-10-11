@@ -192,6 +192,9 @@ beforeEach(() => {
     journeysRepoMock.getByKey.mockResolvedValue(null);
 
     flowsRepoMock.getByFlowId.mockResolvedValue(storedFlow());
+    // No other flows in the guild, so the loop check a switch-on or a live save asks
+    // finds nothing — `flowLoopRoutes.test.ts` covers it against a real database.
+    flowsRepoMock.getByGuildId.mockResolvedValue([]);
     // Echoes the patch over the stored row, so a response reflects what was written.
     flowsRepoMock.update.mockImplementation(
         async (_flowId: string, patch: { graph?: FlowGraph; enabled?: boolean }) => {
@@ -687,5 +690,26 @@ describe('a request body the validator refuses', () => {
 
         expect(response.status).toBe(400);
         expect(flowsRepoMock.getByFlowId).not.toHaveBeenCalled();
+    });
+});
+
+describe('a flow switched on by someone else while a save was on its way', () => {
+    it('refuses the save rather than let a graph go live without the loop check', async () => {
+        // The route reads the row off, so it skips reading the guild's live flows; by the
+        // time the write's transaction sees the row, another request has switched it on,
+        // and this graph would go live. The check is owed and cannot be made.
+        flowsRepoMock.getByFlowId
+            .mockResolvedValueOnce(storedFlow({ enabled: false }))
+            .mockResolvedValueOnce(storedFlow({ enabled: true }));
+
+        const response = await put({ graph: EMPTY_GRAPH });
+
+        expect(response.status).toBe(400);
+        expect(await response.json()).toEqual({
+            error: 'This flow was switched on or off while you were saving. Save again.',
+            issues: [],
+        });
+        expect(flowsRepoMock.getByGuildId).not.toHaveBeenCalled();
+        expect(flowsRepoMock.update).not.toHaveBeenCalled();
     });
 });

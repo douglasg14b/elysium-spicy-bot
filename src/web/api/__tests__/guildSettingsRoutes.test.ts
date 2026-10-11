@@ -18,10 +18,13 @@ const guildSettingsRepoMock = {
     getByGuildId: vi.fn(),
     getStaffRoleIds: vi.fn(),
     setStaffRoleIds: vi.fn(),
+    setTimeZone: vi.fn(),
 };
 
-vi.mock('../../../features-system/guild-settings', () => ({
+// Only the repo module is faked; the barrel's default zone and validator stay real.
+vi.mock('../../../features-system/guild-settings/data/guildSettingsRepo', () => ({
     guildSettingsRepo: guildSettingsRepoMock,
+    GuildSettingsRepo: class {},
 }));
 
 vi.mock('../../../features/warnings/data/warningsConfigRepo', () => ({
@@ -30,6 +33,12 @@ vi.mock('../../../features/warnings/data/warningsConfigRepo', () => ({
 
 vi.mock('../../../features/warnings/logic/setWarningsModChannel', () => ({
     setWarningsModChannel: vi.fn(),
+}));
+
+// The time-zone PUT reschedules the guild; what rescheduling does is reconcile's own test.
+const reconcileGuildSchedules = vi.fn().mockResolvedValue(undefined);
+vi.mock('../../../features/flows/logic/reconcileGuildSchedules', () => ({
+    reconcileGuildSchedules: (...args: unknown[]) => reconcileGuildSchedules(...args),
 }));
 
 const { guildRoutes } = await import('../guildRoutes');
@@ -81,9 +90,19 @@ function putSettings(body: unknown) {
     });
 }
 
+function putTimeZone(body: unknown) {
+    return app().request(`/${GUILD_ID}/settings/time-zone`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+}
+
 interface SettingsBody {
     staffRoleIds: string[];
     staffRoles: { id: string; name: string }[];
+    timeZone: string | null;
+    defaultTimeZone: string;
 }
 
 interface ErrorBody {
@@ -92,25 +111,44 @@ interface ErrorBody {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    guildSettingsRepoMock.getByGuildId.mockResolvedValue(null);
     guildSettingsRepoMock.getStaffRoleIds.mockResolvedValue([]);
+    // A picked zone, so a staff save that dropped or nulled it on the wire would show.
     guildSettingsRepoMock.setStaffRoleIds.mockImplementation(
-        (_guildId: string, staffRoleIds: string[]) => Promise.resolve({ staffRoleIds })
+        (_guildId: string, staffRoleIds: string[]) => Promise.resolve({ staffRoleIds, timeZone: 'Europe/London' })
+    );
+    guildSettingsRepoMock.setTimeZone.mockImplementation((_guildId: string, timeZone: string) =>
+        Promise.resolve({ staffRoleIds: [STAFF_ROLE], timeZone })
     );
 });
 
 describe('GET /:guildId/settings', () => {
-    it('reports an unconfigured guild as an empty list rather than 404', async () => {
+    it('reports an unconfigured guild as empty, with no zone picked, rather than 404', async () => {
         const response = await getSettings();
 
         expect(response.status).toBe(200);
         expect((await response.json()) as SettingsBody).toEqual({
             staffRoleIds: [],
             staffRoles: [],
+            timeZone: null,
+            defaultTimeZone: 'America/Los_Angeles',
         });
     });
 
+    it('reports a picked zone beside the default', async () => {
+        guildSettingsRepoMock.getByGuildId.mockResolvedValue({
+            staffRoleIds: [],
+            timeZone: 'America/New_York',
+        });
+
+        const body = (await (await getSettings()).json()) as SettingsBody;
+
+        expect(body.timeZone).toBe('America/New_York');
+        expect(body.defaultTimeZone).toBe('America/Los_Angeles');
+    });
+
     it('resolves saved ids to role names for display', async () => {
-        guildSettingsRepoMock.getStaffRoleIds.mockResolvedValue([STAFF_ROLE]);
+        guildSettingsRepoMock.getByGuildId.mockResolvedValue({ staffRoleIds: [STAFF_ROLE], timeZone: null });
 
         const body = (await (await getSettings()).json()) as SettingsBody;
 
@@ -121,7 +159,10 @@ describe('GET /:guildId/settings', () => {
     it('still reports a saved role that has since been deleted', async () => {
         // The id stays in `staffRoleIds` with no matching name. A read must not
         // silently rewrite what was saved — the operator has to be able to see it.
-        guildSettingsRepoMock.getStaffRoleIds.mockResolvedValue([STAFF_ROLE, '999999999999999999']);
+        guildSettingsRepoMock.getByGuildId.mockResolvedValue({
+            staffRoleIds: [STAFF_ROLE, '999999999999999999'],
+            timeZone: null,
+        });
 
         const body = (await (await getSettings()).json()) as SettingsBody;
 
@@ -240,6 +281,120 @@ describe('PUT /:guildId/settings', () => {
         expect(response.status).toBe(400);
         expect(guildSettingsRepoMock.setStaffRoleIds).not.toHaveBeenCalled();
     });
+
+    it('never writes the time zone, and answers with the one saved', async () => {
+        // A staff-only form must not be able to touch a setting it does not show — nor
+        // drop it from the response, which the page takes as the new saved state.
+        const response = await putSettings({ staffRoleIds: [STAFF_ROLE], timeZone: 'UTC' });
+
+        expect(guildSettingsRepoMock.setTimeZone).not.toHaveBeenCalled();
+        expect(((await response.json()) as SettingsBody).timeZone).toBe('Europe/London');
+    });
+});
+
+describe('PUT /:guildId/settings/time-zone', () => {
+    it('stores a zone and answers with the whole settings shape', async () => {
+        const response = await putTimeZone({ timeZone: 'America/New_York' });
+
+        expect(response.status).toBe(200);
+        expect(guildSettingsRepoMock.setTimeZone).toHaveBeenCalledWith(GUILD_ID, 'America/New_York');
+        expect(guildSettingsRepoMock.setStaffRoleIds).not.toHaveBeenCalled();
+        expect((await response.json()) as SettingsBody).toEqual({
+            staffRoleIds: [STAFF_ROLE],
+            staffRoles: [{ id: STAFF_ROLE, name: 'Staff' }],
+            timeZone: 'America/New_York',
+            defaultTimeZone: 'America/Los_Angeles',
+        });
+    });
+
+    it('accepts UTC, which the runtime leaves out of its own zone list', async () => {
+        const response = await putTimeZone({ timeZone: 'UTC' });
+
+        expect(response.status).toBe(200);
+        expect(guildSettingsRepoMock.setTimeZone).toHaveBeenCalledWith(GUILD_ID, 'UTC');
+    });
+
+    it('tidies a hand-typed spelling that differs only in case', async () => {
+        await putTimeZone({ timeZone: 'utc' });
+
+        expect(guildSettingsRepoMock.setTimeZone).toHaveBeenCalledWith(GUILD_ID, 'UTC');
+    });
+
+    it("stores the operator's modern spelling, not the runtime's legacy one", async () => {
+        // Node canonicalises this to `Asia/Calcutta`; the operator picked Kolkata.
+        const response = await putTimeZone({ timeZone: 'Asia/Kolkata' });
+
+        expect(response.status).toBe(200);
+        expect(guildSettingsRepoMock.setTimeZone).toHaveBeenCalledWith(GUILD_ID, 'Asia/Kolkata');
+    });
+
+    it("reschedules the guild's schedules once the zone is saved", async () => {
+        const order: string[] = [];
+        guildSettingsRepoMock.setTimeZone.mockImplementationOnce(async () => {
+            order.push('save');
+            return { staffRoleIds: [], timeZone: 'Asia/Tokyo' };
+        });
+        reconcileGuildSchedules.mockImplementationOnce(async () => {
+            order.push('reconcile');
+        });
+
+        const response = await putTimeZone({ timeZone: 'Asia/Tokyo' });
+
+        expect(response.status).toBe(200);
+        expect(reconcileGuildSchedules).toHaveBeenCalledWith(GUILD_ID);
+        expect(order).toEqual(['save', 'reconcile']);
+    });
+
+    it('refuses a zone Intl has never heard of, storing nothing', async () => {
+        const response = await putTimeZone({ timeZone: 'Mars/Olympus_Mons' });
+
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as ErrorBody).error).toContain('Mars/Olympus_Mons');
+        expect(guildSettingsRepoMock.setTimeZone).not.toHaveBeenCalled();
+        expect(reconcileGuildSchedules).not.toHaveBeenCalled();
+    });
+
+    it('refuses a raw offset, which is not a zone', async () => {
+        const response = await putTimeZone({ timeZone: '+05:00' });
+
+        expect(response.status).toBe(400);
+        expect(guildSettingsRepoMock.setTimeZone).not.toHaveBeenCalled();
+    });
+
+    it('refuses an empty, missing or absurdly long zone', async () => {
+        expect((await putTimeZone({ timeZone: '' })).status).toBe(400);
+        expect((await putTimeZone({})).status).toBe(400);
+        expect((await putTimeZone({ timeZone: 'America/'.repeat(20) })).status).toBe(400);
+        expect(guildSettingsRepoMock.setTimeZone).not.toHaveBeenCalled();
+    });
+
+    it("refuses an empty or absurdly long zone with the schema's own sentences, which the dashboard is given too", async () => {
+        expect(((await (await putTimeZone({ timeZone: '' })).json()) as ErrorBody).error).toBe(
+            'Pick a time zone. "Whenever" is not one.'
+        );
+        expect(((await (await putTimeZone({ timeZone: 'America/'.repeat(20) })).json()) as ErrorBody).error).toBe(
+            "That's not a time zone, that's an essay. Pick one from the list."
+        );
+    });
+
+    it('answers a body that is not JSON with 415, and malformed JSON with its own sentence', async () => {
+        // On `apiRouter`, as every route is: the validator answers both before the handler.
+        const notJson = await app().request(`/${GUILD_ID}/settings/time-zone`, {
+            method: 'PUT',
+            headers: { 'content-type': 'text/plain' },
+            body: 'UTC',
+        });
+        const malformed = await app().request(`/${GUILD_ID}/settings/time-zone`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: '{"timeZone": "UTC',
+        });
+
+        expect(notJson.status).toBe(415);
+        expect(malformed.status).toBe(400);
+        expect(await malformed.json()).toEqual({ error: 'Malformed JSON in request body' });
+        expect(guildSettingsRepoMock.setTimeZone).not.toHaveBeenCalled();
+    });
 });
 
 /*
@@ -278,7 +433,7 @@ describe('refusals the request validator raises', () => {
          * mounted the router — the e2e app records it as a fault — not come back as a
          * 4xx the dashboard would show as an ordinary "couldn't save".
          */
-        guildSettingsRepoMock.getStaffRoleIds.mockRejectedValue(new Error('database fell over'));
+        guildSettingsRepoMock.getByGuildId.mockRejectedValue(new Error('database fell over'));
         const parentSaw: string[] = [];
         const parent = app();
         parent.onError((error, c) => {

@@ -6,6 +6,7 @@ import {
     FLOW_RUN_TRANSITIONS,
     IllegalFlowRunTransitionError,
     isLegalRunTransition,
+    isLiveRunStatus,
     nextRunStatus,
     type FlowRunEvent,
     type FlowRunStatus,
@@ -141,5 +142,11 @@ describe('the run lifecycle transition table', () => {
             status = nextRunStatus(status, 'park');
             expect(status).toBe('suspended');
         }
+    });
+});
+
+describe('isLiveRunStatus', () => {
+    it('is true while a run is parked or being resumed, and false once it is over', () => {
+        expect(FLOW_RUN_STATUSES.filter((status) => isLiveRunStatus(status))).toEqual(['suspended', 'running']);
     });
 });

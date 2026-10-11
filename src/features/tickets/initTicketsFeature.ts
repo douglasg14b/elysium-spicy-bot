@@ -1,6 +1,7 @@
 import { DISCORD_CLIENT } from '../../discordClient';
 import { interactionsRegistry } from '../../features-system/commands';
 import { registerTicketChannelCleanup } from './logic/ticketChannelCleanup';
+import { registerTicketTypeProvisioning } from './logic/ticketTypeProvisioning';
 import {
     CreateModTicketButtonComponent,
     CreateModTicketModalComponent,
@@ -23,7 +24,11 @@ export function initTicketsFeature(): void {
         CreateModTicketButtonComponent(true).component,
         CreateModTicketButtonComponent(true).handler
     );
-    interactionsRegistry.register(CreateModTicketModalComponent().component, CreateModTicketModalComponent().handler);
+    // Registration reads only the modal's custom_id; the button builds the real one per guild.
+    interactionsRegistry.register(
+        CreateModTicketModalComponent().component([]),
+        CreateModTicketModalComponent().handler
+    );
 
     // Register ticket configuration components
     interactionsRegistry.register(TicketConfigModalComponent().component(), TicketConfigModalComponent().handler);
@@ -45,4 +50,7 @@ export function initTicketsFeature(): void {
 
     // A ticket forgets a channel Discord has deleted, so no surface links to it.
     registerTicketChannelCleanup(DISCORD_CLIENT);
+
+    // A journey that declares a ticket type installs it through this.
+    registerTicketTypeProvisioning();
 }

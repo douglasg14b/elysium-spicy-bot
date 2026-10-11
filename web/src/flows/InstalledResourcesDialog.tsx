@@ -84,6 +84,7 @@ const UNKNOWN_PUBLISHED_STATE: PublishedFlowState = {
     buttonMessages: [],
     deletableResources: [],
     refusedResources: [],
+    keptSettings: [],
     mayHaveUnrecordedButtons: true,
 };
 

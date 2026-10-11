@@ -1,8 +1,8 @@
 import { randomUUID } from 'crypto';
-import { FLOW_MAX_NODE_VISITS, FLOW_MAX_VARIABLES_SIZE } from '../constants';
+import { FLOW_MAX_NODE_VISITS, FLOW_MAX_VARIABLES_SIZE, FLOW_ROOT_CHAIN_DEPTH } from '../constants';
 import type { FlowEdge, FlowGraph, FlowNode } from '../data/flowGraph';
 import { flowRunsRepo } from '../data/flowRunsRepo';
-import { visibleNodeData, type BlockKind, type BlockManifest } from '../blocks/manifest';
+import { parseNodeConfig, type BlockKind, type BlockManifest } from '../blocks/manifest';
 import { getBlockDefinition } from '../blocks/registry';
 import type {
     FlowResume,
@@ -18,6 +18,8 @@ import {
     renderCopy,
     resolvePickerVariable,
 } from './copyRendering';
+import { checkMessageWaitHasMember, messageWaitIndex } from './messageWaitIndex';
+import { describeMissingRequirement, missingRequirement, type RunLeg } from './nodeRequirements';
 import type { FlowStepOutcome, FlowStepSuspension } from './stepOutcome';
 import { releaseWaitMessageControls } from './waitMessageControls';
 
@@ -38,8 +40,20 @@ export interface NodeRunLog {
 
 export interface FlowRunResult {
     flowId: string;
+    /**
+     * The run's durable id — the one a parked run's `flow_runs` row carries, and the one
+     * every block saw as `context.runId`. Minted for every fresh run, parked or not.
+     */
+    runId: string;
     triggerNodeId: string;
     status: 'success' | 'error';
+    /**
+     * True when the run stopped because it parked and its row was written, rather than
+     * because it ran out of graph or failed. Said here so a caller that must know — a
+     * schedule remembering which of its runs may still be waiting — never has to guess
+     * from `status`, which is `success` either way.
+     */
+    parked: boolean;
     visitedNodeIds: string[];
     log: NodeRunLog[];
     error?: string;
@@ -159,7 +173,7 @@ export async function executeFlowSegment(
     const triggerNodeId = options.triggerNodeId ?? options.startNodeId;
     const completed = (result: FlowRunResult): ExecOutcome => ({ kind: 'completed', result });
     const fail = (error: string): ExecOutcome =>
-        completed(failResult(flowId, triggerNodeId, log, visitedNodeIds, error));
+        completed(failResult(flowId, options.runId, triggerNodeId, log, visitedNodeIds, error));
 
     const nodesById = new Map<string, FlowNode>(graph.nodes.map((n) => [n.id, n]));
     const edgesBySource = new Map<string, FlowEdge[]>();
@@ -185,6 +199,9 @@ export async function executeFlowSegment(
     let currentNodeId: string | undefined = options.startNodeId;
     let visits = options.visitsUsed ?? 0;
     let pendingResume: FlowResume | undefined = options.resume;
+    // A segment carrying a resume was woken from a park, and every node in it runs on that
+    // leg — which is what explains a missing actor, as opposed to a trigger naming nobody.
+    const runLeg: RunLeg = options.resume ? 'resumed' : 'started';
     // Replaced wholesale rather than mutated, so the object a node was handed
     // stays the bag that node saw even after a later one writes.
     let variables: Readonly<Record<string, FlowVariableValue>> = emptyBagWith(options.variables);
@@ -224,15 +241,31 @@ export async function executeFlowSegment(
         visitedNodeIds.push(node.id);
 
         /*
+         * What the node needs from the run — its block's requirements, its picked
+         * options' and its copy tokens' — against what this run carries, before anything
+         * of it runs. Save-time validation keeps a live graph from getting here, so a
+         * miss is a graph saved before a rule, or an incomplete one a parked run resumed
+         * into; failing by name beats a block finding no member where it expected one.
+         * A trigger's `requires` is what it supplies, so triggers are not asked.
+         */
+        const missing = definition.kind === 'trigger' ? undefined : missingRequirement(definition, node.data, context);
+        if (missing) {
+            const message = describeMissingRequirement(node.id, node.type, missing, runLeg);
+            log.push({ nodeId: node.id, type: node.type, kind: definition.kind, status: 'error', error: message });
+            return fail(message);
+        }
+
+        /*
          * A field its `visibleWhen` hides does not exist for this run: it is left out
          * before the parse, so neither the schema nor `run` sees it, and it is never
          * rendered or resolved. A node keeps whatever a hidden field held — the builder
          * seeds every default and switching the sibling clears nothing — so a stale
          * `{{var.x}}` or an over-long value in one would otherwise fail a run over a
          * field the author cannot see. Stripped again after the parse, because a
-         * schema `.default()` can put a hidden key back.
+         * schema `.default()` can put a hidden key back — both inside `parseNodeConfig`,
+         * which the cross-flow cycle finder shares so it reads a node as its run does.
          */
-        const parsed = definition.configSchema.safeParse(visibleNodeData(definition.configFields, node.data));
+        const parsed = parseNodeConfig(definition, node.data);
         if (!parsed.success) {
             const message = `Invalid config for ${node.type}: ${parsed.error.issues
                 .map((issue) => issue.message)
@@ -245,8 +278,9 @@ export async function executeFlowSegment(
         // than a context: there is no node running yet to own a write channel.
         const rendered = renderNodeCopy(
             definition,
-            isObjectValue(parsed.data) ? visibleNodeData(definition.configFields, parsed.data) : parsed.data,
-            { ...context, variables }
+            parsed.data,
+            { ...context, variables },
+            runLeg
         );
         if (!rendered.ok) {
             const message = `Node ${node.id} (${node.type}): ${rendered.error}`;
@@ -280,6 +314,7 @@ export async function executeFlowSegment(
             ...context,
             runId: options.runId,
             ...(options.startedAt ? { startedAt: options.startedAt } : {}),
+            chainDepth: chainDepthOf(context),
             nodeId: node.id,
             variables,
             setOutput: (key, value) => {
@@ -355,7 +390,7 @@ export async function executeFlowSegment(
                 // path that knows both that the message exists and that nothing
                 // will wake to tidy it.
                 await releaseWaitMessageControls(context.channel, outcome.suspension.waitMessageId);
-                return completed(successResult(flowId, triggerNodeId, log, visitedNodeIds));
+                return completed(successResult(flowId, options.runId, triggerNodeId, log, visitedNodeIds));
             }
 
             return {
@@ -408,7 +443,7 @@ export async function executeFlowSegment(
         currentNodeId = next.ok ? next.target : undefined;
     }
 
-    return completed(successResult(flowId, triggerNodeId, log, visitedNodeIds));
+    return completed(successResult(flowId, options.runId, triggerNodeId, log, visitedNodeIds));
 }
 
 /**
@@ -454,6 +489,10 @@ export async function executeFlow(
         startedAt,
         startNodeId: triggerNodeId,
         requireTrigger: true,
+        // What the dispatcher seeded — the values only it can know, such as the level a
+        // Level Reached run was started by. Without this the segment starts from an empty
+        // bag and every seeded output resolves to nothing.
+        variables: context.variables,
     });
 
     if (outcome.kind === 'completed') {
@@ -467,6 +506,7 @@ export async function executeFlow(
         const message = error instanceof Error ? error.message : 'Unknown suspension-persistence error';
         return failResult(
             flowId,
+            runId,
             triggerNodeId,
             suspension.log,
             suspension.visitedNodeIds,
@@ -480,8 +520,10 @@ export async function executeFlow(
 
     return {
         flowId,
+        runId,
         triggerNodeId,
         status: 'success',
+        parked: true,
         visitedNodeIds: suspension.visitedNodeIds,
         log: suspension.log,
     };
@@ -497,7 +539,10 @@ export async function executeFlow(
  *
  * `startedAt` is written here, at the first park, and never again: a re-park goes
  * through `flowRunsRepo.park`, which leaves the snapshot alone, so the start time
- * survives every later wait unchanged.
+ * survives every later wait unchanged. `chainDepth` rides the same snapshot the same way.
+ *
+ * A first park on a message wait also enters the message-wait index, right after the
+ * row exists, so the member's next message can find it.
  */
 async function persistNewSuspendedRun(
     flowId: string,
@@ -506,6 +551,10 @@ async function persistNewSuspendedRun(
     context: FlowRunSeed,
     suspension: FlowSuspension
 ): Promise<void> {
+    // Refused before the row exists, so a regression in save-time validation fails this
+    // run with nothing written rather than storing a park nothing could ever wake.
+    checkMessageWaitHasMember({ runId, userId: context.subject?.id, waitConfig: suspension.waitConfig });
+
     await flowRunsRepo.create({
         // Supplied, not generated: a block that parked may already have posted a
         // component naming this id, so the row has to be the one it named.
@@ -514,7 +563,10 @@ async function persistNewSuspendedRun(
         guildId: context.guild.id,
         contextSnapshot: {
             guildId: context.guild.id,
-            userId: context.subject.id,
+            // Left out on a run about nobody, by the same spread as `channelId` below:
+            // absent is "this run has no member", never "the member left" — resume then
+            // fetches nobody rather than failing on a missing id.
+            ...(context.subject ? { userId: context.subject.id } : {}),
             // Spread rather than `channelId: context.channel?.id`, so a run with no
             // channel builds an object without the key rather than one holding an
             // explicit `undefined`. The stored JSON is identical either way —
@@ -526,6 +578,9 @@ async function persistNewSuspendedRun(
             // as nothing".
             ...(context.channel ? { channelId: context.channel.id } : {}),
             startedAt: startedAt.toISOString(),
+            // Written at the first park beside the start time, for the same reason: a run
+            // that waits and then changes something hands on the depth it started at.
+            chainDepth: chainDepthOf(context),
         },
         resumeNodeId: suspension.resumeNodeId,
         wakeAt: suspension.wakeAt ?? null,
@@ -536,6 +591,14 @@ async function persistNewSuspendedRun(
         visitsUsed: suspension.visitsUsed,
         log: suspension.log,
         variables: suspension.variables,
+    });
+
+    messageWaitIndex.record({
+        runId,
+        guildId: context.guild.id,
+        userId: context.subject?.id,
+        waitConfig: suspension.waitConfig,
+        wakeAt: suspension.wakeAt,
     });
 }
 
@@ -612,9 +675,16 @@ function drainWrites(
     return { ok: true, variables: merged };
 }
 
-/** Whether a parsed config is a record, as an object schema always produces. */
-function isObjectValue(value: unknown): value is Record<string, unknown> {
-    return value !== null && typeof value === 'object' && !Array.isArray(value);
+/**
+ * How deep in a chain of runs this run sits — the seed's depth, or the root when the
+ * seed carries none.
+ *
+ * The one place an absent depth is given its meaning, so a block, the snapshot writer
+ * and the resume path never each decide it: every source but a ticket change starts at
+ * the root, and so does a run parked before depth was recorded.
+ */
+function chainDepthOf(context: FlowRunSeed): number {
+    return context.chainDepth ?? FLOW_ROOT_CHAIN_DEPTH;
 }
 
 /** A node's config with its copy fields expanded, or why they could not be. */
@@ -633,7 +703,7 @@ type RenderedConfig = { ok: true; config: unknown } | { ok: false; error: string
  * "which fields say they carry copy" is one rule, where asking "is this
  * action.sendMessage" would be a branch per block and a gate failure.
  */
-function renderNodeCopy(block: BlockManifest, config: unknown, context: FlowRunSeed): RenderedConfig {
+function renderNodeCopy(block: BlockManifest, config: unknown, context: FlowRunSeed, leg: RunLeg): RenderedConfig {
     const copyFields = block.configFields.filter(isCopyField);
     const listFields = block.configFields.filter((field) => copyColumnsOf(field).length > 0);
     const pickerFields = block.configFields.filter(isVariablePickerField);
@@ -675,6 +745,7 @@ function renderNodeCopy(block: BlockManifest, config: unknown, context: FlowRunS
 
         const result = renderCopy(value, {
             context,
+            leg,
             fieldLabel: `"${field.label}"`,
             ...(field.maxLength === undefined ? {} : { maxLength: field.maxLength }),
         });
@@ -719,6 +790,7 @@ function renderNodeCopy(block: BlockManifest, config: unknown, context: FlowRunS
 
                 const result = renderCopy(value, {
                     context,
+                    leg,
                     // Names the row as an author sees it — one-based, because the
                     // form numbers rows from one and a message naming "entry 0"
                     // sends them to the wrong line.
@@ -839,6 +911,7 @@ function resolveNextNode(
 
 function successResult(
     flowId: string,
+    runId: string,
     triggerNodeId: string,
     log: NodeRunLog[],
     visitedNodeIds: string[]
@@ -849,8 +922,10 @@ function successResult(
 
     return {
         flowId,
+        runId,
         triggerNodeId,
         status: 'success',
+        parked: false,
         visitedNodeIds,
         log,
     };
@@ -858,6 +933,7 @@ function successResult(
 
 function failResult(
     flowId: string,
+    runId: string,
     triggerNodeId: string,
     log: NodeRunLog[],
     visitedNodeIds: string[],
@@ -866,8 +942,10 @@ function failResult(
     console.error(`[flows] Flow ${flowId} run failed (trigger ${triggerNodeId}): ${error}`);
     return {
         flowId,
+        runId,
         triggerNodeId,
         status: 'error',
+        parked: false,
         visitedNodeIds,
         log,
         error,

@@ -25,6 +25,10 @@
  *    references naming an undeclared key or a key that is not a role.
  *  - `rolesWithoutIdsRefusal` in `src/web/api/journeyBody.ts` — a `roles` intent must
  *    name at least one role.
+ *  - `ticketTypeDeclarationRefusal` in the same file, which runs the ticket feature's
+ *    `ticketTypeDefinitionProblem` on a declared ticket type — its label's 45-character
+ *    cap and its template. Not mirrored by hand: `validateTicketTypeDraft` asks the SDK's
+ *    generated rules for a ticket type, the tickets page's own check.
  *
  * ## What is deliberately *not* mirrored
  *
@@ -59,8 +63,10 @@ import {
     type GuildRole,
     type PermissionIntent,
     type ResourceDeclaration,
+    type TicketTypeView,
 } from '@brattybot/web-sdk';
 import { fieldProblems } from '../api/fieldProblems';
+import { validateTicketTypeDraft } from '../tickets/ticketTypeForm';
 import { parseDeclaredRoleReference } from './declaredRoleReference';
 import type { ResourceChipDetail, ResourceChipId } from './resourceChips';
 import { RESOURCE_CHIP_ORDER, RESOURCE_CHIPS } from './resourceChips';
@@ -161,6 +167,11 @@ export interface GuildContext {
      * agreement test supplies neither this nor the directory.
      */
     readonly installedKeys?: ReadonlySet<string>;
+    /**
+     * The server's ticket types, by key, for `ticketTypeHere`. Absent means "not known",
+     * and the chip stays quiet rather than guessing.
+     */
+    readonly ticketTypes?: readonly Pick<TicketTypeView, 'type'>[];
 }
 
 /**
@@ -212,6 +223,10 @@ function chipsForResource(context: ChipContext): ResourceChipInstance[] {
         chips.push({ id: 'invalidKey', detail: { field: 'name', problem: nameProblem } });
     } else if (keyProblem) {
         chips.push({ id: 'invalidKey', detail: { field: 'key', problem: keyProblem } });
+    }
+
+    if (ticketTypeWontSave(resource)) {
+        chips.push({ id: 'invalidTicketType', detail: {} });
     }
 
     for (const [ruleIndex, intent] of (resource.permissions ?? []).entries()) {
@@ -297,6 +312,16 @@ function chipsForResource(context: ChipContext): ResourceChipInstance[] {
         chips.push({ id: 'adopted', detail: {} });
     }
 
+    // Only when the caller knows the server's types, and never on a key this journey
+    // installed — see `ticketTypeHere` for why the second matters.
+    if (
+        resource.kind === 'ticketType' &&
+        !context.installedKeys.has(resource.key) &&
+        context.guild?.ticketTypes?.some((ticketType) => ticketType.type === resource.key)
+    ) {
+        chips.push({ id: 'ticketTypeHere', detail: {} });
+    }
+
     const ruleCount = resource.permissions?.length ?? 0;
     const isPrivate = (resource.permissions ?? []).some(hidesFromEveryone);
 
@@ -362,9 +387,10 @@ function ruleNamesNoRole(intent: PermissionIntent, context: ChipContext): boolea
  * into the SDK; `undefined` when the key is fine.
  *
  * Read from `fieldProblems` under `''`, its key for a problem with no field to sit under
- * — which, for a rule checking one bare value, is every problem it has.
+ * — which, for a rule checking one bare value, is every problem it has. Exported for the
+ * ticket type row, which offers only the server's type keys that would stand as one.
  */
-function resourceKeyProblem(key: string): string | undefined {
+export function resourceKeyProblem(key: string): string | undefined {
     return fieldProblems(zResourceDeclaration.shape.key.safeParse(key))[''];
 }
 
@@ -379,6 +405,29 @@ function resourceKeyProblem(key: string): string | undefined {
  */
 function resourceNameProblem(name: string): string | undefined {
     return fieldProblems(zResourceDeclaration.shape.defaultName.safeParse(name))[''];
+}
+
+/**
+ * Whether the ticket feature would refuse a declared ticket type: its label past 45
+ * characters, or a template with a token it does not know or a stray brace.
+ *
+ * Asks `validateTicketTypeDraft`, the tickets page's own check — the SDK's generated rules
+ * for a ticket type, which are the rules `ticketTypeDefinitionProblem` applies on the
+ * journey save. One browser path to those rules, not two, and no copy of them. A template
+ * that only renders too long needs the server's renderer, so it is not chipped here and
+ * arrives as the save's refusal. The key's problems are `invalidKey`'s (a resource key is
+ * stricter than a type key), and so is an empty label; only a label with something in it
+ * is judged here, so one empty box does not wear two chips.
+ */
+function ticketTypeWontSave(resource: ResourceDeclaration): boolean {
+    if (resource.kind !== 'ticketType' || !resource.ticketType) return false;
+
+    const problems = validateTicketTypeDraft({
+        type: resource.key,
+        label: resource.defaultName,
+        ...resource.ticketType,
+    });
+    return Boolean(problems.nameTemplate) || (!resourceNameProblem(resource.defaultName) && Boolean(problems.label));
 }
 
 /**

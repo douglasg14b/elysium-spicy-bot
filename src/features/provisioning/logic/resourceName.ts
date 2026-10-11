@@ -33,7 +33,8 @@ import type { ResourceKind } from './resourceDeclaration';
  * would disagree with the panel on `a  b` and ` a`, and the panel would show a name the
  * server then silently changed.
  *
- * Categories and roles keep their case in Discord, so they pass through untouched.
+ * Categories and roles keep their case in Discord, so they pass through untouched. A
+ * ticket type's name is its label, which Discord never stores at all, so it does too.
  *
  * **Mirrored** in `web/src/flows/resourceName.ts`, which the browser uses as the operator
  * types. `resourceNameMirrorDrift.test.ts` runs both on the same inputs.
@@ -44,6 +45,7 @@ export function normaliseResourceName(kind: ResourceKind, name: string): string 
             return name.toLowerCase().replace(/\s/g, '-');
         case 'category':
         case 'role':
+        case 'ticketType':
             return name;
         default: {
             const unreachable: never = kind;

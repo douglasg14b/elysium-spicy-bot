@@ -9,8 +9,8 @@ import {
 } from '../categorySlots';
 
 const CHANNELS: GuildChannel[] = [
-    { id: '100000000000000001', name: 'Support', type: 'category', parentId: null, parentName: null },
-    { id: '100000000000000002', name: 'general', type: 'text', parentId: null, parentName: null },
+    { id: '100000000000000001', name: 'Support', type: 'category', parentId: null, parentName: null, owner: null },
+    { id: '100000000000000002', name: 'general', type: 'text', parentId: null, parentName: null, owner: null },
 ];
 
 const UNLINKED: TicketCategoryView = { name: 'Support', discordId: null, provenance: null, liveName: null };
@@ -62,6 +62,44 @@ describe('ticket category slots', () => {
             value: '100000000000000009',
             label: 'Deleted — comes back as “Tickets” with the next ticket',
         });
+    });
+
+    it('disables a category a journey holds, naming it, and keeps the ticket system\'s own pickable', () => {
+        const channels: GuildChannel[] = [
+            { ...CHANNELS[0]!, owner: { kind: 'journey', key: 'onboarding', label: 'journey "Onboarding"' } },
+            {
+                id: '100000000000000003',
+                name: 'Tickets',
+                type: 'category',
+                parentId: null,
+                parentName: null,
+                owner: { kind: 'tickets', key: 'tickets', label: 'the ticket system' },
+            },
+        ];
+
+        const options = categorySlotOptions(channels, null);
+
+        expect(options.find((option) => option.value === '100000000000000001')).toEqual({
+            value: '100000000000000001',
+            label: 'Support — held by journey "Onboarding"',
+            disabled: true,
+        });
+        // Two slots on one category is one owner.
+        expect(options.find((option) => option.value === '100000000000000003')?.disabled).toBeUndefined();
+    });
+
+    it('keeps the slot\'s own current category pickable even if a journey also holds it', () => {
+        const channels: GuildChannel[] = [
+            { ...CHANNELS[0]!, owner: { kind: 'journey', key: 'onboarding', label: 'journey "Onboarding"' } },
+        ];
+        const current: TicketCategoryView = {
+            name: 'Support',
+            discordId: '100000000000000001',
+            provenance: 'adopted',
+            liveName: 'Support',
+        };
+
+        expect(categorySlotOptions(channels, current).find((option) => option.value === current.discordId)?.disabled).toBeUndefined();
     });
 
     it('notes a rename, which is harmless now', () => {

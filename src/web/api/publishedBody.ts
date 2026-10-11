@@ -70,13 +70,20 @@ export const PublishedFlowStateSchema = z
         buttonMessages: z.array(PublishedButtonMessageSchema).readonly(),
         deletableResources: z.array(PublishedResourceSchema).readonly(),
         refusedResources: z.array(PublishedResourceSchema).readonly(),
+        /**
+         * Settings the journey installed — ticket types — that uninstalling forgets and leaves
+         * exactly as they are, each with the server's sentence saying so. Neither deleted nor
+         * refused: kept by rule.
+         */
+        keptSettings: z.array(PublishedResourceSchema).readonly(),
         mayHaveUnrecordedButtons: z.boolean(),
     })
     .openapi('PublishedFlowState', {
         description:
             'What a flow or a journey has live in the guild. An empty `buttonMessages` does not mean ' +
             'nothing is posted while `mayHaveUnrecordedButtons` is true: buttons posted before they ' +
-            'were recorded cannot be found.',
+            'were recorded cannot be found. `keptSettings` are settings (ticket types) that uninstalling ' +
+            'forgets and leaves standing.',
     });
 
 /** The response body: `z.infer` of the schema, so the builder below cannot send a member the spec does not describe. */
@@ -98,6 +105,7 @@ export function publishedBody(state: PublishedFlowState | PublishedJourneyState)
         })),
         deletableResources: state.deletableResources,
         refusedResources: state.refusedResources,
+        keptSettings: state.keptSettings,
         mayHaveUnrecordedButtons: state.mayHaveUnrecordedButtons,
     };
 }

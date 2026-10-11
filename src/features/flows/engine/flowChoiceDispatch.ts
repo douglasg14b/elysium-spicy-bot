@@ -1,6 +1,6 @@
 import { GuildMember, type ButtonInteraction } from 'discord.js';
 import type { InteractionHandlerResult } from '../../../features-system/commands/types';
-import { FlowRunsRepo, flowRunsRepo } from '../data/flowRunsRepo';
+import { FlowRunsRepo, flowRunsRepo, type ClaimedPark } from '../data/flowRunsRepo';
 import type { FlowRunEntity } from '../data/flowRunsSchema';
 import { FlowsRepo, flowsRepo } from '../data/flowsRepo';
 import { parseFlowChoiceCustomId } from '../utils/customId';
@@ -96,6 +96,8 @@ export async function handleFlowChoiceInteraction(
         return replyWith(interaction, '❌ This question belongs to a different server.', 'error');
     }
 
+    // A run about nobody stores no member, so nobody can answer it — which is why Ask a
+    // Question requires a member, and validation keeps it off a path about nobody.
     if (run.contextSnapshot.userId !== interaction.user.id) {
         return replyWith(interaction, '❌ This question was not asked of you.', 'error');
     }
@@ -126,10 +128,13 @@ export async function handleFlowChoiceInteraction(
     // Bound once rather than re-derived at the claim below. The refusal here and
     // the claim's own condition are one rule, and stating it twice is how they
     // come to disagree.
-    const claimedPark = run.waitMessageId ?? undefined;
-    if (claimedPark && claimedPark !== interaction.message.id) {
+    const claimedWaitMessageId = run.waitMessageId ?? undefined;
+    if (claimedWaitMessageId && claimedWaitMessageId !== interaction.message.id) {
         return replyWith(interaction, QUESTION_CLOSED_MESSAGE, 'skipped');
     }
+    const claimedPark: ClaimedPark | undefined = claimedWaitMessageId
+        ? { waitMessageId: claimedWaitMessageId }
+        : undefined;
 
     const refusal = await refuseIfIneligible(interaction, run, parsed.nodeId, claimedPark, dependencies);
     if (refusal) {
@@ -229,7 +234,7 @@ async function refuseIfIneligible(
     interaction: ButtonInteraction,
     run: FlowRunEntity,
     nodeId: string,
-    claimedPark: string | undefined,
+    claimedPark: ClaimedPark | undefined,
     dependencies: FlowChoiceDependencies
 ): Promise<InteractionHandlerResult | null> {
     // Wrapped for the reason the resume call below is: the interaction is already

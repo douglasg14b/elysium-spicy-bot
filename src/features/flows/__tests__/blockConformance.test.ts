@@ -2,12 +2,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { checkBlockConformance, checkBlockOutcome } from '../blocks/conformance';
+import { checkBlockConformance, checkBlockOutcome, checkEmissionTargets } from '../blocks/conformance';
 import type { BlockManifest } from '../blocks/manifest';
 import { discoverBlocks, ensureBlocksDiscovered, listBlockDefinitions } from '../blocks/registry';
 import type { FlowRunContext } from '../blocks/types';
 import { block as fixtureBlock, FIXTURE_BLOCK_TYPE } from './fixtures/blocks/conforming/fixtureBlock';
-
 const FIXTURE_ROOT = path.join(
     path.dirname(fileURLToPath(import.meta.url)),
     'fixtures',
@@ -41,6 +40,7 @@ const context = {
     subject: {} as FlowRunContext['subject'],
     runId: 'run-1',
     nodeId: 'node-1',
+    chainDepth: 1,
     variables: {},
     // Conformance drives `run` for real, so it supplies a real write channel. It
     // discards what it is given because no case here asserts on a recorded value —
@@ -66,6 +66,7 @@ function validManifest(): Record<string, unknown> {
         outputs: [],
         requires: [],
         capabilities: [],
+        emits: [],
         canSuspend: false,
         run: () => ({ kind: 'continue' }),
     };
@@ -120,6 +121,7 @@ describe('a manifest omitting a required field', () => {
             'outputs',
             'requires',
             'capabilities',
+            'emits',
         ]) {
             const issues = checkBlockConformance(manifestWithout(field));
 
@@ -155,6 +157,32 @@ describe('a manifest using a word that is not in the vocabulary', () => {
         expect(
             checkBlockConformance(manifestWith({ handles: [{ label: 'Next', tone: 'spicy' }] })).join()
         ).toMatch(/tone "spicy"/);
+    });
+
+    it("checks a choice's own requirements against the same vocabulary", () => {
+        // An option's `requires` joins the node's requirements when picked, so a word
+        // outside the vocabulary would be a requirement nothing ever checks.
+        const withOption = (requires: readonly string[]) =>
+            manifestWith({
+                configSchema: z.object({ mode: z.enum(['plain', 'member']).default('plain') }),
+                configFields: [
+                    {
+                        key: 'mode',
+                        label: 'Mode',
+                        control: 'select',
+                        defaultValue: 'plain',
+                        options: [
+                            { value: 'plain', label: 'Plain' },
+                            { value: 'member', label: 'Member', requires },
+                        ],
+                    },
+                ],
+            });
+
+        expect(checkBlockConformance(withOption(['ticket'])).join()).toMatch(
+            /configFields\.options\.requires "ticket" is not in the vocabulary/
+        );
+        expect(checkBlockConformance(withOption(['subject']))).toEqual([]);
     });
 });
 
@@ -1110,10 +1138,113 @@ describe('a field reading a variable by name', () => {
         expect(issues).toMatch(/offers variables of the kind "banana", which is not a value kind/);
     });
 
+    it('accepts one declaring no kind, which takes any variable — the shape Compare needs', () => {
+        const manifest = manifestWith({
+            configSchema: z.object({ seenAt: z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/) }),
+            configFields: [{ key: 'seenAt', label: 'Variable', control: 'variableSelect' }],
+        });
+
+        expect(checkBlockConformance(manifest)).toEqual([]);
+    });
+
+    it('still holds one declaring no kind to the shared spelling', () => {
+        const manifest = manifestWith({
+            configSchema: z.object({ seenAt: z.string() }),
+            configFields: [{ key: 'seenAt', label: 'Variable', control: 'variableSelect' }],
+        });
+
+        expect(checkBlockConformance(manifest).join('\n')).toMatch(/must take one in the shared spelling/);
+    });
+
     it('catches a schema that would store a name no token can address', () => {
         const issues = checkBlockConformance(variableManifest({}, z.string().optional())).join('\n');
 
         expect(issues).toMatch(/must take one in the shared spelling/);
+    });
+});
+
+describe('a control whose stored shape the control decides', () => {
+    const TIME_SHAPE = /^([01]\d|2[0-3]):[0-5]\d$/;
+    const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
+    const timeManifest = (schema: z.ZodType) =>
+        manifestWith({
+            configSchema: z.object({ at: schema }),
+            configFields: [{ key: 'at', label: 'Time', control: 'timeOfDay', defaultValue: '09:00' }],
+        });
+    const daysManifest = (schema: z.ZodType) =>
+        manifestWith({
+            configSchema: z.object({ on: schema }),
+            configFields: [{ key: 'on', label: 'Days', control: 'daysOfWeek', defaultValue: ['mon'] }],
+        });
+
+    it('accepts a timeOfDay over a 24-hour HH:MM schema', () => {
+        expect(checkBlockConformance(timeManifest(z.string().regex(TIME_SHAPE).optional()))).toEqual([]);
+    });
+
+    it('catches a timeOfDay schema that is too loose', () => {
+        const issues = checkBlockConformance(timeManifest(z.string().regex(/^\d{1,2}:\d\d$/).optional())).join('\n');
+
+        expect(issues).toMatch(/the timeOfDay field "at" stores a 24-hour HH:MM .* accepts "24:00", "9:00"/);
+    });
+
+    it('catches a timeOfDay schema that refuses what the control stores', () => {
+        const issues = checkBlockConformance(timeManifest(z.string().regex(/^0\d:\d\d$/).optional())).join('\n');
+
+        expect(issues).toMatch(/configSchema refuses "23:59"/);
+    });
+
+    it('accepts a daysOfWeek over exactly the seven keys', () => {
+        expect(checkBlockConformance(daysManifest(z.array(z.enum(DAYS)).min(1).optional()))).toEqual([]);
+    });
+
+    it('catches a daysOfWeek schema that takes any string', () => {
+        const issues = checkBlockConformance(daysManifest(z.array(z.string()).optional())).join('\n');
+
+        expect(issues).toMatch(/the daysOfWeek field "on" stores a list of the seven day keys.* accepts \["Mon"\]/);
+    });
+
+    it('catches a daysOfWeek schema missing a day', () => {
+        const issues = checkBlockConformance(daysManifest(z.array(z.enum(['mon', 'tue'])).optional())).join('\n');
+
+        expect(issues).toMatch(/configSchema refuses \["wed"\]/);
+    });
+});
+
+describe('a card-summary part shown only while a choice holds a value', () => {
+    const summaryManifest = (visibleWhen: unknown) =>
+        manifestWith({
+            ...choiceManifest({}),
+            cardSummary: [{ key: 'valueType', visibleWhen }, { key: 'note' }],
+        });
+
+    it('accepts a part shown by a defaulted choice it offers', () => {
+        expect(checkBlockConformance(summaryManifest({ field: 'valueType', equals: ['text'] }))).toEqual([]);
+    });
+
+    it('holds it to the same rules as a field: a choice, offering each value', () => {
+        expect(checkBlockConformance(summaryManifest({ field: 'note', equals: ['x'] })).join('\n')).toMatch(
+            /cardSummary\[0\] is shown by "note", which is not a select or segmented field/
+        );
+        expect(checkBlockConformance(summaryManifest({ field: 'valueType', equals: ['number'] })).join('\n')).toMatch(
+            /cardSummary\[0\] is shown when "valueType" is "number", which it never offers/
+        );
+        expect(checkBlockConformance(summaryManifest({ field: 'valueType', equals: [] })).join('\n')).toMatch(
+            /cardSummary\[0\] declares visibleWhen without a field name/
+        );
+    });
+
+    it('catches a part shown by a choice with no default', () => {
+        const manifest = manifestWith({
+            ...choiceManifest({
+                valueType: { defaultValue: undefined },
+                schema: z.object({ valueType: z.enum(['text', 'time']), note: z.string().optional() }),
+            }),
+            cardSummary: [{ key: 'valueType', visibleWhen: { field: 'valueType', equals: ['text'] } }],
+        });
+
+        expect(checkBlockConformance(manifest).join('\n')).toMatch(
+            /cardSummary\[0\] is shown by "valueType", which needs a declared default/
+        );
     });
 });
 
@@ -1214,6 +1345,105 @@ describe('an exit marked worth a warning', () => {
         expect(
             checkBlockConformance(manifestWith({ handles: [{ label: 'Then', tone: 'neutral', warnIfUnconnected: true }] }))
         ).toEqual([]);
+    });
+});
+
+describe('what a block says it causes', () => {
+    /** An action whose emission carries `carried` under `ticketType`, over the given fields. */
+    const emitting = (carried: unknown, fields?: readonly Record<string, unknown>[]) =>
+        manifestWith({
+            configSchema: z.object({ roleId: z.string().min(1), note: z.string().optional() }),
+            configFields: fields ?? [
+                { key: 'roleId', label: 'Role', control: 'rolePicker' },
+                { key: 'note', label: 'Note', control: 'text', rendersTokens: true },
+            ],
+            emits: [{ startedBy: 'ticketChanged', carries: { ticketType: carried } }],
+        });
+
+    it('passes an action carrying a literal or one of its own plain fields', () => {
+        expect(checkBlockConformance(emitting({ value: 'opened' }))).toEqual([]);
+        expect(checkBlockConformance(emitting({ fromField: 'roleId' }))).toEqual([]);
+        expect(checkBlockConformance(manifestWith({ emits: [{ startedBy: 'memberLeave' }] }))).toEqual([]);
+    });
+
+    it('catches a trigger declaring an emission, since a trigger is the event and not an action', () => {
+        const issues = checkBlockConformance(
+            manifestWith({ kind: 'trigger', group: 'triggers', startedBy: 'memberLeave', emits: [{ startedBy: 'memberLeave' }] })
+        );
+
+        expect(issues.join()).toMatch(/is a trigger, but declares what it emits/);
+    });
+
+    it('catches a fromField that is not one of its own config fields', () => {
+        expect(checkBlockConformance(emitting({ fromField: 'ticketKind' })).join()).toMatch(
+            /from "ticketKind", which is not one of its config fields/
+        );
+    });
+
+    it('catches a fromField naming a field that renders tokens, or a picker that takes a variable', () => {
+        expect(checkBlockConformance(emitting({ fromField: 'note' })).join()).toMatch(/from "note", which can hold a \{\{var\}\}/);
+
+        const picker = manifestWith({
+            configSchema: z.object({ channelId: z.string().min(1) }),
+            configFields: [{ key: 'channelId', label: 'Channel', control: 'channelPicker' }],
+            emits: [{ startedBy: 'ticketChanged', carries: { ticketType: { fromField: 'channelId' } } }],
+        });
+        expect(checkBlockConformance(picker).join()).toMatch(/from "channelId", which can hold a \{\{var\}\}/);
+    });
+
+    it('catches a carried value of neither shape, and a source outside the vocabulary', () => {
+        expect(checkBlockConformance(emitting({ value: 'opened', fromField: 'roleId' })).join()).toMatch(
+            /Carry \{ value: "<literal>" \}, or \{ fromField: "<field>" \}/
+        );
+        expect(checkBlockConformance(manifestWith({ emits: [{ startedBy: 'ticketExploded' }] })).join()).toMatch(
+            /emits\.startedBy "ticketExploded" is not in the vocabulary/
+        );
+    });
+});
+
+describe('what an emission carries, against the triggers listening for it', () => {
+    /** A trigger on `ticketChanged` with a select `event` and a free-text `ticketType`. */
+    const listener = asManifest(
+        manifestWith({
+            type: 'fixture.listener',
+            kind: 'trigger',
+            group: 'triggers',
+            startedBy: 'ticketChanged',
+            configSchema: z.object({ event: z.enum(['opened', 'closed']).default('opened'), ticketType: z.string().optional() }),
+            configFields: [
+                {
+                    key: 'event',
+                    label: 'Event',
+                    control: 'select',
+                    defaultValue: 'opened',
+                    options: [
+                        { value: 'opened', label: 'Opened' },
+                        { value: 'closed', label: 'Closed' },
+                    ],
+                },
+                { key: 'ticketType', label: 'Type', control: 'text' },
+            ],
+        })
+    );
+    const emitter = (carries: Record<string, unknown>) =>
+        asManifest(manifestWith({ emits: [{ startedBy: 'ticketChanged', carries }] }));
+
+    it('passes carried keys the listener declares, and literals among its options', () => {
+        expect(checkEmissionTargets([listener, emitter({ event: { value: 'closed' }, ticketType: { fromField: 'roleId' } })])).toEqual(
+            []
+        );
+    });
+
+    it('catches a carried key no trigger on that source declares, which would match every one', () => {
+        expect(checkEmissionTargets([listener, emitter({ ticketKind: { value: 'support' } })]).join()).toMatch(
+            /carries "ticketKind", but no trigger started by "ticketChanged" has that field/
+        );
+    });
+
+    it('catches a literal outside the options of the field it is compared with, which would match none', () => {
+        expect(checkEmissionTargets([listener, emitter({ event: { value: 'exploded' } })]).join()).toMatch(
+            /carries "event" as "exploded", which that field never offers \(opened, closed\)/
+        );
     });
 });
 
@@ -1383,6 +1613,12 @@ describe('every block that ships', () => {
         const offenders = shipped.flatMap((block) => checkBlockConformance(block));
 
         expect(offenders).toEqual([]);
+    });
+
+    it('emits only what some trigger listening for it can hold', () => {
+        // The one check across blocks: a carried key or literal is only meaningful
+        // against the triggers on its source, so it runs over the whole registry.
+        expect(checkEmissionTargets(shipped)).toEqual([]);
     });
 
     it('declares a suspending block honestly', () => {

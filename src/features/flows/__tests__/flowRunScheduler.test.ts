@@ -47,15 +47,21 @@ function makeRun(runId: string): FlowRunEntity {
 const READY_CLIENT = { user: { id: 'bot-1' } } as unknown as Client;
 
 /**
- * Scheduler dependencies with the reclaim sweep stubbed to "nothing stranded". None of
- * these runs carries a quiet window, so the deferral seams are never reached here; the
- * quiet-window cases run against a real database in `quietTimeouts.test.ts`.
+ * Scheduler dependencies with the reclaim sweep stubbed to "nothing stranded", no run
+ * waiting on a message, and the backfill already over. None of these runs carries a
+ * quiet window, so the deferral seams are never reached here; the quiet-window cases run
+ * against a real database in `quietTimeouts.test.ts`.
  */
-function makeDeps(findDue: ReturnType<typeof vi.fn>, reclaimAbandonedClaims = vi.fn().mockResolvedValue(0)) {
+function makeDeps(
+    findDue: ReturnType<typeof vi.fn>,
+    reclaimAbandonedClaims = vi.fn().mockResolvedValue(0),
+    afterBackfill: (callback: () => void) => void = (callback) => callback()
+) {
     return {
-        flowRunsRepo: { findDue, reclaimAbandonedClaims, deferWake: vi.fn() },
-        activityEventsRepo: { findLastMessageAt: vi.fn() },
+        flowRunsRepo: { findDue, reclaimAbandonedClaims, deferWake: vi.fn(), findWaiting: vi.fn().mockResolvedValue([]) },
+        activityEventsRepo: { findLastMessageAt: vi.fn(), findLastMessageBetween: vi.fn() },
         isBackfillPending: () => false,
+        afterBackfill,
     };
 }
 
@@ -138,6 +144,34 @@ describe('flow run scheduler', () => {
         stopFlowRunScheduler();
     });
 
+    it('holds due message waits from start until the catch-up after the backfill has run', async () => {
+        const findDue = vi.fn().mockResolvedValue([]);
+        let backfillFinished: () => void = () => undefined;
+        const deps = makeDeps(findDue, undefined, (callback) => {
+            backfillFinished = callback;
+        });
+
+        startFlowRunScheduler(READY_CLIENT, 60 * 60_000, deps);
+        await vi.waitFor(() => expect(findDue).toHaveBeenCalledTimes(1));
+
+        // Backfill over, so quiet windows go; message waits stay held until the catch-up is done.
+        expect(findDue).toHaveBeenLastCalledWith(expect.any(Date), {
+            withoutQuietWindows: false,
+            withoutMessageWaits: true,
+        });
+
+        backfillFinished();
+        await vi.waitFor(async () => {
+            await runFlowRunTick(READY_CLIENT, deps);
+            expect(findDue).toHaveBeenLastCalledWith(expect.any(Date), {
+                withoutQuietWindows: false,
+                withoutMessageWaits: false,
+            });
+        });
+
+        stopFlowRunScheduler();
+    });
+
     it('still sweeps for due runs when the reclaim itself fails', async () => {
         const reclaimAbandonedClaims = vi.fn().mockRejectedValue(new Error('db down'));
         const findDue = vi.fn().mockResolvedValue([makeRun('run-due')]);
@@ -212,5 +246,77 @@ describe('flow run scheduler', () => {
             clearIntervalSpy.mockRestore();
             resetFlowRunSchedulerForTests();
         }
+    });
+
+    describe('the onTick hook', () => {
+        it('runs on a tick with zero due parked runs — the normal state', async () => {
+            const onTick = vi.fn().mockResolvedValue(undefined);
+
+            await runFlowRunTick(READY_CLIENT, { ...makeDeps(vi.fn().mockResolvedValue([])), onTick });
+
+            expect(onTick).toHaveBeenCalledWith(READY_CLIENT);
+        });
+
+        it('runs when flow_runs is missing, and when the due-run lookup fails', async () => {
+            vi.spyOn(console, 'error').mockImplementation(() => undefined);
+            const onTick = vi.fn().mockResolvedValue(undefined);
+            const missing = vi.fn().mockRejectedValue(new Error('SqliteError: no such table: flow_runs'));
+            const broken = vi.fn().mockRejectedValue(new Error('db down'));
+
+            await runFlowRunTick(READY_CLIENT, { ...makeDeps(missing), onTick });
+            await runFlowRunTick(READY_CLIENT, { ...makeDeps(broken), onTick });
+
+            expect(onTick).toHaveBeenCalledTimes(2);
+        });
+
+        it('runs after the due runs have resumed, inside the same tick', async () => {
+            const order: string[] = [];
+            resumeFlowRun.mockImplementation(async () => {
+                order.push('resume');
+                return { status: 'completed' };
+            });
+            const onTick = vi.fn().mockImplementation(async () => {
+                order.push('onTick');
+            });
+
+            await runFlowRunTick(READY_CLIENT, { ...makeDeps(vi.fn().mockResolvedValue([makeRun('run-1')])), onTick });
+
+            expect(order).toEqual(['resume', 'onTick']);
+        });
+
+        it('holds the next tick off while it runs', async () => {
+            vi.spyOn(console, 'info').mockImplementation(() => undefined);
+            let finish: () => void = () => undefined;
+            const onTick = vi.fn().mockImplementation(() => new Promise<void>((resolve) => (finish = resolve)));
+            const deps = { ...makeDeps(vi.fn().mockResolvedValue([])), onTick };
+
+            const first = runFlowRunTick(READY_CLIENT, deps);
+            await vi.waitFor(() => expect(onTick).toHaveBeenCalledTimes(1));
+            await runFlowRunTick(READY_CLIENT, deps);
+            finish();
+            await first;
+
+            expect(onTick).toHaveBeenCalledTimes(1);
+        });
+
+        it('keeps a throw inside the tick, and is called again next tick', async () => {
+            const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+            const onTick = vi.fn().mockRejectedValueOnce(new Error('schedules exploded')).mockResolvedValue(undefined);
+            const deps = { ...makeDeps(vi.fn().mockResolvedValue([])), onTick };
+
+            await expect(runFlowRunTick(READY_CLIENT, deps)).resolves.toBeUndefined();
+            await runFlowRunTick(READY_CLIENT, deps);
+
+            expect(onTick).toHaveBeenCalledTimes(2);
+            expect(error).toHaveBeenCalledWith('[flow-runs] Extra work on this tick failed:', expect.any(Error));
+        });
+
+        it('is passed through by startFlowRunScheduler alongside the default dependencies', async () => {
+            const onTick = vi.fn().mockResolvedValue(undefined);
+
+            startFlowRunScheduler(READY_CLIENT, 60 * 60_000, { ...makeDeps(vi.fn().mockResolvedValue([])), onTick });
+
+            await vi.waitFor(() => expect(onTick).toHaveBeenCalledWith(READY_CLIENT));
+        });
     });
 });

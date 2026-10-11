@@ -167,6 +167,33 @@ const DOMAIN_VOCABULARY = [
     // dependency the way `activity` is. A property of the history the engine reads, not
     // of any flow's purpose.
     'backfill',
+    // A Discord thread and the channel it sits under, which activity records as the
+    // event's `parentChannelId`. The message wait counts a reply in a thread toward its
+    // channel, so the engine's index matches on the parent. Discord nouns on the footing
+    // of `channel` and `message`; neither says what a flow is for, and neither folds onto
+    // a proven rejection.
+    'thread', 'parent',
+    // A Discord category, the third place a channel picker's siblings can name. Message
+    // Sent can listen in every channel of one, and its in-memory index keys triggers by
+    // the category a message's channel sits in. A Discord noun on the footing of `channel`
+    // and `thread`; it says where a message landed, not what a flow is for, and folds
+    // onto no proven rejection.
+    'category',
+    // A run started by a change another run made sits one link further down a *chain* of
+    // runs, and `FLOW_MAX_CHAIN_DEPTH` refuses a start past a set depth. Causation, on the
+    // footing of `trigger` and `step`: it says how a run came to start, never what a flow
+    // is for — the ticket change that carries a depth today is named only outside the
+    // gated files. Folds onto no proven rejection.
+    'chain',
+    // The other half of chain protection: a block's manifest says what its action causes —
+    // it `emits` an `emission` that `carries` values a listening trigger is compared against
+    // — and the cycle finder (`engine/flowCycles.ts`) calls the node that does it the
+    // `emitter`. Causation stated by the contract, on the footing of `trigger` and `chain`:
+    // none says what a flow is for, every ticket word stays inside the block directories as
+    // string literals, and none folds onto a proven rejection. `loop` and `cross` were
+    // renamed onto the allowed `cycle` rather than admitted, and `BlockEmittedValue` became
+    // `BlockEmissionValue` so `emitted` was not needed.
+    'emit', 'emission', 'carries', 'emitter',
 ];
 
 /**
@@ -333,6 +360,26 @@ const GENERIC_VOCABULARY = [
     // `rule` (which folds onto the proven rejection `rules`) became `when`, `sibling`
     // became `source`, `derived` became `from`.
     'effective', 'warn',
+    // Reading a number an author typed (`parseAuthoredNumber` in `blocks/authoredNumber.ts`),
+    // shared by Set Variable and Compare so "5" reads the same to both. `parse` is the verb
+    // `parsed` above already implies, `number` is a value's type, on the footing of
+    // `string` and `object`, and `exact` is whether a JS number holds a value without
+    // rounding (`isExact`, the line past which a snowflake ID is text). None says what a
+    // flow is for, and none folds onto a proven rejection. Two were renamed rather than
+    // admitted when the reader moved here from Set Variable: `DECIMAL_NUMBER` became
+    // `NUMBER_SHAPE` and `trimmed` became `text`, since `shape` and `text` were already
+    // here; and the walk's "never enter this node" parameter is `without`, not `excluded`.
+    'parse', 'number', 'exact',
+    // `isLiveRunStatus` in `data/flowRunLifecycle.ts`: whether a run is still going —
+    // parked or being resumed — as opposed to over. A property of the lifecycle, on the
+    // footing of `running` and `completed`; asked by the schedule fire so one schedule's
+    // runs never overlap. Folds onto no proven rejection.
+    'live',
+    // `findFlowCycleThrough` in `engine/flowCycles.ts`: a cycle of runs passing *through*
+    // the flow being saved, as opposed to one among other flows only. A preposition, as
+    // domain-free as `from` and `onto`. The finder's other words are contract words, on
+    // the domain list beside `chain`.
+    'through',
 ];
 
 /**

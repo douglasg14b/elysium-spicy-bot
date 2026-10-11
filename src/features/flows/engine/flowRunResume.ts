@@ -1,11 +1,12 @@
 import { DiscordAPIError, DiscordjsError, DiscordjsErrorCodes, RESTJSONErrorCodes } from 'discord.js';
 import type { Channel, Client, Guild, GuildMember, GuildTextBasedChannel } from 'discord.js';
 import { FLOW_MAX_NODE_VISITS } from '../constants';
-import { FlowRunsRepo, flowRunsRepo } from '../data/flowRunsRepo';
+import { FlowRunsRepo, flowRunsRepo, type ClaimedPark } from '../data/flowRunsRepo';
 import type { FlowRunEntity } from '../data/flowRunsSchema';
 import { FlowsRepo, flowsRepo } from '../data/flowsRepo';
 import type { FlowResumeReason, FlowRunSeed } from '../blocks/types';
 import { emptyBagWith, executeFlowSegment, type NodeRunLog } from './executor';
+import { checkMessageWaitHasMember, messageWaitIndex, parkOf } from './messageWaitIndex';
 import { asGuildTextChannel } from './runChannel';
 import { releaseWaitMessageControls } from './waitMessageControls';
 
@@ -32,6 +33,10 @@ export type ResumeOutcome =
  * the live client. `interaction` is always undefined on a resumed run — the
  * original interaction token is long expired — and so is `actor`, because a run
  * woken by the clock was not caused by anybody.
+ *
+ * **A run that stored no member is about nobody**, and resumes with no subject and no
+ * fetch. That is never how a departure reads: a run about someone who has since left
+ * stored their id, and fails here when the fetch finds nobody.
  *
  * **The channel is resolved from its stored id, not rebuilt from the trigger.**
  * Without this a resumed run could not answer "where am I", so `condition.inChannel`
@@ -81,14 +86,15 @@ export async function rebuildResumeContext(
         return { ok: false, reason: `Guild ${guildId} is no longer available to this bot` };
     }
 
-    let member: GuildMember | null = null;
-    try {
-        member = await guild.members.fetch(userId);
-    } catch {
-        member = null;
-    }
-    if (!member) {
-        return { ok: false, reason: `Member ${userId} is no longer in guild ${guildId}` };
+    // No stored member means a run about nobody — never one whose member left, which
+    // still stores the id and fails below when the fetch finds nobody. So there is no
+    // one to fetch, and the run resumes without a subject, exactly as it started.
+    let member: GuildMember | undefined;
+    if (userId) {
+        member = await guild.members.fetch(userId).catch(() => undefined);
+        if (!member) {
+            return { ok: false, reason: `Member ${userId} is no longer in guild ${guildId}` };
+        }
     }
 
     const resolved = await resolveSnapshotChannel(guild, channelId, run.runId);
@@ -110,6 +116,7 @@ export async function rebuildResumeContext(
         context: {
             client,
             guild,
+            // Undefined on a run about nobody, as it was when the run started.
             subject: member,
             // A resumed run has no actor: nobody caused this step, the clock did.
             // Reporting the subject here would make every resumed run look like
@@ -124,6 +131,10 @@ export async function rebuildResumeContext(
             variables: emptyBagWith(run.variables),
             // Resumed runs have no interaction — the token is expired.
             interaction: undefined,
+            // The depth the run started at, so a change it makes after waiting continues
+            // its chain rather than starting a fresh one. A row parked before depth was
+            // recorded carries none, and the executor reads that as the root.
+            ...(run.contextSnapshot.chainDepth === undefined ? {} : { chainDepth: run.contextSnapshot.chainDepth }),
         },
     };
 }
@@ -287,20 +298,25 @@ function narrowOrReport(
  * compile error — survivable while there were two reasons and the wrong one only
  * cost a branch, but not once a reason carries which button somebody pressed.
  *
- * `claimedWaitMessageId` is for a caller woken by a control rather than by the
- * clock: it names the message that control was posted on, and the claim then
- * refuses unless the run is still waiting on that exact park. Omitting it claims
- * whichever park the run is on, which is what the poller and the event fan-out
- * mean — neither is holding a control, and neither can be repeated on demand.
+ * `claimedPark` is for a caller that knows which park it means to end. A caller
+ * woken by a control names the message that control was posted on, and the claim
+ * then refuses unless the run is still waiting on that exact park; the message
+ * wake names the wait kind, so a run that has moved on to a Delay is not ended by
+ * a message. Omitting it claims whichever park the run is on, which is what the
+ * poller and the event fan-out mean — neither is holding a control, and neither
+ * can be repeated on demand.
+ *
+ * Only the run's id is read before the claim, so a caller holding nothing more —
+ * the message wake, which finds runs in memory — passes just that.
  */
 export async function resumeFlowRun(
     client: Client,
-    run: FlowRunEntity,
+    run: Pick<FlowRunEntity, 'runId'>,
     exit: FlowResumeReason,
     dependencies: ResumeFlowRunDependencies = defaultDependencies,
-    claimedWaitMessageId?: string
+    claimedPark?: ClaimedPark
 ): Promise<ResumeOutcome> {
-    const claimed = await dependencies.flowRunsRepo.claimForResume(run.runId, claimedWaitMessageId);
+    const claimed = await claimRun(run.runId, claimedPark, dependencies.flowRunsRepo);
     if (!claimed) {
         // The claim is all we know: the run may have been taken by another
         // resumer, already finished, been cancelled, moved on to a different park,
@@ -312,14 +328,57 @@ export async function resumeFlowRun(
     }
 
     try {
-        return await advanceClaimedRun(client, claimed, exit, dependencies);
+        return await advanceClaimedRun(client, claimed, exit, dependencies, claimedPark?.eventAt);
     } catch (error) {
         // The run itself is fine; something around it broke. Give the claim back so
         // the next poll retries, rather than leaving it for the startup sweep.
-        await dependencies.flowRunsRepo.releaseClaim(claimed.runId).catch((releaseError: unknown) => {
-            console.error(`[flow-runs] Could not release the claim on run ${claimed.runId}:`, releaseError);
-        });
+        await releaseRun(claimed.runId, dependencies.flowRunsRepo);
         throw error;
+    }
+}
+
+/**
+ * Claim a run, and take it out of the message-wait index when the claim lands: a
+ * claimed run is waiting on nothing. A missed claim leaves the index alone — see
+ * {@link messageWaitIndex} for why it must.
+ */
+async function claimRun(
+    runId: string,
+    claimedPark: ClaimedPark | undefined,
+    flowRunsRepo: ResumeFlowRunDependencies['flowRunsRepo']
+): Promise<FlowRunEntity | null> {
+    const claimed = await flowRunsRepo.claimForResume(runId, claimedPark);
+    if (claimed) {
+        messageWaitIndex.delete(runId);
+    }
+    return claimed;
+}
+
+/**
+ * Give a claim back after a fault, and put the run back in the message-wait index from
+ * the park it was given back on. A release that failed, or found the run already moved
+ * on, writes nothing: whatever moved it owns its entry.
+ */
+async function releaseRun(runId: string, flowRunsRepo: ResumeFlowRunDependencies['flowRunsRepo']): Promise<void> {
+    let released: FlowRunEntity | null;
+    try {
+        released = await flowRunsRepo.releaseClaim(runId);
+    } catch (releaseError) {
+        console.error(`[flow-runs] Could not release the claim on run ${runId}:`, releaseError);
+        return;
+    }
+    if (!released) {
+        return;
+    }
+    // Logged apart from the release, which has succeeded: the claim is back, and only
+    // the in-memory index could not take the park it was given back on.
+    try {
+        messageWaitIndex.record(parkOf(released));
+    } catch (indexError) {
+        console.error(
+            `[flow-runs] Released the claim on run ${runId}, but could not index it as waiting on a message:`,
+            indexError
+        );
     }
 }
 
@@ -399,17 +458,17 @@ async function failClaimedRun(
  * together cannot also advance it; losing the claim is `skipped`, not a failure. The
  * claim is given back if the terminal write throws, for the reason `resumeFlowRun` gives.
  *
- * @param claimedWaitMessageId - The park the caller is holding a control for; see
+ * @param claimedPark - The park the caller is holding a control for; see
  * `resumeFlowRun`.
  */
 export async function failParkedRun(
     client: Client,
-    run: FlowRunEntity,
+    run: Pick<FlowRunEntity, 'runId'>,
     reason: string,
-    claimedWaitMessageId?: string,
+    claimedPark?: ClaimedPark,
     dependencies: Pick<ResumeFlowRunDependencies, 'flowRunsRepo'> = defaultDependencies
 ): Promise<ResumeOutcome> {
-    const claimed = await dependencies.flowRunsRepo.claimForResume(run.runId, claimedWaitMessageId);
+    const claimed = await claimRun(run.runId, claimedPark, dependencies.flowRunsRepo);
     if (!claimed) {
         return {
             status: 'skipped',
@@ -420,19 +479,24 @@ export async function failParkedRun(
     try {
         return await failClaimedRun(client, claimed, reason, dependencies.flowRunsRepo, claimed.log);
     } catch (error) {
-        await dependencies.flowRunsRepo.releaseClaim(claimed.runId).catch((releaseError: unknown) => {
-            console.error(`[flow-runs] Could not release the claim on run ${claimed.runId}:`, releaseError);
-        });
+        await releaseRun(claimed.runId, dependencies.flowRunsRepo);
         throw error;
     }
 }
 
-/** Advance a run this process has already claimed. */
+/**
+ * Advance a run this process has already claimed.
+ *
+ * `eventAt` is when the waking event happened by Discord's clock, when the caller knows
+ * it — the message wake does. It rides the context as `eventAt`, so a wait the run parks
+ * on next starts listening after that message rather than possibly before it.
+ */
 async function advanceClaimedRun(
     client: Client,
     run: FlowRunEntity,
     exit: FlowResumeReason,
-    dependencies: ResumeFlowRunDependencies
+    dependencies: ResumeFlowRunDependencies,
+    eventAt: Date | undefined
 ): Promise<ResumeOutcome> {
     // The message the park being woken was waiting on. Read up here, before any of
     // the guards below can end the run, because **every** way this function ends
@@ -469,9 +533,11 @@ async function advanceClaimedRun(
         return failRun(rebuilt.reason, run.log);
     }
 
+    const context: FlowRunSeed = eventAt ? { ...rebuilt.context, eventAt } : rebuilt.context;
+
     // The run resumes AT the node that parked it, which is re-entered and told
     // why it woke. Choosing the exit is that block's job, not this one's.
-    const outcome = await executeFlowSegment(run.flowId, flow.graph, rebuilt.context, {
+    const outcome = await executeFlowSegment(run.flowId, flow.graph, context, {
         // The row's own id, so a block re-entered here addresses the run it is
         // actually in — a fresh one would name a run nothing can find.
         runId: run.runId,
@@ -521,7 +587,23 @@ async function advanceClaimedRun(
 
     try {
         if (outcome.kind === 'suspended') {
+            // Refused before the write, so a regression in save-time validation leaves the
+            // run on the park it had rather than storing one nothing could ever wake.
+            checkMessageWaitHasMember({
+                runId: run.runId,
+                userId: run.contextSnapshot.userId,
+                waitConfig: outcome.suspension.waitConfig,
+            });
             await dependencies.flowRunsRepo.park(run.runId, outcome.suspension);
+            // From what was parked rather than the row `park` returns, which is the
+            // same park — and right after the write, so a message landing next finds it.
+            messageWaitIndex.record({
+                runId: run.runId,
+                guildId: run.guildId,
+                userId: run.contextSnapshot.userId,
+                waitConfig: outcome.suspension.waitConfig,
+                wakeAt: outcome.suspension.wakeAt,
+            });
             // `?? null` because the two sides spell "no message" differently — the
             // row reads back `null`, a suspension omits the key — and
             // `null === undefined` is false. Without it a delay re-parking would

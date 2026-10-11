@@ -12,6 +12,30 @@ export const FLOW_RUN_STATUSES = ['suspended', 'running', 'completed', 'failed',
 export type FlowRunStatus = (typeof FLOW_RUN_STATUSES)[number];
 
 /**
+ * Whether a run in this status is still going — parked and waiting to wake, or being
+ * resumed right now — as opposed to over, however it ended.
+ *
+ * An exhaustive switch rather than a list, so a status added to {@link FLOW_RUN_STATUSES}
+ * (which should not happen; see above) is a compile error here rather than a run that
+ * quietly counts as finished to everyone asking whether something overlaps it.
+ */
+export function isLiveRunStatus(status: FlowRunStatus): boolean {
+    switch (status) {
+        case 'suspended':
+        case 'running':
+            return true;
+        case 'completed':
+        case 'failed':
+        case 'cancelled':
+            return false;
+        default: {
+            const illegal: never = status;
+            throw new Error(`Unknown flow-run status ${JSON.stringify(illegal)}.`);
+        }
+    }
+}
+
+/**
  * Every event that may move a durable run between statuses. Frozen alongside
  * {@link FlowRunStatus}.
  */

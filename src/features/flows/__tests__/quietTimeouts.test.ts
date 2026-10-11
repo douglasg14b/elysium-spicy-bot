@@ -23,9 +23,11 @@ import { executeFlow } from '../engine/executor';
  */
 
 const resumeFlowRun = vi.fn();
+const failParkedRun = vi.fn();
 
 vi.mock('../engine/flowRunResume', () => ({
     resumeFlowRun: (...args: unknown[]) => resumeFlowRun(...args),
+    failParkedRun: (...args: unknown[]) => failParkedRun(...args),
 }));
 
 const { runFlowRunTick, resetFlowRunSchedulerForTests } = await import('../engine/flowRunScheduler');
@@ -36,14 +38,19 @@ const CHANNEL_ID = 'channel-1';
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
 const READY_CLIENT = { user: { id: 'bot-1' } } as unknown as Client;
-const DEPENDENCIES = { flowRunsRepo, activityEventsRepo, isBackfillPending: () => false };
+const DEPENDENCIES = {
+    flowRunsRepo,
+    activityEventsRepo,
+    isBackfillPending: () => false,
+    afterBackfill: (callback: () => void) => callback(),
+};
 
 /** A run that parked an hour ago on a one-hour window, so it is due now. */
-async function parkDueRun(quietWindow: FlowQuietWindow | null) {
+async function parkDueRun(quietWindow: FlowQuietWindow | null, options: { aboutNobody?: boolean } = {}) {
     return flowRunsRepo.create({
         flowId: 'flow-1',
         guildId: GUILD_ID,
-        contextSnapshot: { guildId: GUILD_ID, userId: MEMBER_ID },
+        contextSnapshot: options.aboutNobody ? { guildId: GUILD_ID } : { guildId: GUILD_ID, userId: MEMBER_ID },
         resumeNodeId: 'wait',
         wakeAt: new Date(Date.now() - MINUTE),
         quietWindow,
@@ -99,6 +106,25 @@ describe('the scheduler on a park with a quiet window', () => {
         expect(after?.log).toEqual(run.log);
     });
 
+    it("ends a run about nobody whose window counts the member's messages, rather than retrying it", async () => {
+        // Save-time validation keeps this from parking at all — the option needs a
+        // member — so it is a regression guard. A throw would leave the run parked and
+        // retried every tick forever; it is failed by name instead.
+        failParkedRun.mockResolvedValue({ status: 'failed', error: 'about nobody' });
+        const run = await parkDueRun(memberWindow, { aboutNobody: true });
+
+        await runFlowRunTick(READY_CLIENT, DEPENDENCIES);
+
+        expect(resumeFlowRun).not.toHaveBeenCalled();
+        expect(failParkedRun).toHaveBeenCalledTimes(1);
+        expect(failParkedRun).toHaveBeenCalledWith(
+            READY_CLIENT,
+            expect.objectContaining({ runId: run.runId }),
+            expect.stringMatching(/about nobody, so there is no member whose messages to count/),
+            { wakeAt: run.wakeAt, resumeNodeId: run.resumeNodeId }
+        );
+    });
+
     it('wakes the run on its timeout when nobody has spoken', async () => {
         await parkDueRun(memberWindow);
 
@@ -141,9 +167,11 @@ describe('the scheduler on a park with a quiet window', () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const run = await parkDueRun(memberWindow);
         const failing = {
-            flowRunsRepo,
-            activityEventsRepo: { findLastMessageAt: vi.fn().mockRejectedValue(new Error('database down')) },
-            isBackfillPending: () => false,
+            ...DEPENDENCIES,
+            activityEventsRepo: {
+                findLastMessageAt: vi.fn().mockRejectedValue(new Error('database down')),
+                findLastMessageBetween: vi.fn(),
+            },
         };
 
         await runFlowRunTick(READY_CLIENT, failing);

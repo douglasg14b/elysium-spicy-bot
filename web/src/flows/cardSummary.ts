@@ -11,10 +11,14 @@ import type {
     GuildChannel,
     GuildRole,
     NodeDescriptor,
+    ResourceDeclaration,
+    TicketTypeView,
 } from '@brattybot/web-sdk';
+import { formatDaysOfWeek, formatTimeOfDay } from './clockValues';
 import { ELIGIBILITY_PRINCIPALS, type EligibilityPrincipal } from './contractValues';
+import { resourceKeyFieldFor } from './controls/types';
 import { formatDuration } from './nodeMeta';
-import { isFieldVisible, pickerVariableOf } from './variables';
+import { isFieldVisible, isShownBy, pickerVariableOf } from './variables';
 
 /** Shown when a block declares no `cardSummary` at all. */
 const NO_SUMMARY = 'Click to configure';
@@ -22,6 +26,24 @@ const NO_SUMMARY = 'Click to configure';
 interface SummaryContext {
     roles: GuildRole[];
     channels: GuildChannel[];
+    ticketTypes: TicketTypeView[];
+    declaredResources: readonly ResourceDeclaration[];
+}
+
+/**
+ * A ticket type picker left empty because it waits on a type the journey declares: the
+ * declared label, saying it arrives at install.
+ *
+ * Without this the card shows the field's empty copy — "any type" on a Ticket Event — for
+ * a node that names one specific type, which is the opposite of what it will do. (It does
+ * not run as "any type" meanwhile: a flow waiting on an uninstalled resource cannot go live.)
+ */
+function waitingTicketType(sidecar: unknown, context: SummaryContext): string {
+    if (typeof sidecar !== 'string' || !sidecar) return '';
+    const declared = context.declaredResources.find(
+        (resource) => resource.kind === 'ticketType' && resource.key === sidecar
+    );
+    return declared ? `${declared.defaultName} (after install)` : '';
 }
 
 /** Truncate to `max` characters, the last of which becomes an ellipsis. */
@@ -51,7 +73,9 @@ function singularise(noun: string): string {
 function resolveValue(
     field: BlockConfigField,
     raw: unknown,
-    context: SummaryContext
+    context: SummaryContext,
+    /** The field's `<field>Key` sidecar, naming a declared resource the value waits on. */
+    sidecar: unknown
 ): string {
     switch (field.control) {
         /*
@@ -84,6 +108,21 @@ function resolveValue(
              * is the disguise that let it happen.
              */
             return channel.type === 'category' ? channel.name : `#${channel.name}`;
+        }
+        // The category's bare name — a category is not somewhere to post, so no `#`.
+        case 'categoryPicker': {
+            if (typeof raw !== 'string' || !raw) return '';
+            return context.channels.find((candidate) => candidate.id === raw)?.name ?? '';
+        }
+        /*
+         * The type's label. A key the guild no longer declares — or a list that has not
+         * loaded — shows as the key itself rather than as unset: unlike a deleted role's
+         * snowflake, a type key is readable, and "no type picked" would be a lie about a
+         * node that names one.
+         */
+        case 'ticketTypePicker': {
+            if (typeof raw !== 'string' || !raw) return waitingTicketType(sidecar, context);
+            return context.ticketTypes.find((candidate) => candidate.type === raw)?.label ?? raw;
         }
         case 'duration': {
             if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) return '';
@@ -207,6 +246,12 @@ function resolveValue(
                 }
             }
         }
+        // On a 12-hour clock: `09:00` reads `9:00 AM`.
+        case 'timeOfDay':
+            return formatTimeOfDay(raw);
+        // In week order, and `Every day` once all seven are picked.
+        case 'daysOfWeek':
+            return formatDaysOfWeek(raw);
         default: {
             const unhandled: never = field;
             void unhandled;
@@ -250,16 +295,20 @@ function decorateEmpty(
  * @param config - The node's current engine `data`.
  * @param roles - Guild roles, for resolving a `rolePicker` value to `@name`.
  * @param channels - Guild channels, for resolving a `channelPicker` to `#name`.
+ * @param ticketTypes - The guild's ticket types, for resolving a `ticketTypePicker` to its label.
+ * @param declaredResources - What the flow's journey declares, for a picker still waiting on install.
  */
 export function summarizeFromDescriptor(
     descriptor: NodeDescriptor | undefined,
     config: Record<string, unknown>,
     roles: GuildRole[],
-    channels: GuildChannel[]
+    channels: GuildChannel[],
+    ticketTypes: TicketTypeView[],
+    declaredResources: readonly ResourceDeclaration[]
 ): string {
     if (!descriptor?.cardSummary || descriptor.cardSummary.length === 0) return NO_SUMMARY;
 
-    const context: SummaryContext = { roles, channels };
+    const context: SummaryContext = { roles, channels, ticketTypes, declaredResources };
     const pieces: string[] = [];
 
     for (const part of descriptor.cardSummary) {
@@ -280,7 +329,11 @@ export function summarizeFromDescriptor(
         // value for it, which is exactly what must not reach the card.
         if (!isFieldVisible(field, descriptor.configFields, config)) continue;
 
-        const value = resolveValue(field, config[part.key], context);
+        // A part may also ask to show only under some choices, read the way a field's
+        // own `visibleWhen` is — and it then renders nothing, the same way.
+        if (part.visibleWhen && !isShownBy(part.visibleWhen, descriptor.configFields, config)) continue;
+
+        const value = resolveValue(field, config[part.key], context, config[resourceKeyFieldFor(part.key)]);
 
         if (value) {
             pieces.push(decorate(part, value));

@@ -6,7 +6,8 @@ function binding(overrides: Partial<ResourceBindingEntity> = {}): ResourceBindin
     return {
         id: 1,
         guildId: 'guild-1',
-        journeyKey: 'onboarding',
+        ownerKind: 'journey',
+        ownerKey: 'onboarding',
         resourceKey: 'welcome',
         kind: 'textChannel',
         state: 'created',
@@ -133,9 +134,9 @@ describe('groupBindingsByJourney', () => {
         // declare `welcome` and mean different channels. Flattening them would report one
         // journey as installed on the strength of the other's binding.
         const grouped = groupBindingsByJourney([
-            binding({ id: 1, journeyKey: 'onboarding', resourceKey: 'welcome' }),
-            binding({ id: 2, journeyKey: 'tickets', resourceKey: 'welcome' }),
-            binding({ id: 3, journeyKey: 'onboarding', resourceKey: 'rules' }),
+            binding({ id: 1, ownerKey: 'onboarding', resourceKey: 'welcome' }),
+            binding({ id: 2, ownerKey: 'tickets', resourceKey: 'welcome' }),
+            binding({ id: 3, ownerKey: 'onboarding', resourceKey: 'rules' }),
         ]);
 
         expect(grouped.get('onboarding')?.map((row) => row.resourceKey)).toEqual([
@@ -145,7 +146,33 @@ describe('groupBindingsByJourney', () => {
         expect(grouped.get('tickets')?.map((row) => row.resourceKey)).toEqual(['welcome']);
     });
 
+    it('never hands the ticket feature\'s rows to a journey keyed `tickets`', () => {
+        // The ticket feature's category rows are keyed `tickets` too. Grouping on the key
+        // alone would count them as that journey's resources.
+        const grouped = groupBindingsByJourney([
+            binding({ id: 1, ownerKey: 'tickets', resourceKey: 'open' }),
+            binding({ id: 2, ownerKind: 'tickets', ownerKey: 'tickets', resourceKey: 'open', kind: 'category' }),
+            binding({ id: 3, ownerKind: 'tickets', ownerKey: 'tickets', resourceKey: 'closed', kind: 'category' }),
+        ]);
+
+        expect(grouped.get('tickets')?.map((row) => row.id)).toEqual([1]);
+    });
+
     it('has no entry for a journey with no bindings', () => {
         expect(groupBindingsByJourney([]).get('onboarding')).toBeUndefined();
+    });
+});
+
+describe('a ticket type in the install state', () => {
+    it('counts as installed once its row is settled, whether this journey created it or found it', () => {
+        expect(
+            summariseJourneyInstall({
+                declaredKeys: ['welcome', 'verify'],
+                bindings: [
+                    binding(),
+                    binding({ id: 2, resourceKey: 'verify', kind: 'ticketType', state: 'adopted', discordId: 'verify' }),
+                ],
+            })
+        ).toMatchObject({ state: 'all', installedKeys: ['welcome', 'verify'] });
     });
 });

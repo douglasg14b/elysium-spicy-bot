@@ -25,6 +25,7 @@ function state(overrides: Partial<PublishedFlowState> = {}): PublishedFlowState 
         buttonMessages: [],
         deletableResources: [],
         refusedResources: [],
+        keptSettings: [],
         mayHaveUnrecordedButtons: true,
         ...overrides,
     };
@@ -364,6 +365,17 @@ describe('what the builder takes from a published read', () => {
         expect([...view.keys].sort()).toEqual(['adopted-rules', 'lounge']);
     });
 
+    it('counts a ticket type uninstall would only forget as installed', () => {
+        // Left out, a journey holding only a ticket type read as not installed, with no
+        // uninstall in reach — and its key would follow the label again.
+        const view = installedFromPublished({
+            data: state({ keptSettings: [resource({ resourceKey: 'front-desk', kind: 'ticketType' })] }),
+            failed: false,
+        });
+        expect(view.count).toBe(1);
+        expect([...view.keys]).toEqual(['front-desk']);
+    });
+
     it('knows nothing before the first answer', () => {
         const view = installedFromPublished({ data: undefined, failed: false });
         expect(view.count).toBeNull();
@@ -376,5 +388,38 @@ describe('what the builder takes from a published read', () => {
         const view = installedFromPublished({ data: live, failed: true });
         expect(view.count).toBeNull();
         expect([...view.keys].sort()).toEqual(['adopted-rules', 'lounge']);
+    });
+});
+
+describe('a ticket type the journey installed', () => {
+    const keptType = resource({
+        resourceKey: 'front-desk',
+        kind: 'ticketType',
+        name: 'Front desk',
+        explanation: 'The ticket type **Front desk** stays, and flows that use it keep working.',
+    });
+
+    it('is listed as kept, with the server’s sentence, and uninstall is still offered when it is all there is', () => {
+        const summary = summarisePublished(state({ keptSettings: [keptType] }));
+
+        expect(summary.hasAnything).toBe(true);
+        expect(summary.groups.map((group) => group.id)).toEqual(['settings']);
+        expect(summary.groups[0]?.lines[0]).toMatchObject({
+            fate: 'kept',
+            kindLabel: 'ticket type',
+            displayName: 'Front desk',
+            explanation: keptType.explanation,
+        });
+        expect(summary.canUnpublish).toBe(true);
+        // Never "Delete 0 resources".
+        expect(summary.unpublishLabel).toBe('Uninstall, keeping 1 setting');
+        expect(summary.unpublishConfirmLabel).toBe('Yes, uninstall');
+    });
+
+    it('leaves the count on the button to the deletions when there are some', () => {
+        const summary = summarisePublished(state({ deletableResources: [resource()], keptSettings: [keptType] }));
+
+        expect(summary.unpublishLabel).toBe('Delete 1 resource');
+        expect(summary.deletableCount).toBe(1);
     });
 });

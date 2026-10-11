@@ -11,6 +11,7 @@ import {
     type Eligibility,
 } from '../engine/eligibility';
 import { handleFlowButtonInteraction } from '../engine/flowTriggerDispatch';
+import { messageActivityLimit } from '../engine/messageActivityLimit';
 import { buildFlowCustomId } from '../utils/customId';
 
 const GUILD_ID = 'guild-1';
@@ -132,6 +133,19 @@ describe('pressing a gated trigger button', () => {
         expect(refused.status).toBe('skipped');
         // The refusal changed nothing — the flow never ran.
         expect(executed).toHaveLength(1);
+    });
+
+    it('never draws from the message flood limit — a press is a one-off, and dropping one loses it', async () => {
+        flowFixture = () => gatedFlow(OPEN_GATE);
+        executed.length = 0;
+        const take = vi.spyOn(messageActivityLimit, 'take').mockReturnValue(false);
+
+        const pressed = await handleFlowButtonInteraction(press(member()));
+
+        expect(pressed.status).toBe('success');
+        expect(executed).toHaveLength(1);
+        expect(take).not.toHaveBeenCalled();
+        take.mockRestore();
     });
 
     it('does not wake the refused member own parked runs', async () => {

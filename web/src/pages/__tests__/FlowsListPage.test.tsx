@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
-import type { FlowSummary } from '@brattybot/web-sdk';
+import type { FlowSummary, PublishedFlowState } from '@brattybot/web-sdk';
 import { heldReply, installFakeApi, type FakeApi, type FakeApiReply } from '../../__tests__/support/fakeApi';
 import { renderWithProviders } from '../../__tests__/support/renderWithProviders';
 import { GuildProvider } from '../../guilds/GuildContext';
@@ -35,6 +35,15 @@ function summary(flowId: string, name: string): FlowSummary {
 
 const ROPE = summary('11111111-1111-1111-1111-111111111111', 'Rope check');
 const WAX = summary('22222222-2222-2222-2222-222222222222', 'Wax play waiver');
+
+/** A flow with nothing live in the guild, as `GET …/published` answers it. */
+const NOTHING_PUBLISHED: PublishedFlowState = {
+    buttonMessages: [],
+    deletableResources: [],
+    refusedResources: [],
+    keptSettings: [],
+    mayHaveUnrecordedButtons: false,
+};
 
 /** The answer to a switch's PUT: the flow as stored, now with `enabled` as asked. */
 function switched(flow: FlowSummary, enabled: boolean): FakeApiReply {
@@ -105,7 +114,7 @@ describe('FlowsListPage switches', () => {
         const api = installFakeApi();
         serveGuild(api, [ROPE, WAX]);
         api.on('GET', `${FLOWS_PATH}/${ROPE.flowId}/published`, () => ({
-            body: { buttonMessages: [], deletableResources: [], refusedResources: [], mayHaveUnrecordedButtons: false },
+            body: NOTHING_PUBLISHED,
         }));
         api.on('DELETE', `${FLOWS_PATH}/${ROPE.flowId}`, () => ({ status: 204 }));
         api.on('PUT', `${FLOWS_PATH}/${WAX.flowId}`, () => switched(WAX, true));
@@ -138,7 +147,7 @@ describe('FlowsListPage switches', () => {
         const api = installFakeApi();
         serveGuild(api, [ROPE, WAX]);
         api.on('GET', `${FLOWS_PATH}/${ROPE.flowId}/published`, () => ({
-            body: { buttonMessages: [], deletableResources: [], refusedResources: [], mayHaveUnrecordedButtons: false },
+            body: NOTHING_PUBLISHED,
         }));
         api.on('DELETE', `${FLOWS_PATH}/${ROPE.flowId}`, () => ({ status: 204 }));
         const waxPut = heldReply();

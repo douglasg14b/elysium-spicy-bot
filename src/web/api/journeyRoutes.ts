@@ -8,7 +8,7 @@ import {
 import { flowJourneyLinksRepo } from '../../features/provisioning/data/flowJourneyLinksRepo';
 import { DuplicateJourneyKeyError, journeysRepo } from '../../features/provisioning/data/journeysRepo';
 import { resourceBindingsRepo } from '../../features/provisioning/data/resourceBindingsRepo';
-import { planJourneyMerge } from '../../features/provisioning/logic/journeyMergePlan';
+import { mergeDeclarations, planJourneyMerge } from '../../features/provisioning/logic/journeyMergePlan';
 import { resolveFlowJourney } from '../../features/provisioning/logic/resolveFlowJourney';
 import {
     otherFlowsOnJourney,
@@ -23,6 +23,7 @@ import {
     unpublishJourney,
 } from '../../features/provisioning';
 import { toDeclarationFromRow } from '../../features/provisioning/data/journeysRepo';
+import { TICKET_TYPE_LABEL_MAX_LENGTH } from '../../features/tickets/data/ticketingSchema';
 import { guildSettingsRepo } from '../../features-system/guild-settings';
 import type { AppEnv } from '../types';
 import { driftBody, JourneyDriftSchema } from './driftBody';
@@ -52,7 +53,7 @@ import {
     JourneyUpdateSchema,
     OrphanPathSchema,
     RepairResultSchema,
-    rolesWithoutIdsRefusal,
+    declarationsRefusal,
     type AttachedFlowBody,
 } from './journeyBody';
 import {
@@ -82,10 +83,16 @@ import { publishedBody, PublishedFlowStateSchema } from './publishedBody';
  * and `driftBody.ts`.
  */
 
-/** The 400 of a route that takes resources: the schema, a `roles` rule naming no role, the repo's whole-list checks. */
+/**
+ * The 400 of a route that takes resources: the schema, a `roles` rule naming no role, a
+ * declared ticket type the ticket feature would refuse, the repo's whole-list checks.
+ */
 const RESOURCES_REFUSED = errorBodyResponse(
-    'The body was refused, a `roles` permission names no role, the declarations disagree with each other ' +
-        '(a duplicate key, a parent or role reference naming nothing), or the server id is missing.'
+    'The body was refused, a `roles` permission names no role, a declared ticket type breaks the ticket ' +
+        `feature's own rules (its label over ${TICKET_TYPE_LABEL_MAX_LENGTH} characters, or a template that ` +
+        'renders to nothing or too long for a channel name), the ' +
+        'declarations disagree with each other (a duplicate key, a parent or role reference naming nothing, ' +
+        'ticket settings on something that is not a ticket type), or the server id is missing.'
 );
 
 const listJourneysRoute = createRoute({
@@ -793,9 +800,9 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
         const { flowId } = c.req.valid('param');
         const { resources } = c.req.valid('json');
 
-        const rolesRefusal = rolesWithoutIdsRefusal(resources);
-        if (rolesRefusal) {
-            return c.json({ error: rolesRefusal }, 400);
+        const refusal = declarationsRefusal(resources);
+        if (refusal) {
+            return c.json({ error: refusal }, 400);
         }
 
         const flow = await flowsRepo.getByFlowId(flowId);
@@ -1101,6 +1108,8 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
             }
         }
 
+        // The moving journey's own rows — `listByJourney` names the journey owner kind, so
+        // the ticket feature's rows never ride along even for a journey keyed `tickets`.
         const bindings = moving
             ? await resourceBindingsRepo.listByJourney(guildId, moving.journey.journeyKey)
             : [];
@@ -1121,6 +1130,7 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
                 moving: plan.moving,
                 canMerge: plan.canMerge,
                 collisions: plan.collisions,
+                sharedTicketTypes: plan.sharedTicketTypes,
                 orphaned: plan.orphaned,
             },
             200
@@ -1233,10 +1243,12 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
                     );
                 }
 
+                // A ticket type both sides declare is one type: the destination's
+                // declaration is kept and the moving copy dropped (`mergeDeclarations`).
                 destinationJourney = await journeysRepo.update(
                     guildId,
                     destinationJourney.journeyKey,
-                    { resources: [...destinationJourney.resources, ...movingResources] }
+                    { resources: mergeDeclarations(destinationJourney.resources, movingResources) }
                 );
 
                 /*
@@ -1289,9 +1301,9 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
     router.openapi(createJourneyRoute, async (c) => {
         const body = c.req.valid('json');
 
-        const rolesRefusal = rolesWithoutIdsRefusal(body.resources);
-        if (rolesRefusal) {
-            return c.json({ error: rolesRefusal }, 400);
+        const listRefusal = declarationsRefusal(body.resources);
+        if (listRefusal) {
+            return c.json({ error: listRefusal }, 400);
         }
 
         try {
@@ -1317,9 +1329,9 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
         const { journeyKey } = c.req.valid('param');
         const body = c.req.valid('json');
 
-        const rolesRefusal = body.resources ? rolesWithoutIdsRefusal(body.resources) : undefined;
-        if (rolesRefusal) {
-            return c.json({ error: rolesRefusal }, 400);
+        const listRefusal = body.resources ? declarationsRefusal(body.resources) : undefined;
+        if (listRefusal) {
+            return c.json({ error: listRefusal }, 400);
         }
 
         const existing = await journeysRepo.getByKey(guildId, journeyKey);

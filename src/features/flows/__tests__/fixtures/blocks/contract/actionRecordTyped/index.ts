@@ -57,6 +57,7 @@ export const block: BlockManifest<RecordTypedConfig> = {
     ],
     requires: [],
     capabilities: [],
+    emits: [],
     canSuspend: false,
     run(config, context) {
         context.setOutput(config.outputKey, config.valueType === 'time' ? new Date().toISOString() : RECORDED_TEXT);

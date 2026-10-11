@@ -40,12 +40,31 @@ export { DEFAULT_TICKET_TYPES, PARTICIPANT_PERMISSIONS, STAFF_PERMISSIONS } from
  * type that is then removed. A row written by a process older than the seed migration
  * is the other route. Both are exactly why there is no fallback: the caller says which
  * type is missing and stops, rather than re-permissioning a real channel from a guess.
+ *
+ * **Own keys only.** `type` can come from a modal submit, and a plain index would hand
+ * back `Object.prototype.constructor` for `constructor` — truthy, so it would pass for a
+ * definition.
  */
 export function getTicketTypeDefinition(
     config: TicketingConfig,
     type: string
 ): TicketTypeDefinition | undefined {
-    return config.ticketTypes?.[type];
+    const ticketTypes = config.ticketTypes;
+    return ticketTypes && Object.hasOwn(ticketTypes, type) ? ticketTypes[type] : undefined;
+}
+
+/**
+ * The guild's declared types, in the one order every surface lists them: by label, then
+ * by key so two types sharing a label still land the same way every time.
+ *
+ * Not "config order", because there is none worth keeping: the column is `jsonb` on
+ * postgres, which stores keys in its own order, and replacing a type moves it in an
+ * insertion-ordered record.
+ */
+export function listTicketTypes(config: TicketingConfig): TicketTypeDefinition[] {
+    return Object.values(config.ticketTypes ?? {}).sort(
+        (left, right) => left.label.localeCompare(right.label) || left.type.localeCompare(right.type)
+    );
 }
 
 /**

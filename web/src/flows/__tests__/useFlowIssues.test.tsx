@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FlowGraph, FlowValidationIssue, NodeDescriptor } from '@brattybot/web-sdk';
 import { FLOW_GRAPH_VERSION } from '../contractValues';
 
@@ -17,7 +17,7 @@ vi.mock('@brattybot/web-sdk', async (importOriginal) => ({
         checkFlow(path.guildId, path.flowId, body.graph).then((issues) => ({ data: { issues } })),
 }));
 
-const { useFlowIssues } = await import('../useFlowIssues');
+const { STRUCTURAL_RECHECK_DELAY_MS, useFlowIssues } = await import('../useFlowIssues');
 
 /**
  * The ordering rules the e2e suite cannot reach: whose answer wins when a re-check and
@@ -179,5 +179,52 @@ describe('re-checking the canvas', () => {
         act(() => hook.result.current.recheck());
         await waitFor(() => expect(hook.result.current.issues).toEqual([]));
         expect(checkFlow).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe('re-checking after the graph changes shape', () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    /** The canvas with one more node wired in — a structural edit. */
+    function rewired(): FlowGraph {
+        const graph = graphSaying('Hi');
+        return {
+            ...graph,
+            nodes: [...graph.nodes, { id: 'third', type: 'action.sendDM', position: { x: 0, y: 200 }, data: {} }],
+            edges: [{ id: 'e1', source: 'dm', target: 'third' }],
+        };
+    }
+
+    it('asks once the edits stop, once for a burst of them, about the newest canvas', async () => {
+        vi.useFakeTimers();
+        checkFlow.mockResolvedValue([OTHER]);
+        const hook = renderIssues(graphSaying('Hi'));
+
+        act(() => hook.result.current.recheckAfterStructuralEdit());
+        act(() => vi.advanceTimersByTime(STRUCTURAL_RECHECK_DELAY_MS - 1));
+        hook.rerender({ graph: rewired() });
+        act(() => hook.result.current.recheckAfterStructuralEdit());
+        act(() => vi.advanceTimersByTime(STRUCTURAL_RECHECK_DELAY_MS - 1));
+
+        expect(checkFlow).not.toHaveBeenCalled();
+
+        await act(async () => vi.advanceTimersByTime(1));
+
+        expect(checkFlow).toHaveBeenCalledTimes(1);
+        expect(checkFlow).toHaveBeenCalledWith('guild', 'flow', rewired());
+        expect(hook.result.current.issues).toEqual([OTHER]);
+    });
+
+    it('asks nothing once unmounted', () => {
+        vi.useFakeTimers();
+        const hook = renderIssues(graphSaying('Hi'));
+
+        act(() => hook.result.current.recheckAfterStructuralEdit());
+        hook.unmount();
+        vi.advanceTimersByTime(STRUCTURAL_RECHECK_DELAY_MS);
+
+        expect(checkFlow).not.toHaveBeenCalled();
     });
 });

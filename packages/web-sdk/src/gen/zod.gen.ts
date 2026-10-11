@@ -36,6 +36,8 @@ export const zAuthUser = z.object({
     username: z.string()
 });
 
+export const zBindingOwnerKind = z.enum(['journey', 'tickets']);
+
 export const zBlockCardSummaryPart = z.union([
     z.object({
         emptyText: z.string().optional(),
@@ -45,7 +47,11 @@ export const zBlockCardSummaryPart = z.union([
         quote: z.boolean().optional(),
         stopIfEmpty: z.boolean().optional(),
         suffix: z.string().optional(),
-        truncate: z.number().optional()
+        truncate: z.number().optional(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
     }),
     z.object({
         text: z.string()
@@ -68,10 +74,15 @@ export const zBlockConfigColumn = z.object({
     rendersTokens: z.boolean().optional()
 });
 
-export const zBlockConfigOption = z.object({
-    label: z.string(),
-    value: z.string()
-});
+export const zBlockDayKey = z.enum([
+    'mon',
+    'tue',
+    'wed',
+    'thu',
+    'fri',
+    'sat',
+    'sun'
+]);
 
 export const zBlockHandleTone = z.enum([
     'neutral',
@@ -177,6 +188,15 @@ export const zDetachResult = z.object({
     detached: z.boolean()
 });
 
+/**
+ * The resource kinds that are objects in the Discord guild, each with a snowflake. A `ticketType` is not one: it lives in the ticket settings, named by its key.
+ */
+export const zDiscordResourceKind = z.enum([
+    'category',
+    'textChannel',
+    'role'
+]);
+
 export const zDriftDetail = z.object({
     explanation: z.string(),
     kind: z.enum([
@@ -196,7 +216,8 @@ export const zDriftedResource = z.object({
     kind: z.string(),
     name: z.string(),
     repairable: z.boolean(),
-    resourceKey: z.string()
+    resourceKey: z.string(),
+    withheldReason: z.string().nullable()
 });
 
 export const zEligibilityPermission = z.enum([
@@ -237,6 +258,171 @@ export const zEligibility = z.union([
     })
 ]);
 
+export const zErrorBody = z.object({
+    error: z.string()
+});
+
+export const zFlowAttach = z.object({
+    journeyKey: z.string().min(1, 'Give the resource a key.').max(64, 'Resource keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).')
+});
+
+export const zFlowAttachment = z.object({
+    journeyKey: z.string(),
+    name: z.string(),
+    resourceCount: z.number(),
+    sharedWith: z.array(zAttachedFlow)
+});
+
+/**
+ * What the Flow Builder may check about each block's config fields as an author types, keyed by block type, each rule carrying the server's own sentence. Not the config's type: every field is optional here, and a field the browser cannot check faithfully is unknown. The server checks the rest when the flow is saved or re-checked.
+ */
+export const zFlowBlockFieldRules = z.object({
+    'action.assignRole': z.object({
+        roleId: z.string().min(1, 'Fill this in.').optional()
+    }),
+    'action.awardXp': z.object({
+        amount: z.unknown().optional()
+    }),
+    'action.closeTicket': z.object({
+        ticketId: z.string().min(1, 'Fill this in.').optional()
+    }),
+    'action.delay': z.object({
+        durationMs: z.number().int('Whole numbers only.').gt(0, 'Must be more than 0.').lte(2592000000, 'No more than 2592000000.').optional(),
+        quietChannelId: z.unknown().optional(),
+        timeoutCountsFrom: z.unknown().optional()
+    }),
+    'action.kickMember': z.object({
+        reason: z.string().min(1, 'Can\'t be empty.').max(512, 'No more than 512 characters.').optional()
+    }),
+    'action.openTicket': z.object({
+        reason: z.string().max(1000, 'No more than 1000 characters.').optional(),
+        ticketType: z.string().min(1, 'Fill this in.').optional(),
+        title: z.string().min(1, 'Fill this in.').max(100, 'No more than 100 characters.').optional()
+    }),
+    'action.pickRandom': z.object({
+        options: z.array(z.unknown()).min(1, 'Add at least 1 entry.').max(50, 'No more than 50 entries.').optional(),
+        outputKey: z.string().min(1, 'Fill this in.').max(64, 'No more than 64 characters.').regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'A name must start with a letter and use only letters, numbers and underscores — that is what {{var.name}} can address.').optional()
+    }),
+    'action.postEmbed': z.object({
+        authorName: z.string().min(1, 'Can\'t be empty.').max(256, 'No more than 256 characters.').optional(),
+        channelId: z.string().min(1, 'Fill this in.').optional(),
+        color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Colour must be a hex value like #00A2FF').optional(),
+        description: z.string().min(1, 'Fill this in.').max(4096, 'No more than 4096 characters.').optional(),
+        fields: z.array(z.unknown()).max(25, 'No more than 25 entries.').optional(),
+        footerText: z.string().min(1, 'Can\'t be empty.').max(2048, 'No more than 2048 characters.').optional(),
+        imageUrl: z.unknown().optional(),
+        showTimestamp: z.unknown().optional(),
+        thumbnailUrl: z.unknown().optional(),
+        title: z.string().min(1, 'Fill this in.').max(256, 'No more than 256 characters.').optional(),
+        url: z.unknown().optional()
+    }),
+    'action.prompt': z.object({
+        choices: z.array(z.unknown()).min(1, 'Add at least 1 entry.').max(5, 'No more than 5 entries.').optional(),
+        eligibility: z.unknown().optional(),
+        question: z.string().min(1, 'Fill this in.').max(2000, 'No more than 2000 characters.').optional(),
+        quietChannelId: z.unknown().optional(),
+        timeoutCountsFrom: z.unknown().optional(),
+        timeoutMs: z.number().int('Whole numbers only.').gt(0, 'Must be more than 0.').lte(2592000000, 'No more than 2592000000.').optional()
+    }),
+    'action.removeRole': z.object({
+        roleId: z.string().min(1, 'Fill this in.').optional()
+    }),
+    'action.sendDM': z.object({
+        message: z.string().min(1, 'Fill this in.').max(2000, 'No more than 2000 characters.').optional()
+    }),
+    'action.sendMessage': z.object({
+        channelId: z.string().min(1, 'Fill this in.').optional(),
+        message: z.string().min(1, 'Fill this in.').max(2000, 'No more than 2000 characters.').optional()
+    }),
+    'action.setVariable': z.object({
+        booleanValue: z.unknown().optional(),
+        numberValue: z.unknown().optional(),
+        textValue: z.string().max(1000, 'No more than 1000 characters.').optional(),
+        valueType: z.unknown().optional(),
+        variableName: z.string().min(1, 'Fill this in.').max(64, 'No more than 64 characters.').regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'A name must start with a letter and use only letters, numbers and underscores — that is what {{var.name}} can address.').optional()
+    }),
+    'action.waitForEvent': z.object({
+        eventKind: z.unknown().optional(),
+        messageChannelId: z.unknown().optional(),
+        quietChannelId: z.unknown().optional(),
+        timeoutCountsFrom: z.unknown().optional(),
+        timeoutMs: z.number().int('Whole numbers only.').gt(0, 'Must be more than 0.').lte(2592000000, 'No more than 2592000000.').optional()
+    }),
+    'condition.compare': z.object({
+        operator: z.unknown().optional(),
+        value: z.string().max(1000, 'No more than 1000 characters.').optional(),
+        variableName: z.string().min(1, 'Fill this in.').max(64, 'No more than 64 characters.').regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'A name must start with a letter and use only letters, numbers and underscores — that is what {{var.name}} can address.').optional()
+    }),
+    'condition.hasOpenTicket': z.object({
+        ticketType: z.string().min(1, 'Fill this in.').optional()
+    }),
+    'condition.hasRole': z.object({
+        roleId: z.string().min(1, 'Fill this in.').optional()
+    }),
+    'condition.inChannel': z.object({
+        channelId: z.string().min(1, 'Fill this in.').optional()
+    }),
+    'condition.isBooster': z.record(z.string(), z.unknown()),
+    'condition.levelAtLeast': z.object({
+        level: z.unknown().optional()
+    }),
+    'condition.timeSince': z.object({
+        channelId: z.unknown().optional(),
+        comparison: z.unknown().optional(),
+        durationMs: z.number().int('Whole numbers only.').gt(0, 'Must be more than 0.').lte(31536000000, 'No more than 31536000000.').optional(),
+        source: z.unknown().optional(),
+        timeVariable: z.string().max(64, 'No more than 64 characters.').regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'A name must start with a letter and use only letters, numbers and underscores — that is what {{var.name}} can address.').optional()
+    }),
+    'trigger.buttonClick': z.object({
+        channelId: z.string().min(1, 'Fill this in.').optional(),
+        eligibility: z.unknown().optional(),
+        label: z.string().min(1, 'Fill this in.').max(80, 'No more than 80 characters.').optional(),
+        style: z.unknown().optional()
+    }),
+    'trigger.levelReached': z.object({
+        level: z.unknown().optional()
+    }),
+    'trigger.memberJoin': z.record(z.string(), z.unknown()),
+    'trigger.memberLeave': z.record(z.string(), z.unknown()),
+    'trigger.messageSent': z.object({
+        categoryId: z.string().min(1, 'Can\'t be empty.').optional(),
+        channelId: z.string().min(1, 'Can\'t be empty.').optional(),
+        contains: z.string().max(200, 'No more than 200 characters.').optional(),
+        where: z.unknown().optional()
+    }),
+    'trigger.reactionAdd': z.object({
+        channelId: z.string().min(1, 'Fill this in.').optional(),
+        emoji: z.string().min(1, 'Fill this in.').optional(),
+        messageId: z.string().min(1, 'Fill this in.').optional()
+    }),
+    'trigger.schedule': z.object({
+        days: z.array(z.unknown()).min(1, 'Add at least 1 entry.').optional(),
+        every: z.unknown().optional(),
+        repeat: z.unknown().optional(),
+        time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Pick a time — hour, minute, AM or PM.').optional()
+    }),
+    'trigger.ticketEvent': z.object({
+        event: z.unknown().optional(),
+        ticketType: z.string().min(1, 'Can\'t be empty.').optional()
+    })
+});
+
+export const zFlowContextRequirement = z.enum([
+    'subject',
+    'actor',
+    'channel',
+    'interaction'
+]);
+
+/**
+ * One choice of a `select` or `segmented` field. `requires` is the run context the choice needs beyond the block's own, while the field is shown and holds it.
+ */
+export const zBlockConfigOption = z.object({
+    label: z.string(),
+    requires: z.array(zFlowContextRequirement).optional(),
+    value: z.string()
+});
+
 /**
  * One editable config field, in the order the inspector renders it, discriminated on `control`.
  */
@@ -254,6 +440,29 @@ export const zBlockConfigField = z.union([
     }),
     z.object({
         control: z.enum(['channelPicker']),
+        defaultValue: z.string().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        optional: z.boolean().optional(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['categoryPicker']),
+        defaultValue: z.string().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['ticketTypePicker']),
         defaultValue: z.string().optional(),
         description: z.string().optional(),
         key: z.string(),
@@ -390,140 +599,35 @@ export const zBlockConfigField = z.union([
         description: z.string().optional(),
         key: z.string(),
         label: z.string(),
-        valueKind: zBlockOutputValueKind,
+        valueKind: zBlockOutputValueKind.optional(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['timeOfDay']),
+        defaultValue: z.string().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['daysOfWeek']),
+        defaultValue: z.array(zBlockDayKey).optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
         visibleWhen: z.object({
             equals: z.array(z.string()),
             field: z.string()
         }).optional()
     })
 ]);
-
-export const zErrorBody = z.object({
-    error: z.string()
-});
-
-export const zFlowAttach = z.object({
-    journeyKey: z.string().min(1, 'Give the resource a key.').max(64, 'Resource keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).')
-});
-
-export const zFlowAttachment = z.object({
-    journeyKey: z.string(),
-    name: z.string(),
-    resourceCount: z.number(),
-    sharedWith: z.array(zAttachedFlow)
-});
-
-/**
- * What the Flow Builder may check about each block's config fields as an author types, keyed by block type, each rule carrying the server's own sentence. Not the config's type: every field is optional here, and a field the browser cannot check faithfully is unknown. The server checks the rest when the flow is saved or re-checked.
- */
-export const zFlowBlockFieldRules = z.object({
-    'action.assignRole': z.object({
-        roleId: z.string().min(1, 'Fill this in.').optional()
-    }),
-    'action.awardXp': z.object({
-        amount: z.unknown().optional()
-    }),
-    'action.closeTicket': z.object({
-        ticketId: z.string().min(1, 'Fill this in.').optional()
-    }),
-    'action.delay': z.object({
-        durationMs: z.number().int('Whole numbers only.').gt(0, 'Must be more than 0.').lte(2592000000, 'No more than 2592000000.').optional(),
-        quietChannelId: z.unknown().optional(),
-        timeoutCountsFrom: z.unknown().optional()
-    }),
-    'action.kickMember': z.object({
-        reason: z.string().min(1, 'Can\'t be empty.').max(512, 'No more than 512 characters.').optional()
-    }),
-    'action.openTicket': z.object({
-        reason: z.string().max(1000, 'No more than 1000 characters.').optional(),
-        ticketType: z.string().min(1, 'Fill this in.').optional(),
-        title: z.string().min(1, 'Fill this in.').max(100, 'No more than 100 characters.').optional()
-    }),
-    'action.pickRandom': z.object({
-        options: z.array(z.unknown()).min(1, 'Add at least 1 entry.').max(50, 'No more than 50 entries.').optional(),
-        outputKey: z.string().min(1, 'Fill this in.').max(64, 'No more than 64 characters.').regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'A name must start with a letter and use only letters, numbers and underscores — that is what {{var.name}} can address.').optional()
-    }),
-    'action.postEmbed': z.object({
-        authorName: z.string().min(1, 'Can\'t be empty.').max(256, 'No more than 256 characters.').optional(),
-        channelId: z.string().min(1, 'Fill this in.').optional(),
-        color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Colour must be a hex value like #00A2FF').optional(),
-        description: z.string().min(1, 'Fill this in.').max(4096, 'No more than 4096 characters.').optional(),
-        fields: z.array(z.unknown()).max(25, 'No more than 25 entries.').optional(),
-        footerText: z.string().min(1, 'Can\'t be empty.').max(2048, 'No more than 2048 characters.').optional(),
-        imageUrl: z.unknown().optional(),
-        showTimestamp: z.unknown().optional(),
-        thumbnailUrl: z.unknown().optional(),
-        title: z.string().min(1, 'Fill this in.').max(256, 'No more than 256 characters.').optional(),
-        url: z.unknown().optional()
-    }),
-    'action.prompt': z.object({
-        choices: z.array(z.unknown()).min(1, 'Add at least 1 entry.').max(5, 'No more than 5 entries.').optional(),
-        eligibility: z.unknown().optional(),
-        question: z.string().min(1, 'Fill this in.').max(2000, 'No more than 2000 characters.').optional(),
-        quietChannelId: z.unknown().optional(),
-        timeoutCountsFrom: z.unknown().optional(),
-        timeoutMs: z.number().int('Whole numbers only.').gt(0, 'Must be more than 0.').lte(2592000000, 'No more than 2592000000.').optional()
-    }),
-    'action.removeRole': z.object({
-        roleId: z.string().min(1, 'Fill this in.').optional()
-    }),
-    'action.sendDM': z.object({
-        message: z.string().min(1, 'Fill this in.').max(2000, 'No more than 2000 characters.').optional()
-    }),
-    'action.sendMessage': z.object({
-        channelId: z.string().min(1, 'Fill this in.').optional(),
-        message: z.string().min(1, 'Fill this in.').max(2000, 'No more than 2000 characters.').optional()
-    }),
-    'action.setVariable': z.object({
-        booleanValue: z.unknown().optional(),
-        numberValue: z.unknown().optional(),
-        textValue: z.string().max(1000, 'No more than 1000 characters.').optional(),
-        valueType: z.unknown().optional(),
-        variableName: z.string().min(1, 'Fill this in.').max(64, 'No more than 64 characters.').regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'A name must start with a letter and use only letters, numbers and underscores — that is what {{var.name}} can address.').optional()
-    }),
-    'action.waitForEvent': z.object({
-        eventKind: z.unknown().optional(),
-        quietChannelId: z.unknown().optional(),
-        timeoutCountsFrom: z.unknown().optional(),
-        timeoutMs: z.number().int('Whole numbers only.').gt(0, 'Must be more than 0.').lte(2592000000, 'No more than 2592000000.').optional()
-    }),
-    'condition.hasOpenTicket': z.object({
-        ticketType: z.string().min(1, 'Fill this in.').optional()
-    }),
-    'condition.hasRole': z.object({
-        roleId: z.string().min(1, 'Fill this in.').optional()
-    }),
-    'condition.inChannel': z.object({
-        channelId: z.string().min(1, 'Fill this in.').optional()
-    }),
-    'condition.isBooster': z.record(z.string(), z.unknown()),
-    'condition.levelAtLeast': z.object({
-        level: z.unknown().optional()
-    }),
-    'condition.timeSince': z.object({
-        channelId: z.unknown().optional(),
-        comparison: z.unknown().optional(),
-        durationMs: z.number().int('Whole numbers only.').gt(0, 'Must be more than 0.').lte(31536000000, 'No more than 31536000000.').optional(),
-        source: z.unknown().optional(),
-        timeVariable: z.string().max(64, 'No more than 64 characters.').regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'A name must start with a letter and use only letters, numbers and underscores — that is what {{var.name}} can address.').optional()
-    }),
-    'trigger.buttonClick': z.object({
-        channelId: z.string().min(1, 'Fill this in.').optional(),
-        eligibility: z.unknown().optional(),
-        label: z.string().min(1, 'Fill this in.').max(80, 'No more than 80 characters.').optional(),
-        style: z.unknown().optional()
-    }),
-    'trigger.levelReached': z.object({
-        level: z.unknown().optional()
-    }),
-    'trigger.memberJoin': z.record(z.string(), z.unknown()),
-    'trigger.memberLeave': z.record(z.string(), z.unknown()),
-    'trigger.reactionAdd': z.object({
-        channelId: z.string().min(1, 'Fill this in.').optional(),
-        emoji: z.string().min(1, 'Fill this in.').optional(),
-        messageId: z.string().min(1, 'Fill this in.').optional()
-    })
-});
 
 /**
  * One operator's draft of a flow, without its graph. `mine` is the caller's own; `flowSavedSince` means the flow was saved after the draft was started.
@@ -569,6 +673,14 @@ export const zFlowJourneyMembership = z.object({
     memberCount: z.number(),
     name: z.string(),
     resourceCount: z.number()
+});
+
+/**
+ * When each of the flow's schedules next fires, keyed by node id (an ISO instant each). Only schedules with a next time are listed, so it is empty for a switched-off flow. `timeZone` is the zone the times were worked out in.
+ */
+export const zFlowNextRuns = z.object({
+    nextRuns: z.record(z.string(), z.string()),
+    timeZone: z.string()
 });
 
 export const zFlowNode = z.object({
@@ -714,9 +826,19 @@ export const zGuild = z.object({
     name: z.string()
 });
 
+/**
+ * Who already holds a channel, category or role: a journey (by key) or the ticket system. `label` names the owner for the operator.
+ */
+export const zGuildObjectOwner = z.object({
+    key: z.string(),
+    kind: zBindingOwnerKind,
+    label: z.string()
+});
+
 export const zGuildChannel = z.object({
     id: z.string(),
     name: z.string(),
+    owner: zGuildObjectOwner.nullable(),
     parentId: z.string().nullable(),
     parentName: z.string().nullable(),
     type: z.enum(['text', 'category'])
@@ -726,22 +848,29 @@ export const zGuildRole = z.object({
     color: z.number(),
     id: z.string(),
     name: z.string(),
+    owner: zGuildObjectOwner.nullable(),
     position: z.number()
 });
 
 /**
- * Staff roles, as saved. `staffRoles` names the ids that still resolve to a role and can be shorter than `staffRoleIds`, since a deleted role stays saved: render from `staffRoleIds`, label from `staffRoles`.
+ * Staff roles, as saved. `staffRoles` names the ids that still resolve to a role and can be shorter than `staffRoleIds`, since a deleted role stays saved: render from `staffRoleIds`, label from `staffRoles`. `timeZone` is the picked IANA zone, null until someone picks one; `defaultTimeZone` is the zone an unpicked server runs on.
  */
 export const zGuildSettings = z.object({
+    defaultTimeZone: z.string(),
     staffRoleIds: z.array(z.string()),
     staffRoles: z.array(z.object({
         id: z.string(),
         name: z.string()
-    }))
+    })),
+    timeZone: z.string().nullable()
 });
 
 export const zGuildSettingsUpdate = z.object({
     staffRoleIds: z.array(z.string().min(1))
+});
+
+export const zGuildTimeZoneUpdate = z.object({
+    timeZone: z.string().min(1, 'Pick a time zone. "Whenever" is not one.').max(64, 'That\'s not a time zone, that\'s an essay. Pick one from the list.')
 });
 
 /**
@@ -765,9 +894,11 @@ export const zInstallPlanItem = z.object({
     kind: z.enum([
         'category',
         'textChannel',
-        'role'
+        'role',
+        'ticketType'
     ]),
     name: z.string(),
+    note: z.string().optional(),
     reason: z.string().optional(),
     resourceKey: z.string()
 });
@@ -1004,18 +1135,16 @@ export const zNodeDescriptor = z.object({
     label: z.string(),
     note: z.string().optional(),
     outputs: z.array(zBlockOutputDeclaration),
-    requires: z.array(z.enum([
-        'subject',
-        'actor',
-        'channel',
-        'interaction'
-    ])),
+    requires: z.array(zFlowContextRequirement),
     startedBy: z.enum([
         'buttonClick',
         'levelUp',
         'memberJoin',
         'memberLeave',
-        'reactionAdd'
+        'messageSent',
+        'reactionAdd',
+        'scheduleDue',
+        'ticketChanged'
     ]).optional(),
     type: z.string()
 });
@@ -1076,11 +1205,12 @@ export const zPublishedResource = z.object({
 });
 
 /**
- * What a flow or a journey has live in the guild. An empty `buttonMessages` does not mean nothing is posted while `mayHaveUnrecordedButtons` is true: buttons posted before they were recorded cannot be found.
+ * What a flow or a journey has live in the guild. An empty `buttonMessages` does not mean nothing is posted while `mayHaveUnrecordedButtons` is true: buttons posted before they were recorded cannot be found. `keptSettings` are settings (ticket types) that uninstalling forgets and leaves standing.
  */
 export const zPublishedFlowState = z.object({
     buttonMessages: z.array(zPublishedButtonMessage),
     deletableResources: z.array(zPublishedResource),
+    keptSettings: z.array(zPublishedResource),
     mayHaveUnrecordedButtons: z.boolean(),
     refusedResources: z.array(zPublishedResource)
 });
@@ -1088,7 +1218,8 @@ export const zPublishedFlowState = z.object({
 export const zResourceKind = z.enum([
     'category',
     'textChannel',
-    'role'
+    'role',
+    'ticketType'
 ]);
 
 export const zMovingResource = z.object({
@@ -1099,22 +1230,6 @@ export const zMovingResource = z.object({
         discordId: z.string(),
         name: z.string()
     }).nullable()
-});
-
-/**
- * What grouping would do. `destination` is null when the target flow is on no journey yet, so one would be created. `orphaned` are the live resources "leave" would strand.
- */
-export const zGroupPreview = z.object({
-    canMerge: z.boolean(),
-    collisions: z.array(zKeyCollision),
-    destination: z.object({
-        journeyKey: z.string(),
-        name: z.string()
-    }).nullable(),
-    destinationName: z.string(),
-    moving: z.array(zMovingResource),
-    movingFlowName: z.string(),
-    orphaned: z.array(zMovingResource)
 });
 
 export const zRepairedResource = z.object({
@@ -1140,45 +1255,36 @@ export const zRepairResult = z.object({
 });
 
 /**
- * A resource a journey needs, named by a key stable across servers. `defaultName` is stored as Discord will hold it: a text channel lowercased, whitespace hyphenated. `adoptDiscordId` adopts something that already exists instead of creating it.
+ * The config-field controls that write a `<field>Key` resource sidecar. An empty field of one of these beside a sidecar waits on install; whether that is fine is the server’s call.
  */
-export const zResourceDeclaration = z.object({
-    adoptDiscordId: z.string().regex(/^\d{17,20}$/, 'A channel or role id is 17 to 20 digits.').optional(),
-    defaultName: z.string().min(1, 'Give the resource a name.').max(100, 'Resource names cap at 100 characters.'),
-    description: z.string().max(500, 'Descriptions cap at 500 characters.').optional(),
-    key: z.string().min(1, 'Give the resource a key.').max(64, 'Resource keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).'),
-    kind: zResourceKind,
-    parentKey: z.string().min(1, 'Give the resource a key.').max(64, 'Resource keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).').optional(),
-    permissions: z.array(zPermissionIntent).optional()
-});
+export const zResourcePickerControl = z.enum([
+    'rolePicker',
+    'channelPicker',
+    'categoryPicker',
+    'ticketTypePicker'
+]);
 
-export const zFlowResourcesSave = z.object({
-    resources: z.array(zResourceDeclaration)
-});
-
-export const zJourney = z.object({
-    createdAt: z.string(),
-    description: z.string().nullable(),
-    journeyKey: z.string(),
-    name: z.string(),
-    resources: z.array(zResourceDeclaration),
-    updatedAt: z.string()
-});
-
-export const zJourneyCreate = z.object({
-    description: z.string().max(500, 'Descriptions cap at 500 characters.').optional(),
-    journeyKey: z.string().min(1, 'Give the resource a key.').max(64, 'Resource keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).'),
-    name: z.string().min(1, 'Give the journey a name.').max(100, 'Journey names cap at 100 characters.'),
-    resources: z.array(zResourceDeclaration)
+export const zSharedTicketType = z.object({
+    destinationName: z.string(),
+    key: z.string(),
+    movingName: z.string()
 });
 
 /**
- * A partial update: send only what changed. `description: null` clears it. `resources` replaces the whole list.
+ * What grouping would do. `destination` is null when the target flow is on no journey yet, so one would be created. `orphaned` are the live resources "leave" would strand. `sharedTicketTypes` are ticket types both sides declare, which a merge folds into the destination's.
  */
-export const zJourneyUpdate = z.object({
-    description: z.string().max(500, 'Descriptions cap at 500 characters.').nullish(),
-    name: z.string().min(1, 'Give the journey a name.').max(100, 'Journey names cap at 100 characters.').optional(),
-    resources: z.array(zResourceDeclaration).optional()
+export const zGroupPreview = z.object({
+    canMerge: z.boolean(),
+    collisions: z.array(zKeyCollision),
+    destination: z.object({
+        journeyKey: z.string(),
+        name: z.string()
+    }).nullable(),
+    destinationName: z.string(),
+    moving: z.array(zMovingResource),
+    movingFlowName: z.string(),
+    orphaned: z.array(zMovingResource),
+    sharedTicketTypes: z.array(zSharedTicketType)
 });
 
 /**
@@ -1310,11 +1416,63 @@ export const zTicketList = z.object({
 });
 
 /**
+ * A ticket type's settings without its key and label: the channel-name template, who may do what in a ticket channel, and whether the opener claims it on open.
+ */
+export const zTicketTypeSettings = z.object({
+    autoClaimOnOpen: z.boolean(),
+    nameTemplate: z.string().min(1, 'A channel-name template cannot be empty. Discord insists on calling channels something.').regex(/^(?:[^{}]|\{\{(?:####|subject|opener)\}\})*$/, 'Only `{{####}}`, `{{subject}}` and `{{opener}}` render here, each with exactly two braces either side — nothing else, and no, wishing does not count.'),
+    permissions: zTicketPermissionModel
+});
+
+/**
+ * A resource a journey needs, named by a key stable across servers. `defaultName` is stored as Discord will hold it: a text channel lowercased, whitespace hyphenated; for a `ticketType` it is the type's label, trimmed. `adoptDiscordId` adopts something that already exists instead of creating it. `ticketType` holds a ticket type's settings, and only a `ticketType` resource carries it.
+ */
+export const zResourceDeclaration = z.object({
+    adoptDiscordId: z.string().regex(/^\d{17,20}$/, 'A channel or role id is 17 to 20 digits.').optional(),
+    defaultName: z.string().min(1, 'Give the resource a name.').max(100, 'Resource names cap at 100 characters.'),
+    description: z.string().max(500, 'Descriptions cap at 500 characters.').optional(),
+    key: z.string().min(1, 'Give the resource a key.').max(64, 'Resource keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).'),
+    kind: zResourceKind,
+    parentKey: z.string().min(1, 'Give the resource a key.').max(64, 'Resource keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).').optional(),
+    permissions: z.array(zPermissionIntent).optional(),
+    ticketType: zTicketTypeSettings.optional()
+});
+
+export const zFlowResourcesSave = z.object({
+    resources: z.array(zResourceDeclaration)
+});
+
+export const zJourney = z.object({
+    createdAt: z.string(),
+    description: z.string().nullable(),
+    journeyKey: z.string(),
+    name: z.string(),
+    resources: z.array(zResourceDeclaration),
+    updatedAt: z.string()
+});
+
+export const zJourneyCreate = z.object({
+    description: z.string().max(500, 'Descriptions cap at 500 characters.').optional(),
+    journeyKey: z.string().min(1, 'Give the resource a key.').max(64, 'Resource keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).'),
+    name: z.string().min(1, 'Give the journey a name.').max(100, 'Journey names cap at 100 characters.'),
+    resources: z.array(zResourceDeclaration)
+});
+
+/**
+ * A partial update: send only what changed. `description: null` clears it. `resources` replaces the whole list.
+ */
+export const zJourneyUpdate = z.object({
+    description: z.string().max(500, 'Descriptions cap at 500 characters.').nullish(),
+    name: z.string().min(1, 'Give the journey a name.').max(100, 'Journey names cap at 100 characters.').optional(),
+    resources: z.array(zResourceDeclaration).optional()
+});
+
+/**
  * A ticket type, without its key: that is the path.
  */
 export const zTicketTypeUpdate = z.object({
     autoClaimOnOpen: z.boolean(),
-    label: z.string().min(1, 'Give the type a label — operators have to pick it out of a list.'),
+    label: z.string().min(1, 'Give the type a label — operators have to pick it out of a list.').max(45, 'A label caps out at 45 characters — the mod ticket picker in Discord will not show more. Keep it snappy.'),
     nameTemplate: z.string().min(1, 'A channel-name template cannot be empty. Discord insists on calling channels something.').regex(/^(?:[^{}]|\{\{(?:####|subject|opener)\}\})*$/, 'Only `{{####}}`, `{{subject}}` and `{{opener}}` render here, each with exactly two braces either side — nothing else, and no, wishing does not count.'),
     permissions: zTicketPermissionModel
 });
@@ -1419,7 +1577,8 @@ export const zUnpublishedResource = z.object({
     kind: z.enum([
         'category',
         'textChannel',
-        'role'
+        'role',
+        'ticketType'
     ]),
     name: z.string(),
     outcome: z.enum([
@@ -1476,7 +1635,7 @@ export const zGetGuildChannelsPath = z.object({
 });
 
 /**
- * The channel directory.
+ * The channel directory, each with the owner already holding it, if any.
  */
 export const zGetGuildChannelsResponse = z.object({
     channels: z.array(zGuildChannel)
@@ -1737,6 +1896,16 @@ export const zGetInstallPlanPath = z.object({
  */
 export const zGetInstallPlanResponse = zInstallPlan;
 
+export const zGetFlowNextRunsPath = z.object({
+    guildId: z.string(),
+    flowId: z.string()
+});
+
+/**
+ * The next time of each schedule that has one, by node id. Empty while the flow is switched off.
+ */
+export const zGetFlowNextRunsResponse = zFlowNextRuns;
+
 export const zGetPublishedStatePath = z.object({
     guildId: z.string(),
     flowId: z.string()
@@ -1947,7 +2116,7 @@ export const zGetGuildRolesPath = z.object({
 });
 
 /**
- * Assignable roles, highest first.
+ * Assignable roles, highest first, each with the owner already holding it, if any.
  */
 export const zGetGuildRolesResponse = z.object({
     roles: z.array(zGuildRole)
@@ -1972,6 +2141,17 @@ export const zUpdateGuildSettingsPath = z.object({
  * The guild settings as saved.
  */
 export const zUpdateGuildSettingsResponse = zGuildSettings;
+
+export const zUpdateGuildTimeZoneBody = zGuildTimeZoneUpdate;
+
+export const zUpdateGuildTimeZonePath = z.object({
+    guildId: z.string()
+});
+
+/**
+ * The guild settings as saved.
+ */
+export const zUpdateGuildTimeZoneResponse = zGuildSettings;
 
 export const zListTicketsPath = z.object({
     guildId: z.string()

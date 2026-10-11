@@ -4,6 +4,7 @@ import { ticketingRepo } from '../../features/tickets/data/ticketingRepo';
 import { TICKET_LIST_CAP, ticketsRepo } from '../../features/tickets/data/ticketsRepo';
 import {
     isTicketingConfigConfigured,
+    TICKET_TYPE_KEY_MAX_LENGTH,
     type TicketingConfig,
     type TicketTypeDefinition,
 } from '../../features/tickets/data/ticketingSchema';
@@ -13,18 +14,9 @@ import {
     type TicketTransition,
 } from '../../features/tickets/logic/applyTicketTransition';
 import { getTicketTypeDefinition } from '../../features/tickets/logic/ticketTypes';
-import {
-    deleteTicketType,
-    upsertTicketType,
-    type SetTicketTypeRefusal,
-} from '../../features/tickets/logic/setTicketTypes';
+import { deleteTicketType, upsertTicketType, type SetTicketTypeRefusal } from '../../features/tickets/logic/setTicketTypes';
 import { setTicketSettings, type SetTicketSettingsRefusal } from '../../features/tickets/logic/setTicketSettings';
-import {
-    TICKET_TYPE_KEY_MAX_LENGTH,
-    TicketNameTemplateSchema,
-    TicketTypeKeySchema,
-    TicketTypeLabelSchema,
-} from '../../features/tickets/logic/ticketTypeRules';
+import { TicketTypeKeySchema, TicketTypeLabelSchema } from '../../features/tickets/logic/ticketTypeRules';
 import { updateDeployedTicketMessage } from '../../features/tickets/utils/updateDeployedMessage';
 import type { AppEnv } from '../types';
 import {
@@ -44,8 +36,8 @@ import {
     TicketingConfigViewSchema,
     ticketingConfigView,
     TicketListSchema,
-    TicketPermissionModelSchema,
     ticketSummary,
+    TicketTypeSettingsSchema,
 } from './ticketBody';
 
 /**
@@ -170,9 +162,7 @@ const TicketsConfigUpdateSchema = z
 const TicketTypeUpdateSchema = z
     .object({
         label: TicketTypeLabelSchema,
-        nameTemplate: TicketNameTemplateSchema,
-        permissions: TicketPermissionModelSchema,
-        autoClaimOnOpen: z.boolean(),
+        ...TicketTypeSettingsSchema.shape,
     })
     .openapi('TicketTypeUpdate', {
         description: 'A ticket type, without its key: that is the path.',
@@ -226,6 +216,7 @@ const REFUSAL_STATUS: Readonly<Record<SetTicketTypeRefusal, 400 | 404 | 409 | 50
     'no-config': 409,
     'undeclared-type': 404,
     'type-in-use': 409,
+    'held-by-journey': 409,
     'invalid-input': 400,
     'write-failed': 503,
 };
@@ -236,12 +227,15 @@ const REFUSAL_STATUS: Readonly<Record<SetTicketTypeRefusal, 400 | 404 | 409 | 50
  * `busy` is a 423, as a busy journey install is: the page must not reload settings the
  * other save is still changing. `create-failed` is a 502 because Discord refused, not the
  * operator — and the body says what *was* saved, since the rest of the save went through.
+ * `taken-meanwhile` is a 409: a journey claimed a picked category while the save ran, so
+ * the guild's state, not the request, declined that one slot; the rest was saved.
  */
 const SETTINGS_REFUSAL_STATUS: Readonly<Record<SetTicketSettingsRefusal, 400 | 409 | 423 | 502 | 503>> = {
     'no-config': 409,
     'invalid-input': 400,
     busy: 423,
     'create-failed': 502,
+    'taken-meanwhile': 409,
     'write-failed': 503,
 };
 
@@ -335,7 +329,11 @@ const updateTicketsConfigRoute = createRoute({
             'The body was refused, a moderation role is not in this server, a picked category is gone or the bot ' +
                 'cannot work in it, or the server id is missing.'
         ),
-        409: errorBodyResponse('The server has no ticket config yet: tickets have to be deployed in Discord first.'),
+        409: errorBodyResponse(
+            'The server has no ticket config yet: tickets have to be deployed in Discord first. Or a journey ' +
+                'claimed a picked category while the save ran: that slot was declined, everything else was saved, ' +
+                'so re-read the settings.'
+        ),
         423: errorBodyResponse('Another save of these settings is still running, so nothing was changed.'),
         502: errorBodyResponse('Discord refused to create a category. Everything else was saved, so re-read the settings.'),
         503: errorBodyResponse(
@@ -368,15 +366,16 @@ const deleteTicketTypeRoute = createRoute({
     path: '/{guildId}/config/tickets/types/{type}',
     operationId: 'deleteTicketType',
     tags: ['tickets'],
-    summary: 'Remove a ticket type no ticket holds',
+    summary: 'Remove a ticket type no ticket holds and no journey installed',
     request: { params: TicketTypeDeletePathSchema },
     responses: {
         204: { description: 'Deleted.' },
         ...GUILD_SCOPED_ERRORS,
         404: errorBodyResponse('The bot is not in this server, or the server declares no ticket type by that key.'),
         409: errorBodyResponse(
-            'The server has no ticket config yet, or tickets still hold the type — deleted ones included. The ' +
-                'sentence names how many, and some of their numbers.'
+            'The server has no ticket config yet; tickets still hold the type — deleted ones included, and the ' +
+                'sentence names how many and some of their numbers; or a journey installed the type, and the ' +
+                'sentence names it: uninstalling the journey lets go of it.'
         ),
         503: errorBodyResponse('The type could not be deleted. Nothing changed.'),
     },
@@ -511,6 +510,9 @@ export function ticketRoutes(): OpenAPIHono<AppEnv> {
                         // a path built to avoid them. Null is honest: "not recorded".
                         identity: transition === 'claim' ? { username: user.username, nickname: null } : null,
                     },
+                    // The session's id is the operator's Discord id (it comes from the OAuth
+                    // login), so a flow started by this change knows who made it.
+                    change: { actorId: user.id, chainDepth: 0 },
                 });
 
                 // The service's own refusal, forwarded with its own words. 409 because the
@@ -571,8 +573,9 @@ export function ticketRoutes(): OpenAPIHono<AppEnv> {
                 moderationRoles: body.moderationRoles,
             });
 
-            // A failed create still saved what it made, so the panel is redrawn for that too.
-            if (result.ok || result.reason === 'create-failed') {
+            // A refusal that still saved the rest (a failed create, a slot taken meanwhile) is
+            // redrawn for too.
+            if (result.ok || 'config' in result) {
                 await updateDeployedTicketMessage(guild).catch((error: unknown) => {
                     console.error('[tickets] Settings saved, but the deployed panel could not be refreshed:', error);
                 });

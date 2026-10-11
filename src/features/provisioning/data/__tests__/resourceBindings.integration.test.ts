@@ -1,7 +1,9 @@
 import SqliteDatabase from 'better-sqlite3';
 import { CamelCasePlugin, Kysely, SqliteDialect, sql } from 'kysely';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { up as createTicketingConfig } from '../../../../features-system/data-persistence/migrations/2025-11-10-Create_Ticketing_Config';
 import { up as createResourceBindings } from '../../../../features-system/data-persistence/migrations/2026-09-18-Create_Resource_Bindings';
+import { up as ownerKeyResourceBindings } from '../../../../features-system/data-persistence/migrations/2026-10-10-Owner_Keyed_Resource_Bindings';
 
 /**
  * The binding table's guards, against real SQL.
@@ -11,16 +13,17 @@ import { up as createResourceBindings } from '../../../../features-system/data-p
  * an UPDATE actually sets or whether a unique index actually rejects a row, which is
  * the only question that matters here.
  *
- * Runs the migration's own sqlite arm rather than a hand-written schema, so the table
- * under test is the table that ships. A local `CREATE TABLE` would happily pass while
- * the real migration was wrong.
+ * Runs the migrations' own sqlite arms rather than a hand-written schema, so the table
+ * under test is the table that ships — owner-keyed since 2026-10-10. A local
+ * `CREATE TABLE` would happily pass while the real migration was wrong.
  */
 
 interface TestDatabase {
     resource_bindings: {
         id: number;
         guildId: string;
-        journeyKey: string;
+        ownerKind: string;
+        ownerKey: string;
         resourceKey: string;
         kind: string;
         state: string;
@@ -51,6 +54,10 @@ beforeAll(async () => {
     // against `Database`.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await createResourceBindings(db as unknown as Kysely<any>);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await createTicketingConfig(db as unknown as Kysely<any>);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await ownerKeyResourceBindings(db as unknown as Kysely<any>);
 });
 
 afterAll(async () => {
@@ -67,7 +74,8 @@ async function insertIntent(resourceKey: string, overrides: Record<string, unkno
         .insertInto('resource_bindings')
         .values({
             guildId: GUILD,
-            journeyKey: JOURNEY,
+            ownerKind: 'journey',
+            ownerKey: JOURNEY,
             resourceKey,
             kind: 'textChannel',
             state: 'intended',
@@ -95,7 +103,7 @@ describe('the resource_bindings table', () => {
         expect(binding.state).toBe('intended');
     });
 
-    it('rejects a second binding for the same key triple', async () => {
+    it('rejects a second binding for the same owner and resource key', async () => {
         await insertIntent('welcome-channel');
 
         await expect(insertIntent('welcome-channel')).rejects.toThrow(/unique/i);
@@ -104,7 +112,17 @@ describe('the resource_bindings table', () => {
     it('allows the same resource key under a different journey', async () => {
         // Two journeys may each declare `welcome-channel` and mean different things.
         await insertIntent('welcome-channel');
-        await insertIntent('welcome-channel', { journeyKey: 'verification' });
+        await insertIntent('welcome-channel', { ownerKey: 'verification' });
+
+        const rows = await db.selectFrom('resource_bindings').selectAll().execute();
+        expect(rows).toHaveLength(2);
+    });
+
+    it('keeps a journey keyed `tickets` apart from the ticket feature', async () => {
+        // A journey's key is the operator's choice, so `tickets` is legal — and its `open`
+        // must not collide with the ticket feature's `open` slot.
+        await insertIntent('open', { ownerKey: 'tickets' });
+        await insertIntent('open', { ownerKind: 'tickets', ownerKey: 'tickets', kind: 'category' });
 
         const rows = await db.selectFrom('resource_bindings').selectAll().execute();
         expect(rows).toHaveLength(2);
@@ -117,7 +135,8 @@ describe('the resource_bindings table', () => {
             .insertInto('resource_bindings')
             .values({
                 guildId: GUILD,
-                journeyKey: JOURNEY,
+                ownerKind: 'journey',
+                ownerKey: JOURNEY,
                 resourceKey: 'defaults',
                 kind: 'role',
                 state: 'intended',
@@ -223,11 +242,11 @@ describe('the intent guards, as real UPDATE statements', () => {
     });
 
     /**
-     * `discord_id` carries no unique index — deliberately, because the schema
-     * anticipates one channel being bound by more than one journey. So a rename repair
-     * keyed on the snowflake alone would rewrite every row pointing at that object, in
-     * every guild, and the returned row count could not tell a correctly-scoped write
-     * from an over-broad one.
+     * `discord_id` carries no unique index — deliberately, because one owner's two
+     * ticket slots may share a category, and data from before one owner per object may
+     * hold one channel under two owners. So a rename repair keyed on the snowflake alone
+     * would rewrite every row pointing at that object, in every guild, and the returned
+     * row count could not tell a correctly-scoped write from an over-broad one.
      *
      * Exercised against real SQL rather than a fake repo, because the defect lives
      * entirely in the WHERE clause.
@@ -239,7 +258,7 @@ describe('the intent guards, as real UPDATE statements', () => {
             name: 'welcome',
         });
         const theirs = await insertIntent('their-welcome', {
-            journeyKey: 'other-journey',
+            ownerKey: 'other-journey',
             state: 'created',
             discordId: 'chan-shared',
             name: 'their-name',
@@ -273,7 +292,8 @@ describe('the intent guards, as real UPDATE statements', () => {
         const now = new Date().toISOString();
         const values = {
             guildId: GUILD,
-            journeyKey: JOURNEY,
+            ownerKind: 'journey',
+            ownerKey: JOURNEY,
             resourceKey: 'welcome-channel',
             kind: 'textChannel',
             state: 'intended',
@@ -288,7 +308,7 @@ describe('the intent guards, as real UPDATE statements', () => {
                 .insertInto('resource_bindings')
                 .values(values as never)
                 .onConflict((oc) =>
-                    oc.columns(['guildId', 'journeyKey', 'resourceKey']).doNothing()
+                    oc.columns(['guildId', 'ownerKind', 'ownerKey', 'resourceKey']).doNothing()
                 )
                 .execute();
         }
@@ -302,7 +322,7 @@ describe('the intent guards, as real UPDATE statements', () => {
 
         const plan = await sql<{
             detail: string;
-        }>`EXPLAIN QUERY PLAN SELECT * FROM resource_bindings WHERE guild_id = ${GUILD} AND journey_key = ${JOURNEY} AND resource_key = 'welcome-channel'`.execute(
+        }>`EXPLAIN QUERY PLAN SELECT * FROM resource_bindings WHERE guild_id = ${GUILD} AND owner_kind = 'journey' AND owner_key = ${JOURNEY} AND resource_key = 'welcome-channel'`.execute(
             db
         );
 

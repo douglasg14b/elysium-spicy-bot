@@ -1,6 +1,6 @@
 import { ChannelType } from 'discord.js';
 import { Hono } from 'hono';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppEnv } from '../../types';
 
 /**
@@ -30,7 +30,20 @@ vi.mock('../../../features/warnings/logic/setWarningsModChannel', () => ({
     setWarningsModChannel: vi.fn(),
 }));
 
+// Who holds what: the guild's bindings and its journeys' names, the directory's two reads.
+const resourceBindingsRepoMock = { listByGuild: vi.fn() };
+const journeysRepoMock = { listNamesByGuildId: vi.fn() };
+vi.mock('../../../features/provisioning/data/resourceBindingsRepo', () => ({
+    resourceBindingsRepo: resourceBindingsRepoMock,
+}));
+vi.mock('../../../features/provisioning/data/journeysRepo', () => ({ journeysRepo: journeysRepoMock }));
+
 const { guildRoutes } = await import('../guildRoutes');
+
+beforeEach(() => {
+    resourceBindingsRepoMock.listByGuild.mockResolvedValue([]);
+    journeysRepoMock.listNamesByGuildId.mockResolvedValue([]);
+});
 
 const GUILD_ID = 'guild-1';
 const SUPPORT_CATEGORY = '200000000000000001';
@@ -63,14 +76,22 @@ function channels(): ChannelStub[] {
     ];
 }
 
-function app(stubs: readonly ChannelStub[] = channels()) {
+interface RoleStub {
+    readonly id: string;
+    readonly name: string;
+    readonly color: number;
+    readonly position: number;
+    readonly managed: boolean;
+}
+
+function app(stubs: readonly ChannelStub[] = channels(), roles: readonly RoleStub[] = []) {
     const outer = new Hono<AppEnv>();
     outer.use('*', async (c, next) => {
         c.set(
             'guild',
             {
                 id: GUILD_ID,
-                roles: { cache: new Map() },
+                roles: { cache: new Map(roles.map((role) => [role.id, role])) },
                 channels: { cache: new Map(stubs.map((stub) => [stub.id, stub])) },
             } as never
         );
@@ -86,6 +107,7 @@ interface ChannelRow {
     readonly type: string;
     readonly parentId: string | null;
     readonly parentName: string | null;
+    readonly owner: { readonly kind: string; readonly key: string; readonly label: string } | null;
 }
 
 async function listChannels(stubs?: readonly ChannelStub[]): Promise<ChannelRow[]> {
@@ -190,5 +212,63 @@ describe('GET /:guildId/channels', () => {
 
     it('answers an empty guild with an empty list', async () => {
         expect(await listChannels([])).toEqual([]);
+    });
+});
+
+describe('GET /:guildId/channels — who holds each channel', () => {
+    function bindingRow(overrides: Record<string, unknown>) {
+        return {
+            id: 1,
+            guildId: GUILD_ID,
+            ownerKind: 'journey',
+            ownerKey: 'onboarding',
+            resourceKey: 'welcome',
+            kind: 'textChannel',
+            state: 'created',
+            discordId: '3',
+            name: 'rules',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            ...overrides,
+        };
+    }
+
+    it('names the ticket system on a category it holds, and a journey by its display name', async () => {
+        resourceBindingsRepoMock.listByGuild.mockResolvedValue([
+            bindingRow({ ownerKind: 'tickets', ownerKey: 'tickets', resourceKey: 'open', kind: 'category', discordId: SUPPORT_CATEGORY }),
+            bindingRow({ discordId: '3' }),
+        ]);
+        journeysRepoMock.listNamesByGuildId.mockResolvedValue([{ journeyKey: 'onboarding', name: 'Onboarding' }]);
+
+        const rows = await listChannels();
+
+        expect(byId(rows, SUPPORT_CATEGORY).owner).toEqual({ kind: 'tickets', key: 'tickets', label: 'the ticket system' });
+        expect(byId(rows, '3').owner).toEqual({ kind: 'journey', key: 'onboarding', label: 'journey "Onboarding"' });
+        expect(byId(rows, LOUNGE_CATEGORY).owner).toBeNull();
+    });
+
+    it('names who holds a role too, so the role picker can agree with install', async () => {
+        resourceBindingsRepoMock.listByGuild.mockResolvedValue([
+            bindingRow({ ownerKey: 'appeals', resourceKey: 'approver', kind: 'role', discordId: 'role-held' }),
+        ]);
+        journeysRepoMock.listNamesByGuildId.mockResolvedValue([{ journeyKey: 'appeals', name: 'Appeals' }]);
+
+        const response = await app([], [
+            { id: 'role-held', name: 'Approver', color: 0, position: 2, managed: false },
+            { id: 'role-free', name: 'Member', color: 0, position: 1, managed: false },
+        ]).request(`/${GUILD_ID}/roles`);
+        const { roles } = (await response.json()) as { roles: { id: string; owner: unknown }[] };
+
+        expect(roles).toEqual([
+            expect.objectContaining({ id: 'role-held', owner: { kind: 'journey', key: 'appeals', label: 'journey "Appeals"' } }),
+            expect.objectContaining({ id: 'role-free', owner: null }),
+        ]);
+    });
+
+    it('reports no owner for an object only an intent names', async () => {
+        // An `intended` row has no id; it holds nothing yet.
+        resourceBindingsRepoMock.listByGuild.mockResolvedValue([bindingRow({ state: 'intended', discordId: null })]);
+
+        expect(byId(await listChannels(), '3').owner).toBeNull();
     });
 });

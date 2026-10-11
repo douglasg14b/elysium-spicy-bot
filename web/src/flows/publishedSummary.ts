@@ -62,7 +62,7 @@ export interface PublishedResourceLine {
  * down a column and tally themselves.
  */
 export interface PublishedGroup {
-    readonly id: 'created' | 'blocked' | 'adopted' | 'messages';
+    readonly id: 'created' | 'blocked' | 'adopted' | 'settings' | 'messages';
     readonly title: string;
     /** The aside beside the title — what this group means for the teardown. */
     readonly caption: string;
@@ -269,6 +269,20 @@ export function summarisePublished(
             destructive: false,
             lines: adopted.map((resource) => toLine(resource, 'kept')),
         },
+        /*
+         * Ticket types the journey installed. Uninstalling never removes a setting
+         * (Douglas, 2026-10-10) — only the record goes — so these are listed as kept, with
+         * the server's sentence, rather than left off. Left off, a journey holding nothing
+         * else read as "nothing live" and offered no uninstall at all, which is the one
+         * step that lets the dashboard delete the type afterwards.
+         */
+        {
+            id: 'settings',
+            title: scope === 'journey' ? 'Settings these flows installed' : 'Settings this flow installed',
+            caption: 'uninstalling keeps these',
+            destructive: false,
+            lines: state.keptSettings.map((resource) => toLine(resource, 'kept')),
+        },
         {
             id: 'messages',
             title: 'Posted messages',
@@ -286,17 +300,24 @@ export function summarisePublished(
 
     const deletableCount = deletable.length;
     const countedThings = plural(deletableCount, 'resource', 'resources');
+    const keptSettingsCount = state.keptSettings.length;
 
     return {
         hasAnything: groups.length > 0,
         leftBehind: parts.length > 0 ? joinWithAnd(parts) : null,
         groups,
         canUndeploy: buttonCount > 0,
-        canUnpublish: deletableCount > 0,
+        // An uninstall that deletes nothing is still worth offering when it forgets a
+        // setting: it is how the journey lets go of a ticket type.
+        canUnpublish: deletableCount > 0 || keptSettingsCount > 0,
         buttonCount,
         deletableCount,
-        unpublishLabel: `Delete ${countedThings}`,
-        unpublishConfirmLabel: `Yes, delete ${countedThings}`,
+        // Never "Delete 0 resources": when nothing is deleted, the button says what it does.
+        unpublishLabel:
+            deletableCount > 0
+                ? `Delete ${countedThings}`
+                : `Uninstall, keeping ${plural(keptSettingsCount, 'setting', 'settings')}`,
+        unpublishConfirmLabel: deletableCount > 0 ? `Yes, delete ${countedThings}` : 'Yes, uninstall',
     };
 }
 
@@ -315,7 +336,7 @@ export interface InstalledView {
 /** The answer of the published-state read, as a query holds it. */
 export interface PublishedRead {
     /** The last answer that arrived, kept through a failed refresh. */
-    readonly data: Pick<PublishedFlowState, 'deletableResources' | 'refusedResources'> | undefined;
+    readonly data: Pick<PublishedFlowState, 'deletableResources' | 'refusedResources' | 'keptSettings'> | undefined;
     /** Whether the latest read failed. */
     readonly failed: boolean;
 }
@@ -333,12 +354,14 @@ export interface PublishedRead {
  *    (`resourceKeyFollowsName.ts`). Before any answer they are empty, which narrows that rule
  *    to its hand-edit half rather than freezing everything.
  *
- * Both lists, deletable and refused: a refused resource is still installed. `refused` is
- * about whether a *teardown* may touch it — an adopted channel, a category with survivors —
- * and an adopted resource is exactly the case where the key must not move.
+ * All three lists: a refused resource is still installed, and so is a ticket type uninstall
+ * would only forget. `refused` is about whether a *teardown* may touch it — an adopted
+ * channel, a category with survivors — and an adopted resource is exactly the case where
+ * the key must not move. Leaving the kept settings out made a journey holding only a
+ * ticket type read as not installed, with no uninstall in reach.
  */
 export function installedFromPublished({ data, failed }: PublishedRead): InstalledView {
-    const live = data ? [...data.deletableResources, ...data.refusedResources] : [];
+    const live = data ? [...data.deletableResources, ...data.refusedResources, ...data.keptSettings] : [];
     return {
         count: data && !failed ? live.length : null,
         keys: new Set(live.map((resource) => resource.resourceKey)),

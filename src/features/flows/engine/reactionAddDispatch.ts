@@ -2,8 +2,8 @@ import { GuildMember, type MessageReaction, type PartialMessageReaction, type Pa
 import { flowsRepo } from '../data/flowsRepo';
 import { isTriggerStartedBy } from '../blocks/registry';
 import { reactionAddConfigSchema } from '../blocks/triggerReactionAdd';
-import { executeFlow } from './executor';
 import { asGuildTextChannel } from './runChannel';
+import { startTriggeredRun } from './triggeredRun';
 import { resumeWaitingRunsForEvent } from './waitingRunDispatch';
 import type { FlowRunSeed } from '../blocks/types';
 
@@ -145,7 +145,7 @@ export async function handleReactionAdd(
              * depend on a guarantee this file neither states nor owns. Two runs get
              * two seeds; the object costs nothing.
              */
-            const context: FlowRunSeed = {
+            const seed: FlowRunSeed = {
                 client: reaction.client,
                 guild,
                 // The reacting member both is who the run is about and caused it.
@@ -155,17 +155,15 @@ export async function handleReactionAdd(
                 variables: {},
             };
 
-            try {
-                await executeFlow(flow.flowId, flow.graph, triggerNode.id, context);
-            } catch (error) {
-                // Isolated per *trigger*, not just per flow: two entry points into one
-                // graph are as independent as two flows, so one throwing must not
-                // strand the other.
-                console.error(
-                    `[flows] Unexpected error running reactionAdd flow ${flow.flowId} from ${triggerNode.id}:`,
-                    error
-                );
-            }
+            // Isolated per *trigger*, not just per flow: two entry points into one graph
+            // are as independent as two flows, so one throwing must not strand the other.
+            await startTriggeredRun({
+                flowId: flow.flowId,
+                graph: flow.graph,
+                triggerNodeId: triggerNode.id,
+                source: 'reactionAdd',
+                seed,
+            });
         }
     }
 }

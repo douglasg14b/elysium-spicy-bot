@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ResourceBindingEntity } from '../../data/resourceBindingsSchema';
-import { planJourneyMerge } from '../journeyMergePlan';
+import { mergeDeclarations, planJourneyMerge } from '../journeyMergePlan';
 import type { ResourceDeclaration } from '../resourceDeclaration';
 
 /**
@@ -33,7 +33,8 @@ function binding(
     return {
         id: 1,
         guildId: 'g1',
-        journeyKey: 'source',
+        ownerKind: 'journey',
+        ownerKey: 'source',
         resourceKey,
         kind: 'textChannel',
         state,
@@ -213,5 +214,53 @@ describe('planJourneyMerge', () => {
         expect(plan.moving).toEqual([]);
         expect(plan.orphaned).toEqual([]);
         expect(plan.canMerge).toBe(true);
+    });
+});
+
+/**
+ * A ticket type's key is its identity in the ticket settings, so two journeys declaring
+ * `verification` mean one type — not two things under one key.
+ */
+describe('planJourneyMerge with ticket types', () => {
+    it('folds a ticket type both sides declare into one, keeping the destination’s', () => {
+        const plan = planJourneyMerge({
+            movingDeclarations: [declaration('verification', 'Verify me', 'ticketType')],
+            destinationDeclarations: [declaration('verification', 'Verification', 'ticketType')],
+            movingBindings: [],
+        });
+
+        expect(plan.canMerge).toBe(true);
+        expect(plan.collisions).toEqual([]);
+        expect(plan.sharedTicketTypes).toEqual([
+            { key: 'verification', movingName: 'Verify me', destinationName: 'Verification' },
+        ]);
+        expect(
+            mergeDeclarations(
+                [declaration('verification', 'Verification', 'ticketType')],
+                [declaration('verification', 'Verify me', 'ticketType'), declaration('lobby', 'lobby')]
+            )
+        ).toEqual([declaration('verification', 'Verification', 'ticketType'), declaration('lobby', 'lobby')]);
+    });
+
+    it('still refuses a ticket type against a channel of the same key', () => {
+        const plan = planJourneyMerge({
+            movingDeclarations: [declaration('verification', 'Verify me', 'ticketType')],
+            destinationDeclarations: [declaration('verification', 'verification')],
+            movingBindings: [],
+        });
+
+        expect(plan.canMerge).toBe(false);
+        expect(plan.collisions.map((collision) => collision.key)).toEqual(['verification']);
+    });
+
+    it('never lists an installed ticket type as orphaned — it stays, whatever happens to its record', () => {
+        const plan = planJourneyMerge({
+            movingDeclarations: [declaration('verification', 'Verify me', 'ticketType')],
+            destinationDeclarations: [],
+            movingBindings: [{ ...binding('verification', 'adopted', 'verification'), kind: 'ticketType' }],
+        });
+
+        expect(plan.moving[0]?.live).toEqual({ discordId: 'verification', name: 'verification' });
+        expect(plan.orphaned).toEqual([]);
     });
 });

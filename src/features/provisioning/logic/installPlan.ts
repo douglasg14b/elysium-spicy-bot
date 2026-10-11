@@ -1,12 +1,16 @@
 import { ChannelType, PermissionFlagsBits, SnowflakeUtil, type Guild } from 'discord.js';
-import type { ResourceBindingEntity } from '../data/resourceBindingsSchema';
+import { journeyOwner, type ResourceBindingEntity } from '../data/resourceBindingsSchema';
+import type { TicketTypeReading } from '../ticketTypeProvider';
+import { describeOtherHolder, type GuildOwnership } from './bindingOwner';
 import { parseDeclaredRoleReference } from './declaredRoleReference';
 import { compilePermissionIntents, type PermissionIntentContext } from './permissionIntent';
 import { normaliseResourceName } from './resourceName';
 import {
     orderResourcesForApply,
     assertInstallable,
+    isDiscordResource,
     validateJourneyDeclaration,
+    type DiscordResourceKind,
     type JourneyDeclaration,
     type ResourceDeclaration,
     type ResourceKind,
@@ -31,10 +35,21 @@ export interface PlanItem {
     readonly action: PlanAction;
     /** The name the resource will have, or already has. */
     readonly name: string;
-    /** Set for `adopt`, `recover` and `reuse`: the guild object this resolves to. */
+    /**
+     * Set for `adopt`, `recover` and `reuse`: the guild object this resolves to. For a
+     * `ticketType` it is the type's key, which is what its binding row records.
+     */
     readonly discordId?: string;
-    /** Set for `blocked`: why, in words an operator can act on. */
+    /**
+     * Why, in words an operator can act on: set for `blocked`, for a `create` replacing
+     * something deleted, for a `recover`, and for a ticket type used as it is.
+     */
     readonly reason?: string;
+    /**
+     * Something the operator should know that does not stop the apply. Today only the
+     * ticket feature's "not fully set up yet" on a ticket type item.
+     */
+    readonly note?: string;
     readonly parentKey?: string;
 }
 
@@ -88,16 +103,41 @@ export interface BuildInstallPlanInput {
      */
     readonly permissionContext?: Omit<PermissionIntentContext, 'guild'>;
     /**
-     * Every id bound by **any** journey in this guild, settled or not.
+     * Every id bound by **any** owner in this guild — every journey and the ticket
+     * system — settled or not.
      *
-     * Read only by crash recovery, which must never claim an object another journey
-     * owns: if journey B created a same-named channel after journey A's install died,
-     * recovering it under A would let A's uninstall delete B's channel. `previewInstall`
+     * Read only by crash recovery, which must never claim an object another owner
+     * holds: if journey B created a same-named channel after journey A's install died,
+     * recovering it under A would let A's uninstall delete B's channel. The same goes
+     * for a ticket category, whose rows have lived in this table since 2026-10-10 and
+     * so are fenced here with no code of their own. `previewInstall`
      * always supplies it, and test 12b in `provisioningDrift.integration.test.ts` fails if
      * it stops. **Optional for unit tests only**, which build plans with no other
      * journeys; omitting it in production is the unsafe direction, not a default.
      */
     readonly boundInGuild?: ReadonlySet<string>;
+    /**
+     * Every binding in the guild, with journey names, from the same read as
+     * `boundInGuild` (`previewInstall`'s `loadGuildOwnership`).
+     *
+     * Read by the adopt fence: an object another owner holds — another journey, or the
+     * ticket system — is `blocked`, naming the owner, because a category or channel
+     * belongs to one owner (Douglas, 2026-10-10). Also names the owner when a name
+     * collision's single match is held, so that block is not a dead end that says "adopt
+     * it" about something that cannot be adopted.
+     *
+     * **Optional for unit tests only**, for the reason `boundInGuild` is; `previewInstall`
+     * always supplies it.
+     */
+    readonly ownership?: GuildOwnership;
+    /**
+     * The guild's ticket types, read once through the ticket feature's provider.
+     *
+     * Required when the journey declares a ticket type — `previewInstall` reads it then
+     * and only then — and a declared type with no reading throws rather than guessing,
+     * since the plan cannot say create or reuse without it.
+     */
+    readonly ticketTypes?: TicketTypeReading;
 }
 
 /**
@@ -132,7 +172,11 @@ const KIND_LABEL: Record<ResourceKind, string> = {
     category: 'category',
     textChannel: 'channel',
     role: 'role',
+    ticketType: 'ticket type',
 };
+
+/** Why an existing ticket type is reused or recorded, never rewritten. */
+const TICKET_TYPE_USED_AS_IT_IS = 'Already here, so it is used as it is — install never changes an existing ticket type.';
 
 /**
  * Whether a snowflake resolves to something of the expected kind, in this guild.
@@ -146,7 +190,7 @@ const KIND_LABEL: Record<ResourceKind, string> = {
  * resources already created — the half-applied state the up-front validation exists
  * to prevent, reached by a route the validation could not see.
  */
-export function existsInGuildAs(guild: Guild, kind: ResourceKind, discordId: string): boolean {
+export function existsInGuildAs(guild: Guild, kind: DiscordResourceKind, discordId: string): boolean {
     if (kind === 'role') {
         return guild.roles.cache.has(discordId);
     }
@@ -209,7 +253,7 @@ function collectBlockers(guild: Guild, resources: readonly ResourceDeclaration[]
  * channel and role names — picking one would be the guess this design exists to
  * avoid. An ambiguous result blocks the item and asks the operator (§5.7).
  */
-function findByName(guild: Guild, kind: ResourceKind, name: string): string[] {
+function findByName(guild: Guild, kind: DiscordResourceKind, name: string): string[] {
     const wanted = name.trim().toLowerCase();
 
     if (kind === 'role') {
@@ -241,7 +285,7 @@ function findByName(guild: Guild, kind: ResourceKind, name: string): string[] {
  */
 export function findInterruptedCreates(
     guild: Guild,
-    intent: ResourceBindingEntity,
+    intent: Pick<ResourceBindingEntity, 'name' | 'createdAt'> & { readonly kind: DiscordResourceKind },
     excluded: ReadonlySet<string>
 ): string[] {
     const intendedAt = intent.createdAt.getTime();
@@ -305,7 +349,18 @@ function describePermissionFailure(
  * and only then does anything change.
  */
 export function buildInstallPlan(input: BuildInstallPlanInput): InstallPlan {
-    const { guild, journey, existingBindings, choices = {}, permissionContext, boundInGuild } = input;
+    const { guild, journey, existingBindings, choices = {}, permissionContext, boundInGuild, ownership } = input;
+    const self = journeyOwner(journey.journeyKey);
+    const heldElsewhere = (discordId: string): string | undefined =>
+        ownership ? describeOtherHolder(ownership, discordId, self) : undefined;
+    const requireTicketTypes = (): TicketTypeReading => {
+        if (!input.ticketTypes) {
+            throw new Error(
+                `Journey "${journey.journeyKey}" declares a ticket type, but its plan was built without reading the server's ticket types.`
+            );
+        }
+        return input.ticketTypes;
+    };
 
     // Coherence, then installability. The emptiness check lives here rather than in
     // `validateJourneyDeclaration` because storing an empty journey is legitimate —
@@ -319,7 +374,8 @@ export function buildInstallPlan(input: BuildInstallPlanInput): InstallPlan {
     );
     const alreadyBound = new Set(boundInGuild);
     for (const binding of existingBindings) {
-        if (binding.discordId) alreadyBound.add(binding.discordId);
+        // Discord objects only: a ticket type row's id is a type key.
+        if (binding.discordId && isDiscordResource(binding)) alreadyBound.add(binding.discordId);
     }
     const items: PlanItem[] = [];
 
@@ -340,6 +396,14 @@ export function buildInstallPlan(input: BuildInstallPlanInput): InstallPlan {
             parentKey: resource.parentKey,
         } as const;
 
+        // A ticket type is not a Discord object, so none of what follows — permissions,
+        // the guild cache, crash recovery, name matching, ownership — applies to it.
+        // Branched here, before any of it, rather than threaded through each.
+        if (!isDiscordResource(resource)) {
+            items.push(planTicketType(base, bindingByKey.get(resource.key), requireTicketTypes()));
+            continue;
+        }
+
         // Compile the permission model now, so an unsatisfiable one blocks the plan
         // instead of failing mid-apply with resources already created. Skipped when
         // no context was supplied, since a caller that cannot provide one gets the
@@ -357,7 +421,12 @@ export function buildInstallPlan(input: BuildInstallPlanInput): InstallPlan {
 
         // A settled binding wins over everything: this journey already owns a
         // resource for this key, and re-running install must converge, not duplicate.
-        const existing = bindingByKey.get(resource.key);
+        // A ticket type row under a key now declared as a channel, category or role names
+        // nothing in Discord, so it is planned as if absent. The apply rebinds that row to
+        // what it creates or adopts, writing the new kind — it is never left labelled a
+        // ticket type, which uninstall would only forget.
+        const bound = bindingByKey.get(resource.key);
+        const existing = bound && isDiscordResource(bound) ? bound : undefined;
         if (existing?.discordId && existing.state !== 'intended') {
             const stillThere =
                 resource.kind === 'role'
@@ -397,7 +466,11 @@ export function buildInstallPlan(input: BuildInstallPlanInput): InstallPlan {
         // the intent was written — the object found would be of the old kind, and the
         // apply's re-check would refuse it mid-install.
         if (existing?.state === 'intended' && !adoptDiscordId && existing.kind === resource.kind) {
-            const interrupted = findInterruptedCreates(guild, existing, alreadyBound);
+            const interrupted = findInterruptedCreates(
+                guild,
+                { kind: resource.kind, name: existing.name, createdAt: existing.createdAt },
+                alreadyBound
+            );
             if (interrupted.length === 1) {
                 items.push({
                     ...base,
@@ -420,19 +493,33 @@ export function buildInstallPlan(input: BuildInstallPlanInput): InstallPlan {
         }
 
         if (adoptDiscordId) {
-            items.push(
-                existsInGuildAs(guild, resource.kind, adoptDiscordId)
-                    ? { ...base, action: 'adopt', discordId: adoptDiscordId }
-                    : {
-                          ...base,
-                          // Blocked rather than quietly created. A declaration naming
-                          // an id is an operator saying the thing already exists; if
-                          // it does not, creating one anyway installs a duplicate of
-                          // whatever they actually meant.
-                          action: 'blocked',
-                          reason: `The chosen ${KIND_LABEL[resource.kind]} (${adoptDiscordId}) does not exist in this server, or is not a ${KIND_LABEL[resource.kind]}.`,
-                      }
-            );
+            if (!existsInGuildAs(guild, resource.kind, adoptDiscordId)) {
+                items.push({
+                    ...base,
+                    // Blocked rather than quietly created. A declaration naming an id is
+                    // an operator saying the thing already exists; if it does not,
+                    // creating one anyway installs a duplicate of whatever they meant.
+                    action: 'blocked',
+                    reason: `The chosen ${KIND_LABEL[resource.kind]} (${adoptDiscordId}) does not exist in this server, or is not a ${KIND_LABEL[resource.kind]}.`,
+                });
+                continue;
+            }
+
+            // One owner per object. Adopting what another journey or the ticket system
+            // holds would leave two owners each believing it theirs to rename, repair
+            // and — if either created it — delete.
+            const holder = heldElsewhere(adoptDiscordId);
+            if (holder) {
+                items.push({
+                    ...base,
+                    action: 'blocked',
+                    discordId: adoptDiscordId,
+                    reason: `The chosen ${KIND_LABEL[resource.kind]} already belongs to ${holder}, so this journey can't adopt it. Pick another, or let this journey create its own.`,
+                });
+                continue;
+            }
+
+            items.push({ ...base, action: 'adopt', discordId: adoptDiscordId });
             continue;
         }
 
@@ -441,11 +528,16 @@ export function buildInstallPlan(input: BuildInstallPlanInput): InstallPlan {
         // takes over a channel the operator did not mean to give it.
         const matches = findByName(guild, resource.kind, name);
         if (matches.length === 1) {
+            // A match another owner holds cannot be adopted either, so the usual advice
+            // would send the operator to a choice that is not there.
+            const holder = heldElsewhere(matches[0]);
             items.push({
                 ...base,
                 action: 'blocked',
                 discordId: matches[0],
-                reason: `A ${KIND_LABEL[resource.kind]} named "${name}" already exists. Choose whether to adopt it or create a new one under a different name.`,
+                reason: holder
+                    ? `A ${KIND_LABEL[resource.kind]} named "${name}" already exists, and it belongs to ${holder}, so it can't be adopted here. Give this one a different name.`
+                    : `A ${KIND_LABEL[resource.kind]} named "${name}" already exists. Choose whether to adopt it or create a new one under a different name.`,
             });
             continue;
         }
@@ -467,6 +559,67 @@ export function buildInstallPlan(input: BuildInstallPlanInput): InstallPlan {
         items,
         blockers: collectBlockers(guild, journey.resources),
     };
+}
+
+/**
+ * The plan item for one declared ticket type.
+ *
+ * Decided by the key alone, against the server's ticket types as the provider read them:
+ *
+ *  - no ticket config → `blocked`, in the ticket feature's own words. The one case where
+ *    creating a type cannot succeed, and one blocked item stops the whole install.
+ *  - a type of this key exists → `reuse` when this journey already recorded it, otherwise
+ *    `adopt`, which is an action only so that apply writes the row. Either way it is used
+ *    exactly as it stands, label and all: install never changes an existing type.
+ *  - none exists → `create`, saying so when this journey's row shows it was there before.
+ *
+ * The provider's "not fully set up" note rides on every item and blocks nothing.
+ *
+ * A row under this key of another kind is a resource whose kind changed after install.
+ * Writing the type's row over it would forget a channel or role this journey may have
+ * created, leaving it for nobody to remove, so that is blocked instead.
+ */
+function planTicketType(
+    base: Pick<PlanItem, 'resourceKey' | 'kind' | 'name'>,
+    existing: ResourceBindingEntity | undefined,
+    reading: TicketTypeReading
+): PlanItem {
+    if (reading.status === 'no-config') {
+        return { ...base, action: 'blocked', reason: reading.blockedReason };
+    }
+
+    const note = reading.notReadyNote ? { note: reading.notReadyNote } : {};
+
+    if (existing && existing.kind !== base.kind) {
+        return {
+            ...base,
+            action: 'blocked',
+            reason: `This journey still holds a ${KIND_LABEL[existing.kind]} under the key "${base.resourceKey}". Uninstall the journey, or give the ticket type another key.`,
+        };
+    }
+
+    const recorded = Boolean(existing?.discordId) && existing?.state !== 'intended';
+    const present = reading.types.get(base.resourceKey);
+
+    if (present) {
+        return {
+            ...base,
+            name: present.label,
+            action: recorded ? 'reuse' : 'adopt',
+            discordId: base.resourceKey,
+            reason: TICKET_TYPE_USED_AS_IT_IS,
+            ...note,
+        };
+    }
+
+    return recorded
+        ? {
+              ...base,
+              action: 'create',
+              reason: 'The ticket type this journey installed has been removed from the ticket settings; it will be made again.',
+              ...note,
+          }
+        : { ...base, action: 'create', ...note };
 }
 
 /** Whether a plan can be applied at all. A blocked item stops the whole apply. */

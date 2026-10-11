@@ -2,7 +2,7 @@ import { screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { BlockConfigField } from '@brattybot/web-sdk';
 import { renderWithProviders } from '../../../__tests__/support/renderWithProviders';
-import type { AvailableVariable } from '../../variables';
+import { ALL_REQUIREMENTS_AVAILABLE, type AvailableVariable } from '../../variables';
 import { ChannelPickerControl } from '../PickerControls';
 import type { ControlContext } from '../types';
 
@@ -32,9 +32,10 @@ function renderPicker(options: { variables: AvailableVariable[]; value?: string;
     const setConfigKey = vi.fn();
     const context: ControlContext = {
         roles: [],
-        channels: [{ id: 'c1', name: 'lobby', type: 'text', parentId: null, parentName: null }],
+        channels: [{ id: 'c1', name: 'lobby', type: 'text', parentId: null, parentName: null, owner: null }],
+        ticketTypes: [],
         variables: options.variables,
-        actorAvailable: true,
+        requirements: ALL_REQUIREMENTS_AVAILABLE,
         declaredResources: [],
         setConfigKey,
     };

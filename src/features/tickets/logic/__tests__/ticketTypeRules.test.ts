@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { z } from 'zod';
 import { DEFAULT_TICKET_TYPES } from '../../data/defaultTicketTypes';
+import { TICKET_TYPE_KEY_MAX_LENGTH, TICKET_TYPE_LABEL_MAX_LENGTH } from '../../data/ticketingSchema';
 import { buildTicketChannelName } from '../ticketTypes';
 import {
     SUPPORTED_TOKENS,
-    TICKET_TYPE_KEY_MAX_LENGTH,
+    TICKET_TYPE_LABEL_TOO_LONG_MESSAGE,
     TicketNameTemplateSchema,
     TicketTypeKeySchema,
     TicketTypeLabelSchema,
@@ -64,6 +65,15 @@ describe('TicketTypeLabelSchema', () => {
 
     it('trims the label it keeps', () => {
         expect(TicketTypeLabelSchema.parse('  Appeals  ')).toBe('Appeals');
+    });
+
+    it('refuses a label the mod ticket modal could not show, measured after trimming', () => {
+        // The builders validate a modal's select option at 45 characters, so a longer
+        // label makes `showModal` throw on the Discord side.
+        expect(refusal(TicketTypeLabelSchema, `  ${'A'.repeat(TICKET_TYPE_LABEL_MAX_LENGTH)}  `)).toBeUndefined();
+        expect(refusal(TicketTypeLabelSchema, 'A'.repeat(TICKET_TYPE_LABEL_MAX_LENGTH + 1))).toBe(
+            TICKET_TYPE_LABEL_TOO_LONG_MESSAGE
+        );
     });
 });
 

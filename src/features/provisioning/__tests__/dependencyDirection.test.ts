@@ -70,6 +70,23 @@ function withoutComments(source: string): string {
     return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
 }
 
+/**
+ * Any import specifier that reaches the ticket feature, in the same two shapes as
+ * {@link FLOWS_IMPORT}. Tests count too, for the reason given there: a test that needs the
+ * real ticket provider lives on the flows side (`flows/__tests__/journeyTicketType.integration.test.ts`).
+ */
+const TICKETS_IMPORT = /['"][^'"]*(?:\.\.\/tickets\/|features\/tickets)[^'"]*['"]/;
+
+/**
+ * Strip `import type … from '…'` and `export type … from '…'`, single- or multi-line.
+ * Those are erased at compile time, so they create no runtime edge. An inline
+ * `import { type X }` is left in: whether it is elided depends on compiler settings, so
+ * it is treated as the runtime import it may be.
+ */
+function withoutTypeOnlyImports(source: string): string {
+    return source.replace(/\b(?:import|export)\s+type\s[^;]*?from\s*['"][^'"]*['"]/g, '');
+}
+
 describe('provisioning does not depend on the flow engine', () => {
     const files = sourceFilesIn(PROVISIONING_DIR);
 
@@ -84,6 +101,18 @@ describe('provisioning does not depend on the flow engine', () => {
     it('imports nothing from src/features/flows', () => {
         const offenders = files.filter((file) =>
             FLOWS_IMPORT.test(withoutComments(readFileSync(file, 'utf8')))
+        );
+
+        expect(offenders).toEqual([]);
+    });
+
+    it('imports nothing from src/features/tickets at run time', () => {
+        // Tickets import provisioning (the binding table, `ownerOf`), so a runtime import
+        // back would be a cycle. A type-only import is erased at compile time and is how
+        // `ResourceDeclaration.ticketType` names `TicketTypeSettings` without a second copy;
+        // everything else goes through the provider hook (`ticketTypeProvider.ts`).
+        const offenders = files.filter((file) =>
+            TICKETS_IMPORT.test(withoutTypeOnlyImports(withoutComments(readFileSync(file, 'utf8'))))
         );
 
         expect(offenders).toEqual([]);
