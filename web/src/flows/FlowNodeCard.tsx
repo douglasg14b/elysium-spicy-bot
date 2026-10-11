@@ -9,7 +9,7 @@ import { Fragment, useEffect, useState } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { Text, Tooltip } from '@mantine/core';
 import { IconAlertTriangle } from '@tabler/icons-react';
-import type { GuildChannel, GuildRole, NodeDescriptor, TicketTypeView } from '../api/types';
+import type { GuildChannel, GuildRole, NodeDescriptor, ResourceDeclaration, TicketTypeView } from '../api/types';
 import { summarizeFromDescriptor } from './cardSummary';
 import { describeConvergence } from './convergingTriggers';
 import { describeNextRun, formatNextRunExact, NEXT_RUN_AFTER_SAVE, type NodeNextRun } from './nextRun';
@@ -30,6 +30,12 @@ export interface FlowNodeCardData extends Record<string, unknown> {
     roles: GuildRole[];
     channels: GuildChannel[];
     ticketTypes: TicketTypeView[];
+    /**
+     * What the flow's journey declares, so a picker still waiting on install can name what
+     * it waits for — "Front desk (after install)" rather than its empty copy. Carried onto
+     * the cards by an effect in `FlowBuilderPage`, as the issue count is.
+     */
+    declaredResources: ResourceDeclaration[];
     /**
      * How many things the server last found wrong with this node — when the flow was
      * opened, or at the last save.
@@ -98,6 +104,7 @@ export function FlowNodeCard({ data, selected }: NodeProps<FlowCardNode>) {
         roles,
         channels,
         ticketTypes,
+        declaredResources,
         issueCount,
         unreachable,
         convergingTriggers,
@@ -220,7 +227,7 @@ export function FlowNodeCard({ data, selected }: NodeProps<FlowCardNode>) {
 
             <div style={{ padding: 12 }}>
                 <Text size="12px" c="dark.1" lineClamp={2}>
-                    {summarizeFromDescriptor(descriptor, config, roles, channels, ticketTypes)}
+                    {summarizeFromDescriptor(descriptor, config, roles, channels, ticketTypes, declaredResources)}
                 </Text>
                 {nextRun ? <NextRunLine nextRun={nextRun} /> : null}
                 {failed ? (

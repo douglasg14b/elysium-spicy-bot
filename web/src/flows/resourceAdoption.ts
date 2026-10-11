@@ -15,10 +15,12 @@
 import type {
     GuildChannel,
     GuildChannelType,
+    GuildObjectOwner,
     GuildRole,
     ResourceDeclaration,
     ResourceKind,
 } from '../api/types';
+import { emptyTicketTypeDraft } from '../tickets/ticketTypeForm';
 
 /**
  * Derive a key from a display name.
@@ -60,8 +62,20 @@ export function uniqueResourceKey(
 export interface ExistingChannelOption {
     /** The channel's snowflake — what `adoptDiscordId` is set to. */
     value: string;
-    /** `#name`, so it reads the way Discord shows it. */
+    /**
+     * `#name`, so it reads the way Discord shows it.
+     *
+     * Never carries the owner text: `labelToName` parses labels and `disambiguateOptions`
+     * counts on their equality, so the owner travels in {@link heldBy} instead.
+     */
     label: string;
+    /**
+     * Shown but not pickable: another owner already holds it, so the server would refuse
+     * the adoption (one owner per object, 2026-10-10). Absent means pickable.
+     */
+    disabled?: boolean;
+    /** Who holds it, as the server names them — "the ticket system", `journey "Onboarding"`. */
+    heldBy?: string;
 }
 
 /**
@@ -92,7 +106,9 @@ export function canAdoptFromChannelList(kind: ResourceKind): boolean {
  * channel. The panel simply never offered roles a picker, so the capability was
  * unreachable for a third of the resources an operator can declare.
  *
- * Exhaustive on `ResourceKind` so a fourth kind cannot be added without deciding this.
+ * Exhaustive on `ResourceKind` so a fourth kind cannot be added without deciding this —
+ * and the fourth, a ticket type, decided no: it is found by its key, and one that already
+ * exists is used as it is, so there is nothing to point at.
  */
 export function canAdopt(kind: ResourceKind): boolean {
     switch (kind) {
@@ -100,6 +116,8 @@ export function canAdopt(kind: ResourceKind): boolean {
         case 'category':
         case 'role':
             return true;
+        case 'ticketType':
+            return false;
         default: {
             const unreachable: never = kind;
             throw new Error(`Unhandled resource kind: ${String(unreachable)}`);
@@ -149,6 +167,17 @@ export function channelOptionLabel(channel: GuildChannel): string {
 }
 
 /**
+ * How a picker shows an option another owner holds: its label, then who holds it.
+ *
+ * One function for both pickers (adoption here, the ticket category slots), so an owner
+ * reads the same way wherever a disabled option says why. For display only — never store
+ * the result as an option's `label`, which `labelToName` parses.
+ */
+export function heldByLabel(label: string, ownerLabel: string): string {
+    return `${label} — held by ${ownerLabel}`;
+}
+
+/**
  * Whether a kind can be placed inside a category.
  *
  * Text channels only, and stricter than the server's own check on purpose.
@@ -165,6 +194,17 @@ export function canHaveParent(kind: ResourceKind): boolean {
 }
 
 /**
+ * Whether a kind carries channel permission overwrites: a channel or a category.
+ *
+ * Not a role, which *appears in* overwrites rather than having them, and not a ticket
+ * type, whose access is its own permission grid. Named rather than written as
+ * `kind !== 'role'`, which a fourth kind slipped straight through.
+ */
+export function hasChannelPermissions(kind: ResourceKind): boolean {
+    return kind === 'textChannel' || kind === 'category';
+}
+
+/**
  * The existing channels a new declaration may adopt.
  *
  * Channels already claimed by another row are **left out** rather than shown and
@@ -172,13 +212,24 @@ export function canHaveParent(kind: ResourceKind): boolean {
  * `validateJourneyDeclaration`, and an option that can only produce an error is worse
  * than no option — the operator picks it, the save fails, and nothing in the picker
  * said why.
+ *
+ * Channels **another owner** holds — another journey, or the ticket system — are shown
+ * but **disabled**, naming the owner. Different from the claimed-by-a-row case because
+ * nothing in this list explains it: the operator can see the channel in Discord, and a
+ * row that silently lacks it reads as a bug. The journey being edited is not "another
+ * owner", so its own installed channels stay pickable.
  */
 export function adoptableChannelOptions(
     channels: readonly GuildChannel[],
     kind: ResourceKind,
     declared: readonly ResourceDeclaration[],
     /** The row being edited, whose own adoption must stay selectable. */
-    exceptKey?: string
+    exceptKey?: string,
+    /**
+     * The journey these declarations belong to, so its own holdings are not disabled.
+     * Absent for a flow in no journey yet, for which every holder is somebody else.
+     */
+    ownJourneyKey?: string
 ): ExistingChannelOption[] {
     if (!canAdoptFromChannelList(kind)) return [];
 
@@ -191,7 +242,25 @@ export function adoptableChannelOptions(
 
     return channels
         .filter((channel) => allowedTypes.has(channel.type) && !claimed.has(channel.id))
-        .map((channel) => ({ value: channel.id, label: channelOptionLabel(channel) }));
+        .map((channel) =>
+            withOwnership({ value: channel.id, label: channelOptionLabel(channel) }, channel.owner, ownJourneyKey)
+        );
+}
+
+/**
+ * An option, disabled and naming its holder when another owner holds the object.
+ *
+ * Shared by the channel and role pickers so "another owner" means the same thing in both:
+ * any holder but the journey being edited, which keeps its own installed objects
+ * pickable. With no journey yet, every holder is somebody else.
+ */
+function withOwnership(
+    option: ExistingChannelOption,
+    owner: GuildObjectOwner | null,
+    ownJourneyKey: string | undefined
+): ExistingChannelOption {
+    const ownedHere = owner?.kind === 'journey' && owner.key === ownJourneyKey;
+    return owner && !ownedHere ? { ...option, disabled: true, heldBy: owner.label } : option;
 }
 
 /**
@@ -211,12 +280,18 @@ export function adoptableChannelOptions(
  * plan and dashboard still reports as staff-only. This function does not re-filter,
  * because duplicating that rule is how the two copies drift; it consumes a list the
  * endpoint has already made safe.
+ *
+ * A role **another owner** holds is shown disabled, naming the owner, exactly as a channel
+ * is in `adoptableChannelOptions`: install refuses to adopt it, so offering it would be an
+ * option that can only produce a blocked plan.
  */
 export function adoptableRoleOptions(
     roles: readonly GuildRole[],
     kind: ResourceKind,
     declared: readonly ResourceDeclaration[],
-    exceptKey?: string
+    exceptKey?: string,
+    /** The journey these declarations belong to, so its own roles stay pickable. */
+    ownJourneyKey?: string
 ): ExistingChannelOption[] {
     if (kind !== 'role') return [];
 
@@ -224,7 +299,7 @@ export function adoptableRoleOptions(
 
     return roles
         .filter((role) => !claimed.has(role.id))
-        .map((role) => ({ value: role.id, label: roleOptionLabel(role) }));
+        .map((role) => withOwnership({ value: role.id, label: roleOptionLabel(role) }, role.owner, ownJourneyKey));
 }
 
 /**
@@ -414,10 +489,35 @@ export interface NewResourceInput {
     readonly parentKey?: string | null;
 }
 
-/** Build the declaration for a resource that does not exist yet. */
+/** The name a fresh row of this kind is seeded with, so it is valid the moment it exists. */
+function generatedNameFor(kind: ResourceKind): string {
+    switch (kind) {
+        case 'textChannel':
+            return 'new-channel';
+        case 'category':
+            return 'new-category';
+        case 'role':
+            return 'new-role';
+        // A label, read in a list of ticket types, so it reads like one.
+        case 'ticketType':
+            return 'New ticket type';
+        default: {
+            const unreachable: never = kind;
+            throw new Error(`Unhandled resource kind: ${String(unreachable)}`);
+        }
+    }
+}
+
+/**
+ * Build the declaration for a resource that does not exist yet.
+ *
+ * A ticket type also gets the settings it would be created with — the same starting
+ * arrangement the tickets page offers a new type, so neither surface hands out a type
+ * whose channel nobody can see.
+ */
 export function declarationForNewResource(input: NewResourceInput): ResourceDeclaration {
     const { kind, existing, parentKey } = input;
-    const name = input.name.trim() || `new-${kind === 'textChannel' ? 'channel' : kind}`;
+    const name = input.name.trim() || generatedNameFor(kind);
 
     const declaration: ResourceDeclaration = {
         key: uniqueResourceKey(slugifyResourceName(name), existing),
@@ -427,6 +527,11 @@ export function declarationForNewResource(input: NewResourceInput): ResourceDecl
 
     if (parentKey && canHaveParent(kind)) {
         declaration.parentKey = parentKey;
+    }
+
+    if (kind === 'ticketType') {
+        const { nameTemplate, permissions, autoClaimOnOpen } = emptyTicketTypeDraft();
+        declaration.ticketType = { nameTemplate, permissions, autoClaimOnOpen };
     }
 
     return declaration;

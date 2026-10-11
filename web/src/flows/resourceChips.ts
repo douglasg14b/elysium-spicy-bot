@@ -91,7 +91,7 @@ export type ResourceChipTone = 'info' | 'warn' | 'blocksInstall' | 'error';
  * lost in the merge: no chip ever pointed at `nameField`, and the two that pointed at
  * `adoptPicker` are asking for the same control by its new name.
  */
-export type ResourceChipJumpTarget = 'nameCombobox' | 'keyField' | 'rules' | 'rule';
+export type ResourceChipJumpTarget = 'nameCombobox' | 'keyField' | 'rules' | 'rule' | 'ticketTypeFields';
 
 /** Every chip this vocabulary can show. Adding one means adding it here first. */
 export type ResourceChipId =
@@ -102,9 +102,11 @@ export type ResourceChipId =
     | 'perRunOnly'
     | 'permissionsUntouched'
     | 'nameTaken'
+    | 'ticketTypeHere'
     | 'duplicateKey'
     | 'duplicateAdoption'
     | 'invalidKey'
+    | 'invalidTicketType'
     | 'ruleNamesNoRole';
 
 /**
@@ -238,8 +240,14 @@ export const RESOURCE_CHIPS: Record<ResourceChipId, ResourceChipStyle> = {
      * agreement test's promise false in the direction that matters most: a chip blocking
      * a save the server would have honoured.
      *
-     * **Deliberately not auto-adopted.** Selecting the suggestion is one click away, and
-     * doing it for the operator would bind them to an object they did not choose — which
+     * **Not a promise that adopting is possible.** When the match is held by another owner
+     * — another journey, or the ticket system — the suggestion is listed disabled and
+     * install refuses to adopt it, so the only way out is another name. The tooltip says
+     * both, rather than sending the operator to a choice that may not be there.
+     *
+     * **Deliberately not auto-adopted.** Selecting the suggestion, when it is pickable, is
+     * one click away, and doing it for the operator would bind them to an object they did
+     * not choose — which
      * the PRD forbids twice, in §5.7's *"never silently bound to something they did not
      * choose"* and *"a binding is only established by an explicit selection or an
      * explicit new name"*. A name that happens to collide is not consent.
@@ -249,8 +257,29 @@ export const RESOURCE_CHIPS: Record<ResourceChipId, ResourceChipStyle> = {
         color: 'orange',
         icon: IconAlertTriangle,
         label: () => 'Name taken',
-        reason: 'Something in the guild already has this name and this row does not adopt it. The save succeeds; `installPlan` blocks the item and asks whether to adopt it or rename.',
+        reason: 'Something in the guild already has this name and this row does not adopt it. The save succeeds; `installPlan` blocks the item. Pick it from the list to adopt it — unless another owner holds it, in which case it cannot be adopted and the row needs a different name.',
         jumpTo: 'nameCombobox',
+    },
+
+    /**
+     * A declared ticket type whose key the server already has.
+     *
+     * Not a problem, and said because it changes what install does: the existing type is
+     * used exactly as it stands — another journey's, the dashboard's, the seeded
+     * `verification` — and the settings on this row apply only if it is ever made fresh.
+     * An operator editing the template here would otherwise expect the edit to land.
+     *
+     * Quiet on a key this journey installed, for `nameTaken`'s reason: the type is there
+     * because this journey made or recorded it, and a chip on every installed row is the
+     * always-on warning the tiers must not become.
+     */
+    ticketTypeHere: {
+        tone: 'info',
+        color: 'gray',
+        icon: IconLink,
+        label: () => 'Already here',
+        reason: 'A ticket type with this key already exists, so install uses it as it is and never changes it. These settings only apply if it is ever made fresh.',
+        jumpTo: 'keyField',
     },
 
     duplicateKey: {
@@ -305,6 +334,22 @@ export const RESOURCE_CHIPS: Record<ResourceChipId, ResourceChipStyle> = {
         jumpTo: 'keyField',
     },
 
+    /**
+     * A declared ticket type the ticket feature would refuse: a label past the mod ticket
+     * picker's 45 characters, or a channel name template it cannot render. The journey save
+     * checks it with the ticket feature's own rule (`ticketTypeDefinitionProblem`), so the
+     * save is refused rather than an install failing later. An empty label is
+     * `invalidKey`'s, which already says `Name required`.
+     */
+    invalidTicketType: {
+        tone: 'error',
+        color: 'red',
+        icon: IconX,
+        label: () => 'Won’t save',
+        reason: 'The label is over 45 characters or the channel name template uses something the renderer cannot render. The save is refused with the ticket feature’s own reason.',
+        jumpTo: 'ticketTypeFields',
+    },
+
     ruleNamesNoRole: {
         tone: 'error',
         color: 'red',
@@ -327,6 +372,7 @@ export const RESOURCE_CHIP_ORDER: readonly ResourceChipId[] = [
     'duplicateKey',
     'duplicateAdoption',
     'invalidKey',
+    'invalidTicketType',
     'ruleNamesNoRole',
     // Below the save-blockers and above the warnings: a row that cannot be saved has a
     // more urgent problem than one that cannot be installed, and both outrank "this is
@@ -336,6 +382,7 @@ export const RESOURCE_CHIP_ORDER: readonly ResourceChipId[] = [
     'perRunOnly',
     'permissionsUntouched',
     'adopted',
+    'ticketTypeHere',
     'private',
     'orderedRules',
 ];

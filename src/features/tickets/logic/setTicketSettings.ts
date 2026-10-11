@@ -1,5 +1,12 @@
 import type { CategoryChannel, Guild } from 'discord.js';
-import { describeDiscordError, existsInGuildAs } from '../../provisioning';
+import {
+    describeDiscordError,
+    describeOtherHolder,
+    existsInGuildAs,
+    loadGuildOwnership,
+    resourceBindingsRepo,
+    TICKETS_OWNER,
+} from '../../provisioning';
 import { ticketingRepo } from '../data/ticketingRepo';
 import {
     TICKET_CATEGORY_LABELS,
@@ -33,18 +40,29 @@ export interface SetTicketSettingsInput {
     readonly moderationRoles: readonly string[];
 }
 
-export type SetTicketSettingsRefusal = 'no-config' | 'invalid-input' | 'busy' | 'create-failed' | 'write-failed';
+export type SetTicketSettingsRefusal =
+    | 'no-config'
+    | 'invalid-input'
+    | 'busy'
+    | 'create-failed'
+    | 'taken-meanwhile'
+    | 'write-failed';
+
+/** The refusals that still **saved** the rest — see {@link SetTicketSettingsResult}. */
+type PartlySavedRefusal = Extract<SetTicketSettingsRefusal, 'create-failed' | 'taken-meanwhile'>;
 
 /**
- * `create-failed` is its own arm because it is the one failure that **saved**: every
- * category that was made, and the roles, are stored, and `config` is what was written.
- * A required member rather than an optional one on a shared arm, so a caller cannot
- * forget that the guild changed.
+ * `create-failed` and `taken-meanwhile` are their own arm because they are the failures
+ * that **saved**: every category that was made, and the roles, are stored, and `config`
+ * is what was written. `taken-meanwhile` is an adopted category another owner claimed
+ * while this save was creating — only that slot is left as it was. A required member
+ * rather than an optional one on a shared arm, so a caller cannot forget that the guild
+ * changed.
  */
 export type SetTicketSettingsResult =
     | { ok: true; config: TicketingConfig }
-    | { ok: false; reason: 'create-failed'; message: string; config: TicketingConfig }
-    | { ok: false; reason: Exclude<SetTicketSettingsRefusal, 'create-failed'>; message: string };
+    | { ok: false; reason: PartlySavedRefusal; message: string; config: TicketingConfig }
+    | { ok: false; reason: Exclude<SetTicketSettingsRefusal, PartlySavedRefusal>; message: string };
 
 /**
  * Guilds whose ticket settings are being saved right now.
@@ -85,7 +103,10 @@ async function saveUnderGuard({ guild, categories, moderationRoles }: SetTicketS
         };
     }
 
-    // 1. Check every picked category before changing anything.
+    // 1. Check every picked category before changing anything — including that nobody
+    //    else holds it: a category belongs to one owner, and a journey's is not ours to
+    //    adopt.
+    const ownership = await loadGuildOwnership(guild.id);
     const changes: Partial<Record<TicketCategorySlot, BoundTicketCategory>> = {};
     const toCreate: { readonly slot: TicketCategorySlot; readonly name: string }[] = [];
 
@@ -111,6 +132,16 @@ async function saveUnderGuard({ guild, categories, moderationRoles }: SetTicketS
             };
         }
         const channel = guild.channels.cache.get(choice.discordId) as CategoryChannel;
+
+        // Two slots sharing a category is one owner, so only *another* owner refuses.
+        const holder = describeOtherHolder(ownership, channel.id, TICKETS_OWNER);
+        if (holder) {
+            return {
+                ok: false,
+                reason: 'invalid-input',
+                message: heldElsewhereMessage(slot, channel.name, holder),
+            };
+        }
 
         const permissions = validateTicketCategoryPermissions(guild, channel);
         if (!permissions.valid) {
@@ -150,16 +181,33 @@ async function saveUnderGuard({ guild, categories, moderationRoles }: SetTicketS
     // 3. Write once, with everything that now exists — including on a failed create, so a
     //    category that was made is never left unrecorded.
     let saved: TicketingConfig | null;
+    /** Why each slot the re-check below refused was refused: claimed since step 1. */
+    const takenMeanwhile: string[] = [];
     try {
-        saved = await ticketingRepo.mutateConfig(guild.id, (row) =>
-            row.config
-                ? {
-                      ...row.config,
-                      categories: { ...row.config.categories, ...changes },
-                      moderationRoles: [...new Set(moderationRoles)],
-                  }
-                : null
-        );
+        saved = await ticketingRepo.mutateConfig(guild.id, async (row, transaction) => {
+            /*
+             * The step-1 check, again, on this transaction. Creating can take seconds,
+             * and a journey install holds a different lock, so it may have adopted the
+             * same category in between. On SQLite's one connection this read and the
+             * write below cannot interleave with anything.
+             *
+             * Only that slot is refused; everything else — a category this save made, the
+             * roles — is still written, so nothing made is left unrecorded. Only adopted
+             * slots are checked: a category this save just created can be held by nobody.
+             */
+            const current = { bindings: await resourceBindingsRepo.listByGuild(guild.id, transaction), journeyNames: ownership.journeyNames };
+            const writable: Partial<Record<TicketCategorySlot, BoundTicketCategory>> = {};
+            for (const slot of TICKET_CATEGORY_SLOTS) {
+                const change = changes[slot];
+                if (!change) continue;
+                const holder = change.provenance === 'adopted' ? describeOtherHolder(current, change.discordId, TICKETS_OWNER) : undefined;
+                if (holder) takenMeanwhile.push(heldElsewhereMessage(slot, change.name, holder));
+                else writable[slot] = change;
+            }
+
+            await ticketingRepo.writeCategorySlots(guild.id, writable, transaction);
+            return { ...row.config, moderationRoles: [...new Set(moderationRoles)] };
+        });
     } catch (error) {
         console.error('[tickets] Error saving ticket settings:', error);
         const madeNames = [...created.values()].map((binding) => `"${binding.name}"`);
@@ -181,9 +229,24 @@ async function saveUnderGuard({ guild, categories, moderationRoles }: SetTicketS
         };
     }
 
+    if (takenMeanwhile.length > 0) {
+        const alsoFailed = failure ? ` ${failure}.` : '';
+        return {
+            ok: false,
+            reason: 'taken-meanwhile',
+            message: `${takenMeanwhile.join(' ')}${alsoFailed} Everything else was saved.`,
+            config: saved,
+        };
+    }
+
     if (failure) {
         return { ok: false, reason: 'create-failed', message: `${failure}. Everything else was saved.`, config: saved };
     }
 
     return { ok: true, config: saved };
+}
+
+/** Why a picked category cannot be a ticket slot: somebody else holds it, named. */
+function heldElsewhereMessage(slot: TicketCategorySlot, categoryName: string, holder: string): string {
+    return `"${categoryName}" (picked for ${TICKET_CATEGORY_LABELS[slot]}) belongs to ${holder}, so tickets can't use it. Pick another category, or type a name to have one made.`;
 }

@@ -344,4 +344,42 @@ describe('what apply must never do', () => {
         expect(calls).toEqual(['repo:forget:1']);
         expect(result.results[0].outcome).toBe('forgotten');
     });
+
+    it('forgets a ticket type without asking Discord anything, even when its key is a channel’s id', async () => {
+        const calls: string[] = [];
+        const guild = makeGuild({ channelIds: ['123456789012345678'], calls });
+
+        const result = await applyUnpublishPlan({
+            guild,
+            plan: plan([
+                deleteItem({
+                    action: 'forget',
+                    kind: 'ticketType',
+                    resourceKey: 'desk',
+                    name: 'Desk',
+                    discordId: undefined,
+                    explanation: 'The ticket type stays.',
+                }),
+            ]),
+            repo: makeRepo(calls),
+        });
+
+        expect(calls).toEqual(['repo:forget:1']);
+        expect(result.results[0]).toMatchObject({ outcome: 'forgotten', explanation: 'The ticket type stays.' });
+    });
+
+    it('says only the record failed when a forget cannot remove it — nothing was deleted', async () => {
+        const calls: string[] = [];
+        const guild = makeGuild({ channelIds: [], calls });
+
+        const result = await applyUnpublishPlan({
+            guild,
+            plan: plan([deleteItem({ action: 'forget', kind: 'ticketType', discordId: undefined })]),
+            repo: makeRepo(calls, new Error('disk on fire')),
+        });
+
+        expect(result.results[0]?.outcome).toBe('failed');
+        expect(result.results[0]?.explanation).not.toMatch(/removed from the server/);
+        expect(result.results[0]?.explanation).toMatch(/record could not be removed/);
+    });
 });

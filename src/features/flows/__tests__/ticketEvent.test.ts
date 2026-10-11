@@ -10,6 +10,7 @@ import {
     type ServerMember,
     type ServerRole,
 } from '../../../shared/__tests__/support/testDiscord';
+import { seedTicketCategorySlots } from '../../tickets/__tests__/support/ticketTestTables';
 import { TicketCloseButtonComponent } from '../../tickets/components/ticketCloseButton';
 import { PARTICIPANT_PERMISSIONS, STAFF_PERMISSIONS } from '../../tickets/data/defaultTicketTypes';
 import { ticketingRepo } from '../../tickets/data/ticketingRepo';
@@ -74,7 +75,7 @@ function ticketGuild(types: readonly TicketTypeDefinition[]): TicketGuild & { re
     const claimed = guild.createCategory({ name: 'Tickets — Claimed' });
     const closed = guild.createCategory({ name: 'Tickets — Closed' });
 
-    const config: ConfiguredTicketingConfig = {
+    const { categories, ...stored }: ConfiguredTicketingConfig = {
         modTicketsDeployed: true,
         modTicketsDeployedChannelId: desk.id,
         modTicketsDeployedMessageId: 'panel-message',
@@ -92,13 +93,10 @@ function ticketGuild(types: readonly TicketTypeDefinition[]): TicketGuild & { re
         moderators,
         moderator,
         subject,
+        // The blob, then the slots as the ticket feature's binding rows.
         config: async () => {
-            await ticketingRepo.upsert({
-                guildId: guild.id,
-                config: JSON.stringify(config),
-                ticketNumberInc: 0,
-                entityVersion: 1,
-            });
+            await ticketingRepo.upsert({ guildId: guild.id, config: stored, ticketNumberInc: 0, entityVersion: 1 });
+            await seedTicketCategorySlots(guild.id, categories);
         },
     };
 }

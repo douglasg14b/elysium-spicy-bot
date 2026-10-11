@@ -12,7 +12,7 @@ import { CreateModTicketChannelEmbedComponent } from '../components';
 import { ticketingRepo } from '../data/ticketingRepo';
 import { defaultTicketTypes } from '../data/defaultTicketTypes';
 import { validateTicketingPermissions } from '../utils';
-import { TicketingConfig } from '../data/ticketingSchema';
+import type { StoredTicketingConfig } from '../data/ticketingSchema';
 
 export function DeployTicketCommand() {}
 
@@ -128,17 +128,18 @@ export async function handleDeployTicketSystem(
             // First-time deployment. This is one of the two paths that create a
             // `ticketing_config` row, so it seeds the types — the migration is an
             // `UPDATE` and never reaches a guild that had no row.
-            const newConfig: TicketingConfig = {
+            // No categories: those are binding rows, and a new guild has none until the
+            // dashboard links them.
+            const newConfig: StoredTicketingConfig = {
                 modTicketsDeployed: true,
                 modTicketsDeployedChannelId: targetChannel.id,
                 modTicketsDeployedMessageId: deployedMessage.id,
-                categories: { open: null, claimed: null, closed: null },
                 moderationRoles: [],
                 ticketTypes: defaultTicketTypes(),
             };
             await ticketingRepo.upsert({
                 guildId: interaction.guild.id,
-                config: JSON.stringify(newConfig),
+                config: newConfig,
                 ticketNumberInc: 0,
                 entityVersion: 1,
             });

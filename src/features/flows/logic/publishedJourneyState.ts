@@ -3,6 +3,7 @@ import {
     flowJourneyLinksRepo,
     plannedDeletions,
     plannedRefusals,
+    plannedSettingsKept,
     previewUnpublish,
     type FlowJourneyLinksRepo,
 } from '../../provisioning';
@@ -51,6 +52,8 @@ export interface PublishedJourneyState {
     readonly deletableResources: readonly PublishedResource[];
     /** What unpublishing would refuse to touch, and why. */
     readonly refusedResources: readonly PublishedResource[];
+    /** Settings unpublishing forgets and leaves standing. See `PublishedFlowState.keptSettings`. */
+    readonly keptSettings: readonly PublishedResource[];
     /**
      * Whether buttons posted before this was recorded may still be out there.
      *
@@ -113,6 +116,7 @@ export async function getPublishedJourneyState(
         buttonMessages: perFlow.flat(),
         deletableResources: plannedDeletions(plan).map(toPublishedResource),
         refusedResources: plannedRefusals(plan).map(toPublishedResource),
+        keptSettings: plannedSettingsKept(plan).map(toPublishedResource),
         mayHaveUnrecordedButtons: true,
     };
 }

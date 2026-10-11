@@ -27,11 +27,12 @@
  * then prefix, then substring, and nothing else.
  */
 
-import type {
-    GuildChannel,
-    GuildChannelType,
-    GuildRole,
-    ResourceKind,
+import {
+    isDiscordResourceKind,
+    type GuildChannel,
+    type GuildChannelType,
+    type GuildRole,
+    type ResourceKind,
 } from '../api/types';
 import type { ExistingChannelOption } from './resourceAdoption';
 
@@ -84,6 +85,12 @@ function normalise(name: string): string {
  * freshly opened row is in, and showing nothing until a character is typed would hide
  * the fact that adoption is available at all — which is the discoverability problem the
  * old separate picker had.
+ *
+ * **A disabled option is never suggested ahead of a pickable one**, whatever its rank. It
+ * is still listed — another owner holds it, and the row says so rather than leaving the
+ * operator wondering where their channel went — but after every option they can actually
+ * pick, so an exact-match row someone else owns cannot sit on top as the answer, nor push
+ * a pickable match past `SUGGESTION_LIMIT`.
  */
 export function rankSuggestions(
     options: readonly ExistingChannelOption[],
@@ -100,6 +107,8 @@ export function rankSuggestions(
               });
 
     return matched.sort((left, right) => {
+        const byPickable = Number(!!left.option.disabled) - Number(!!right.option.disabled);
+        if (byPickable !== 0) return byPickable;
         const byRank = RANK_ORDER[left.rank] - RANK_ORDER[right.rank];
         // Ties keep the incoming order, which is the guild's own name sort. A
         // secondary sort by label would reorder two equally-good matches for a
@@ -253,6 +262,9 @@ export function collidableNamesFor(input: {
     readonly channels: readonly GuildChannel[];
     readonly roles: readonly GuildRole[];
 }): string[] {
+    // A ticket type is found by its key and never by name — `installPlan` branches it off
+    // before `findByName` — so nothing in Discord can collide with its label.
+    if (!isDiscordResourceKind(input.kind)) return [];
     if (input.kind === 'role') return input.roles.map((role) => role.name);
 
     const wantedType: GuildChannelType = input.kind === 'category' ? 'category' : 'text';

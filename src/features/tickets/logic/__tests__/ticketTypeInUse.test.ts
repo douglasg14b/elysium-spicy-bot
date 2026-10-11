@@ -86,7 +86,12 @@ function harness(usage: TicketTypeUsageDeps): Harness {
     );
 
     return {
-        deps: { repo: { mutateConfig }, usage },
+        // No journey holds anything here; that refusal is `setTicketTypes.test.ts`'s.
+        deps: {
+            repo: { mutateConfig },
+            usage,
+            holders: { bindings: { listByGuild: async () => [] }, journeys: { listTicketTypeDeclarations: async () => [] } },
+        },
         update,
     };
 }

@@ -19,6 +19,12 @@ export {
 } from './resourceWriteBack';
 export type { ResourceWriteBack, ResourceWriteBackResult } from './resourceWriteBack';
 
+// How install reads and creates a guild's ticket types. Tickets register the
+// implementation at wiring time, so provisioning imports nothing of tickets at run time —
+// the same seam as the write-back, in the other direction.
+export { registerTicketTypeProvider, clearTicketTypeProviderForTests } from './ticketTypeProvider';
+export type { TicketTypeProvider, TicketTypeReading, TicketTypeCreateOutcome } from './ticketTypeProvider';
+
 export { journeysRepo, JourneysRepo, DuplicateJourneyKeyError, MalformedJourneyError } from './data/journeysRepo';
 export type { JourneyEntity } from './data/journeysSchema';
 
@@ -31,11 +37,17 @@ export { resolveFlowJourney } from './logic/resolveFlowJourney';
 export type { ResolvedFlowJourney } from './logic/resolveFlowJourney';
 
 export type {
+    DiscordResourceKind,
     JourneyDeclaration,
     ResourceDeclaration,
     ResourceKind,
 } from './logic/resourceDeclaration';
-export { RESOURCE_KINDS, validateJourneyDeclaration } from './logic/resourceDeclaration';
+export {
+    DISCORD_RESOURCE_KINDS,
+    RESOURCE_KINDS,
+    isDiscordResourceKind,
+    validateJourneyDeclaration,
+} from './logic/resourceDeclaration';
 
 export type { PermissionIntent, PermissionAudience, PermissionAccess } from './logic/permissionIntent';
 export { PERMISSION_AUDIENCES, PERMISSION_ACCESS_LEVELS } from './logic/permissionIntent';
@@ -51,11 +63,21 @@ export {
 export type { InstallPlan, PlanItem, PlanAction, ResourceChoice } from './logic/installPlan';
 export { isPlanApplicable, existsInGuildAs } from './logic/installPlan';
 
-// Binding by id, for features that hold their own bindings (tickets, until one
-// owner-keyed table holds every feature's). `lookupBoundChannel` reports `gone` only
-// when Discord says `Unknown Channel`, so a caller may safely recreate on it.
+// Binding by id, for a feature that owns guild objects without installing them — the
+// ticket feature's three categories. `lookupBoundChannel` reports `gone` only when
+// Discord says `Unknown Channel`, so a caller may safely recreate on it.
 export { lookupBoundChannel } from './logic/lookupBoundChannel';
 export { describeDiscordError } from './logic/discordErrors';
+
+// One record of what the bot owns. `resource_bindings` is owner-keyed: each journey's rows
+// and the ticket feature's sit side by side, so every fence sees every owner. Tickets read
+// and write their rows through the repo directly, and ask `ownerOf` before taking an
+// object, as install does. `loadGuildOwnership` (from the service, above) is the one read.
+export { resourceBindingsRepo, ResourceBindingsRepo } from './data/resourceBindingsRepo';
+export { TICKETS_OWNER, BINDING_OWNER_KINDS, journeyOwner } from './data/resourceBindingsSchema';
+export type { BindingOwner, BindingOwnerKind } from './data/resourceBindingsSchema';
+export { describeOtherHolder, describeOwner, isJourneyBinding, ownerOf } from './logic/bindingOwner';
+export type { GuildOwnership } from './logic/bindingOwner';
 
 // The whole install sequence — rebuild, re-check, apply, write back — as one call.
 // Every surface that offers an install goes through this, so the steps cannot be
@@ -74,15 +96,16 @@ export type { JourneyOperation } from './logic/journeyOperationLock';
 export type { AppliedResource, ApplyInstallPlanResult } from './logic/applyInstallPlan';
 
 // Teardown. The rule the whole surface rests on lives in `buildUnpublishPlan`: only a
-// `created` binding may be deleted from the guild, and a category holding anything this
-// run is not already deleting is refused rather than cascaded.
+// `created` binding no other owner also holds may be deleted from the guild, and a
+// category holding anything this run is not already deleting is refused rather than
+// cascaded.
 export type {
     UnpublishPlan,
     UnpublishItem,
     UnpublishAction,
     RefusalReason,
 } from './logic/unpublishPlan';
-export { plannedDeletions, plannedRefusals } from './logic/unpublishPlan';
+export { plannedDeletions, plannedRefusals, plannedSettingsKept } from './logic/unpublishPlan';
 export type {
     ApplyUnpublishPlanResult,
     UnpublishedResource,
@@ -98,7 +121,7 @@ export type {
     ResourceDriftReport,
     PermissionDifference,
 } from './logic/resourceDrift';
-export { describeDrift, hasDrift } from './logic/resourceDrift';
+export { describeDrift, describeWithheldRepair, hasDrift } from './logic/resourceDrift';
 export type { JourneyDriftPlan, UncheckedResource } from './logic/journeyDriftPlan';
 
 // A resource the journey installed and no longer declares. Not drift — there is no

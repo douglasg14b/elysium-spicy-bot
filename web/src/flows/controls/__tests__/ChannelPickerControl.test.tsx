@@ -32,7 +32,7 @@ function renderPicker(options: { variables: AvailableVariable[]; value?: string;
     const setConfigKey = vi.fn();
     const context: ControlContext = {
         roles: [],
-        channels: [{ id: 'c1', name: 'lobby', type: 'text', parentId: null, parentName: null }],
+        channels: [{ id: 'c1', name: 'lobby', type: 'text', parentId: null, parentName: null, owner: null }],
         ticketTypes: [],
         variables: options.variables,
         requirements: ALL_REQUIREMENTS_AVAILABLE,

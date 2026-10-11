@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModalSubmitInteraction } from 'discord.js';
 import { DEFAULT_TICKET_TYPES } from '../../data/defaultTicketTypes';
-import type { TicketingConfig, TicketingConfigEntity } from '../../data/ticketingSchema';
+import type { StoredTicketingConfig, TicketingConfig, TicketingConfigEntity } from '../../data/ticketingSchema';
 
 /**
  * The config modal's write, which is the highest-risk edit in this step.
@@ -21,21 +21,25 @@ import type { TicketingConfig, TicketingConfigEntity } from '../../data/ticketin
 const mockGet = vi.fn();
 const mockUpdate = vi.fn();
 const mockUpsert = vi.fn();
+const mockWriteCategorySlots = vi.fn();
 
 /*
- * `mutateConfig` over whatever `mockGet` holds, recording what was written in `mockUpdate`
- * the way the real one writes the blob: the modal hands it a mutator and must spread the
- * row it is given, not one it read earlier. Returns null with no row, as the real one does.
+ * `mutateConfig` over whatever `mockGet` holds, recording the blob the mutator returned in
+ * `mockUpdate`: the modal hands it a mutator and must spread the row it is given, not one
+ * it read earlier. Returns null with no row, as the real one does. (The real one's
+ * serializer then drops the assembled `categories` the spread carries; that strip is
+ * `mutateConfig.integration.test.ts`'s subject, against the raw column.)
  */
 async function fakeMutateConfig(
     guildId: string,
-    mutate: (current: TicketingConfigEntity) => TicketingConfig | null
+    mutate: (current: TicketingConfigEntity) => StoredTicketingConfig | null
 ): Promise<TicketingConfig | null> {
     const current = (await mockGet(guildId)) as TicketingConfigEntity | null;
     if (!current) return null;
     const next = mutate(current);
-    if (next) await mockUpdate({ guildId, config: JSON.stringify(next) });
-    return next;
+    if (!next) return null;
+    await mockUpdate({ guildId, config: next });
+    return { ...next, categories: current.config.categories };
 }
 
 vi.mock('../../data/ticketingRepo', () => ({
@@ -43,7 +47,8 @@ vi.mock('../../data/ticketingRepo', () => ({
         get: (...args: unknown[]) => mockGet(...args),
         update: (...args: unknown[]) => mockUpdate(...args),
         upsert: (...args: unknown[]) => mockUpsert(...args),
-        mutateConfig: (guildId: string, mutate: (current: TicketingConfigEntity) => TicketingConfig | null) =>
+        writeCategorySlots: (...args: unknown[]) => mockWriteCategorySlots(...args),
+        mutateConfig: (guildId: string, mutate: (current: TicketingConfigEntity) => StoredTicketingConfig | null) =>
             fakeMutateConfig(guildId, mutate),
     },
 }));
@@ -97,9 +102,9 @@ function interaction(): ModalSubmitInteraction {
     } as unknown as ModalSubmitInteraction;
 }
 
-/** The config as the column actually received it, parsed back from the JSON string. */
-function written(call: ReturnType<typeof vi.fn>): TicketingConfig {
-    return JSON.parse(call.mock.calls[0][0].config as string) as TicketingConfig;
+/** The blob the repo was handed to store, by the first call to `update` or `upsert`. */
+function written(call: ReturnType<typeof vi.fn>): StoredTicketingConfig & { readonly categories?: unknown } {
+    return call.mock.calls[0][0].config as StoredTicketingConfig;
 }
 
 beforeEach(() => {
@@ -133,7 +138,8 @@ describe('a config-modal save', () => {
 
     it('leaves the category slots exactly as the dashboard set them', async () => {
         // Categories are chosen on the dashboard only (issue #22). A save here must not
-        // touch them — not reset them, and not resolve anything by name.
+        // touch them — not reset them, and not resolve anything by name. They are binding
+        // rows now, so "touching them" can only mean writing a slot.
         mockGet.mockResolvedValue({
             id: 1,
             guildId: 'guild-1',
@@ -144,7 +150,7 @@ describe('a config-modal save', () => {
 
         await TicketConfigModalComponent().handler(interaction());
 
-        expect(written(mockUpdate).categories).toEqual(BOUND_CATEGORIES);
+        expect(mockWriteCategorySlots).not.toHaveBeenCalled();
     });
 
     it('preserves a config member this modal has never heard of', async () => {
@@ -178,8 +184,10 @@ describe('a config-modal save', () => {
         // allowed; claiming to be deployed because of it is not.
         expect(saved.modTicketsDeployed).toBe(false);
         expect(saved.modTicketsDeployedChannelId).toBeNull();
-        // Nothing chosen yet, rather than a guess.
-        expect(saved.categories).toEqual({ open: null, claimed: null, closed: null });
+        // No made-up slots: a new row has none until the dashboard links them, and the
+        // slots are not the blob's to hold.
+        expect(saved).not.toHaveProperty('categories');
+        expect(mockWriteCategorySlots).not.toHaveBeenCalled();
     });
 
     it('does not reset deployment state on a guild that is already deployed', async () => {

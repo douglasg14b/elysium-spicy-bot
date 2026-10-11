@@ -7,11 +7,12 @@ import {
     storableTimeZone,
 } from '../../features-system/guild-settings';
 import { reconcileGuildSchedules } from '../../features/flows/logic/reconcileGuildSchedules';
+import { loadGuildOwnership } from '../../features/provisioning';
 import { warningsConfigRepo } from '../../features/warnings/data/warningsConfigRepo';
 import { setWarningsModChannel } from '../../features/warnings/logic/setWarningsModChannel';
 import type { AppEnv } from '../types';
 import { accessibleGuilds } from './guildAccess';
-import { guildChannelBodies, type GuildSettingsBody } from './guildBody';
+import { guildChannelBodies, guildObjectOwner, type GuildRoleBody, type GuildSettingsBody } from './guildBody';
 
 const warningsConfigBody = z.object({
     modChannelId: z.string().min(1, 'Pick a channel. Warning notices do not haunt the void.'),
@@ -68,24 +69,36 @@ export function guildRoutes(): Hono<AppEnv> {
      * the list rather than filtered out here: a consumer that must not offer one as a
      * place to post filters on `type`, and doing it at the endpoint made that
      * invariant invisible to the code depending on it.
+     *
+     * Carries each channel's `owner` too, so a picker can disable what a journey or the
+     * ticket system already holds. That costs two reads — the guild's bindings and its
+     * journeys' names — where this used to be cache-only.
      */
-    app.get('/:guildId/channels', (c) => {
-        return c.json({ channels: guildChannelBodies(c.get('guild')) });
+    app.get('/:guildId/channels', async (c) => {
+        const guild = c.get('guild');
+        const ownership = await loadGuildOwnership(guild.id);
+        return c.json({ channels: guildChannelBodies(guild, ownership) });
     });
 
     // Assignable roles for a guild (role-picker display). Excludes @everyone and
-    // managed (bot/integration) roles — neither can be assigned by a flow.
-    app.get('/:guildId/roles', (c) => {
+    // managed (bot/integration) roles — neither can be assigned by a flow. Each carries
+    // its `owner`, like a channel, so the role adopt picker disables another owner's
+    // role instead of offering an adoption install would block.
+    app.get('/:guildId/roles', async (c) => {
         const guild = c.get('guild');
+        const ownership = await loadGuildOwnership(guild.id);
         const roles = [...guild.roles.cache.values()]
             .filter((role) => isAssignableRole(guild, role.id))
             .sort((a, b) => b.position - a.position)
-            .map((role) => ({
-                id: role.id,
-                name: role.name,
-                color: role.color,
-                position: role.position,
-            }));
+            .map(
+                (role): GuildRoleBody => ({
+                    id: role.id,
+                    name: role.name,
+                    color: role.color,
+                    position: role.position,
+                    owner: guildObjectOwner(ownership, role.id),
+                })
+            );
 
         return c.json({ roles });
     });

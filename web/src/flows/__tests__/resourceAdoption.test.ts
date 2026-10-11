@@ -24,15 +24,16 @@ function textChannel(id: string, name: string, parentName: string | null = null)
         type: 'text',
         parentId: parentName ? `parent-of-${id}` : null,
         parentName,
+        owner: null,
     };
 }
 
 function category(id: string, name: string): GuildChannel {
-    return { id, name, type: 'category', parentId: null, parentName: null };
+    return { id, name, type: 'category', parentId: null, parentName: null, owner: null };
 }
 
 function role(id: string, name: string): GuildRole {
-    return { id, name, color: 0, position: 1 };
+    return { id, name, color: 0, position: 1, owner: null };
 }
 
 const ROLES: GuildRole[] = [
@@ -132,6 +133,27 @@ describe('adoptableRoleOptions', () => {
         expect(adoptableRoleOptions(ROLES, 'category', [])).toEqual([]);
     });
 
+    it('disables a role another owner holds, naming them, but keeps the journey\'s own enabled', () => {
+        // Install refuses to adopt a role another journey holds; the picker must agree.
+        const options = adoptableRoleOptions(
+            [
+                { ...role('r1', 'Verified'), owner: { kind: 'journey', key: 'onboarding', label: 'journey "Onboarding"' } },
+                { ...role('r2', 'Approver'), owner: { kind: 'journey', key: 'appeals', label: 'journey "Appeals"' } },
+                role('r3', 'Free'),
+            ],
+            'role',
+            [],
+            undefined,
+            'onboarding'
+        );
+
+        expect(options).toEqual([
+            { value: 'r1', label: '@Verified' },
+            { value: 'r2', label: '@Approver', disabled: true, heldBy: 'journey "Appeals"' },
+            { value: 'r3', label: '@Free' },
+        ]);
+    });
+
     it('does not offer a role another resource already adopts', () => {
         const declared: ResourceDeclaration[] = [
             {
@@ -210,6 +232,40 @@ describe('adoptableChannelOptions', () => {
             '#general · in Support',
             '#general · in Lounge',
         ]);
+    });
+
+    it('disables a channel another owner holds, naming them, but keeps the journey\'s own enabled', () => {
+        const held = (id: string, owner: GuildChannel['owner']): GuildChannel => ({ ...textChannel(id, `chan-${id}`), owner });
+        const options = adoptableChannelOptions(
+            [
+                held('1', { kind: 'journey', key: 'onboarding', label: 'journey "Onboarding"' }),
+                held('2', { kind: 'journey', key: 'verification', label: 'journey "Verification"' }),
+                held('3', { kind: 'tickets', key: 'tickets', label: 'the ticket system' }),
+                textChannel('4', 'free'),
+            ],
+            'textChannel',
+            [],
+            undefined,
+            'onboarding'
+        );
+
+        expect(options).toEqual([
+            // This journey's own install: re-adopting it is still this one owner.
+            { value: '1', label: '#chan-1' },
+            { value: '2', label: '#chan-2', disabled: true, heldBy: 'journey "Verification"' },
+            { value: '3', label: '#chan-3', disabled: true, heldBy: 'the ticket system' },
+            { value: '4', label: '#free' },
+        ]);
+    });
+
+    it('treats every holder as another owner for a flow in no journey yet', () => {
+        const options = adoptableChannelOptions(
+            [{ ...textChannel('1', 'lobby'), owner: { kind: 'journey', key: 'onboarding', label: 'journey "Onboarding"' } }],
+            'textChannel',
+            []
+        );
+
+        expect(options[0]?.disabled).toBe(true);
     });
 
     it('leaves a top-level channel unqualified', () => {

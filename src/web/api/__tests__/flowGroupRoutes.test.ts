@@ -147,7 +147,8 @@ function bindingRow(overrides: Partial<ResourceBindingEntity> = {}): ResourceBin
     return {
         id: 1,
         guildId: GUILD_ID,
-        journeyKey: 'onboarding',
+        ownerKind: 'journey',
+        ownerKey: 'onboarding',
         resourceKey: 'qa-channel',
         kind: 'textChannel',
         state: 'created',
@@ -635,6 +636,49 @@ describe('committing a group', () => {
             guildId: GUILD_ID,
             flowId: MOVING_FLOW_ID,
             journeyKey: 'the-group',
+        });
+    });
+
+    it('merging two journeys that both declare one ticket type keeps a single declaration, the destination’s', async () => {
+        // A ticket type's key is the type, so both name one thing. Sabotage-verified:
+        // appending the moving declarations as they are hands the repo a duplicate key.
+        const settings = {
+            nameTemplate: 'V{{####}}-{{subject}}',
+            permissions: {
+                subject: { view: true, send: true, readHistory: true, manageMessages: false },
+                opener: { view: true, send: true, readHistory: true, manageMessages: false },
+                staff: { view: true, send: true, readHistory: true, manageMessages: true },
+            },
+            autoClaimOnOpen: false,
+        };
+        const movingType = declaration({ key: 'verification', kind: 'ticketType', defaultName: 'Verify me', ticketType: settings });
+        const movingChannel = declaration({ key: 'qa-channel', defaultName: 'questions' });
+        const destinationType = declaration({
+            key: 'verification',
+            kind: 'ticketType',
+            defaultName: 'Verification',
+            ticketType: settings,
+        });
+        attachFlows(
+            { [MOVING_FLOW_ID]: 'onboarding', [TARGET_FLOW_ID]: 'the-group' },
+            {
+                onboarding: journeyRow({ resources: [movingType, movingChannel] }),
+                'the-group': journeyRow({ journeyKey: 'the-group', name: 'The Group', resources: [destinationType] }),
+            }
+        );
+
+        const previewed = await preview(TARGET_FLOW_ID);
+        expect(await previewed.json()).toMatchObject({
+            canMerge: true,
+            collisions: [],
+            sharedTicketTypes: [{ key: 'verification', movingName: 'Verify me', destinationName: 'Verification' }],
+        });
+
+        const response = await group({ targetFlowId: TARGET_FLOW_ID, resolution: 'merge' });
+
+        expect(response.status).toBe(200);
+        expect(journeysRepoMock.update).toHaveBeenCalledWith(GUILD_ID, 'the-group', {
+            resources: [destinationType, movingChannel],
         });
     });
 

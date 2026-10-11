@@ -27,8 +27,8 @@ function renderPicker(options: { declaredResources?: ResourceDeclaration[]; conf
     const context: ControlContext = {
         roles: [],
         channels: [
-            { id: 'cat-1', name: 'Dungeon', type: 'category', parentId: null, parentName: null },
-            { id: 'c1', name: 'lobby', type: 'text', parentId: 'cat-1', parentName: 'Dungeon' },
+            { id: 'cat-1', name: 'Dungeon', type: 'category', parentId: null, parentName: null, owner: null },
+            { id: 'c1', name: 'lobby', type: 'text', parentId: 'cat-1', parentName: 'Dungeon', owner: null },
         ],
         ticketTypes: [],
         variables: [],

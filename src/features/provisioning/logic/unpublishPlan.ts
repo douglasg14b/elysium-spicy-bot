@@ -1,7 +1,13 @@
 import { ChannelType, PermissionFlagsBits, type Guild } from 'discord.js';
-import type { ResourceBindingEntity } from '../data/resourceBindingsSchema';
+import { journeyOwner, type ResourceBindingEntity } from '../data/resourceBindingsSchema';
+import { describeOtherHolder, type GuildOwnership } from './bindingOwner';
 import { existsInGuildAs, findInterruptedCreates } from './installPlan';
-import type { ResourceKind } from './resourceDeclaration';
+import {
+    isDiscordResource,
+    isDiscordResourceKind,
+    type DiscordResourceKind,
+    type ResourceKind,
+} from './resourceDeclaration';
 
 /**
  * What unpublish will do to one binding.
@@ -70,14 +76,34 @@ export interface UnpublishPlan {
 export interface BuildUnpublishPlanInput {
     readonly guild: Guild;
     readonly journeyKey: string;
+    /** This journey's own rows — what is being torn down. */
     readonly bindings: readonly ResourceBindingEntity[];
+    /**
+     * Every binding in the guild, every owner's, with journey names.
+     *
+     * Read for two fences, and neither can be answered from this journey's rows alone:
+     * crash recovery must not pin an interrupted create on an object another owner
+     * holds, and a `created` object another owner also uses is forgotten, never
+     * deleted. Required, because omitting it is the unsafe direction for both.
+     */
+    readonly ownership: GuildOwnership;
 }
 
 const KIND_LABEL: Record<ResourceKind, string> = {
     category: 'category',
     textChannel: 'channel',
     role: 'role',
+    ticketType: 'ticket type',
 };
+
+/**
+ * Why uninstall forgets a ticket type rather than removing it — Douglas's rule
+ * (2026-10-10): **uninstalling a journey never removes a setting it installed.** The
+ * type may be what other flows, open tickets and the dashboard rely on.
+ */
+function ticketTypeStays(name: string): string {
+    return `The ticket type **${name}** stays, and flows that use it keep working. Uninstalling a journey never removes settings; only this journey's record of it goes.`;
+}
 
 /**
  * Teardown order: children before parents.
@@ -103,6 +129,8 @@ const KIND_ORDER: Record<ResourceKind, number> = {
     textChannel: 0,
     role: 1,
     category: 2,
+    // Only ever forgotten, so its place is immaterial; last keeps the deletions together.
+    ticketType: 3,
 };
 
 /**
@@ -151,7 +179,7 @@ export function survivorsOf(
  * are independent — missing **Manage Roles** must not stop the channels being cleaned
  * up, and an operator who sees the whole plan can fix the permission and re-run.
  */
-function permissionRefusal(guild: Guild, kind: ResourceKind): string | undefined {
+function permissionRefusal(guild: Guild, kind: DiscordResourceKind): string | undefined {
     const me = guild.members.me;
     if (!me) {
         return `The bot's own member is not cached for ${guild.name}, so its permissions cannot be verified. Refusing to delete anything that cannot be checked first.`;
@@ -209,15 +237,21 @@ function roleHierarchyRefusal(guild: Guild, discordId: string): string | undefin
  * made.
  */
 export function buildUnpublishPlan(input: BuildUnpublishPlanInput): UnpublishPlan {
-    const { guild, journeyKey, bindings } = input;
+    const { guild, journeyKey, bindings, ownership } = input;
+    const self = journeyOwner(journeyKey);
 
     const ordered = [...bindings].sort(
         (left, right) => KIND_ORDER[left.kind] - KIND_ORDER[right.kind]
     );
 
     const items: UnpublishItem[] = [];
-    const journeyBoundIds = new Set(
-        bindings.flatMap((binding) => (binding.discordId ? [binding.discordId] : []))
+    /**
+     * Every id any owner in the guild has bound — the same fence install's recovery
+     * uses (`boundInGuild`). It was this journey's ids alone, which let a stale intent
+     * here point at a same-named object another journey or the ticket system holds.
+     */
+    const guildBoundIds = new Set(
+        ownership.bindings.flatMap((binding) => (binding.discordId ? [binding.discordId] : []))
     );
     /**
      * The guild objects this run has already decided to delete.
@@ -237,6 +271,18 @@ export function buildUnpublishPlan(input: BuildUnpublishPlanInput): UnpublishPla
         } as const;
 
         /*
+         * A ticket type, in whatever state: forgotten, never removed. Ahead of every other
+         * branch — the adoption refusal would otherwise keep an adopted type's row forever,
+         * and the delete path below has no business seeing a row whose `discordId` is a
+         * key. The applier carries a `forget` out without asking anyone, the ticket
+         * feature included.
+         */
+        if (!isDiscordResource(binding)) {
+            items.push({ ...base, action: 'forget', explanation: ticketTypeStays(binding.name) });
+            continue;
+        }
+
+        /*
          * An intended row with no id. Either its create never reached Discord, or it did
          * and the install stopped before recording it — the state crash recovery exists
          * for. Forgetting the row in the second case would erase the only thing tying
@@ -248,7 +294,7 @@ export function buildUnpublishPlan(input: BuildUnpublishPlanInput): UnpublishPla
          * Install takes it back as created, after which uninstall deletes it normally.
          */
         if (binding.state === 'intended' && !binding.discordId) {
-            const interrupted = findInterruptedCreates(guild, binding, journeyBoundIds);
+            const interrupted = findInterruptedCreates(guild, binding, guildBoundIds);
             if (interrupted.length > 0) {
                 const noun = KIND_LABEL[binding.kind];
                 items.push({
@@ -327,6 +373,29 @@ export function buildUnpublishPlan(input: BuildUnpublishPlanInput): UnpublishPla
             continue;
         }
 
+        /*
+         * Another owner also holds it — tickets pointed at a category this journey made,
+         * say, before one owner per object was enforced (the 2026-10-10 migration copied
+         * such cross-claims as they were). Deleting it would pull it out from under that
+         * owner, which would then quietly make a replacement.
+         *
+         * So only this journey's record goes, and the object stays standing. A `forget`
+         * rather than a new refusal: removing the row is exactly what should happen, and
+         * a refusal would leave this journey unable to uninstall over something it does
+         * not need. Ahead of the permission check, because a forget needs no permission,
+         * and ahead of `category-has-survivors`, so it holds for an empty category too.
+         */
+        const holder = describeOtherHolder(ownership, discordId, self);
+        if (holder) {
+            items.push({
+                ...base,
+                discordId,
+                action: 'forget',
+                explanation: `This ${KIND_LABEL[binding.kind]} is also used by ${holder}, so it is left standing; only this journey's record of it is removed.`,
+            });
+            continue;
+        }
+
         const missingPermission = permissionRefusal(guild, binding.kind);
         if (missingPermission) {
             items.push({
@@ -387,4 +456,15 @@ export function plannedDeletions(plan: UnpublishPlan): readonly UnpublishItem[] 
 /** What this plan refuses to touch, and why. The part of a preview that matters. */
 export function plannedRefusals(plan: UnpublishPlan): readonly UnpublishItem[] {
     return plan.items.filter((item) => item.action === 'refuse');
+}
+
+/**
+ * The settings this plan forgets and leaves exactly as they are — today, ticket types.
+ *
+ * Its own list because a preview has to show them: the type is real and in use, and an
+ * inventory listing only deletions and refusals would call a journey holding nothing but a
+ * ticket type "nothing live", and offer no uninstall — the one step that lets the type go.
+ */
+export function plannedSettingsKept(plan: UnpublishPlan): readonly UnpublishItem[] {
+    return plan.items.filter((item) => item.action === 'forget' && !isDiscordResourceKind(item.kind));
 }

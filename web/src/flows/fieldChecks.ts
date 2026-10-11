@@ -62,15 +62,26 @@ function passes(check: FieldCheck, value: unknown): boolean {
  *
  * A picker left empty because it names a resource the flow declares but has not
  * installed is ready, not missing — and whether the key is really declared is the
- * server's call (`pendingResourceFields`). The server finds sidecars by their name alone,
- * whatever control wrote them (`collectResourceTargets`), so this does too: asking which
- * controls write one would be a second, narrower copy of a rule that is not about
- * controls.
+ * server's call (`pendingResourceFields`). The server counts a `<field>Key` as a sidecar
+ * only when the field is a picker (`collectResourceTargets`) — it used to go by the name
+ * alone, which read Pick Random's `outputKey` as one — so this asks the same.
  */
 function emptinessIsTheServers(field: BlockConfigField, config: Record<string, unknown>): boolean {
+    if (!RESOURCE_PICKER_CONTROLS.has(field.control)) return false;
     const sidecar = config[resourceKeyFieldFor(field.key)];
     return typeof sidecar === 'string' && sidecar !== '';
 }
+
+/**
+ * The controls that write a `<field>Key` sidecar. Mirrors `RESOURCE_PICKER_CONTROLS` in
+ * `src/features/flows/logic/resourceTargets.ts`; `resourceTargets.test.ts` holds them equal.
+ */
+export const RESOURCE_PICKER_CONTROLS: ReadonlySet<BlockConfigField['control']> = new Set<BlockConfigField['control']>([
+    'rolePicker',
+    'channelPicker',
+    'categoryPicker',
+    'ticketTypePicker',
+]);
 
 /**
  * The complaint about one field of one node, as the author leaves it now.

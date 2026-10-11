@@ -8,10 +8,10 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { GuildChannel, GuildRole, NodeDescriptor, TicketTypeView } from '../../api/types';
+import type { GuildChannel, GuildRole, NodeDescriptor, ResourceDeclaration, TicketTypeView } from '../../api/types';
 import { summarizeFromDescriptor } from '../cardSummary';
 
-const ROLES: GuildRole[] = [{ id: 'r1', name: 'Moderator', color: 0, position: 1 }];
+const ROLES: GuildRole[] = [{ id: 'r1', name: 'Moderator', color: 0, position: 1, owner: null }];
 /** A type the guild declared itself, so nothing about the seeded two is assumed. */
 const TICKET_TYPES: TicketTypeView[] = [
     {
@@ -27,10 +27,10 @@ const TICKET_TYPES: TicketTypeView[] = [
     },
 ];
 const CHANNELS: GuildChannel[] = [
-    { id: 'c1', name: 'general', type: 'text', parentId: null, parentName: null },
+    { id: 'c1', name: 'general', type: 'text', parentId: null, parentName: null, owner: null },
     // A card may still be asked to name a category: an older config could hold one,
     // and blanking the card would hide it rather than show it as wrong.
-    { id: 'cat1', name: 'Support', type: 'category', parentId: null, parentName: null },
+    { id: 'cat1', name: 'Support', type: 'category', parentId: null, parentName: null, owner: null },
 ];
 
 /** A descriptor carrying only what the summary reads. */
@@ -56,10 +56,24 @@ function descriptorWith(
     };
 }
 
+/** A journey's declared ticket type, waiting on install. */
+const DECLARED: ResourceDeclaration[] = [
+    {
+        key: 'front-desk',
+        kind: 'ticketType',
+        defaultName: 'Front desk',
+        ticketType: {
+            nameTemplate: 'desk-{{####}}',
+            permissions: TICKET_TYPES[0].permissions,
+            autoClaimOnOpen: false,
+        },
+    },
+];
+
 const summarize = (
     descriptor: NodeDescriptor,
     config: Record<string, unknown>
-): string => summarizeFromDescriptor(descriptor, config, ROLES, CHANNELS, TICKET_TYPES);
+): string => summarizeFromDescriptor(descriptor, config, ROLES, CHANNELS, TICKET_TYPES, DECLARED);
 
 describe('summarizeFromDescriptor', () => {
     it('falls back to generic copy when a block declares no summary', () => {
@@ -102,6 +116,21 @@ describe('summarizeFromDescriptor', () => {
         // Readable, unlike a stale snowflake — and "any type" would misstate a node that names one.
         expect(summarize(descriptor, { ticketType: 'retired-type' })).toBe('Ticket · retired-type');
         expect(summarize(descriptor, {})).toBe('Ticket · any type');
+    });
+
+    it('names a declared ticket type still waiting on install, rather than "any type"', () => {
+        const descriptor = descriptorWith(
+            [{ key: 'ticketType', label: 'Ticket type', control: 'ticketTypePicker', optional: true }],
+            [{ text: 'Ticket' }, { key: 'ticketType', prefix: ' · ', emptyText: 'any type' }]
+        );
+
+        expect(summarize(descriptor, { ticketTypeKey: 'front-desk' })).toBe('Ticket · Front desk (after install)');
+        // Installed: the key is filled in, and the guild's own label wins.
+        expect(summarize(descriptor, { ticketType: 'aftercare', ticketTypeKey: 'aftercare' })).toBe(
+            'Ticket · Aftercare Check-in'
+        );
+        // A sidecar naming nothing declared is not a waiting type.
+        expect(summarize(descriptor, { ticketTypeKey: 'never-declared' })).toBe('Ticket · any type');
     });
 
     it('keeps prefix and suffix around emptyText when a field is unset', () => {

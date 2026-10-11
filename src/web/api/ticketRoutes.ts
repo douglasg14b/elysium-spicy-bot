@@ -71,6 +71,33 @@ const ticketRolePermissions = z.object({
 });
 
 /**
+ * A ticket type's permission model as a body carries it.
+ *
+ * Exported for the journey save route, which checks a declared ticket type's settings with
+ * this same schema rather than a third copy of the shape.
+ */
+const ticketPermissionModelBody = z.object({
+    subject: ticketRolePermissions,
+    opener: ticketRolePermissions,
+    staff: ticketRolePermissions,
+});
+
+/**
+ * A ticket type's settings — everything but its key and label — as a body carries them.
+ *
+ * Exported for the journey save route, which checks a declared ticket type's settings with
+ * this same schema rather than a second copy of the shape and its messages.
+ */
+export const ticketTypeSettingsBody = z.object({
+    nameTemplate: z
+        .string()
+        .trim()
+        .min(1, 'A channel-name template cannot be empty. Discord insists on calling channels something.'),
+    permissions: ticketPermissionModelBody,
+    autoClaimOnOpen: z.boolean(),
+});
+
+/**
  * A ticket type as the editor submits it.
  *
  * The `type` key comes from the path, not the body, so the two cannot disagree about
@@ -79,22 +106,12 @@ const ticketRolePermissions = z.object({
  * tokens the renderer implements — belong to `upsertTicketType`, which the Discord
  * surface shares.
  */
-const ticketTypeBody = z.object({
+const ticketTypeBody = ticketTypeSettingsBody.extend({
     label: z
         .string()
         .trim()
         .min(1, 'Give the type a label — operators have to pick it out of a list.')
         .max(TICKET_TYPE_LABEL_MAX_LENGTH, TICKET_TYPE_LABEL_TOO_LONG_MESSAGE),
-    nameTemplate: z
-        .string()
-        .trim()
-        .min(1, 'A channel-name template cannot be empty. Discord insists on calling channels something.'),
-    permissions: z.object({
-        subject: ticketRolePermissions,
-        opener: ticketRolePermissions,
-        staff: ticketRolePermissions,
-    }),
-    autoClaimOnOpen: z.boolean(),
 });
 
 /** Discord's limit on a channel name, categories included. */
@@ -164,6 +181,7 @@ const REFUSAL_STATUS: Readonly<Record<SetTicketTypeRefusal, 400 | 404 | 409 | 50
     'no-config': 409,
     'undeclared-type': 404,
     'type-in-use': 409,
+    'held-by-journey': 409,
     'invalid-input': 400,
     'write-failed': 503,
 };
@@ -174,12 +192,15 @@ const REFUSAL_STATUS: Readonly<Record<SetTicketTypeRefusal, 400 | 404 | 409 | 50
  * `busy` is a 423, as a busy journey install is: the page must not reload settings the
  * other save is still changing. `create-failed` is a 502 because Discord refused, not the
  * operator — and the body says what *was* saved, since the rest of the save went through.
+ * `taken-meanwhile` is a 409: a journey claimed a picked category while the save ran, so
+ * the guild's state, not the request, declined that one slot; the rest was saved.
  */
 const SETTINGS_REFUSAL_STATUS: Readonly<Record<SetTicketSettingsRefusal, 400 | 409 | 423 | 502 | 503>> = {
     'no-config': 409,
     'invalid-input': 400,
     busy: 423,
     'create-failed': 502,
+    'taken-meanwhile': 409,
     'write-failed': 503,
 };
 
@@ -389,8 +410,9 @@ export function ticketRoutes(): Hono<AppEnv> {
             moderationRoles: parsed.data.moderationRoles,
         });
 
-        // A failed create still saved what it made, so the panel is redrawn for that too.
-        if (result.ok || result.reason === 'create-failed') {
+        // A refusal that still saved the rest (a failed create, a slot taken meanwhile) is
+        // redrawn for too.
+        if (result.ok || 'config' in result) {
             await updateDeployedTicketMessage(guild.id).catch((error: unknown) => {
                 console.error('[tickets] Settings saved, but the deployed panel could not be refreshed:', error);
             });

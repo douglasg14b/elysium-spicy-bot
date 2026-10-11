@@ -1,6 +1,7 @@
 import { DISCORD_CLIENT } from '../../discordClient';
 import { interactionsRegistry } from '../../features-system/commands';
 import { registerTicketChannelCleanup } from './logic/ticketChannelCleanup';
+import { registerTicketTypeProvisioning } from './logic/ticketTypeProvisioning';
 import {
     CreateModTicketButtonComponent,
     CreateModTicketModalComponent,
@@ -49,4 +50,7 @@ export function initTicketsFeature(): void {
 
     // A ticket forgets a channel Discord has deleted, so no surface links to it.
     registerTicketChannelCleanup(DISCORD_CLIENT);
+
+    // A journey that declares a ticket type installs it through this.
+    registerTicketTypeProvisioning();
 }

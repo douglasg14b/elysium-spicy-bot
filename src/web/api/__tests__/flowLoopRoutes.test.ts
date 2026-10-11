@@ -1,8 +1,16 @@
+import type { Guild } from 'discord.js';
 import { Hono } from 'hono';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { ensureBlocksDiscovered } from '../../../features/flows/blocks/registry';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../../features/flows/data/flowGraph';
 import { flowsRepo } from '../../../features/flows/data/flowsRepo';
+import { applyResourcesToFlows } from '../../../features/flows/logic/applyResourcesToFlows';
+import { flowJourneyLinksRepo } from '../../../features/provisioning/data/flowJourneyLinksRepo';
+import { journeysRepo } from '../../../features/provisioning/data/journeysRepo';
+import { resourceBindingsRepo } from '../../../features/provisioning/data/resourceBindingsRepo';
+import { DEFAULT_TICKET_TYPES, defaultTicketTypes } from '../../../features/tickets/data/defaultTicketTypes';
+import { ticketingRepo } from '../../../features/tickets/data/ticketingRepo';
+import { registerTicketTypeProvisioning } from '../../../features/tickets/logic/ticketTypeProvisioning';
 import { migrateTestDatabase } from '../../../features-system/data-persistence/__tests__/support/migrateTestDatabase';
 import type { AppEnv } from '../../types';
 import { flowRoutes } from '../flowRoutes';
@@ -137,6 +145,7 @@ async function reread(flowId: string) {
 beforeAll(async () => {
     await migrateTestDatabase();
     await ensureBlocksDiscovered();
+    registerTicketTypeProvisioning();
 });
 
 describe('going live into a loop', () => {
@@ -207,6 +216,108 @@ describe('going live into a loop', () => {
 
         expect(switched.status).toBe(200);
         expect(switched.body.enabled).toBe(true);
+    });
+});
+
+/*
+ * A journey's ticket type, waiting and then installed. Write-back can add a loop edge: an
+ * Open Ticket waiting on a declared type has an empty `ticketType` and emits nothing, and
+ * once install fills the key in it emits that type's openings. The exemption write-back has
+ * from the loop check holds because the flow is off while it waits — so the check runs at
+ * switch-on, against the graph with the key filled in.
+ */
+describe('a loop a ticket type install completes', () => {
+    /** Ticket Opened (desk) → Open Ticket (desk), both waiting on the declared type. */
+    const WAITING_SELF_LOOP = graphOf(
+        [
+            {
+                id: 'opened',
+                type: 'trigger.ticketEvent',
+                position: { x: 0, y: 0 },
+                data: { event: 'opened', ticketTypeKey: 'desk-type' },
+            },
+            {
+                id: 'open',
+                type: 'action.openTicket',
+                position: { x: 0, y: 160 },
+                data: { title: 'Again', ticketTypeKey: 'desk-type' },
+            },
+        ],
+        [{ id: 'opened-open', source: 'opened', target: 'open' }]
+    );
+
+    it('cannot switch on while it waits; after install, switching it on into the loop is refused', async () => {
+        const guildId = freshGuild();
+        const flowId = await stored(guildId, 'Desk loop', WAITING_SELF_LOOP, false);
+        await journeysRepo.create({
+            guildId,
+            journeyKey: 'desk',
+            name: 'Desk',
+            resources: [
+                {
+                    key: 'desk-type',
+                    kind: 'ticketType',
+                    defaultName: 'Front desk',
+                    ticketType: {
+                        nameTemplate: 'desk-{{####}}',
+                        permissions: DEFAULT_TICKET_TYPES.verification.permissions,
+                        autoClaimOnOpen: false,
+                    },
+                },
+            ],
+        });
+        await flowJourneyLinksRepo.attach({ guildId, flowId, journeyKey: 'desk' });
+
+        // Waiting: a Ticket Event trigger never runs as "any type" while its type is uninstalled.
+        const waiting = await put<RefusalBody>(guildId, flowId, { enabled: true });
+        expect(waiting.status).toBe(400);
+        expect(waiting.body.error).toMatch(/Install this flow's resources before turning it on — "desk-type"/);
+        expect((await reread(flowId)).enabled).toBe(false);
+
+        // The install, as far as this flow sees it: the type exists, the journey records it,
+        // and write-back fills both nodes in — while the flow is off.
+        await ticketingRepo.upsert({
+            guildId,
+            config: {
+                modTicketsDeployed: false,
+                modTicketsDeployedChannelId: null,
+                modTicketsDeployedMessageId: null,
+                moderationRoles: [],
+                ticketTypes: {
+                    ...defaultTicketTypes(),
+                    'desk-type': {
+                        type: 'desk-type',
+                        label: 'Front desk',
+                        nameTemplate: 'desk-{{####}}',
+                        permissions: DEFAULT_TICKET_TYPES.verification.permissions,
+                        autoClaimOnOpen: false,
+                    },
+                },
+            },
+            ticketNumberInc: 0,
+            entityVersion: 1,
+        });
+        await resourceBindingsRepo.upsertBinding({
+            guildId,
+            owner: { kind: 'journey', key: 'desk' },
+            resourceKey: 'desk-type',
+            kind: 'ticketType',
+            state: 'created',
+            discordId: 'desk-type',
+            name: 'Front desk',
+        });
+        const written = await applyResourcesToFlows({ id: guildId } as Guild, 'desk');
+        expect(written).toMatchObject({ updatedFlowIds: [flowId], writtenCount: 2, unresolved: [] });
+        expect((await reread(flowId)).graph.nodes.map((node) => node.data.ticketType)).toEqual(['desk-type', 'desk-type']);
+
+        const refused = await put<RefusalBody>(guildId, flowId, { enabled: true });
+
+        expect(refused.status).toBe(400);
+        expect(refused.body.error).toBe(
+            'That would make this flow set itself off in a loop: "Desk loop" (Open Ticket) starts "Desk loop" again. ' +
+                "Change it so it doesn't."
+        );
+        expect((await reread(flowId)).enabled).toBe(false);
     });
 });
 

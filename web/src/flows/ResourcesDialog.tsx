@@ -40,7 +40,8 @@ import { IconAlertTriangle } from '@tabler/icons-react';
 import { ApiError } from '../api/client';
 import { getGuildChannels } from '../api/config';
 import { getGuildRoles } from '../api/flows';
-import type { GuildChannel, GuildRole, ResourceDeclaration } from '../api/types';
+import { getTicketsConfig } from '../api/tickets';
+import type { GuildChannel, GuildRole, ResourceDeclaration, TicketTypeView } from '../api/types';
 import { ResourcesPanel } from './ResourcesPanel';
 import { loadResources, resourceTargetIdentity, type ResourceSaveTarget } from './resourceSaveTarget';
 import { useResourceAutosave } from './useResourceAutosave';
@@ -130,7 +131,7 @@ export function ResourcesDialog({
 }: ResourcesDialogProps) {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const { roles, channels } = useGuildDirectory(guildId, opened);
+    const { roles, channels, ticketTypes } = useGuildDirectory(guildId, opened);
 
     useResourceAutosave({
         guildId,
@@ -183,6 +184,8 @@ export function ResourcesDialog({
                         onChange={onChange}
                         roles={roles}
                         channels={channels}
+                        ticketTypes={ticketTypes}
+                        journeyKey={journeyKey}
                         installedKeys={installedKeys}
                         // Derived from the target rather than taken as a prop: the scope of
                         // the copy and the scope of the endpoint are the same fact, and
@@ -215,9 +218,15 @@ export function ResourcesDialog({
 function useGuildDirectory(
     guildId: string,
     active: boolean
-): { roles: GuildRole[]; channels: GuildChannel[] } {
+): { roles: GuildRole[]; channels: GuildChannel[]; ticketTypes: TicketTypeView[] | undefined } {
     const [roles, setRoles] = useState<GuildRole[]>([]);
     const [channels, setChannels] = useState<GuildChannel[]>([]);
+    /**
+     * The server's ticket types, for a declared ticket type's key suggestions and its
+     * "already here" chip. `undefined` until read — and left so when the read fails — so
+     * the chip stays quiet rather than calling every key new on the strength of nothing.
+     */
+    const [ticketTypes, setTicketTypes] = useState<TicketTypeView[] | undefined>(undefined);
 
     useEffect(() => {
         if (!active) return;
@@ -239,12 +248,23 @@ function useGuildDirectory(
             }
         })();
 
+        // Apart from the two above, so a ticket config that will not load costs the
+        // pickers nothing.
+        void (async () => {
+            try {
+                const ticketsConfig = await getTicketsConfig(guildId);
+                if (!cancelled) setTicketTypes(ticketsConfig.types);
+            } catch {
+                // Left unknown, for the reason on the state.
+            }
+        })();
+
         return () => {
             cancelled = true;
         };
     }, [guildId, active]);
 
-    return { roles, channels };
+    return { roles, channels, ticketTypes };
 }
 
 /**

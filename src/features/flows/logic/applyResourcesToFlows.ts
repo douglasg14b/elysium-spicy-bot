@@ -37,8 +37,8 @@ export interface UnresolvedTarget extends ResourceBindingTarget {
  * this is what clears it.
  *
  * **Scoped to the journey's own flows, and that scoping is load-bearing.** A resource
- * key is unique only *within* a journey — `resource_bindings` is keyed on the triple
- * `(guildId, journeyKey, resourceKey)` precisely so two journeys can each declare
+ * key is unique only *within* a journey — `resource_bindings` is keyed on
+ * `(guildId, ownerKind, ownerKey, resourceKey)` precisely so two journeys can each declare
  * `welcome-channel` and mean different channels. This function matches targets on the
  * bare key, so it must be told which flows are in scope or it will write one journey's
  * snowflake into another journey's flows.
@@ -88,13 +88,23 @@ export async function applyResourcesToFlows(
         // operator's, and an install must not quietly flip a flow on because it
         // finally has its channels.
         //
-        // Exempt from the loop check a live flow's save faces (`findFlowCycleThrough`),
-        // and safely so: this writes a Discord snowflake into a `*Key`-companioned field,
-        // and a snowflake never equals an event kind or a ticket type key — so a write
-        // here can only remove a link between flows, never add one. The one exception
-        // is contrived: an API caller pointing an emitting field and a listening field at
-        // the same resource, which no builder control offers (neither the event select
-        // nor the ticket type picker has a sidecar).
+        // Exempt from the loop check a live flow's save faces (`findFlowCycleThrough`) —
+        // and not because a write here cannot add a link between flows. Since a journey
+        // can declare a ticket type, it can: an Open Ticket waiting on a declared type has
+        // an empty `ticketType` and emits nothing, and once this fills in the key it emits
+        // that type's ticket changes, which a Ticket Event trigger elsewhere may listen for.
+        //
+        // The exemption holds because no flow this writes into can be live while it
+        // waits. A flow with a declared key still uninstalled is refused at switch-on
+        // (`uninstalledResourceKeys`), so it is off when this runs; turning it on
+        // afterwards goes through `decidePut`, which runs `findFlowCycleThrough` against
+        // the graph as it stands now, ids filled in. The loop is caught there, at the one
+        // moment it could start running.
+        //
+        // Not covered: a live flow whose field already holds one type while its sidecar
+        // names another. This overwrites the field with the sidecar's key without asking
+        // the loop check. No builder control produces that pair — picking a guild type
+        // clears the sidecar — so it takes a hand-made API call; recorded, not handled.
         await flowsRepo.update(flow.flowId, { graph: result.graph });
         updatedFlowIds.push(flow.flowId);
         writtenCount += written;

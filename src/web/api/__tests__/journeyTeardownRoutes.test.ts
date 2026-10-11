@@ -227,6 +227,7 @@ describe('GET /journeys/:journeyKey/published', () => {
             buttonMessages: [],
             deletableResources: [],
             refusedResources: [],
+            keptSettings: [],
             mayHaveUnrecordedButtons: true,
         });
         expect(previewUnpublishMock).toHaveBeenCalledWith(

@@ -1,4 +1,5 @@
 export * from './initTicketsFeature';
+export { registerTicketTypeProvisioning } from './logic/ticketTypeProvisioning';
 export * from './commands/deployTicketCommand';
 
 // The surface other features consume. Flows reach in through this barrel rather

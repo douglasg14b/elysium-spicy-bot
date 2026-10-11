@@ -13,7 +13,7 @@ import {
     type ServerGuild,
     type ServerRole,
 } from '../../../shared/__tests__/support/testDiscord';
-import type { ResourceBindingEntity } from '../data/resourceBindingsSchema';
+import { TICKETS_OWNER, type ResourceBindingEntity } from '../data/resourceBindingsSchema';
 import type { ApplyDriftRepairResult } from '../logic/applyDriftRepair';
 import type { ApplyInstallPlanResult } from '../logic/applyInstallPlan';
 import { declaredRoleReference } from '../logic/declaredRoleReference';
@@ -806,6 +806,299 @@ describe('provisioning drift, composed against TestDiscord', () => {
     });
 
     /*
+     * One record of what the bot owns (2026-10-10). The ticket feature's category slots
+     * are rows in the same table now, so every fence below sees them with no code of its
+     * own — the point of the shared table.
+     */
+
+    /** The ticket feature linking `discordId` as one of its slots, as a settings save does. */
+    async function ticketsHold(scenario: Scenario, discordId: string, provenance: 'created' | 'adopted' = 'adopted'): Promise<void> {
+        await resourceBindingsRepo.upsertBinding({
+            guildId: scenario.guild.id,
+            owner: TICKETS_OWNER,
+            resourceKey: 'open',
+            kind: 'category',
+            state: provenance,
+            discordId,
+            name: 'Lobby',
+        });
+    }
+
+    it('12e. an interrupted install never takes back a category the ticket system linked in its window', async () => {
+        // Sabotage-verified: filtering `listByGuild` to `owner_kind = 'journey'` hides the
+        // ticket row from `boundInGuild`, and this plans a `recover` — after which this
+        // journey's uninstall would delete the ticket category.
+        const scenario = await startScenario();
+        const lostCategory = await crashAfterCreatingCategory(scenario);
+        await ticketsHold(scenario, lostCategory.id);
+
+        const retry = await withinDeadlockTimeout(
+            previewInstall({ guild: scenario.liveGuild, journey: lobbyJourney(), staffRoleIds: [scenario.staff.id] }),
+            'previewInstall'
+        );
+
+        const item = retry.items.find((entry) => entry.resourceKey === CATEGORY_KEY);
+        expect(item).toMatchObject({ action: 'blocked', discordId: lostCategory.id });
+        // Not a dead end telling the operator to adopt what they cannot.
+        expect(item?.reason).toContain('the ticket system');
+    });
+
+    it('12e2. a recover the ticket system claims after the plan was approved is refused on write, and let go', async () => {
+        // The plan rightly planned a `recover`; the ticket system linked the category
+        // before the apply. A recover settles as `created`, so the write guard has to
+        // apply to it too — or the journey takes back a category tickets now hold.
+        const scenario = await startScenario();
+        const lostCategory = await crashAfterCreatingCategory(scenario);
+        const input = { guild: scenario.liveGuild, journey: lobbyJourney(), staffRoleIds: [scenario.staff.id] };
+
+        const plan = await withinDeadlockTimeout(previewInstall(input), 'previewInstall');
+        expect(plan.items.find((entry) => entry.resourceKey === CATEGORY_KEY)).toMatchObject({
+            action: 'recover',
+            discordId: lostCategory.id,
+        });
+
+        await ticketsHold(scenario, lostCategory.id);
+        const result = await withinDeadlockTimeout(installJourney({ ...input, approvedPlan: plan }), 'installJourney');
+
+        expect(result.failure).toMatch(/bound elsewhere/);
+        expect(result.failure).not.toMatch(/duplicate/);
+        // No row of this journey's claims the category, and no intent is left to try again.
+        expect(await bindingFor(scenario, LOBBY, CATEGORY_KEY)).toBeNull();
+        expect(lostCategory.exists).toBe(true);
+    });
+
+    it('12f. a journey cannot adopt a ticket category, and the refusal names the ticket system', async () => {
+        const scenario = await startScenario();
+        const ticketCategory = scenario.guild.createCategory({ name: 'Open Tickets' });
+        scenario.discord.flushGateway();
+        await ticketsHold(scenario, ticketCategory.id);
+
+        const plan = await withinDeadlockTimeout(
+            previewInstall({
+                guild: scenario.liveGuild,
+                journey: { journeyKey: 'other', name: 'Other', resources: [{ key: 'home', kind: 'category', defaultName: 'Home' }] },
+                choices: { home: { adoptDiscordId: ticketCategory.id } },
+                staffRoleIds: [scenario.staff.id],
+            }),
+            'previewInstall'
+        );
+
+        expect(plan.items[0]).toMatchObject({ action: 'blocked', discordId: ticketCategory.id });
+        expect(plan.items[0]?.reason).toContain('the ticket system');
+    });
+
+    it('12g. one journey cannot adopt what another journey holds', async () => {
+        const scenario = await startScenario();
+        const lobbyInstall = await install(scenario, lobbyJourney());
+        const lobbyCategory = installedChannel(scenario, lobbyInstall, CATEGORY_KEY);
+
+        const plan = await withinDeadlockTimeout(
+            previewInstall({
+                guild: scenario.liveGuild,
+                journey: { journeyKey: 'other', name: 'Other', resources: [{ key: 'home', kind: 'category', defaultName: 'Home' }] },
+                choices: { home: { adoptDiscordId: lobbyCategory.id } },
+                staffRoleIds: [scenario.staff.id],
+            }),
+            'previewInstall'
+        );
+
+        expect(plan.items[0]).toMatchObject({ action: 'blocked', discordId: lobbyCategory.id });
+        // No `journeys` row in this database, so the journey is named by its key.
+        expect(plan.items[0]?.reason).toContain(`journey "${LOBBY}"`);
+    });
+
+    it('12h. an adopt the ticket system claims after the plan was approved is refused on write', async () => {
+        // The plan was right when built; tickets linked the category before the apply.
+        // `settle` is conditional on nobody else holding the object, so this loses.
+        const scenario = await startScenario();
+        const target = scenario.guild.createCategory({ name: 'Home' });
+        scenario.discord.flushGateway();
+        const input = {
+            guild: scenario.liveGuild,
+            journey: { journeyKey: 'other', name: 'Other', resources: [{ key: 'home', kind: 'category' as const, defaultName: 'Home' }] },
+            choices: { home: { adoptDiscordId: target.id } },
+            staffRoleIds: [scenario.staff.id],
+        };
+        const plan = await withinDeadlockTimeout(previewInstall(input), 'previewInstall');
+        expect(plan.items[0]).toMatchObject({ action: 'adopt' });
+
+        await ticketsHold(scenario, target.id);
+        const result = await withinDeadlockTimeout(installJourney({ ...input, approvedPlan: plan }), 'installJourney');
+
+        expect(result.failure).toMatch(/bound elsewhere/);
+        // Nothing was made, so no intent is left for crash recovery to misread later.
+        expect(await bindingFor(scenario, 'other', 'home')).toBeNull();
+    });
+
+    it('12k. an adopted rebind is refused when another owner holds the new object; a created one is not', async () => {
+        // `rebind` carries the same correlated guard as `settle`, against real SQL.
+        const scenario = await startScenario();
+        const intent = await resourceBindingsRepo.recordIntent({
+            guildId: scenario.guild.id,
+            journeyKey: 'other',
+            resourceKey: 'home',
+            kind: 'category',
+            name: 'Home',
+            startsCreate: false,
+        });
+        await resourceBindingsRepo.settle({
+            id: intent.id,
+            discordId: '900000000000000001',
+            kind: 'category',
+            state: 'created',
+            name: 'Home',
+        });
+        await ticketsHold(scenario, '900000000000000002');
+
+        const adopted = await resourceBindingsRepo.rebind({
+            id: intent.id,
+            expectedDiscordId: '900000000000000001',
+            discordId: '900000000000000002',
+            kind: 'category',
+            state: 'adopted',
+            name: 'Home',
+        });
+        expect(adopted).toBe(false);
+        expect(await bindingFor(scenario, 'other', 'home')).toMatchObject({ discordId: '900000000000000001' });
+
+        const created = await resourceBindingsRepo.rebind({
+            id: intent.id,
+            expectedDiscordId: '900000000000000001',
+            discordId: '900000000000000003',
+            kind: 'category',
+            state: 'created',
+            name: 'Home',
+        });
+        expect(created).toBe(true);
+    });
+
+    it('12l. a ticket type keyed like a snowflake holds nothing in Discord: another journey adopts and settles that id', async () => {
+        // A ticket type's binding keeps the type's key in `discord_id`, and a key may be all
+        // digits. Journey A's type row must not fence journey B off the category that
+        // happens to carry the same digits — not in the plan, and not on write.
+        // Sabotage-verified: removing the Discord-kinds filter from `heldByNoOtherOwner`
+        // refuses B's settle; removing both the `loadGuildOwnership` filter and `ownerOf`'s
+        // kind check (either alone is covered by the other) blocks B's plan.
+        const scenario = await startScenario();
+        const target = scenario.guild.createCategory({ name: 'Front Desk' });
+        scenario.discord.flushGateway();
+        await resourceBindingsRepo.upsertBinding({
+            guildId: scenario.guild.id,
+            owner: { kind: 'journey', key: 'journey-a' },
+            resourceKey: 'desk-type',
+            kind: 'ticketType',
+            state: 'created',
+            discordId: target.id,
+            name: 'Front desk',
+        });
+
+        const input = {
+            guild: scenario.liveGuild,
+            journey: {
+                journeyKey: 'journey-b',
+                name: 'Journey B',
+                resources: [{ key: 'desk', kind: 'category' as const, defaultName: 'Desk' }],
+            },
+            choices: { desk: { adoptDiscordId: target.id } },
+            staffRoleIds: [scenario.staff.id],
+        };
+        const plan = await withinDeadlockTimeout(previewInstall(input), 'previewInstall');
+        expect(plan.items[0]).toMatchObject({ action: 'adopt', discordId: target.id });
+
+        const result = await withinDeadlockTimeout(installJourney({ ...input, approvedPlan: plan }), 'installJourney');
+        expect(result.failure).toBeUndefined();
+        expect(await bindingFor(scenario, 'journey-b', 'desk')).toMatchObject({ state: 'adopted', discordId: target.id });
+    });
+
+    it('12h2. two journeys racing to adopt one category: the second write is refused, and holds nothing', async () => {
+        // Both plans are right when built — nobody holds the category yet. Journeys hold
+        // different locks, so both applies run; the conditional `settle` lets one win.
+        // Sabotage-verified: deleting the `ownerKey !=` arm of `heldByNoOtherOwner` lets
+        // journey A settle too — two journeys on one category.
+        const scenario = await startScenario();
+        const target = scenario.guild.createCategory({ name: 'Shared Lounge' });
+        scenario.discord.flushGateway();
+        const inputFor = (journeyKey: string) => ({
+            guild: scenario.liveGuild,
+            journey: {
+                journeyKey,
+                name: journeyKey,
+                resources: [{ key: 'lounge', kind: 'category' as const, defaultName: 'Lounge' }],
+            },
+            choices: { lounge: { adoptDiscordId: target.id } },
+            staffRoleIds: [scenario.staff.id],
+        });
+
+        const planA = await withinDeadlockTimeout(previewInstall(inputFor('journey-a')), 'previewInstall A');
+        const planB = await withinDeadlockTimeout(previewInstall(inputFor('journey-b')), 'previewInstall B');
+        expect(planA.items[0]).toMatchObject({ action: 'adopt' });
+        expect(planB.items[0]).toMatchObject({ action: 'adopt' });
+
+        const resultB = await withinDeadlockTimeout(
+            installJourney({ ...inputFor('journey-b'), approvedPlan: planB }),
+            'installJourney B'
+        );
+        expect(resultB.failure).toBeUndefined();
+
+        const resultA = await withinDeadlockTimeout(
+            installJourney({ ...inputFor('journey-a'), approvedPlan: planA }),
+            'installJourney A'
+        );
+        expect(resultA.failure).toMatch(/bound elsewhere/);
+        expect(await bindingFor(scenario, 'journey-a', 'lounge')).toBeNull();
+        expect(await bindingFor(scenario, 'journey-b', 'lounge')).toMatchObject({ state: 'adopted', discordId: target.id });
+    });
+
+    it('12i. uninstalling a journey whose empty created category tickets use leaves it standing', async () => {
+        // Sabotage-verified: removing the shared-owner `forget` in `buildUnpublishPlan`
+        // deletes the category out from under the ticket system — empty, so no survivor
+        // stops it.
+        const scenario = await startScenario();
+        const journey: JourneyDeclaration = {
+            journeyKey: 'arrivals',
+            name: 'Arrivals',
+            resources: [{ key: 'arrivals-category', kind: 'category', defaultName: 'Arrivals' }],
+        };
+        const result = await install(scenario, journey);
+        const category = installedChannel(scenario, result, 'arrivals-category');
+        await ticketsHold(scenario, category.id);
+
+        const teardown = await withinDeadlockTimeout(previewUnpublish(scenario.liveGuild, 'arrivals'), 'previewUnpublish');
+        expect(teardown.items[0]).toMatchObject({ action: 'forget', discordId: category.id });
+        expect(teardown.items[0]?.explanation).toContain('the ticket system');
+
+        await withinDeadlockTimeout(unpublishJourney({ guild: scenario.liveGuild, approvedPlan: teardown }), 'unpublishJourney');
+
+        expect(category.exists).toBe(true);
+        expect(await bindingFor(scenario, 'arrivals', 'arrivals-category')).toBeNull();
+    });
+
+    it('12j. drift on a category the ticket system also holds is reported, but not repairable', async () => {
+        const scenario = await startScenario();
+        const result = await install(scenario, lobbyJourney());
+        const lobbyCategory = installedChannel(scenario, result, CATEGORY_KEY);
+        await ticketsHold(scenario, lobbyCategory.id, 'created');
+        lobbyCategory.rename('Tickets');
+        scenario.discord.flushGateway();
+
+        const drift = await checkDrift(scenario, lobbyJourney());
+
+        expect(drift.drifted.find((report) => report.resourceKey === CATEGORY_KEY)).toMatchObject({
+            repairable: false,
+            sharedWith: 'the ticket system',
+        });
+
+        // And repairing it anyway — the key approved — refuses it, naming the owner, and
+        // leaves Discord's name exactly as the ticket system has it.
+        const repaired = await repair(scenario, lobbyJourney(), drift, [CATEGORY_KEY]);
+        const outcome = repaired.results.find((entry) => entry.resourceKey === CATEGORY_KEY);
+        expect(outcome).toMatchObject({ outcome: 'refused' });
+        expect(outcome?.explanation).toContain('the ticket system');
+        scenario.discord.flushGateway();
+        expect(lobbyCategory.name).toBe('Tickets');
+    });
+
+    /*
      * Recovery searches by the intent's name, inside a window after the intent's time. A
      * retry reuses the row, so unless a create refreshes it, a retry after a rename — or
      * days later — is searched for under the old name or outside the window.
@@ -824,7 +1117,13 @@ describe('provisioning drift, composed against TestDiscord', () => {
         expect(retried).toMatchObject({ id: first.id, state: 'intended', name: 'lounge' });
         expect(retried.createdAt.getTime()).toBeGreaterThan(new Date(longAgo).getTime());
 
-        await resourceBindingsRepo.settle({ id: first.id, discordId: '123456789012345678', state: 'created', name: 'lounge' });
+        await resourceBindingsRepo.settle({
+            id: first.id,
+            discordId: '123456789012345678',
+            kind: 'textChannel',
+            state: 'created',
+            name: 'lounge',
+        });
         const settled = await resourceBindingsRepo.recordIntent({ ...intent, name: 'renamed', startsCreate: true });
         expect(settled).toMatchObject({ state: 'created', discordId: '123456789012345678', name: 'lounge' });
     });

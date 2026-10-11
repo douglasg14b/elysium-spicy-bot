@@ -3,6 +3,7 @@ import {
     previewUnpublish,
     plannedDeletions,
     plannedRefusals,
+    plannedSettingsKept,
     resolveFlowJourney,
     type RefusalReason,
 } from '../../provisioning';
@@ -64,6 +65,12 @@ export interface PublishedFlowState {
     /** What unpublishing would refuse to touch, and why. */
     readonly refusedResources: readonly PublishedResource[];
     /**
+     * Settings the journey installed that unpublishing forgets and leaves standing — its
+     * ticket types, each with the sentence saying so. Not refusals: nothing is refused,
+     * the record goes and the setting stays, by rule (Douglas, 2026-10-10).
+     */
+    readonly keptSettings: readonly PublishedResource[];
+    /**
      * Whether buttons posted before this was recorded may still be out there.
      *
      * Always true, and deliberately not computed: the table was not backfilled, and it
@@ -123,6 +130,7 @@ export async function getPublishedFlowState(
         })),
         deletableResources: plan ? plannedDeletions(plan).map(toPublishedResource) : [],
         refusedResources: plan ? plannedRefusals(plan).map(toPublishedResource) : [],
+        keptSettings: plan ? plannedSettingsKept(plan).map(toPublishedResource) : [],
         mayHaveUnrecordedButtons: true,
     };
 }

@@ -1,6 +1,6 @@
 # #22 — Ticket categories are bound by id, and provisioned like journey resources
 
-> **Status**: Slices A–D built 2026-10-01; live run pending
+> **Status**: Slices A–D built 2026-10-01; live run pending. Where the bindings live was superseded on 2026-10-10 by [shared-binding-table.md](shared-binding-table.md): the three slots are now `resource_bindings` rows owned by the ticket feature, and the promised ticket intent row was withdrawn
 > **Owner**: Douglas
 > **Issue**: [#22](https://github.com/douglasg14b/discord-spicy-bot/issues/22)
 > **Unblocks**: PRD §5.7 *Subsystem configuration is a declarable resource*
@@ -105,7 +105,9 @@ is still creating is refused, not queued.
 **Degraded path, stated rather than built around:** a crash between creating a category
 and recording it leaves the slot as it was and a same-named category in the guild. The
 slot control lists that category, so the next visit adopts it. No intent row for tickets
-in this step; the shared table brings one.
+in this step. ~~The shared table brings one.~~ *Withdrawn 2026-10-10* — the shared table
+did not bring one, by Douglas's decision: the worst case is one empty duplicate category,
+deleted by hand ([shared-binding-table.md](shared-binding-table.md)).
 
 ### Resolving a slot when a ticket moves
 
@@ -129,7 +131,8 @@ in this step; the shared table brings one.
   made is deleted again rather than left as an orphan.
 - **Accepted:** a recreate whose answer never arrives (a timeout after Discord made it)
   leaves the slot unchanged, so the next ticket makes another. The stray carries the
-  expected name; an intent row would close it, and the shared binding table brings one.
+  expected name; an intent row would close it. ~~The shared binding table brings one.~~
+  *Withdrawn 2026-10-10*, as above: still accepted, not closed.
 
 ### Writers of the config blob
 

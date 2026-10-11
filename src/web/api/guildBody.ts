@@ -1,4 +1,10 @@
 import { ChannelType, type Guild, type GuildBasedChannel } from 'discord.js';
+import {
+    describeOwner,
+    ownerOf,
+    type BindingOwnerKind,
+    type GuildOwnership,
+} from '../../features/provisioning';
 
 /**
  * The guild directory shapes the browser receives.
@@ -63,6 +69,23 @@ import { ChannelType, type Guild, type GuildBasedChannel } from 'discord.js';
 export const GUILD_CHANNEL_TYPES = ['text', 'category'] as const;
 export type GuildChannelType = (typeof GUILD_CHANNEL_TYPES)[number];
 
+/**
+ * Who already holds a channel, category or role: a journey, or the ticket system.
+ *
+ * `kind` and `key` let a picker tell its *own* holdings (the journey being edited) from
+ * someone else's; `label` is how the operator is told, written server-side so every
+ * surface names an owner the same way ("the ticket system", `journey "Onboarding"`).
+ *
+ * **One owner, the first in `(kind, key)` order.** Two can hold an object only through a
+ * cross-claim from before the one-owner rule (the 2026-10-10 migration logs them). There
+ * a picker may judge it by the wrong one; the server, which excludes the asker, decides.
+ */
+export interface GuildObjectOwnerBody {
+    readonly kind: BindingOwnerKind;
+    readonly key: string;
+    readonly label: string;
+}
+
 export interface GuildChannelBody {
     readonly id: string;
     readonly name: string;
@@ -78,6 +101,14 @@ export interface GuildChannelBody {
      * not make a caller depend on. Sending the name makes a row self-describing.
      */
     readonly parentName: string | null;
+    /**
+     * The owner holding a settled binding for this channel, or null when nobody does.
+     *
+     * A category or channel belongs to one owner (2026-10-10), so the pickers disable one
+     * held by somebody else rather than offering an adoption the server refuses. Null for
+     * an object only an `intended` row names — that row has no id yet.
+     */
+    readonly owner: GuildObjectOwnerBody | null;
 }
 
 export const GUILD_CHANNEL_KEYS = [
@@ -86,13 +117,23 @@ export const GUILD_CHANNEL_KEYS = [
     'type',
     'parentId',
     'parentName',
+    'owner',
 ] as const satisfies readonly (keyof GuildChannelBody)[];
+
+/** Gated by shape as well as by name, as `TICKET_ROLE_PERMISSIONS_KEYS` is one level down. */
+export const GUILD_OBJECT_OWNER_KEYS = ['kind', 'key', 'label'] as const satisfies readonly (keyof GuildObjectOwnerBody)[];
 
 export interface GuildRoleBody {
     readonly id: string;
     readonly name: string;
     readonly color: number;
     readonly position: number;
+    /**
+     * The owner holding a settled binding for this role, or null — as on a channel. A
+     * journey can bind a role, and the install plan refuses to adopt one another owner
+     * holds, so the role picker has to know too or it offers what install will block.
+     */
+    readonly owner: GuildObjectOwnerBody | null;
 }
 
 export const GUILD_ROLE_KEYS = [
@@ -100,6 +141,7 @@ export const GUILD_ROLE_KEYS = [
     'name',
     'color',
     'position',
+    'owner',
 ] as const satisfies readonly (keyof GuildRoleBody)[];
 
 /** The wire shape for guild settings, as every settings route answers it. */
@@ -121,6 +163,7 @@ export const GUILD_SETTINGS_KEYS = [
 
 type KeyListsComplete =
     | Exclude<keyof GuildChannelBody, (typeof GUILD_CHANNEL_KEYS)[number]>
+    | Exclude<keyof GuildObjectOwnerBody, (typeof GUILD_OBJECT_OWNER_KEYS)[number]>
     | Exclude<keyof GuildRoleBody, (typeof GUILD_ROLE_KEYS)[number]>
     | Exclude<keyof GuildSettingsBody, (typeof GUILD_SETTINGS_KEYS)[number]>;
 
@@ -160,8 +203,11 @@ function channelTypeOf(channel: GuildBasedChannel): GuildChannelType | undefined
  * Sorted by name for stable display, as before. Categories now appear alongside
  * channels rather than being filtered out — every consumer that must not treat one as
  * postable filters on `type`, which is the point of sending it.
+ *
+ * `ownership` is the guild's bindings, read once by the route, so each channel's `owner`
+ * costs no query of its own.
  */
-export function guildChannelBodies(guild: Guild): GuildChannelBody[] {
+export function guildChannelBodies(guild: Guild, ownership: GuildOwnership): GuildChannelBody[] {
     const channels = [...guild.channels.cache.values()];
     const nameById = new Map(channels.map((channel) => [channel.id, channel.name]));
 
@@ -182,8 +228,18 @@ export function guildChannelBodies(guild: Guild): GuildChannelBody[] {
                     type,
                     parentId,
                     parentName: parentId ? nameById.get(parentId) ?? null : null,
+                    owner: guildObjectOwner(ownership, channel.id),
                 } satisfies GuildChannelBody,
             ];
         })
         .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+/**
+ * Who holds a guild object, as the directory reports it — the one place a channel's or a
+ * role's `owner` is built, so both name owners the same way.
+ */
+export function guildObjectOwner(ownership: GuildOwnership, discordId: string): GuildObjectOwnerBody | null {
+    const owner = ownerOf(ownership.bindings, discordId);
+    return owner ? { kind: owner.kind, key: owner.key, label: describeOwner(owner, ownership.journeyNames) } : null;
 }

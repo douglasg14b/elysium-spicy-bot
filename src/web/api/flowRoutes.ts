@@ -393,7 +393,8 @@ function journeyInstallRefusal(
  * Every item, including the ones needing no work: "what will this do to my server" is
  * only answerable if the unchanged things are visible too. `reason` carries both the
  * blocker's explanation and the note on a create that replaces something deleted, so a
- * client shows it without asking which kind it is.
+ * client shows it without asking which kind it is. `note` is what blocks nothing — the
+ * ticket feature not being fully set up, on a ticket type item.
  */
 function installPlanBody(plan: InstallPlan) {
     return {
@@ -407,6 +408,7 @@ function installPlanBody(plan: InstallPlan) {
             name: item.name,
             discordId: item.discordId,
             reason: item.reason,
+            note: item.note,
         })),
     };
 }

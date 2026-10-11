@@ -1,19 +1,57 @@
+import type { TicketTypeSettings } from '../../tickets/data/ticketingSchema';
 import { declaredRoleReferencesIn } from './declaredRoleReference';
 import type { PermissionIntent } from './permissionIntent';
 
 /**
- * What kind of guild object a resource is.
+ * The kinds of resource that are objects in the Discord guild: categories, channels and
+ * roles. Each has a snowflake, can be created, renamed and deleted, and is held by one
+ * owner at a time.
+ *
+ * Split out of {@link RESOURCE_KINDS} because the fourth kind, `ticketType`, is none of
+ * those things — it is a row in the guild's ticket config, named by its key. Every helper
+ * that asks Discord about an object takes a {@link DiscordResourceKind}, so handing one a
+ * ticket type does not compile, and each stage branches on {@link isDiscordResourceKind}
+ * once, at the top of its per-resource loop.
+ */
+export const DISCORD_RESOURCE_KINDS = ['category', 'textChannel', 'role'] as const;
+export type DiscordResourceKind = (typeof DISCORD_RESOURCE_KINDS)[number];
+
+/**
+ * What kind of thing a resource is.
  *
  * A closed union because each value has creation code behind it and an unrecognised
  * kind has nothing to fall back on — the same reasoning as `TICKET_STATUSES`. Adding
  * a kind is a deliberate edit here plus a branch in the applier, which is the point.
  *
+ * `ticketType` is a ticket type in the guild's ticket settings (PRD §5.7, subsystem
+ * configuration as a declarable resource). Install creates it only if absent, never
+ * changes one that exists, and uninstall never removes it — it only forgets that the
+ * journey installed it (Douglas, 2026-10-10). The ticket feature does the work behind
+ * a provider hook (`ticketTypeProvider.ts`), so provisioning imports nothing of tickets
+ * at run time.
+ *
  * Deliberately *not* `TICKET_TYPES`, which this comment used to cite: that union was
  * deleted when a ticket type became a row in `ticketing_config` rather than a branch
  * in source. Ticket *status* stayed closed for exactly the reason stated here.
  */
-export const RESOURCE_KINDS = ['category', 'textChannel', 'role'] as const;
+export const RESOURCE_KINDS = [...DISCORD_RESOURCE_KINDS, 'ticketType'] as const;
 export type ResourceKind = (typeof RESOURCE_KINDS)[number];
+
+/** Whether a resource kind is an object in the Discord guild, rather than a ticket type. */
+export function isDiscordResourceKind(kind: ResourceKind): kind is DiscordResourceKind {
+    return (DISCORD_RESOURCE_KINDS as readonly ResourceKind[]).includes(kind);
+}
+
+/**
+ * {@link isDiscordResourceKind}, asked of a declaration, binding or plan item and
+ * narrowing that value — so the branch at the top of a loop hands the rest of the body a
+ * value every Discord helper accepts.
+ */
+export function isDiscordResource<T extends { readonly kind: ResourceKind }>(
+    value: T
+): value is T & { readonly kind: DiscordResourceKind } {
+    return isDiscordResourceKind(value.kind);
+}
 
 /**
  * A resource a journey needs, named by a key that is stable across guilds.
@@ -35,8 +73,22 @@ export interface ResourceDeclaration {
 
     readonly kind: ResourceKind;
 
-    /** Pre-filled in the install plan; the operator may rename it. */
+    /**
+     * Pre-filled in the install plan; the operator may rename it.
+     *
+     * For a `ticketType` this is the type's **label** (45 characters at most, the mod
+     * ticket picker's limit); the key is the resource key.
+     */
     readonly defaultName: string;
+
+    /**
+     * The settings a `ticketType` resource is created with, when install finds no type of
+     * this key. Required for that kind and refused on every other.
+     *
+     * Only ever used to *create*: a type that already exists is used as it stands, and
+     * install never rewrites it — whoever made it, the dashboard included.
+     */
+    readonly ticketType?: TicketTypeSettings;
 
     /**
      * The key of the category this belongs under, for channels.
@@ -154,6 +206,10 @@ export function validateJourneyDeclaration(journey: JourneyDeclaration): void {
     }
 
     for (const resource of journey.resources) {
+        validateTicketTypeShape(resource);
+    }
+
+    for (const resource of journey.resources) {
         if (!resource.parentKey) continue;
 
         const parent = byKey.get(resource.parentKey);
@@ -230,6 +286,50 @@ export function validateJourneyDeclaration(journey: JourneyDeclaration): void {
                 );
             }
         }
+    }
+}
+
+/**
+ * Check a resource carries the fields its kind uses, and none of the ones it cannot.
+ *
+ * Structural only, so it holds on every read of a journey without asking the ticket
+ * feature anything. Whether a ticket type's template renders is a content rule, checked
+ * on save by the ticket feature's own `ticketTypeDefinitionProblem` (`journeyRoutes`).
+ *
+ * A ticket type is not a Discord object: it sits under no category, has no channel
+ * overwrites, and has no snowflake to adopt — its key is its identity, and an existing
+ * type of that key is reused without being named. Each of those fields would be stored
+ * and silently ignored, so each is refused instead.
+ */
+function validateTicketTypeShape(resource: ResourceDeclaration): void {
+    if (resource.kind !== 'ticketType') {
+        if (resource.ticketType) {
+            throw new ResourceDeclarationError(
+                `Resource "${resource.key}" is a ${resource.kind} but carries ticket type settings. Only a ticket type has those.`
+            );
+        }
+        return;
+    }
+
+    if (!resource.ticketType) {
+        throw new ResourceDeclarationError(
+            `Ticket type "${resource.key}" has no settings to create it with.`
+        );
+    }
+    if (resource.parentKey) {
+        throw new ResourceDeclarationError(
+            `Ticket type "${resource.key}" declares a parent. Ticket types do not live under categories.`
+        );
+    }
+    if (resource.permissions?.length) {
+        throw new ResourceDeclarationError(
+            `Ticket type "${resource.key}" declares channel permissions. A ticket type's access is its own permission settings.`
+        );
+    }
+    if (resource.adoptDiscordId) {
+        throw new ResourceDeclarationError(
+            `Ticket type "${resource.key}" names something to adopt. A ticket type is found by its key; one that already exists is used as it is.`
+        );
     }
 }
 

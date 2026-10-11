@@ -71,6 +71,26 @@ export interface GuildChannel {
     parentId: string | null;
     /** Resolved server-side, so a row describes itself without a second lookup. */
     parentName: string | null;
+    /**
+     * Who already holds this channel, or null. A channel belongs to one owner, so a picker
+     * disables one held by somebody else — while keeping the journey being edited's own
+     * holdings pickable. Mirrors `GuildChannelBody.owner`.
+     */
+    owner: GuildObjectOwner | null;
+}
+
+/** Mirrors `BINDING_OWNER_KINDS` in `src/features/provisioning/data/resourceBindingsSchema.ts`. */
+export const BINDING_OWNER_KINDS = ['journey', 'tickets'] as const;
+export type BindingOwnerKind = (typeof BINDING_OWNER_KINDS)[number];
+
+/**
+ * Who holds a channel, category or role. Mirrors `GuildObjectOwnerBody`. `label` is
+ * server-written: "the ticket system", `journey "Onboarding"`.
+ */
+export interface GuildObjectOwner {
+    kind: BindingOwnerKind;
+    key: string;
+    label: string;
 }
 
 export const GUILD_CHANNEL_KEYS = [
@@ -79,13 +99,17 @@ export const GUILD_CHANNEL_KEYS = [
     'type',
     'parentId',
     'parentName',
+    'owner',
 ] as const satisfies readonly (keyof GuildChannel)[];
+
+export const GUILD_OBJECT_OWNER_KEYS = ['kind', 'key', 'label'] as const satisfies readonly (keyof GuildObjectOwner)[];
 
 export const GUILD_ROLE_KEYS = [
     'id',
     'name',
     'color',
     'position',
+    'owner',
 ] as const satisfies readonly (keyof GuildRole)[];
 
 /** Mirrors `GUILD_SETTINGS_KEYS` in `src/web/api/guildBody.ts`. */
@@ -99,6 +123,7 @@ export const GUILD_SETTINGS_KEYS = [
 /** Fails to compile if a guild wire shape gains a member absent from its list above. */
 type GuildKeyListsAreComplete =
     | Exclude<keyof GuildChannel, (typeof GUILD_CHANNEL_KEYS)[number]>
+    | Exclude<keyof GuildObjectOwner, (typeof GUILD_OBJECT_OWNER_KEYS)[number]>
     | Exclude<keyof GuildRole, (typeof GUILD_ROLE_KEYS)[number]>
     | Exclude<keyof GuildSettings, (typeof GUILD_SETTINGS_KEYS)[number]>;
 
@@ -142,6 +167,8 @@ export interface GuildRole {
     /** Discord role colour as a 24-bit int. `0` means "no colour" (inherit). */
     color: number;
     position: number;
+    /** Who already holds this role, or null — as on a channel. Mirrors `GuildRoleBody.owner`. */
+    owner: GuildObjectOwner | null;
 }
 
 /* ------------------------------------------------------------------ *
@@ -1287,6 +1314,12 @@ export interface PublishedFlowState {
     buttonMessages: PublishedButtonMessage[];
     deletableResources: PublishedResource[];
     refusedResources: PublishedResource[];
+    /**
+     * Settings the journey installed — ticket types — that uninstalling forgets and leaves
+     * exactly as they are, each with the server's sentence saying so. Neither deleted nor
+     * refused: kept by rule.
+     */
+    keptSettings: PublishedResource[];
     mayHaveUnrecordedButtons: boolean;
 }
 
@@ -1317,13 +1350,21 @@ export interface InstallPlanItem {
     action: InstallPlanAction;
     /** The name the resource will have, or already has. */
     name: string;
-    /** Set for `adopt`, `recover` and `reuse`, and on a `blocked` name collision. */
+    /**
+     * Set for `adopt`, `recover` and `reuse`, and on a `blocked` name collision. For a
+     * `ticketType` it is the type's key, never a snowflake.
+     */
     discordId?: string;
     /**
      * Why this is blocked, why a create is replacing something deleted, or what an
      * interrupted install left for a `recover` to record.
      */
     reason?: string;
+    /**
+     * Something worth knowing that blocks nothing — today the ticket feature's "not fully
+     * set up yet" on a ticket type item.
+     */
+    note?: string;
 }
 
 /**
@@ -1415,6 +1456,12 @@ export interface DriftedResource {
     kind: string;
     drift: DriftDetail[];
     repairable: boolean;
+    /**
+     * Why repair is withheld, server-authored; null when `repairable`. Since a third
+     * reason — another owner also holds the object — joined adoption and wrong-type, the
+     * browser no longer picks the sentence itself.
+     */
+    withheldReason: string | null;
 }
 
 /**
@@ -1530,12 +1577,31 @@ export interface FlowValidationIssue {
 }
 
 /**
- * What kind of guild object a declared resource is.
+ * The kinds of resource that are objects in the Discord guild — categories, channels and
+ * roles, each with a snowflake.
+ *
+ * Mirrors `DISCORD_RESOURCE_KINDS` on the server. The fourth kind, `ticketType`, is a row
+ * in the guild's ticket settings named by its key: no parent, no channel permissions,
+ * nothing to adopt by id, and no name to collide with in Discord. Anything that reaches
+ * for the channel or role list branches on {@link isDiscordResourceKind} first.
+ */
+export const DISCORD_RESOURCE_KINDS = ['category', 'textChannel', 'role'] as const;
+export type DiscordResourceKind = (typeof DISCORD_RESOURCE_KINDS)[number];
+
+/**
+ * What kind of thing a declared resource is.
  *
  * Mirrors `RESOURCE_KINDS` on the server. A closed union, because each value has
  * creation code behind it and an unrecognised kind has nothing to fall back on.
+ * `resourceKindMirrorDrift.test.ts` holds both arrays equal across the wire.
  */
-export type ResourceKind = 'category' | 'textChannel' | 'role';
+export const RESOURCE_KINDS = [...DISCORD_RESOURCE_KINDS, 'ticketType'] as const;
+export type ResourceKind = (typeof RESOURCE_KINDS)[number];
+
+/** Whether a resource kind is an object in the Discord guild, rather than a ticket type. */
+export function isDiscordResourceKind(kind: ResourceKind): kind is DiscordResourceKind {
+    return (DISCORD_RESOURCE_KINDS as readonly ResourceKind[]).includes(kind);
+}
 
 export type PermissionAudience = 'everyone' | 'roles' | 'staff' | 'subject';
 export type PermissionAccess = 'hidden' | 'readOnly' | 'readWrite';
@@ -1555,7 +1621,13 @@ export interface PermissionIntent {
 export interface ResourceDeclaration {
     key: string;
     kind: ResourceKind;
+    /** For a `ticketType`, the type's label (45 characters at most). */
     defaultName: string;
+    /**
+     * Set for a `ticketType`, and only for one: the settings install creates the type with
+     * when the server has none of this key. An existing type is used as it is.
+     */
+    ticketType?: TicketTypeSettings;
     parentKey?: string;
     permissions?: PermissionIntent[];
     description?: string;
@@ -1633,6 +1705,12 @@ export interface GroupPreview {
     moving: MovingResource[];
     canMerge: boolean;
     collisions: KeyCollision[];
+    /**
+     * Ticket types both sides declare under one key. Not collisions — the key is the type,
+     * so the two are one type; merging keeps the destination's declaration. Mirrors
+     * `SharedTicketType` in `src/features/provisioning/logic/journeyMergePlan.ts`.
+     */
+    sharedTicketTypes: KeyCollision[];
     /** Live resources that "leave behind" would strand. The loud half of the dialog. */
     orphaned: MovingResource[];
 }
@@ -1769,6 +1847,12 @@ export interface TicketTypeView {
     permissions: TicketPermissionModel;
     autoClaimOnOpen: boolean;
 }
+
+/**
+ * A ticket type's settings without its key and label — what a journey declares a ticket
+ * type with. Mirrors `TicketTypeSettings` in `src/features/tickets/data/ticketingSchema.ts`.
+ */
+export type TicketTypeSettings = Omit<TicketTypeView, 'type' | 'label'>;
 
 /** The three places a ticket channel can sit, in the order the page lists them. */
 export const TICKET_CATEGORY_SLOTS = ['open', 'claimed', 'closed'] as const;
@@ -1951,6 +2035,7 @@ export const DRIFT_RESOURCE_KEYS = [
     'kind',
     'drift',
     'repairable',
+    'withheldReason',
 ] as const satisfies readonly (keyof DriftedResource)[];
 
 export const ORPHAN_KEYS = [

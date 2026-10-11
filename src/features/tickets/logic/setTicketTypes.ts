@@ -5,8 +5,18 @@ import {
     type TicketingConfig,
     type TicketTypeDefinition,
 } from '../data/ticketingSchema';
-import { buildTicketChannelName } from './ticketTypes';
-import { ticketTypeInUseRefusal, ticketTypeIsHeld, ticketTypeUsage, type TicketTypeUsageDeps } from './ticketTypeInUse';
+import { buildTicketChannelName, getTicketTypeDefinition } from './ticketTypes';
+import {
+    journeysHoldingTicketType,
+    loadJourneyTicketTypeDeclarations,
+    ticketTypeHeldByJourneyRefusal,
+    ticketTypeInUseRefusal,
+    ticketTypeIsHeld,
+    ticketTypeUsage,
+    type JourneyTicketTypeDeclarations,
+    type TicketTypeHoldersDeps,
+    type TicketTypeUsageDeps,
+} from './ticketTypeInUse';
 
 /**
  * The one authority on adding, replacing and removing a guild's ticket types.
@@ -30,8 +40,17 @@ import { ticketTypeInUseRefusal, ticketTypeIsHeld, ticketTypeUsage, type TicketT
  * `write-failed` is deliberately distinct from the state refusals: it is the database
  * being unavailable, not the operator being wrong, and answering 409 to it would tell a
  * caller to change something that is already correct.
+ *
+ * `held-by-journey` is its own reason rather than a kind of `type-in-use`: the fix is
+ * different (uninstall the journey, not retype tickets), and so is what is holding it.
  */
-export type SetTicketTypeRefusal = 'no-config' | 'undeclared-type' | 'type-in-use' | 'invalid-input' | 'write-failed';
+export type SetTicketTypeRefusal =
+    | 'no-config'
+    | 'undeclared-type'
+    | 'type-in-use'
+    | 'held-by-journey'
+    | 'invalid-input'
+    | 'write-failed';
 
 export type SetTicketTypeResult =
     | { ok: true; config: TicketingConfig }
@@ -40,6 +59,8 @@ export type SetTicketTypeResult =
 export interface SetTicketTypesDeps {
     readonly repo?: Pick<TicketingRepo, 'mutateConfig'>;
     readonly usage?: TicketTypeUsageDeps;
+    /** Which journeys hold a type — read by `deleteTicketType` only. */
+    readonly holders?: TicketTypeHoldersDeps;
 }
 
 /**
@@ -164,6 +185,57 @@ function templateProblem(definition: TicketTypeDefinition): TemplateProblem {
 }
 
 /**
+ * What is wrong with a ticket type definition, in words for the operator, or null.
+ *
+ * Every rule a type must meet that is a fact about the definition itself: a key that is
+ * non-blank, slug-shaped and short enough; a label an operator can pick out of a list; a
+ * template `buildTicketChannelName` can actually render. Pure, so three callers share one
+ * copy — `upsertTicketType`, `createTicketTypeIfAbsent` (a journey's install), and the
+ * journey save route, which checks a declared ticket type before it is stored.
+ *
+ * Expects the key and label already trimmed: callers normalise once and store what they
+ * validated, so the stored key is the one every lookup uses.
+ */
+export function ticketTypeDefinitionProblem(definition: TicketTypeDefinition): string | null {
+    const { type, label } = definition;
+
+    if (!type) {
+        return 'A ticket type needs a key. Blank is not a category of anything.';
+    }
+
+    // The key reaches a channel name and a flow `select` value, so it is restricted
+    // rather than merely non-blank.
+    if (!/^[a-z0-9_-]+$/.test(type)) {
+        return `\`${type}\` will not do as a key — lowercase letters, digits, \`-\` and \`_\` only. The label is where you get to be expressive.`;
+    }
+
+    if (type.length > TICKET_TYPE_KEY_MAX_LENGTH) {
+        return `A key caps out at ${TICKET_TYPE_KEY_MAX_LENGTH} characters. It's an identifier, not a manifesto.`;
+    }
+
+    if (!label) {
+        return 'Give the type a label — operators have to pick it out of a list.';
+    }
+
+    if (label.length > TICKET_TYPE_LABEL_MAX_LENGTH) {
+        return TICKET_TYPE_LABEL_TOO_LONG_MESSAGE;
+    }
+
+    return templateProblem(definition);
+}
+
+/**
+ * A definition with its key and label trimmed — normalised *once*, so the value that is
+ * validated is the value that is stored. Validating a trimmed key and then storing the
+ * untrimmed one leaves a type visible in the config that every lookup misses — and `type`
+ * living inside the record as well as being its map key exists precisely so the two
+ * cannot disagree.
+ */
+function normaliseTicketTypeDefinition(input: TicketTypeDefinition): TicketTypeDefinition {
+    return { ...input, type: input.type.trim(), label: input.label.trim() };
+}
+
+/**
  * Add or replace one ticket type.
  *
  * Validation lives here rather than in a Zod body schema for the two rules Zod
@@ -173,6 +245,9 @@ function templateProblem(definition: TicketTypeDefinition): TemplateProblem {
  * Writes by **spreading** the existing config and the existing type record, so a
  * save touches exactly the one type it names — the same discipline the config
  * modal needed after it was found silently dropping every member it did not list.
+ *
+ * **Replaces** a type of the same key. A journey's install never comes through here: it
+ * creates only when absent, through {@link createTicketTypeIfAbsent}.
  */
 export async function upsertTicketType(
     guildId: string,
@@ -181,58 +256,8 @@ export async function upsertTicketType(
 ): Promise<SetTicketTypeResult> {
     const repo = deps?.repo ?? ticketingRepo;
 
-    const type = input.type.trim();
-    if (!type) {
-        return {
-            ok: false,
-            reason: 'invalid-input',
-            message: 'A ticket type needs a key. Blank is not a category of anything.',
-        };
-    }
-
-    // The key reaches a channel name and a flow `select` value, so it is restricted
-    // rather than merely non-blank.
-    if (!/^[a-z0-9_-]+$/.test(type)) {
-        return {
-            ok: false,
-            reason: 'invalid-input',
-            message: `\`${type}\` will not do as a key — lowercase letters, digits, \`-\` and \`_\` only. The label is where you get to be expressive.`,
-        };
-    }
-
-    if (type.length > TICKET_TYPE_KEY_MAX_LENGTH) {
-        return {
-            ok: false,
-            reason: 'invalid-input',
-            message: `A key caps out at ${TICKET_TYPE_KEY_MAX_LENGTH} characters. It's an identifier, not a manifesto.`,
-        };
-    }
-
-    const label = input.label.trim();
-    if (!label) {
-        return {
-            ok: false,
-            reason: 'invalid-input',
-            message: 'Give the type a label — operators have to pick it out of a list.',
-        };
-    }
-
-    if (label.length > TICKET_TYPE_LABEL_MAX_LENGTH) {
-        return {
-            ok: false,
-            reason: 'invalid-input',
-            message: TICKET_TYPE_LABEL_TOO_LONG_MESSAGE,
-        };
-    }
-
-    // Normalized *once*, and the normalized value is what gets stored under the
-    // normalized key. Validating a trimmed key and then storing the untrimmed one leaves
-    // a type visible in the config that every lookup misses — and `type` living inside
-    // the record as well as being its map key exists precisely so the two cannot
-    // disagree.
-    const definition: TicketTypeDefinition = { ...input, type, label };
-
-    const problem = templateProblem(definition);
+    const definition = normaliseTicketTypeDefinition(input);
+    const problem = ticketTypeDefinitionProblem(definition);
     if (problem) {
         return { ok: false, reason: 'invalid-input', message: problem };
     }
@@ -268,8 +293,80 @@ export async function upsertTicketType(
     }
 }
 
+/** What creating a type only-if-absent came to. */
+export type CreateTicketTypeIfAbsentResult =
+    | { readonly outcome: 'created'; readonly config: TicketingConfig }
+    /** A type of this key was already there, and is left exactly as it is. */
+    | { readonly outcome: 'exists'; readonly label: string }
+    | {
+          readonly outcome: 'refused';
+          readonly reason: Extract<SetTicketTypeRefusal, 'no-config' | 'invalid-input' | 'write-failed'>;
+          readonly message: string;
+      };
+
 /**
- * Remove a ticket type, unless tickets still reference it.
+ * Add a ticket type **only if the guild has none of this key**. Never replaces one.
+ *
+ * For a journey's install (`ticketTypeProvisioning.ts`), which must never change a type
+ * someone else made — another journey, the dashboard, the Discord modal, or this journey
+ * on an earlier install. Deliberately *not* {@link upsertTicketType}, which replaces the
+ * record: a type created between an install's preview and its apply would be silently
+ * overwritten with the journey's settings.
+ *
+ * Validated exactly as `upsertTicketType` validates ({@link ticketTypeDefinitionProblem}),
+ * and the existence check and the write share one `mutateConfig` transaction, so nothing
+ * can slip a type in between them.
+ */
+export async function createTicketTypeIfAbsent(
+    guildId: string,
+    input: TicketTypeDefinition,
+    deps?: SetTicketTypesDeps
+): Promise<CreateTicketTypeIfAbsentResult> {
+    const repo = deps?.repo ?? ticketingRepo;
+
+    const definition = normaliseTicketTypeDefinition(input);
+    const problem = ticketTypeDefinitionProblem(definition);
+    if (problem) {
+        return { outcome: 'refused', reason: 'invalid-input', message: problem };
+    }
+
+    // Carried out of the transaction, as `deleteTicketType` carries its refusal: a null
+    // from `mutateConfig` cannot say whether there was no config or a type already there.
+    const found: { label?: string } = {};
+
+    try {
+        const config = await repo.mutateConfig(guildId, (current) => {
+            if (!current.config) return null;
+
+            // Own keys only: a plain index would find `Object.prototype.constructor` for a
+            // type keyed `constructor` and call it an existing type.
+            const existing = getTicketTypeDefinition(current.config, definition.type);
+            if (existing) {
+                found.label = existing.label;
+                return null;
+            }
+
+            return {
+                ...current.config,
+                ticketTypes: { ...current.config.ticketTypes, [definition.type]: definition },
+            };
+        });
+
+        if (config) return { outcome: 'created', config };
+        if (found.label !== undefined) return { outcome: 'exists', label: found.label };
+        return { outcome: 'refused', reason: 'no-config', message: NO_CONFIG_MESSAGE };
+    } catch (error) {
+        console.error('[tickets] Error creating ticket type for a journey:', error);
+        return {
+            outcome: 'refused',
+            reason: 'write-failed',
+            message: 'Could not save that ticket type. Try again in a second.',
+        };
+    }
+}
+
+/**
+ * Remove a ticket type, unless tickets still reference it or a journey installed it.
  *
  * The refusal is this function's, not the route's: a Discord config surface must
  * refuse for the same reason and with the same words.
@@ -278,6 +375,11 @@ export async function upsertTicketType(
  * definition is gone leaves `getTicketTypeDefinition` returning `undefined` for a
  * live ticket, and there is no correct behaviour at that point; a confirmable
  * override would make the promise conditional.
+ *
+ * A journey holding the type is refused for the same reason from the other side: its
+ * flows are wired to the key, and uninstalling the journey — which forgets the row and
+ * never touches the type — is how an operator lets go of it. Flows that name a type with
+ * no journey behind them are not checked here; that gap predates journeys declaring types.
  */
 export async function deleteTicketType(
     guildId: string,
@@ -285,6 +387,20 @@ export async function deleteTicketType(
     deps?: SetTicketTypesDeps
 ): Promise<SetTicketTypeResult> {
     const repo = deps?.repo ?? ticketingRepo;
+
+    // Before the transaction: the journeys come off the singleton, which must not be queried
+    // from inside `mutateConfig` (SQLite's one connection). Only the binding rows are read there.
+    let declarations: JourneyTicketTypeDeclarations;
+    try {
+        declarations = await loadJourneyTicketTypeDeclarations(guildId, deps?.holders);
+    } catch (error) {
+        console.error('[tickets] Error reading journeys before deleting a ticket type:', error);
+        return {
+            ok: false,
+            reason: 'write-failed',
+            message: 'Could not delete that ticket type. Try again in a second.',
+        };
+    }
 
     /*
      * Carried out of the transaction rather than returned from it, because
@@ -311,6 +427,17 @@ export async function deleteTicketType(
             if (!definition) {
                 refusal = `This server does not declare a ticket type called \`${type}\`.`;
                 refusalReason = 'undeclared-type';
+                return null;
+            }
+
+            // On the transaction, so no singleton query can deadlock it. Not a lock against
+            // an install: a journey's install creates the type and records its row in two
+            // separate writes, so a delete landing between them leaves a row for a type
+            // that is gone — which the next install plans as "removed; made again".
+            const holders = await journeysHoldingTicketType(guildId, type, declarations, transaction, deps?.holders);
+            if (holders.length > 0) {
+                refusal = ticketTypeHeldByJourneyRefusal({ label: definition.label, type, holders });
+                refusalReason = 'held-by-journey';
                 return null;
             }
 

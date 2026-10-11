@@ -138,8 +138,9 @@ export const BLOCK_CONTROL_TYPES = [
      * Reads the server's own list, so Support and Verification are only the entries a
      * fresh guild was seeded with — never options a block hardcodes. A stored key the
      * guild no longer declares shows as not available here rather than going blank; what
-     * that means at run time is the block's call. No `{{var}}` and no declared-resource
-     * sidecar: nothing records a ticket type, and provisioning does not create one.
+     * that means at run time is the block's call. No `{{var}}`: nothing records a ticket
+     * type. It does take the `<field>Key` sidecar the other pickers use, naming a ticket
+     * type the flow's journey declares — install creates or reuses it and writes its key in.
      */
     'ticketTypePicker',
     /** Single-line text. */

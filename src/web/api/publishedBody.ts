@@ -18,6 +18,8 @@ export interface PublishedBody {
     readonly buttonMessages: readonly PublishedButtonMessage[];
     readonly deletableResources: readonly PublishedResource[];
     readonly refusedResources: readonly PublishedResource[];
+    /** Settings (ticket types) uninstall forgets and leaves standing. */
+    readonly keptSettings: readonly PublishedResource[];
     readonly mayHaveUnrecordedButtons: boolean;
 }
 
@@ -43,6 +45,7 @@ export function publishedBody(state: PublishedFlowState | PublishedJourneyState)
         })),
         deletableResources: state.deletableResources,
         refusedResources: state.refusedResources,
+        keptSettings: state.keptSettings,
         mayHaveUnrecordedButtons: state.mayHaveUnrecordedButtons,
     };
 }

@@ -2,18 +2,18 @@ import SqliteDatabase from 'better-sqlite3';
 import { CamelCasePlugin, Kysely, SqliteDialect } from 'kysely';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SqliteJsonPlugin } from '../../../../features-system/data-persistence/plugins/sqliteJsonPlugin';
-import { up as createTicketingConfig } from '../../../../features-system/data-persistence/migrations/2025-11-10-Create_Ticketing_Config';
 import { TestDiscord, type ServerChannel, type ServerGuild } from '../../../../shared/__tests__/support/testDiscord';
+import { createTicketTestTables, seedTicketCategorySlots } from '../../__tests__/support/ticketTestTables';
 import type { ConfiguredTicketingConfig } from '../../data/ticketingSchema';
 
 /**
  * Issue #22 at runtime: a category slot resolves by id, and only Discord's own
  * `Unknown Channel` makes the bot create a replacement.
  *
- * Real discord.js against TestDiscord, and a real `ticketing_config` row, so the
- * compare-and-set write and the cache-then-fetch lookup are the production code paths.
- * Every claim about what Discord holds is read from a server-side handle or the request
- * log, never from the client cache.
+ * Real discord.js against TestDiscord, and a real `ticketing_config` row with real slot
+ * rows in `resource_bindings`, so the compare-and-set write and the cache-then-fetch
+ * lookup are the production code paths. Every claim about what Discord holds is read
+ * from a server-side handle or the request log, never from the client cache.
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -21,7 +21,7 @@ const db = new Kysely<any>({
     dialect: new SqliteDialect({ database: new SqliteDatabase(':memory:') }),
     plugins: [new CamelCasePlugin(), new SqliteJsonPlugin({ ticketing_config: ['config'] })],
 });
-await createTicketingConfig(db);
+await createTicketTestTables(db);
 
 vi.mock('../../../../features-system/data-persistence/database', () => ({
     get database() {
@@ -45,6 +45,7 @@ const running: TestDiscord[] = [];
 
 beforeEach(async () => {
     await db.deleteFrom('ticketing_config').execute();
+    await db.deleteFrom('resource_bindings').execute();
 });
 
 afterEach(async () => {
@@ -68,26 +69,30 @@ async function startScenario(options: { readonly shareOpenAndClaimed?: boolean }
     const closed = guild.createCategory({ name: 'Closed' });
     await discord.start();
 
-    const config: ConfiguredTicketingConfig = {
-        modTicketsDeployed: true,
-        modTicketsDeployedChannelId: 'panel-channel',
-        modTicketsDeployedMessageId: 'panel-message',
-        categories: {
-            open: { name: 'Tickets', discordId: open.id, provenance: 'adopted' },
-            claimed: { name: claimed.name, discordId: claimed.id, provenance: 'adopted' },
-            closed: { name: 'Closed', discordId: closed.id, provenance: 'created' },
-        },
-        moderationRoles: [moderator.id],
-        ticketTypes: {},
-    };
     await ticketingRepo.upsert({
         guildId: guild.id,
-        config: JSON.stringify(config),
+        config: {
+            modTicketsDeployed: true,
+            modTicketsDeployedChannelId: 'panel-channel',
+            modTicketsDeployedMessageId: 'panel-message',
+            moderationRoles: [moderator.id],
+            ticketTypes: {},
+        },
         ticketNumberInc: 0,
         entityVersion: 1,
     });
+    await seedTicketCategorySlots(guild.id, {
+        open: { name: 'Tickets', discordId: open.id, provenance: 'adopted' },
+        claimed: { name: claimed.name, discordId: claimed.id, provenance: 'adopted' },
+        closed: { name: 'Closed', discordId: closed.id, provenance: 'created' },
+    });
 
     return { discord, guild, open, claimed, closed, moderatorRoleId: moderator.id };
+}
+
+/** An operator re-picking the open slot on the dashboard, as a slot row write. */
+async function repickOpen(guildId: string, discordId: string): Promise<void> {
+    await seedTicketCategorySlots(guildId, { open: { name: 'Picked', discordId, provenance: 'adopted' } });
 }
 
 async function storedConfig(guildId: string): Promise<ConfiguredTicketingConfig> {
@@ -150,6 +155,51 @@ describe('resolving a ticket category slot', () => {
         expect(saved.categories.closed.discordId).toBe(scenario.closed.id);
     });
 
+    it('repoints only the ticket rows on the deleted id, leaving a journey row on it alone', async () => {
+        // Accepted in the plan: the journey's row stays dead, and its next install offers
+        // the recreate. Repointing it would hand the journey a category the tickets made.
+        const scenario = await startScenario({ shareOpenAndClaimed: true });
+        const now = new Date().toISOString();
+        await db
+            .insertInto('resource_bindings')
+            .values({
+                guildId: scenario.guild.id,
+                ownerKind: 'journey',
+                ownerKey: 'onboarding',
+                resourceKey: 'lobby',
+                kind: 'category',
+                state: 'created',
+                discordId: scenario.open.id,
+                name: 'Tickets',
+                createdAt: now,
+                updatedAt: now,
+            })
+            .execute();
+        scenario.open.delete();
+        scenario.discord.flushGateway();
+
+        const result = await resolveTicketCategory({
+            guild: scenario.discord.clientGuild(scenario.guild),
+            config: await storedConfig(scenario.guild.id),
+            slot: 'open',
+        });
+        const recreatedId = result.ok ? result.value.id : 'no category';
+
+        const rows = await db
+            .selectFrom('resource_bindings')
+            .select(['ownerKind', 'resourceKey', 'state', 'discordId'])
+            .where('guildId', '=', scenario.guild.id)
+            .orderBy('ownerKind')
+            .orderBy('resourceKey')
+            .execute();
+        expect(rows).toEqual([
+            { ownerKind: 'journey', resourceKey: 'lobby', state: 'created', discordId: scenario.open.id },
+            { ownerKind: 'tickets', resourceKey: 'claimed', state: 'created', discordId: recreatedId },
+            { ownerKind: 'tickets', resourceKey: 'closed', state: 'created', discordId: scenario.closed.id },
+            { ownerKind: 'tickets', resourceKey: 'open', state: 'created', discordId: recreatedId },
+        ]);
+    });
+
     it('does not recreate twice for a ticket that read the config before the first replacement was saved', async () => {
         // Not overlapping: the first recreate has finished and left the in-flight map
         // before the second caller — holding a config read earlier, as a ticket open does
@@ -198,13 +248,7 @@ describe('resolving a ticket category slot', () => {
         const staleConfig = await storedConfig(scenario.guild.id);
 
         const picked = scenario.guild.createCategory({ name: 'Picked' });
-        await ticketingRepo.mutateConfig(scenario.guild.id, (current) => ({
-            ...current.config,
-            categories: {
-                ...current.config.categories,
-                open: { name: 'Picked', discordId: picked.id, provenance: 'adopted' },
-            },
-        }));
+        await repickOpen(scenario.guild.id, picked.id);
 
         const result = await resolveTicketCategory({ guild, config: staleConfig, slot: 'open' });
 
@@ -222,13 +266,7 @@ describe('resolving a ticket category slot', () => {
         if (!staleEntity) throw new Error('no config row');
 
         const picked = scenario.guild.createCategory({ name: 'Picked' });
-        await ticketingRepo.mutateConfig(scenario.guild.id, (current) => ({
-            ...current.config,
-            categories: {
-                ...current.config.categories,
-                open: { name: 'Picked', discordId: picked.id, provenance: 'adopted' },
-            },
-        }));
+        await repickOpen(scenario.guild.id, picked.id);
         // The re-read still sees the deleted id: the re-pick has not committed yet from its
         // point of view, so the recreate goes ahead and its compare-and-set misses.
         vi.spyOn(ticketingRepo, 'get').mockResolvedValueOnce(staleEntity);

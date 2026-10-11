@@ -1,5 +1,5 @@
 /**
- * Presentation for the three resource kinds, in one table.
+ * Presentation for the resource kinds, in one table.
  *
  * Same shape and same reasoning as `KIND_STYLES` in `nodeMeta.ts`: a kind's icon,
  * colour and prefix are needed by the add control, by every row, and by anything
@@ -16,6 +16,7 @@ import {
     IconFolder,
     IconHash,
     IconShieldHalfFilled,
+    IconTicket,
     type Icon as TablerIcon,
 } from '@tabler/icons-react';
 import type { ResourceKind } from '../api/types';
@@ -59,6 +60,15 @@ export const RESOURCE_KIND_STYLES: Record<ResourceKind, ResourceKindStyle> = {
         prefix: '@',
         namePlaceholder: 'e.g. In Approval',
     },
+    // Not a Discord object: a row in the ticket settings, named by its label. No prefix,
+    // since Discord writes nothing in front of one.
+    ticketType: {
+        color: 'pink',
+        icon: IconTicket,
+        label: 'Ticket type',
+        prefix: '',
+        namePlaceholder: 'e.g. Verification',
+    },
 };
 
 /**
@@ -66,9 +76,10 @@ export const RESOURCE_KIND_STYLES: Record<ResourceKind, ResourceKindStyle> = {
  *
  * Not `RESOURCE_KINDS` from the API mirror: that array's order is the server's
  * vocabulary, and this one is a UI judgement — a channel is what an operator
- * declares most often, so it comes first.
+ * declares most often, so it comes first, and a ticket type, the one setting rather
+ * than an object, last.
  */
-export const RESOURCE_KIND_ORDER: readonly ResourceKind[] = ['textChannel', 'category', 'role'];
+export const RESOURCE_KIND_ORDER: readonly ResourceKind[] = ['textChannel', 'category', 'role', 'ticketType'];
 
 /**
  * A declared resource's name with its kind's prefix, e.g. `#questions`.

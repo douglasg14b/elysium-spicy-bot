@@ -24,6 +24,7 @@ function state(overrides: Partial<PublishedFlowState> = {}): PublishedFlowState 
         buttonMessages: [],
         deletableResources: [],
         refusedResources: [],
+        keptSettings: [],
         mayHaveUnrecordedButtons: true,
         ...overrides,
     };
@@ -348,5 +349,38 @@ describe('scope-aware wording', () => {
         expect(asJourney.deletableCount).toBe(asFlow.deletableCount);
         expect(asJourney.unpublishLabel).toBe(asFlow.unpublishLabel);
         expect(asJourney.canUnpublish).toBe(asFlow.canUnpublish);
+    });
+});
+
+describe('a ticket type the journey installed', () => {
+    const keptType = resource({
+        resourceKey: 'front-desk',
+        kind: 'ticketType',
+        name: 'Front desk',
+        explanation: 'The ticket type **Front desk** stays, and flows that use it keep working.',
+    });
+
+    it('is listed as kept, with the server’s sentence, and uninstall is still offered when it is all there is', () => {
+        const summary = summarisePublished(state({ keptSettings: [keptType] }));
+
+        expect(summary.hasAnything).toBe(true);
+        expect(summary.groups.map((group) => group.id)).toEqual(['settings']);
+        expect(summary.groups[0]?.lines[0]).toMatchObject({
+            fate: 'kept',
+            kindLabel: 'ticket type',
+            displayName: 'Front desk',
+            explanation: keptType.explanation,
+        });
+        expect(summary.canUnpublish).toBe(true);
+        // Never "Delete 0 resources".
+        expect(summary.unpublishLabel).toBe('Uninstall, keeping 1 setting');
+        expect(summary.unpublishConfirmLabel).toBe('Yes, uninstall');
+    });
+
+    it('leaves the count on the button to the deletions when there are some', () => {
+        const summary = summarisePublished(state({ deletableResources: [resource()], keptSettings: [keptType] }));
+
+        expect(summary.unpublishLabel).toBe('Delete 1 resource');
+        expect(summary.deletableCount).toBe(1);
     });
 });

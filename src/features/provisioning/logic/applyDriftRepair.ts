@@ -5,8 +5,10 @@ import {
     type PermissionOverwriteOptions,
 } from 'discord.js';
 import { resourceBindingsRepo, type ResourceBindingsRepo } from '../data/resourceBindingsRepo';
+import { journeyOwner } from '../data/resourceBindingsSchema';
+import { describeOtherHolder, type GuildOwnership } from './bindingOwner';
 import type { JourneyDriftPlan } from './journeyDriftPlan';
-import type { ResourceDriftKind, ResourceDriftReport } from './resourceDrift';
+import { describeWithheldRepair, type ResourceDriftKind, type ResourceDriftReport } from './resourceDrift';
 import type { ResourceKind } from './resourceDeclaration';
 
 /**
@@ -257,18 +259,40 @@ export function withAdoptionReasserted(
 }
 
 /**
+ * Re-assert sharing the same way: a report whose object another owner holds is not
+ * repairable, whatever the plan says.
+ *
+ * The sharing promise is the adoption promise made to another owner, so it gets the same
+ * treatment — recomputed from the guild's rows rather than trusted from a plan that
+ * travelled. Like {@link withAdoptionReasserted}, it can only take `repairable` away.
+ */
+export function withSharingReasserted(plan: JourneyDriftPlan, ownership: GuildOwnership): JourneyDriftPlan {
+    const self = journeyOwner(plan.journeyKey);
+    return {
+        ...plan,
+        drifted: plan.drifted.map((report) => {
+            const sharedWith = describeOtherHolder(ownership, report.discordId, self);
+            return sharedWith ? { ...report, repairable: false, sharedWith } : report;
+        }),
+    };
+}
+
+/**
  * Why this resource will not be repaired, if it will not be.
  *
  * Both reasons are promises rather than limitations, which is why they are stated to
- * the operator rather than silently skipped.
+ * the operator rather than silently skipped. A third, sharing, keeps the same promise to
+ * another owner: an object it also holds is not reshaped to this journey's declaration.
  */
 function refuseReason(
     report: ResourceDriftReport,
     input: ApplyDriftRepairInput
 ): string | undefined {
-    if (!report.repairable) {
-        return `**${report.name}** was adopted rather than created by this journey, so it is left exactly where it is. Change it yourself if the drift was not intended.`;
-    }
+    // Withheld repairs — shared, or adopted (with or without a wrong type) — say what the
+    // preview said, from the one function that words and orders them, so the dialog and
+    // the repair result cannot disagree about why something was left alone.
+    const withheld = describeWithheldRepair(report);
+    if (withheld) return `**${report.name}**: ${withheld}`;
 
     const wrongType = report.drift.find((entry) => entry.kind === 'wrongType');
     if (wrongType) {
@@ -552,8 +576,8 @@ async function syncRenamedBinding(context: RepairOneInput): Promise<string | und
     /*
      * Reported, not swallowed. Zero rows back means the binding moved underneath the
      * repair — re-bound, or torn down, while the operator was reading. The guild write
-     * already happened and is correct; what is stale is the cached name, which is
-     * diagnostics-only and self-heals on the next repair. So this is a note rather than
+     * already happened and is correct; what is stale is the expected name, which no
+     * lookup uses and which self-heals on the next repair. So this is a note rather than
      * a failure — but discarding it would leave the operator's only evidence claiming a
      * clean repair while the row and the guild disagree.
      */

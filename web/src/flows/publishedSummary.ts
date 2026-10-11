@@ -62,7 +62,7 @@ export interface PublishedResourceLine {
  * down a column and tally themselves.
  */
 export interface PublishedGroup {
-    readonly id: 'created' | 'blocked' | 'adopted' | 'messages';
+    readonly id: 'created' | 'blocked' | 'adopted' | 'settings' | 'messages';
     readonly title: string;
     /** The aside beside the title — what this group means for the teardown. */
     readonly caption: string;
@@ -269,6 +269,20 @@ export function summarisePublished(
             destructive: false,
             lines: adopted.map((resource) => toLine(resource, 'kept')),
         },
+        /*
+         * Ticket types the journey installed. Uninstalling never removes a setting
+         * (Douglas, 2026-10-10) — only the record goes — so these are listed as kept, with
+         * the server's sentence, rather than left off. Left off, a journey holding nothing
+         * else read as "nothing live" and offered no uninstall at all, which is the one
+         * step that lets the dashboard delete the type afterwards.
+         */
+        {
+            id: 'settings',
+            title: scope === 'journey' ? 'Settings these flows installed' : 'Settings this flow installed',
+            caption: 'uninstalling keeps these',
+            destructive: false,
+            lines: state.keptSettings.map((resource) => toLine(resource, 'kept')),
+        },
         {
             id: 'messages',
             title: 'Posted messages',
@@ -286,17 +300,24 @@ export function summarisePublished(
 
     const deletableCount = deletable.length;
     const countedThings = plural(deletableCount, 'resource', 'resources');
+    const keptSettingsCount = state.keptSettings.length;
 
     return {
         hasAnything: groups.length > 0,
         leftBehind: parts.length > 0 ? joinWithAnd(parts) : null,
         groups,
         canUndeploy: buttonCount > 0,
-        canUnpublish: deletableCount > 0,
+        // An uninstall that deletes nothing is still worth offering when it forgets a
+        // setting: it is how the journey lets go of a ticket type.
+        canUnpublish: deletableCount > 0 || keptSettingsCount > 0,
         buttonCount,
         deletableCount,
-        unpublishLabel: `Delete ${countedThings}`,
-        unpublishConfirmLabel: `Yes, delete ${countedThings}`,
+        // Never "Delete 0 resources": when nothing is deleted, the button says what it does.
+        unpublishLabel:
+            deletableCount > 0
+                ? `Delete ${countedThings}`
+                : `Uninstall, keeping ${plural(keptSettingsCount, 'setting', 'settings')}`,
+        unpublishConfirmLabel: deletableCount > 0 ? `Yes, delete ${countedThings}` : 'Yes, uninstall',
     };
 }
 

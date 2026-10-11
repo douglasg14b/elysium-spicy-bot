@@ -10,7 +10,7 @@ import { flowJourneyLinksRepo } from '../../features/provisioning/data/flowJourn
 import { DuplicateJourneyKeyError, journeysRepo } from '../../features/provisioning/data/journeysRepo';
 import type { JourneyEntity } from '../../features/provisioning/data/journeysSchema';
 import { resourceBindingsRepo } from '../../features/provisioning/data/resourceBindingsRepo';
-import { planJourneyMerge } from '../../features/provisioning/logic/journeyMergePlan';
+import { mergeDeclarations, planJourneyMerge } from '../../features/provisioning/logic/journeyMergePlan';
 import { resolveFlowJourney } from '../../features/provisioning/logic/resolveFlowJourney';
 import { normaliseResourceName } from '../../features/provisioning/logic/resourceName';
 import {
@@ -34,11 +34,13 @@ import {
     unpublishJourney,
 } from '../../features/provisioning';
 import { toDeclarationFromRow } from '../../features/provisioning/data/journeysRepo';
+import { ticketTypeDefinitionProblem } from '../../features/tickets/logic/setTicketTypes';
 import { guildSettingsRepo } from '../../features-system/guild-settings';
 import type { AppEnv } from '../types';
 import { driftBody } from './driftBody';
 import { flowNameInGuild } from './flowNameInGuild';
 import { publishedBody } from './publishedBody';
+import { ticketTypeSettingsBody } from './ticketRoutes';
 
 /**
  * Journey CRUD. Mounted under the `/api/guilds` route group, so `requireAuth` and
@@ -137,6 +139,28 @@ export const resourceSchema = z
         description: z.string().max(500, 'Descriptions cap at 500 characters.').optional(),
         /** Set when the operator picked something that already exists instead of declaring a new one. */
         adoptDiscordId: discordIdSchema.optional(),
+        /**
+         * A ticket type's settings. Which kinds may carry it is `validateJourneyDeclaration`'s
+         * call (structural, on every read); what it must contain is the ticket feature's,
+         * checked below.
+         */
+        ticketType: ticketTypeSettingsBody.optional(),
+    })
+    /*
+     * A declared ticket type is checked by the ticket feature's own rules — the label's
+     * 45-character cap, template tokens, the rendered length — so a journey cannot store a
+     * type that install's create would then refuse. Its key is the resource key, already a
+     * subset of what a type key allows; its label is the resource's name.
+     */
+    .superRefine((resource, context) => {
+        if (resource.kind !== 'ticketType' || !resource.ticketType) return;
+
+        const problem = ticketTypeDefinitionProblem({
+            type: resource.key,
+            label: resource.defaultName.trim(),
+            ...resource.ticketType,
+        });
+        if (problem) context.addIssue({ code: 'custom', message: problem, path: ['ticketType'] });
     })
     /*
      * Stored as the name Discord will hold, so the declaration never disagrees with the
@@ -148,7 +172,13 @@ export const resourceSchema = z
      */
     .transform((resource) => ({
         ...resource,
-        defaultName: normaliseResourceName(resource.kind, resource.defaultName),
+        // A ticket type's label is trimmed here, as the ticket feature trims it on create, so
+        // the declaration, the binding's name and the type itself say the same thing. Not in
+        // `normaliseResourceName`: the panel runs that as the operator types.
+        defaultName:
+            resource.kind === 'ticketType'
+                ? resource.defaultName.trim()
+                : normaliseResourceName(resource.kind, resource.defaultName),
     }));
 
 /**
@@ -949,6 +979,8 @@ export function journeyRoutes(): Hono<AppEnv> {
             }
         }
 
+        // The moving journey's own rows — `listByJourney` names the journey owner kind, so
+        // the ticket feature's rows never ride along even for a journey keyed `tickets`.
         const bindings = moving
             ? await resourceBindingsRepo.listByJourney(guildId, moving.journey.journeyKey)
             : [];
@@ -1081,10 +1113,12 @@ export function journeyRoutes(): Hono<AppEnv> {
                     );
                 }
 
+                // A ticket type both sides declare is one type: the destination's
+                // declaration is kept and the moving copy dropped (`mergeDeclarations`).
                 destinationJourney = await journeysRepo.update(
                     guildId,
                     destinationJourney.journeyKey,
-                    { resources: [...destinationJourney.resources, ...movingResources] }
+                    { resources: mergeDeclarations(destinationJourney.resources, movingResources) }
                 );
 
                 /*

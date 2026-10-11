@@ -1,5 +1,6 @@
 import { ChannelType, type Guild, type GuildBasedChannel } from 'discord.js';
-import type { ResourceBindingEntity } from '../data/resourceBindingsSchema';
+import { journeyOwner, type ResourceBindingEntity } from '../data/resourceBindingsSchema';
+import { describeOtherHolder, type GuildOwnership } from './bindingOwner';
 import { parseDeclaredRoleReference } from './declaredRoleReference';
 import {
     compilePermissionIntents,
@@ -7,7 +8,7 @@ import {
     type PermissionIntent,
     type PermissionIntentContext,
 } from './permissionIntent';
-import type { JourneyDeclaration, ResourceKind } from './resourceDeclaration';
+import { isDiscordResource, type DiscordResourceKind, type JourneyDeclaration } from './resourceDeclaration';
 import {
     detectResourceDrift,
     hasDrift,
@@ -92,6 +93,14 @@ export interface BuildJourneyDriftPlanInput {
      * on `buildInstallPlan`, where a caller genuinely may not have them.
      */
     readonly permissionContext: Omit<PermissionIntentContext, 'guild'>;
+    /**
+     * Every binding in the guild, every owner's, with journey names.
+     *
+     * So a resource another owner also holds is reported with repair withheld and the
+     * owner named (`ResourceDriftReport.sharedWith`). Required: the repair route rebuilds
+     * its plan through here, so this is the fence, not a hint.
+     */
+    readonly ownership: GuildOwnership;
 }
 
 /**
@@ -104,7 +113,8 @@ export interface BuildJourneyDriftPlanInput {
  * "repair" an object toward a declaration that does not exist.
  */
 export function buildJourneyDriftPlan(input: BuildJourneyDriftPlanInput): JourneyDriftPlan {
-    const { guild, journey, bindings, permissionContext } = input;
+    const { guild, journey, bindings, permissionContext, ownership } = input;
+    const self = journeyOwner(journey.journeyKey);
 
     const bindingByKey = new Map(
         bindings.map((binding) => [binding.resourceKey, binding] as const)
@@ -115,17 +125,24 @@ export function buildJourneyDriftPlan(input: BuildJourneyDriftPlanInput): Journe
     const unchecked: UncheckedResource[] = [];
 
     for (const declaration of journey.resources) {
+        // A ticket type is never measured against its declaration: install uses an
+        // existing type exactly as it stands and never changes one, so a difference is not
+        // drift for anyone to repair.
+        if (!isDiscordResource(declaration)) continue;
+
         const binding = bindingByKey.get(declaration.key);
 
-        // Never installed, or recorded but never reached the guild. Install's subject.
-        if (!binding?.discordId || binding.state === 'intended') continue;
+        // Never installed, or recorded but never reached the guild. Install's subject. (A
+        // ticket type row under a key now declared as a channel names no Discord object
+        // either; install plans that key as new and rebinds the row, kind and all.)
+        if (!binding?.discordId || binding.state === 'intended' || !isDiscordResource(binding)) continue;
 
         const live = readLiveResource(guild, binding.kind, binding.discordId);
 
         // Gone from the guild. Install already plans the recreate; see the header.
         if (!live) continue;
 
-        const report = detectResourceDrift({
+        const compared = detectResourceDrift({
             declaration,
             binding,
             live,
@@ -136,6 +153,12 @@ export function buildJourneyDriftPlan(input: BuildJourneyDriftPlanInput): Journe
             declaredParentId: resolveDeclaredParentId(declaration.parentKey, bindingByKey),
             botId: guild.members.me?.id,
         });
+
+        // Drift is still reported on a shared object — a public staff channel matters
+        // whoever else uses it — but repair is withheld, so it cannot strip the overwrites
+        // the other owner set.
+        const sharedWith = describeOtherHolder(ownership, binding.discordId, self);
+        const report = sharedWith ? { ...compared, repairable: false, sharedWith } : compared;
 
         /*
          * The two questions are independent, so they are asked independently rather
@@ -284,7 +307,7 @@ function toBigints(bits: unknown): bigint[] {
  */
 function readLiveResource(
     guild: Guild,
-    kind: ResourceKind,
+    kind: DiscordResourceKind,
     discordId: string
 ): LiveResourceSnapshot | null {
     if (kind === 'role') {

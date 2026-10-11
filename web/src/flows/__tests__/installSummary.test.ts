@@ -75,13 +75,31 @@ describe('naming a single resource by kind', () => {
             category: kindLabel('category'),
             textChannel: kindLabel('textChannel'),
             role: kindLabel('role'),
+            ticketType: kindLabel('ticketType'),
         };
 
         expect(labels).toEqual({
             category: 'category',
             textChannel: 'channel',
             role: 'role',
+            ticketType: 'ticket type',
         });
+    });
+
+    it('lists a note once however many items carry it, and lets it block nothing', () => {
+        const note = "The ticket system isn't fully set up yet.";
+        const summary = summariseInstallPlan(
+            plan({
+                items: [
+                    item({ kind: 'ticketType', resourceKey: 'a', name: 'A', note }),
+                    item({ kind: 'ticketType', resourceKey: 'b', name: 'B', note }),
+                ],
+            })
+        );
+
+        expect(summary.notes).toEqual([note]);
+        expect(summary.problems).toEqual([]);
+        expect(summary.headline).toBe('This will create 2 ticket types in your server.');
     });
 
     it('agrees with the counted headline on what a thing is called', () => {

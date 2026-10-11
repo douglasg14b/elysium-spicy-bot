@@ -19,9 +19,11 @@ export interface JourneyTable {
     id: Generated<number>;
 
     /**
-     * Stable per guild, referenced by `resource_bindings.journey_key` and by node
-     * configs. Not a UUID: it is the operator-visible scope name, and it appears in
-     * the binding table's unique index, so it must read sensibly in a diagnostic.
+     * Stable per guild, referenced by `resource_bindings.owner_key` (with
+     * `owner_kind = 'journey'`) and by node configs. Not a UUID: it is the
+     * operator-visible scope name, and it appears in the binding table's unique index,
+     * so it must read sensibly in a diagnostic. Any key is legal, `tickets` included —
+     * `owner_kind` is what keeps a journey so named apart from the ticket feature.
      */
     journeyKey: string;
 

@@ -98,6 +98,7 @@ export function InstalledResourcesDialog({
                 buttonMessages: [],
                 deletableResources: [],
                 refusedResources: [],
+                keptSettings: [],
                 mayHaveUnrecordedButtons: true,
             } satisfies PublishedFlowState;
         }

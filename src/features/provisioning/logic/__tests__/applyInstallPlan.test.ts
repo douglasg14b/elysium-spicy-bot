@@ -24,7 +24,8 @@ const recordIntent = vi.fn(async (input: Record<string, string>) => {
     const existing = bindings.find(
         (binding) =>
             binding.guildId === input.guildId &&
-            binding.journeyKey === input.journeyKey &&
+            binding.ownerKind === 'journey' &&
+            binding.ownerKey === input.journeyKey &&
             binding.resourceKey === input.resourceKey
     );
     if (existing) return existing;
@@ -32,7 +33,8 @@ const recordIntent = vi.fn(async (input: Record<string, string>) => {
     const created = {
         id: nextBindingId++,
         guildId: input.guildId,
-        journeyKey: input.journeyKey,
+        ownerKind: 'journey',
+        ownerKey: input.journeyKey,
         resourceKey: input.resourceKey,
         kind: input.kind,
         state: 'intended',

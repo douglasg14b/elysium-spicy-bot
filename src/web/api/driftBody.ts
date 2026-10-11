@@ -1,6 +1,7 @@
 import {
     describeDrift,
     describeOrphan,
+    describeWithheldRepair,
     type JourneyDriftPlan,
     type OrphanedBinding,
 } from '../../features/provisioning';
@@ -65,6 +66,15 @@ export interface DriftResourceBody {
      * `withAdoptionReasserted` and does not trust what comes back over the wire.
      */
     readonly repairable: boolean;
+    /**
+     * Why repair is withheld, in words for the operator; null when `repairable`.
+     *
+     * Server-authored since 2026-10-10, when a third reason arrived — another owner also
+     * holds the object — that, like adoption, is invisible in the drift kinds. The browser
+     * had derived the sentence and fell through to "adopted" for everything but
+     * `wrongType`, so it would have called a shared category this journey made "adopted".
+     */
+    readonly withheldReason: string | null;
 }
 
 export interface OrphanBody {
@@ -113,6 +123,7 @@ export const DRIFT_RESOURCE_KEYS = [
     'kind',
     'drift',
     'repairable',
+    'withheldReason',
 ] as const satisfies readonly (keyof DriftResourceBody)[];
 
 export const ORPHAN_KEYS = [
@@ -176,6 +187,7 @@ export function driftBody(
                 explanation: describeDrift(detail, report.kind),
             })),
             repairable: report.repairable,
+            withheldReason: describeWithheldRepair(report) ?? null,
         })),
         cleanKeys: plan.cleanKeys,
         unchecked: plan.unchecked.map((entry) => ({

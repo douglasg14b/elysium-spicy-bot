@@ -19,6 +19,7 @@ export function normaliseResourceName(kind: ResourceKind, name: string): string 
             return name.toLowerCase().replace(/\s/g, '-');
         case 'category':
         case 'role':
+        case 'ticketType':
             return name;
         default: {
             const unreachable: never = kind;

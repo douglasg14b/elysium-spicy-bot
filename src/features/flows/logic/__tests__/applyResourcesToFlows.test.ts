@@ -36,6 +36,10 @@ const { applyResourcesToFlows, selectFlowIdsForJourney } = await import(
     '../applyResourcesToFlows'
 );
 
+// The sidecar scan asks each node's block which fields are pickers.
+const { ensureBlocksDiscovered } = await import('../../blocks/registry');
+await ensureBlocksDiscovered();
+
 const GUILD_ID = 'guild-1';
 // Only `.id` is ever read; a full Guild is unconstructible in a unit test.
 const GUILD = { id: GUILD_ID } as unknown as Guild;
@@ -43,7 +47,10 @@ const GUILD = { id: GUILD_ID } as unknown as Guild;
 function flow(flowId: string, data: Record<string, unknown>) {
     const graph: FlowGraph = {
         version: FLOW_GRAPH_VERSION,
-        nodes: [{ id: 'node-1', type: 'action.assignRole', position: { x: 0, y: 0 }, data }],
+        // A block this build does not know, so every `*Key` here is read as a sidecar:
+        // these tests are about writing ids, and several put a role and a channel on one
+        // node, which no shipped block has. Which keys count is `resourceTargets.test.ts`.
+        nodes: [{ id: 'node-1', type: 'fixture.notInThisBuild', position: { x: 0, y: 0 }, data }],
         edges: [],
     };
     return { flowId, guildId: GUILD_ID, name: flowId, enabled: false, graph };

@@ -23,6 +23,8 @@
  *  - `resourceSchema` in `src/web/api/journeyRoutes.ts` — the key regex and its 1–64
  *    cap, the name's 1–100 cap.
  *  - `permissionIntentSchema` — a `roles` intent must name at least one role.
+ *  - `ticketTypeDefinitionProblem`, which the route runs on a declared ticket type — its
+ *    label's 45-character cap and its template, through `validateTicketTypeDraft`.
  *
  * ## What is deliberately *not* mirrored
  *
@@ -56,7 +58,9 @@ import type {
     GuildRole,
     PermissionIntent,
     ResourceDeclaration,
+    TicketTypeView,
 } from '../api/types';
+import { validateTicketTypeDraft } from '../tickets/ticketTypeForm';
 import { parseDeclaredRoleReference } from './declaredRoleReference';
 import type { ResourceChipDetail, ResourceChipId } from './resourceChips';
 import { RESOURCE_CHIP_ORDER, RESOURCE_CHIPS } from './resourceChips';
@@ -71,7 +75,7 @@ const EMPTY_KEYS: ReadonlySet<string> = new Set();
  * Duplicated rather than derived for the boundary reason in the header. Held equal to
  * the server's by the agreement test, which feeds the same strings through both.
  */
-const RESOURCE_KEY_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+export const RESOURCE_KEY_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 /** `resourceKeySchema.max(64)`. */
 const RESOURCE_KEY_MAX_LENGTH = 64;
@@ -171,6 +175,11 @@ export interface GuildContext {
      * agreement test supplies neither this nor the directory.
      */
     readonly installedKeys?: ReadonlySet<string>;
+    /**
+     * The server's ticket types, by key, for `ticketTypeHere`. Absent means "not known",
+     * and the chip stays quiet rather than guessing.
+     */
+    readonly ticketTypes?: readonly Pick<TicketTypeView, 'type'>[];
 }
 
 /**
@@ -219,6 +228,10 @@ function chipsForResource(context: ChipContext): ResourceChipInstance[] {
         chips.push({ id: 'invalidKey', detail: { field: 'name' } });
     } else if (!isValidResourceKey(resource.key)) {
         chips.push({ id: 'invalidKey', detail: { field: 'key' } });
+    }
+
+    if (ticketTypeWontSave(resource)) {
+        chips.push({ id: 'invalidTicketType', detail: {} });
     }
 
     for (const [ruleIndex, intent] of (resource.permissions ?? []).entries()) {
@@ -304,6 +317,16 @@ function chipsForResource(context: ChipContext): ResourceChipInstance[] {
         chips.push({ id: 'adopted', detail: {} });
     }
 
+    // Only when the caller knows the server's types, and never on a key this journey
+    // installed — see `ticketTypeHere` for why the second matters.
+    if (
+        resource.kind === 'ticketType' &&
+        !context.installedKeys.has(resource.key) &&
+        context.guild?.ticketTypes?.some((ticketType) => ticketType.type === resource.key)
+    ) {
+        chips.push({ id: 'ticketTypeHere', detail: {} });
+    }
+
     const ruleCount = resource.permissions?.length ?? 0;
     const isPrivate = (resource.permissions ?? []).some(hidesFromEveryone);
 
@@ -379,6 +402,27 @@ function isValidResourceKey(key: string): boolean {
  */
 function isValidResourceName(name: string): boolean {
     return name.length > 0 && name.length <= RESOURCE_NAME_MAX_LENGTH;
+}
+
+/**
+ * Whether the ticket feature would refuse a declared ticket type: its label past 45
+ * characters, or a template it cannot render.
+ *
+ * Mirrors `ticketTypeDefinitionProblem`, which the journey save route calls, through the
+ * tickets page's own client mirror of it (`validateTicketTypeDraft`) — one browser copy of
+ * those rules, not two. The key's problems are `invalidKey`'s (a resource key is stricter
+ * than a type key), and so is an empty label; only a label with something in it is judged
+ * here, so one empty box does not wear two chips.
+ */
+function ticketTypeWontSave(resource: ResourceDeclaration): boolean {
+    if (resource.kind !== 'ticketType' || !resource.ticketType) return false;
+
+    const problems = validateTicketTypeDraft({
+        type: resource.key,
+        label: resource.defaultName,
+        ...resource.ticketType,
+    });
+    return Boolean(problems.nameTemplate) || (isValidResourceName(resource.defaultName) && Boolean(problems.label));
 }
 
 /**

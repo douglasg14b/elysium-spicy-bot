@@ -183,6 +183,9 @@ const HISTORY_LIMIT = 50;
 /** A card with no forgotten exits, shared so the ordinary case allocates nothing. */
 const NO_EXITS: readonly string[] = [];
 
+/** A card's declarations before the effect that carries them has run. */
+const NO_DECLARED_RESOURCES: ResourceDeclaration[] = [];
+
 /** The status line's colour per tone — yellow for unsaved, orange for "look at this". */
 const STATUS_TONE_COLOUR: Record<BuilderStatus['tone'], string> = {
     clean: 'dark.2',
@@ -570,18 +573,15 @@ function FlowBuilder() {
         if (!selected || !flowId) return;
         try {
             const state = await getPublishedState(selected.id, flowId);
-            setInstalledCount(state.deletableResources.length + state.refusedResources.length);
-            // Both lists: a refused resource is still installed. `refused` is about whether
-            // a *teardown* may touch it — an adopted channel, a category with survivors —
-            // and an adopted resource is exactly the case where the key must not move, since
-            // the binding points at someone else's channel.
-            setInstalledResourceKeys(
-                new Set(
-                    [...state.deletableResources, ...state.refusedResources].map(
-                        (resource) => resource.resourceKey
-                    )
-                )
-            );
+            // All three lists: a refused resource is still installed, and so is a ticket type
+            // uninstall would only forget. `refused` is about whether a *teardown* may touch
+            // it — an adopted channel, a category with survivors — and an adopted resource is
+            // exactly the case where the key must not move, since the binding points at
+            // someone else's channel. Leaving the kept settings out made a journey holding
+            // only a ticket type read as not installed, with no uninstall in reach.
+            const installed = [...state.deletableResources, ...state.refusedResources, ...state.keptSettings];
+            setInstalledCount(installed.length);
+            setInstalledResourceKeys(new Set(installed.map((resource) => resource.resourceKey)));
         } catch {
             // A failed lookup leaves the button on its install face rather than
             // guessing. The dialog does its own fetch and reports properly.
@@ -743,6 +743,8 @@ function FlowBuilder() {
                             roles: directory.roles,
                             channels: directory.channels,
                             ticketTypes: directory.ticketTypes,
+                            // Kept current by the effect that carries the declarations.
+                            declaredResources: NO_DECLARED_RESOURCES,
                             // Filled from the flow's own `issues` by the effect
                             // that carries `graphIssues` onto the cards.
                             issueCount: 0,
@@ -944,6 +946,7 @@ function FlowBuilder() {
                     roles,
                     channels,
                     ticketTypes,
+                    declaredResources,
                     // Nothing has judged it yet; the next save will.
                     issueCount: 0,
                     // A block just dropped from the palette has no edges, and an
@@ -964,7 +967,7 @@ function FlowBuilder() {
             // it cannot run is marked without waiting for a save.
             recheckGraphShape();
         },
-        [pushHistory, roles, channels, ticketTypes, setNodes, recheckGraphShape]
+        [pushHistory, roles, channels, ticketTypes, declaredResources, setNodes, recheckGraphShape]
     );
 
     const onConnect: OnConnect = useCallback(
@@ -1691,6 +1694,24 @@ function FlowBuilder() {
     }, [issuesForNode, unreachableIds, convergingCounts, forgottenExits, nextRuns, savedNodeData, nodes, setNodes]);
 
     /**
+     * Carry the journey's declarations onto every card, so a picker waiting on install can
+     * say what it waits for. Its own effect, unlike the facts above: it changes when the
+     * Resources panel saves, not when the graph does — and not through `pushHistory`, for
+     * the same reason they are not. Returns `prev` once every card holds this array.
+     */
+    useEffect(() => {
+        setNodes((prev) =>
+            prev.every((node) => node.data.declaredResources === declaredResources)
+                ? prev
+                : prev.map((node) =>
+                      node.data.declaredResources === declaredResources
+                          ? node
+                          : { ...node, data: { ...node.data, declaredResources } }
+                  )
+        );
+    }, [declaredResources, nodes, setNodes]);
+
+    /**
      * What the selection's ancestry implies for the copy fields in it.
      *
      * Computed here because this is the only component holding both the nodes and
@@ -2336,6 +2357,13 @@ function FlowBuilder() {
                                     {planSummary.unchanged.map((item) => item.name).join(', ')}.
                                 </Text>
                             )}
+
+                            {/* Worth knowing, and nothing to sort out before installing. */}
+                            {planSummary.notes.map((note) => (
+                                <Text key={note} size="12px" c="yellow">
+                                    {note}
+                                </Text>
+                            ))}
 
                             {planSummary.problems.length > 0 && (
                                 <Alert

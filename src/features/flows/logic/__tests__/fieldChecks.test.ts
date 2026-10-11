@@ -161,9 +161,13 @@ describe('field checks derived from every block', () => {
         // and a sidecar. The server forgives the emptiness — every rule about it, not
         // just "required" — so the browser must say nothing either.
         //
-        // Every field, not only pickers: the server finds a sidecar by its name, whatever
-        // control wrote it, so the browser cannot be allowed to assume which ones do.
+        // Every field is probed, not only pickers. The server counts a `<field>Key` as a
+        // sidecar only on a picker field (`collectResourceTargets`, since Pick Random's
+        // `outputKey` was misread as one), so on any other field the sidecar forgives
+        // nothing on either side — and whatever the browser says there, the server must
+        // say too.
         const flagged: string[] = [];
+        const disagreements: string[] = [];
         let pickers = 0;
 
         for (const definition of listBlockDefinitions()) {
@@ -174,15 +178,20 @@ describe('field checks derived from every block', () => {
                     if (value !== undefined) data[field.key] = value;
 
                     const browser = browserChecks.fieldIssue(descriptor, field, data);
-                    if (browser) flagged.push(`${definition.type} › ${field.key} = ${JSON.stringify(value)}: "${browser}"`);
+                    const server = serverMessages(definition.type, data, field.key, new Set(['declared-thing']));
+                    const probe = `${definition.type} › ${field.key} = ${JSON.stringify(value)}`;
 
                     if (
                         field.control === 'rolePicker' ||
                         field.control === 'channelPicker' ||
-                        field.control === 'categoryPicker'
+                        field.control === 'categoryPicker' ||
+                        field.control === 'ticketTypePicker'
                     ) {
                         pickers += 1;
-                        expect(serverMessages(definition.type, data, field.key, new Set(['declared-thing']))).toEqual([]);
+                        expect(server, probe).toEqual([]);
+                        if (browser) flagged.push(`${probe}: "${browser}"`);
+                    } else if (browser && !server.includes(browser)) {
+                        disagreements.push(`${probe}: browser says "${browser}", server says ${JSON.stringify(server)}`);
                     }
                 }
             }
@@ -190,6 +199,7 @@ describe('field checks derived from every block', () => {
 
         expect(pickers, 'No block has a picker, so the server half proves nothing.').toBeGreaterThan(0);
         expect(flagged).toEqual([]);
+        expect(disagreements).toEqual([]);
     });
 
     it('evaluates every check the same way in the browser as on the server', () => {

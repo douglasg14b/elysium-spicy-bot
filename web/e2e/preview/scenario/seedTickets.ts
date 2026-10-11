@@ -191,16 +191,17 @@ export async function seedTickets(context: SeedContext): Promise<PreviewPage[]> 
     // Deploys the ticket system the way `/deploy-ticket-system` does: a config row with
     // the two shipped types, aimed at a real channel. No dashboard route creates this row
     // — see the file doc — so this is the one direct repo write in this seed.
+    // No categories: those are slot rows, which the config route below writes as it
+    // creates each category.
     await ticketingRepo.upsert({
         guildId,
-        config: JSON.stringify({
+        config: {
             modTicketsDeployed: true,
             modTicketsDeployedChannelId: guild.channels.modLog.id,
             modTicketsDeployedMessageId: '1100000000000000001',
-            categories: { open: null, claimed: null, closed: null },
             moderationRoles: [],
             ticketTypes: defaultTicketTypes(),
-        }),
+        },
         ticketNumberInc: 0,
         entityVersion: 1,
     });

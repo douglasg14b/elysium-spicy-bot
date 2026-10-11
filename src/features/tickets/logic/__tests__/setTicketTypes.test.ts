@@ -5,7 +5,12 @@ import type {
     TicketingConfigEntity,
     TicketTypeDefinition,
 } from '../../data/ticketingSchema';
-import { deleteTicketType, upsertTicketType, type SetTicketTypesDeps } from '../setTicketTypes';
+import {
+    createTicketTypeIfAbsent,
+    deleteTicketType,
+    upsertTicketType,
+    type SetTicketTypesDeps,
+} from '../setTicketTypes';
 
 /**
  * The validate-and-persist authority, which a Discord surface and a web route both
@@ -42,6 +47,12 @@ function definition(overrides: Partial<TicketTypeDefinition> = {}): TicketTypeDe
         ...overrides,
     };
 }
+
+/** No journey holds any type. The held-by-journey refusal is exercised below. */
+const NO_JOURNEY_HOLDS: SetTicketTypesDeps['holders'] = {
+    bindings: { listByGuild: async () => [] },
+    journeys: { listTicketTypeDeclarations: async () => [] },
+};
 
 interface Harness {
     deps: SetTicketTypesDeps;
@@ -99,7 +110,7 @@ function harness(
     );
 
     return {
-        deps: { repo: { mutateConfig }, usage },
+        deps: { repo: { mutateConfig }, usage, holders: NO_JOURNEY_HOLDS },
         update,
         // Asserted against the serialized payload rather than an in-memory object,
         // because the string is what the column receives.
@@ -334,6 +345,157 @@ describe('deleteTicketType', () => {
     it('refuses a guild with no config row', async () => {
         const { deps } = harness(null, UNUSED);
 
-        expect((await deleteTicketType('guild-1', 'support', deps)).ok).toBe(false);
+        expect(await deleteTicketType('guild-1', 'support', deps)).toMatchObject({ ok: false, reason: 'no-config' });
+    });
+
+    it('refuses a type a journey installed, naming the journey, and writes nothing', async () => {
+        const { deps, update } = harness(config(), UNUSED);
+        const row = {
+            id: 7,
+            guildId: 'guild-1',
+            ownerKind: 'journey' as const,
+            ownerKey: 'onboarding',
+            resourceKey: 'verification',
+            kind: 'ticketType' as const,
+            state: 'adopted' as const,
+            discordId: 'verification',
+            name: 'Verification',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+        };
+
+        const result = await deleteTicketType('guild-1', 'verification', {
+            ...deps,
+            holders: {
+                bindings: { listByGuild: async () => [row] },
+                journeys: {
+                    listTicketTypeDeclarations: async () => [
+                        { journeyKey: 'onboarding', name: 'Onboarding', ticketTypeKeys: ['verification'] },
+                    ],
+                },
+            },
+        });
+
+        expect(result).toMatchObject({ ok: false, reason: 'held-by-journey' });
+        expect(result.ok === false && result.message).toMatch(/journey "Onboarding".*Uninstall that journey/);
+        expect(update).not.toHaveBeenCalled();
+    });
+
+    it('does not count a journey row for another type, or a ticket category the ticket system holds', async () => {
+        const { deps, written } = harness(config(), UNUSED);
+        const base = {
+            guildId: 'guild-1',
+            state: 'adopted' as const,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+        };
+
+        const result = await deleteTicketType('guild-1', 'verification', {
+            ...deps,
+            holders: {
+                bindings: {
+                    listByGuild: async () => [
+                        { ...base, id: 1, ownerKind: 'journey' as const, ownerKey: 'j', resourceKey: 's', kind: 'ticketType' as const, discordId: 'support', name: 'Support' },
+                        { ...base, id: 2, ownerKind: 'tickets' as const, ownerKey: 'tickets', resourceKey: 'open', kind: 'category' as const, discordId: 'verification', name: 'Open' },
+                    ],
+                },
+                journeys: { listTicketTypeDeclarations: async () => [] },
+            },
+        });
+
+        expect(result.ok).toBe(true);
+        expect(written().ticketTypes).not.toHaveProperty('verification');
+    });
+
+    it.each([
+        ['whose journey has been deleted', []],
+        [
+            'whose journey no longer declares it',
+            [{ journeyKey: 'onboarding', name: 'Onboarding', ticketTypeKeys: [] as string[] }],
+        ],
+    ])('does not let a leftover row %s lock the type', async (_label, journeys) => {
+        // Deleting a journey, emptying it by grouping, or dropping the type all leave the
+        // row; counting it would lock the type behind advice nobody can follow.
+        const { deps, written } = harness(config(), UNUSED);
+        const result = await deleteTicketType('guild-1', 'verification', {
+            ...deps,
+            holders: {
+                bindings: {
+                    listByGuild: async () => [
+                        {
+                            id: 7,
+                            guildId: 'guild-1',
+                            ownerKind: 'journey' as const,
+                            ownerKey: 'onboarding',
+                            resourceKey: 'verification',
+                            kind: 'ticketType' as const,
+                            state: 'adopted' as const,
+                            discordId: 'verification',
+                            name: 'Verification',
+                            createdAt: new Date(),
+                            updatedAt: new Date(),
+                        },
+                    ],
+                },
+                journeys: { listTicketTypeDeclarations: async () => journeys },
+            },
+        });
+
+        expect(result.ok).toBe(true);
+        expect(written().ticketTypes).not.toHaveProperty('verification');
+    });
+});
+
+/** A journey's install: create only when absent, never replace. */
+describe('createTicketTypeIfAbsent', () => {
+    it('adds a type the guild does not have, trimmed, leaving the others', async () => {
+        const { deps, written } = harness();
+
+        const result = await createTicketTypeIfAbsent('guild-1', definition({ label: '  Appeals  ' }), deps);
+
+        expect(result.outcome).toBe('created');
+        expect(written().ticketTypes?.appeals).toEqual(definition());
+        expect(written().ticketTypes).toHaveProperty('support');
+    });
+
+    it('leaves a type of that key exactly as it is, and reports its label', async () => {
+        const { deps, update } = harness();
+
+        const result = await createTicketTypeIfAbsent(
+            'guild-1',
+            definition({ type: 'verification', label: 'Prove it', nameTemplate: 'P{{####}}' }),
+            deps
+        );
+
+        expect(result).toEqual({ outcome: 'exists', label: 'Verification' });
+        expect(update).not.toHaveBeenCalled();
+    });
+
+    it('refuses with the same words upsert uses, for the same rules', async () => {
+        const { deps, update } = harness();
+
+        const result = await createTicketTypeIfAbsent('guild-1', definition({ nameTemplate: 'A{{user}}' }), deps);
+
+        expect(result).toMatchObject({ outcome: 'refused', reason: 'invalid-input' });
+        expect(result.outcome === 'refused' && result.message).toContain('{{user}}');
+        expect(update).not.toHaveBeenCalled();
+    });
+
+    it('creates a type keyed `constructor`, which a plain index would mistake for one already there', async () => {
+        const { deps, written } = harness();
+
+        const result = await createTicketTypeIfAbsent('guild-1', definition({ type: 'constructor' }), deps);
+
+        expect(result.outcome).toBe('created');
+        expect(written().ticketTypes?.constructor).toMatchObject({ type: 'constructor' });
+    });
+
+    it('refuses a guild with no config row', async () => {
+        const { deps } = harness(null);
+
+        expect(await createTicketTypeIfAbsent('guild-1', definition(), deps)).toMatchObject({
+            outcome: 'refused',
+            reason: 'no-config',
+        });
     });
 });

@@ -1,6 +1,7 @@
 import { ChannelType, DiscordAPIError, type CategoryChannel, type Guild } from 'discord.js';
 import { resourceBindingsRepo } from '../data/resourceBindingsRepo';
-import type { ResourceBindingEntity } from '../data/resourceBindingsSchema';
+import { journeyOwner, type ResourceBindingEntity } from '../data/resourceBindingsSchema';
+import { requireTicketTypeProvider, type TicketTypeCreateOutcome } from '../ticketTypeProvider';
 import { parseDeclaredRoleReference } from './declaredRoleReference';
 import {
     existsInGuildAs,
@@ -14,10 +15,11 @@ import {
     type PermissionIntent,
     type PermissionIntentContext,
 } from './permissionIntent';
-import type {
-    JourneyDeclaration,
-    ResourceDeclaration,
-    ResourceKind,
+import {
+    isDiscordResource,
+    type DiscordResourceKind,
+    type JourneyDeclaration,
+    type ResourceDeclaration,
 } from './resourceDeclaration';
 
 export interface ApplyInstallPlanInput {
@@ -110,6 +112,25 @@ export async function applyInstallPlan(
                 failure: `Plan names resource "${item.resourceKey}", which the journey does not declare. The plan is stale — rebuild it.`,
             };
         }
+        // Everything below goes by the item's kind, so a plan made before the resource's
+        // kind changed must not reach it.
+        if (declaration.kind !== item.kind) {
+            return {
+                applied,
+                failure: `Plan has "${item.resourceKey}" as a ${item.kind}, but the journey now declares a ${declaration.kind}. The plan is stale — rebuild it.`,
+            };
+        }
+
+        // A ticket type is a row in the ticket settings, not a Discord object: nothing here
+        // can be half-made, so there is no intent row, and none of the Discord error
+        // handling below applies. Branched before `recordIntent`, which takes only a
+        // Discord kind.
+        if (!isDiscordResource(item)) {
+            const outcome = await applyTicketType(guild.id, journey.journeyKey, item, declaration);
+            if ('failure' in outcome) return { applied, failure: outcome.failure };
+            applied.push(outcome);
+            continue;
+        }
 
         let binding: ResourceBindingEntity;
         try {
@@ -133,8 +154,10 @@ export async function applyInstallPlan(
         // a recreate. Treating every settled binding as convergence reports success
         // while pointing at a dead snowflake.
         const settledElsewhere = Boolean(binding.discordId) && binding.state !== 'intended';
+        // Only a row of this kind can be live as this item: a ticket type row left under a
+        // key now declared as a channel holds a type key, which may even be all digits.
         const bindingIsLive =
-            settledElsewhere && binding.discordId
+            settledElsewhere && binding.discordId && binding.kind === item.kind
                 ? existsInGuildAs(guild, item.kind, binding.discordId)
                 : false;
 
@@ -272,12 +295,14 @@ export async function applyInstallPlan(
                           id: binding.id,
                           expectedDiscordId: binding.discordId,
                           discordId,
+                          kind: item.kind,
                           state: settledState,
                           name: recordedName,
                       })
                     : await resourceBindingsRepo.settle({
                           id: binding.id,
                           discordId,
+                          kind: item.kind,
                           state: settledState,
                           name: recordedName,
                       });
@@ -289,6 +314,28 @@ export async function applyInstallPlan(
         }
 
         if (!settled) {
+            /*
+             * An adopt or a recover binds an object that already existed, and loses when
+             * another owner claimed it after the plan was built — a ticket save or another
+             * journey's install holds a different lock (`settle`/`rebind` refuse an object
+             * someone else holds). Nothing was made, so there is no duplicate to mention.
+             *
+             * The intent row goes too, in both cases. For an adopt, a fresh intent left
+             * behind could recover a same-named object made in the next ten minutes as
+             * this journey's `created`, to be deleted by its uninstall. For a recover the
+             * object it was about to take back is another owner's now, and the intent
+             * must not offer to take it back again.
+             */
+            if (item.action !== 'create') {
+                await discardOwnIntent();
+                return {
+                    applied,
+                    failure:
+                        item.action === 'recover'
+                            ? `"${item.resourceKey}" could not take back ${item.kind} "${recordedName}" (${discordId}): it was bound elsewhere while this install was applying, so it belongs to that owner now and this journey has let go of it. Rebuild the plan and review it again.`
+                            : `"${item.resourceKey}" could not adopt ${item.kind} "${recordedName}" (${discordId}): it was bound elsewhere while this install was applying. Rebuild the plan and review it again.`,
+                };
+            }
             // Another install settled this binding first. The resource we just made
             // is a duplicate, and we say so rather than pretending it is ours —
             // deleting it automatically would be a destructive action taken without
@@ -312,6 +359,96 @@ export async function applyInstallPlan(
 }
 
 /**
+ * Apply one ticket type item: create it if absent, then record that this journey uses it.
+ *
+ * `create` and `adopt` both ask the ticket feature to create the type **only if absent**,
+ * so what is recorded is what is true at apply time rather than at preview:
+ *
+ * - a type that appeared since the plan — another journey, the dashboard, the Discord
+ *   modal — comes back as `exists` and is recorded `adopted`, untouched;
+ * - a type the plan found that has gone since (deleted on the dashboard before this
+ *   journey held it) is made again from the declaration and recorded `created`, rather
+ *   than reported as "used as it is" for a type that is not there.
+ *
+ * A refusal fails this item in the ticket feature's words, and everything before it stays
+ * applied.
+ *
+ * The row goes through `upsertBinding`, not the intent lifecycle: there is nothing in
+ * Discord to half-make, and its `discordId` is the type's key, which no Discord ownership
+ * fence must ever read as a snowflake. It is a second write after the provider's, so a
+ * delete can still land between the two; the next install then finds the type gone and
+ * plans it as made again.
+ */
+async function applyTicketType(
+    guildId: string,
+    journeyKey: string,
+    item: PlanItem,
+    declaration: ResourceDeclaration
+): Promise<AppliedResource | { readonly failure: string }> {
+    if (item.action !== 'create' && item.action !== 'adopt') {
+        // `recover` is the only other mutation, and the plan never offers it for a type:
+        // nothing can be half-made.
+        return {
+            failure: `"${item.resourceKey}" is a ticket type, which has nothing to ${item.action}. The plan is malformed — rebuild it.`,
+        };
+    }
+    if (!declaration.ticketType) {
+        // `validateJourneyDeclaration` requires the settings, so this is a declaration that
+        // skipped it — named rather than created blank.
+        return { failure: `Ticket type "${item.resourceKey}" has no settings to create it with.` };
+    }
+
+    let created: TicketTypeCreateOutcome;
+    try {
+        created = await requireTicketTypeProvider().createIfAbsent(
+            guildId,
+            item.resourceKey,
+            declaration.defaultName,
+            declaration.ticketType
+        );
+    } catch (error) {
+        return { failure: `Could not create the ticket type "${item.name}": ${describeError(error)}` };
+    }
+
+    let state: 'created' | 'adopted';
+    let name: string;
+    switch (created.outcome) {
+        case 'created':
+            state = 'created';
+            name = declaration.defaultName.trim();
+            break;
+        case 'exists':
+            // Already there: used as it is, never rewritten.
+            state = 'adopted';
+            name = created.label;
+            break;
+        case 'refused':
+            return { failure: created.message };
+    }
+
+    try {
+        await resourceBindingsRepo.upsertBinding({
+            guildId,
+            owner: journeyOwner(journeyKey),
+            resourceKey: item.resourceKey,
+            kind: 'ticketType',
+            state,
+            discordId: item.resourceKey,
+            name,
+        });
+    } catch (error) {
+        return {
+            failure:
+                state === 'created'
+                    ? `The ticket type "${name}" was created, but recording that this journey installed it failed: ${describeError(error)}. Run install again; it finds the type and records it.`
+                    : `Could not record that this journey uses the ticket type "${name}": ${describeError(error)}`,
+        };
+    }
+
+    return { resourceKey: item.resourceKey, discordId: item.resourceKey, action: state, name };
+}
+
+/**
  * The name a guild object currently carries, or `undefined` if it is not there.
  *
  * Used only on the adopt path, where the object predates us and keeps whatever name it
@@ -320,7 +457,7 @@ export async function applyInstallPlan(
  * just been proven to exist by `requireAdoptable`, so this returning nothing means the
  * cache is thin rather than that the object is gone.
  */
-function liveNameOf(guild: Guild, kind: ResourceKind, discordId: string): string | undefined {
+function liveNameOf(guild: Guild, kind: DiscordResourceKind, discordId: string): string | undefined {
     return kind === 'role'
         ? guild.roles.cache.get(discordId)?.name
         : guild.channels.cache.get(discordId)?.name;
@@ -334,7 +471,7 @@ function liveNameOf(guild: Guild, kind: ResourceKind, discordId: string): string
  * would record a resource that does not exist, which is exactly what the recreate
  * path then has to clean up.
  */
-function requireAdoptable(guild: Guild, item: PlanItem): string {
+function requireAdoptable(guild: Guild, item: DiscordPlanItem): string {
     if (!item.discordId) {
         throw new Error(`a ${item.action} item carries no id`);
     }
@@ -346,9 +483,12 @@ function requireAdoptable(guild: Guild, item: PlanItem): string {
     return item.discordId;
 }
 
+/** A plan item for a Discord object — everything this file does past the ticket type branch. */
+type DiscordPlanItem = PlanItem & { readonly kind: DiscordResourceKind };
+
 interface CreateResourceInput {
     readonly guild: Guild;
-    readonly item: PlanItem;
+    readonly item: DiscordPlanItem;
     readonly declaration: ResourceDeclaration;
     readonly idByKey: ReadonlyMap<string, string>;
     readonly permissionContext: PermissionIntentContext;
@@ -375,7 +515,9 @@ function prepareCreate({
           )
         : undefined;
 
-    switch (declaration.kind) {
+    // On the item's kind, which the ticket type branch has already narrowed; the plan
+    // copied it from this declaration.
+    switch (item.kind) {
         case 'role':
             return async () => {
                 const role = await guild.roles.create({

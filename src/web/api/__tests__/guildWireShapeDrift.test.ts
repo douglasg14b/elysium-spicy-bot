@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { GUILD_CHANNEL_KEYS, GUILD_CHANNEL_TYPES, GUILD_ROLE_KEYS, GUILD_SETTINGS_KEYS } from '../guildBody';
+import { BINDING_OWNER_KINDS } from '../../../features/provisioning/data/resourceBindingsSchema';
+import {
+    GUILD_CHANNEL_KEYS,
+    GUILD_OBJECT_OWNER_KEYS,
+    GUILD_CHANNEL_TYPES,
+    GUILD_ROLE_KEYS,
+    GUILD_SETTINGS_KEYS,
+} from '../guildBody';
 import * as browserTypes from '../../../../web/src/api/types';
 
 /**
@@ -27,6 +34,11 @@ const SHAPES = [
         name: 'GuildChannel',
         server: GUILD_CHANNEL_KEYS,
         browser: browserTypes.GUILD_CHANNEL_KEYS,
+    },
+    {
+        name: 'GuildObjectOwner',
+        server: GUILD_OBJECT_OWNER_KEYS,
+        browser: browserTypes.GUILD_OBJECT_OWNER_KEYS,
     },
     { name: 'GuildRole', server: GUILD_ROLE_KEYS, browser: browserTypes.GUILD_ROLE_KEYS },
     {
@@ -61,5 +73,11 @@ describe('guild wire shape drift between server and browser', () => {
                 'cannot exclude — and the thing it most needs to exclude is a category, which ' +
                 'is not somewhere a message can be sent.'
         ).toEqual(serverTypes);
+    });
+
+    it('keeps the owner kind vocabulary identical on both sides', () => {
+        // The pickers compare `owner.kind` to decide whether a channel is the edited
+        // journey's own; a kind the browser cannot name is one it would misjudge.
+        expect([...browserTypes.BINDING_OWNER_KINDS].sort()).toEqual([...BINDING_OWNER_KINDS].sort());
     });
 });

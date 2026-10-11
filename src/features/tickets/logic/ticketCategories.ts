@@ -4,11 +4,9 @@ import { fail, ok, type Result } from '../../../shared';
 import { ticketingRepo } from '../data/ticketingRepo';
 import {
     TICKET_CATEGORY_LABELS,
-    TICKET_CATEGORY_SLOTS,
     type BoundTicketCategory,
     type ConfiguredTicketingConfig,
     type TicketCategorySlot,
-    type TicketingConfig,
 } from '../data/ticketingSchema';
 import { createTicketCategory } from './createTicketCategory';
 
@@ -98,15 +96,21 @@ async function resolveBinding(
 /**
  * Make the category again and point every slot that held the deleted id at it.
  *
- * The write is a compare-and-set on the deleted id. If the operator re-picked the slot
- * on the dashboard while this ran, their choice stands: the category just made is
- * deleted again, and this ticket operation fails rather than landing a channel in a
- * category the config no longer names.
+ * The write is one compare-and-set statement on the slot rows — guild, the ticket owner,
+ * and the deleted id — so every slot sharing the category is repointed together. No
+ * config changes, so it does not go through `mutateConfig`. If the operator re-picked the
+ * slot on the dashboard while this ran, their choice stands: nothing matches, the
+ * category just made is deleted again, and this ticket operation fails rather than
+ * landing a channel in a category the config no longer names.
+ *
+ * **Only the ticket feature's rows move.** A journey row on the same dead id stays dead,
+ * and that journey's next install offers to recreate it as usual.
  *
  * **Accepted, not handled:** a create whose answer never arrives (a timeout after Discord
  * made it) fails this operation with the slot unchanged, and the next ticket makes
- * another. The stray carries the expected name, so the operator can spot and delete it;
- * closing this properly needs an intent row, which the shared binding table brings.
+ * another. The stray carries the expected name, so the operator can spot and delete it.
+ * Tickets record no intent that would close this — Douglas's call on 2026-10-10: one
+ * empty duplicate category is the worst case, and he would delete it by hand.
  */
 async function recreateDeletedCategory(
     guild: Guild,
@@ -126,24 +130,9 @@ async function recreateDeletedCategory(
         );
     }
 
-    const replacement: BoundTicketCategory = {
-        name: deleted.name,
-        discordId: category.id,
-        provenance: 'created',
-    };
-
-    let saved: TicketingConfig | null;
+    let repointed: number;
     try {
-        saved = await ticketingRepo.mutateConfig(guild.id, (current) => {
-            const slots = TICKET_CATEGORY_SLOTS.filter(
-                (slot) => current.config.categories[slot]?.discordId === deleted.discordId
-            );
-            if (slots.length === 0) return null;
-
-            const categories = { ...current.config.categories };
-            for (const slot of slots) categories[slot] = replacement;
-            return { ...current.config, categories };
-        });
+        repointed = await ticketingRepo.repointCategory(guild.id, deleted.discordId, category.id);
     } catch (error) {
         console.error(
             `[tickets] Recreated deleted category "${deleted.name}" as ${category.id} in guild ${guild.id}, but could not save it:`,
@@ -154,7 +143,7 @@ async function recreateDeletedCategory(
         );
     }
 
-    if (!saved) {
+    if (repointed === 0) {
         // Nothing references it and the bot made it moments ago, so it goes rather than
         // being left as an orphan the operator has to find.
         await category.delete('Replacement ticket category no longer needed: the slot was re-linked meanwhile').catch(

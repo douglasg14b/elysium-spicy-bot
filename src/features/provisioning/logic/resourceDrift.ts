@@ -168,14 +168,52 @@ export interface ResourceDriftReport {
      * rename is not a promise — so drift is *detected* on an adopted resource, because
      * a staff-only channel going public matters regardless of who made it, and repair
      * is withheld.
+     *
+     * Also `false` when another owner holds the same object ({@link sharedWith}).
      */
     readonly repairable: boolean;
+    /**
+     * Set when another owner — another journey, or the ticket system — also holds this
+     * object, naming them.
+     *
+     * Only reachable through a cross-claim that predates one owner per object, which the
+     * 2026-10-10 migration copied as it found it. Repair is withheld: putting a shared
+     * category back to this journey's declaration would strip the overwrites the other
+     * owner set, the ticket moderation roles for instance. Set by `buildJourneyDriftPlan`,
+     * which has the guild's bindings; this comparison does not.
+     */
+    readonly sharedWith?: string;
+}
+
+/**
+ * Why a drifted resource is reported but not repaired, in words for the operator, or
+ * `undefined` when it is repairable.
+ *
+ * Server-side because the reasons are no longer all visible in the report's drift kinds:
+ * adoption and sharing are properties of the bindings. The browser used to derive this
+ * sentence and fell through to "adopted" for anything that was not `wrongType` — which
+ * would have called a shared category this journey created "adopted".
+ *
+ * Sharing is checked first: it is the reason that holds whatever the provenance.
+ */
+export function describeWithheldRepair(report: ResourceDriftReport): string | undefined {
+    if (report.repairable) return undefined;
+    if (report.sharedWith) {
+        return `Left alone — ${report.sharedWith} uses this too, so repairing it here could undo their setup.`;
+    }
+    if (report.drift.some((entry) => entry.kind === 'wrongType')) {
+        return 'Left alone — this points at something of the wrong type now, which needs you to decide what it should be.';
+    }
+    return 'Left alone — this was adopted rather than created here, so it is never modified.';
 }
 
 const KIND_LABEL: Record<ResourceKind, string> = {
     category: 'category',
     textChannel: 'channel',
     role: 'role',
+    // Never reached: drift skips ticket types (`buildJourneyDriftPlan`). Named for the
+    // table's completeness, not because a type can drift.
+    ticketType: 'ticket type',
 };
 
 /**

@@ -80,16 +80,21 @@ import type {
     GuildRole,
     ResourceDeclaration,
     ResourceKind,
+    TicketTypeView,
 } from '../api/types';
-import { detectResourceProblems } from './detectResourceProblems';
+import { TicketTypeFields } from '../tickets/TicketTypeFields';
+import { emptyTicketTypeDraft, validateTicketTypeDraft } from '../tickets/ticketTypeForm';
+import { detectResourceProblems, RESOURCE_KEY_PATTERN } from './detectResourceProblems';
 import type { ResourceChipInstance } from './detectResourceProblems';
 import { PermissionIntentEditor } from './PermissionIntentEditor';
 import { ResourceChip } from './ResourceChip';
 import {
     adoptableChannelOptions,
     adoptableRoleOptions,
+    heldByLabel,
     canAdopt,
     canHaveParent,
+    hasChannelPermissions,
     declarationForAdoptedResource,
     declarationForNewResource,
     nameTypedOverAdoption,
@@ -138,6 +143,18 @@ interface ResourcesPanelProps {
     roles: GuildRole[];
     /** Real channels in the guild, so a resource can adopt one instead of creating it. */
     channels: GuildChannel[];
+    /**
+     * The server's ticket types, for a declared ticket type's key suggestions and its
+     * "Already here" chip. Absent until known, when the chip says nothing.
+     */
+    ticketTypes?: readonly TicketTypeView[];
+    /**
+     * The journey these declarations belong to, when there is one.
+     *
+     * The adopt picker disables a channel another owner holds; this is how it knows a
+     * channel held by *this* journey — one it installed — is not another owner's.
+     */
+    journeyKey?: string;
     /**
      * Set while an autosave is in flight. **Deliberately not `disabled`.**
      *
@@ -209,6 +226,8 @@ export function ResourcesPanel({
     onChange,
     roles,
     channels,
+    ticketTypes,
+    journeyKey,
     saving,
     error,
     installedKeys,
@@ -248,8 +267,8 @@ export function ResourcesPanel({
     // that has been installed owns a live object carrying every name it declares, so the
     // chip would fire on every row of a healthy journey.
     const detected = useMemo(
-        () => detectResourceProblems(resources, { channels, roles, installedKeys }),
-        [resources, channels, roles, installedKeys]
+        () => detectResourceProblems(resources, { channels, roles, installedKeys, ticketTypes }),
+        [resources, channels, roles, installedKeys, ticketTypes]
     );
     const chipsByIndex = useMemo(() => {
         const byIndex = new Map<number, readonly ResourceChipInstance[]>();
@@ -649,6 +668,8 @@ export function ResourcesPanel({
                             )}
                             roles={roles}
                             channels={channels}
+                            ticketTypes={ticketTypes}
+                            journeyKey={journeyKey}
                             allResources={resources}
                             declaredRoles={declaredRoles.filter(
                                 // A role granting itself permissions is meaningless,
@@ -707,6 +728,10 @@ interface ResourceRowProps {
     categories: ResourceDeclaration[];
     roles: GuildRole[];
     channels: GuildChannel[];
+    /** The server's ticket types, for a ticket type row's key suggestions. */
+    ticketTypes: readonly TicketTypeView[] | undefined;
+    /** This list's journey, so its own channels are not disabled as another owner's. */
+    journeyKey: string | undefined;
     /** Every declared resource, so this row's picker can skip ones another row adopts. */
     allResources: ResourceDeclaration[];
     declaredRoles: ResourceDeclaration[];
@@ -739,6 +764,8 @@ function ResourceRow({
     categories,
     roles,
     channels,
+    ticketTypes,
+    journeyKey,
     allResources,
     declaredRoles,
     onUpdate,
@@ -759,6 +786,7 @@ function ResourceRow({
     const nameRef = useRef<HTMLInputElement>(null);
     const keyRef = useRef<HTMLInputElement>(null);
     const rulesRef = useRef<HTMLDivElement>(null);
+    const ticketTypeFieldsRef = useRef<HTMLDivElement>(null);
 
     const hasBlockingChip = chips.some((chip) => RESOURCE_CHIPS[chip.id].tone === 'error');
 
@@ -779,18 +807,20 @@ function ResourceRow({
                               channels,
                               resource.kind,
                               allResources,
-                              resource.key
+                              resource.key,
+                              journeyKey
                           ),
                           ...adoptableRoleOptions(
                               roles,
                               resource.kind,
                               allResources,
-                              resource.key
+                              resource.key,
+                              journeyKey
                           ),
                       ]
                     : []
             ),
-        [channels, roles, resource.kind, resource.key, allResources]
+        [channels, roles, resource.kind, resource.key, allResources, journeyKey]
     );
 
     /**
@@ -824,8 +854,16 @@ function ResourceRow({
         () => rankSuggestions(adoptOptions, resource.defaultName).slice(0, SUGGESTION_LIMIT),
         [adoptOptions, resource.defaultName]
     );
+    // A channel another owner holds is listed disabled with the owner named, so the
+    // operator sees why it cannot be picked. The owner goes on the rendered label only:
+    // `adoptOptions` keeps the bare label, which `adoptedLabel` below and the ranking read.
     const suggestionData = useMemo(
-        () => ranked.map((entry) => ({ value: entry.option.value, label: entry.option.label })),
+        () =>
+            ranked.map((entry) => ({
+                value: entry.option.value,
+                label: entry.option.heldBy ? heldByLabel(entry.option.label, entry.option.heldBy) : entry.option.label,
+                disabled: entry.option.disabled,
+            })),
         [ranked]
     );
 
@@ -950,6 +988,7 @@ function ResourceRow({
         nameRef,
         keyRef,
         rulesRef,
+        ticketTypeFieldsRef,
     });
 
     useFocusNameOnMount({ focusNameOnMount, expanded, nameRef, onNameFocusHandled });
@@ -1057,6 +1096,17 @@ function ResourceRow({
                         pb="lg"
                         style={{ borderTop: '1px solid var(--mantine-color-dark-6)' }}
                     >
+                        {resource.kind === 'ticketType' ? (
+                            <TicketTypeBody
+                                resource={resource}
+                                ticketTypes={ticketTypes}
+                                keyIsInstalled={keyIsInstalled}
+                                onUpdate={onUpdate}
+                                labelRef={nameRef}
+                                keyRef={keyRef}
+                                fieldsRef={ticketTypeFieldsRef}
+                            />
+                        ) : (
                         <Group gap="md" wrap="nowrap" align="flex-start" grow>
                             {/*
                               * One control, not two. This was a Name box beside a "Does it
@@ -1147,6 +1197,7 @@ function ResourceRow({
                                 onChange={(event) => onUpdate({ key: event.currentTarget.value })}
                             />
                         </Group>
+                        )}
 
                         {showParentPicker && (
                             <Select
@@ -1173,9 +1224,10 @@ function ResourceRow({
                          * Roles carry no permission overwrites — overwrites are a
                          * property of a channel or a category, and a role *appears in*
                          * them rather than having them. Offering the editor here would
-                         * be a form with no effect.
+                         * be a form with no effect. Nor does a ticket type, whose access
+                         * is its own permission grid, above.
                          */}
-                        {resource.kind !== 'role' && (
+                        {hasChannelPermissions(resource.kind) && (
                             <div ref={rulesRef}>
                                 <Stack gap="md">
                                     <Divider
@@ -1221,6 +1273,90 @@ function ResourceRow({
     );
 }
 
+interface TicketTypeBodyProps {
+    resource: ResourceDeclaration;
+    ticketTypes: readonly TicketTypeView[] | undefined;
+    keyIsInstalled: boolean;
+    onUpdate: (patch: Partial<ResourceDeclaration>) => void;
+    labelRef: RefObject<HTMLInputElement>;
+    keyRef: RefObject<HTMLInputElement>;
+    fieldsRef: RefObject<HTMLDivElement>;
+}
+
+/**
+ * The open row of a declared ticket type: its key, and the ticket type's own fields.
+ *
+ * Nothing a channel row has applies — no category to sit in, no channel permissions, no
+ * existing object to pick, no name to collide with in Discord. What it has instead is the
+ * tickets page's own editor (`TicketTypeFields`), so a type reads the same wherever it is
+ * made.
+ *
+ * **The key does not follow the label.** It names the type: install uses one of that key
+ * if the server has it, exactly as it stands, and makes it otherwise. A rename carrying
+ * the key would switch the row between those two silently, so the key moves only when it
+ * is typed — and its field offers the server's own type keys, which is how a journey says
+ * "use Verification".
+ */
+function TicketTypeBody({ resource, ticketTypes, keyIsInstalled, onUpdate, labelRef, keyRef, fieldsRef }: TicketTypeBodyProps) {
+    // Always present on a row this panel made; a hand-written journey lacking them gets
+    // the tickets page's starting settings here, and the save then refuses nothing.
+    const settings = resource.ticketType ?? emptyTicketTypeDraft();
+    const existing = ticketTypes?.find((ticketType) => ticketType.type === resource.key);
+    const keySuggestions = useMemo(
+        // A type key can stand as a resource key only in the resource key's own shape.
+        () => [...new Set((ticketTypes ?? []).map((ticketType) => ticketType.type))].filter((key) => RESOURCE_KEY_PATTERN.test(key)),
+        [ticketTypes]
+    );
+    const problems = validateTicketTypeDraft({ type: resource.key, label: resource.defaultName, ...settings });
+
+    return (
+        <div ref={fieldsRef}>
+            <TicketTypeFields
+                value={{
+                    label: resource.defaultName,
+                    nameTemplate: settings.nameTemplate,
+                    permissions: settings.permissions,
+                    autoClaimOnOpen: settings.autoClaimOnOpen,
+                }}
+                onChange={(next) =>
+                    onUpdate({
+                        defaultName: next.label,
+                        ticketType: {
+                            nameTemplate: next.nameTemplate,
+                            permissions: next.permissions,
+                            autoClaimOnOpen: next.autoClaimOnOpen,
+                        },
+                    })
+                }
+                problems={{ label: problems.label, nameTemplate: problems.nameTemplate }}
+                labelRef={labelRef}
+                keyField={
+                    <Autocomplete
+                        ref={keyRef}
+                        size="sm"
+                        label="Key"
+                        // Installed or already there, the type is used as it stands: install
+                        // never changes it, so edits below only matter if it is ever made
+                        // fresh. Said in the field rather than as a chip, which would sit on
+                        // every installed row.
+                        description={
+                            keyIsInstalled
+                                ? 'Fixed — installed. Edits below only apply if the type is ever made fresh; change it on the tickets page.'
+                                : existing
+                                  ? `Already here as “${existing.label}” — used as it is, not changed.`
+                                  : 'Names the ticket type. Made on install unless the server already has one.'
+                        }
+                        placeholder="verification"
+                        value={resource.key}
+                        data={keySuggestions}
+                        onChange={(next) => onUpdate({ key: next })}
+                    />
+                }
+            />
+        </div>
+    );
+}
+
 interface FocusOnRequestInput {
     pendingJump: PendingJump | undefined;
     expanded: boolean;
@@ -1228,6 +1364,7 @@ interface FocusOnRequestInput {
     nameRef: RefObject<HTMLInputElement>;
     keyRef: RefObject<HTMLInputElement>;
     rulesRef: RefObject<HTMLDivElement>;
+    ticketTypeFieldsRef: RefObject<HTMLDivElement>;
 }
 
 /**
@@ -1250,6 +1387,7 @@ function useFocusOnRequest({
     nameRef,
     keyRef,
     rulesRef,
+    ticketTypeFieldsRef,
 }: FocusOnRequestInput): void {
     const target = pendingJump?.target;
 
@@ -1281,6 +1419,11 @@ function useFocusOnRequest({
                     // that exist specifically to name a rule would then land exactly
                     // where a plain `rules` chip does.
                     break;
+                case 'ticketTypeFields':
+                    // The label or the template — the chip covers both, so the fields
+                    // are brought into view rather than one of them guessed at.
+                    ticketTypeFieldsRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                    break;
                 default: {
                     // Exhaustiveness: a new jump target has to be handled above.
                     const unreachable: never = pendingJump.target;
@@ -1294,7 +1437,7 @@ function useFocusOnRequest({
         // `target` is in the deps so a second click on a *different* chip of the same
         // row re-runs this; `pendingJump` identity alone would do it, but naming the
         // field makes the intent legible.
-    }, [pendingJump, target, expanded, onJumpHandled, nameRef, keyRef, rulesRef]);
+    }, [pendingJump, target, expanded, onJumpHandled, nameRef, keyRef, rulesRef, ticketTypeFieldsRef]);
 }
 
 interface FocusNameOnMountInput {

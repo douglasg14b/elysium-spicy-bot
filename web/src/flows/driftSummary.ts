@@ -75,35 +75,25 @@ export function hasRepairable(drift: JourneyDrift): boolean {
 /**
  * Why a drifted resource is shown but not offered a repair.
  *
- * Two reasons and they are genuinely different, so they get different sentences: an
- * adopted resource is one we promised never to touch, and a wrong-type binding needs a
- * decision only an operator can take. Collapsing them into "cannot be repaired" would
- * hide that the first is a promise being kept and the second is a job to do.
+ * Three reasons, each with its own sentence: an adopted resource is one we promised never
+ * to touch, a wrong-type binding needs a decision only an operator can take, and a
+ * resource another owner also holds is not ours alone to reshape. Collapsing them into
+ * "cannot be repaired" would hide which is a promise being kept and which is a job to do.
  *
  * Returns null when the resource *is* repairable, so a caller can render nothing.
  *
- * ## Why the reason is derived here and the decision is not
+ * ## Why the sentence comes from the server now
  *
- * `repairable` comes from the server and is never inferred — a client guessing it would
- * offer a repair the server refuses. This function only picks the *sentence* for a
- * decision already made, which is a weaker claim, and it is deliberately arranged so
- * that being wrong is survivable: the `wrongType` branch is the one visible in the
- * drift kinds, and everything else falls through to adoption, which is the more
- * conservative thing to tell an operator.
- *
- * **If a third reason for withholding a repair ever appears, move this to the server**
- * as a `withheldReason` beside `repairable`. It was not moved now because the wire cost
- * — a field, two `*_KEYS` entries and a gate row — buys nothing while there are two
- * reasons and one of them is structurally visible.
+ * This used to pick the sentence itself — `wrongType` from the drift kinds, everything
+ * else "adopted" — and its note said to move it to the server the day a third reason
+ * appeared. Sharing (2026-10-10) is that reason: it is invisible in the drift kinds, and
+ * the fall-through would have called a shared category this journey created "adopted".
+ * So the server writes `withheldReason` beside `repairable`
+ * (`describeWithheldRepair`), and this only reads it.
  */
 export function whyNotRepairable(resource: DriftedResource): string | null {
     if (resource.repairable) return null;
-
-    if (resource.drift.some((detail) => detail.kind === 'wrongType')) {
-        return 'Left alone — this points at something of the wrong type now, which needs you to decide what it should be.';
-    }
-
-    return 'Left alone — this was adopted rather than created here, so it is never modified.';
+    return resource.withheldReason;
 }
 
 /** The label for the repair button, which names what it will touch. */

@@ -2,7 +2,7 @@ import type { Guild } from 'discord.js';
 import { resourceBindingsRepo, type ResourceBindingsRepo } from '../data/resourceBindingsRepo';
 import { describeDiscordError as describeError, isAlreadyGone, isPermissionProblem } from './discordErrors';
 import { existsInGuildAs } from './installPlan';
-import type { ResourceKind } from './resourceDeclaration';
+import { isDiscordResource, type DiscordResourceKind, type ResourceKind } from './resourceDeclaration';
 import { survivorsOf, type UnpublishItem, type UnpublishPlan } from './unpublishPlan';
 
 /**
@@ -106,6 +106,13 @@ export async function applyUnpublishPlan(
             continue;
         }
 
+        // A ticket type is only ever forgotten (`buildUnpublishPlan`), and nothing in the
+        // guild or the ticket settings is touched to do it: the row goes, the type stays.
+        if (!isDiscordResource(item)) {
+            await forgetRow(repo, item, results, base, false);
+            continue;
+        }
+
         /*
          * Whether *this run* removed something from the guild.
          *
@@ -201,7 +208,12 @@ async function forgetRow(
         results.push({
             ...base,
             outcome: 'failed',
-            explanation: `The ${item.kind === 'role' ? 'role' : 'channel'} was removed from the server, but its record could not be deleted: ${describeError(error)}. Run this again to clear the leftover record.`,
+            // Only a delete removed anything. A forget — a ticket type, an object already
+            // gone, one another owner holds — left everything standing, and saying it was
+            // "removed from the server" would claim a deletion that never happened.
+            explanation: deletedHere
+                ? `The ${item.kind === 'role' ? 'role' : 'channel'} was removed from the server, but its record could not be deleted: ${describeError(error)}. Run this again to clear the leftover record.`
+                : `Its record could not be removed: ${describeError(error)}. Nothing else was touched; run this again to clear it.`,
         });
     }
 }
@@ -215,7 +227,7 @@ async function forgetRow(
  */
 async function deleteFromGuild(
     guild: Guild,
-    kind: ResourceKind,
+    kind: DiscordResourceKind,
     discordId: string,
     reason: string
 ): Promise<string | undefined> {

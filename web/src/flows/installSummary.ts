@@ -31,6 +31,11 @@ export interface InstallPlanSummary {
     readonly changes: readonly InstallPlanItem[];
     /** Items already bound and resolving, which the apply will leave alone. */
     readonly unchanged: readonly InstallPlanItem[];
+    /**
+     * What is worth knowing and blocks nothing — each distinct note once, however many
+     * items carry it. Today only the ticket feature's "not fully set up yet".
+     */
+    readonly notes: readonly string[];
 }
 
 function plural(count: number, one: string, many: string): string {
@@ -54,6 +59,7 @@ const KIND_NOUNS: Record<ResourceKind, KindNouns> = {
     textChannel: { one: 'channel', many: 'channels' },
     category: { one: 'category', many: 'categories' },
     role: { one: 'role', many: 'roles' },
+    ticketType: { one: 'ticket type', many: 'ticket types' },
 };
 
 /**
@@ -137,6 +143,7 @@ export function summariseInstallPlan(plan: InstallPlan): InstallPlanSummary {
         problems,
         changes,
         unchanged,
+        notes: [...new Set(plan.items.flatMap((item) => (item.note ? [item.note] : [])))],
     };
 }
 

@@ -1,9 +1,13 @@
 import { ChannelType, type Guild, type GuildBasedChannel } from 'discord.js';
 import { DISCORD_UNKNOWN_CHANNEL, discordErrorCode } from './discordErrors';
-import type { ResourceKind } from './resourceDeclaration';
+import type { DiscordResourceKind } from './resourceDeclaration';
 
-/** The channel kinds a bound id can name. Roles are looked up from the role cache. */
-export type BoundChannelKind = Exclude<ResourceKind, 'role'>;
+/**
+ * The channel kinds a bound id can name. Roles are looked up from the role cache, and a
+ * ticket type is no Discord object at all — which `Exclude<ResourceKind, 'role'>` would
+ * have let through.
+ */
+export type BoundChannelKind = Exclude<DiscordResourceKind, 'role'>;
 
 /**
  * What a bound channel id resolves to.
