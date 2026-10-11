@@ -119,8 +119,8 @@ interface WalkPosition {
  *
  * A normalising step (`.trim()`, `.toLowerCase()`) is not in the spec either, so the
  * browser checks the value as typed where the server checks it normalised. A page checks
- * what it will send, normalised the same way — as `sdk-4-ticket-settings.md` §3 does for
- * the ticket type's trimmed label.
+ * what it will send, normalised the same way — as `web/src/tickets/ticketTypeForm.ts` does
+ * for the ticket type's trimmed label.
  *
  * **Side effect:** the metadata lives in zod's process-wide `z.globalRegistry`, on schema
  * objects shared by every app built from the same route modules. That is safe because it
