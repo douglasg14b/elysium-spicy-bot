@@ -15,7 +15,7 @@ import type {
     NodeDescriptor,
     ResourceDeclaration,
     TicketTypeView,
-} from '../api/types';
+} from '@brattybot/web-sdk';
 import { renderControl } from './controls/renderControl';
 import type { ControlContext, ServerTimeZone } from './controls/types';
 import { KIND_STYLES } from './nodeMeta';

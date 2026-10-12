@@ -6,16 +6,22 @@ import type { ResourceBindingTarget } from './bindResourcesToGraph';
 /**
  * The controls that write a `<field>Key` sidecar when a declared resource is picked.
  *
- * Mirrors the builder's pickers (`PickerControls.tsx`, `TicketTypePickerControl.tsx`), and
- * its own copy in `web/src/flows/fieldChecks.ts`, which `resourceTargets.test.ts` holds equal.
- * A ticket type joined on 2026-10-10, when a journey became able to declare one.
+ * Matches the builder's pickers (`PickerControls.tsx`, `TicketTypePickerControl.tsx`). The
+ * browser reads this very list off the spec (`ResourcePickerControl`, registered in
+ * `src/web/api/openApiDocument.ts`) to know whose emptiness is the server's to judge. A
+ * ticket type joined on 2026-10-10, when a journey became able to declare one.
  */
-export const RESOURCE_PICKER_CONTROLS: ReadonlySet<BlockControlType> = new Set<BlockControlType>([
+export const RESOURCE_PICKER_CONTROL_TYPES = [
     'rolePicker',
     'channelPicker',
     'categoryPicker',
     'ticketTypePicker',
-]);
+] as const satisfies readonly BlockControlType[];
+
+/** {@link RESOURCE_PICKER_CONTROL_TYPES} as a set, for the scan's lookups. */
+export const RESOURCE_PICKER_CONTROLS: ReadonlySet<BlockControlType> = new Set<BlockControlType>(
+    RESOURCE_PICKER_CONTROL_TYPES
+);
 
 /**
  * The config-key suffix marking a picker's resource key.

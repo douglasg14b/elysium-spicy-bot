@@ -12,7 +12,7 @@
 
 import type { ReactNode, Ref } from 'react';
 import { Checkbox, Group, Stack, Switch, Table, Text, TextInput } from '@mantine/core';
-import type { TicketPermissionModel, TicketRolePermissions } from '../api/types';
+import type { TicketPermissionModel, TicketRolePermissions } from '@brattybot/web-sdk';
 import type { TicketTypeDraft, TicketTypeDraftProblems } from './ticketTypeForm';
 
 /** The three people a ticket involves, in the order the permission grid shows them. */
@@ -33,8 +33,9 @@ const PERMISSION_FLAGS = [
 /*
  * `satisfies` above rejects a key that is not a member; these reject a member missing
  * from the list, which is the direction that actually bites — a fourth permission flag
- * would otherwise compile fine while the grid silently stopped offering a column.
- * Same mechanism as `TICKET_SUMMARY_KEYS` in `api/types.ts`.
+ * would otherwise compile fine while the grid silently stopped offering a column. The
+ * types are the SDK's, generated from the server's schemas, so a flag added there is a
+ * compile error here.
  */
 type PermissionTablesAreComplete =
     | Exclude<keyof TicketPermissionModel, (typeof PERMISSION_SUBJECTS)[number]['key']>
@@ -86,9 +87,14 @@ export function TicketTypeFields({
                 />
             </Group>
 
+            {/*
+             * The one place the browser names the tokens, as a hint before typing; the rule
+             * and its refusal are the server's. Follows `SUPPORTED_TOKENS` in
+             * `src/features/tickets/logic/ticketTypeRules.ts`.
+             */}
             <TextInput
                 label="Channel name template"
-                description="Only {{####}}, {{subject}} and {{opener}} render. Anything else arrives in Discord as literal braces."
+                description="Only {{####}}, {{subject}} and {{opener}} render. Anything else won't save."
                 placeholder="T{{####}}-{{subject}}"
                 value={value.nameTemplate}
                 error={problems?.nameTemplate}

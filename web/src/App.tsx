@@ -2,6 +2,7 @@ import { Center, Loader } from '@mantine/core';
 import { IconCake, IconChartBar } from '@tabler/icons-react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth/AuthContext';
+import { SessionExpiredPanel } from './auth/SessionExpiredPanel';
 import { BotIdentityProvider } from './brand/BotIdentityContext';
 import { GuildProvider } from './guilds/GuildContext';
 import { DashboardLayout } from './layout/DashboardLayout';
@@ -20,8 +21,9 @@ import { TicketsConfigPage } from './pages/TicketsConfigPage';
 
 /**
  * Root. Gates on auth: unauthenticated users get the login page; authenticated ones
- * get the dashboard shell + feature routes. Warnings is the default active route
- * (the one feature with real config in Phase 1).
+ * get the dashboard shell + feature routes, with the "sign in again" panel over them if
+ * the session runs out. Warnings is the default active route (the one feature with real
+ * config in Phase 1).
  *
  * Bot identity sits outside the gate: the login page brands itself too, and it renders
  * with no session.
@@ -30,14 +32,14 @@ export function App() {
     return (
         <BotIdentityProvider>
             <AuthProvider>
-                <Gate />
+                <AuthGate />
             </AuthProvider>
         </BotIdentityProvider>
     );
 }
 
-function Gate() {
-    const { user, loading } = useAuth();
+function AuthGate() {
+    const { user, loading, sessionExpired } = useAuth();
 
     if (loading) {
         return (
@@ -119,6 +121,8 @@ function Gate() {
                     <Route path="*" element={<Navigate to="/warnings" replace />} />
                 </Route>
             </Routes>
+            {/* Over the page, which stays exactly as it is until the same person signs in again. */}
+            <SessionExpiredPanel opened={sessionExpired} />
         </GuildProvider>
     );
 }

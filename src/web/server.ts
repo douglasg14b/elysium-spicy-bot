@@ -1,11 +1,13 @@
 import { serve, type ServerType } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
-import { Hono } from 'hono';
+import { OpenAPIHono } from '@hono/zod-openapi';
+import { HTTPException } from 'hono/http-exception';
 import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { WEB_DEV_CLIENT_PORT, WEB_ENABLED, WEB_PORT, getMissingWebEnv } from '../environment';
 import { registerApiRoutes } from './api';
+import { UNEXPECTED_ERROR_SENTENCE } from './api/openApi';
 import type { AppEnv } from './types';
 
 /**
@@ -44,11 +46,39 @@ function resolveClientDir(): string | null {
 
 let server: ServerType | null = null;
 
-export function buildApp(): Hono<AppEnv> {
-    const app = new Hono<AppEnv>();
+export function buildApp(): OpenAPIHono<AppEnv> {
+    // Serves exactly as a plain Hono would; see `registerApiRoutes` for why it is not one.
+    const app = new OpenAPIHono<AppEnv>();
 
     // JSON API (auth, guilds, config, flows) lives under /api.
     registerApiRoutes(app);
+
+    /*
+     * An `/api` path no route answered is a 404 in the API's own envelope, before the SPA
+     * fallback below can see it. Without this, a GET to an unmounted `/api/...` path fell
+     * through to `index.html` with a 200, which the dashboard's client reads as a load
+     * error about bad JSON rather than as "there is no such route". Registered after the
+     * API, so it only answers what nothing above did — including after the auth
+     * middleware has run, so an unknown guild path still asks for a session first.
+     */
+    app.all('/api/*', (c) => c.json({ error: 'Nothing lives at this API path.' }, 404));
+
+    /*
+     * An error nothing handled — a route or middleware that threw. Under `/api` it is a 500
+     * in the API's own envelope, which every route declares (`apiRouter`), rather than
+     * Hono's plain-text default; the error itself is logged here and never sent. An
+     * `HTTPException` keeps the answer it carries, as Hono's default handler gives it.
+     */
+    app.onError((error, c) => {
+        if (error instanceof HTTPException) {
+            const answer = error.getResponse();
+            return c.newResponse(answer.body, answer);
+        }
+        console.error(`[web] ${c.req.method} ${c.req.path} failed:`, error);
+        return c.req.path.startsWith('/api/')
+            ? c.json({ error: UNEXPECTED_ERROR_SENTENCE }, 500)
+            : c.text('Internal Server Error', 500);
+    });
 
     // Serve the built SPA + client-side routing fallback, if a build exists.
     const clientDir = resolveClientDir();

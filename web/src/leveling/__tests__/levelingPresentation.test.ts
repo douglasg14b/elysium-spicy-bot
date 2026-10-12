@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ACTIVITY_STATUSES, STATS_PERIODS } from '../../api/types';
+import { ACTIVITY_STATUSES, STATS_PERIODS } from '../contractValues';
 import {
     bucketLabel,
     ACTIVITY_STATUS_PRESENTATION,

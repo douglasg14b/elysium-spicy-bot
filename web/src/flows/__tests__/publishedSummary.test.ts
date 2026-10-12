@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { PublishedFlowState, PublishedResource } from '../../api/types';
+import type { PublishedFlowState, PublishedResource } from '@brattybot/web-sdk';
 import {
+    installedFromPublished,
     summarisePublished,
     type PublishedResourceLine,
     type PublishedSummary,
@@ -349,6 +350,44 @@ describe('scope-aware wording', () => {
         expect(asJourney.deletableCount).toBe(asFlow.deletableCount);
         expect(asJourney.unpublishLabel).toBe(asFlow.unpublishLabel);
         expect(asJourney.canUnpublish).toBe(asFlow.canUnpublish);
+    });
+});
+
+describe('what the builder takes from a published read', () => {
+    const live = state({
+        deletableResources: [resource({ resourceKey: 'lounge' })],
+        refusedResources: [resource({ resourceKey: 'adopted-rules', refused: true, refusalReason: 'adopted' })],
+    });
+
+    it('counts and keys every live resource, refused ones included', () => {
+        const view = installedFromPublished({ data: live, failed: false });
+        expect(view.count).toBe(2);
+        expect([...view.keys].sort()).toEqual(['adopted-rules', 'lounge']);
+    });
+
+    it('counts a ticket type uninstall would only forget as installed', () => {
+        // Left out, a journey holding only a ticket type read as not installed, with no
+        // uninstall in reach — and its key would follow the label again.
+        const view = installedFromPublished({
+            data: state({ keptSettings: [resource({ resourceKey: 'front-desk', kind: 'ticketType' })] }),
+            failed: false,
+        });
+        expect(view.count).toBe(1);
+        expect([...view.keys]).toEqual(['front-desk']);
+    });
+
+    it('knows nothing before the first answer', () => {
+        const view = installedFromPublished({ data: undefined, failed: false });
+        expect(view.count).toBeNull();
+        expect(view.keys.size).toBe(0);
+    });
+
+    it('forgets the count but keeps the keys when a refresh fails', () => {
+        // The query keeps its last answer through a failed refetch. Releasing the keys
+        // would let a rename move a key something in the guild is bound to.
+        const view = installedFromPublished({ data: live, failed: true });
+        expect(view.count).toBeNull();
+        expect([...view.keys].sort()).toEqual(['adopted-rules', 'lounge']);
     });
 });
 

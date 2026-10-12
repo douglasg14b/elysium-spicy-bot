@@ -1,40 +1,21 @@
-import type { TicketPermissionModel, TicketTypeView } from '../api/types';
+import {
+    zSaveTicketTypeBody,
+    zSaveTicketTypePath,
+    type TicketPermissionModel,
+    type TicketTypeUpdate,
+    type TicketTypeView,
+} from '@brattybot/web-sdk';
+import { fieldProblems } from '../api/fieldProblems';
 
 /**
- * Client-side validation for the ticket-type editor.
+ * The ticket-type editor's draft, the request it becomes, and what its rules say about it.
  *
- * **The server stays the authority.** `upsertTicketType` re-checks every rule here and
- * its refusal is what an operator ultimately reads. This exists so the common mistakes
- * are named *before* a round trip, which is the same reasoning the journeys page gives
- * for disabling its delete button: telling somebody what to fix first beats letting them
- * press a button whose only outcome is a banner.
- *
- * It is a mirror, so it will drift if nobody keeps it honest — which is why the token
- * list below is spelled the same way and the test asserts the same token name the server
- * uses. Divergence here is a worse UX than having no client check at all: refusing
- * something the server would accept leaves an operator unable to save a legal type.
+ * There are no rules written here. A draft is checked against the SDK's generated zod for
+ * the save route — the server's own rules, refusing with the server's own sentences — so
+ * nothing in the browser restates them. The two template rules that need the server's
+ * renderer (that it renders to something, and that its longest render fits) are not in
+ * the spec; the browser learns them from the refusal on save.
  */
-
-/**
- * The only tokens `buildTicketChannelName` implements.
- *
- * Mirrored from `SUPPORTED_TOKENS` in `src/features/tickets/logic/setTicketTypes.ts`.
- * `{{user}}` and `{{creator}}` are the two the deleted phantom template named, and they
- * are rejected here for the same reason they are rejected there: nothing renders them,
- * so accepting one means a channel named after literal braces.
- */
-export const SUPPORTED_TEMPLATE_TOKENS = ['####', 'subject', 'opener'] as const;
-
-/** Discord's hard cap on a channel name. */
-const CHANNEL_NAME_MAX_LENGTH = 100;
-
-/**
- * Mirrored from `TICKET_TYPE_KEY_MAX_LENGTH` and `TICKET_TYPE_LABEL_MAX_LENGTH` in
- * `src/features/tickets/data/ticketingSchema.ts`, which say why each is what it is (the
- * label one is the mod ticket modal's select). `ticketWireShapeDrift.test.ts` holds them equal.
- */
-export const TICKET_TYPE_KEY_MAX_LENGTH = 64;
-export const TICKET_TYPE_LABEL_MAX_LENGTH = 45;
 
 /** A type as the modal holds it while being edited. The key is separate — it is identity. */
 export interface TicketTypeDraft {
@@ -45,97 +26,51 @@ export interface TicketTypeDraft {
     readonly autoClaimOnOpen: boolean;
 }
 
-/**
- * Per-field problems, so each message lands under the input that caused it.
- *
- * A record rather than a single message: an operator fixing a template should not have
- * to re-submit to discover the label was also blank.
- */
-export interface TicketTypeDraftProblems {
-    readonly type?: string;
-    readonly label?: string;
-    readonly nameTemplate?: string;
+/** A draft as the save route receives it: the key for the path, the rest for the body. */
+export interface TicketTypeRequest {
+    readonly type: string;
+    readonly body: TicketTypeUpdate;
 }
 
 /**
- * What a draft gets wrong, field by field. Empty means nothing local objects to.
+ * The draft as it is sent, trimmed — and so as it is checked.
  *
- * Deliberately **not** a full re-implementation of the server's renderer. The two rules
- * that need it — the maximum expansion and the empty render — are approximated here and
- * decided there; what this catches is the unrenderable *token*, which is the mistake an
- * operator actually makes and the one that used to be accepted silently.
+ * The server trims the key, label and template before its rules see them, and a trim does
+ * not survive into the spec, so the browser's zod would pass `"   "` as a label. Checking
+ * what is sent rather than what was typed is what makes the two agree.
+ */
+export function ticketTypeRequest(draft: TicketTypeDraft): TicketTypeRequest {
+    return {
+        type: draft.type.trim(),
+        body: {
+            label: draft.label.trim(),
+            nameTemplate: draft.nameTemplate.trim(),
+            permissions: draft.permissions,
+            autoClaimOnOpen: draft.autoClaimOnOpen,
+        },
+    };
+}
+
+/** What the server's declared rules refuse about a draft, per field, in its own words. */
+export type TicketTypeDraftProblems = Readonly<Partial<Record<keyof TicketTypeDraft, string>>>;
+
+/**
+ * What the save route's declared rules would refuse about a draft, per field — the key
+ * against its path rule, the rest against the body — checked as sent ({@link ticketTypeRequest}).
+ *
+ * Both the tickets page's editor and a journey's declared ticket type (the
+ * `invalidTicketType` chip) ask this, so the two refuse with the same sentences, and both
+ * are the server's. Every field at once, so fixing a template does not reveal on the next
+ * try that the label was blank too. Empty means nothing the spec carries objects; the
+ * template's rendered length needs the server's renderer and arrives as its refusal.
  */
 export function validateTicketTypeDraft(draft: TicketTypeDraft): TicketTypeDraftProblems {
-    const problems: {
-        type?: string;
-        label?: string;
-        nameTemplate?: string;
-    } = {};
-
-    const type = draft.type.trim();
-    if (!type) {
-        problems.type = 'A ticket type needs a key. Blank is not a category of anything.';
-    } else if (!/^[a-z0-9_-]+$/.test(type)) {
-        // The key reaches a channel name and a flow `select` value, so it is restricted
-        // rather than merely non-blank. Same expression the server uses.
-        problems.type = 'Lowercase letters, digits, `-` and `_` only. The label is where you get to be expressive.';
-    } else if (type.length > TICKET_TYPE_KEY_MAX_LENGTH) {
-        problems.type = `A key caps out at ${TICKET_TYPE_KEY_MAX_LENGTH} characters. It's an identifier, not a manifesto.`;
-    }
-
-    const label = draft.label.trim();
-    if (!label) {
-        problems.label = 'Give it a label — operators have to pick it out of a list.';
-    } else if (label.length > TICKET_TYPE_LABEL_MAX_LENGTH) {
-        problems.label =
-            `A label caps out at ${TICKET_TYPE_LABEL_MAX_LENGTH} characters — ` +
-            'the mod ticket picker in Discord will not show more. Keep it snappy.';
-    }
-
-    const template = draft.nameTemplate.trim();
-    if (!template) {
-        problems.nameTemplate = 'Channels need names. Discord is firm on this.';
-        return problems;
-    }
-
-    const tokens = [...template.matchAll(/\{\{([^}]+)\}\}/g)].map((match) => match[1]);
-    const unsupported = tokens.find(
-        (token) => !(SUPPORTED_TEMPLATE_TOKENS as readonly string[]).includes(token)
-    );
-    if (unsupported) {
-        problems.nameTemplate = `\`{{${unsupported}}}\` is not a token this bot knows how to render. Use ${SUPPORTED_TEMPLATE_TOKENS.map(
-            (token) => `\`{{${token}}}\``
-        ).join(', ')} — nothing else.`;
-        return problems;
-    }
-
-    // Anything brace-shaped left over is a token the renderer will not substitute:
-    // `{{subject}` has no closing pair, so the scan above never sees it, and Discord
-    // would strip the brace and leave a channel named after the word "subject".
-    const withoutTokens = template.replace(/\{\{([^}]+)\}\}/g, '');
-    if (/[{}]/.test(withoutTokens)) {
-        problems.nameTemplate = 'A token needs exactly two braces each side. Check the spelling.';
-        return problems;
-    }
-
-    // An approximation of the server's worst case: six digits, because `{{####}}` pads
-    // to four without capping and the ticket counter is unbounded, plus two 32-character
-    // usernames. Approximate because the server renders through the real sanitizer; this
-    // only catches the template that is obviously too long to save.
-    const expanded = template
-        .replace(/\{\{####\}\}/g, '999999')
-        .replace(/\{\{subject\}\}/g, 'a'.repeat(32))
-        .replace(/\{\{opener\}\}/g, 'b'.repeat(32));
-    if (expanded.length > CHANNEL_NAME_MAX_LENGTH) {
-        problems.nameTemplate = `At its longest that renders about ${expanded.length} characters, and Discord caps a channel name at ${CHANNEL_NAME_MAX_LENGTH}. Trim it.`;
-    }
-
-    return problems;
-}
-
-/** Whether a draft is worth sending. Nothing local objects, so the server decides. */
-export function isTicketTypeDraftValid(draft: TicketTypeDraft): boolean {
-    return Object.keys(validateTicketTypeDraft(draft)).length === 0;
+    const request = ticketTypeRequest(draft);
+    const keyProblem = fieldProblems(zSaveTicketTypePath.shape.type.safeParse(request.type))[''];
+    return {
+        ...(keyProblem ? { type: keyProblem } : {}),
+        ...fieldProblems(zSaveTicketTypeBody.safeParse(request.body)),
+    };
 }
 
 const ALL_ALLOWED = { view: true, send: true, readHistory: true, manageMessages: true };

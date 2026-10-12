@@ -21,7 +21,23 @@ export default defineConfig({
         projects: [
             {
                 extends: true,
-                test: { name: 'node', include: ['**/*.test.ts'] },
+                test: {
+                    name: 'node',
+                    include: ['**/*.test.ts'],
+                    /*
+                     * Type-level gates (`*.test-d.ts`) are checked by `tsc` as part of
+                     * `pnpm test`, so a compile-time guard fails the run like any other
+                     * test instead of waiting on a root `tsc` nobody's CI runs.
+                     * `ignoreSourceErrors`: the root project carries pre-existing errors
+                     * unrelated to these files, and they must not fail every run.
+                     */
+                    typecheck: {
+                        enabled: true,
+                        include: ['**/*.test-d.ts'],
+                        tsconfig: './tsconfig.json',
+                        ignoreSourceErrors: true,
+                    },
+                },
             },
             {
                 extends: true,

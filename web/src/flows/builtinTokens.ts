@@ -17,7 +17,7 @@
  * authoring copy, and a token's tooltip is not something the engine needs.
  */
 
-import type { FlowContextRequirement } from '../api/types';
+import type { FlowContextRequirement } from '@brattybot/web-sdk';
 
 /**
  * Every token an author may write that is not a `{{var.…}}`.

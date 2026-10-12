@@ -23,7 +23,7 @@ import { type NodeDescriptor, nodeRoutes } from '../nodeRoutes';
 import { summarizeFromDescriptor } from '../../../../web/src/flows/cardSummary';
 import { defaultDataFor } from '../../../../web/src/flows/nodeMeta';
 import { KIND_STYLES, handlesAreLabelled } from '../../../../web/src/flows/nodeMeta';
-import type { NodeDescriptor as BrowserNodeDescriptor } from '../../../../web/src/api/types';
+import type { NodeDescriptor as BrowserNodeDescriptor } from '@brattybot/web-sdk';
 
 /**
  * The block added to prove the claim.
@@ -75,9 +75,9 @@ describe('a block added as one directory renders end to end', () => {
     it('draws its card from the descriptor alone', () => {
         // A single assertion, not `as unknown as`: the only thing the two types
         // disagree about is variance — the server's arrays are `readonly`, the
-        // browser's are mutable so React state can hold them. A double hop would
-        // also swallow genuine field-level drift, which is what
-        // `nodeDescriptorDrift.test.ts` exists to catch and this must not hide.
+        // generated browser type's are mutable. A double hop would also swallow
+        // genuine field-level drift, which `SchemaMatches` in `nodeBody.ts` exists to
+        // catch and this must not hide.
         const browserDescriptor = descriptor as BrowserNodeDescriptor;
 
         // A block with no config fields still seeds cleanly — no keys, not a crash.
@@ -91,8 +91,9 @@ describe('a block added as one directory renders end to end', () => {
         expect(descriptor.handles.map((handle) => handle.id)).toEqual(['true', 'false']);
 
         // Two handles, so the card and the edges both label them — decided by the
-        // same helper the renderer uses, not restated here.
-        expect(handlesAreLabelled(descriptor.handles)).toBe(true);
+        // same helper the renderer uses, not restated here. Through the browser's type,
+        // for the variance reason above.
+        expect(handlesAreLabelled((descriptor as BrowserNodeDescriptor).handles)).toBe(true);
         expect(descriptor.handles.map((handle) => handle.label)).toEqual(['Yes', 'No']);
         expect(descriptor.handles.map((handle) => handle.tone)).toEqual(['positive', 'negative']);
     });

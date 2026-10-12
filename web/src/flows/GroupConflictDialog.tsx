@@ -13,14 +13,14 @@
  * and the confirm button — the one place the rule bends, because a button has room for
  * a word and the number is the part that has to survive being skim-read.
  *
- * `web/` has no jsdom, so nothing here decides anything worth testing: the preview
- * arrives fully resolved from `GET /group-preview` and this renders it.
+ * Nothing here decides anything worth testing on its own: the preview arrives fully
+ * resolved from `GET /group-preview` and this renders it.
  */
 
 import { useEffect, useState } from 'react';
 import { Alert, Badge, Button, Group, Modal, Radio, Stack, Text } from '@mantine/core';
 import { IconAlertTriangle } from '@tabler/icons-react';
-import type { GroupPreview, GroupResolution, MovingResource } from '../api/types';
+import type { GroupPreview, GroupResolution, MovingResource } from '@brattybot/web-sdk';
 import { joinWithAnd } from './nameLists';
 import { RESOURCE_KIND_STYLES, resourceDisplayName } from './resourceMeta';
 

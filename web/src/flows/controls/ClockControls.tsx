@@ -8,7 +8,7 @@
 
 import { Anchor, Chip, Group, SegmentedControl, Select, Text } from '@mantine/core';
 import { Link } from 'react-router-dom';
-import type { BlockConfigField } from '../../api/types';
+import type { BlockConfigField } from '@brattybot/web-sdk';
 import { timeZoneGenericName } from '../../format/timeZones';
 import { DAYS_OF_WEEK, fromTwelveHour, toTwelveHour, type ClockPeriod, type TwelveHourTime } from '../clockValues';
 import { asTextList, type ControlProps, type ServerTimeZone } from './types';

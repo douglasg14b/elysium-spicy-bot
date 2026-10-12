@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getFlowNextRuns } from '../api/flows';
-import type { FlowNextRuns } from '../api/types';
+import { getFlowNextRuns, type FlowNextRuns } from '@brattybot/web-sdk';
 import { anyNextRunPassed, nodeDataKey } from './nextRun';
 
 /** A node of the saved flow, as the next-run line compares a card against it. */
@@ -37,7 +36,9 @@ export interface FlowNextRunsState {
  *
  * Never in the way: a failed fetch is dropped and the cards show none. Only the newest
  * request's answer lands, so a save and a toggle in quick succession — or another flow
- * opened meanwhile — cannot leave an older answer on screen. While any listed time has
+ * opened meanwhile — cannot leave an older answer on screen. A direct SDK call rather
+ * than a query for that reason: the request counter owns the ordering, as the builder's
+ * other ordered reads do. While any listed time has
  * passed it asks again once a minute: the tick that fires a schedule moves it on, and the
  * countdown should follow even if it stays overdue for a while first.
  */
@@ -59,7 +60,7 @@ export function useFlowNextRuns(guildId: string | undefined, flowId: string | un
         request.current += 1;
         const asked = request.current;
         try {
-            const answer = await getFlowNextRuns(guildId, flowId);
+            const { data: answer } = await getFlowNextRuns({ path: { guildId, flowId } });
             if (asked === request.current) setNextRuns(answer);
         } catch {
             // A countdown is a nicety; a builder that would not open without one would not

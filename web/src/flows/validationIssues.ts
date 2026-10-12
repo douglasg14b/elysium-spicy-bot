@@ -11,7 +11,7 @@
  * save failed and shown a clean form.
  */
 
-import type { FlowValidationIssue } from '../api/types';
+import type { FlowValidationIssue } from '@brattybot/web-sdk';
 
 /** Issues grouped by the node they blame, for the canvas and the inspector. */
 export function issuesByNode(

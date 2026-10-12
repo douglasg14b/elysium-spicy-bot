@@ -122,9 +122,8 @@ describe('posting to each destination', () => {
         const calls: string[] = [];
         const buttonMessagesRepo = makeButtonMessagesRepo(calls);
 
-        const result = await deployFlowButtons(GUILD_ID, FLOW_ID, {
+        const result = await deployFlowButtons(makeGuild({ calls }), FLOW_ID, {
             declaredKeys: nothingDeclared,
-            getGuild: async () => makeGuild({ calls }),
             repo: repoFor(
                 flowEntity([
                     buttonNode('rules', { channelId: 'channel-rules' }),
@@ -156,9 +155,8 @@ describe('posting to each destination', () => {
     it('refuses before posting anything when a destination is not a text channel', async () => {
         const calls: string[] = [];
 
-        const result = await deployFlowButtons(GUILD_ID, FLOW_ID, {
+        const result = await deployFlowButtons(makeGuild({ calls, channelIds: ['channel-rules'] }), FLOW_ID, {
             declaredKeys: nothingDeclared,
-            getGuild: async () => makeGuild({ calls, channelIds: ['channel-rules'] }),
             repo: repoFor(
                 flowEntity([
                     buttonNode('rules', { channelId: 'channel-rules' }),
@@ -181,18 +179,21 @@ describe('posting to each destination', () => {
 describe('redeploying', () => {
     it('retires the existing buttons before posting fresh ones', async () => {
         const calls: string[] = [];
+        const guild = makeGuild({ calls });
+        const undeploy = vi.fn(
+            undeployStub(calls, [{ channelId: 'channel-rules', messageId: 'old-1', outcome: 'removed' }])
+        );
 
-        const result = await deployFlowButtons(GUILD_ID, FLOW_ID, {
+        const result = await deployFlowButtons(guild, FLOW_ID, {
             declaredKeys: nothingDeclared,
-            getGuild: async () => makeGuild({ calls }),
             repo: repoFor(flowEntity([buttonNode('rules')])),
             buttonMessagesRepo: makeButtonMessagesRepo(calls),
-            undeploy: undeployStub(calls, [
-                { channelId: 'channel-rules', messageId: 'old-1', outcome: 'removed' },
-            ]),
+            undeploy,
         });
 
         expect(result.ok).toBe(true);
+        // The guild it was handed, not one looked up again: the retire reaches the same server.
+        expect(undeploy).toHaveBeenCalledWith(guild, FLOW_ID);
         /*
          * Asserted as a whole sequence rather than as "undeploy comes before send".
          * That comparison passes when the retire never happens at all — `indexOf`
@@ -212,9 +213,8 @@ describe('redeploying', () => {
     it('posts nothing when the old buttons could not be cleared', async () => {
         const calls: string[] = [];
 
-        const result = await deployFlowButtons(GUILD_ID, FLOW_ID, {
+        const result = await deployFlowButtons(makeGuild({ calls }), FLOW_ID, {
             declaredKeys: nothingDeclared,
-            getGuild: async () => makeGuild({ calls }),
             repo: repoFor(flowEntity([buttonNode('rules')])),
             buttonMessagesRepo: makeButtonMessagesRepo(calls),
             undeploy: undeployStub(calls, [
@@ -241,9 +241,8 @@ describe('redeploying', () => {
         // otherwise they cannot tell whether they are half-deployed or clean.
         const calls: string[] = [];
 
-        const result = await deployFlowButtons(GUILD_ID, FLOW_ID, {
+        const result = await deployFlowButtons(makeGuild({ calls, failChannelIds: ['channel-rules'] }), FLOW_ID, {
             declaredKeys: nothingDeclared,
-            getGuild: async () => makeGuild({ calls, failChannelIds: ['channel-rules'] }),
             repo: repoFor(flowEntity([buttonNode('rules')])),
             buttonMessagesRepo: makeButtonMessagesRepo(calls),
             undeploy: undeployStub(calls, [
@@ -268,9 +267,8 @@ describe('redeploying', () => {
          */
         const calls: string[] = [];
 
-        const result = await deployFlowButtons(GUILD_ID, FLOW_ID, {
+        const result = await deployFlowButtons(makeGuild({ calls, failChannelIds: ['channel-verify'] }), FLOW_ID, {
             declaredKeys: nothingDeclared,
-            getGuild: async () => makeGuild({ calls, failChannelIds: ['channel-verify'] }),
             repo: repoFor(
                 flowEntity([
                     buttonNode('rules', { channelId: 'channel-rules' }),
@@ -300,9 +298,8 @@ describe('a switched-off flow', () => {
         // disabled", so deploying one posts guaranteed-dead buttons in public.
         const calls: string[] = [];
 
-        const result = await deployFlowButtons(GUILD_ID, FLOW_ID, {
+        const result = await deployFlowButtons(makeGuild({ calls }), FLOW_ID, {
             declaredKeys: nothingDeclared,
-            getGuild: async () => makeGuild({ calls }),
             repo: repoFor(flowEntity([buttonNode('rules')], false)),
             buttonMessagesRepo: makeButtonMessagesRepo(calls),
             undeploy: undeployStub(calls),
@@ -323,9 +320,8 @@ describe('an incomplete flow', () => {
         // names can be removed from the journey under a live flow.
         const calls: string[] = [];
 
-        const result = await deployFlowButtons(GUILD_ID, FLOW_ID, {
+        const result = await deployFlowButtons(makeGuild({ calls }), FLOW_ID, {
             declaredKeys: nothingDeclared,
-            getGuild: async () => makeGuild({ calls }),
             repo: repoFor(flowEntity([buttonNode('rules', { label: '' })])),
             buttonMessagesRepo: makeButtonMessagesRepo(calls),
             undeploy: undeployStub(calls),
@@ -340,11 +336,10 @@ describe('an incomplete flow', () => {
     it('names a journey it cannot read rather than judging the graph without it', async () => {
         const calls: string[] = [];
 
-        const result = await deployFlowButtons(GUILD_ID, FLOW_ID, {
+        const result = await deployFlowButtons(makeGuild({ calls }), FLOW_ID, {
             declaredKeys: async () => {
                 throw new MalformedJourneyError('flow-1', new Error('its resources column is not an array.'));
             },
-            getGuild: async () => makeGuild({ calls }),
             repo: repoFor(flowEntity([buttonNode('rules')])),
             buttonMessagesRepo: makeButtonMessagesRepo(calls),
             undeploy: undeployStub(calls),

@@ -10,7 +10,7 @@
 
 import { SegmentedControl, Select, Text } from '@mantine/core';
 import { asText, type ControlProps } from './types';
-import type { BlockConfigField, BlockConfigOption } from '../../api/types';
+import type { BlockConfigField, BlockConfigOption } from '@brattybot/web-sdk';
 import { describeUnavailableRequirement, firstUnavailable, type RequirementAvailability } from '../variables';
 
 type SegmentedField = Extract<BlockConfigField, { control: 'segmented' }>;

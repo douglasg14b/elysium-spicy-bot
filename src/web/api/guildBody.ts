@@ -1,18 +1,22 @@
+import { z } from '@hono/zod-openapi';
 import { ChannelType, type Guild, type GuildBasedChannel } from 'discord.js';
-import {
-    describeOwner,
-    ownerOf,
-    type BindingOwnerKind,
-    type GuildOwnership,
-} from '../../features/provisioning';
+import { describeOwner, ownerOf, type GuildOwnership } from '../../features/provisioning';
+// From its defining module, not the barrel: `z.enum` reads it while this module loads.
+import { BINDING_OWNER_KINDS } from '../../features/provisioning/data/resourceBindingsSchema';
 
 /**
- * The guild directory shapes the browser receives.
+ * The guild shapes the browser receives.
  *
  * Extracted from `guildRoutes.ts`'s inline `.map()` callbacks so the wire shape is a
  * named contract rather than something you discover by reading a request — the same
- * reason `driftBody.ts` and `publishedBody.ts` exist, and a precondition for the drift
- * gate, which needs an exported key list to compare against.
+ * reason `driftBody.ts` and `publishedBody.ts` exist.
+ *
+ * Each shape is a zod schema, and the schema **is** the contract: `guildRoutes` declares
+ * it as the route's response, `app.openapi` type-checks every `c.json(...)` against it,
+ * and the OpenAPI spec the dashboard SDK is generated from names it as a component. The
+ * types below are inferred from the schemas rather than written beside them, so there is
+ * no second copy to drift. The `.openapi('Name')` ids are component names the browser
+ * imports by, so renaming one renames a generated type.
  *
  * ## Why `type` had to be added
  *
@@ -69,6 +73,19 @@ import {
 export const GUILD_CHANNEL_TYPES = ['text', 'category'] as const;
 export type GuildChannelType = (typeof GUILD_CHANNEL_TYPES)[number];
 
+/** A guild the bot is in that the signed-in user may manage. */
+export const GuildSchema = z
+    .object({
+        id: z.string(),
+        name: z.string(),
+        iconURL: z.string().nullable(),
+        memberCount: z.number(),
+    })
+    .openapi('Guild');
+
+/** Named so the pickers can compare `owner.kind` off the generated type. */
+const BindingOwnerKindSchema = z.enum(BINDING_OWNER_KINDS).openapi('BindingOwnerKind');
+
 /**
  * Who already holds a channel, category or role: a journey, or the ticket system.
  *
@@ -80,102 +97,112 @@ export type GuildChannelType = (typeof GUILD_CHANNEL_TYPES)[number];
  * cross-claim from before the one-owner rule (the 2026-10-10 migration logs them). There
  * a picker may judge it by the wrong one; the server, which excludes the asker, decides.
  */
-export interface GuildObjectOwnerBody {
-    readonly kind: BindingOwnerKind;
-    readonly key: string;
-    readonly label: string;
-}
+const GuildObjectOwnerSchema = z
+    .object({
+        kind: BindingOwnerKindSchema,
+        key: z.string(),
+        /** Server-written: "the ticket system", `journey "Onboarding"`. Shown as it is. */
+        label: z.string(),
+    })
+    .openapi('GuildObjectOwner', {
+        description:
+            'Who already holds a channel, category or role: a journey (by key) or the ticket system. ' +
+            '`label` names the owner for the operator.',
+    });
 
-export interface GuildChannelBody {
-    readonly id: string;
-    readonly name: string;
-    readonly type: GuildChannelType;
-    /** The category this sits in, or null at the top level. Always null for a category. */
-    readonly parentId: string | null;
-    /**
-     * The category's name, resolved here rather than in the browser.
-     *
-     * The browser holds the same list and could look it up, but only after the whole
-     * list has loaded and only if the parent is in it — and the parent is filtered out
-     * of nothing today, which is exactly the kind of "true for now" the endpoint should
-     * not make a caller depend on. Sending the name makes a row self-describing.
-     */
-    readonly parentName: string | null;
-    /**
-     * The owner holding a settled binding for this channel, or null when nobody does.
-     *
-     * A category or channel belongs to one owner (2026-10-10), so the pickers disable one
-     * held by somebody else rather than offering an adoption the server refuses. Null for
-     * an object only an `intended` row names — that row has no id yet.
-     */
-    readonly owner: GuildObjectOwnerBody | null;
-}
+export type GuildObjectOwnerBody = z.infer<typeof GuildObjectOwnerSchema>;
 
-export const GUILD_CHANNEL_KEYS = [
-    'id',
-    'name',
-    'type',
-    'parentId',
-    'parentName',
-    'owner',
-] as const satisfies readonly (keyof GuildChannelBody)[];
+export const GuildChannelSchema = z
+    .object({
+        id: z.string(),
+        name: z.string(),
+        type: z.enum(GUILD_CHANNEL_TYPES),
+        /** The category this sits in, or null at the top level. Always null for a category. */
+        parentId: z.string().nullable(),
+        /**
+         * The category's name, resolved here rather than in the browser.
+         *
+         * The browser holds the same list and could look it up, but only after the whole
+         * list has loaded and only if the parent is in it — and the parent is filtered out
+         * of nothing today, which is exactly the kind of "true for now" the endpoint should
+         * not make a caller depend on. Sending the name makes a row self-describing.
+         */
+        parentName: z.string().nullable(),
+        /**
+         * The owner holding a settled binding for this channel, or null when nobody does.
+         *
+         * A category or channel belongs to one owner (2026-10-10), so the pickers disable one
+         * held by somebody else rather than offering an adoption the server refuses. Null for
+         * an object only an `intended` row names — that row has no id yet. A union rather
+         * than `.nullable()`: the generator copies a named schema's name onto its nullable.
+         */
+        owner: z.union([GuildObjectOwnerSchema, z.null()]),
+    })
+    .openapi('GuildChannel');
 
-/** Gated by shape as well as by name, as `TICKET_ROLE_PERMISSIONS_KEYS` is one level down. */
-export const GUILD_OBJECT_OWNER_KEYS = ['kind', 'key', 'label'] as const satisfies readonly (keyof GuildObjectOwnerBody)[];
+export type GuildChannelBody = z.infer<typeof GuildChannelSchema>;
 
-export interface GuildRoleBody {
-    readonly id: string;
-    readonly name: string;
-    readonly color: number;
-    readonly position: number;
-    /**
-     * The owner holding a settled binding for this role, or null — as on a channel. A
-     * journey can bind a role, and the install plan refuses to adopt one another owner
-     * holds, so the role picker has to know too or it offers what install will block.
-     */
-    readonly owner: GuildObjectOwnerBody | null;
-}
+/** A role a flow may grant: neither `@everyone` nor bot-managed. */
+export const GuildRoleSchema = z
+    .object({
+        id: z.string(),
+        name: z.string(),
+        /** Discord role colour as a 24-bit int. `0` means "no colour" (inherit). */
+        color: z.number(),
+        position: z.number(),
+        /**
+         * The owner holding a settled binding for this role, or null — as on a channel. A
+         * journey can bind a role, and the install plan refuses to adopt one another owner
+         * holds, so the role picker has to know too or it offers what install will block.
+         */
+        owner: z.union([GuildObjectOwnerSchema, z.null()]),
+    })
+    .openapi('GuildRole');
 
-export const GUILD_ROLE_KEYS = [
-    'id',
-    'name',
-    'color',
-    'position',
-    'owner',
-] as const satisfies readonly (keyof GuildRoleBody)[];
+export type GuildRoleBody = z.infer<typeof GuildRoleSchema>;
 
-/** The wire shape for guild settings, as every settings route answers it. */
-export interface GuildSettingsBody {
-    readonly staffRoleIds: string[];
-    readonly staffRoles: { id: string; name: string }[];
-    /** The picked zone (an IANA name), `null` until someone picks one. */
-    readonly timeZone: string | null;
-    /** What an unpicked zone means, so the dashboard can say so without its own copy. */
-    readonly defaultTimeZone: string;
-}
+/** The warnings mod-log channel, with its name resolved for display. */
+export const WarningsConfigSchema = z
+    .object({
+        modChannelId: z.string().nullable(),
+        modChannelName: z.string().nullable(),
+    })
+    .openapi('WarningsConfig');
 
-export const GUILD_SETTINGS_KEYS = [
-    'staffRoleIds',
-    'staffRoles',
-    'timeZone',
-    'defaultTimeZone',
-] as const satisfies readonly (keyof GuildSettingsBody)[];
-
-type KeyListsComplete =
-    | Exclude<keyof GuildChannelBody, (typeof GUILD_CHANNEL_KEYS)[number]>
-    | Exclude<keyof GuildObjectOwnerBody, (typeof GUILD_OBJECT_OWNER_KEYS)[number]>
-    | Exclude<keyof GuildRoleBody, (typeof GUILD_ROLE_KEYS)[number]>
-    | Exclude<keyof GuildSettingsBody, (typeof GUILD_SETTINGS_KEYS)[number]>;
+export type WarningsConfigBody = z.infer<typeof WarningsConfigSchema>;
 
 /**
- * Do not delete as unused: removing this erases the guards above.
+ * Server-wide settings owned by no single feature. Today: staff roles and the time zone.
  *
- * The tuple wrapper is load-bearing — a bare `extends never` distributes over the union
- * and is vacuously true for an empty one. See `ticketRoutes.ts` for the full reasoning.
+ * `staffRoles` resolves the saved ids to names for display and can be **shorter** than
+ * `staffRoleIds`: a role deleted since it was saved has no name to show but is still
+ * stored, so the saved list is reported as saved rather than rewritten by a read. Render
+ * from `staffRoleIds`, label from `staffRoles`.
+ *
+ * Staff roles are their own concept on this server, deliberately distinct from tickets'
+ * moderation roles. The two lists coexist; neither supersedes the other.
+ *
+ * The rendering rule is also the spec's description, so it reaches the generated type
+ * the dashboard reads rather than staying on this side.
  */
-type _KeyListsAreComplete = [KeyListsComplete] extends [never] ? true : never;
-const _keyListsAreComplete: _KeyListsAreComplete = true;
-void _keyListsAreComplete;
+export const GuildSettingsSchema = z
+    .object({
+        staffRoleIds: z.array(z.string()),
+        staffRoles: z.array(z.object({ id: z.string(), name: z.string() })),
+        /** The picked zone (an IANA name), `null` until someone picks one. */
+        timeZone: z.string().nullable(),
+        /** What an unpicked zone means, so the dashboard can say so without its own copy. */
+        defaultTimeZone: z.string(),
+    })
+    .openapi('GuildSettings', {
+        description:
+            'Staff roles, as saved. `staffRoles` names the ids that still resolve to a role and can be ' +
+            'shorter than `staffRoleIds`, since a deleted role stays saved: render from `staffRoleIds`, ' +
+            'label from `staffRoles`. `timeZone` is the picked IANA zone, null until someone picks one; ' +
+            '`defaultTimeZone` is the zone an unpicked server runs on.',
+    });
+
+export type GuildSettingsBody = z.infer<typeof GuildSettingsSchema>;
 
 /**
  * Which of a channel's types the browser is told about, or `undefined` to omit it.

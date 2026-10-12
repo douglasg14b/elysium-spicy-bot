@@ -8,7 +8,8 @@
  * schema behind these controls to exactly these shapes.
  */
 
-import { BLOCK_DAY_KEYS, type BlockDayKey } from '../api/types';
+import type { BlockDayKey } from '@brattybot/web-sdk';
+import { BLOCK_DAY_KEYS } from './contractValues';
 
 /** Each stored day key's short label. */
 const DAY_LABELS: Record<BlockDayKey, string> = {
@@ -23,8 +24,8 @@ const DAY_LABELS: Record<BlockDayKey, string> = {
 
 /**
  * The days of the week as the control offers them: {@link BLOCK_DAY_KEYS}' order, Monday
- * first, so Mon–Fri sits together. The keys are the vocabulary the drift gate holds to the
- * server's.
+ * first, so Mon–Fri sits together. The keys are the server's own, read off the generated
+ * enum (`contractValues.ts`).
  */
 export const DAYS_OF_WEEK: readonly { readonly value: BlockDayKey; readonly label: string }[] = BLOCK_DAY_KEYS.map(
     (day) => ({ value: day, label: DAY_LABELS[day] })

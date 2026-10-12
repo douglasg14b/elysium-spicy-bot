@@ -1,12 +1,12 @@
 /**
  * The leaderboard's summary figures, derived from the rows actually on screen.
  *
- * Lifted out of `LevelingPage` because the page's own rule says so: there is no jsdom in this
- * repo, so a reduction left in a component is a reduction nothing can test. Three of these
+ * Lifted out of `LevelingPage` because the page's own rule says so: a reduction left in a
+ * component is one only a render can check. Three of these
  * looked too small to matter, and one of them is not — see `topLevel`.
  */
 
-import type { LevelingRankingRow } from '../api/types';
+import type { LevelingRankingRow } from '@brattybot/web-sdk';
 
 export interface LeaderboardTotals {
     /** Messages across the shown rows. Not a server-wide total. */

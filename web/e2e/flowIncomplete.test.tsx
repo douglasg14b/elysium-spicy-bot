@@ -1,10 +1,12 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import type { Client } from 'discord.js';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { ACTION_SEND_DM } from '../../src/features/flows/blocks/actionSendDM';
 import { TRIGGER_MEMBER_JOIN } from '../../src/features/flows/blocks/triggerMemberJoin';
+import { VARIABLE_NAME_MESSAGE } from '../../src/features/flows/blocks/variableName';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../src/features/flows/data/flowGraph';
 import { TestDiscord, type ServerGuild } from '../../src/shared/__tests__/support/testDiscord';
+import { STRUCTURAL_RECHECK_DELAY_MS } from '../src/flows/useFlowIssues';
 import { createSeedApi, type SeedApi } from './preview/scenario/seedApi';
 import { bootBotForDashboard } from './support/bootBot';
 import { buildDashboardApp } from './support/dashboardApp';
@@ -44,6 +46,24 @@ interface StoredFlow {
 }
 
 const running: TestDiscord[] = [];
+
+/** How many times the builder has asked the server to check this flow's canvas. */
+function checksAsked(requests: readonly { readonly method: string; readonly path: string }[], flowPath: string): number {
+    return requests.filter((request) => request.method === 'POST' && request.path === `${flowPath}/check`).length;
+}
+
+/**
+ * Let the re-check a structural edit asks for — a block added from the palette — go out,
+ * if it is going to, before a case asserts that typing asks the server nothing.
+ *
+ * That re-check is the graph shape's, not the keystroke's, and fires
+ * `STRUCTURAL_RECHECK_DELAY_MS` after the edit. On a loaded machine the typing outlasts
+ * the delay and the case would count it as the keystroke's; waiting it out first makes the
+ * count before and after the typing compare only what the typing asked.
+ */
+async function letStructuralRecheckGo(): Promise<void> {
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, STRUCTURAL_RECHECK_DELAY_MS + 200)));
+}
 
 beforeAll(async () => {
     await bootBotForDashboard();
@@ -145,14 +165,15 @@ describe('an unfinished flow', () => {
         const message = screen.getByRole('textbox', { name: 'Message' });
         expect(message.getAttribute('aria-invalid')).toBe('true');
         expect(screen.getByText('Fill this in.')).toBeTruthy();
-        const check = { method: 'POST', path: `${authored.flowPath}/check` };
+        await letStructuralRecheckGo();
+        const checksBefore = checksAsked(dashboard.requests, authored.flowPath);
 
         // The first keystroke clears it, with nothing asked of the server — and only this
         // field's mark goes: the other DM is still marked.
         await user.type(message, 'W');
         expect(message.getAttribute('aria-invalid')).not.toBe('true');
         expect(screen.getAllByText('Open it — one problem to fix.')).toHaveLength(1);
-        expect(dashboard.requests).not.toContainEqual(check);
+        expect(checksAsked(dashboard.requests, authored.flowPath)).toBe(checksBefore);
 
         // Emptied again, it says so straight away, in the words the server used.
         await user.clear(message);
@@ -162,7 +183,7 @@ describe('an unfinished flow', () => {
         // Leaving the field asks the server, which agrees.
         await user.type(message, 'Welcome in');
         await user.tab();
-        await waitFor(() => expect(dashboard.requests).toContainEqual(check));
+        await waitFor(() => expect(checksAsked(dashboard.requests, authored.flowPath)).toBeGreaterThan(checksBefore));
         await waitFor(() => expect(screen.getAllByText('Open it — one problem to fix.')).toHaveLength(1));
         expect(message.getAttribute('aria-invalid')).not.toBe('true');
 
@@ -170,5 +191,30 @@ describe('an unfinished flow', () => {
         // stays locked.
         expect((screen.getByRole('switch', { name: 'Enabled' }) as HTMLInputElement).disabled).toBe(true);
         expect((await authored.api.send<StoredFlow>('GET', authored.flowPath)).issues).toHaveLength(2);
+    });
+
+    it('checks a pattern as the operator types, in the block’s own words', async () => {
+        const authored = await guildWithUnfinishedFlow();
+        const dashboard = installDashboardApi(authored.client, OPERATOR);
+        const { user } = renderDashboard(`/flows/${authored.flowId}`);
+        expect(await screen.findByText('Open it — one problem to fix.')).toBeTruthy();
+
+        // The variable-name rule reaches the browser with the SDK, sentence and all: no
+        // server is asked before the mark appears.
+        await user.click(screen.getByTitle('Set Variable — drag onto the canvas, or click to add'));
+        await letStructuralRecheckGo();
+        const checksBefore = checksAsked(dashboard.requests, authored.flowPath);
+        const name = screen.getByRole('textbox', { name: 'Name' });
+        await user.clear(name);
+        await user.type(name, '1abc');
+        expect(name.getAttribute('aria-invalid')).toBe('true');
+        expect(screen.getByText(VARIABLE_NAME_MESSAGE)).toBeTruthy();
+        expect(checksAsked(dashboard.requests, authored.flowPath)).toBe(checksBefore);
+
+        // Fixed, the mark goes on the next keystroke.
+        await user.clear(name);
+        await user.type(name, 'greeting');
+        expect(name.getAttribute('aria-invalid')).not.toBe('true');
+        expect(screen.queryByText(VARIABLE_NAME_MESSAGE)).toBeNull();
     });
 });

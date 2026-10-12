@@ -97,11 +97,15 @@ vi.mock('../../../features/provisioning', async (importOriginal) => {
     };
 });
 
-vi.mock('../../../features/flows/logic/undeployFlowButtons', () => ({
+// The real exports stay: `installBody.ts`, which the routes import, reads
+// `UNDEPLOY_OUTCOMES` from this module while it loads.
+vi.mock('../../../features/flows/logic/undeployFlowButtons', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../../../features/flows/logic/undeployFlowButtons')>()),
     undeployFlowButtons: vi.fn(),
 }));
 
-const { journeyRoutes, repairBody } = await import('../journeyRoutes');
+const { journeyRoutes } = await import('../journeyRoutes');
+const { DriftRepairSchema } = await import('../journeyBody');
 
 const GUILD_ID = 'guild-1';
 const OTHER_GUILD = 'guild-2';
@@ -197,8 +201,8 @@ function postForget(bindingId: number | string, journeyKey: string = JOURNEY_KEY
  * Two helpers rather than a cast per call site: the cast is a claim about the wire, and
  * stating it in one place means a route that changes its response breaks here rather
  * than in whichever assertion happened to read the changed field first. The shapes are
- * deliberately loose — this file asserts route *behaviour*, and `driftWireShapeDrift`
- * is what holds the field names to `driftBody.ts`.
+ * deliberately loose — this file asserts route *behaviour*; the field names are the
+ * route's declared `JourneyDrift` schema, which the dashboard's types are generated from.
  */
 async function readJson<T>(response: Response): Promise<T> {
     return (await response.json()) as T;
@@ -331,7 +335,7 @@ describe('POST /journeys/:journeyKey/repair', () => {
      * ## What actually enforces this, and where the test therefore points
      *
      * The guarantee is that a plan named by the browser can never reach the applier.
-     * It is enforced **at the schema**, not by the handler: `repairBody` does not
+     * It is enforced **at the schema**, not by the handler: `DriftRepairSchema` does not
      * declare `approvedPlan`, and `zod` strips unknown keys, so `parsed.data` cannot
      * carry one however the handler is later written.
      *
@@ -343,7 +347,7 @@ describe('POST /journeys/:journeyKey/repair', () => {
      *
      * So this asserts both halves: the applier receives the rebuilt plan, *and* the
      * parse discards a forged one. The second is the load-bearing claim, and it is
-     * checked against `repairBody` directly so that widening the schema — the one edit
+     * checked against `DriftRepairSchema` directly so that widening the schema — the one edit
      * that would genuinely break this — fails here.
      */
     it('rebuilds the plan server-side rather than accepting one from the browser', async () => {
@@ -366,7 +370,7 @@ describe('POST /journeys/:journeyKey/repair', () => {
     });
 
     it('discards a plan sent in the body at the schema, whatever the handler does with it', async () => {
-        const parsed = repairBody.safeParse({
+        const parsed = DriftRepairSchema.safeParse({
             resourceKeys: ['qa-channel'],
             approvedPlan: emptyPlan({ drifted: [driftReport({ discordId: FORGED_ID })] }),
         });

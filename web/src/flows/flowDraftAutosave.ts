@@ -21,7 +21,7 @@
  *    answer decides what the draft should hold.
  */
 
-import type { FlowDraftSummary, FlowGraph } from '../api/types';
+import type { FlowDraftSummary, FlowGraph } from '@brattybot/web-sdk';
 
 /**
  * How long editing must pause before the canvas is written to the draft.

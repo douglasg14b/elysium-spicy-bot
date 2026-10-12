@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { NodeDescriptor } from '../../api/types';
+import type { NodeDescriptor } from '@brattybot/web-sdk';
 import { defaultDataFor } from '../nodeMeta';
 
 function descriptorWith(configFields: NodeDescriptor['configFields']): NodeDescriptor {
@@ -16,7 +16,6 @@ function descriptorWith(configFields: NodeDescriptor['configFields']): NodeDescr
         group: 'actions',
         icon: '🧪',
         configFields,
-        fieldChecks: {},
         handles: [{ label: 'Then', tone: 'neutral' }],
         outputs: [],
         requires: [],

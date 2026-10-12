@@ -18,7 +18,7 @@ import type {
     BlockOutputValueKind,
     FlowContextRequirement,
     NodeDescriptor,
-} from '../api/types';
+} from '@brattybot/web-sdk';
 
 /** One variable an author can reference, and the block that produces it. */
 export interface AvailableVariable {

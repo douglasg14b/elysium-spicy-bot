@@ -6,16 +6,15 @@
  * editing declarations several flows install, and the panel below is otherwise
  * indistinguishable from one editing its own.
  *
- * **Every decision it takes is imported from `journeyAttachment.ts`.** `web/` has no
- * jsdom, so anything reachable only by rendering cannot be tested; the rules that are
- * wrong *quietly* — an attach described as an addition when it is a move, a detach read
- * as an uninstall — live there where the suite can drive them.
+ * **Every decision it takes is imported from `journeyAttachment.ts`.** The rules that
+ * are wrong *quietly* — an attach described as an addition when it is a move, a detach
+ * read as an uninstall — live there, where a unit test drives them without a render.
  */
 
 import { useState } from 'react';
 import { Alert, Badge, Button, Group, Modal, Select, Stack, Text } from '@mantine/core';
 import { IconLink, IconUnlink, IconUsers } from '@tabler/icons-react';
-import type { FlowAttachment, JourneySummary } from '../api/types';
+import type { FlowAttachment, JourneySummary } from '@brattybot/web-sdk';
 import {
     attachableJourneys,
     describeAttachIntent,

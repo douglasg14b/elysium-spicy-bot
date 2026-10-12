@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { GuildChannel, GuildRole, NodeDescriptor, ResourceDeclaration, TicketTypeView } from '../../api/types';
+import type { GuildChannel, GuildRole, NodeDescriptor, ResourceDeclaration, TicketTypeView } from '@brattybot/web-sdk';
 import { summarizeFromDescriptor } from '../cardSummary';
 
 const ROLES: GuildRole[] = [{ id: 'r1', name: 'Moderator', color: 0, position: 1, owner: null }];
@@ -46,7 +46,6 @@ function descriptorWith(
         group: 'actions',
         icon: '🧪',
         configFields,
-        fieldChecks: {},
         cardSummary,
         handles: [{ label: 'Then', tone: 'neutral' }],
         outputs: [],

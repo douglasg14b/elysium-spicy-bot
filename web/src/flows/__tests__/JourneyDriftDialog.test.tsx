@@ -1,6 +1,6 @@
 import { screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import type { DriftedResource, JourneyDrift } from '../../api/types';
+import type { DriftedResource, JourneyDrift } from '@brattybot/web-sdk';
 import { installFakeApi } from '../../__tests__/support/fakeApi';
 import { renderWithProviders } from '../../__tests__/support/renderWithProviders';
 import { JourneyDriftDialog } from '../JourneyDriftDialog';

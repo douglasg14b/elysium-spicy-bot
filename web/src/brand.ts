@@ -7,7 +7,7 @@
  * the wordmark splitting rule applied to whatever name it reports.
  */
 
-import type { BotFlavour } from './api/types';
+import type { BotFlavour } from '@brattybot/web-sdk';
 
 /** Shown until `GET /api/bot` answers — and if it never does. */
 export const FALLBACK_BOT_NAME = 'BrattyBot';

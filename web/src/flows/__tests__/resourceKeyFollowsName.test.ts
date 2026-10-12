@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ResourceDeclaration } from '../../api/types';
+import type { ResourceDeclaration } from '@brattybot/web-sdk';
 import { keyForRenamedResource, keyIsFollowing, keyIsStillDerived } from '../resourceKeyFollowsName';
 
 function channel(key: string, defaultName: string): ResourceDeclaration {

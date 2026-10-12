@@ -4,7 +4,7 @@
 
 import { Textarea, TextInput } from '@mantine/core';
 import { asText, type ControlContext, type ControlProps } from './types';
-import type { BlockConfigField } from '../../api/types';
+import type { BlockConfigField } from '@brattybot/web-sdk';
 import { CopyPreview } from './CopyPreview';
 import { VariablePicker } from './VariablePicker';
 

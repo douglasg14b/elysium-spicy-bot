@@ -5,7 +5,6 @@ import {
     type Guild,
     type TextChannel,
 } from 'discord.js';
-import { DISCORD_CLIENT } from '../../../discordClient';
 import {
     flowButtonMessagesRepo,
     type FlowButtonMessagesRepo,
@@ -40,22 +39,13 @@ export type DeployFlowButtonsResult =
     | { ok: false; message: string };
 
 interface DeployFlowButtonsDeps {
-    /** Resolves the guild. Defaults to the live Discord client cache/fetch. */
-    getGuild?: (guildId: string) => Promise<Guild | null>;
     repo?: FlowsRepo;
     /** Where the posted messages are written down. Overridable for tests. */
     buttonMessagesRepo?: Pick<FlowButtonMessagesRepo, 'persist'>;
     /** Retires whatever this flow already has live. Overridable for tests. */
-    undeploy?: (guildId: string, flowId: string) => Promise<UndeployFlowButtonsResult>;
+    undeploy?: (guild: Guild, flowId: string) => Promise<UndeployFlowButtonsResult>;
     /** What the flow declares, for the readiness check. Overridable for tests. */
     declaredKeys?: (guildId: string, flowId: string) => Promise<ReadonlySet<string>>;
-}
-
-async function defaultGetGuild(guildId: string): Promise<Guild | null> {
-    return (
-        DISCORD_CLIENT.guilds.cache.get(guildId) ??
-        (await DISCORD_CLIENT.guilds.fetch(guildId).catch(() => null))
-    );
 }
 
 /**
@@ -67,20 +57,19 @@ async function defaultGetGuild(guildId: string): Promise<Guild | null> {
  * per destination**: a journey on one canvas can open "Agree to Rules" in `#rules` and
  * "Start Verification" in `#verify-me` without being split into two flows.
  *
+ * Takes the guild its caller already holds — the interaction's, or the one the route's
+ * guild access check resolved — rather than looking it up again through the process's
+ * Discord client.
+ *
  * The `message` is user-safe on failure.
  */
 export async function deployFlowButtons(
-    guildId: string,
+    guild: Guild,
     flowId: string,
     deps: DeployFlowButtonsDeps = {}
 ): Promise<DeployFlowButtonsResult> {
-    const getGuild = deps.getGuild ?? defaultGetGuild;
+    const guildId = guild.id;
     const repo = deps.repo ?? flowsRepo;
-
-    const guild = await getGuild(guildId);
-    if (!guild) {
-        return { ok: false, message: 'That server is unavailable right now. Try again in a moment.' };
-    }
 
     const flow = await repo.getByFlowId(flowId);
     if (!flow || flow.guildId !== guildId) {
@@ -158,7 +147,7 @@ export async function deployFlowButtons(
      * The failure message says the old buttons are already gone so nobody wonders
      * whether they are half-deployed.
      */
-    const retired = await (deps.undeploy ?? undeployFlowButtons)(guildId, flowId);
+    const retired = await (deps.undeploy ?? undeployFlowButtons)(guild, flowId);
     const stuck = retired.results.filter((result) => result.outcome === 'failed');
     if (stuck.length > 0) {
         // Every one of them, as `resolveChannels` does below and for the same

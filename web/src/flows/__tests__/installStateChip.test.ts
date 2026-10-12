@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { FlowJourneyMembership } from '../../api/types';
+import type { FlowJourneyMembership } from '@brattybot/web-sdk';
 import { installChipFor } from '../installStateChip';
 
 /**

@@ -133,7 +133,9 @@ describe('the next-run countdown on a card', () => {
         // Behind the real API: the two reads fail, and everything else answers as usual.
         const answer = globalThis.fetch;
         vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-            const path = new URL(typeof input === 'string' ? input : input.toString(), 'http://dashboard.test').pathname;
+            // The SDK sends a `Request` with no init, whose `toString()` is no URL.
+            const url = input instanceof Request ? input.url : input.toString();
+            const path = new URL(url, 'http://dashboard.test').pathname;
             if (path.endsWith('/next-runs') || path.endsWith('/settings')) {
                 return new Response(JSON.stringify({ error: 'The dungeon is closed.' }), { status: 500 });
             }

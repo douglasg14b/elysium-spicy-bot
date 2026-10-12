@@ -12,9 +12,9 @@
  *
  * ## Why this is a module and not a component
  *
- * `web/` has no jsdom, so nothing rendered is testable here (see the note at the top of
- * `resourceRows.ts`). Ranking is the part with answers worth checking, so it lives in a
- * plain module the suite can drive and the combobox stays a renderer.
+ * Ranking is the part with answers worth checking (see the note at the top of
+ * `resourceRows.ts`), so it lives in a plain module a unit test can drive and the
+ * combobox stays a renderer.
  *
  * ## Why not fuzzy matching
  *
@@ -27,13 +27,8 @@
  * then prefix, then substring, and nothing else.
  */
 
-import {
-    isDiscordResourceKind,
-    type GuildChannel,
-    type GuildChannelType,
-    type GuildRole,
-    type ResourceKind,
-} from '../api/types';
+import type { GuildChannel, GuildRole, ResourceKind } from '@brattybot/web-sdk';
+import { isDiscordResourceKind } from './contractValues';
 import type { ExistingChannelOption } from './resourceAdoption';
 
 /**
@@ -267,7 +262,7 @@ export function collidableNamesFor(input: {
     if (!isDiscordResourceKind(input.kind)) return [];
     if (input.kind === 'role') return input.roles.map((role) => role.name);
 
-    const wantedType: GuildChannelType = input.kind === 'category' ? 'category' : 'text';
+    const wantedType: GuildChannel['type'] = input.kind === 'category' ? 'category' : 'text';
     return input.channels
         .filter((channel) => channel.type === wantedType)
         .map((channel) => channel.name);

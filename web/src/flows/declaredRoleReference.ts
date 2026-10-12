@@ -17,9 +17,9 @@
  * entries are self-describing has no such question.
  *
  * The prefix is duplicated on the server (`declaredRoleReference.ts` under
- * `features/provisioning/logic/`) rather than imported, for the reason the whole
- * `api/types.ts` mirror exists: importing from `src/` into this workspace drags the
- * bot tree into `tsc -b`. A test holds the two constants equal.
+ * `features/provisioning/logic/`) rather than imported: importing from `src/` into this
+ * workspace drags the bot tree into `tsc -b`, and the prefix is a constant the spec does
+ * not carry. A test holds the two constants equal.
  */
 
 /**

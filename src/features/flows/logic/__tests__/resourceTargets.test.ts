@@ -4,8 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { ensureBlocksDiscovered } from '../../blocks/registry';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../data/flowGraph';
-import { RESOURCE_PICKER_CONTROLS as BROWSER_PICKER_CONTROLS } from '../../../../../web/src/flows/fieldChecks';
-import { RESOURCE_KEY_SUFFIX, RESOURCE_PICKER_CONTROLS, collectResourceTargets } from '../resourceTargets';
+import { RESOURCE_KEY_SUFFIX, collectResourceTargets } from '../resourceTargets';
 
 // The scan asks each node's block which fields are pickers, so it needs the registry.
 beforeAll(async () => {
@@ -152,14 +151,6 @@ describe('collectResourceTargets', () => {
         );
 
         expect(targets).toEqual([{ nodeId: 'node-1', configKey: 'ticketType', resourceKey: 'verify-type' }]);
-    });
-});
-
-describe('the picker contract with the builder', () => {
-    it('counts sidecars on the same controls the browser does', () => {
-        // Disagreeing here makes the browser and the server judge an empty field
-        // differently: one forgives it as waiting on install, the other complains.
-        expect([...BROWSER_PICKER_CONTROLS].sort()).toEqual([...RESOURCE_PICKER_CONTROLS].sort());
     });
 });
 

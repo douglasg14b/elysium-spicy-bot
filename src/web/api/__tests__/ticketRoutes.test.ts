@@ -5,7 +5,7 @@ import type { AppEnv } from '../../types';
 /**
  * The tickets API contract.
  *
- * `ticketRoutes()` is a bare Hono app — auth and guild resolution are applied where it
+ * `ticketRoutes()` carries no middleware — auth and guild resolution are applied where it
  * is mounted in `api/index.ts` — so these tests inject a guild and a session user
  * directly and focus on what the route itself decides: guild scoping, validation, which
  * status a refusal gets, and the wire shape.
@@ -53,17 +53,13 @@ vi.mock('../../../features/tickets/data/ticketsRepo', async () => {
 });
 vi.mock('../../../features/tickets/data/ticketingRepo', () => ({ ticketingRepo: ticketingRepoMock }));
 vi.mock('../../../features/tickets/logic/applyTicketTransition', () => ({ applyTicketTransition }));
-// The label refusal is the real one for the same reason as the cap above: the body schema
-// imports it beside the two functions, and a whole-module mock would make it `undefined`.
+// The rest of the module stays real, as for the repo above: a whole-module mock would make
+// anything else a route module imports from it `undefined`.
 vi.mock('../../../features/tickets/logic/setTicketTypes', async () => {
     const actual = await vi.importActual<typeof import('../../../features/tickets/logic/setTicketTypes')>(
         '../../../features/tickets/logic/setTicketTypes'
     );
-    return {
-        upsertTicketType,
-        deleteTicketType,
-        TICKET_TYPE_LABEL_TOO_LONG_MESSAGE: actual.TICKET_TYPE_LABEL_TOO_LONG_MESSAGE,
-    };
+    return { ...actual, upsertTicketType, deleteTicketType };
 });
 // Whether the save creates, adopts and keeps correctly is settled against TestDiscord in
 // `setTicketSettings.integration.test.ts`; here only the routing is under test.
@@ -257,11 +253,24 @@ describe('GET /:guildId/tickets', () => {
         );
     });
 
-    it('rejects a status that is not one', async () => {
+    it('rejects a status that is not one, naming it', async () => {
         const response = await get('/tickets?status=banana');
 
         expect(response.status).toBe(400);
+        expect(((await response.json()) as ErrorBody).error).toBe(
+            '`banana` is not a ticket status. Try open, closed or deleted.'
+        );
         expect(ticketsRepoMock.listByGuild).not.toHaveBeenCalled();
+    });
+
+    it('treats blank filters as absent', async () => {
+        await get('/tickets?status=&type=&unclaimed=');
+
+        expect(ticketsRepoMock.listByGuild).toHaveBeenCalledWith(GUILD_ID, {
+            status: undefined,
+            type: undefined,
+            unclaimedOnly: false,
+        });
     });
 
     it('sends a search to the repo rather than filtering in memory', async () => {
@@ -318,6 +327,7 @@ describe('GET /:guildId/tickets', () => {
         const response = await get(`/tickets?type=${'x'.repeat(500)}`);
 
         expect(response.status).toBe(400);
+        expect(((await response.json()) as ErrorBody).error).toBe('That is not a ticket type.');
         expect(ticketsRepoMock.listByGuild).not.toHaveBeenCalled();
     });
 });
@@ -348,8 +358,11 @@ describe('GET /:guildId/tickets/:ticketId', () => {
         expect((await get('/tickets/7')).status).toBe(404);
     });
 
-    it('400s an id that is not a number', async () => {
-        expect((await get('/tickets/nonsense')).status).toBe(400);
+    it('400s an id that is not a number, naming it', async () => {
+        const response = await get('/tickets/nonsense');
+
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as ErrorBody).error).toBe('`nonsense` is not a ticket id.');
     });
 });
 
@@ -548,7 +561,7 @@ describe('PUT /:guildId/config/tickets', () => {
         expect(setTicketSettings).toHaveBeenCalledWith(
             expect.objectContaining({ categories: settingsBody.categories, moderationRoles: [MOD_ROLE] })
         );
-        expect(updateDeployedTicketMessage).toHaveBeenCalledWith(GUILD_ID);
+        expect(updateDeployedTicketMessage).toHaveBeenCalledWith(expect.objectContaining({ id: GUILD_ID }));
         expect(body.categories.open).toEqual({
             name: 'Tickets',
             discordId: CATEGORY_ID,
@@ -556,6 +569,22 @@ describe('PUT /:guildId/config/tickets', () => {
             liveName: 'Tickets',
         });
         expect(body.types.map((type) => type.type)).toEqual(['support']);
+    });
+
+    it('answers the save as saved when the panel cannot be redrawn, and logs why', async () => {
+        // The redraw rejects on failure and the route owns it: the settings are already
+        // saved, so a 500 would send the operator back to save something that stuck.
+        updateDeployedTicketMessage.mockRejectedValue(new Error('Unknown Message'));
+        const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+        const response = await send('/config/tickets', 'PUT', settingsBody);
+
+        expect(response.status).toBe(200);
+        expect(logged).toHaveBeenCalledWith(
+            '[tickets] Settings saved, but the deployed panel could not be refreshed:',
+            expect.objectContaining({ message: 'Unknown Message' })
+        );
+        logged.mockRestore();
     });
 
     it.each([
@@ -584,34 +613,96 @@ describe('PUT /:guildId/config/tickets', () => {
         const response = await send('/config/tickets', 'PUT', settingsBody);
 
         expect(response.status).toBe(502);
-        expect(updateDeployedTicketMessage).toHaveBeenCalledWith(GUILD_ID);
+        expect(updateDeployedTicketMessage).toHaveBeenCalledWith(expect.objectContaining({ id: GUILD_ID }));
     });
 });
 
 describe('PUT /:guildId/config/tickets/types/:type', () => {
-    it('rejects a nameTemplate with an unimplemented token, naming it', async () => {
-        // Forwarded from the shared authority, so the sentence an operator reads is the
-        // same one the Discord surface would give them.
-        upsertTicketType.mockResolvedValue({
-            ok: false,
-            reason: 'invalid-input',
-            message: '`{{user}}` is not a token this bot knows how to render.',
-        });
-
+    it('refuses a nameTemplate with an unimplemented token by the template rule, before the shared save', async () => {
+        // The rule's own sentence, the one the dashboard's generated zod shows under the
+        // field. It no longer names the token: a sentence that did could not travel.
         const response = await send('/config/tickets/types/appeals', 'PUT', {
             ...validTypeBody,
             nameTemplate: 'A{{####}}-{{user}}',
         });
 
         expect(response.status).toBe(400);
-        expect(((await response.json()) as ErrorBody).error).toContain('{{user}}');
+        expect(((await response.json()) as ErrorBody).error).toBe(
+            'Only `{{####}}`, `{{subject}}` and `{{opener}}` render here, each with exactly two braces either side — nothing else, and no, wishing does not count.'
+        );
+        expect(upsertTicketType).not.toHaveBeenCalled();
+    });
+
+    it('refuses a key the key rule does not allow, from the path, before the shared save', async () => {
+        const response = await send('/config/tickets/types/Appeals', 'PUT', validTypeBody);
+
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as ErrorBody).error).toBe(
+            'That will not do as a key — lowercase letters, digits, `-` and `_` only. The label is where you get to be expressive.'
+        );
+        expect(upsertTicketType).not.toHaveBeenCalled();
+    });
+
+    it('hands the shared save the key, label and template as the rules normalized them', async () => {
+        upsertTicketType.mockResolvedValue({ ok: true, config: storedConfig() });
+
+        await send('/config/tickets/types/%20appeals%20', 'PUT', {
+            ...validTypeBody,
+            label: '  Appeals  ',
+            nameTemplate: '  A{{####}}  ',
+        });
+
+        expect(upsertTicketType).toHaveBeenCalledWith(
+            GUILD_ID,
+            expect.objectContaining({ type: 'appeals', label: 'Appeals', nameTemplate: 'A{{####}}' })
+        );
+    });
+
+    it('forwards a render refusal from the shared save as a 400, in its own words', async () => {
+        upsertTicketType.mockResolvedValue({
+            ok: false,
+            reason: 'invalid-input',
+            message: 'At its longest that template renders 116 characters, and Discord caps a channel name at 100. Trim it.',
+        });
+
+        const response = await send('/config/tickets/types/appeals', 'PUT', validTypeBody);
+
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as ErrorBody).error).toBe(
+            'At its longest that template renders 116 characters, and Discord caps a channel name at 100. Trim it.'
+        );
+    });
+
+    it('answers a body not sent as JSON with 415', async () => {
+        const response = await app().request(`/${GUILD_ID}/config/tickets/types/appeals`, {
+            method: 'PUT',
+            headers: { 'content-type': 'text/plain' },
+            body: JSON.stringify(validTypeBody),
+        });
+
+        expect(response.status).toBe(415);
+        expect(upsertTicketType).not.toHaveBeenCalled();
+    });
+
+    it('answers malformed JSON with the validator’s sentence', async () => {
+        const response = await app().request(`/${GUILD_ID}/config/tickets/types/appeals`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: '{"label": ',
+        });
+
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as ErrorBody).error).toBe('Malformed JSON in request body');
+        expect(upsertTicketType).not.toHaveBeenCalled();
     });
 
     it('takes the type key from the path, not the body', async () => {
         upsertTicketType.mockResolvedValue({ ok: true, config: storedConfig() });
 
-        await send('/config/tickets/types/appeals', 'PUT', { ...validTypeBody, type: 'smuggled' });
+        // A `type` in the body is stripped rather than refused.
+        const response = await send('/config/tickets/types/appeals', 'PUT', { ...validTypeBody, type: 'smuggled' });
 
+        expect(response.status).toBe(200);
         expect(upsertTicketType).toHaveBeenCalledWith(
             GUILD_ID,
             expect.objectContaining({ type: 'appeals' })

@@ -7,7 +7,7 @@
  * here and the page maps the result to divs.
  */
 
-import type { LevelingActivityBucket, LevelingActivityChart } from '../api/types';
+import type { LevelingActivityBucket, LevelingActivityChart } from '@brattybot/web-sdk';
 
 export interface ActivityChartBar {
     /** The bucket's own day key, for the React key and the tooltip. */

@@ -26,6 +26,11 @@ entry, its card, its form, and its output handles from what your manifest declar
 have to edit a shared file to make a block appear, something has regressed — say so rather
 than editing the shared file.
 
+Then run `pnpm sdk:generate`. It writes nothing of yours: it regenerates the committed spec and
+dashboard SDK, which carry the rules the builder checks your fields against as the author types
+(see [Your schema is checked in the browser](#your-schema-is-checked-in-the-browser--write-nothing-for-it)).
+The suite fails until you have.
+
 Two rules the scan enforces, both as named errors rather than a block quietly missing:
 
 - the directory must contain `index.ts` exporting a const named **`block`**
@@ -90,23 +95,31 @@ the list and the route cannot drift.
 
 ### Your schema is checked in the browser — write nothing for it
 
-The builder checks a field as the author types — empty when required, too long, out of range,
-too few entries — and you declare none of it. The route reads your `configSchema` with zod's own
-JSON Schema export and serves the rules it can state as `fieldChecks` beside your descriptor
-(`src/features/flows/logic/fieldChecks.ts`); the server words its own complaints about the same
-rules identically, so a message does not change when Save answers. The rules come from the
+The builder checks a field as the author types — empty, too long, out of range, a whole number,
+too few entries, a `.regex()` — and you declare none of it. When the dashboard SDK is generated,
+your `configSchema` is read with zod's own JSON Schema export
+(`src/features/flows/logic/blockFieldRules.ts`) and its rules go into the spec as your block's
+entry in `FlowBlockFieldRules`; the SDK turns that into the zod the builder checks a node with.
+Nothing about it is served at runtime. The server words its own complaints about the same rules
+with the same function, so a message does not change when Save answers. The rules come from the
 schema, so they cannot disagree with it: change `.max(2000)` and the browser follows.
 
-What the export cannot state stays on the server, and the builder hears about it when the author
-leaves the field: a `.refine()`, a `.regex()` with your own message, a rule about an entry inside
-a list. Write those as you would anyway — **your wording is what the author reads**, so give
-`.refine()` and `.regex()` a message in the product's voice.
+**The one step this adds: run `pnpm sdk:generate` after adding a block or changing its schema**
+(`pnpm dev` and `pnpm build` run it for you). It writes no file of yours — it regenerates the
+committed spec and SDK — and the suite fails until it has been run
+(`generatedSdkIsCurrent.test.ts`, and the spec drift test).
 
-One gate can stop you: `src/features/flows/logic/__tests__/fieldChecks.test.ts` fails, naming
-your block and field, if your schema uses a JSON Schema keyword nobody has decided about yet
-(`multipleOf`, say). Decide it — teach the browser the rule, or add the keyword to
-`SERVER_ONLY_KEYWORDS` saying why the re-check is enough — rather than restructuring the schema
-to dodge it.
+What the browser cannot be given faithfully stays on the server, and the builder hears about it
+when the author leaves the field: a `.refine()` or `.superRefine()`, a format such as `.url()`, a
+rule about an entry inside a list, a number your schema coerces. Write those as you would anyway —
+**your wording is what the author reads**, so give `.refine()` and `.regex()` a message in the
+product's voice. A `.regex()` message travels to the browser as it is, so it must be a fixed
+sentence and the pattern must have no flags; the spec emit fails, naming your field, if not.
+
+The emit can stop you in one more way: it fails, naming your block and field, if your schema uses
+a JSON Schema keyword nobody has decided about yet (`multipleOf`, say). Decide it — teach the
+browser the rule, or add the keyword to `SERVER_ONLY_KEYWORDS` in `blockFieldRules.ts` saying why
+the re-check is enough — rather than restructuring the schema to dodge it.
 
 ## The entry point
 
@@ -931,58 +944,47 @@ So, in order:
    [The entry point](#the-entry-point) again. If you still do, the block contract is wrong
    somewhere else. Treat it as a report about the contract, not as an enum to append to.
 
-### Extending the vocabulary or the manifest means editing the browser too
+### Extending the vocabulary or the manifest means stating it in the spec too
 
 The one-directory rule covers **adding a block**. Changing the *contract* — a new vocabulary
 member under step 1, or a new manifest member under step 2 — is the case where you do edit a
-shared file, because the browser holds a hand-written mirror of the manifest in
-`web/src/api/types.ts` (`NodeDescriptor` and the `BLOCK_*` vocabularies beside it).
+shared file: `src/web/api/nodeBody.ts`, which states the served descriptor (`NodeDescriptor`,
+every `BlockConfigField` arm, exits, outputs, the vocabularies) as the zod the OpenAPI spec is
+built from. The browser's types are generated from that spec, so there is no browser file to
+edit — run `pnpm sdk:generate` (which `pnpm dev` runs) and the builder sees the change.
 
-The mirror exists because the web workspace cannot import the bot's types: one `import type`
-from `src/` drags the whole bot tree into `tsc -b` and breaks `pnpm build:web`. So the two are
-kept together by `src/web/api/__tests__/nodeDescriptorDrift.test.ts`, which fails naming the
-field or union that drifted, in either direction. You do not have to remember this rule — the
-test tells you, and it tells you which of the two fixes you want:
+You do not have to remember this rule. Each schema there is held to its manifest type both ways,
+member by member — every control arm, both output arms, both exit-warning forms, the nested
+objects — so a member or arm added to `manifest.ts` and not stated there fails `pnpm test`
+(`src/web/api/__tests__/nodeBody.test-d.ts`, naming the check that drifted) and root `tsc`.
+Then pick one of two fixes:
 
-- the member is for the builder → declare it in `web/src/api/types.ts` (add it to
-  `NodeDescriptor` **and** `NODE_DESCRIPTOR_KEYS`, or to the vocabulary array)
+- the member is for the builder → state it in `nodeBody.ts`, then regenerate the SDK
 - the member is server-only → add it to `NON_WIRE_MEMBERS` in `src/web/api/nodeRoutes.ts`, which
   will not compile until the route withholds it too
 
-This covers the arms of `BlockConfigField` too, member by member — adding `maxLength` to one
-control's arm and not the other side fails, because a member the browser does not declare is one
-the inspector cannot read off a field it is being sent. Exits and outputs are held the same way:
-`BLOCK_OUTPUT_HANDLE_KEYS`, `EXIT_WARNING_CONDITION_KEYS` (one list per object form of
-`warnIfUnconnected`) and `BLOCK_OUTPUT_DECLARATION_KEYS` (one list per naming arm) in the
-browser file, against exhaustive fixtures in the drift test. Card-summary parts too:
-`BLOCK_CARD_SUMMARY_PART_KEYS`, one list per arm (field reference, literal).
-
-One gap to know about: the test derives what is served from the blocks that actually exist, so a
-**new optional top-level member no block sets yet** is served-as-absent and the test stays quiet
-about it. That is the one case you have to carry yourself — declare it in the mirror when you add
-it, not when the first block sets it. (It does not apply to the config-field arms, exits or
-outputs, which are compared against exhaustive fixtures rather than live blocks.)
+A new control also fails web `tsc -b` in `controls/renderControl.tsx` once the SDK is
+regenerated, until the builder implements it.
 
 Everything a manifest declares except `configSchema`, `run` and `emits` is served to the browser by
 `GET /api/nodes`, so a new member is published to every authenticated dashboard user by
 default. That is the reason the second option has to be a deliberate act.
 
-#### The other mirrors
+#### The mirrors that remain
 
-`NodeDescriptor` is the largest mirror across this boundary but not the only one. Anything the
-builder has to *know* rather than be *sent* is copied by hand for the same `build:web` reason,
-and each copy carries its own gate:
+Anything the builder has to *know* rather than be *sent* is still copied by hand — the web
+workspace cannot import the bot's code, because one `import type` from `src/` would pull the
+whole bot tree into `tsc -b` and break `pnpm build:web` — and each copy carries its own gate:
 
 | Browser copy | Authority in `src/` | Gate |
 | --- | --- | --- |
-| `web/src/api/types.ts` | `blocks/manifest.ts`, the block vocabularies | `src/web/api/__tests__/nodeDescriptorDrift.test.ts` |
-| `web/src/flows/builtinTokens.ts` | `RENDERABLE_TOKENS` in `engine/copyRendering.ts` | `src/web/api/__tests__/builtinTokenDrift.test.ts` |
+| `web/src/flows/builtinTokens.ts` | `RENDERABLE_TOKENS` and `TOKEN_REQUIREMENTS` in `engine/copyRendering.ts` | `src/web/api/__tests__/builtinTokenDrift.test.ts` |
+| `REQUIREMENT_ABSENT_WHEN` in `web/src/flows/variables.ts` | `REQUIREMENT_ABSENT_WHEN` in `engine/graphValidation.ts` | `src/web/api/__tests__/builtinTokenDrift.test.ts` |
 | `web/src/flows/ticketChannelName.ts` | `buildTicketChannelNameForType` in `tickets/logic/ticketTypes.ts` | `src/features/tickets/logic/__tests__/ticketChannelNamePreviewDrift.test.ts` |
-| `web/src/flows/fieldChecks.ts` (the evaluator) | `failedFieldCheck` in `flows/logic/fieldChecks.ts` | `src/features/flows/logic/__tests__/fieldChecks.test.ts` — runs both over every block's fields, and fails if the browser ever flags a value the server accepts |
-| `FlowNextRuns` in `web/src/api/types.ts` (the card's countdown) | `FlowNextRunsBody` in `src/web/api/flowBody.ts` | `src/web/api/__tests__/flowWireShapeDrift.test.ts` (`FLOW_NEXT_RUNS_KEYS`) |
 
-**A gate lives beside its authority, not beside the copy.** The first two answer to something
-under `src/web/api/`; the third answers to the ticketing feature, so it sits there. A gate placed
+**A gate lives beside its authority, not beside the copy.** The token gates answer to
+something under `src/web/api/`; the channel-name one to the ticketing feature, so it sits there.
+A gate placed
 beside the browser copy would run in the workspace that cannot import the authority.
 
 Two things a gate of this kind must do, both learned the hard way:

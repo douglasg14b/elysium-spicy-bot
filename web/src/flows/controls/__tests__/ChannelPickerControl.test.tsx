@@ -1,6 +1,6 @@
 import { screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { BlockConfigField } from '../../../api/types';
+import type { BlockConfigField } from '@brattybot/web-sdk';
 import { renderWithProviders } from '../../../__tests__/support/renderWithProviders';
 import { ALL_REQUIREMENTS_AVAILABLE, type AvailableVariable } from '../../variables';
 import { ChannelPickerControl } from '../PickerControls';

@@ -8,23 +8,27 @@
  * red tier. A chip claiming "the save will be refused" is worth something only if the
  * save really would be.
  *
- * ## Why this is a mirror rather than a call
+ * ## Where each rule comes from
  *
- * The web workspace cannot import from `src/`: one `import type` drags the whole bot
- * tree into `tsc -b` and breaks `pnpm build:web`. This is the same trade
- * `web/src/api/types.ts` and `web/src/flows/declaredRoleReference.ts` already took,
- * and it is paid for the same way — a test that holds the two halves equal, living on
- * the server side where importing *into* `web/` is allowed.
+ * The key and name rules are the server's own, as the SDK generates them from the route's
+ * `ResourceDeclaration` schema (`zResourceDeclaration`), and the `invalidKey` chip carries
+ * the server's own sentence for whichever one failed. Nothing here restates them.
  *
- * The authorities being mirrored, and nothing else:
+ * The rest are rules no schema states, so they cannot travel and are mirrored here
+ * instead. The web workspace cannot import from `src/`: one `import type` drags the whole
+ * bot tree into `tsc -b` and breaks `pnpm build:web`. This is the same trade
+ * `web/src/flows/declaredRoleReference.ts` takes, and it is paid for the same way — a test
+ * that holds the two halves equal, living on the server side where importing *into*
+ * `web/` is allowed. The authorities being mirrored, and nothing else:
  *
  *  - `validateJourneyDeclaration` — duplicate keys, duplicate adoptions, declared-role
  *    references naming an undeclared key or a key that is not a role.
- *  - `resourceSchema` in `src/web/api/journeyRoutes.ts` — the key regex and its 1–64
- *    cap, the name's 1–100 cap.
- *  - `permissionIntentSchema` — a `roles` intent must name at least one role.
- *  - `ticketTypeDefinitionProblem`, which the route runs on a declared ticket type — its
- *    label's 45-character cap and its template, through `validateTicketTypeDraft`.
+ *  - `rolesWithoutIdsRefusal` in `src/web/api/journeyBody.ts` — a `roles` intent must
+ *    name at least one role.
+ *  - `ticketTypeDeclarationRefusal` in the same file, which runs the ticket feature's
+ *    `ticketTypeDefinitionProblem` on a declared ticket type — its label's 45-character
+ *    cap and its template. Not mirrored by hand: `validateTicketTypeDraft` asks the SDK's
+ *    generated rules for a ticket type, the tickets page's own check.
  *
  * ## What is deliberately *not* mirrored
  *
@@ -53,13 +57,15 @@
  * it needs a parent or role-reference loop the pickers cannot express.
  */
 
-import type {
-    GuildChannel,
-    GuildRole,
-    PermissionIntent,
-    ResourceDeclaration,
-    TicketTypeView,
-} from '../api/types';
+import {
+    zResourceDeclaration,
+    type GuildChannel,
+    type GuildRole,
+    type PermissionIntent,
+    type ResourceDeclaration,
+    type TicketTypeView,
+} from '@brattybot/web-sdk';
+import { fieldProblems } from '../api/fieldProblems';
 import { validateTicketTypeDraft } from '../tickets/ticketTypeForm';
 import { parseDeclaredRoleReference } from './declaredRoleReference';
 import type { ResourceChipDetail, ResourceChipId } from './resourceChips';
@@ -68,20 +74,6 @@ import { collidableNamesFor, nameCollidesWithExisting } from './resourceNameSugg
 
 /** Shared so an absent `installedKeys` does not allocate a set per resource per render. */
 const EMPTY_KEYS: ReadonlySet<string> = new Set();
-
-/**
- * The key rule, copied from `resourceKeySchema` in `src/web/api/journeyRoutes.ts`.
- *
- * Duplicated rather than derived for the boundary reason in the header. Held equal to
- * the server's by the agreement test, which feeds the same strings through both.
- */
-export const RESOURCE_KEY_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-
-/** `resourceKeySchema.max(64)`. */
-const RESOURCE_KEY_MAX_LENGTH = 64;
-
-/** `defaultName`'s `.max(100)`. */
-const RESOURCE_NAME_MAX_LENGTH = 100;
 
 /**
  * One chip, resolved against one resource.
@@ -223,11 +215,14 @@ function chipsForResource(context: ChipContext): ResourceChipInstance[] {
 
     // The name is reported in preference to the key when both are wrong. One chip
     // covers both fields (see `invalidKey` in the table), and an empty name is the
-    // one an operator can see is wrong without knowing the key rules.
-    if (!isValidResourceName(resource.defaultName)) {
-        chips.push({ id: 'invalidKey', detail: { field: 'name' } });
-    } else if (!isValidResourceKey(resource.key)) {
-        chips.push({ id: 'invalidKey', detail: { field: 'key' } });
+    // one an operator can see is wrong without knowing the key rules. Either way the
+    // chip carries the server's own sentence for what is wrong.
+    const nameProblem = resourceNameProblem(resource.defaultName);
+    const keyProblem = resourceKeyProblem(resource.key);
+    if (nameProblem) {
+        chips.push({ id: 'invalidKey', detail: { field: 'name', problem: nameProblem } });
+    } else if (keyProblem) {
+        chips.push({ id: 'invalidKey', detail: { field: 'key', problem: keyProblem } });
     }
 
     if (ticketTypeWontSave(resource)) {
@@ -272,7 +267,7 @@ function chipsForResource(context: ChipContext): ResourceChipInstance[] {
      */
     if (
         context.guild &&
-        isValidResourceName(resource.defaultName) &&
+        !nameProblem &&
         !context.installedKeys.has(resource.key)
     ) {
         const collides = nameCollidesWithExisting({
@@ -360,7 +355,7 @@ function hidesFromEveryone(intent: PermissionIntent): boolean {
  * Three ways one rule can fail, refused in two different places on the server, and all
  * three are the same mistake to the operator — the rule names no usable role:
  *
- *  - no ids at all, refused by `permissionIntentSchema` at save;
+ *  - no ids at all, refused by the save route (`rolesWithoutIdsRefusal`);
  *  - a `resource:` reference to a key the flow does not declare, refused by
  *    `validateJourneyDeclaration` at save;
  *  - a reference to a key that *is* declared but is not a role, refused by the same.
@@ -387,32 +382,42 @@ function ruleNamesNoRole(intent: PermissionIntent, context: ChipContext): boolea
     });
 }
 
-/** `resourceKeySchema`: 1–64 characters, lowercase, digits, single hyphens. */
-function isValidResourceKey(key: string): boolean {
-    return key.length <= RESOURCE_KEY_MAX_LENGTH && RESOURCE_KEY_PATTERN.test(key);
+/**
+ * The server's own sentence for what is wrong with a key, by its key rule as generated
+ * into the SDK; `undefined` when the key is fine.
+ *
+ * Read from `fieldProblems` under `''`, its key for a problem with no field to sit under
+ * — which, for a rule checking one bare value, is every problem it has. Exported for the
+ * ticket type row, which offers only the server's type keys that would stand as one.
+ */
+export function resourceKeyProblem(key: string): string | undefined {
+    return fieldProblems(zResourceDeclaration.shape.key.safeParse(key))[''];
 }
 
 /**
- * `defaultName`: 1–100 characters.
+ * The server's own sentence for what is wrong with a name, by its name rule as generated
+ * into the SDK; `undefined` when the name is fine.
  *
- * Only the emptiness and the cap, because that is all the server checks. Discord's own
+ * Only the server's rule, because that is all the server checks. Discord's own
  * channel-naming rules are not applied here: Discord silently transforms a channel
  * name it dislikes rather than refusing it, so a chip claiming the save would fail
  * would be wrong.
  */
-function isValidResourceName(name: string): boolean {
-    return name.length > 0 && name.length <= RESOURCE_NAME_MAX_LENGTH;
+function resourceNameProblem(name: string): string | undefined {
+    return fieldProblems(zResourceDeclaration.shape.defaultName.safeParse(name))[''];
 }
 
 /**
  * Whether the ticket feature would refuse a declared ticket type: its label past 45
- * characters, or a template it cannot render.
+ * characters, or a template with a token it does not know or a stray brace.
  *
- * Mirrors `ticketTypeDefinitionProblem`, which the journey save route calls, through the
- * tickets page's own client mirror of it (`validateTicketTypeDraft`) — one browser copy of
- * those rules, not two. The key's problems are `invalidKey`'s (a resource key is stricter
- * than a type key), and so is an empty label; only a label with something in it is judged
- * here, so one empty box does not wear two chips.
+ * Asks `validateTicketTypeDraft`, the tickets page's own check — the SDK's generated rules
+ * for a ticket type, which are the rules `ticketTypeDefinitionProblem` applies on the
+ * journey save. One browser path to those rules, not two, and no copy of them. A template
+ * that only renders too long needs the server's renderer, so it is not chipped here and
+ * arrives as the save's refusal. The key's problems are `invalidKey`'s (a resource key is
+ * stricter than a type key), and so is an empty label; only a label with something in it
+ * is judged here, so one empty box does not wear two chips.
  */
 function ticketTypeWontSave(resource: ResourceDeclaration): boolean {
     if (resource.kind !== 'ticketType' || !resource.ticketType) return false;
@@ -422,7 +427,7 @@ function ticketTypeWontSave(resource: ResourceDeclaration): boolean {
         label: resource.defaultName,
         ...resource.ticketType,
     });
-    return Boolean(problems.nameTemplate) || (isValidResourceName(resource.defaultName) && Boolean(problems.label));
+    return Boolean(problems.nameTemplate) || (!resourceNameProblem(resource.defaultName) && Boolean(problems.label));
 }
 
 /**

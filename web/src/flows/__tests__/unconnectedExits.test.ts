@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { Edge } from '@xyflow/react';
-import type { NodeDescriptor } from '../../api/types';
+import type { NodeDescriptor } from '@brattybot/web-sdk';
 import {
     describeUnconnectedExit,
     exitWarningsShown,
@@ -27,7 +27,6 @@ const CONDITION: NodeDescriptor = {
     group: 'conditions',
     icon: '⌛',
     configFields: [],
-    fieldChecks: {},
     handles: [
         { id: 'true', label: 'Yes', tone: 'positive' },
         { id: 'false', label: 'No', tone: 'negative' },
@@ -69,7 +68,6 @@ const WAIT: NodeDescriptor = {
             visibleWhen: { field: 'mode', equals: ['limited'] },
         },
     ],
-    fieldChecks: {},
     handles: [
         { label: 'It happened', tone: 'positive' },
         { id: 'timeout', label: 'Timed out', tone: 'caution', warnIfUnconnected: { whenFieldSet: 'timeoutMs' } },

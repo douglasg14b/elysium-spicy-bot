@@ -37,9 +37,10 @@
  * resolution path would be a second thing to be wrong.
  *
  * The prefix is mirrored in `web/src/flows/declaredRoleReference.ts` — importing
- * across that boundary would drag the bot tree into the web build, which is the trade
- * `web/src/api/types.ts` documents. `__tests__/declaredRoleReference.test.ts` holds
- * the two constants equal.
+ * across that boundary would drag the bot tree into the web build, and the spec carries
+ * the prefix only inside a pattern, not as a value. `__tests__/declaredRoleReference.test.ts`
+ * holds the two constants equal. The request rule for a `roleIds` entry
+ * (`PermissionRoleIdSchema` in `src/web/api/journeyBody.ts`) is built from this constant.
  */
 
 /**

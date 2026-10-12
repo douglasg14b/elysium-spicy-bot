@@ -1,10 +1,11 @@
-import type { Hono } from 'hono';
+import type { OpenAPIHono } from '@hono/zod-openapi';
 import type { AppEnv } from '../types';
 import { requireAuth, requireGuildAccess } from '../auth/middleware';
 import { authRoutes } from './authRoutes';
 import { botRoutes } from './botRoutes';
 import { flowRoutes } from './flowRoutes';
 import { guildRoutes } from './guildRoutes';
+import { healthRoutes } from './healthRoutes';
 import { journeyRoutes } from './journeyRoutes';
 import { levelingRoutes } from './levelingRoutes';
 import { nodeRoutes } from './nodeRoutes';
@@ -16,22 +17,24 @@ import { ticketRoutes } from './ticketRoutes';
  * Public: `/api/health`, `/api/bot`, `/api/auth/login`, `/api/auth/callback`,
  * `/api/auth/me` (me self-reports 401 when there is no session). Everything else — the
  * guild/config data routes, the flow builder routes, `/api/nodes`, and
- * `/api/auth/logout` — sits behind {@link requireAuth}.
+ * `/api/auth/logout` — sits behind {@link requireAuth}, mounted here rather than on any
+ * router: a router built with `apiRouter` carries no middleware of its own.
+ *
+ * `app` is an `OpenAPIHono` because a parent collects the OpenAPI definitions of the
+ * routers mounted on it only if it is one itself (see `openApi.ts`). The spec is built
+ * from this same function, so its paths carry `/api` from the mount the server really
+ * uses rather than from a second copy of the prefix.
  */
-export function registerApiRoutes(app: Hono<AppEnv>): void {
-    app.get('/api/health', (c) =>
-        c.json({
-            ok: true,
-            service: 'brattybot-web',
-            time: new Date().toISOString(),
-        })
-    );
+export function registerApiRoutes(app: OpenAPIHono<AppEnv>): void {
+    // Liveness. Public, and touches nothing behind it.
+    app.route('/api/health', healthRoutes());
 
     // Which bot account we are connected to. Public: the login page brands itself
     // from this before a session exists.
     app.route('/api/bot', botRoutes());
 
-    // Auth surface (login/callback/me are public; logout enforces auth internally).
+    // Auth surface. Login, callback and me are public; logout needs the session it clears.
+    app.use('/api/auth/logout', requireAuth);
     app.route('/api/auth', authRoutes());
 
     // Data routes require a valid session.

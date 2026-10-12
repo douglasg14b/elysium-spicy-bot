@@ -294,7 +294,8 @@ export function validateJourneyDeclaration(journey: JourneyDeclaration): void {
  *
  * Structural only, so it holds on every read of a journey without asking the ticket
  * feature anything. Whether a ticket type's template renders is a content rule, checked
- * on save by the ticket feature's own `ticketTypeDefinitionProblem` (`journeyRoutes`).
+ * on save by the ticket feature's own `ticketTypeDefinitionProblem`
+ * (`ticketTypeDeclarationRefusal` in `src/web/api/journeyBody.ts`).
  *
  * A ticket type is not a Discord object: it sits under no category, has no channel
  * overwrites, and has no snowflake to adopt — its key is its identity, and an existing

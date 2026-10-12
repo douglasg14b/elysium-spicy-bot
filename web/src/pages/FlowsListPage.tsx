@@ -7,8 +7,8 @@
  * Flows sharing a journey render as a **band**: a tinted header row carrying the
  * journey's name and its resources, with a rail running down its members. A journey
  * holding one flow is not a group and is not drawn — `flowGrouping.ts` owns every rule
- * about that, because `web/` has no jsdom and a rule living in this file could not be
- * tested.
+ * about that, because a rule living in this file could only be tested by rendering the
+ * whole page.
  *
  * Grouping is made and unmade by dragging a row onto another row (join or create) or out
  * of the band (leave). The outcome is decided on hover and shown on the **target**, so
@@ -20,7 +20,7 @@
  * box, destroying the drag registration and the focus along with it.
  */
 
-import { Fragment, useEffect, useMemo, useRef, useState, type HTMLAttributes } from 'react';
+import { Fragment, useMemo, useRef, useState, type HTMLAttributes } from 'react';
 import {
     Alert,
     Badge,
@@ -72,21 +72,25 @@ import {
     IconX,
 } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
-import { ApiError } from '../api/client';
-import { createFlow, deleteFlow, listFlows, updateFlow } from '../api/flows';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+    ApiError,
+    createFlowMutation,
+    deleteFlowMutation,
     detachFlowFromJourney,
     groupFlowWith,
+    listFlowsOptions,
+    listFlowsQueryKey,
     previewFlowGrouping,
+    updateFlow,
     updateJourney,
-} from '../api/journeys';
-import type {
-    FlowJourneyMembership,
-    FlowSummary,
-    FlowValidationIssue,
-    GroupPreview,
-    GroupResolution,
-} from '../api/types';
+    type FlowJourneyMembership,
+    type FlowSummary,
+    type FlowValidationIssue,
+    type GroupPreview,
+    type GroupResolution,
+    type ListFlowsResponse,
+} from '@brattybot/web-sdk';
 import {
     buildFlowsListRows,
     decideDropOutcome,
@@ -905,21 +909,54 @@ function UngroupedZoneRow({
     );
 }
 
+/** The list before it has loaded: one value, so it is the same array on every render. */
+const NO_FLOWS: readonly FlowSummary[] = [];
+
+/**
+ * The re-read the switches owe once the last of them settles: none, or one as loud as the
+ * loudest list read a switch cancelled.
+ */
+type OwedReread = 'none' | 'quiet' | 'loud';
+
 export function FlowsListPage() {
     const { selected, loading: guildsLoading } = useGuilds();
     const navigate = useNavigate();
+    const queryClient = useQueryClient();
 
-    const [flows, setFlows] = useState<FlowSummary[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [togglingId, setTogglingId] = useState<string | null>(null);
+    /*
+     * The list, cached per guild. A guild switch reads the new guild's entry, so a
+     * response for the previous guild can never be painted into this one, and a later
+     * read always replaces an earlier one — what the hand-rolled load generation used to
+     * guard by hand.
+     */
+    const flowsKey = listFlowsQueryKey({ path: { guildId: selected?.id ?? '' } });
+    const flowsQuery = useQuery({
+        ...listFlowsOptions({ path: { guildId: selected?.id ?? '' } }),
+        enabled: !!selected,
+    });
+    const flows: readonly FlowSummary[] = flowsQuery.data?.flows ?? NO_FLOWS;
+    // The error panel is for a list that never loaded. A failed refresh of a loaded one
+    // keeps it on screen — the cache holds the last good answer.
+    const loadError = flowsQuery.data ? null : flowsQuery.error;
+    const loading = !flowsQuery.data && !loadError;
+    /** Every flow whose switch is in flight, each disabled until its own PUT settles. */
+    const [togglingIds, setTogglingIds] = useState<ReadonlySet<string>>(() => new Set());
+    /*
+     * The switches' bookkeeping, in refs because the handlers that read it are still
+     * running when the render that made them is long gone. `loudReads` counts loud list
+     * refreshes in flight; `switches` counts switches in flight and the re-read they owe.
+     */
+    const loudReads = useRef(0);
+    const switches = useRef<{ inFlight: number; owed: OwedReread }>({ inFlight: 0, owed: 'none' });
 
     const [createOpen, setCreateOpen] = useState(false);
     const [newName, setNewName] = useState('');
-    const [creating, setCreating] = useState(false);
+    const createFlowRequest = useMutation(createFlowMutation());
+    const creating = createFlowRequest.isPending;
 
     const [pendingDelete, setPendingDelete] = useState<FlowSummary | null>(null);
-    const [deleting, setDeleting] = useState(false);
+    const deleteFlowRequest = useMutation(deleteFlowMutation());
+    const deleting = deleteFlowRequest.isPending;
 
     /**
      * The flow whose published structure is being inspected.
@@ -1020,39 +1057,6 @@ export function FlowsListPage() {
     const journeyResources = useLoadedResources(selected?.id, editingTarget);
 
     /**
-     * Which load is the current one.
-     *
-     * Four call sites re-read the list and any of them can be in flight when another
-     * starts or when the operator switches guild. Without a generation to compare
-     * against, whichever response happens to land last wins — which can be an older
-     * list, or worse, the previous guild's flows painted into this guild's page.
-     */
-    const loadGeneration = useRef(0);
-
-    useEffect(() => {
-        if (!selected) return;
-        const generation = ++loadGeneration.current;
-        void (async () => {
-            setLoading(true);
-            setError(null);
-            try {
-                const rows = await listFlows(selected.id);
-                if (loadGeneration.current === generation) setFlows(rows);
-            } catch (err) {
-                const message = err instanceof ApiError ? err.message : 'Failed to load flows';
-                if (loadGeneration.current === generation) setError(message);
-            } finally {
-                if (loadGeneration.current === generation) setLoading(false);
-            }
-        })();
-        return () => {
-            // Retires this load, so a response arriving after the guild changed — or
-            // after unmount — cannot write into state that has moved on.
-            loadGeneration.current += 1;
-        };
-    }, [selected]);
-
-    /**
      * Re-read the whole list.
      *
      * A patch would go stale: grouping changes `memberCount` on rows the operator never
@@ -1062,19 +1066,50 @@ export function FlowsListPage() {
      * write. That refusal is already on screen and pinned open — a 409 names the flows
      * blocking it and is the one thing the operator has to read — so a second red toast
      * stacked over it would bury the message that matters behind one about the retry.
-     * The list simply stays as it was until the next successful read.
+     * Either way a failed read keeps the list as it was — the cache holds the last good
+     * one, and the error panel is only for a list that never loaded — until the next
+     * successful read.
      */
     async function refreshFlows(options?: { readonly quiet?: boolean }): Promise<void> {
         if (!selected) return;
-        const generation = ++loadGeneration.current;
+        /*
+         * While a switch is in flight, a read could answer with a row as it was before that
+         * switch's PUT and land over it. So the read is owed instead, and the last switch to
+         * settle issues it — once, however many were asked for meanwhile.
+         */
+        if (switches.current.inFlight > 0) {
+            oweReread(!options?.quiet);
+            return;
+        }
+        if (options?.quiet) {
+            await queryClient.invalidateQueries({ queryKey: flowsKey });
+            return;
+        }
+        // Counted while in flight: a switch that cancels this read owes a loud one back.
+        loudReads.current += 1;
         try {
-            const rows = await listFlows(selected.id);
-            if (loadGeneration.current === generation) setFlows(rows);
+            await queryClient.invalidateQueries({ queryKey: flowsKey }, { throwOnError: true });
         } catch (err) {
-            if (options?.quiet) return;
             const message = err instanceof ApiError ? err.message : 'Failed to reload flows';
             notifications.show({ color: 'red', title: "Couldn't refresh", message });
+        } finally {
+            loudReads.current -= 1;
         }
+    }
+
+    /** Owe the list a re-read once the switches settle, as loud as the loudest one asked for. */
+    function oweReread(loud: boolean): void {
+        switches.current.owed = loud || switches.current.owed === 'loud' ? 'loud' : 'quiet';
+    }
+
+    /** Rewrite one row of the cached list in place — the toggle's optimistic half. */
+    function patchFlowRow(flowId: string, patch: (row: FlowSummary) => FlowSummary): void {
+        // Typed by hand: the generated query keys carry no data type for the cache to read.
+        queryClient.setQueryData<ListFlowsResponse>(flowsKey, (current) =>
+            current
+                ? { ...current, flows: current.flows.map((row) => (row.flowId === flowId ? patch(row) : row)) }
+                : current
+        );
     }
 
     /**
@@ -1121,59 +1156,78 @@ export function FlowsListPage() {
 
     async function handleToggle(flow: FlowSummary, enabled: boolean) {
         if (!selected) return;
-        setTogglingId(flow.flowId);
-        // Optimistic — revert if the PUT fails.
-        setFlows((prev) =>
-            prev.map((row) => (row.flowId === flow.flowId ? { ...row, enabled } : row))
-        );
+        setTogglingIds((ids) => new Set(ids).add(flow.flowId));
+        switches.current.inFlight += 1;
         try {
-            const updated = await updateFlow(selected.id, flow.flowId, { enabled });
-            setFlows((prev) =>
-                prev.map((row) =>
-                    row.flowId === flow.flowId
-                        ? {
-                              ...row,
-                              enabled: updated.enabled,
-                              issueCount: updated.issues.length,
-                              updatedAt: updated.updatedAt,
-                          }
-                        : row
-                )
-            );
-        } catch (err) {
-            // A refusal carrying issues is the stored graph's own list — fresher than the
-            // count this row was drawn with, so the chip is corrected from it too.
-            const issues = err instanceof ApiError ? err.issues : [];
-            setFlows((prev) =>
-                prev.map((row) =>
-                    row.flowId === flow.flowId
-                        ? {
-                              ...row,
-                              enabled: flow.enabled,
-                              issueCount: issues.length > 0 ? issues.length : row.issueCount,
-                          }
-                        : row
-                )
-            );
-            const message =
-                err instanceof ApiError ? err.message : "Couldn't change that. Try again.";
-            if (issues.length > 0) {
-                showNotReady(flow, message, issues);
-                return;
+            /*
+             * A read still in flight would land after the switch and put the old state
+             * back, so it is cancelled — and re-issued once the last switch has settled,
+             * below. A cancelled read resolves quietly with the old list, so without the
+             * re-read a refresh that was carrying a delete, a regroup or an uninstall would
+             * simply never arrive; and the re-read is as loud as the read it replaces, so a
+             * refresh that would have said it failed still does.
+             */
+            if (queryClient.isFetching({ queryKey: flowsKey }) > 0) {
+                oweReread(loudReads.current > 0);
             }
-            notifications.show({ color: 'red', title: "Couldn't update flow", message });
+            await queryClient.cancelQueries({ queryKey: flowsKey });
+            // Optimistic — revert if the PUT fails.
+            patchFlowRow(flow.flowId, (row) => ({ ...row, enabled }));
+            try {
+                const { data: updated } = await updateFlow({
+                    path: { guildId: selected.id, flowId: flow.flowId },
+                    body: { enabled },
+                });
+                patchFlowRow(flow.flowId, (row) => ({
+                    ...row,
+                    enabled: updated.enabled,
+                    issueCount: updated.issues.length,
+                    updatedAt: updated.updatedAt,
+                }));
+            } catch (err) {
+                // A refusal carrying issues is the stored graph's own list — fresher than the
+                // count this row was drawn with, so the chip is corrected from it too.
+                const issues = err instanceof ApiError ? err.issues : [];
+                patchFlowRow(flow.flowId, (row) => ({
+                    ...row,
+                    enabled: flow.enabled,
+                    issueCount: issues.length > 0 ? issues.length : row.issueCount,
+                }));
+                const message =
+                    err instanceof ApiError ? err.message : "Couldn't change that. Try again.";
+                if (issues.length > 0) {
+                    showNotReady(flow, message, issues);
+                    return;
+                }
+                notifications.show({ color: 'red', title: "Couldn't update flow", message });
+            }
         } finally {
-            setTogglingId(null);
+            setTogglingIds((ids) => {
+                const next = new Set(ids);
+                next.delete(flow.flowId);
+                return next;
+            });
+            switches.current.inFlight -= 1;
+            /*
+             * After the last switch's PUT, so the re-read cannot undo a switch it raced:
+             * one re-read for every read the switches cancelled or held back between them.
+             */
+            const { inFlight, owed } = switches.current;
+            if (inFlight === 0 && owed !== 'none') {
+                switches.current.owed = 'none';
+                void refreshFlows({ quiet: owed === 'quiet' });
+            }
         }
     }
 
     async function handleCreate() {
         if (!selected) return;
         const name = newName.trim();
-        if (!name) return;
-        setCreating(true);
+        // Enter reaches here without passing the button's state, so a second press while
+        // the first create is in flight is refused here rather than making a second flow.
+        if (!name || creating) return;
         try {
-            const flow = await createFlow(selected.id, name);
+            const flow = await createFlowRequest.mutateAsync({ path: { guildId: selected.id }, body: { name } });
             setCreateOpen(false);
             setNewName('');
             navigate(`/flows/${flow.flowId}`);
@@ -1181,8 +1235,6 @@ export function FlowsListPage() {
             const message =
                 err instanceof ApiError ? err.message : "Couldn't create that flow.";
             notifications.show({ color: 'red', title: 'No dice', message });
-        } finally {
-            setCreating(false);
         }
     }
 
@@ -1223,9 +1275,8 @@ export function FlowsListPage() {
 
     async function handleDelete() {
         if (!selected || !pendingDelete) return;
-        setDeleting(true);
         try {
-            await deleteFlow(selected.id, pendingDelete.flowId);
+            await deleteFlowRequest.mutateAsync({ path: { guildId: selected.id, flowId: pendingDelete.flowId } });
             notifications.show({
                 color: 'brand',
                 title: 'Gone',
@@ -1240,8 +1291,6 @@ export function FlowsListPage() {
         } catch (err) {
             const message = err instanceof ApiError ? err.message : "Couldn't delete that flow.";
             notifications.show({ color: 'red', title: "Couldn't delete", message });
-        } finally {
-            setDeleting(false);
         }
     }
 
@@ -1347,11 +1396,10 @@ export function FlowsListPage() {
                 // from the list rows alone.
                 setGrouping(true);
                 try {
-                    const preview = await previewFlowGrouping(
-                        selected.id,
-                        dragged.flowId,
-                        outcome.targetFlowId
-                    );
+                    const { data: preview } = await previewFlowGrouping({
+                        path: { guildId: selected.id, flowId: dragged.flowId },
+                        query: { target: outcome.targetFlowId },
+                    });
                     setConflict({ dragged, outcome, preview });
                 } catch (err) {
                     showGroupingError(err, "Couldn't group those");
@@ -1420,10 +1468,13 @@ export function FlowsListPage() {
                       }
                     : {};
 
-            await groupFlowWith(selected.id, dragged.flowId, {
-                targetFlowId: outcome.targetFlowId,
-                resolution,
-                ...newJourney,
+            await groupFlowWith({
+                path: { guildId: selected.id, flowId: dragged.flowId },
+                body: {
+                    targetFlowId: outcome.targetFlowId,
+                    resolution,
+                    ...newJourney,
+                },
             });
             setConflict(null);
             await refreshFlows();
@@ -1456,7 +1507,7 @@ export function FlowsListPage() {
         if (!selected) return;
         setGrouping(true);
         try {
-            await detachFlowFromJourney(selected.id, flow.flowId);
+            await detachFlowFromJourney({ path: { guildId: selected.id, flowId: flow.flowId } });
             setLeaving(null);
             await refreshFlows();
         } catch (err) {
@@ -1492,7 +1543,7 @@ export function FlowsListPage() {
         setSavingRename(true);
         try {
             // The name only. The key is identity, so it is deliberately not editable.
-            await updateJourney(selected.id, journeyKey, { name });
+            await updateJourney({ path: { guildId: selected.id, journeyKey }, body: { name } });
             closeRename();
             await refreshFlows();
         } catch (err) {
@@ -1697,14 +1748,14 @@ export function FlowsListPage() {
                     <Center py="xl">
                         <Loader color="brand" size="sm" />
                     </Center>
-                ) : error ? (
+                ) : loadError ? (
                     <Alert
                         color="red"
                         icon={<IconAlertTriangle size={16} />}
                         title="Couldn't load flows"
                         m="md"
                     >
-                        {error}
+                        {loadError instanceof ApiError ? loadError.message : 'Failed to load flows'}
                     </Alert>
                 ) : flows.length === 0 ? (
                     <Stack align="center" gap={6} py={48} px="md">
@@ -1779,7 +1830,7 @@ export function FlowsListPage() {
                                                 group={null}
                                                 isLastMember={false}
                                                 dragState={dragStateFor(row.flow.flowId)}
-                                                toggling={togglingId === row.flow.flowId}
+                                                toggling={togglingIds.has(row.flow.flowId)}
                                                 actions={rowActions}
                                             />
                                         ) : (
@@ -1811,7 +1862,7 @@ export function FlowsListPage() {
                                                         group={row}
                                                         isLastMember={index === row.flows.length - 1}
                                                         dragState={dragStateFor(flow.flowId)}
-                                                        toggling={togglingId === flow.flowId}
+                                                        toggling={togglingIds.has(flow.flowId)}
                                                         actions={rowActions}
                                                     />
                                                 ))}

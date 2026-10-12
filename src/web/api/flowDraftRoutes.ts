@@ -1,19 +1,30 @@
-import { Hono } from 'hono';
-import { z } from 'zod';
+import { createRoute, z } from '@hono/zod-openapi';
 import { flowDraftsRepo } from '../../features/flows/data/flowDraftsRepo';
-import { flowGraphSchema } from '../../features/flows/data/flowGraph';
 import { flowsRepo } from '../../features/flows/data/flowsRepo';
 import { validateFlowGraph } from '../../features/flows/engine/graphValidation';
 import { readDeclaredKeys } from '../../features/flows/logic/declaredResourceKeys';
 import { flowReadinessIssues } from '../../features/flows/logic/flowReadiness';
-import type { AppEnv } from '../types';
-import { flowDraft, flowDraftBaseSchema, flowDraftSummary, flowNameSchema, invalidGraphBody } from './flowBody';
+import {
+    DECLARATIONS_UNREADABLE,
+    flowDraft,
+    flowDraftBaseSchema,
+    FlowDraftSchema,
+    flowDraftSummary,
+    FlowDraftSummarySchema,
+    FLOW_ERRORS,
+    FLOW_GRAPH_BODY_ERRORS,
+    FlowGraphSchema,
+    flowNameSchema,
+    FlowPathSchema,
+    invalidGraphBody,
+} from './flowBody';
+import { errorBodyResponse, jsonBody, jsonResponse, type ApiRouteRegistrar } from './openApi';
 
 /**
  * Drafts of one flow — every operator's unsaved canvas — under
- * `/:guildId/flows/:flowId/drafts`. Mounted by `flowRoutes()`, so it sits behind the
- * same `requireAuth` + `requireGuildAccess` and every surface that serves flows serves
- * these.
+ * `/{guildId}/flows/{flowId}/drafts`. Declared by `flowRoutes()` on its own router, so it
+ * sits behind the same `requireAuth` + `requireGuildAccess`, shares its spec surface, and
+ * every surface that serves flows serves these.
  *
  * **Any operator may read or discard any draft.** Operators are trusted admins of the
  * guild, and the builder shows every draft on open precisely so they can sort out who
@@ -25,25 +36,83 @@ import { flowDraft, flowDraftBaseSchema, flowDraftSummary, flowNameSchema, inval
  * flow exists, exactly as the flow routes do.
  */
 
-const saveDraftBody = z.object({
-    name: flowNameSchema,
-    graph: flowGraphSchema,
-    baseUpdatedAt: flowDraftBaseSchema,
+const FlowDraftSaveSchema = z
+    .object({
+        name: flowNameSchema,
+        graph: FlowGraphSchema,
+        baseUpdatedAt: flowDraftBaseSchema,
+    })
+    .openapi('FlowDraftSave', {
+        description: "The caller's canvas. `baseUpdatedAt` is the flow version it was loaded from.",
+    });
+
+/**
+ * The draft's id stays a string here and is read in the handler, so an id that is not a
+ * positive whole number is the same 404 as one that names no draft — not a 400 from the
+ * validator. From the caller's side both are "no such draft".
+ */
+const DraftPathSchema = FlowPathSchema.extend({
+    draftId: z.string(),
 });
 
-export function flowDraftRoutes(): Hono<AppEnv> {
-    const app = new Hono<AppEnv>();
+const listFlowDraftsRoute = createRoute({
+    method: 'get',
+    path: '/{guildId}/flows/{flowId}/drafts',
+    operationId: 'listFlowDrafts',
+    tags: ['flows'],
+    summary: "Every operator's draft of a flow, graphs included",
+    request: { params: FlowPathSchema },
+    responses: {
+        200: jsonResponse(
+            'The drafts, most recently edited first, each with its readiness issues.',
+            z.object({ drafts: z.array(FlowDraftSchema) })
+        ),
+        ...FLOW_ERRORS,
+        500: DECLARATIONS_UNREADABLE,
+    },
+});
 
+const saveMyFlowDraftRoute = createRoute({
+    method: 'put',
+    path: '/{guildId}/flows/{flowId}/drafts/mine',
+    operationId: 'saveMyFlowDraft',
+    tags: ['flows'],
+    summary: "Write the caller's own draft of a flow",
+    request: { params: FlowPathSchema, body: jsonBody(FlowDraftSaveSchema) },
+    responses: {
+        200: jsonResponse('The draft as saved, without its graph.', FlowDraftSummarySchema),
+        ...FLOW_GRAPH_BODY_ERRORS,
+    },
+});
+
+const discardFlowDraftRoute = createRoute({
+    method: 'delete',
+    path: '/{guildId}/flows/{flowId}/drafts/{draftId}',
+    operationId: 'discardFlowDraft',
+    tags: ['flows'],
+    summary: "Discard any operator's draft of a flow",
+    request: { params: DraftPathSchema },
+    responses: {
+        204: { description: 'Discarded.' },
+        ...FLOW_ERRORS,
+        404: errorBodyResponse(
+            'The bot is not in this server, the flow is not in it, or the flow has no draft with that id.'
+        ),
+    },
+});
+
+/** Declares the draft routes on the flow routes' router. */
+export function defineFlowDraftRoutes(router: ApiRouteRegistrar): undefined {
     /*
      * Every draft of the flow, graphs included — the picker loads one without a second
      * request. Each carries its readiness issues, judged against the flow's declarations,
      * so a loaded draft's cards come up marked; a malformed journey row is the same named
      * 500 `GET /flows/:flowId` gives.
      */
-    app.get('/:guildId/flows/:flowId/drafts', async (c) => {
+    router.openapi(listFlowDraftsRoute, async (c) => {
         const guildId = c.get('guild').id;
         const viewerId = c.get('user').id;
-        const flow = await flowsRepo.getByFlowId(c.req.param('flowId'));
+        const flow = await flowsRepo.getByFlowId(c.req.valid('param').flowId);
         if (!flow || flow.guildId !== guildId) {
             return c.json({ error: 'Flow not found.' }, 404);
         }
@@ -52,7 +121,7 @@ export function flowDraftRoutes(): Hono<AppEnv> {
         if (drafts.length === 0) {
             // Nothing to judge, so no journey read — which is every open of a flow
             // nobody left unfinished.
-            return c.json({ drafts: [] });
+            return c.json({ drafts: [] }, 200);
         }
 
         const declared = await readDeclaredKeys(guildId, flow.flowId);
@@ -60,11 +129,14 @@ export function flowDraftRoutes(): Hono<AppEnv> {
             return c.json({ error: declared.error }, 500);
         }
 
-        return c.json({
-            drafts: drafts.map((draft) =>
-                flowDraft(draft, viewerId, flow.updatedAt, flowReadinessIssues(draft.graph, declared.keys))
-            ),
-        });
+        return c.json(
+            {
+                drafts: drafts.map((draft) =>
+                    flowDraft(draft, viewerId, flow.updatedAt, flowReadinessIssues(draft.graph, declared.keys))
+                ),
+            },
+            200
+        );
     });
 
     /*
@@ -75,20 +147,16 @@ export function flowDraftRoutes(): Hono<AppEnv> {
      * because only the page knows what it loaded; see `FlowDraftInput.baseUpdatedAt`.
      * It only feeds the picker's "flow saved since" note, so trusting it risks nothing.
      */
-    app.put('/:guildId/flows/:flowId/drafts/mine', async (c) => {
+    router.openapi(saveMyFlowDraftRoute, async (c) => {
         const guildId = c.get('guild').id;
         const user = c.get('user');
-        const flow = await flowsRepo.getByFlowId(c.req.param('flowId'));
+        const body = c.req.valid('json');
+        const flow = await flowsRepo.getByFlowId(c.req.valid('param').flowId);
         if (!flow || flow.guildId !== guildId) {
             return c.json({ error: 'Flow not found.' }, 404);
         }
 
-        const parsed = saveDraftBody.safeParse(await c.req.json().catch(() => null));
-        if (!parsed.success) {
-            return c.json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body.' }, 400);
-        }
-
-        const structural = validateFlowGraph(parsed.data.graph);
+        const structural = validateFlowGraph(body.graph);
         if (!structural.valid) {
             return c.json(invalidGraphBody(structural.errors), 400);
         }
@@ -98,26 +166,27 @@ export function flowDraftRoutes(): Hono<AppEnv> {
             guildId,
             authorId: user.id,
             authorName: user.username,
-            name: parsed.data.name,
+            name: body.name,
             graph: structural.graph,
-            baseUpdatedAt: parsed.data.baseUpdatedAt,
+            baseUpdatedAt: body.baseUpdatedAt,
         });
 
-        return c.json(flowDraftSummary(draft, user.id, flow.updatedAt));
+        return c.json(flowDraftSummary(draft, user.id, flow.updatedAt), 200);
     });
 
     /*
      * Discard one draft of this flow, whoever wrote it. Scoped to the flow in the repo,
      * so a draft id lifted from another flow's picker is a 404 here, not a deletion.
      */
-    app.delete('/:guildId/flows/:flowId/drafts/:draftId', async (c) => {
+    router.openapi(discardFlowDraftRoute, async (c) => {
         const guildId = c.get('guild').id;
-        const flow = await flowsRepo.getByFlowId(c.req.param('flowId'));
+        const params = c.req.valid('param');
+        const flow = await flowsRepo.getByFlowId(params.flowId);
         if (!flow || flow.guildId !== guildId) {
             return c.json({ error: 'Flow not found.' }, 404);
         }
 
-        const draftId = z.coerce.number().int().positive().safeParse(c.req.param('draftId'));
+        const draftId = z.coerce.number().int().positive().safeParse(params.draftId);
         if (!draftId.success || !(await flowDraftsRepo.deleteById(flow.flowId, draftId.data))) {
             return c.json({ error: 'Draft not found.' }, 404);
         }
@@ -125,5 +194,5 @@ export function flowDraftRoutes(): Hono<AppEnv> {
         return c.body(null, 204);
     });
 
-    return app;
+    return undefined;
 }

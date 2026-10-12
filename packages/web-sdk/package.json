@@ -1,0 +1,24 @@
+{
+    "name": "@brattybot/web-sdk",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "scripts": {
+        "generate": "openapi-ts",
+        "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json"
+    },
+    "dependencies": {
+        "zod": "^4.3.5"
+    },
+    "devDependencies": {
+        "@hey-api/openapi-ts": "^0.99.0",
+        "@tanstack/react-query": "^5.104.1",
+        "typescript": "^5.9.2"
+    },
+    "peerDependencies": {
+        "@tanstack/react-query": "^5.104.1"
+    }
+}

@@ -6,8 +6,8 @@ import type {
     GuildChannel as BrowserGuildChannel,
     GuildRole as BrowserGuildRole,
     ResourceDeclaration as BrowserResourceDeclaration,
-} from '../../../../../web/src/api/types';
-import { resourceSchema } from '../../../../web/api/journeyRoutes';
+} from '@brattybot/web-sdk';
+import { declarationsRefusal, ResourceDeclarationSchema } from '../../../../web/api/journeyBody';
 import { declaredRoleReference } from '../declaredRoleReference';
 import { buildInstallPlan } from '../installPlan';
 import { validateJourneyDeclaration, type JourneyDeclaration } from '../resourceDeclaration';
@@ -17,12 +17,12 @@ import { validateJourneyDeclaration, type JourneyDeclaration } from '../resource
  *
  * `web/src/flows/detectResourceProblems.ts` says, of some declarations, "the save will
  * refuse this". It cannot call the code that would refuse — a `src/` import inside
- * `web/` drags the bot tree into `tsc -b` and breaks `pnpm build:web`, which is the
- * trade `web/src/api/types.ts` documents — so it re-implements the rules, and this
- * test holds the two halves equal instead of the compiler.
+ * `web/` drags the bot tree into `tsc -b` and breaks `pnpm build:web` — so it checks the
+ * key and the name with the server's own rules as generated into the SDK, re-implements
+ * the whole-list ones, and this test holds the two halves equal instead of the compiler.
  *
  * It lives on the **server** side of the boundary because imports run that way: a test
- * under `src/` may read `web/`, as `nodeDescriptorDrift.test.ts` and
+ * under `src/` may read `web/`, as `blockFieldRules.test.ts` and
  * `declaredRoleReference.test.ts` already do. The reverse is what breaks the build.
  *
  * Both directions are asserted, and the second is the one that matters more:
@@ -34,25 +34,35 @@ import { validateJourneyDeclaration, type JourneyDeclaration } from '../resource
  *    the state this whole vocabulary exists to prevent.
  */
 
-/** What the server does with a declaration: both gates, in the order the route runs them. */
+/** What the server does with a declaration: every gate, in the order the route runs them. */
 type ServerVerdict = { accepted: true } | { accepted: false; reason: string };
 
 function serverVerdict(resources: readonly BrowserResourceDeclaration[]): ServerVerdict {
     // Gate one: the Zod schema on each resource. The route parses the array, so one
     // bad member rejects the whole save.
+    const parsed: JourneyDeclaration['resources'][number][] = [];
     for (const resource of resources) {
-        const parsed = resourceSchema.safeParse(resource);
-        if (!parsed.success) {
-            return { accepted: false, reason: parsed.error.issues[0]?.message ?? 'schema' };
+        const result = ResourceDeclarationSchema.safeParse(resource);
+        if (!result.success) {
+            return { accepted: false, reason: result.error.issues[0]?.message ?? 'schema' };
         }
+        parsed.push(result.data);
     }
 
-    // Gate two: the whole-journey invariants, which are the ones no single resource
+    // Gate two: a `roles` permission naming no role, and a declared ticket type the ticket
+    // feature would refuse. Asked by the handler once the schema has passed, because each
+    // spans fields the spec cannot relate (or needs the renderer).
+    const listRefusal = declarationsRefusal(parsed);
+    if (listRefusal) {
+        return { accepted: false, reason: listRefusal };
+    }
+
+    // Gate three: the whole-journey invariants, which are the ones no single resource
     // can answer. The journey key is the flow's own id on the real path.
     const journey: JourneyDeclaration = {
         journeyKey: 'flow-1',
         name: 'Flow 1',
-        resources: resources as JourneyDeclaration['resources'],
+        resources: parsed,
     };
 
     try {
@@ -84,8 +94,9 @@ const TICKET_PERMISSIONS = {
 
 /**
  * A declared ticket type. Its content is judged on the server by the ticket feature's own
- * `ticketTypeDefinitionProblem` — reached here through the real `resourceSchema`, never
- * through a provider — and in the browser by `validateTicketTypeDraft`.
+ * rules — the template's tokens in `ResourceDeclarationSchema` (its `TicketTypeSettings`),
+ * the rest by `ticketTypeDefinitionProblem` through `declarationsRefusal`, never through a
+ * provider — and in the browser by `validateTicketTypeDraft`.
  */
 function ticketType(
     overrides: Partial<BrowserResourceDeclaration> = {},

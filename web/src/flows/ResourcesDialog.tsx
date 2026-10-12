@@ -37,11 +37,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Modal, Stack, Text } from '@mantine/core';
 import { IconAlertTriangle } from '@tabler/icons-react';
-import { ApiError } from '../api/client';
-import { getGuildChannels } from '../api/config';
-import { getGuildRoles } from '../api/flows';
-import { getTicketsConfig } from '../api/tickets';
-import type { GuildChannel, GuildRole, ResourceDeclaration, TicketTypeView } from '../api/types';
+import { useQuery } from '@tanstack/react-query';
+import {
+    ApiError,
+    getGuildChannelsOptions,
+    getGuildRolesOptions,
+    getTicketsConfigOptions,
+    type GuildChannel,
+    type GuildRole,
+    type ResourceDeclaration,
+    type TicketTypeView,
+} from '@brattybot/web-sdk';
 import { ResourcesPanel } from './ResourcesPanel';
 import { loadResources, resourceTargetIdentity, type ResourceSaveTarget } from './resourceSaveTarget';
 import { useResourceAutosave } from './useResourceAutosave';
@@ -202,70 +208,49 @@ export function ResourcesDialog({
 }
 
 /**
- * The guild's real roles and channels, for the adopt and permission pickers.
+ * The guild's real roles and channels, for the adopt and permission pickers, and its
+ * ticket types, for a declared ticket type.
  *
  * Fetched here rather than passed in because both callers would otherwise have to fetch
  * them for this dialog alone — the flows page has no other use for either list, and making
  * it acquire two guild directories to open a modal is the wiring this extraction was meant
  * to remove.
  *
- * Keyed on `opened` so a page holding the dialog closed pays nothing. A failed fetch leaves
- * the lists empty, which degrades to "no channel to adopt" and "no role to name" rather
- * than to a broken panel: both pickers already render an empty list as a legitimate state,
- * and the declarations themselves — the thing the operator came to edit — do not depend on
- * either.
+ * Asked only while `active`, so a page holding the dialog closed pays nothing, and asked
+ * again each time it opens. A failed fetch leaves the lists empty, which degrades to "no
+ * channel to adopt" and "no role to name" rather than to a broken panel: both pickers
+ * already render an empty list as a legitimate state, and the declarations themselves —
+ * the thing the operator came to edit — do not depend on either. A failed *refresh* keeps
+ * the lists it had, because the query keeps its last answer: blanking them would remove
+ * options that are still valid because one refresh failed.
+ *
+ * The same queries the builder fills as it loads, so the pickers open already populated.
  */
 function useGuildDirectory(
     guildId: string,
     active: boolean
 ): { roles: GuildRole[]; channels: GuildChannel[]; ticketTypes: TicketTypeView[] | undefined } {
-    const [roles, setRoles] = useState<GuildRole[]>([]);
-    const [channels, setChannels] = useState<GuildChannel[]>([]);
-    /**
+    const path = { guildId };
+    const roles = useQuery({ ...getGuildRolesOptions({ path }), enabled: active });
+    const channels = useQuery({ ...getGuildChannelsOptions({ path }), enabled: active });
+    /*
      * The server's ticket types, for a declared ticket type's key suggestions and its
-     * "already here" chip. `undefined` until read — and left so when the read fails — so
-     * the chip stays quiet rather than calling every key new on the strength of nothing.
+     * "already here" chip. Its own query, so a ticket config that will not load costs the
+     * pickers nothing; `undefined` until read — and left so when the read fails — so the
+     * chip stays quiet rather than calling every key new on the strength of nothing.
      */
-    const [ticketTypes, setTicketTypes] = useState<TicketTypeView[] | undefined>(undefined);
+    const ticketsConfig = useQuery({ ...getTicketsConfigOptions({ path }), enabled: active });
 
-    useEffect(() => {
-        if (!active) return;
-        let cancelled = false;
-
-        void (async () => {
-            try {
-                const [guildRoles, guildChannels] = await Promise.all([
-                    getGuildRoles(guildId),
-                    getGuildChannels(guildId),
-                ]);
-                if (cancelled) return;
-                setRoles(guildRoles);
-                setChannels(guildChannels);
-            } catch {
-                // Left as they were. See the note above: an empty directory is a state both
-                // pickers already render, and blanking what we have would remove options
-                // that are still valid because one refresh failed.
-            }
-        })();
-
-        // Apart from the two above, so a ticket config that will not load costs the
-        // pickers nothing.
-        void (async () => {
-            try {
-                const ticketsConfig = await getTicketsConfig(guildId);
-                if (!cancelled) setTicketTypes(ticketsConfig.types);
-            } catch {
-                // Left unknown, for the reason on the state.
-            }
-        })();
-
-        return () => {
-            cancelled = true;
-        };
-    }, [guildId, active]);
-
-    return { roles, channels, ticketTypes };
+    return {
+        roles: roles.data?.roles ?? NO_ROLES,
+        channels: channels.data?.channels ?? NO_CHANNELS,
+        ticketTypes: ticketsConfig.data?.types,
+    };
 }
+
+/** Stand-ins until a directory has loaded, one instance each so the panel sees no change per render. */
+const NO_ROLES: GuildRole[] = [];
+const NO_CHANNELS: GuildChannel[] = [];
 
 /**
  * Load a target's declarations once, for a caller that owns the list.

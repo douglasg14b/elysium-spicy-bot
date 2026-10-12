@@ -7,7 +7,7 @@
  * pages need that decision, so it lives here rather than twice in JSX.
  */
 
-import type { LevelingMember } from '../api/types';
+import type { LevelingMember } from '@brattybot/web-sdk';
 
 /** What a row or header needs to draw a person, with absence already resolved. */
 export interface MemberPresentation {

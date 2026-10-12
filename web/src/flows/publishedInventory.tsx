@@ -202,8 +202,8 @@ interface TeardownActionsProps {
  * rather than opening a confirmation card — the card was removed for restating the list
  * directly above it — so the *only* thing standing between a click and an irreversible
  * deletion is that this renders two different buttons in sequence. A second copy of that
- * is a second chance for one dialog to lose its confirm while the other keeps it, and no
- * test would catch it: `web/` has no jsdom.
+ * is a second chance for one dialog to lose its confirm while the other keeps it, and only
+ * a test rendering that particular dialog would catch it.
  *
  * `confirmUnpublish` is owned here rather than by the callers, which is what makes the
  * guarantee structural. A caller cannot forget to reset it, and cannot render the armed

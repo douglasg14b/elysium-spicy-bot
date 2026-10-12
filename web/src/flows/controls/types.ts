@@ -8,14 +8,14 @@
  */
 
 import type {
-    Eligibility,
     BlockConfigField,
+    Eligibility,
     GuildChannel,
     GuildRole,
     GuildSettings,
     ResourceDeclaration,
     TicketTypeView,
-} from '../../api/types';
+} from '@brattybot/web-sdk';
 import type { AvailableVariable, RequirementAvailability } from '../variables';
 
 /**

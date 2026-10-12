@@ -1,7 +1,6 @@
 /**
- * The duration control's unit arithmetic, kept apart from its JSX so it can be
- * tested without a DOM — the web workspace has no component test runner, so pure
- * logic that lives in its own module is logic that can be covered at all.
+ * The duration control's unit arithmetic, kept apart from its JSX so a unit test
+ * covers every case without rendering the control.
  *
  * See `__tests__/duration.test.ts`.
  */

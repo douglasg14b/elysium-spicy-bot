@@ -1,6 +1,6 @@
+import type { TicketParticipant } from '@brattybot/web-sdk';
 import { describe, expect, it } from 'vitest';
 import { availableActions } from '../ticketActions';
-import type { TicketParticipant } from '../../api/types';
 
 /**
  * Which actions a row offers.

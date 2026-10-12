@@ -1321,7 +1321,7 @@ function checkFieldMaxLength(
 /**
  * A list control's declared bounds must describe a list an author can reach.
  *
- * `minEntries` is shown as advice under the control and `maxEntries` is where the
+ * `minEntries` is the fewest the block works with and `maxEntries` is where the
  * "add" button stops being offered, so bounds that cross leave a form that asks
  * for more entries than it will ever let anyone add — a dead control, with no
  * disabled affordance to hover and no message saying why.
@@ -1787,11 +1787,12 @@ export async function checkBlockOutcome(
  * block that answers choice 0 answers choice 7 by the same code path.
  *
  * Two separate guards, because they catch different mistakes and only one of
- * them is the interesting one. `satisfies` below checks each entry really is a
+ * them is the interesting one. {@link RejectedResumeEntries} (and the
+ * `satisfies`, for root `tsc` and the editor) checks each entry really is a
  * resume reason — it would reject `{ kind: 'choice' }` with no index. What stops
  * a *new* kind arriving with no representative, silently shrinking what every
  * suspending block is tested against, is {@link ResumeKindsAllDriven} and the
- * value anchoring it. Do not read `satisfies` as covering that; it does not.
+ * value anchoring it. Do not read the first as covering that; it does not.
  */
 const RESUME_REPRESENTATIVES = [
     { kind: 'event' },
@@ -1799,8 +1800,21 @@ const RESUME_REPRESENTATIVES = [
     { kind: 'choice', index: 0 },
 ] as const satisfies readonly FlowResumeReason[];
 
-/** Fails to compile if a resume kind has no representative above. */
-type ResumeKindsAllDriven = Exclude<
+/**
+ * The entries above that `FlowResumeReason` rejects — the representatives that are not
+ * resume reasons — or `never`. Asserted `never` in
+ * `src/features/flows/__tests__/conformance.test-d.ts`, because the `satisfies` fails root
+ * `tsc` only and `pnpm test` ignores type errors inside source files.
+ */
+export type RejectedResumeEntries = Exclude<(typeof RESUME_REPRESENTATIVES)[number], FlowResumeReason>;
+
+/**
+ * The resume kinds with no representative above, or `never`. Asserted `never` in
+ * `src/features/flows/__tests__/conformance.test-d.ts` (not beside this file: block
+ * discovery reads every directory under `blocks/`), which `pnpm test` type-checks; the anchor below
+ * fails root `tsc` and the editor here.
+ */
+export type ResumeKindsAllDriven = Exclude<
     FlowResumeKind,
     (typeof RESUME_REPRESENTATIVES)[number]['kind']
 >;

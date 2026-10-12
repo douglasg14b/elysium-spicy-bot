@@ -10,13 +10,8 @@ import { REQUIREMENT_ABSENT_WHEN as REQUIREMENT_ABSENT_WHEN_BROWSER } from '../.
  * `RENDERABLE_TOKENS` is the closed list of tokens the engine will resolve; the
  * builder offers them as clickable chips from its own hand-written mirror. Neither
  * list is served — `/api/nodes` carries descriptors, and a token vocabulary is not
- * a descriptor member — so this drift is invisible to `nodeDescriptorDrift.test.ts`
- * and needs its own gate.
- *
- * A file of its own rather than another `VOCABULARIES` row there, because that
- * file's subject is *what the route serves*: its server side is derived at runtime
- * from the live registry, and a vocabulary nothing serves has no place in that
- * derivation. Same technique, different authority.
+ * a descriptor member — so the generated SDK does not carry it either, and this drift
+ * needs its own gate.
  *
  * Both failure directions are real and neither is loud on its own. A token added
  * to the engine and not here is a feature nobody can find — the exact state this
@@ -24,10 +19,9 @@ import { REQUIREMENT_ABSENT_WHEN as REQUIREMENT_ABSENT_WHEN_BROWSER } from '../.
  * chip inserts it, save-time validation refuses the flow, and the builder is the
  * thing that suggested it.
  *
- * The cross-workspace import is safe for the reason `nodeDescriptorDrift.test.ts`
- * sets out at length, and more simply here — `builtinTokens.ts` imports only a type
- * from `web/src/api/types.ts`, itself a leaf, so it costs the root program two leaf
- * files and typechecks under either config.
+ * The cross-workspace import is safe because `builtinTokens.ts` imports only a type from
+ * the dashboard SDK, which root `tsc` resolves to the SDK's contract (types only), so it
+ * costs the root program one leaf file and typechecks under either config.
  */
 
 const REMEDY =

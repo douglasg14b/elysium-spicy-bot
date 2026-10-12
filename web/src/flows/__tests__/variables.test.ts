@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { Edge } from '@xyflow/react';
-import type { BlockConfigField, BlockOutputDeclaration, FlowContextRequirement, NodeDescriptor } from '../../api/types';
+import type { BlockConfigField, BlockOutputDeclaration, FlowContextRequirement, NodeDescriptor } from '@brattybot/web-sdk';
 import {
     ancestorsOf,
     requirementAvailableAt,
@@ -35,7 +35,6 @@ function descriptorWith(outputs: BlockOutputDeclaration[], canSuspend = false): 
         group: 'actions',
         icon: '🎲',
         configFields: [],
-        fieldChecks: {},
         handles: [{ label: 'Next', tone: 'neutral' }],
         outputs,
         requires: [],

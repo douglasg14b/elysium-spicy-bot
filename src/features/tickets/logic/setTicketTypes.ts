@@ -1,11 +1,7 @@
 import { ticketingRepo, type TicketingRepo } from '../data/ticketingRepo';
-import {
-    TICKET_TYPE_KEY_MAX_LENGTH,
-    TICKET_TYPE_LABEL_MAX_LENGTH,
-    type TicketingConfig,
-    type TicketTypeDefinition,
-} from '../data/ticketingSchema';
+import type { TicketingConfig, TicketTypeDefinition } from '../data/ticketingSchema';
 import { buildTicketChannelName, getTicketTypeDefinition } from './ticketTypes';
+import { TicketTypeRulesSchema } from './ticketTypeRules';
 import {
     journeysHoldingTicketType,
     loadJourneyTicketTypeDeclarations,
@@ -98,14 +94,6 @@ export interface SetTicketTypesDeps {
 const NO_CONFIG_MESSAGE =
     'This server has no ticket config yet. Deploy the ticket system first, then come back.';
 
-/** The refusal for an over-long label. Exported so the route's body schema says the same thing. */
-export const TICKET_TYPE_LABEL_TOO_LONG_MESSAGE =
-    `A label caps out at ${TICKET_TYPE_LABEL_MAX_LENGTH} characters — ` +
-    'the mod ticket picker in Discord will not show more. Keep it snappy.';
-
-/** The only tokens `buildTicketChannelName` implements. Anything else is rejected by name. */
-const SUPPORTED_TOKENS = ['####', 'subject', 'opener'] as const;
-
 /** Discord's hard limit on a channel name. A template that cannot fit is rejected at save time. */
 const CHANNEL_NAME_MAX_LENGTH = 100;
 
@@ -131,27 +119,14 @@ const MAX_TICKET_NUMBER = 999999;
 type TemplateProblem = string | null;
 
 /**
- * Whether a channel-name template is one `buildTicketChannelName` can actually
- * render.
+ * Whether a channel-name template renders to a channel name Discord will take.
  *
- * This is the collapse of the phantom-template defect: `S{{####}}-{{user}}-{{creator}}`
- * used tokens nothing implemented, and it was accepted, stored, displayed to
- * operators as the channel template, and then silently dropped. An unimplemented
- * token is now a refusal that names the token.
- *
- * Lives here rather than in a Zod schema because two of the three rules need the
- * renderer — the maximum expansion and the empty render are facts about
- * `buildTicketChannelName`, not about the string.
+ * Only the two rules that need the renderer: the empty render and the maximum expansion
+ * are facts about `buildTicketChannelName`, not about the string. That the template uses
+ * only known tokens, with no stray braces, is `TicketNameTemplateSchema`'s rule
+ * (`ticketTypeRules.ts`), parsed before this runs.
  */
 function templateProblem(definition: TicketTypeDefinition): TemplateProblem {
-    const tokens = [...definition.nameTemplate.matchAll(/\{\{([^}]+)\}\}/g)].map((match) => match[1]);
-    const unsupported = tokens.find((token) => !(SUPPORTED_TOKENS as readonly string[]).includes(token));
-    if (unsupported) {
-        return `\`{{${unsupported}}}\` is not a token this bot knows how to render. Use ${SUPPORTED_TOKENS.map(
-            (token) => `\`{{${token}}}\``
-        ).join(', ')} — nothing else, and no, wishing does not count.`;
-    }
-
     // Rendered rather than measured, because the renderer collapses separators and
     // drops an absent opener — so the string's own length says nothing useful.
     const rendered = buildTicketChannelName(definition, {
@@ -172,75 +147,62 @@ function templateProblem(definition: TicketTypeDefinition): TemplateProblem {
         return `At its longest that template renders ${longest.length} characters, and Discord caps a channel name at ${CHANNEL_NAME_MAX_LENGTH}. Trim it.`;
     }
 
-    // Belt and braces, and it closes a class rather than a case: anything brace-shaped
-    // surviving a full render is a token the renderer did not substitute. That catches
-    // malformed spellings the token scan above cannot see — `{{subject}` has no closing
-    // pair, so the regex never matches it, and Discord would strip the brace and leave
-    // the operator with a channel named after the word "subject".
-    if (/[{}]/.test(longest)) {
-        return `That template still contains \`${longest.match(/\{+[^}]*\}*|\}+/)?.[0] ?? '{'}\` after rendering. Check the spelling — a token needs exactly two braces each side.`;
+    return null;
+}
+
+/** A definition checked by {@link checkTicketTypeDefinition}: normalised, or refused in words. */
+type TicketTypeDefinitionCheck =
+    | { readonly ok: true; readonly definition: TicketTypeDefinition }
+    | { readonly ok: false; readonly message: string };
+
+/**
+ * A ticket type definition held to every rule that is a fact about the definition itself,
+ * and normalised.
+ *
+ * First `ticketTypeRules.ts` — the key (non-blank, slug-shaped, short enough), the label
+ * (one an operator can pick out of a list, short enough for the mod modal) and the
+ * template's tokens — which the dashboard route's request schema composes too, so the
+ * browser refuses with the same sentence. Then what a schema cannot see: whether the
+ * template renders to a channel name Discord will take.
+ *
+ * Normalised *once*, and the parsed value is what callers store: validating a trimmed key
+ * and then storing the untrimmed one leaves a type visible in the config that every lookup
+ * misses — and `type` living inside the record as well as being its map key exists
+ * precisely so the two cannot disagree.
+ */
+function checkTicketTypeDefinition(input: TicketTypeDefinition): TicketTypeDefinitionCheck {
+    const declared = TicketTypeRulesSchema.safeParse(input);
+    if (!declared.success) {
+        return { ok: false, message: declared.error.issues[0]?.message ?? 'That ticket type does not hold together.' };
     }
 
-    return null;
+    const definition: TicketTypeDefinition = { ...input, ...declared.data };
+    const problem = templateProblem(definition);
+    return problem ? { ok: false, message: problem } : { ok: true, definition };
 }
 
 /**
  * What is wrong with a ticket type definition, in words for the operator, or null.
  *
- * Every rule a type must meet that is a fact about the definition itself: a key that is
- * non-blank, slug-shaped and short enough; a label an operator can pick out of a list; a
- * template `buildTicketChannelName` can actually render. Pure, so three callers share one
- * copy — `upsertTicketType`, `createTicketTypeIfAbsent` (a journey's install), and the
- * journey save route, which checks a declared ticket type before it is stored.
- *
- * Expects the key and label already trimmed: callers normalise once and store what they
- * validated, so the stored key is the one every lookup uses.
+ * {@link checkTicketTypeDefinition}'s verdict, for a caller that only asks — the journey
+ * save route, which checks a declared ticket type before it is stored. Pure, so it,
+ * `upsertTicketType` and `createTicketTypeIfAbsent` (a journey's install) share one copy.
  */
 export function ticketTypeDefinitionProblem(definition: TicketTypeDefinition): string | null {
-    const { type, label } = definition;
-
-    if (!type) {
-        return 'A ticket type needs a key. Blank is not a category of anything.';
-    }
-
-    // The key reaches a channel name and a flow `select` value, so it is restricted
-    // rather than merely non-blank.
-    if (!/^[a-z0-9_-]+$/.test(type)) {
-        return `\`${type}\` will not do as a key — lowercase letters, digits, \`-\` and \`_\` only. The label is where you get to be expressive.`;
-    }
-
-    if (type.length > TICKET_TYPE_KEY_MAX_LENGTH) {
-        return `A key caps out at ${TICKET_TYPE_KEY_MAX_LENGTH} characters. It's an identifier, not a manifesto.`;
-    }
-
-    if (!label) {
-        return 'Give the type a label — operators have to pick it out of a list.';
-    }
-
-    if (label.length > TICKET_TYPE_LABEL_MAX_LENGTH) {
-        return TICKET_TYPE_LABEL_TOO_LONG_MESSAGE;
-    }
-
-    return templateProblem(definition);
-}
-
-/**
- * A definition with its key and label trimmed — normalised *once*, so the value that is
- * validated is the value that is stored. Validating a trimmed key and then storing the
- * untrimmed one leaves a type visible in the config that every lookup misses — and `type`
- * living inside the record as well as being its map key exists precisely so the two
- * cannot disagree.
- */
-function normaliseTicketTypeDefinition(input: TicketTypeDefinition): TicketTypeDefinition {
-    return { ...input, type: input.type.trim(), label: input.label.trim() };
+    const check = checkTicketTypeDefinition(definition);
+    return check.ok ? null : check.message;
 }
 
 /**
  * Add or replace one ticket type.
  *
- * Validation lives here rather than in a Zod body schema for the two rules Zod
- * cannot see: that the guild has a config row at all, and that `nameTemplate` uses
- * only tokens the renderer implements.
+ * The key, label and template are held to `ticketTypeRules.ts` here as well as in the
+ * dashboard route's request schema, which composes the same rules: the route's copy is
+ * what lets the browser refuse with the server's sentence before sending, and this one is
+ * what keeps a surface that calls this directly from saving `{{user}}`. One declaration,
+ * parsed in two places — no rule is written twice. Then what a schema cannot see: whether
+ * the template renders to a channel name Discord will take, and whether the guild has a
+ * config row at all.
  *
  * Writes by **spreading** the existing config and the existing type record, so a
  * save touches exactly the one type it names — the same discipline the config
@@ -256,11 +218,12 @@ export async function upsertTicketType(
 ): Promise<SetTicketTypeResult> {
     const repo = deps?.repo ?? ticketingRepo;
 
-    const definition = normaliseTicketTypeDefinition(input);
-    const problem = ticketTypeDefinitionProblem(definition);
-    if (problem) {
-        return { ok: false, reason: 'invalid-input', message: problem };
+    // Stored as parsed, so a padded key is stored as the key every lookup will use.
+    const check = checkTicketTypeDefinition(input);
+    if (!check.ok) {
+        return { ok: false, reason: 'invalid-input', message: check.message };
     }
+    const definition = check.definition;
 
     try {
         // Read, merge and write in one transaction, so a save that lands between
@@ -313,7 +276,7 @@ export type CreateTicketTypeIfAbsentResult =
  * record: a type created between an install's preview and its apply would be silently
  * overwritten with the journey's settings.
  *
- * Validated exactly as `upsertTicketType` validates ({@link ticketTypeDefinitionProblem}),
+ * Validated exactly as `upsertTicketType` validates ({@link checkTicketTypeDefinition}),
  * and the existence check and the write share one `mutateConfig` transaction, so nothing
  * can slip a type in between them.
  */
@@ -324,11 +287,11 @@ export async function createTicketTypeIfAbsent(
 ): Promise<CreateTicketTypeIfAbsentResult> {
     const repo = deps?.repo ?? ticketingRepo;
 
-    const definition = normaliseTicketTypeDefinition(input);
-    const problem = ticketTypeDefinitionProblem(definition);
-    if (problem) {
-        return { outcome: 'refused', reason: 'invalid-input', message: problem };
+    const check = checkTicketTypeDefinition(input);
+    if (!check.ok) {
+        return { outcome: 'refused', reason: 'invalid-input', message: check.message };
     }
+    const definition = check.definition;
 
     // Carried out of the transaction, as `deleteTicketType` carries its refusal: a null
     // from `mutateConfig` cannot say whether there was no config or a type already there.

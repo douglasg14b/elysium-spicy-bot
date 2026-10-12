@@ -3,26 +3,26 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../../features/flows/data/flowGraph';
 import { ensureBlocksDiscovered } from '../../../features/flows/blocks/registry';
 import type { FlowValidationIssue } from '../../../features/flows/engine/nodeDataValidation';
-import type { FlowValidationIssue as BrowserFlowValidationIssue } from '../../../../web/src/api/types';
+import type { ApiError } from '../../../../packages/web-sdk/src/apiError';
 import type { FlowWriteDecision } from '../../../features/flows/data/flowsRepo';
 import type { AppEnv } from '../../types';
 
 /**
- * The browser's mirror of the issue shape, held to the server's.
+ * What `ApiError.issues` carries, held to the server's issue shape.
  *
- * `web/src/api/types.ts` is hand-written — its own header explains why, and says
- * "the drift test is the price of making it". This is that price for this type.
- * Assignability is checked in **both** directions: one alone silently permits the
- * other side to grow a member, and a browser reading a key the server never sends
- * is exactly as broken as the reverse.
- *
- * A compile-time check rather than a runtime one, so it fails in `pnpm build`
- * rather than waiting for this file to be run.
+ * It is the SDK's generated `FlowValidationIssue` — the spec's, which `flowBody.ts` holds
+ * to the server's type — so this checks the end of that chain: what a page actually reads
+ * off a refusal. Both directions, because one alone silently permits the other side to
+ * grow a member. Read off `ApiError` by path, because the root resolves the SDK to its
+ * contract alone, which has no client. Only root `tsc` sees these lines; Vitest does not
+ * type-check this file.
  */
-const serverIssueFitsBrowser: BrowserFlowValidationIssue = {} as FlowValidationIssue;
-const browserIssueFitsServer: FlowValidationIssue = {} as BrowserFlowValidationIssue;
-void serverIssueFitsBrowser;
-void browserIssueFitsServer;
+type SdkFlowValidationIssue = InstanceType<typeof ApiError>['issues'][number];
+
+const serverIssueFitsSdk: SdkFlowValidationIssue = {} as FlowValidationIssue;
+const sdkIssueFitsServer: FlowValidationIssue = {} as SdkFlowValidationIssue;
+void serverIssueFitsSdk;
+void sdkIssueFitsServer;
 
 /**
  * What the save endpoint stores, refuses, and says about a graph's readiness.
@@ -636,6 +636,60 @@ describe('what an incomplete save puts on the wire', () => {
         // `error` is what every existing client reads and `ApiError` falls back to.
         // Dropping it would break them for no gain, so it is asserted, not assumed.
         expect(body.error).toContain('dangling');
+    });
+});
+
+/*
+ * What the request validator refuses before a handler runs. The routes are declared with
+ * their bodies, so the body is checked first — before the flow is looked up — and every
+ * refusal still arrives in the `{ error }` envelope the dashboard reads.
+ */
+describe('a request body the validator refuses', () => {
+    function send(path: string, init: { method: string; contentType: string; body: string }) {
+        return app().request(`/${GUILD_ID}/flows/${path}`, {
+            method: init.method,
+            headers: { 'content-type': init.contentType },
+            body: init.body,
+        });
+    }
+
+    it('answers a body that is not sent as JSON with 415, and writes nothing', async () => {
+        const response = await send(FLOW_ID, {
+            method: 'PUT',
+            contentType: 'text/plain',
+            body: JSON.stringify({ enabled: true }),
+        });
+
+        expect(response.status).toBe(415);
+        expect(((await response.json()) as { error: string }).error).toBeTruthy();
+        expect(flowsRepoMock.mutate).not.toHaveBeenCalled();
+    });
+
+    it('answers malformed JSON with 400 and the sentence that says so', async () => {
+        const response = await send(FLOW_ID, { method: 'PUT', contentType: 'application/json', body: '{"enabled": tru' });
+
+        expect(response.status).toBe(400);
+        expect(await response.json()).toEqual({ error: 'Malformed JSON in request body' });
+        expect(flowsRepoMock.mutate).not.toHaveBeenCalled();
+    });
+
+    it("sends the schema's own sentence for a field it refuses", async () => {
+        const response = await send(FLOW_ID, { method: 'PUT', contentType: 'application/json', body: '{"name":""}' });
+
+        expect(response.status).toBe(400);
+        expect(await response.json()).toEqual({ error: 'Give the flow a name.' });
+    });
+
+    it.each([
+        { route: 'update', method: 'PUT', path: 'no-such-flow' },
+        { route: 'check', method: 'POST', path: 'no-such-flow/check' },
+    ])('refuses a bad $route body before looking the flow up', async ({ method, path }) => {
+        flowsRepoMock.getByFlowId.mockResolvedValue(null);
+
+        const response = await send(path, { method, contentType: 'application/json', body: '{"graph":"not a graph"}' });
+
+        expect(response.status).toBe(400);
+        expect(flowsRepoMock.getByFlowId).not.toHaveBeenCalled();
     });
 });
 

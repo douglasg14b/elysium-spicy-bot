@@ -8,7 +8,7 @@
  * than showing a countdown that no longer applies.
  */
 
-import type { FlowNextRuns } from '../api/types';
+import type { FlowNextRuns } from '@brattybot/web-sdk';
 
 /** What one card says about its next run. */
 export type NodeNextRun =

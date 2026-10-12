@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { FlowJourneyMembership, FlowSummary } from '../../api/types';
+import type { FlowJourneyMembership, FlowSummary } from '@brattybot/web-sdk';
 import {
     buildFlowsListRows,
     decideDropOutcome,

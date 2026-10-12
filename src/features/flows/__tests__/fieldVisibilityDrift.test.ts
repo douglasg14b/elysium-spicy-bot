@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { effectiveFieldValue, isFieldVisible, resolveOutputValueKind } from '../blocks/manifest';
-// Typed as the browser declares them: its arrays are mutable, and a mutable value is
-// accepted where the server asks for a readonly one, but not the other way round.
-import type { BlockConfigField, BlockOutputDeclaration } from '../../../../web/src/api/types';
+// Typed as the browser's generated contract declares them: its arrays are mutable, and a
+// mutable value is accepted where the server asks for a readonly one, but not the other
+// way round. The root resolves the SDK to its contract alone (`tsconfig.json` `paths`).
+import type { BlockConfigField, BlockOutputDeclaration } from '@brattybot/web-sdk';
 import * as browser from '../../../../web/src/flows/variables';
 
 /**

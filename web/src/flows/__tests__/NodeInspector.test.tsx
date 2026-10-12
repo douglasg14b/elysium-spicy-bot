@@ -1,6 +1,6 @@
 import { screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { FlowValidationIssue, NodeDescriptor } from '../../api/types';
+import type { FlowValidationIssue, NodeDescriptor } from '@brattybot/web-sdk';
 import { renderWithProviders } from '../../__tests__/support/renderWithProviders';
 import { NodeInspector } from '../NodeInspector';
 import { ALL_REQUIREMENTS_AVAILABLE } from '../variables';
@@ -34,7 +34,6 @@ const DESCRIPTOR: NodeDescriptor = {
         },
         { key: 'note', label: 'Note', control: 'text', visibleWhen: { field: 'mode', equals: ['copy'] } },
     ],
-    fieldChecks: {},
     handles: [{ label: 'Next', tone: 'neutral' }],
     outputs: [],
     requires: [],

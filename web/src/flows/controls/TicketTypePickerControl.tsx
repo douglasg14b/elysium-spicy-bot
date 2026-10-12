@@ -13,7 +13,7 @@
 
 import { useMemo } from 'react';
 import { Select, Text } from '@mantine/core';
-import type { BlockConfigField } from '../../api/types';
+import type { BlockConfigField } from '@brattybot/web-sdk';
 import { declaredOptionValue, parseDeclaredOption } from './PickerControls';
 import { asText, resourceKeyFieldFor, type ControlProps } from './types';
 

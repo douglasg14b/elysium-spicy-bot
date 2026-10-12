@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { leaderboardTotals } from '../levelingLeaderboard';
-import type { LevelingRankingRow } from '../../api/types';
+import type { LevelingRankingRow } from '@brattybot/web-sdk';
 
 /**
  * The leaderboard's summary tiles.

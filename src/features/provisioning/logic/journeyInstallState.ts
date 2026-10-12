@@ -33,7 +33,8 @@ import type { ResourceBindingEntity } from '../data/resourceBindingsSchema';
  * collapsing it into `none` would offer to create things that already exist, and collapsing
  * it into `all` would hide the fact that a flow is referencing a channel that is not there.
  */
-export type JourneyInstallState = 'none' | 'partial' | 'all';
+export const JOURNEY_INSTALL_STATES = ['none', 'partial', 'all'] as const;
+export type JourneyInstallState = (typeof JOURNEY_INSTALL_STATES)[number];
 
 export interface JourneyInstallSummary {
     readonly state: JourneyInstallState;

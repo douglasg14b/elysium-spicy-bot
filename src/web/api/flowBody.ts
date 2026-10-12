@@ -1,11 +1,43 @@
-import { z } from 'zod';
+import { z } from '@hono/zod-openapi';
 import type { FlowDraftEntity } from '../../features/flows/data/flowDraftsSchema';
-import type { FlowGraph } from '../../features/flows/data/flowGraph';
+import { flowEdgeSchema, flowGraphSchema, flowNodeSchema, type FlowGraph } from '../../features/flows/data/flowGraph';
 import type { FlowScheduleNextRun } from '../../features/flows/data/flowSchedulesRepo';
 import type { FlowEntity } from '../../features/flows/data/flowsSchema';
 import { describeIssue, type FlowValidationIssue } from '../../features/flows/engine/nodeDataValidation';
 import { flowReadinessIssues } from '../../features/flows/logic/flowReadiness';
+import { JOURNEY_INSTALL_STATES } from '../../features/provisioning/logic/journeyInstallState';
 import type { FlowJourneyIndexEntry, FlowJourneyMembership } from './flowJourneyIndex';
+import {
+    errorBodyResponse,
+    ErrorBodySchema,
+    GUILD_SCOPED_BODY_ERRORS,
+    GUILD_SCOPED_ERRORS,
+    GuildPathSchema,
+    jsonResponse,
+    type ChecksHold,
+    type MismatchedChecks,
+    type SchemaMatches,
+} from './openApi';
+
+/**
+ * The flow shapes the browser receives and sends.
+ *
+ * Each is a zod schema, and the schema **is** the contract: `flowRoutes` declares it on
+ * its routes, `router.openapi` type-checks every `c.json(...)` against it, and the OpenAPI
+ * spec the dashboard SDK is generated from names it as a component. The `.openapi('Name')`
+ * ids are the names the dashboard imports by, so renaming one renames a generated type.
+ *
+ * The builders below are typed by `z.infer` of their schema, so a member the schema does
+ * not describe is a compile error where the body is built, not a field the spec never
+ * mentions. Where a domain type is sent as it is — a graph, an issue, a journey's
+ * membership — the domain type stays where it lives and the schema is held to it both
+ * ways by a {@link SchemaMatches} check.
+ *
+ * `src/features/**` imports neither hono nor `@hono/zod-openapi`: `flowGraphSchema` is
+ * plain zod, and is rebuilt and named here, in the web layer, rather than there. Every
+ * schema in this file is made with `@hono/zod-openapi`'s `z` — see `FlowGraphSchema` for
+ * why a schema made anywhere else cannot be named.
+ */
 
 /**
  * A flow's name as a request carries it — on the flow, and on a draft of it, which holds
@@ -25,6 +57,110 @@ export const flowNameSchema = z
 export const flowDraftBaseSchema = z.iso.datetime();
 
 /**
+ * `flowGraphSchema`, with the graph, its nodes and its edges named for the spec.
+ *
+ * Rebuilt from the feature's own field schemas rather than named in place, for two
+ * reasons:
+ *
+ *  - **`.openapi()` only exists on a schema created after `@hono/zod-openapi` loaded.**
+ *    Zod copies its prototype methods onto each schema as the schema is built, and the
+ *    library adds `openapi` to that prototype on import. The feature's schemas are built
+ *    whenever `flows` loads — before the web layer in the bot, and before this file in a
+ *    test that imports the graph first — so calling it on them works or throws depending
+ *    on import order.
+ *  - **`.openapi('Name')` returns a named copy**, so naming `flowNodeSchema` would leave
+ *    the copy `flowGraphSchema` holds anonymous, and every generated type would inline it.
+ *
+ * Each object below is new and made with this module's `z`, over the feature's own field
+ * schemas — so the rules are `flowGraphSchema`'s, and the check holds the result to
+ * `FlowGraph` both ways.
+ */
+const FlowNodeSchema = z.object(flowNodeSchema.shape).openapi('FlowNode');
+const FlowEdgeSchema = z.object(flowEdgeSchema.shape).openapi('FlowEdge');
+
+export const FlowGraphSchema = z
+    .object({
+        ...flowGraphSchema.shape,
+        nodes: z.array(FlowNodeSchema),
+        edges: z.array(FlowEdgeSchema),
+    })
+    .openapi('FlowGraph');
+
+/**
+ * One problem with a graph — on a node, on one of its fields, or on the graph as a whole.
+ * The shape `ApiError.issues` carries in the dashboard SDK, from a refusal's body.
+ */
+export const FlowValidationIssueSchema = z
+    .object({
+        nodeId: z.string().optional(),
+        /** Dotted path into the node's config, e.g. `fields.0.name`. */
+        field: z.string().optional(),
+        message: z.string(),
+    })
+    .openapi('FlowValidationIssue', {
+        description:
+            'One problem with a graph. `nodeId` names the node it is on and `field` the dotted path ' +
+            'into its config (e.g. `fields.0.name`); a problem with the graph as a whole has neither.',
+    });
+
+export const FlowValidationIssuesSchema = z.array(FlowValidationIssueSchema).readonly();
+
+/**
+ * The 400 a flow route sends when it refuses a request: the sentence every refusal
+ * carries, plus the issues behind it when the refusal is about a graph.
+ *
+ * One schema because the spec holds one per status, and two different things answer 400
+ * on these routes. The request validator refuses a body that is the wrong shape — a
+ * missing name, a malformed graph — with the sentence alone. The route refuses a graph
+ * too broken to store, or a switch-on the graph is not ready for, with `issues` as well.
+ * `issues` is empty when nothing on the canvas is wrong — the install refusal, where the
+ * flow waits on its resources rather than on a fix, and the loop refusal, where the
+ * conflict is with other flows and its nodes are partly in them.
+ */
+export const FlowRefusalSchema = ErrorBodySchema.extend({
+    issues: FlowValidationIssuesSchema.optional(),
+}).openapi('FlowRefusal');
+
+/** The path of every route about one flow, drafts included. */
+export const FlowPathSchema = GuildPathSchema.extend({
+    flowId: z.string(),
+});
+
+/*
+ * What the flow and draft routes refuse with, beyond the middleware's own answers. Here
+ * rather than in `flowRoutes.ts` because `flowDraftRoutes.ts` shares them and is imported
+ * by it. One entry per status in the spec, so a status two causes share names both. Not
+ * `as const`: see `openApi.ts`.
+ */
+
+/** The 404 of a route that looks the flow up first. */
+export const FLOW_NOT_FOUND = errorBodyResponse('The bot is not in this server, or the flow is not in it.');
+
+/** The 500 of a route that judges readiness and cannot read the flow's journey to do it. */
+export const DECLARATIONS_UNREADABLE = errorBodyResponse(
+    "The flow's journey could not be read, so its readiness cannot be judged; the sentence names the cause. Or something else failed unexpectedly."
+);
+
+/** The 400 of a route that takes a graph: the body, the graph, or the server id was refused. */
+export const GRAPH_REFUSED = jsonResponse(
+    'The body was refused, the graph is too broken to store (`issues` says where), or the server id is missing.',
+    FlowRefusalSchema
+);
+
+/** A route about one flow that reads no body. */
+export const FLOW_ERRORS = {
+    ...GUILD_SCOPED_ERRORS,
+    404: FLOW_NOT_FOUND,
+};
+
+/** A route about one flow that takes a graph. */
+export const FLOW_GRAPH_BODY_ERRORS = {
+    ...GUILD_SCOPED_BODY_ERRORS,
+    400: GRAPH_REFUSED,
+    404: FLOW_NOT_FOUND,
+};
+
+/**
  * The 400 body for a graph too broken to store at all — on the flow or on a draft.
  *
  * `error` stays, and stays first: every existing client reads it, `ApiError` falls
@@ -37,10 +173,7 @@ export const flowDraftBaseSchema = z.iso.datetime();
  * ride the 200; the refusals that are about readiness write their own sentence,
  * because theirs is about the flow being live rather than about the graph.
  */
-export function invalidGraphBody(errors: readonly string[]): {
-    error: string;
-    issues: readonly FlowValidationIssue[];
-} {
+export function invalidGraphBody(errors: readonly string[]): z.infer<typeof FlowRefusalSchema> {
     const issues = errors.map((message) => ({ message }));
     return { error: issues.map(describeIssue).join('; '), issues };
 }
@@ -53,15 +186,59 @@ export function invalidGraphBody(errors: readonly string[]): {
  * canvas matches what the server now holds. Empty means ready. See `flowReadinessIssues`
  * for the three states a graph can be in.
  */
-export interface FlowDetailBody {
-    readonly flowId: string;
-    readonly name: string;
-    readonly enabled: boolean;
-    readonly graph: FlowGraph;
-    readonly issues: readonly FlowValidationIssue[];
-    readonly createdAt: string;
-    readonly updatedAt: string;
-}
+export const FlowSchema = z
+    .object({
+        flowId: z.string(),
+        name: z.string(),
+        enabled: z.boolean(),
+        graph: FlowGraphSchema,
+        issues: FlowValidationIssuesSchema,
+        createdAt: z.string(),
+        updatedAt: z.string(),
+    })
+    .openapi('Flow', {
+        description:
+            'A flow with its graph. `issues` describes the stored graph: empty means it is ready to ' +
+            'go live, and a switched-off flow may hold an unfinished one.',
+    });
+
+export type FlowDetailBody = z.infer<typeof FlowSchema>;
+
+/**
+ * Which journey a flow sits in, as its list row reports it. `FlowJourneyMembership` in
+ * `flowJourneyIndex.ts` is the type the index builds; this is that type on the wire.
+ */
+export const FlowJourneyMembershipSchema = z
+    .object({
+        journeyKey: z.string(),
+        name: z.string(),
+        resourceCount: z.number(),
+        memberCount: z.number(),
+        installState: z.enum(JOURNEY_INSTALL_STATES),
+        installedCount: z.number(),
+        installedKeys: z.array(z.string()).readonly(),
+    })
+    .openapi('FlowJourneyMembership', {
+        description:
+            'The journey a flow sits in, present for every flow that resolves to one. Group rows on ' +
+            '`memberCount > 1`, not on this being present: 1 is the implicit journey a lone flow ' +
+            'gets. `installState` says install has run over the declared resources, read from the ' +
+            'binding table — not that every channel still exists. `installedKeys` are the keys with ' +
+            'a live binding, which must stop following their resource name.',
+    });
+
+/**
+ * Each schema above that states a domain type the routes send as it is, against that type.
+ * Gathered here so `__tests__/flowBody.test-d.ts` can assert them; see {@link SchemaMatches}.
+ */
+type FlowBodyChecks = ChecksHold<{
+    FlowGraph: SchemaMatches<typeof FlowGraphSchema, FlowGraph>;
+    FlowValidationIssue: SchemaMatches<typeof FlowValidationIssueSchema, FlowValidationIssue>;
+    FlowJourneyMembership: SchemaMatches<typeof FlowJourneyMembershipSchema, FlowJourneyMembership>;
+}>;
+
+/** The checks in {@link FlowBodyChecks} that fail, or `never`. Asserted `never` in `__tests__/flowBody.test-d.ts`. */
+export type FlowBodyMismatch = MismatchedChecks<FlowBodyChecks>;
 
 /**
  * One row of the flows list: metadata plus a node count, no graph.
@@ -75,27 +252,27 @@ export interface FlowDetailBody {
  * `issueCount` is a count rather than the list: the row has room for a chip, and the
  * list is what the builder shows once the operator opens the flow to fix it.
  */
-export interface FlowSummaryBody {
-    readonly flowId: string;
-    readonly name: string;
-    readonly enabled: boolean;
-    readonly nodeCount: number;
-    readonly issueCount: number;
-    readonly journey: FlowJourneyMembership | null;
-    readonly createdAt: string;
-    readonly updatedAt: string;
-}
+export const FlowSummarySchema = z
+    .object({
+        flowId: z.string(),
+        name: z.string(),
+        enabled: z.boolean(),
+        nodeCount: z.number(),
+        issueCount: z.number(),
+        // A union rather than `.nullable()`: the generator copies a named schema's name onto
+        // its nullable variant, so the component itself would become nullable and every
+        // membership in the SDK would read `| null`.
+        journey: z.union([FlowJourneyMembershipSchema, z.null()]),
+        createdAt: z.string(),
+        updatedAt: z.string(),
+    })
+    .openapi('FlowSummary', {
+        description:
+            'One row of the flows list, without the graph. `issueCount` above 0 means the flow is ' +
+            'incomplete: saved, but refused if switched on.',
+    });
 
-/**
- * Where a graph save landed — the discriminant of {@link FlowSaveBody}.
- *
- *  - `flow`: on the flow row. The saver's own draft, if they had one, is gone with it.
- *  - `draft`: on the saver's draft only, because the flow is live and the graph is
- *    incomplete or waiting on its install. The flow row — its graph, its name — is
- *    exactly as it was.
- */
-export const FLOW_SAVE_TARGETS = ['flow', 'draft'] as const;
-export type FlowSaveTarget = (typeof FLOW_SAVE_TARGETS)[number];
+export type FlowSummaryBody = z.infer<typeof FlowSummarySchema>;
 
 /**
  * One operator's draft, without its graph — the body of `PUT drafts/mine`.
@@ -104,27 +281,39 @@ export type FlowSaveTarget = (typeof FLOW_SAVE_TARGETS)[number];
  * who it is signed in as. `flowSavedSince` is `true` when the flow was saved after this
  * draft was started, so loading it would put back what that save changed.
  */
-export interface FlowDraftSummaryBody {
-    readonly draftId: number;
-    readonly authorId: string;
-    readonly authorName: string;
-    readonly mine: boolean;
-    readonly name: string;
-    readonly baseUpdatedAt: string;
-    readonly flowSavedSince: boolean;
-    readonly createdAt: string;
-    readonly updatedAt: string;
-}
+export const FlowDraftSummarySchema = z
+    .object({
+        draftId: z.number(),
+        authorId: z.string(),
+        authorName: z.string(),
+        mine: z.boolean(),
+        name: z.string(),
+        baseUpdatedAt: z.string(),
+        flowSavedSince: z.boolean(),
+        createdAt: z.string(),
+        updatedAt: z.string(),
+    })
+    .openapi('FlowDraftSummary', {
+        description:
+            "One operator's draft of a flow, without its graph. `mine` is the caller's own; " +
+            '`flowSavedSince` means the flow was saved after the draft was started.',
+    });
+
+export type FlowDraftSummaryBody = z.infer<typeof FlowDraftSummarySchema>;
 
 /**
  * A draft with what the builder needs to load it: the graph, and its readiness issues
  * judged against the flow's declarations — so the cards come up marked the way they
  * would after a save.
  */
-export interface FlowDraftBody extends FlowDraftSummaryBody {
-    readonly graph: FlowGraph;
-    readonly issues: readonly FlowValidationIssue[];
-}
+export const FlowDraftSchema = FlowDraftSummarySchema.extend({
+    graph: FlowGraphSchema,
+    issues: FlowValidationIssuesSchema,
+}).openapi('FlowDraft', {
+    description: "One operator's draft of a flow, with its graph and that graph's readiness issues.",
+});
+
+export type FlowDraftBody = z.infer<typeof FlowDraftSchema>;
 
 /**
  * The body of a successful `PUT /flows/:flowId`.
@@ -134,14 +323,33 @@ export interface FlowDraftBody extends FlowDraftSummaryBody {
  * `draft` arm adds the draft the graph went to, whose `issues` are the ones the canvas
  * should show, since that is the graph on it, and `uninstalled`: the declared resources
  * it picks that are not in the server yet. Either being non-empty is why it is a draft.
+ *
+ * Each arm is named, because the spec's discriminator maps every `savedAs` value to a
+ * component and an anonymous arm has no name to map to — and each has a description of
+ * its own, because an `.extend()`ed schema otherwise carries its parent's into the SDK.
  */
-export type FlowSaveBody =
-    | (FlowDetailBody & { readonly savedAs: 'flow' })
-    | (FlowDetailBody & {
-          readonly savedAs: 'draft';
-          readonly draft: FlowDraftBody;
-          readonly uninstalled: readonly string[];
-      });
+const FlowSavedToFlowSchema = FlowSchema.extend({
+    savedAs: z.literal('flow'),
+}).openapi('FlowSavedToFlow', {
+    description: "The save landed on the flow. The saver's own draft, if they had one, is gone.",
+});
+
+const FlowSavedAsDraftSchema = FlowSchema.extend({
+    savedAs: z.literal('draft'),
+    draft: FlowDraftSchema,
+    uninstalled: z.array(z.string()).readonly(),
+}).openapi('FlowSavedAsDraft', {
+    description:
+        'The flow is live and the graph was incomplete or waits on its install, so it went to the ' +
+        "saver's draft and the flow is untouched. `draft.issues` are what the canvas shows; " +
+        '`uninstalled` names the declared resources the graph picks that are not in the server yet.',
+});
+
+export const FlowSaveResultSchema = z
+    .discriminatedUnion('savedAs', [FlowSavedToFlowSchema, FlowSavedAsDraftSchema])
+    .openapi('FlowSaveResult');
+
+export type FlowSaveBody = z.infer<typeof FlowSaveResultSchema>;
 
 /**
  * The body of `GET /flows/:flowId/next-runs`: when each of the flow's schedules next fires.
@@ -151,10 +359,21 @@ export type FlowSaveBody =
  * card has one, without knowing what a schedule is. `timeZone` is the zone those times
  * were worked out in, so the card's exact-time tooltip needs no second fetch.
  */
-export interface FlowNextRunsBody {
-    readonly timeZone: string;
-    readonly nextRuns: Readonly<Record<string, string>>;
-}
+export const FlowNextRunsSchema = z
+    .object({
+        /** The IANA zone the times were worked out in. */
+        timeZone: z.string(),
+        /** Node id → the ISO instant that schedule next fires. */
+        nextRuns: z.record(z.string(), z.string()).readonly(),
+    })
+    .openapi('FlowNextRuns', {
+        description:
+            "When each of the flow's schedules next fires, keyed by node id (an ISO instant each). Only " +
+            'schedules with a next time are listed, so it is empty for a switched-off flow. `timeZone` is ' +
+            'the zone the times were worked out in.',
+    });
+
+export type FlowNextRunsBody = z.infer<typeof FlowNextRunsSchema>;
 
 /** A flow's schedules' next times as {@link FlowNextRunsBody}, in the zone they were worked out in. */
 export function flowNextRuns(timeZone: string, nextRuns: readonly FlowScheduleNextRun[]): FlowNextRunsBody {
@@ -229,88 +448,3 @@ export function flowSummary(flow: FlowEntity, entry: FlowJourneyIndexEntry | und
         updatedAt: new Date(flow.updatedAt).toISOString(),
     };
 }
-
-/**
- * The wire-shape member lists `flowWireShapeDrift.test.ts` compares against the browser's
- * copy in `web/src/api/types.ts`.
- *
- * Data rather than a type import for the reason `TICKET_SUMMARY_KEYS` gives: a single
- * `import type` from `src/` into `web/src/` pulls the bot tree into the browser project's
- * compilation. `satisfies` holds each list to its interface, and the check below fails to
- * compile when the interface gains a member the list does not name.
- */
-export const FLOW_DETAIL_KEYS = [
-    'flowId',
-    'name',
-    'enabled',
-    'graph',
-    'issues',
-    'createdAt',
-    'updatedAt',
-] as const satisfies readonly (keyof FlowDetailBody)[];
-
-export const FLOW_SUMMARY_KEYS = [
-    'flowId',
-    'name',
-    'enabled',
-    'nodeCount',
-    'issueCount',
-    'journey',
-    'createdAt',
-    'updatedAt',
-] as const satisfies readonly (keyof FlowSummaryBody)[];
-
-export const FLOW_DRAFT_SUMMARY_KEYS = [
-    'draftId',
-    'authorId',
-    'authorName',
-    'mine',
-    'name',
-    'baseUpdatedAt',
-    'flowSavedSince',
-    'createdAt',
-    'updatedAt',
-] as const satisfies readonly (keyof FlowDraftSummaryBody)[];
-
-export const FLOW_DRAFT_KEYS = [
-    ...FLOW_DRAFT_SUMMARY_KEYS,
-    'graph',
-    'issues',
-] as const satisfies readonly (keyof FlowDraftBody)[];
-
-/** One list per arm of {@link FlowSaveBody}: `keyof` a union names only what the arms share. */
-export const FLOW_SAVED_TO_FLOW_KEYS = [
-    ...FLOW_DETAIL_KEYS,
-    'savedAs',
-] as const satisfies readonly (keyof Extract<FlowSaveBody, { savedAs: 'flow' }>)[];
-
-export const FLOW_SAVED_AS_DRAFT_KEYS = [
-    ...FLOW_DETAIL_KEYS,
-    'savedAs',
-    'draft',
-    'uninstalled',
-] as const satisfies readonly (keyof Extract<FlowSaveBody, { savedAs: 'draft' }>)[];
-
-export const FLOW_NEXT_RUNS_KEYS = ['timeZone', 'nextRuns'] as const satisfies readonly (keyof FlowNextRunsBody)[];
-
-/** Fails to compile if a flow wire shape gains a member absent from its list above. */
-type FlowKeyListsAreComplete =
-    | Exclude<keyof FlowNextRunsBody, (typeof FLOW_NEXT_RUNS_KEYS)[number]>
-    | Exclude<keyof FlowDetailBody, (typeof FLOW_DETAIL_KEYS)[number]>
-    | Exclude<keyof FlowSummaryBody, (typeof FLOW_SUMMARY_KEYS)[number]>
-    | Exclude<keyof FlowDraftSummaryBody, (typeof FLOW_DRAFT_SUMMARY_KEYS)[number]>
-    | Exclude<keyof FlowDraftBody, (typeof FLOW_DRAFT_KEYS)[number]>
-    | Exclude<keyof Extract<FlowSaveBody, { savedAs: 'flow' }>, (typeof FLOW_SAVED_TO_FLOW_KEYS)[number]>
-    | Exclude<keyof Extract<FlowSaveBody, { savedAs: 'draft' }>, (typeof FLOW_SAVED_AS_DRAFT_KEYS)[number]>
-    // The vocabulary, both ways: a `savedAs` arm the list does not name, or a name no arm has.
-    | Exclude<FlowSaveBody['savedAs'], FlowSaveTarget>
-    | Exclude<FlowSaveTarget, FlowSaveBody['savedAs']>;
-
-/**
- * Do not delete as unused: removing it erases the guard above. The tuple wrapper is
- * load-bearing — a bare `extends never` distributes and is vacuously true.
- */
-const flowKeyListsAreComplete: [FlowKeyListsAreComplete] extends [never]
-    ? true
-    : ['A flow wire-shape key list is missing', FlowKeyListsAreComplete] = true;
-void flowKeyListsAreComplete;

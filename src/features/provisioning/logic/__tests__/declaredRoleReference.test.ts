@@ -14,9 +14,9 @@ import {
 /**
  * How a permission names a role the journey creates, rather than one that exists.
  *
- * The prefix lives in two files — here and in `web/src/flows/` — for the reason the
- * whole `api/types.ts` mirror exists: an `import type` from `src/` inside the web
- * workspace drags the bot tree into `tsc -b` and the build fails. So the two are held
+ * The prefix lives in two files — here and in `web/src/flows/` — because an
+ * `import type` from `src/` inside the web workspace drags the bot tree into `tsc -b` and
+ * the build fails, and the spec does not carry the prefix as a value. So the two are held
  * equal by this test instead of by the compiler.
  *
  * A drift here is silent and total: the browser writes `resource:in-approval`, the

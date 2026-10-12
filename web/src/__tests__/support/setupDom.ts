@@ -11,9 +11,19 @@
  * geometry is out of reach of these tests and belongs in a live check.
  */
 
+import { setupClient } from '@brattybot/web-sdk';
 import { notifications } from '@mantine/notifications';
 import { cleanup } from '@testing-library/react';
 import { afterEach } from 'vitest';
+import { sessionEnded, sessionGatedFetch } from '../../auth/sessionGate';
+
+/*
+ * What `main.tsx` does before its first render, done before every test file's: a page on
+ * the generated SDK refuses to send anything until the client is set up. Same base URL
+ * as the app — `vitest.jsdomRequest.setup.ts` resolves it against the page — and the same
+ * session gate, so a whole-app render holds a 401 exactly as the browser does.
+ */
+setupClient({ baseUrl: '', fetch: sessionGatedFetch });
 
 /*
  * Testing Library unmounts after each test by itself only when the runner exposes a
@@ -23,10 +33,15 @@ import { afterEach } from 'vitest';
  * Mantine keeps notifications in a module-level store that outlives the unmount, so one
  * test's "#0001 claimed." would still be showing in the next, and past the display limit
  * a new one is queued out of sight.
+ *
+ * The session gate is module state too, and a test that leaves it shut (somebody else
+ * signed in, so it never reopens) would hold every request of the next. Each test starts
+ * signed out, as a fresh page does.
  */
 afterEach(() => {
     cleanup();
     notifications.clean();
+    sessionEnded();
 });
 
 /*

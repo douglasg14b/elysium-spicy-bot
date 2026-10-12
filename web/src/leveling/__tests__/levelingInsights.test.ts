@@ -11,14 +11,14 @@ import {
 // Imported from the module that owns them, not forwarded through the one under test: the floor
 // and the hairline are one decision and live together.
 import { CHART_HEIGHT_PX, EMPTY_BAR_HEIGHT_PX, MIN_VISIBLE_BAR_PERCENT } from '../levelingChart';
-import { COHORT_KEYS } from '../../api/types';
 import type {
     CohortKey,
     LevelingCohortProgressionPoint,
     LevelingCohortSummary,
     LevelingLevelReachPoint,
     LevelingXpDistribution,
-} from '../../api/types';
+} from '@brattybot/web-sdk';
+import { COHORT_KEYS } from '../contractValues';
 
 /**
  * The insights charts' scales. Every one of these can be wrong invisibly — a line scaled
@@ -314,7 +314,7 @@ describe('progressionView', () => {
 describe('COHORT_PRESENTATION', () => {
     it('covers every cohort the server can send', () => {
         // The compile-time guard is the `Record<CohortKey, …>`; this is the runtime half, so a
-        // key added to the mirror and to the record with a typo still fails here.
+        // key added to the server's enum and to the record with a typo still fails here.
         for (const key of COHORT_KEYS) {
             expect(COHORT_PRESENTATION[key].label).toBeTruthy();
             expect(COHORT_PRESENTATION[key].color).toMatch(/^#[0-9A-Fa-f]{6}$/);

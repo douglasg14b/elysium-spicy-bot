@@ -443,7 +443,9 @@ export type BlockConfigField =
           readonly maxLength?: number;
           /**
            * Fewest entries the block can work with. Below it the control still
-           * saves — the schema is the authority — but the author is told.
+           * saves — the schema is the authority, and its own sentence is what tells
+           * the author. No control renders this; conformance reads it to size its
+           * probes and to hold it against `maxEntries`.
            */
           readonly minEntries?: number;
           /**
@@ -480,7 +482,7 @@ export type BlockConfigField =
           readonly control: 'objectList';
           /** The columns every entry carries, in the order a row renders them. */
           readonly columns: readonly BlockConfigColumn[];
-          /** Fewest entries the block can work with. Below it the author is told. */
+          /** Fewest entries the block can work with, as for `textList`. */
           readonly minEntries?: number;
           /**
            * Most entries the block can work with. The control stops offering "add"
@@ -1057,11 +1059,11 @@ export interface BlockEmission {
  * `NON_WIRE_MEMBERS` in `src/web/api/nodeRoutes.ts`, which will not compile until
  * that route withholds it too.
  *
- * The browser mirrors this by hand in `web/src/api/types.ts`, and
- * `src/web/api/__tests__/nodeDescriptorDrift.test.ts` fails when the two disagree —
- * with one exception to carry yourself: it reads what is served off the blocks that
- * exist, so **a new optional member here that no block sets yet is invisible to it.**
- * Mirror an optional member when you add it, not when the first block sets it.
+ * The spec states the served shape as zod in `src/web/api/nodeBody.ts`, held to these
+ * types both ways, member by member — so a member added here, optional or not, fails
+ * `pnpm test` (`nodeBody.test-d.ts`) until it is stated there too — and the browser's types
+ * are generated from it (`pnpm sdk:generate`). The same holds for every type the descriptor
+ * carries.
  */
 export interface BlockManifest<TConfig = unknown> {
     /** Stable identifier persisted in every saved graph, e.g. `action.assignRole`. */

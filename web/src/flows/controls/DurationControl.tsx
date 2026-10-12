@@ -6,7 +6,7 @@
 import { Group, NumberInput, Select, Text } from '@mantine/core';
 import { DURATION_UNITS, nextDurationValue, splitDuration } from './duration';
 import { asNumber, type ControlProps } from './types';
-import type { BlockConfigField } from '../../api/types';
+import type { BlockConfigField } from '@brattybot/web-sdk';
 
 type DurationField = Extract<BlockConfigField, { control: 'duration' }>;
 

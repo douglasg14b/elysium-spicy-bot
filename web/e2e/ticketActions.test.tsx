@@ -1,14 +1,15 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import { ChannelType, MessageType, type Client, type PermissionsString } from 'discord.js';
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { block as openTicketBlock } from '../../src/features/flows/blocks/actionOpenTicket';
 import type { FlowVariableValue } from '../../src/features/flows/blocks/types';
 import { defaultTicketTypes } from '../../src/features/tickets/data/defaultTicketTypes';
 import { ticketingRepo } from '../../src/features/tickets/data/ticketingRepo';
 import type { TicketEntity } from '../../src/features/tickets/data/ticketsSchema';
 import { registerTicketChannelCleanup } from '../../src/features/tickets/logic/ticketChannelCleanup';
+import { TicketTypeKeySchema } from '../../src/features/tickets/logic/ticketTypeRules';
 import { getTicket } from '../../src/features/tickets/ticketService';
-import type { TicketingConfigView } from '../src/api/types';
+import type { TicketingConfigView } from '@brattybot/web-sdk';
 import {
     TestDiscord,
     type OverwriteView,
@@ -84,6 +85,9 @@ interface TicketGuild {
     readonly subject: ServerMember;
     readonly operatorMember: ServerMember;
     readonly operator: DashboardOperator;
+    /** Where `/deploy-ticket-system`'s panel sits, and the panel message itself. */
+    readonly desk: ServerChannel;
+    readonly panelId: string;
 }
 
 interface OpenedTicket {
@@ -123,7 +127,8 @@ async function guildWithTickets(): Promise<TicketGuild> {
     const operator: DashboardOperator = { id: operatorMember.id, username: OPERATOR_NAME };
 
     // The panel `/deploy-ticket-system` would post, stood in for by a real message so the
-    // config names one Discord holds. Nothing here renders or reads it.
+    // config names one Discord holds. The settings save below redraws it (see "the deployed
+    // ticket panel").
     const liveDesk = discord.clientGuild(guild).channels.cache.get(desk.id);
     if (liveDesk?.type !== ChannelType.GuildText) throw new Error('The client holds no ticket desk.');
     const panel = await liveDesk.send({ content: 'Need a hand, a hug or a referee? Open a ticket.' });
@@ -172,7 +177,7 @@ async function guildWithTickets(): Promise<TicketGuild> {
     });
     expect(faults).toEqual([]);
 
-    return { discord, client, guild, api, moderators, subject, operatorMember, operator };
+    return { discord, client, guild, api, moderators, subject, operatorMember, operator, desk, panelId: panel.id };
 }
 
 /** Open a ticket about the guild's subject, through `action.openTicket`. Aftercare unless told otherwise. */
@@ -256,6 +261,17 @@ function personRow(label: 'Subject' | 'Opened by' | 'Claimed by'): HTMLElement {
     if (!row) throw new Error(`"${label}" has no row around it.`);
     return row;
 }
+
+describe('the deployed ticket panel', () => {
+    it('is redrawn with the new configuration when the settings are saved', async () => {
+        const { desk, panelId } = await guildWithTickets();
+
+        // Through the route's guild, so the redraw reaches Discord rather than failing.
+        const panel = desk.message(panelId);
+        expect(panel.edited).toBe(true);
+        expect(embedField(panel, '⚙️ Current Configuration')).toBeDefined();
+    });
+});
 
 describe('claiming a ticket from the tickets list', () => {
     it('records the operator as claimer, moves the channel to the claimed category, and says so in Discord without a ping', async () => {
@@ -371,6 +387,40 @@ describe('releasing and closing a ticket from its detail page', () => {
         expect(latestAnnouncement(opened.channel)?.content).toBe(
             `🔒 **Ticket Closed**\nThis ticket has been closed by **${OPERATOR_NAME}** (via the dashboard).`
         );
+    });
+});
+
+describe('going back to the list after acting on a ticket', () => {
+    it('never shows the list as it was before the action, with buttons for a state the ticket has left', async () => {
+        const ticketGuild = await guildWithTickets();
+        const title = 'Debrief after the wax play demo';
+        await openTicket(ticketGuild, title);
+
+        installDashboardApi(ticketGuild.client, ticketGuild.operator);
+        const { user, router } = renderDashboard('/tickets');
+        // The list is read, and cached, before the ticket is opened from it.
+        await user.click(await ticketRow(title));
+        expect(await screen.findByRole('heading', { name: title })).toBeTruthy();
+        await user.click(screen.getByRole('button', { name: 'Close' }));
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Reopen' })).toBeTruthy());
+
+        // The list's re-read is held, so what the page shows meanwhile is the cache's to say.
+        const answering = globalThis.fetch;
+        let release: () => void = () => undefined;
+        const held = new Promise<void>((resolve) => (release = resolve));
+        vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+            const url = new URL(new Request(input, init).url);
+            if (url.pathname === `/api/guilds/${ticketGuild.guild.id}/tickets`) await held;
+            return answering(input, init);
+        });
+
+        await act(() => router.navigate('/tickets'));
+
+        // The cached list still had the ticket open with a live Close button; the action
+        // dropped it, so the list waits for a fresh read rather than offering that meanwhile.
+        expect(screen.queryByText(title, { selector: 'td *' })).toBeNull();
+        release();
+        expect(await screen.findByText('No tickets yet')).toBeTruthy();
     });
 });
 
@@ -502,8 +552,33 @@ describe('declaring a ticket type from the config page', () => {
         await user.click(await screen.findByRole('option', { name: 'Impact Play Debrief' }));
 
         expect(await screen.findByText('Nothing matches that')).toBeTruthy();
-        expect(dashboard.requests.map((request) => request.path)).toContain(
-            `/api/guilds/${ticketGuild.guild.id}/tickets?status=open&type=impact-play`
-        );
+        // Compared as parameters, not as a string: the SDK writes the query in its own order.
+        const listPath = `/api/guilds/${ticketGuild.guild.id}/tickets`;
+        const listQueries = dashboard.requests
+            .map((request) => new URL(request.path, 'http://dashboard.test'))
+            .filter((url) => url.pathname === listPath)
+            .map((url) => Object.fromEntries(url.searchParams));
+        expect(listQueries).toContainEqual({ status: 'open', type: 'impact-play' });
+    });
+
+    it('names a key the server would refuse under the field, in the server’s words, before Save', async () => {
+        const ticketGuild = await guildWithTickets();
+        const dashboard = installDashboardApi(ticketGuild.client, ticketGuild.operator);
+        const { user } = renderDashboard('/tickets/config');
+
+        await user.click(await screen.findByRole('button', { name: 'Add type' }));
+        const editor = await screen.findByRole('dialog', { name: 'New ticket type' });
+        await user.type(within(editor).getByRole('textbox', { name: /^Key/ }), 'Impact Play');
+        await user.type(within(editor).getByRole('textbox', { name: /^Label/ }), 'Impact Play Debrief');
+
+        // The sentence is the server's rule's own, asked of the rule itself: what the page
+        // shows has to be what the route would refuse with, not wording of its own.
+        const refusal = TicketTypeKeySchema.safeParse('Impact Play');
+        const serverSentence = refusal.error?.issues[0]?.message;
+        if (!serverSentence) throw new Error('The key rule accepted a key with a space and a capital.');
+        expect(within(editor).getByText(serverSentence)).toBeTruthy();
+
+        expect((within(editor).getByRole('button', { name: 'Save type' }) as HTMLButtonElement).disabled).toBe(true);
+        expect(dashboard.requests.filter((request) => request.path.includes('/config/tickets/types/'))).toEqual([]);
     });
 });

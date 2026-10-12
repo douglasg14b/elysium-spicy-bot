@@ -41,9 +41,13 @@ import { useCallback, useEffect, useState } from 'react';
 import { Alert, Badge, Button, Center, Group, Loader, Modal, Stack, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconAlertTriangle } from '@tabler/icons-react';
-import { ApiError } from '../api/client';
-import { forgetJourneyOrphan, getJourneyDrift, repairJourneyDrift } from '../api/journeys';
-import type { JourneyDrift } from '../api/types';
+import {
+    ApiError,
+    forgetJourneyOrphan,
+    getJourneyDrift,
+    repairJourneyDrift,
+    type JourneyDrift,
+} from '@brattybot/web-sdk';
 import {
     driftHeadline,
     hasFindings,
@@ -99,7 +103,7 @@ export function JourneyDriftDialog({
 
     const refresh = useCallback(async (): Promise<JourneyDrift | null> => {
         try {
-            const next = await getJourneyDrift(guildId, journeyKey);
+            const { data: next } = await getJourneyDrift({ path: { guildId, journeyKey } });
             setLoadError(null);
             return next;
         } catch (err) {
@@ -148,7 +152,9 @@ export function JourneyDriftDialog({
 
         setBusy(true);
         try {
-            const { results } = await repairJourneyDrift(guildId, journeyKey, keys);
+            const {
+                data: { results },
+            } = await repairJourneyDrift({ path: { guildId, journeyKey }, body: { resourceKeys: keys } });
             const report = summariseRepair(results, subject);
             notifications.show({
                 color: report.color,
@@ -183,7 +189,9 @@ export function JourneyDriftDialog({
     async function handleForget(bindingId: number) {
         setBusy(true);
         try {
-            const result = await forgetJourneyOrphan(guildId, journeyKey, bindingId);
+            const { data: result } = await forgetJourneyOrphan({
+                path: { guildId, journeyKey, bindingId: String(bindingId) },
+            });
             const report = summariseForget(result);
             notifications.show({
                 color: report.color,

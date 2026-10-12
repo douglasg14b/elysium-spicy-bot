@@ -45,7 +45,10 @@ vi.mock('../../../features/flows/data/flowButtonMessagesRepo', () => ({
     flowButtonMessagesRepo: buttonMessagesRepoMock,
     FlowButtonMessagesRepo: class {},
 }));
-vi.mock('../../../features/flows/logic/undeployFlowButtons', () => ({
+// The real module's other exports survive: the undeploy route's response schema reads its
+// outcome vocabulary while the routes load. The function that acts is still the watched mock.
+vi.mock('../../../features/flows/logic/undeployFlowButtons', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../../../features/flows/logic/undeployFlowButtons')>()),
     undeployFlowButtons: undeployMock,
 }));
 vi.mock('../../../features/provisioning', () => ({
@@ -138,7 +141,7 @@ describe('cleanup is reachable on its own', () => {
         });
 
         expect(response.status).toBe(200);
-        expect(undeployMock).toHaveBeenCalledWith(GUILD_ID, FLOW_ID);
+        expect(undeployMock).toHaveBeenCalledWith(expect.objectContaining({ id: GUILD_ID }), FLOW_ID);
     });
 
     it('undeploys a flow whose row is already gone', async () => {

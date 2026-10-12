@@ -1,6 +1,6 @@
 import { onTestFinished, vi } from 'vitest';
 
-/** The methods `api/client.ts` sends. */
+/** The methods the SDK sends. */
 export type FakeApiMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
 /** A request the component sent, as the server would have received it. */
@@ -31,10 +31,11 @@ export interface FakeApi {
 }
 
 /**
- * Stand in for the bot's HTTP API underneath `api/client.ts`, for one test.
+ * Stand in for the bot's HTTP API underneath `@brattybot/web-sdk`, for one test.
  *
- * `fetch` is replaced rather than `api/client.ts` mocked, so the client's own error
- * handling — `ApiError`, the `error` body field, 204s — runs as it does in the browser.
+ * `fetch` is replaced rather than the SDK mocked, so the client's own error handling —
+ * `ApiError`, the `error` body field, 204s, the session gate holding a 401 — runs as it does in the
+ * browser.
  *
  * **A request nothing answers is a fault, not a 404.** The dialogs catch API errors and
  * show a sentence, so a route the test forgot to register would otherwise surface as a
@@ -51,10 +52,14 @@ export function installFakeApi(): FakeApi {
     const faults: string[] = [];
 
     const fakeFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-        const url = new URL(typeof input === 'string' ? input : input.toString(), 'http://dashboard.test');
-        const method = (init?.method ?? 'GET').toUpperCase() as FakeApiMethod;
+        // Read through a `Request`, so a call made either way is heard the same: the SDK
+        // calls `fetch(request)` with no init, plain code `fetch(path, init)`.
+        const sent = new Request(input, init);
+        const url = new URL(sent.url);
+        const method = sent.method.toUpperCase() as FakeApiMethod;
         const path = `${url.pathname}${url.search}`;
-        const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : undefined;
+        const text = await sent.text();
+        const body = text ? (JSON.parse(text) as unknown) : undefined;
         const request: RecordedApiRequest = { method, path, body };
         requests.push(request);
 
@@ -86,6 +91,25 @@ export function installFakeApi(): FakeApi {
         },
         requests,
     };
+}
+
+/** A reply a test sends when it chooses, and the way to send it. */
+export interface HeldReply {
+    /** Hand this to {@link FakeApi.on}'s handler; the request waits on it. */
+    readonly reply: Promise<FakeApiReply>;
+    readonly send: (reply: FakeApiReply) => void;
+}
+
+/**
+ * A reply held back until the test sends it, so a request can be kept in flight while the
+ * page does something else — a remount, a second click, another request overtaking it.
+ */
+export function heldReply(): HeldReply {
+    let send: (reply: FakeApiReply) => void = () => undefined;
+    const reply = new Promise<FakeApiReply>((settle) => {
+        send = settle;
+    });
+    return { reply, send };
 }
 
 function routeKey(method: FakeApiMethod, path: string): string {

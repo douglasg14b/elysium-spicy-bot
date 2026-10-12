@@ -2,12 +2,23 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { MantineProvider } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { setupClient } from '@brattybot/web-sdk';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import { theme } from './theme';
 import { App } from './App';
+import { createDashboardQueryClient } from './api/queryClient';
+import { sessionGatedFetch } from './auth/sessionGate';
 import { CrashPage } from './pages/CrashPage';
+
+// Same origin: the spec's paths already carry `/api`, and Vite proxies it in dev. Every
+// call goes through the session gate, which holds it while a lost session is signed in
+// again rather than failing it.
+setupClient({ baseUrl: '', fetch: sessionGatedFetch });
+
+const queryClient = createDashboardQueryClient();
 
 /*
  * A data router, because only a data router can hold a `useBlocker` — the flow builder
@@ -20,9 +31,11 @@ const router = createBrowserRouter([{ path: '*', element: <App />, errorElement:
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
-        <MantineProvider theme={theme} defaultColorScheme="dark" forceColorScheme="dark">
-            <Notifications position="top-right" />
-            <RouterProvider router={router} />
-        </MantineProvider>
+        <QueryClientProvider client={queryClient}>
+            <MantineProvider theme={theme} defaultColorScheme="dark" forceColorScheme="dark">
+                <Notifications position="top-right" />
+                <RouterProvider router={router} />
+            </MantineProvider>
+        </QueryClientProvider>
     </React.StrictMode>
 );

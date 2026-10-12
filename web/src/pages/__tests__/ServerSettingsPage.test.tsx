@@ -1,7 +1,8 @@
+import { useState, type ReactNode } from 'react';
 import { screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import type { Guild, GuildSettings } from '../../api/types';
-import { installFakeApi, type FakeApi } from '../../__tests__/support/fakeApi';
+import type { Guild, GuildRole, GuildSettings } from '@brattybot/web-sdk';
+import { heldReply, installFakeApi, type FakeApi } from '../../__tests__/support/fakeApi';
 import { renderWithProviders } from '../../__tests__/support/renderWithProviders';
 import { GuildProvider } from '../../guilds/GuildContext';
 import { ServerSettingsPage } from '../ServerSettingsPage';
@@ -26,13 +27,28 @@ function installApi(timeZone: string | null): FakeApi {
     return api;
 }
 
-const STAFF_ROLE = { id: '111111111111111111', name: 'Doms', color: 0, position: 1 };
+const STAFF_ROLE: GuildRole = { id: '111111111111111111', name: 'Doms', color: 0, position: 1, owner: null };
 
 function renderPage() {
     return renderWithProviders(
         <GuildProvider>
-            <ServerSettingsPage />
+            <Remountable>
+                <ServerSettingsPage />
+            </Remountable>
         </GuildProvider>
+    );
+}
+
+/** The page behind a toggle, unmounted and mounted again the way leaving it and coming back does. */
+function Remountable({ children }: { readonly children: ReactNode }) {
+    const [shown, setShown] = useState(true);
+    return (
+        <>
+            <button type="button" onClick={() => setShown((now) => !now)}>
+                {shown ? 'Go elsewhere' : 'Come back'}
+            </button>
+            {shown && children}
+        </>
     );
 }
 
@@ -155,6 +171,74 @@ describe('the server time zone', () => {
         await waitFor(() => expect(api.requests.some((request) => request.path === SETTINGS_PATH && request.method === 'PUT')).toBe(true));
         await waitFor(() => expect(screen.getByRole('button', { name: 'Save changes' }).hasAttribute('disabled')).toBe(true));
         expect(screen.queryByText(NOT_SET_NOTE)).toBeNull();
+    });
+
+    it('shows the zone a save left in flight once it lands, after the operator leaves and comes back', async () => {
+        /*
+         * The card remounted mid-save starts from the cache, which still holds the zone from
+         * before. When the earlier mount's save lands it writes the new zone there; a form
+         * that had copied the old one into its draft would show it as an unsaved edit, one
+         * Save from putting it back.
+         */
+        let saved: string | null = null;
+        const api = installFakeApi();
+        api.on('GET', '/api/guilds', () => ({ body: { guilds: [GUILD] } }));
+        api.on('GET', SETTINGS_PATH, () => ({ body: settings(saved) }));
+        api.on('GET', `/api/guilds/${GUILD.id}/roles`, () => ({ body: { roles: [STAFF_ROLE] } }));
+        const put = heldReply();
+        api.on('PUT', `${SETTINGS_PATH}/time-zone`, () => put.reply);
+        const { user } = renderPage();
+        const picker = await screen.findByRole('textbox', { name: 'Time zone' });
+
+        await user.click(picker);
+        await user.type(picker, 'new york');
+        await user.click(screen.getByRole('option', { name: NEW_YORK_OPTION }));
+        await user.click(screen.getByRole('button', { name: 'Save time zone' }));
+        await user.click(screen.getByRole('button', { name: 'Go elsewhere' }));
+        await user.click(screen.getByRole('button', { name: 'Come back' }));
+        await screen.findByRole('textbox', { name: 'Time zone' });
+
+        saved = 'America/New_York';
+        put.send({ body: settings(saved) });
+
+        await waitFor(() => expect(screen.queryByText(NOT_SET_NOTE)).toBeNull());
+        expect((screen.getByRole('textbox', { name: 'Time zone' }) as HTMLInputElement).value).toMatch(NEW_YORK_OPTION);
+        await waitFor(() =>
+            expect(screen.getByRole('button', { name: 'Save time zone' }).hasAttribute('disabled')).toBe(true)
+        );
+        expect(api.requests.filter((request) => request.method === 'PUT')).toHaveLength(1);
+    });
+
+    it("keeps saved staff roles when a zone save's late answer still carries the old list", async () => {
+        // The other direction of the case above: the zone route answers with the whole
+        // shape too, and taken whole its stale `staffRoleIds: []` would undo the staff save.
+        const api = installApi(null);
+        const zonePut = heldReply();
+        api.on('PUT', `${SETTINGS_PATH}/time-zone`, () => zonePut.reply);
+        api.on('PUT', SETTINGS_PATH, () => ({
+            body: { ...settings(null), staffRoleIds: [STAFF_ROLE.id], staffRoles: [STAFF_ROLE] },
+        }));
+        const { user } = renderPage();
+        const picker = await screen.findByRole('textbox', { name: 'Time zone' });
+
+        await user.click(picker);
+        await user.type(picker, 'new york');
+        await user.click(screen.getByRole('option', { name: NEW_YORK_OPTION }));
+        await user.click(screen.getByRole('button', { name: 'Save time zone' }));
+
+        await user.click(screen.getByRole('textbox', { name: 'Staff roles' }));
+        await user.click(screen.getByRole('option', { name: STAFF_ROLE.name }));
+        await user.click(screen.getByRole('button', { name: 'Save changes' }));
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Save changes' }).hasAttribute('disabled')).toBe(true));
+
+        zonePut.send({ body: settings('America/New_York') });
+        await waitFor(() => expect(screen.queryByText(NOT_SET_NOTE)).toBeNull());
+
+        // Still the saved list: the picker's value is the cache's, so a whole-shape write
+        // would have emptied it here.
+        expect(screen.getByRole('button', { name: 'Save changes' }).hasAttribute('disabled')).toBe(true);
+        const picked = [...document.querySelectorAll<HTMLInputElement>('input[type="hidden"]')].map((input) => input.value);
+        expect(picked).toContain(STAFF_ROLE.id);
     });
 
     it('does not ask on a server that already picked one', async () => {

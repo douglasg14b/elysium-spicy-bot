@@ -1,3 +1,4 @@
+import type { TicketingConfigView, TicketTypeView } from '@brattybot/web-sdk';
 import { defaultTicketTypes } from '../../../../src/features/tickets/data/defaultTicketTypes';
 import { ticketingRepo } from '../../../../src/features/tickets/data/ticketingRepo';
 import type { TicketTypeDefinition } from '../../../../src/features/tickets/data/ticketingSchema';
@@ -13,7 +14,6 @@ import {
 } from '../../../../src/features/tickets/ticketService';
 import type { TicketChange } from '../../../../src/features/tickets/ticketChanges';
 import type { Result } from '../../../../src/shared';
-import type { TicketingConfigView, TicketTypeView } from '../../../src/api/types';
 import type { PreviewPage, SeedContext } from './seedScenario';
 
 /**

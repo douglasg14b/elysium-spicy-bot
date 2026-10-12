@@ -42,8 +42,8 @@ export async function handleFlowDeployCommand(
     /*
      * Deferred before the work, not after.
      *
-     * A deploy is now several Discord round trips — a guild fetch, a full retire of
-     * whatever is already live (fetch and delete per recorded message), then a send
+     * A deploy is now several Discord round trips — a full retire of whatever is
+     * already live (fetch and delete per recorded message), then a send
      * per destination channel. Past the three-second window `reply` fails with 10062
      * `Unknown interaction` *after* the guild has already been changed, leaving the
      * operator staring at "The application did not respond" with no idea what landed.
@@ -51,7 +51,7 @@ export async function handleFlowDeployCommand(
     await interaction.deferReply({ ephemeral: true });
 
     // Same validate-and-post path the web deploy route uses.
-    const result = await deployFlowButtons(interaction.guild.id, flowId);
+    const result = await deployFlowButtons(interaction.guild, flowId);
     if (!result.ok) {
         await interaction.editReply({ content: `❌ ${result.message}` });
         return commandError(result.message);

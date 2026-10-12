@@ -1,4 +1,4 @@
-import type { ResourceKind } from '../api/types';
+import type { ResourceKind } from '@brattybot/web-sdk';
 
 /**
  * The name Discord will actually store for a resource of this kind.

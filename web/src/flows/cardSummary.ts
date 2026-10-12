@@ -5,18 +5,17 @@
  * control type reads, which is the same knowledge the inspector already has.
  */
 
-import { ELIGIBILITY_PRINCIPALS } from '../api/types';
 import type {
     BlockCardSummaryPart,
     BlockConfigField,
-    EligibilityPrincipal,
     GuildChannel,
     GuildRole,
     NodeDescriptor,
     ResourceDeclaration,
     TicketTypeView,
-} from '../api/types';
+} from '@brattybot/web-sdk';
 import { formatDaysOfWeek, formatTimeOfDay } from './clockValues';
+import { ELIGIBILITY_PRINCIPALS, type EligibilityPrincipal } from './contractValues';
 import { resourceKeyFieldFor } from './controls/types';
 import { formatDuration } from './nodeMeta';
 import { isFieldVisible, isShownBy, pickerVariableOf } from './variables';
@@ -313,7 +312,8 @@ export function summarizeFromDescriptor(
     const pieces: string[] = [];
 
     for (const part of descriptor.cardSummary) {
-        if (part.key === undefined) {
+        // A literal part carries no `key` at all: the absence is what tells the arms apart.
+        if (!('key' in part)) {
             pieces.push(part.text);
             continue;
         }

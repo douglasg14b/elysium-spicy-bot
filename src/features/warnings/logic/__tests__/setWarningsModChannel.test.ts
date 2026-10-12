@@ -42,10 +42,7 @@ describe('setWarningsModChannel', () => {
         const upsertModChannel = vi.fn().mockResolvedValue(savedConfig);
         const repo = fakeRepo({ upsertModChannel });
 
-        const result = await setWarningsModChannel('guild-1', 'channel-1', {
-            getGuild: async () => fakeGuild,
-            repo,
-        });
+        const result = await setWarningsModChannel(fakeGuild, 'channel-1', { repo });
 
         expect(validateMock).toHaveBeenCalledWith(fakeGuild, 'channel-1');
         expect(upsertModChannel).toHaveBeenCalledWith('guild-1', 'channel-1');
@@ -62,26 +59,9 @@ describe('setWarningsModChannel', () => {
         const upsertModChannel = vi.fn();
         const repo = fakeRepo({ upsertModChannel });
 
-        const result = await setWarningsModChannel('guild-1', 'bad-channel', {
-            getGuild: async () => fakeGuild,
-            repo,
-        });
+        const result = await setWarningsModChannel(fakeGuild, 'bad-channel', { repo });
 
         expect(upsertModChannel).not.toHaveBeenCalled();
         expect(result).toEqual({ ok: false, message: failure.userMessage });
-    });
-
-    it('fails cleanly when the guild is unavailable', async () => {
-        const upsertModChannel = vi.fn();
-        const repo = fakeRepo({ upsertModChannel });
-
-        const result = await setWarningsModChannel('guild-1', 'channel-1', {
-            getGuild: async () => null,
-            repo,
-        });
-
-        expect(validateMock).not.toHaveBeenCalled();
-        expect(upsertModChannel).not.toHaveBeenCalled();
-        expect(result.ok).toBe(false);
     });
 });

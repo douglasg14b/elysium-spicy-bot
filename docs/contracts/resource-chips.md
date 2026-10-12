@@ -73,8 +73,8 @@ of statement from "this is private".
 | --- | --- | --- | --- | --- |
 | `duplicateKey` | error | `Duplicate key` | Two resources share a key. `validateJourneyDeclaration` rejects the save outright, and nothing warns you while typing it. **Both** rows are chipped, not just the second — the fix is to change one, and which one is your choice. | Focuses the key field. |
 | `duplicateAdoption` | error | `Adopted twice` | Two resources adopt the same guild object. One guild object cannot be two resources; the same validator refuses it. | Focuses the name box, which is where you pick a different one. |
-| `invalidKey` | error | `Invalid key` / `Name required` | The key fails `^[a-z0-9]+(-[a-z0-9]+)*$` or its 1–64 cap, or the name is empty or over 100 characters. Zod refuses the save. One chip covers both fields because they sit together and the fix is the same shape; the wording still distinguishes them. | Focuses the offending field. |
-| `invalidTicketType` | error | `Won’t save` | A declared ticket type whose label has something in it and is over 45 characters (the mod ticket picker's limit), or whose channel name template uses a token the renderer does not know, leftover braces, or renders too long. The journey save runs the ticket feature's own `ticketTypeDefinitionProblem` and refuses it; the browser asks `validateTicketTypeDraft`, the tickets page's mirror of the same rules. An empty label is `invalidKey`'s. | Scrolls to the ticket type's fields. |
+| `invalidKey` | error | `Invalid key` / `Name required` | The key or the name breaks the server's own rule for it — `ResourceDeclaration`'s `key` and `defaultName`, as the SDK generates them — so the save is refused. The chip's tooltip is the server's own sentence for the rule that failed, not a restatement of it. One chip covers both fields because they sit together and the fix is the same shape; the wording still distinguishes them. | Focuses the offending field. |
+| `invalidTicketType` | error | `Won’t save` | A declared ticket type whose label has something in it and is over 45 characters (the mod ticket picker's limit), or whose channel name template uses a token the renderer does not know or leftover braces. The journey save runs the ticket feature's own `ticketTypeDefinitionProblem` and refuses it; the browser asks `validateTicketTypeDraft`, which runs the SDK's generated rules for a ticket type (`TicketTypeUpdate`) — the tickets page's own check. A template that renders too long is the server's alone and arrives as the save's refusal. An empty label is `invalidKey`'s. | Scrolls to the ticket type's fields. |
 | `ruleNamesNoRole` | error | `Rule N names no role` | A `roles` intent with an empty list (refused at save), or one naming a declared role the flow does not have — or names a key that is not a role at all (both refused at save). | Focuses that rule's role picker. |
 | `nameTaken` | blocksInstall | `Name taken` | Something in the guild already has this name, this row does not adopt it, **and this row is not already installed**. The save succeeds; `installPlan` blocks the item with *"A channel named X already exists. Choose whether to adopt it or create a new one under a different name."* Raised here so the refusal lands on the row that caused it rather than after a whole journey is authored. Deliberately **not** auto-adopted — a name that happens to collide is not the operator choosing that object, and §5.7 forbids a binding they did not explicitly make. | Focuses the name box, whose list holds the object it collided with. |
 | `nobodyCanSee` | warn | `Nobody can see this` | `permissions: []` — inheritance cleared with no rules to replace it. Produces a channel only the bot and admins can see. Almost always a mistake. | Focuses "Back to inheriting". |
@@ -184,11 +184,14 @@ If so, it is not a chip, whatever else is true of it.
 
 ## How the red tier stays honest
 
-`detectResourceProblems.ts` re-implements the server's rules because it cannot call them — one
-`import type` from `src/` inside `web/` drags the bot tree into `tsc -b` and breaks
-`pnpm build:web`. This is the same trade `web/src/api/types.ts` and
-`web/src/flows/declaredRoleReference.ts` already took, and it is paid the same way: a test holds
-the two halves equal instead of the compiler.
+`detectResourceProblems.ts` checks a resource's key and name with the server's own rules, as
+the SDK generates them from the route's `ResourceDeclaration` schema (`zResourceDeclaration`).
+The rest of the server's rules — the whole-list checks in `validateJourneyDeclaration`, and a
+`roles` permission naming no role — are stated by no schema, so they cannot travel, and the
+detector re-implements them: one `import type` from `src/` inside `web/` drags the bot tree into
+`tsc -b` and breaks `pnpm build:web`. This is the same trade
+`web/src/flows/declaredRoleReference.ts` takes, and it is paid the same way: a test holds the two
+halves equal instead of the compiler.
 
 `src/features/provisioning/logic/__tests__/resourceChipAgreement.test.ts` drives both the Zod
 schema and `validateJourneyDeclaration` with the same declarations the browser judges, and
@@ -201,5 +204,5 @@ asserts agreement **in both directions**:
   vocabulary exists to prevent.
 
 It lives under `src/` because imports run that way across the boundary; the reverse is what
-breaks the build. `nodeDescriptorDrift.test.ts` and `declaredRoleReference.test.ts` are the same
+breaks the build. `blockFieldRules.test.ts` and `declaredRoleReference.test.ts` are the same
 arrangement.

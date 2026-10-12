@@ -49,6 +49,33 @@ export type ResourceDriftKind =
     | { readonly kind: 'wrongType'; readonly declared: ResourceKind; readonly actual: string }
     | { readonly kind: 'permissions'; readonly differences: readonly PermissionDifference[] };
 
+/**
+ * Every {@link ResourceDriftKind}'s `kind`, as a value — what a repair reports it put back.
+ *
+ * The union is the source; this list is held to it both ways by
+ * {@link ResourceDriftKindsMismatch}. It exists because the wire schema for a repair's
+ * results (`src/web/api/journeyBody.ts`) needs the kinds as a value.
+ */
+export const RESOURCE_DRIFT_KINDS = [
+    'renamed',
+    'reparented',
+    'wrongType',
+    'permissions',
+] as const satisfies readonly ResourceDriftKind['kind'][];
+
+/**
+ * A kind missing from {@link RESOURCE_DRIFT_KINDS}, or a name there that is not a kind;
+ * `never` when the two agree. Asserted `never` in `__tests__/resourceDrift.test-d.ts`, which
+ * `pnpm test` type-checks — the `satisfies` above alone fails only root `tsc`.
+ */
+export type ResourceDriftKindsMismatch =
+    | Exclude<ResourceDriftKind['kind'], (typeof RESOURCE_DRIFT_KINDS)[number]>
+    | Exclude<(typeof RESOURCE_DRIFT_KINDS)[number], ResourceDriftKind['kind']>;
+
+/** Do not delete as unused: it is what shows a drift to root `tsc` and the editor, in this file. */
+const resourceDriftKindsAgree: [ResourceDriftKindsMismatch] extends [never] ? true : never = true;
+void resourceDriftKindsAgree;
+
 /** One id whose access no longer matches what the declaration compiled to. */
 export interface PermissionDifference {
     /** The role or member id the overwrite is for. */

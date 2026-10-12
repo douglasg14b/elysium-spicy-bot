@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { TicketingConfigView } from '../../api/types';
+import type { TicketingConfigView } from '@brattybot/web-sdk';
 import { DEFAULT_TICKET_FILTER, toListFilter, typeFilterOptions } from '../ticketFilters';
 
 describe('DEFAULT_TICKET_FILTER', () => {
@@ -30,8 +30,13 @@ describe('toListFilter', () => {
         expect(toListFilter({ ...DEFAULT_TICKET_FILTER, search: '  kitten ' }).search).toBe('kitten');
     });
 
-    it('omits unclaimedOnly when it is off', () => {
-        expect(toListFilter(DEFAULT_TICKET_FILTER).unclaimedOnly).toBeUndefined();
+    it('omits unclaimed when it is off', () => {
+        expect(toListFilter(DEFAULT_TICKET_FILTER).unclaimed).toBeUndefined();
+    });
+
+    it('sends unclaimed as the string the route narrows on', () => {
+        // The route narrows only on `unclaimed=true`; anything else means claimed or not.
+        expect(toListFilter({ ...DEFAULT_TICKET_FILTER, unclaimedOnly: true }).unclaimed).toBe('true');
     });
 });
 

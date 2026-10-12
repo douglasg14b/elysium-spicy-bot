@@ -2,9 +2,9 @@
  * Deciding what a stream of resource edits should send, and what it may accept back.
  *
  * Split out of `FlowBuilderPage` because the bug it fixes was a *sequencing* bug, and
- * sequencing is the one thing a component cannot be asked about: `web/` has no jsdom, so
- * the original defect — every keystroke disabling its own input and then reverting
- * itself — was unreachable by the suite and shipped green.
+ * sequencing is the hardest thing to ask a rendered component about: no test rendered the
+ * builder then, so the original defect — every keystroke disabling its own input and then
+ * reverting itself — was unreachable by the suite and shipped green.
  *
  * ## The bug
  *
@@ -15,8 +15,8 @@
  *     HTML's **focus fixup rule**, an element that stops being focusable while focused
  *     hands the focus back to the document. The browser takes the cursor; React cannot
  *     decline on its behalf;
- *  2. sent a PUT carrying a half-typed declaration, which the server's `resourceSchema`
- *     rightly refused (`key` must match the slug pattern, `defaultName` must be
+ *  2. sent a PUT carrying a half-typed declaration, which the server's `ResourceDeclaration`
+ *     schema rightly refused (`key` must match the slug pattern, `defaultName` must be
  *     non-empty — `my-chann` on the way to `my-channel` is fine, but `''` is not);
  *  3. on that refusal re-read the server's list and wrote it over local state, throwing
  *     away every character typed since.
@@ -44,7 +44,7 @@
  * character, delete it) and a value comparison would call the second one stale.
  */
 
-import type { ResourceDeclaration } from '../api/types';
+import type { ResourceDeclaration } from '@brattybot/web-sdk';
 
 /**
  * How long editing must pause before the declaration list is written to the server.

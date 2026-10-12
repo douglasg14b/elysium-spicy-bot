@@ -92,11 +92,11 @@ describe('undeploying a flow\'s buttons', () => {
         const calls: string[] = [];
         const repo = makeRepo([row({ id: 7 })], calls);
 
-        const result = await undeployFlowButtons(GUILD_ID, FLOW_ID, {
-            getGuild: async () => makeGuild({ calls }),
+        const result = await undeployFlowButtons(makeGuild({ calls }), FLOW_ID, {
             buttonMessagesRepo: repo,
         });
 
+        expect(repo.listByFlowId).toHaveBeenCalledWith(GUILD_ID, FLOW_ID);
         // The message first, then the row — the same ordering as unpublish, for the
         // same reason: the reverse loses the only pointer to a live button.
         expect(calls).toEqual(['discord:delete:message-1', 'repo:forget:7']);
@@ -107,9 +107,8 @@ describe('undeploying a flow\'s buttons', () => {
         const calls: string[] = [];
         const repo = makeRepo([row({ id: 7 })], calls);
 
-        const result = await undeployFlowButtons(GUILD_ID, FLOW_ID, {
-            // The channel is there; the message is not.
-            getGuild: async () => makeGuild({ calls, messageIds: [] }),
+        // The channel is there; the message is not.
+        const result = await undeployFlowButtons(makeGuild({ calls, messageIds: [] }), FLOW_ID, {
             buttonMessagesRepo: repo,
         });
 
@@ -122,8 +121,7 @@ describe('undeploying a flow\'s buttons', () => {
         const calls: string[] = [];
         const repo = makeRepo([row({ id: 7 })], calls);
 
-        const result = await undeployFlowButtons(GUILD_ID, FLOW_ID, {
-            getGuild: async () => makeGuild({ calls, channelIds: [] }),
+        const result = await undeployFlowButtons(makeGuild({ calls, channelIds: [] }), FLOW_ID, {
             buttonMessagesRepo: repo,
         });
 
@@ -135,11 +133,11 @@ describe('undeploying a flow\'s buttons', () => {
         const calls: string[] = [];
         const repo = makeRepo([row({ id: 7 })], calls);
 
-        const result = await undeployFlowButtons(GUILD_ID, FLOW_ID, {
-            getGuild: async () =>
-                makeGuild({ calls, deleteError: new Error('Missing Permissions') }),
-            buttonMessagesRepo: repo,
-        });
+        const result = await undeployFlowButtons(
+            makeGuild({ calls, deleteError: new Error('Missing Permissions') }),
+            FLOW_ID,
+            { buttonMessagesRepo: repo }
+        );
 
         expect(result.results[0].outcome).toBe('failed');
         // The buttons are still live, so the record of where they are must survive.
@@ -155,8 +153,7 @@ describe('undeploying a flow\'s buttons', () => {
         // A permission error on fetch applies to both here, so instead use a channel
         // that holds only the second message: the first reports alreadyGone and the
         // run continues.
-        const result = await undeployFlowButtons(GUILD_ID, FLOW_ID, {
-            getGuild: async () => makeGuild({ calls, messageIds: ['message-2'] }),
+        const result = await undeployFlowButtons(makeGuild({ calls, messageIds: ['message-2'] }), FLOW_ID, {
             buttonMessagesRepo: repo,
         });
 
@@ -165,33 +162,15 @@ describe('undeploying a flow\'s buttons', () => {
         expect(result.results[1].outcome).toBe('removed');
     });
 
-    it('keeps every row when the guild cannot be reached', async () => {
-        const calls: string[] = [];
-        const repo = makeRepo([row({ id: 7 })], calls);
-
-        const result = await undeployFlowButtons(GUILD_ID, FLOW_ID, {
-            getGuild: async () => null,
-            buttonMessagesRepo: repo,
-        });
-
-        expect(result.results[0].outcome).toBe('failed');
-        // Dropping the rows here would discard the only record of live buttons for a
-        // reason that is probably temporary.
-        expect(repo.forget).not.toHaveBeenCalled();
-    });
-
     it('does nothing when the flow has nothing recorded', async () => {
         const calls: string[] = [];
         const repo = makeRepo([], calls);
-        const getGuild = vi.fn(async () => makeGuild({ calls }));
 
-        const result = await undeployFlowButtons(GUILD_ID, FLOW_ID, {
-            getGuild,
+        const result = await undeployFlowButtons(makeGuild({ calls }), FLOW_ID, {
             buttonMessagesRepo: repo,
         });
 
         expect(result.results).toEqual([]);
-        // Not even a guild fetch: there is nothing to act on.
-        expect(getGuild).not.toHaveBeenCalled();
+        expect(calls).toEqual([]);
     });
 });

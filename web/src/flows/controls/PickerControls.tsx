@@ -26,7 +26,7 @@ import type {
     BlockOutputValueKind,
     ResourceDeclaration,
     ResourceKind,
-} from '../../api/types';
+} from '@brattybot/web-sdk';
 import { pickerVariableOf, variableToken, type AvailableVariable } from '../variables';
 
 type RolePickerField = Extract<BlockConfigField, { control: 'rolePicker' }>;

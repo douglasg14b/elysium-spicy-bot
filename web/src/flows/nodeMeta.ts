@@ -16,14 +16,11 @@
  * thing you want belongs on the manifest instead.
  */
 
-import type {
-    BlockHandleTone,
-    BlockOutputHandle,
-    FlowGraph,
-    NodeDescriptor,
-    NodeKind,
-} from '../api/types';
-import { FLOW_GRAPH_VERSION } from '../api/types';
+import type { BlockHandleTone, BlockOutputHandle, FlowGraph, NodeDescriptor } from '@brattybot/web-sdk';
+import { FLOW_GRAPH_VERSION } from './contractValues';
+
+/** What sort of thing a block is: trigger, condition or action. */
+type NodeKind = NodeDescriptor['kind'];
 
 export interface KindStyle {
     /** Mantine colour key for badges/icons. */

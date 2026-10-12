@@ -81,10 +81,10 @@ import type {
     ResourceDeclaration,
     ResourceKind,
     TicketTypeView,
-} from '../api/types';
+} from '@brattybot/web-sdk';
 import { TicketTypeFields } from '../tickets/TicketTypeFields';
 import { emptyTicketTypeDraft, validateTicketTypeDraft } from '../tickets/ticketTypeForm';
-import { detectResourceProblems, RESOURCE_KEY_PATTERN } from './detectResourceProblems';
+import { detectResourceProblems, resourceKeyProblem } from './detectResourceProblems';
 import type { ResourceChipInstance } from './detectResourceProblems';
 import { PermissionIntentEditor } from './PermissionIntentEditor';
 import { ResourceChip } from './ResourceChip';
@@ -1304,10 +1304,12 @@ function TicketTypeBody({ resource, ticketTypes, keyIsInstalled, onUpdate, label
     const existing = ticketTypes?.find((ticketType) => ticketType.type === resource.key);
     const keySuggestions = useMemo(
         // A type key can stand as a resource key only in the resource key's own shape.
-        () => [...new Set((ticketTypes ?? []).map((ticketType) => ticketType.type))].filter((key) => RESOURCE_KEY_PATTERN.test(key)),
+        () => [...new Set((ticketTypes ?? []).map((ticketType) => ticketType.type))].filter((key) => !resourceKeyProblem(key)),
         [ticketTypes]
     );
-    const problems = validateTicketTypeDraft({ type: resource.key, label: resource.defaultName, ...settings });
+    // Settings first: the starting draft above carries an empty key and label of its own,
+    // which must not stand over the row's.
+    const problems = validateTicketTypeDraft({ ...settings, type: resource.key, label: resource.defaultName });
 
     return (
         <div ref={fieldsRef}>

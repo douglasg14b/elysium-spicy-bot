@@ -1,7 +1,7 @@
 import { screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { Edge } from '@xyflow/react';
-import type { BlockConfigField, FlowContextRequirement, NodeDescriptor } from '../../api/types';
+import type { BlockConfigField, FlowContextRequirement, NodeDescriptor } from '@brattybot/web-sdk';
 import { renderWithProviders } from '../../__tests__/support/renderWithProviders';
 import { NodeInspector } from '../NodeInspector';
 import { NEEDS_A_MEMBER_NOTE, NodePalette } from '../NodePalette';
@@ -29,7 +29,6 @@ function descriptor(overrides: Partial<NodeDescriptor> & Pick<NodeDescriptor, 't
         group: 'actions',
         icon: '🧪',
         configFields: [],
-        fieldChecks: {},
         handles: [{ label: 'Next', tone: 'neutral' }],
         outputs: [],
         requires: [],

@@ -7,7 +7,7 @@
  * file and its test are settled; this is the same kind of thing and belongs beside it.
  */
 
-import type { TicketStatus } from '../api/types';
+import type { TicketStatus } from '@brattybot/web-sdk';
 
 /**
  * The badge colour per status. Narrow rather than `string`, so a typo is a compile error

@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { FlowValidationIssue } from '../../api/types';
+import type { FlowValidationIssue } from '@brattybot/web-sdk';
 import {
     describeUnplacedIssue,
     issuesByNode,

@@ -59,47 +59,45 @@ import {
     IconStack2,
 } from '@tabler/icons-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ApiError } from '../api/client';
-import { getGuildChannels, getGuildSettings } from '../api/config';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+    ApiError,
+    attachFlowToJourney,
     deployFlow,
+    detachFlowFromJourney,
     discardFlowDraft,
     getFlow,
-    getGuildRoles,
-    getInstallPlan,
-    getNodeTypes,
-    getPublishedState,
-    installFlow,
-    listFlowDrafts,
-    saveMyFlowDraft,
-    updateFlow,
-} from '../api/flows';
-// Only the initial read lives here now; the write moved into `useResourceAutosave`.
-import {
-    attachFlowToJourney,
-    detachFlowFromJourney,
     getFlowAttachment,
     getFlowResources,
+    getGuildChannelsOptions,
+    getGuildRolesOptions,
+    getGuildSettingsOptions,
+    getInstallPlan,
+    getNodeTypesOptions,
+    getPublishedStateOptions,
+    getPublishedStateQueryKey,
+    getTicketsConfigOptions,
+    installFlow,
+    listFlowDrafts,
     listJourneys,
-} from '../api/journeys';
-import type {
-    FlowAttachment,
-    FlowDraft,
-    FlowEdge,
-    FlowGraph,
-    GuildChannel,
-    GuildRole,
-    InstallPlan,
-    JourneySummary,
-    NodeDescriptor,
-    ResourceDeclaration,
-    TicketTypeView,
-} from '../api/types';
-import { FLOW_GRAPH_VERSION } from '../api/types';
-import { getTicketsConfig } from '../api/tickets';
+    saveMyFlowDraft,
+    updateFlow,
+    type FlowAttachment,
+    type FlowDraft,
+    type FlowEdge,
+    type FlowGraph,
+    type GuildChannel,
+    type GuildRole,
+    type InstallPlan,
+    type JourneySummary,
+    type NodeDescriptor,
+    type ResourceDeclaration,
+    type TicketTypeView,
+} from '@brattybot/web-sdk';
+import { FLOW_GRAPH_VERSION } from '../flows/contractValues';
 import { FlowNodeCard, type FlowCardNode, type FlowNodeCardData } from '../flows/FlowNodeCard';
-// Aliased: `FlowEdge` is already taken here by the serialized-graph edge type from
-// `../api/types`. The component draws one of those; it is not one.
+// Aliased: `FlowEdge` is already taken here by the serialized-graph edge type from the
+// SDK. The component draws one of those; it is not one.
 import { FlowEdge as FlowEdgeComponent, EdgeActionsProvider } from '../flows/FlowEdge';
 import { ColumnResizeHandle } from '../flows/ColumnResizeHandle';
 import {
@@ -137,6 +135,7 @@ import {
     summariseInstallPlan,
 } from '../flows/installSummary';
 import { InstalledResourcesDialog } from '../flows/InstalledResourcesDialog';
+import { installedFromPublished } from '../flows/publishedSummary';
 import { issuesByNode, problemCount, summarizeIssues } from '../flows/validationIssues';
 import { convergingTriggerCounts } from '../flows/convergingTriggers';
 import { unreachableNodeIds } from '../flows/unreachableNodes';
@@ -539,59 +538,35 @@ function FlowBuilder() {
      * it, rather than having to leave for the flows list to find the only teardown.
      */
     const [installedOpen, setInstalledOpen] = useState(false);
-    /**
-     * How many resources this flow currently has live, or `null` before we have asked.
+    const queryClient = useQueryClient();
+    /*
+     * What this flow has live in the guild — the same query, and so the same cache entry,
+     * as `InstalledResourcesDialog`'s. A teardown there re-reads it, and the toolbar follows.
      *
-     * Fetched on load rather than only when the dialog opens, because the toolbar
-     * button's own face depends on it: a flow with nothing installed offers "Install",
-     * and one with resources live offers to show and remove them. A button that cannot
-     * tell those apart is the two-buttons-for-one-concept problem this replaced.
-     *
-     * `null` means unknown, which renders as the plain install affordance — the safe
-     * default, since it proposes creating rather than destroying.
+     * Asked on load rather than only when the dialog opens, because the toolbar button's
+     * own face depends on it: a flow with nothing installed offers "Install", and one with
+     * resources live offers to show and remove them. A button that cannot tell those apart
+     * is the two-buttons-for-one-concept problem this replaced.
      */
-    const [installedCount, setInstalledCount] = useState<number | null>(null);
-    /**
-     * Which declared resources are live, by key.
-     *
-     * Read from the same call as the count above rather than fetched separately, because it
-     * is the same answer sliced differently. The resources panel needs it to know when a
-     * key may stop following its name: once something in the guild is bound to a key, that
-     * key is identity — `resource_bindings` rows and node config sidecars point at it — and
-     * changing it would orphan both (`resourceKeyFollowsName.ts`).
-     *
-     * Empty while unknown, which narrows the rule to its hand-edit half rather than
-     * freezing everything. Freezing on a failed lookup would be the safer-looking choice
-     * and is the wrong one: it would silently reinstate the stale-key bug for any operator
-     * whose published lookup happened to fail.
+    const publishedPath = { guildId: selected?.id ?? '', flowId: flowId ?? '' };
+    const publishedKey = getPublishedStateQueryKey({ path: publishedPath });
+    const publishedQuery = useQuery({
+        ...getPublishedStateOptions({ path: publishedPath }),
+        enabled: !!selected && !!flowId,
+    });
+    /*
+     * The count, for the toolbar's face, and the live keys, which the resources panel needs
+     * to know when a key may stop following its name. A failed read makes the count unknown
+     * but keeps the keys of the last answer — `installedFromPublished` says why each.
      */
-    const [installedResourceKeys, setInstalledResourceKeys] = useState<ReadonlySet<string>>(
-        () => new Set()
+    const { data: publishedData, isError: publishedFailed } = publishedQuery;
+    const { count: installedCount, keys: installedResourceKeys } = useMemo(
+        () => installedFromPublished({ data: publishedData, failed: publishedFailed }),
+        [publishedData, publishedFailed]
     );
 
-    const refreshInstalledCount = useCallback(async () => {
-        if (!selected || !flowId) return;
-        try {
-            const state = await getPublishedState(selected.id, flowId);
-            // All three lists: a refused resource is still installed, and so is a ticket type
-            // uninstall would only forget. `refused` is about whether a *teardown* may touch
-            // it — an adopted channel, a category with survivors — and an adopted resource is
-            // exactly the case where the key must not move, since the binding points at
-            // someone else's channel. Leaving the kept settings out made a journey holding
-            // only a ticket type read as not installed, with no uninstall in reach.
-            const installed = [...state.deletableResources, ...state.refusedResources, ...state.keptSettings];
-            setInstalledCount(installed.length);
-            setInstalledResourceKeys(new Set(installed.map((resource) => resource.resourceKey)));
-        } catch {
-            // A failed lookup leaves the button on its install face rather than
-            // guessing. The dialog does its own fetch and reports properly.
-            setInstalledCount(null);
-        }
-    }, [selected, flowId]);
-
-    useEffect(() => {
-        void refreshInstalledCount();
-    }, [refreshInstalledCount]);
+    /** Ask again what is live — after an install, which changed it. */
+    const rereadPublished = (): Promise<void> => queryClient.invalidateQueries({ queryKey: publishedKey });
 
     // Undo/redo snapshot stacks. `skipHistory` guards the programmatic restores.
     const past = useRef<Snapshot[]>([]);
@@ -785,23 +760,41 @@ function FlowBuilder() {
     );
 
     /* ----------------------------- load ----------------------------- */
+    /*
+     * One read, once, into editable state — never a `useQuery` whose answer feeds the
+     * canvas, because a refetch would put the stored graph back over the author's edits.
+     * The block catalogue and the guild directory go through the query cache all the same,
+     * so the resources dialog's pickers open already filled from the same answer — each
+     * with `staleTime: 0`, so opening a flow always asks afresh whatever the client's
+     * defaults become: a cached directory would offer channels deleted since.
+     */
     useEffect(() => {
         if (!selected || !flowId) return;
         let cancelled = false;
+        const guildPath = { guildId: selected.id };
         void (async () => {
             setLoading(true);
             setError(null);
             // Not another guild's zone, should this flow's settings fetch fail.
             setServerTimeZone(undefined);
             try {
-                const [flow, catalog, guildRoles, guildChannels, guildTicketTypes, flowResources] = await Promise.all([
-                    getFlow(selected.id, flowId),
-                    getNodeTypes(),
-                    getGuildRoles(selected.id),
-                    getGuildChannels(selected.id),
+                const [
+                    { data: flow },
+                    { nodes: catalog },
+                    { roles: guildRoles },
+                    { channels: guildChannels },
                     // A guild that never set tickets up answers with no types, not an error.
-                    getTicketsConfig(selected.id).then((ticketsConfig) => ticketsConfig.types),
-                    getFlowResources(selected.id, flowId),
+                    { types: guildTicketTypes },
+                    {
+                        data: { resources: flowResources },
+                    },
+                ] = await Promise.all([
+                    getFlow({ path: { guildId: selected.id, flowId } }),
+                    queryClient.fetchQuery({ ...getNodeTypesOptions(), staleTime: 0 }),
+                    queryClient.fetchQuery({ ...getGuildRolesOptions({ path: guildPath }), staleTime: 0 }),
+                    queryClient.fetchQuery({ ...getGuildChannelsOptions({ path: guildPath }), staleTime: 0 }),
+                    queryClient.fetchQuery({ ...getTicketsConfigOptions({ path: guildPath }), staleTime: 0 }),
+                    getFlowResources({ path: { guildId: selected.id, flowId } }),
                 ]);
                 if (cancelled) return;
 
@@ -848,7 +841,7 @@ function FlowBuilder() {
              * failing leaves the builder as it is, with no countdown or no zone line.
              */
             void refreshNextRuns();
-            getGuildSettings(selected.id).then(
+            queryClient.fetchQuery({ ...getGuildSettingsOptions({ path: guildPath }), staleTime: 0 }).then(
                 (settings) => {
                     if (!cancelled) {
                         setServerTimeZone({ timeZone: settings.timeZone, defaultTimeZone: settings.defaultTimeZone });
@@ -863,7 +856,9 @@ function FlowBuilder() {
              * be the feature that protects work locking the operator out of it.
              */
             try {
-                const found = await listFlowDrafts(selected.id, flowId);
+                const {
+                    data: { drafts: found },
+                } = await listFlowDrafts({ path: { guildId: selected.id, flowId } });
                 if (cancelled || found.length === 0) return;
                 setDrafts(orderDraftsForPicker(found));
                 setDraftPickerOpen(true);
@@ -882,7 +877,7 @@ function FlowBuilder() {
         return () => {
             cancelled = true;
         };
-    }, [selected, flowId, rebaseDraft, putGraphOnCanvas, setGraphIssues, refreshNextRuns]);
+    }, [selected, flowId, queryClient, rebaseDraft, putGraphOnCanvas, setGraphIssues, refreshNextRuns]);
 
     /**
      * Load a draft from the picker: onto the canvas the way the flow loads, with the
@@ -913,7 +908,9 @@ function FlowBuilder() {
         async (draft: FlowDraft) => {
             if (!selected || !flowId) return;
             try {
-                await discardFlowDraft(selected.id, flowId, draft.draftId);
+                await discardFlowDraft({
+                    path: { guildId: selected.id, flowId, draftId: String(draft.draftId) },
+                });
                 const left = drafts.filter((candidate) => candidate.draftId !== draft.draftId);
                 setDrafts(left);
                 if (left.length === 0) setDraftPickerOpen(false);
@@ -1072,9 +1069,16 @@ function FlowBuilder() {
         if (!selected || !flowId) return;
         setAttachmentLoading(true);
         try {
-            const [current, all] = await Promise.all([
-                getFlowAttachment(selected.id, flowId),
-                listJourneys(selected.id),
+            const [
+                {
+                    data: { attachment: current },
+                },
+                {
+                    data: { journeys: all },
+                },
+            ] = await Promise.all([
+                getFlowAttachment({ path: { guildId: selected.id, flowId } }),
+                listJourneys({ path: { guildId: selected.id } }),
             ]);
             setAttachment(current);
             setGuildJourneys(all);
@@ -1105,8 +1109,9 @@ function FlowBuilder() {
         async (journeyKey: string) => {
             if (!selected || !flowId) return;
             try {
-                const result = await attachFlowToJourney(selected.id, flowId, journeyKey);
-                setDeclaredResources(await getFlowResources(selected.id, flowId));
+                const path = { guildId: selected.id, flowId };
+                const { data: result } = await attachFlowToJourney({ path, body: { journeyKey } });
+                setDeclaredResources((await getFlowResources({ path })).data.resources);
                 await refreshAttachment();
                 notifications.show({
                     color: 'brand',
@@ -1127,8 +1132,9 @@ function FlowBuilder() {
     const handleDetach = useCallback(async () => {
         if (!selected || !flowId) return;
         try {
-            await detachFlowFromJourney(selected.id, flowId);
-            setDeclaredResources(await getFlowResources(selected.id, flowId));
+            const path = { guildId: selected.id, flowId };
+            await detachFlowFromJourney({ path });
+            setDeclaredResources((await getFlowResources({ path })).data.resources);
             await refreshAttachment();
             notifications.show({
                 color: 'brand',
@@ -1170,7 +1176,7 @@ function FlowBuilder() {
         setInstallPlan(null);
         setInstallPlanError(null);
         try {
-            const plan = await getInstallPlan(selected.id, flowId);
+            const { data: plan } = await getInstallPlan({ path: { guildId: selected.id, flowId } });
             if (isCurrent()) setInstallPlan(plan);
         } catch (cause) {
             if (!isCurrent()) return;
@@ -1315,9 +1321,9 @@ function FlowBuilder() {
             // An autosave still on its way would land after this save and put back the
             // draft it deletes. Settled first, and its outcome is not this save's concern.
             await draftAutosave.settle();
-            const updated = await updateFlow(selected.id, flowId, {
-                ...sent,
-                baseUpdatedAt: canvasBase ?? undefined,
+            const { data: updated } = await updateFlow({
+                path: { guildId: selected.id, flowId },
+                body: { ...sent, baseUpdatedAt: canvasBase ?? undefined },
             });
             setEnabled(updated.enabled);
             setDirty(false);
@@ -1413,10 +1419,15 @@ function FlowBuilder() {
             if (draftOnlySave) {
                 // Set by the load every save follows, so absent only if that stopped holding.
                 if (!canvasBase) throw new Error('A draft-only save with no flow version under it.');
-                await saveMyFlowDraft(selected.id, flowId, { ...draftOnlySave, baseUpdatedAt: canvasBase });
+                await saveMyFlowDraft({
+                    path: { guildId: selected.id, flowId },
+                    body: { ...draftOnlySave, baseUpdatedAt: canvasBase },
+                });
             } else {
-                const mine = (await listFlowDrafts(selected.id, flowId)).find((draft) => draft.mine);
-                if (mine) await discardFlowDraft(selected.id, flowId, mine.draftId);
+                const path = { guildId: selected.id, flowId };
+                const { data } = await listFlowDrafts({ path });
+                const mine = data.drafts.find((draft) => draft.mine);
+                if (mine) await discardFlowDraft({ path: { ...path, draftId: String(mine.draftId) } });
             }
             // Not left to the pause. A browser Back resolves the held navigation a tick
             // later, so the page re-renders unpaused before it unmounts — and its flush on
@@ -1477,7 +1488,10 @@ function FlowBuilder() {
         const previous = enabled;
         setEnabled(next);
         try {
-            const updated = await updateFlow(selected.id, flowId, { enabled: next });
+            const { data: updated } = await updateFlow({
+                path: { guildId: selected.id, flowId },
+                body: { enabled: next },
+            });
             setStoredIssueCount(updated.issues.length);
             // Switching on or off starts or stops the flow's schedules — its own request,
             // not a save, so the countdown is asked for again here too.
@@ -1520,7 +1534,7 @@ function FlowBuilder() {
         if (!selected || !flowId) return;
         setInstalling(true);
         try {
-            const result = await installFlow(selected.id, flowId);
+            const { data: result } = await installFlow({ path: { guildId: selected.id, flowId } });
             const outcome = summariseInstallOutcome(result);
             notifications.show({
                 color: outcome.tone,
@@ -1531,7 +1545,7 @@ function FlowBuilder() {
             setInstallOpen(false);
 
             // Flips the toolbar to its installed face without a reload.
-            void refreshInstalledCount();
+            void rereadPublished();
 
             // The install wrote ids into this flow's nodes, so what is on screen is now
             // behind the server. Reloading would discard unsaved canvas edits, so the
@@ -1574,7 +1588,9 @@ function FlowBuilder() {
         if (!selected || !flowId) return;
         setDeploying(true);
         try {
-            const { posted } = await deployFlow(selected.id, flowId);
+            const {
+                data: { posted },
+            } = await deployFlow({ path: { guildId: selected.id, flowId } });
             setDeployOpen(false);
             const buttons = posted.reduce((total, entry) => total + entry.buttonCount, 0);
             notifications.show({
@@ -1759,8 +1775,8 @@ function FlowBuilder() {
     );
 
     // Every decision about what the install dialog says lives in `installSummary`,
-    // which is a plain module and therefore testable — `web/` has no jsdom, so a
-    // decision left inside JSX is a decision nothing can check.
+    // which is a plain module a unit test drives — a decision left inside JSX is one
+    // only a render of the whole builder can check.
     const planSummary = useMemo(
         () => (installPlan ? summariseInstallPlan(installPlan) : null),
         [installPlan]
@@ -2436,10 +2452,9 @@ function FlowBuilder() {
                     flowId={flowId}
                     flowName={name || 'this flow'}
                     onChanged={(action) => {
-                        // The toolbar button's face is derived from this count, so a
-                        // teardown has to move it or the button keeps claiming the flow
-                        // is installed after its channels are gone.
-                        void refreshInstalledCount();
+                        // The toolbar button's face needs no refresh here: the dialog
+                        // re-reads the published query it shares with this page before
+                        // it calls back, so the count has already moved.
 
                         // Only an unpublish invalidates the canvas. An undeploy retires
                         // messages and leaves every bound id exactly as it was.

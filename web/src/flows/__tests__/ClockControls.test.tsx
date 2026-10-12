@@ -1,7 +1,7 @@
 import { screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
-import type { BlockConfigField } from '../../api/types';
+import type { BlockConfigField } from '@brattybot/web-sdk';
 import { renderWithProviders } from '../../__tests__/support/renderWithProviders';
 import { renderControl } from '../controls/renderControl';
 import type { ControlContext, ServerTimeZone } from '../controls/types';

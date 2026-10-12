@@ -367,4 +367,83 @@ describe('PUT /:guildId/settings/time-zone', () => {
         expect((await putTimeZone({ timeZone: 'America/'.repeat(20) })).status).toBe(400);
         expect(guildSettingsRepoMock.setTimeZone).not.toHaveBeenCalled();
     });
+
+    it("refuses an empty or absurdly long zone with the schema's own sentences, which the dashboard is given too", async () => {
+        expect(((await (await putTimeZone({ timeZone: '' })).json()) as ErrorBody).error).toBe(
+            'Pick a time zone. "Whenever" is not one.'
+        );
+        expect(((await (await putTimeZone({ timeZone: 'America/'.repeat(20) })).json()) as ErrorBody).error).toBe(
+            "That's not a time zone, that's an essay. Pick one from the list."
+        );
+    });
+
+    it('answers a body that is not JSON with 415, and malformed JSON with its own sentence', async () => {
+        // On `apiRouter`, as every route is: the validator answers both before the handler.
+        const notJson = await app().request(`/${GUILD_ID}/settings/time-zone`, {
+            method: 'PUT',
+            headers: { 'content-type': 'text/plain' },
+            body: 'UTC',
+        });
+        const malformed = await app().request(`/${GUILD_ID}/settings/time-zone`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: '{"timeZone": "UTC',
+        });
+
+        expect(notJson.status).toBe(415);
+        expect(malformed.status).toBe(400);
+        expect(await malformed.json()).toEqual({ error: 'Malformed JSON in request body' });
+        expect(guildSettingsRepoMock.setTimeZone).not.toHaveBeenCalled();
+    });
+});
+
+/*
+ * The validator in front of the handler throws these itself, before any hook, and Hono
+ * would answer them as plain text. The dashboard reads `error` off every refusal, so a
+ * text body would surface as a bare "Request failed (400)".
+ */
+describe('refusals the request validator raises', () => {
+    it('answers malformed JSON in the { error } envelope', async () => {
+        const response = await app().request(`/${GUILD_ID}/settings`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: '{"staffRoleIds": [',
+        });
+
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as ErrorBody).error).toBeTruthy();
+        expect(guildSettingsRepoMock.setStaffRoleIds).not.toHaveBeenCalled();
+    });
+
+    it('answers a body that is not JSON in the { error } envelope', async () => {
+        const response = await app().request(`/${GUILD_ID}/settings`, {
+            method: 'PUT',
+            headers: { 'content-type': 'text/plain' },
+            body: 'staff please',
+        });
+
+        expect(response.status).toBe(415);
+        expect(((await response.json()) as ErrorBody).error).toBeTruthy();
+        expect(guildSettingsRepoMock.setStaffRoleIds).not.toHaveBeenCalled();
+    });
+
+    it('leaves a real crash to the parent app rather than dressing it as a refusal', async () => {
+        /*
+         * The router translates HTTP refusals only. A repo failure has to reach whoever
+         * mounted the router — the e2e app records it as a fault — not come back as a
+         * 4xx the dashboard would show as an ordinary "couldn't save".
+         */
+        guildSettingsRepoMock.getByGuildId.mockRejectedValue(new Error('database fell over'));
+        const parentSaw: string[] = [];
+        const parent = app();
+        parent.onError((error, c) => {
+            parentSaw.push(error.message);
+            return c.json({ error: 'Internal error.' }, 500);
+        });
+
+        const response = await parent.request(`/${GUILD_ID}/settings`);
+
+        expect(response.status).toBe(500);
+        expect(parentSaw).toEqual(['database fell over']);
+    });
 });
