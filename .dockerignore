@@ -3,3 +3,5 @@ node_modules
 .gitignore
 *.md
 dist
+# Pulumi program for the Cloudflare edge; run from a workstation, never part of the image.
+infra

@@ -1,0 +1,22 @@
+{
+    "$schema": "https://json.schemastore.org/tsconfig",
+    "compilerOptions": {
+        "target": "ES2022",
+        "lib": ["ES2022"],
+        // Pulumi's Node runtime forces moduleResolution "nodenext" onto ts-node when TypeScript >= 4.7, overriding
+        // whatever this file says. Declaring the matching pair here keeps `pnpm typecheck` honest: without it, tsc
+        // checks a config the engine never runs, and `pulumi preview` dies on TS5110 instead of showing a plan.
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
+        "strict": true,
+        "esModuleInterop": true,
+        "forceConsistentCasingInFileNames": true,
+        "skipLibCheck": true,
+        "noEmit": true,
+        "types": ["node"],
+        "noUnusedLocals": true,
+        "noUnusedParameters": true
+    },
+    "include": ["index.ts"],
+    "exclude": ["node_modules"]
+}

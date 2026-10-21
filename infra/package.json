@@ -1,0 +1,17 @@
+{
+    "name": "brattybot-infra",
+    "version": "0.0.1",
+    "private": true,
+    "description": "Pulumi TypeScript for BrattyBot's Cloudflare edge: the tunnel serving the dashboard at brattybot.fettra.app, and its DNS record.",
+    "scripts": {
+        "typecheck": "tsc -p tsconfig.json --noEmit"
+    },
+    "dependencies": {
+        "@pulumi/cloudflare": "^6.23.0",
+        "@pulumi/pulumi": "^3.270.0"
+    },
+    "devDependencies": {
+        "@types/node": "^24.3.0",
+        "typescript": "^5.9.2"
+    }
+}

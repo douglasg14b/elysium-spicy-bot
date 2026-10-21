@@ -8,6 +8,7 @@ import { dirname, join, resolve } from 'path';
 import { WEB_DEV_CLIENT_PORT, WEB_ENABLED, WEB_PORT, getMissingWebEnv } from '../environment';
 import { registerApiRoutes } from './api';
 import { UNEXPECTED_ERROR_SENTENCE } from './api/openApi';
+import { noStoreApiResponses, refusePlaintextRequests } from './edgeGuards';
 import type { AppEnv } from './types';
 
 /**
@@ -21,9 +22,15 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 /**
- * Resolve the built React app directory. In dev (`tsx`) this file runs from `src/web`,
- * and there is no build — Vite serves the client separately and proxies `/api` here.
- * In production (`node dist/web/server.js`) the client build is copied to `dist/web/client`.
+ * Where `build:web` writes the dashboard: Vite's `outDir` in `web/vite.config.ts`. Production
+ * runs this file from source (`pnpm start` is `tsx src/bot.ts`), so the build is served from
+ * where Vite left it — nothing copies it anywhere else.
+ */
+export const CLIENT_BUILD_DIR = resolve(__dirname, '../../web/dist');
+
+/**
+ * Resolve the built React app directory, or null when this server should not serve one.
+ * In dev Vite serves the client on its own port and proxies `/api` here.
  *
  * **`web/dist` is deliberately not a candidate in dev.** It used to be, and the
  * result was a trap: `web/dist` is whatever `build:web` last produced, and nothing
@@ -38,9 +45,9 @@ const __dirname = dirname(__filename);
  * In dev the client is Vite's job, on its own port. `pnpm dev` starts both.
  */
 function resolveClientDir(): string | null {
-    // `tsx` sets this in every dev script; a built server runs under plain node.
+    // Every dev script sets this; `pnpm start` (production) does not, though it also runs tsx.
     const isDev = process.env.TSX === 'true';
-    const candidates = isDev ? [] : [resolve(__dirname, 'client')];
+    const candidates = isDev ? [] : [CLIENT_BUILD_DIR];
     return candidates.find((dir) => existsSync(join(dir, 'index.html'))) ?? null;
 }
 
@@ -49,6 +56,10 @@ let server: ServerType | null = null;
 export function buildApp(): OpenAPIHono<AppEnv> {
     // Serves exactly as a plain Hono would; see `registerApiRoutes` for why it is not one.
     const app = new OpenAPIHono<AppEnv>();
+
+    // Registered first so they wrap everything below, including the static client.
+    app.use('*', refusePlaintextRequests);
+    app.use('/api/*', noStoreApiResponses);
 
     // JSON API (auth, guilds, config, flows) lives under /api.
     registerApiRoutes(app);

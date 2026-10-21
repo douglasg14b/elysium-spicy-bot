@@ -1,0 +1,16 @@
+name: brattybot-edge
+runtime:
+    name: nodejs
+    options:
+        typescript: true
+# Published as the stack's pulumi:description tag, which Pulumi caps at 256 characters.
+description: >-
+    BrattyBot's Cloudflare edge: the tunnel fronting the dashboard at brattybot.fettra.app and its DNS record. WAF and
+    rate limit rules are hand-managed in the dashboard. See infra/README.md.
+config:
+    accountId:
+        type: string
+        description: Cloudflare account id that owns the tunnel.
+    zoneId:
+        type: string
+        description: Cloudflare zone id for fettra.app.

@@ -1,5 +1,7 @@
+import { resolve } from 'path';
+import { fileURLToPath } from 'url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildApp } from '../server';
+import { buildApp, CLIENT_BUILD_DIR } from '../server';
 
 /*
  * `/api/health` stood in for by a route that throws, the way one does on a stored row that
@@ -105,5 +107,46 @@ describe('buildApp', () => {
             '[web] GET /api/guilds/900000000000000001/session-lookup-explodes failed:',
             expect.objectContaining({ message: 'the session store went away' })
         );
+    });
+});
+
+/**
+ * What the app does behind Cloudflare. The edge redirects plain HTTP, so these are the app's
+ * own answer if that zone setting is ever switched off — see `edgeGuards.ts`.
+ */
+describe('buildApp behind Cloudflare', () => {
+    it.each([
+        ['CF-Visitor', '{"scheme":"http"}'],
+        ['X-Forwarded-Proto', 'http'],
+        ['X-Forwarded-Proto', 'https, http'],
+    ])('refuses a request whose %s says it arrived over plain HTTP', async (header, value) => {
+        const response = await buildApp().request('/api/no-such-thing', { headers: { [header]: value } });
+
+        expect(response.status).toBe(403);
+    });
+
+    it('serves a request that arrived over HTTPS', async () => {
+        const response = await buildApp().request('/api/no-such-thing', {
+            headers: { 'CF-Visitor': '{"scheme":"https"}', 'X-Forwarded-Proto': 'https' },
+        });
+
+        expect(response.status).toBe(404);
+    });
+
+    it('marks every API answer as never cacheable, refusals and failures included', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const app = buildApp();
+
+        for (const path of ['/api/no-such-thing', '/api/guilds', '/api/health']) {
+            const response = await app.request(path);
+            expect(response.headers.get('Cache-Control'), path).toBe('private, no-store');
+        }
+    });
+
+    it('serves the dashboard from where Vite builds it', async () => {
+        const { default: viteConfig } = await import('../../../web/vite.config');
+        const webRoot = resolve(fileURLToPath(import.meta.url), '../../../../web');
+
+        expect(CLIENT_BUILD_DIR).toBe(resolve(webRoot, viteConfig.build?.outDir ?? 'missing'));
     });
 });

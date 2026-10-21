@@ -14,6 +14,17 @@ services:
             DB_TYPE: ${DB_TYPE}
             SQLITE_DB_PATH: ${SQLITE_DB_PATH}
             PG_CONNECTION_STRING: ${PG_CONNECTION_STRING}
+            OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+            OPENAI_API_KEY: ${OPENAI_API_KEY}
+            # The dashboard starts only when all three below are set, and logs which are
+            # missing otherwise. The URL is the hostname in infra/index.ts; the Discord app must
+            # have https://brattybot.fettra.app/api/auth/callback registered as an OAuth redirect.
+            WEB_PUBLIC_URL: https://brattybot.fettra.app
+            DISCORD_OAUTH_CLIENT_SECRET: ${DISCORD_OAUTH_CLIENT_SECRET}
+            SESSION_SECRET: ${SESSION_SECRET}
+            ADMIN_DISCORD_IDS: ${ADMIN_DISCORD_IDS}
+        # No `ports:` on purpose: the dashboard (WEB_PORT, 8080) is reached only through the
+        # tunnel below, so nothing is published on the host.
         init: true # tiny init to forward signals & reap children
         stop_grace_period: 15s # give time to logout cleanly
         healthcheck:
@@ -22,6 +33,23 @@ services:
             timeout: 3s
             retries: 3
             start_period: 30s # ample time for first login
+        restart: unless-stopped
+
+    # Publishes the dashboard at https://brattybot.fettra.app. The tunnel, its routing and
+    # its DNS record are declared in infra/ (see infra/README.md); Cloudflare holds the
+    # routing, so this connector needs only its token.
+    cloudflared:
+        # Pinned rather than `latest`, so a connector upgrade is a reviewed change, not a
+        # side effect of a redeploy.
+        image: cloudflare/cloudflared:2026.10.0
+        command: tunnel --no-autoupdate run
+        environment:
+            # `pulumi stack output tunnelToken --show-secrets` in infra/. A secret: anyone
+            # holding it can serve this hostname. Same name in Coolify as cloudflared reads.
+            TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+        depends_on:
+            discord-spicy-bot:
+                condition: service_healthy
         restart: unless-stopped
 
 volumes:

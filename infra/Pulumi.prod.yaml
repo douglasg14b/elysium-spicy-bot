@@ -1,0 +1,5 @@
+config:
+  cloudflare:apiToken:
+    secure: AAABAOepWLHmhUlAPekSGVL+92ueF7+DzkGczVijtyGiDIIPWzpVTOhV+0x9KHAlndtE1fZBdHXq5KaftwISShxJuEhHMXN27bJIZzM9d4hNVdvgfw==
+  brattybot-edge:accountId: 95b8af8ccb4ef613c56be4082f89b5be
+  brattybot-edge:zoneId: a4c00c7b3fe9f00ab89a1f3b216b8409

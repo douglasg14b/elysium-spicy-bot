@@ -39,6 +39,7 @@ The bot is aimed at an **adults-only** Discord: **kinky**, **sex-positive**, **N
 - `generated/openapi.generated.json` — the dashboard API's OpenAPI spec, emitted from the real `/api` mount (`src/web/api/openApiDocument.ts`) and committed. Only routers built with `apiRouter()` (`src/web/api/openApi.ts`) appear in it.
 - `packages/web-sdk/` (`@brattybot/web-sdk`) — the dashboard's API client, generated from that spec by `@hey-api/openapi-ts`: types, fetch functions, TanStack Query helpers, zod request schemas. `src/gen/` is generated **and committed**; `setupClient.ts` and `apiError.ts` are hand-written. Consumed as source (no build step).
 - `github-plan-cli/` — GitHub “Jarvis” plan + implement automation (`pnpm github-plan`, workflows `jarvis-plan.yml` / `jarvis-implement.yml`). **Local** implement: Cursor agent + `implementer-generic.md` → `pr-draft.json`. **CI** (`GITHUB_ACTIONS` is the string `true`): Node orchestrates Cursor agents via prompts in `github-plan-cli/prompts/` (no separate CI implementer under `.cursor/agents/`); structured reports under gitignored `.jarvis/ci/` (`implement-report.json`, `review-aggregate.json`, `review-feedback.md`); schemas and helpers in `github-plan-cli/src/plan/ciImplementArtifacts.ts`. Tests under `github-plan-cli/__tests__/`.
+- `infra/` — Pulumi program for the Cloudflare edge: the tunnel publishing the dashboard at `brattybot.fettra.app`, and its DNS record. The `cloudflared` sidecar in `docker-compose.yml` connects with its token. Run from a workstation (dockerignored); `infra/README.md` is the runbook, including the WAF rules set by hand.
 
 **Features (code):** `ai-reply`, `birthday-tracker`, `flash-chat`, `tickets`. **`voice-chat-engager`** is placeholder (`readme.md` only).
 
@@ -72,7 +73,7 @@ Each feature lives under `src/features/<kebab-name>/`. Expect this shape; add su
 
 ## Env (required unless noted)
 
-`DISCORD_APP_ID`, `DISCORD_BOT_TOKEN`, `DB_TYPE` (`sqlite` \| `postgres`), `OPENROUTER_API_KEY` (reply generation), `OPENAI_API_KEY` (guardrails only); plus `SQLITE_DB_PATH` or `PG_CONNECTION_STRING` per `DB_TYPE`. Optional: `ENV`, `OPENROUTER_BASE_URL`, `AI_MODEL` (OpenRouter slug), `AI_MAX_CONTEXT_MESSAGES`.
+`DISCORD_APP_ID`, `DISCORD_BOT_TOKEN`, `DB_TYPE` (`sqlite` \| `postgres`), `OPENROUTER_API_KEY` (reply generation), `OPENAI_API_KEY` (guardrails only); plus `SQLITE_DB_PATH` or `PG_CONNECTION_STRING` per `DB_TYPE`. Optional: `ENV`, `OPENROUTER_BASE_URL`, `AI_MODEL` (OpenRouter slug), `AI_MAX_CONTEXT_MESSAGES`. The dashboard starts only when `WEB_PUBLIC_URL`, `DISCORD_OAUTH_CLIENT_SECRET` and `SESSION_SECRET` are all set (production's are listed in `infra/README.md`).
 
 ## Commands
 

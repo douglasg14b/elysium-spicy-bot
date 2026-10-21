@@ -2,6 +2,7 @@ packages:
     - '.'
     - 'web'
     - 'packages/*'
+    - 'infra'
 
 onlyBuiltDependencies:
     - better-sqlite3
