@@ -8,6 +8,7 @@ import {
 } from '../blocks/actionPostEmbed';
 import { block as conditionInChannelNode } from '../blocks/conditionInChannel';
 import type { FlowRunContext } from '../blocks/types';
+import { fakeGuild } from './support/fakeGuild';
 
 const CHANNEL_ID = 'channel-abc';
 
@@ -99,12 +100,9 @@ describe('condition.inChannel', () => {
 
 describe('action.postEmbed', () => {
     function contextWithChannel(send: ReturnType<typeof vi.fn>): FlowRunContext {
-        const channel = { isTextBased: () => true, send };
         return {
-            client: {
-                channels: { fetch: vi.fn().mockResolvedValue(channel) },
-            } as unknown as FlowRunContext['client'],
-            guild: { id: 'guild-1' } as FlowRunContext['guild'],
+            client: {} as FlowRunContext['client'],
+            guild: fakeGuild({ channels: { [CHANNEL_ID]: { send } } }),
             subject: {} as FlowRunContext['subject'],
             runId: 'run-1',
             nodeId: 'node-1',
@@ -165,26 +163,40 @@ describe('action.postEmbed', () => {
         expect(payload.embeds[0]?.data.color).toBeUndefined();
     });
 
-    it('throws when the target channel is not a sendable text channel', async () => {
-        const context = {
-            client: {
-                channels: { fetch: vi.fn().mockResolvedValue(null) },
-            } as unknown as FlowRunContext['client'],
-            guild: { id: 'guild-1' } as FlowRunContext['guild'],
-            subject: {} as FlowRunContext['subject'],
-            runId: 'run-1',
-            nodeId: 'node-1',
-            chainDepth: 1,
-            variables: {},
-            setOutput: () => {},
+    it("never posts into a channel that is not in the run's own server, though the bot can see it", async () => {
+        // The bot is in more than one server, so its client resolves a channel in any of
+        // them. A flow naming another server's channel must not post there as the bot —
+        // nor even ask Discord about it.
+        const send = vi.fn().mockResolvedValue({ id: 'message-1' });
+        const clientFetch = vi.fn().mockResolvedValue({ isDMBased: () => false, isTextBased: () => true, send });
+        const context: FlowRunContext = {
+            ...contextWithChannel(vi.fn()),
+            client: { channels: { fetch: clientFetch } } as unknown as FlowRunContext['client'],
+            guild: fakeGuild({ channels: {} }),
         };
 
         await expect(
             actionPostEmbedNode.run(
-                parseConfig({ channelId: CHANNEL_ID, title: 'T', description: 'D' }),
+                parseConfig({ channelId: 'another-servers-channel', title: 'T', description: 'D' }),
                 context
             )
-        ).rejects.toThrow(/not a sendable text channel/);
+        ).rejects.toThrow(/not a sendable text channel in this server/);
+        expect(clientFetch).not.toHaveBeenCalled();
+        expect(send).not.toHaveBeenCalled();
+    });
+
+    it("still reaches this server's archived thread, which the cache does not hold", async () => {
+        const send = vi.fn().mockResolvedValue({ id: 'message-1' });
+        const context: FlowRunContext = {
+            ...contextWithChannel(vi.fn()),
+            guild: fakeGuild({ uncachedChannels: { 'archived-thread': { send } } }),
+        };
+
+        await actionPostEmbedNode.run(
+            parseConfig({ channelId: 'archived-thread', title: 'T', description: 'D' }),
+            context
+        );
+        expect(send).toHaveBeenCalledTimes(1);
     });
 
     it('converts a hex colour string to the integer discord.js expects', () => {

@@ -333,7 +333,12 @@ function world() {
         id: GUILD_ID,
         name: 'The Dungeon',
         members: { fetch: fetchMember },
-        channels: { cache: { get: () => undefined }, fetch: vi.fn().mockResolvedValue(channel) },
+        // Cached, as the Guilds intent keeps every channel: a block posts only to one of
+        // its own guild's, from the cache.
+        channels: {
+            cache: { get: (id: string) => (id === CHANNEL_ID ? channel : undefined) },
+            fetch: vi.fn().mockResolvedValue(channel),
+        },
     };
     const client = {
         user: { id: 'bot-1' },

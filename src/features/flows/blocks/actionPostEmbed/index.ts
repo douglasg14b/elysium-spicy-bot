@@ -1,6 +1,7 @@
 import { EmbedBuilder } from 'discord.js';
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
+import { requireChannelInGuild } from '../channelInGuild';
 import { tokensIn } from '../../engine/copyRendering';
 
 export const ACTION_POST_EMBED = 'action.postEmbed';
@@ -391,11 +392,9 @@ export const block: BlockManifest<PostEmbedConfig> = {
             return { kind: 'fail', error: urlProblem };
         }
 
-        const channel = await context.client.channels.fetch(config.channelId);
-        // Thrown rather than returned as `fail` — see the note on `action.sendMessage`.
-        if (!channel || !channel.isTextBased() || !('send' in channel)) {
-            throw new Error(`Channel ${config.channelId} is not a sendable text channel`);
-        }
+        // This guild's channels only, and thrown for one that is not sendable here —
+        // see `requireChannelInGuild`.
+        const channel = await requireChannelInGuild(context.guild, config.channelId);
 
         const embed = new EmbedBuilder().setTitle(config.title).setDescription(config.description);
 

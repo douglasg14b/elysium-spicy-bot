@@ -694,8 +694,8 @@ export const zFlowNode = z.object({
 });
 
 export const zFlowGraph = z.object({
-    edges: z.array(zFlowEdge),
-    nodes: z.array(zFlowNode),
+    edges: z.array(zFlowEdge).max(500, 'A flow holds at most 500 connections.'),
+    nodes: z.array(zFlowNode).max(250, 'A flow holds at most 250 blocks.'),
     version: z.literal(1)
 });
 
@@ -866,7 +866,7 @@ export const zGuildSettings = z.object({
 });
 
 export const zGuildSettingsUpdate = z.object({
-    staffRoleIds: z.array(z.string().min(1))
+    staffRoleIds: z.array(z.string().min(1, 'A staff role needs an id.').max(32, 'That\'s not a role id. Pick one from the list.')).max(50, 'That is more staff roles than any server has. Trim the list.')
 });
 
 export const zGuildTimeZoneUpdate = z.object({
@@ -1178,7 +1178,7 @@ export const zPermissionAudience = z.enum([
 export const zPermissionIntent = z.object({
     access: zPermissionAccess,
     audience: zPermissionAudience,
-    roleIds: z.array(z.string().min(1).regex(/^(?:(?!resource:)[\s\S]*|resource:[a-z0-9]+(-[a-z0-9]+)*)$/, 'A declared role reference must name a valid resource key (lowercase letters, numbers and single hyphens).')).optional()
+    roleIds: z.array(z.string().min(1).regex(/^(?:(?!resource:)[\s\S]*|resource:[a-z0-9]+(-[a-z0-9]+)*)$/, 'A declared role reference must name a valid resource key (lowercase letters, numbers and single hyphens).')).max(50, 'A permission names at most 50 roles.').optional()
 });
 
 export const zPublishedButtonMessage = z.object({
@@ -1434,12 +1434,12 @@ export const zResourceDeclaration = z.object({
     key: z.string().min(1, 'Give the resource a key.').max(64, 'Resource keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).'),
     kind: zResourceKind,
     parentKey: z.string().min(1, 'Give the resource a key.').max(64, 'Resource keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).').optional(),
-    permissions: z.array(zPermissionIntent).optional(),
+    permissions: z.array(zPermissionIntent).max(20, 'A resource has at most 20 permission rows.').optional(),
     ticketType: zTicketTypeSettings.optional()
 });
 
 export const zFlowResourcesSave = z.object({
-    resources: z.array(zResourceDeclaration)
+    resources: z.array(zResourceDeclaration).max(100, 'A journey declares at most 100 resources.')
 });
 
 export const zJourney = z.object({
@@ -1455,7 +1455,7 @@ export const zJourneyCreate = z.object({
     description: z.string().max(500, 'Descriptions cap at 500 characters.').optional(),
     journeyKey: z.string().min(1, 'Give the resource a key.').max(64, 'Resource keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).'),
     name: z.string().min(1, 'Give the journey a name.').max(100, 'Journey names cap at 100 characters.'),
-    resources: z.array(zResourceDeclaration)
+    resources: z.array(zResourceDeclaration).max(100, 'A journey declares at most 100 resources.')
 });
 
 /**
@@ -1464,7 +1464,7 @@ export const zJourneyCreate = z.object({
 export const zJourneyUpdate = z.object({
     description: z.string().max(500, 'Descriptions cap at 500 characters.').nullish(),
     name: z.string().min(1, 'Give the journey a name.').max(100, 'Journey names cap at 100 characters.').optional(),
-    resources: z.array(zResourceDeclaration).optional()
+    resources: z.array(zResourceDeclaration).max(100, 'A journey declares at most 100 resources.').optional()
 });
 
 /**
@@ -1600,7 +1600,7 @@ export const zWarningsConfig = z.object({
 });
 
 export const zWarningsConfigUpdate = z.object({
-    modChannelId: z.string().min(1, 'Pick a channel. Warning notices do not haunt the void.')
+    modChannelId: z.string().min(1, 'Pick a channel. Warning notices do not haunt the void.').regex(/^(\d{17,20})?$/, 'That\'s not a channel id. Pick one from the list.')
 });
 
 export const zLoginCallbackQuery = z.object({
@@ -2158,10 +2158,10 @@ export const zListTicketsPath = z.object({
 });
 
 export const zListTicketsQuery = z.object({
-    status: z.string().optional(),
+    status: z.string().max(16, 'That is not a ticket status. Try open, closed or deleted.').optional(),
     type: z.string().max(64, 'That is not a ticket type.').optional(),
     unclaimed: z.string().optional(),
-    search: z.string().optional()
+    search: z.string().max(100, 'That search is longer than any name on a ticket. Shorten it.').optional()
 });
 
 /**

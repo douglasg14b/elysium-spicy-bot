@@ -229,14 +229,25 @@ type ResolveUserIdResult =
  * Unlike a ticket there is no cross-guild concern to hide: progress is looked up by
  * `(guildId, userId)` together, so another guild's row is unreachable by construction and
  * an unknown id simply has no activity.
+ *
+ * Twenty digits can still exceed a snowflake's 64 bits, which Discord refuses as a malformed
+ * request rather than an unknown member — so that bound is checked here too, as a `BigInt`.
+ * The refusal echoes the id, cut short: a path segment can be as long as the caller likes.
  */
 function resolveUserId(rawId: string): ResolveUserIdResult {
-    if (!/^\d{17,20}$/.test(rawId)) {
-        return { ok: false, error: `\`${rawId}\` is not a user id.`, status: 400 };
+    if (!/^\d{17,20}$/.test(rawId) || BigInt(rawId) > MAX_SNOWFLAKE) {
+        const shown = rawId.length > ECHOED_ID_MAX_LENGTH ? `${rawId.slice(0, ECHOED_ID_MAX_LENGTH)}…` : rawId;
+        return { ok: false, error: `\`${shown}\` is not a user id.`, status: 400 };
     }
 
     return { ok: true, userId: rawId };
 }
+
+/** A snowflake is an unsigned 64-bit integer. */
+const MAX_SNOWFLAKE = 2n ** 64n - 1n;
+
+/** How much of a refused id is echoed back. */
+const ECHOED_ID_MAX_LENGTH = 32;
 
 async function memberSnapshot(guild: Guild, userId: string): Promise<LevelingMember | null> {
     const found = await fetchMemberSnapshotsById(guild, [userId]);

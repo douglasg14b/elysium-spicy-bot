@@ -86,17 +86,22 @@ describe('notifyWarningIssued', () => {
                 me: { id: 'bot-1' },
             },
             channels: {
-                fetch: vi.fn().mockResolvedValue({
-                    id: 'mod-channel',
-                    type: ChannelType.GuildText,
-                    permissionsFor: () =>
-                        new PermissionsBitField([
-                            PermissionsBitField.Flags.ViewChannel,
-                            PermissionsBitField.Flags.SendMessages,
-                            PermissionsBitField.Flags.EmbedLinks,
-                        ]),
-                    send,
-                }),
+                cache: new Map([
+                    [
+                        'mod-channel',
+                        {
+                            id: 'mod-channel',
+                            type: ChannelType.GuildText,
+                            permissionsFor: () =>
+                                new PermissionsBitField([
+                                    PermissionsBitField.Flags.ViewChannel,
+                                    PermissionsBitField.Flags.SendMessages,
+                                    PermissionsBitField.Flags.EmbedLinks,
+                                ]),
+                            send,
+                        },
+                    ],
+                ]),
             },
         } as unknown as Guild;
 
@@ -126,7 +131,7 @@ describe('notifyWarningIssued', () => {
         const guild = {
             id: 'guild-1',
             members: { me: { id: 'bot-1' } },
-            channels: { fetch: vi.fn().mockResolvedValue(null) },
+            channels: { cache: new Map() },
         } as unknown as Guild;
 
         const status = await notifyWarningIssued(guild, sampleWarning(), new Date('2026-09-01T20:00:00.000Z'), {

@@ -26,6 +26,7 @@ import { flowReadinessIssues } from '../logic/flowReadiness';
 import { ensureBlocksDiscovered } from '../blocks/registry';
 import type { FlowGraph } from '../data/flowGraph';
 import type { FlowRunSeed } from '../blocks/types';
+import { fakeGuild } from './support/fakeGuild';
 
 const MEMBER_ROLE_ID = '900000000000000001';
 const BOOSTER_ROLE_ID = '900000000000000002';
@@ -121,7 +122,7 @@ function makeContext(options: { boosting: boolean }): {
     return {
         context: {
             client: {} as FlowRunSeed['client'],
-            guild: { id: 'guild-1' } as FlowRunSeed['guild'],
+            guild: fakeGuild({ roles: [{ id: BOOSTER_ROLE_ID }, { id: MEMBER_ROLE_ID }] }),
             subject,
             variables: {},
         },

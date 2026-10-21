@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
+import { changeableRole } from '../../logic/roleSafety';
 import { requireSubject } from '../types';
 
 export const ACTION_ASSIGN_ROLE = 'action.assignRole';
@@ -34,7 +35,13 @@ export const block: BlockManifest<AssignRoleConfig> = {
     emits: [],
     canSuspend: false,
     async run(config, context) {
-        await requireSubject(context).roles.add(config.roleId);
+        // Asked again on every run, not only at save: a role somebody granted
+        // Administrator after the flow went live is refused from then on.
+        const role = changeableRole(context.guild, config.roleId);
+        if (!role.ok) {
+            return { kind: 'fail', error: role.error };
+        }
+        await requireSubject(context).roles.add(role.role.id);
         return { kind: 'continue' };
     },
 };

@@ -4,6 +4,7 @@ import { ensureBlocksDiscovered } from '../blocks/registry';
 import type { FlowRunSeed } from '../blocks/types';
 import { executeFlow } from '../engine/executor';
 import { validateAuthoredGraph } from '../engine/graphValidation';
+import { fakeGuild } from './support/fakeGuild';
 
 /**
  * A channel an earlier block found, picked in a later block's channel picker.
@@ -26,22 +27,24 @@ beforeEach(() => {
     mockFindOpenTicket.mockReset();
 });
 
-/** A client whose every channel is sendable, recording what landed where. */
+/** A guild whose channels are all sendable, recording what landed where. */
 function makeSeed(): { context: FlowRunSeed; sentTo: Map<string, string[]> } {
     const sentTo = new Map<string, string[]>();
-    const fetch = vi.fn(async (channelId: string) => ({
-        isTextBased: () => true,
+    const sendable = (channelId: string): object => ({
         send: vi.fn(async ({ content }: { content: string }) => {
             sentTo.set(channelId, [...(sentTo.get(channelId) ?? []), content]);
             return { id: 'message-1' };
         }),
-    }));
+    });
 
     return {
         sentTo,
         context: {
-            client: { channels: { fetch } } as unknown as FlowRunSeed['client'],
-            guild: { id: 'guild-1', name: 'Afterdark' } as FlowRunSeed['guild'],
+            client: {} as FlowRunSeed['client'],
+            guild: fakeGuild({
+                name: 'Afterdark',
+                channels: { lobby: sendable('lobby'), 'ticket-channel-7': sendable('ticket-channel-7') },
+            }),
             subject: { id: 'user-1', toString: () => '<@user-1>', user: { username: 'spicypete' } } as unknown as FlowRunSeed['subject'],
             variables: {},
         },

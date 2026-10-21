@@ -2,8 +2,9 @@ import { OpenAPIHono } from '@hono/zod-openapi';
 import { findTargetHandler } from 'hono/utils/handler';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { requireAuth, requireGuildAccess } from '../../auth/middleware';
+import { dashboardRateLimiter } from '../../rateLimit';
 import type { AppEnv } from '../../types';
-import { registerApiRoutes } from '../index';
+import { apiBodyLimit, registerApiRoutes } from '../index';
 import { buildOpenApiDocument } from '../openApiDocument';
 
 /**
@@ -38,7 +39,12 @@ import { buildOpenApiDocument } from '../openApiDocument';
  * sub-router that has its own `onError` — every `apiRouter` does — in a fresh closure,
  * and a middleware `use`d there would otherwise never match.
  */
-const KNOWN_MIDDLEWARE: ReadonlySet<unknown> = new Set([requireAuth, requireGuildAccess]);
+const KNOWN_MIDDLEWARE: ReadonlySet<unknown> = new Set([
+    apiBodyLimit,
+    requireAuth,
+    dashboardRateLimiter.middleware,
+    requireGuildAccess,
+]);
 
 /** The HTTP methods an OpenAPI path item can hold an operation under. */
 const OPERATION_METHODS: ReadonlySet<string> = new Set([

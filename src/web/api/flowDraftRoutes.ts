@@ -2,8 +2,9 @@ import { createRoute, z } from '@hono/zod-openapi';
 import { flowDraftsRepo } from '../../features/flows/data/flowDraftsRepo';
 import { flowsRepo } from '../../features/flows/data/flowsRepo';
 import { validateFlowGraph } from '../../features/flows/engine/graphValidation';
+import { withDeclaredNodeData } from '../../features/flows/logic/declaredNodeData';
 import { readDeclaredKeys } from '../../features/flows/logic/declaredResourceKeys';
-import { flowReadinessIssues } from '../../features/flows/logic/flowReadiness';
+import { flowReadinessIssuesInGuild } from '../../features/flows/logic/flowReadiness';
 import {
     DECLARATIONS_UNREADABLE,
     flowDraft,
@@ -110,7 +111,8 @@ export function defineFlowDraftRoutes(router: ApiRouteRegistrar): undefined {
      * 500 `GET /flows/:flowId` gives.
      */
     router.openapi(listFlowDraftsRoute, async (c) => {
-        const guildId = c.get('guild').id;
+        const guild = c.get('guild');
+        const guildId = guild.id;
         const viewerId = c.get('user').id;
         const flow = await flowsRepo.getByFlowId(c.req.valid('param').flowId);
         if (!flow || flow.guildId !== guildId) {
@@ -132,7 +134,12 @@ export function defineFlowDraftRoutes(router: ApiRouteRegistrar): undefined {
         return c.json(
             {
                 drafts: drafts.map((draft) =>
-                    flowDraft(draft, viewerId, flow.updatedAt, flowReadinessIssues(draft.graph, declared.keys))
+                    flowDraft(
+                        draft,
+                        viewerId,
+                        flow.updatedAt,
+                        flowReadinessIssuesInGuild(draft.graph, declared.keys, guild)
+                    )
                 ),
             },
             200
@@ -141,7 +148,8 @@ export function defineFlowDraftRoutes(router: ApiRouteRegistrar): undefined {
 
     /*
      * Write the caller's draft — the builder's autosave. Structural check only, the same
-     * 400 a flow save gives; an incomplete graph is what drafts are for.
+     * 400 a flow save gives; an incomplete graph is what drafts are for. Stored as a flow
+     * save stores it, holding only the keys each block declares.
      *
      * `baseUpdatedAt` comes from the page — the flow version its canvas descends from —
      * because only the page knows what it loaded; see `FlowDraftInput.baseUpdatedAt`.
@@ -167,7 +175,7 @@ export function defineFlowDraftRoutes(router: ApiRouteRegistrar): undefined {
             authorId: user.id,
             authorName: user.username,
             name: body.name,
-            graph: structural.graph,
+            graph: withDeclaredNodeData(structural.graph),
             baseUpdatedAt: body.baseUpdatedAt,
         });
 

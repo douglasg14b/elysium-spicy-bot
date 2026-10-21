@@ -8,7 +8,7 @@ import { dirname, join, resolve } from 'path';
 import { WEB_DEV_CLIENT_PORT, WEB_ENABLED, WEB_PORT, getMissingWebEnv } from '../environment';
 import { registerApiRoutes } from './api';
 import { UNEXPECTED_ERROR_SENTENCE } from './api/openApi';
-import { noStoreApiResponses, refusePlaintextRequests } from './edgeGuards';
+import { dashboardSecureHeaders, noStoreApiResponses, refusePlaintextRequests } from './edgeGuards';
 import type { AppEnv } from './types';
 
 /**
@@ -57,7 +57,9 @@ export function buildApp(): OpenAPIHono<AppEnv> {
     // Serves exactly as a plain Hono would; see `registerApiRoutes` for why it is not one.
     const app = new OpenAPIHono<AppEnv>();
 
-    // Registered first so they wrap everything below, including the static client.
+    // Registered first so they wrap everything below, including the static client — and the
+    // headers before the HTTPS guard, so its refusal carries them too.
+    app.use('*', dashboardSecureHeaders);
     app.use('*', refusePlaintextRequests);
     app.use('/api/*', noStoreApiResponses);
 

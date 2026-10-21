@@ -23,6 +23,7 @@ import { up as addFlowRunVariables } from '../../../features-system/data-persist
 import { up as widenContextSnapshot } from '../../../features-system/data-persistence/migrations/2026-09-15-Widen_Flow_Run_Context_Snapshot';
 import { up as addWaitMessage } from '../../../features-system/data-persistence/migrations/2026-09-16-Add_Flow_Run_Wait_Message';
 import { up as addQuietWindow } from '../../../features-system/data-persistence/migrations/2026-10-01-Quiet_Timeouts';
+import { fakeGuild } from './support/fakeGuild';
 import { sentCopy } from './support/sentCopy';
 import preM1GraphJson from './fixtures/preM1Graph.json';
 import preM1ParkedRunsJson from './fixtures/preM1ParkedRuns.json';
@@ -69,6 +70,9 @@ function makeClient(channel?: { id: string; messages: { fetch: ReturnType<typeof
         id: GUILD_ID,
         members: { fetch: vi.fn().mockResolvedValue(member) },
         channels: { cache: { get: (id: string) => (cached?.id === id ? cached : undefined) } },
+        // The role the pre-M1 graph assigns, as the guild holds it: Assign Role reads it
+        // from here before it hands it out.
+        roles: { cache: fakeGuild({ roles: [{ id: 'role-verified' }] }).roles.cache },
     };
 
     return {

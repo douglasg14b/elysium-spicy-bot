@@ -138,7 +138,9 @@ describe('the crash-safe ordering', () => {
         const guild = makeGuild({
             channelIds: ['channel-1'],
             calls,
-            channelDeleteError: new Error('Missing Permissions'),
+            // Coded, as Discord's refusal is: the explanation is described from the code,
+            // never from the thrown text.
+            channelDeleteError: Object.assign(new Error('Missing Permissions'), { code: 50013 }),
         });
 
         const result = await applyUnpublishPlan({ guild, plan: plan([deleteItem()]), repo });

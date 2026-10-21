@@ -2,6 +2,7 @@ import { ChannelType, Guild, PermissionsBitField, TextChannel, type OverwriteRes
 import { fail, ok, type Result } from '../../../shared';
 import type { ConfiguredTicketingConfig, TicketCategorySlot, TicketTypeDefinition } from '../data/ticketingSchema';
 import type { TicketEntity } from '../data/ticketsSchema';
+import { isUsableModerationRole } from './hasModeratorRole';
 import { resolveTicketCategory } from './ticketCategories';
 import { buildTicketChannelName, getTicketTypeDefinition, toPermissionOverwrite } from './ticketTypes';
 
@@ -89,7 +90,7 @@ function buildOverwrites({
     });
 
     for (const roleId of moderationRoleIds) {
-        if (guild.roles.cache.has(roleId)) {
+        if (isUsableModerationRole(guild, roleId)) {
             overwrites.push({ id: roleId, ...toPermissionOverwrite(permissions.staff) });
         }
     }

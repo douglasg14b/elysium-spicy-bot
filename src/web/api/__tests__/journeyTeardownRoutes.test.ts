@@ -336,7 +336,8 @@ describe('POST /journeys/:journeyKey/undeploy', () => {
         // The failure names the flow, which is the only thing an operator can act on
         // when there is no channel or message id to report.
         expect(body.results[0].explanation).toContain(FLOW_A);
-        expect(body.results[0].explanation).toContain('database went away');
+        // What was thrown stays in the log: it is whatever the driver said.
+        expect(body.results[0].explanation).not.toContain('database went away');
         // The sibling's deletion survived the throw.
         expect(body.results[1]).toMatchObject({ messageId: 'msg-b', outcome: 'removed' });
     });

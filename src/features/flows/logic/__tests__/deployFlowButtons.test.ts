@@ -47,7 +47,11 @@ function repoFor(flow: FlowEntity): FlowsRepo {
 
 interface GuildOptions {
     readonly channelIds?: readonly string[];
+    /** Channels in the guild that are not text channels — a voice channel, say. */
+    readonly voiceChannelIds?: readonly string[];
     readonly calls: string[];
+    /** Every payload a channel was sent, for the cases that read what was posted. */
+    readonly sent?: unknown[];
     /**
      * Channels whose `send` throws, named individually rather than as one flag.
      *
@@ -61,30 +65,36 @@ interface GuildOptions {
 
 function makeGuild(options: GuildOptions): Guild {
     const channelIds = new Set(options.channelIds ?? ['channel-rules', 'channel-verify']);
+    const voiceChannelIds = new Set(options.voiceChannelIds ?? []);
     const failing = new Set(options.failChannelIds ?? []);
     let nextMessage = 1;
 
-    const channel = (id: string) =>
-        channelIds.has(id)
+    const channel = (id: string) => {
+        if (voiceChannelIds.has(id)) return { id, type: ChannelType.GuildVoice };
+        return channelIds.has(id)
             ? {
                   id,
                   type: ChannelType.GuildText,
-                  send: async () => {
+                  send: async (payload: unknown) => {
                       if (failing.has(id)) throw new Error('Missing Permissions');
                       options.calls.push(`discord:send:${id}`);
+                      options.sent?.push(payload);
                       return { id: `message-${nextMessage++}` };
                   },
               }
             : undefined;
+    };
 
     return {
         id: GUILD_ID,
         channels: {
             cache: { get: channel },
-            // The deployer falls back to a fetch on a cache miss, so an unknown id has
-            // to be refused here too — otherwise a "channel is gone" case would
-            // resolve on the second try and never reach the refusal it is testing.
-            fetch: async (id: string) => channel(id) ?? Promise.reject(new Error('Unknown Channel')),
+            // Recorded rather than answered: the deployer must never ask Discord for a
+            // channel, since an id from the graph may be another server's.
+            fetch: async (id: string) => {
+                options.calls.push(`discord:fetch:${id}`);
+                return channel(id);
+            },
         },
     } as never;
 }
@@ -155,12 +165,43 @@ describe('posting to each destination', () => {
     it('refuses before posting anything when a destination is not a text channel', async () => {
         const calls: string[] = [];
 
+        const result = await deployFlowButtons(
+            makeGuild({ calls, channelIds: ['channel-rules'], voiceChannelIds: ['channel-voice'] }),
+            FLOW_ID,
+            {
+                declaredKeys: nothingDeclared,
+                repo: repoFor(
+                    flowEntity([
+                        buttonNode('rules', { channelId: 'channel-rules' }),
+                        buttonNode('verify', { channelId: 'channel-voice' }),
+                    ])
+                ),
+                buttonMessagesRepo: makeButtonMessagesRepo(calls),
+                undeploy: undeployStub(calls),
+            }
+        );
+
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.message).toMatch(/channel-voice/);
+        expect(result.message).toMatch(/not a text channel/);
+        // Nothing posted and nothing retired: resolving up front is what keeps a bad
+        // channel from leaving the good half of a flow live.
+        expect(calls).toEqual([]);
+    });
+
+    it('refuses a destination that is not in this server as unfinished, without asking Discord about it', async () => {
+        // An id from the graph may be another server's channel, which a fetch would ask
+        // Discord about — and a 403 there counts towards the bot's ban. The guild's own
+        // cache answers instead, through readiness, before anything is retired.
+        const calls: string[] = [];
+
         const result = await deployFlowButtons(makeGuild({ calls, channelIds: ['channel-rules'] }), FLOW_ID, {
             declaredKeys: nothingDeclared,
             repo: repoFor(
                 flowEntity([
                     buttonNode('rules', { channelId: 'channel-rules' }),
-                    buttonNode('verify', { channelId: 'channel-gone' }),
+                    buttonNode('verify', { channelId: 'another-servers-channel' }),
                 ])
             ),
             buttonMessagesRepo: makeButtonMessagesRepo(calls),
@@ -169,10 +210,29 @@ describe('posting to each destination', () => {
 
         expect(result.ok).toBe(false);
         if (result.ok) return;
-        expect(result.message).toMatch(/channel-gone/);
-        // Nothing posted and nothing retired: resolving up front is what keeps a bad
-        // channel from leaving the good half of a flow live.
+        expect(result.message).toMatch(/isn't finished — 1 problem/);
         expect(calls).toEqual([]);
+    });
+
+    it("posts the flow's name with no mentions allowed, so a name holding @everyone pings nobody", async () => {
+        const calls: string[] = [];
+        const sent: unknown[] = [];
+        const flow = { ...flowEntity([buttonNode('rules')]), name: '@everyone come press this' };
+
+        const result = await deployFlowButtons(makeGuild({ calls, sent }), FLOW_ID, {
+            declaredKeys: nothingDeclared,
+            repo: repoFor(flow),
+            buttonMessagesRepo: makeButtonMessagesRepo(calls),
+            undeploy: undeployStub(calls),
+        });
+
+        expect(result.ok).toBe(true);
+        expect(sent).toEqual([
+            expect.objectContaining({
+                content: '**@everyone come press this**',
+                allowedMentions: { parse: [] },
+            }),
+        ]);
     });
 });
 
@@ -347,7 +407,10 @@ describe('an incomplete flow', () => {
 
         expect(result.ok).toBe(false);
         if (result.ok) return;
-        expect(result.message).toMatch(/not an array/);
+        // The journey is named, so the operator knows which row to look at; what the
+        // validator said about it stays in the log.
+        expect(result.message).toMatch(/journey "flow-1"/);
+        expect(result.message).not.toMatch(/not an array/);
         expect(calls).toEqual([]);
     });
 });

@@ -93,9 +93,10 @@ pulumi stack output tunnelToken --show-secrets | Set-Clipboard
 | --- | --- |
 | `TUNNEL_TOKEN` | the tunnel token from step 4 (paste from clipboard) |
 | `DISCORD_OAUTH_CLIENT_SECRET` | from the Discord portal |
-| `SESSION_SECRET` | a long random string — changing it signs everyone out. Generate one straight to the clipboard: `$b = [byte[]]::new(48); [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b) \| Set-Clipboard` |
+| `SESSION_SECRET` | a long random string, at least 32 characters (a shorter one, or the development placeholder, keeps the dashboard off) — changing it signs everyone out. Rotate it once with the owner/Administrator-only change: sessions from before it still list Manage-Server-only servers for up to 7 days (opening one is refused). Generate one straight to the clipboard: `$b = [byte[]]::new(48); [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b) \| Set-Clipboard` |
 | `OPENROUTER_API_KEY` | new required variable; the bot won't start without it |
 | `ADMIN_DISCORD_IDS` | optional; leave empty normally |
+| `ALLOWED_GUILD_IDS` | comma-separated ids of the servers the bot may work in. The bot is public, so set this: on joining any other server it leaves at once. Unset allows every server (logged at startup). Never leaves a server it is already in, but the dashboard hides any server not on the list — list every server you still manage. |
 
 `WEB_PUBLIC_URL` is fixed in `docker-compose.yml`, so it isn't a Coolify variable. Never paste Coolify deploy logs
 anywhere: they echo the whole environment in plaintext.
@@ -109,7 +110,7 @@ Order: `pulumi up` → variables into Coolify → push → deploy. Coolify deplo
 | Rule | Where | Expression | Action |
 | --- | --- | --- | --- |
 | `BrattyBot: North America only` | Custom rules | `(http.host eq "brattybot.fettra.app" and not ip.src.continent in {"NA"})` | Block |
-| `BrattyBot: login rate limit` | Rate limiting rules | `(http.request.uri.path eq "/api/auth/login")` | Block; 5 requests / 10 s per IP; for 10 s |
+| `BrattyBot: login rate limit` | Rate limiting rules | `(http.request.uri.path in {"/api/auth/login" "/api/auth/callback"})` | Block; 5 requests / 10 s per IP; for 10 s |
 
 - If a "block every host except these" rule exists, add `brattybot.fettra.app` to it. Write it as
   `not http.host in {"a.fettra.app" "brattybot.fettra.app"}`; a chain of `ne ... or ne ...` is always true and blocks
@@ -117,11 +118,16 @@ Order: `pulumi up` → variables into Coolify → push → deploy. Coolify deplo
 - The free plan allows **one** rate limiting rule per zone. This zone is separate from `moochermedia.co`, so Budget
   Tools' rule doesn't cover it. If fettra.app's slot is already used, widen that rule's path expression rather than
   replacing it.
+- The rate limit covers the OAuth callback as well as the login: each callback makes the server call Discord three
+  times, so it is limited per IP here, before anyone has a session. Everything after login is limited per signed-in
+  user in the app (`src/web/rateLimit.ts`), because every request reaches the app through `cloudflared` from one
+  address.
 - Put the geo-block above any **Skip** rule that could match the host.
 - **SSL/TLS → Edge Certificates → Always Use HTTPS**: on.
 
-The app refuses plain HTTP on its own as well, and marks every `/api` answer `private, no-store`
-(`src/web/edgeGuards.ts`).
+The app refuses plain HTTP on its own as well, marks every `/api` answer `private, no-store`, and sends security
+headers on every answer — HSTS, `nosniff`, and framing refused (`X-Frame-Options: DENY`, `frame-ancestors 'none'`)
+(`src/web/edgeGuards.ts`). It also refuses any `/api` body over 1 MiB (`src/web/api/index.ts`).
 
 ## 7. Verify
 
@@ -134,7 +140,8 @@ Split-horizon DNS at home covers only `*.moochermedia.co`, so from home you're a
 3. `https://brattybot.fettra.app/api/health` answers `{"ok":true,...}`.
 4. `http://brattybot.fettra.app/` gets a 301 to https at the edge.
 5. Sign in with Discord, open a server, open a flow. Do it once from a phone on mobile data.
-6. From a non-NA VPN: a Cloudflare block page. Six quick hits on `/api/auth/login`: a 429.
+6. From a non-NA VPN: a Cloudflare block page. Six quick hits on `/api/auth/login`, or on `/api/auth/callback`: a
+   429.
 
 ## Limits
 

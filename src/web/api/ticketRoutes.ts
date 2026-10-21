@@ -18,7 +18,9 @@ import { deleteTicketType, upsertTicketType, type SetTicketTypeRefusal } from '.
 import { setTicketSettings, type SetTicketSettingsRefusal } from '../../features/tickets/logic/setTicketSettings';
 import { TicketTypeKeySchema, TicketTypeLabelSchema } from '../../features/tickets/logic/ticketTypeRules';
 import { updateDeployedTicketMessage } from '../../features/tickets/utils/updateDeployedMessage';
+import { describeRefusedRoles, isAssignableRole } from '../../utils/isAssignableRole';
 import type { AppEnv } from '../types';
+import { ROLE_ID_MAX_LENGTH, ROLE_LIST_MAX } from './guildBody';
 import {
     apiRouter,
     errorBodyResponse,
@@ -60,19 +62,6 @@ import {
  * type editor refuses a bad key or template with the server's own sentence.
  */
 
-/**
- * A ceiling on the moderation-role list, and on how much of a rejection is echoed back.
- *
- * A Discord snowflake is at most 20 characters and no server has 50 moderation roles, so
- * both are generous. They exist because the rejection path interpolates every unmatched id
- * into its error message: without a cap, a request carrying 100k ids passes validation,
- * runs 100k cache lookups, and builds a 100k-id error string — caller-controlled
- * amplification out of what looks like a helpful message.
- */
-const MODERATION_ROLES_MAX = 50;
-const ROLE_ID_MAX_LENGTH = 32;
-const REJECTED_ROLES_ECHOED = 10;
-
 /** Discord's limit on a channel name, categories included. */
 const CATEGORY_NAME_MAX_LENGTH = 100;
 
@@ -86,21 +75,39 @@ const CATEGORY_NAME_MAX_LENGTH = 100;
  * `type` is bounded by the key rule's own maximum. Types are guild-defined, so there is no
  * closed vocabulary to check it against, but an unbounded string would still reach a query
  * predicate on every request. It is a bound parameter, so this is not about injection.
+ * `status` and `search` are bounded for the same reason, and `status` also because its
+ * refusal echoes it.
  */
+const TICKET_STATUS_MAX_LENGTH = 16;
+/**
+ * A ticket number or the start of a name. Discord caps the names a ticket records at 32
+ * characters, so anything past this cannot match; the slack is for pasted whitespace,
+ * which the handler trims.
+ */
+const TICKET_SEARCH_MAX_LENGTH = 100;
+
 const TicketListQuerySchema = z.object({
-    status: z.string().optional().openapi({
-        description: '`open`, `closed` or `deleted`. Absent or blank means every status.',
-    }),
+    status: z
+        .string()
+        .max(TICKET_STATUS_MAX_LENGTH, 'That is not a ticket status. Try open, closed or deleted.')
+        .optional()
+        .openapi({
+            description: '`open`, `closed` or `deleted`. Absent or blank means every status.',
+        }),
     type: z.string().max(TICKET_TYPE_KEY_MAX_LENGTH, 'That is not a ticket type.').optional().openapi({
         description: 'A ticket type key. Absent or blank means every type.',
     }),
     unclaimed: z.string().optional().openapi({
         description: '`true` for unclaimed tickets only. Anything else means claimed or not.',
     }),
-    search: z.string().optional().openapi({
-        description:
-            'A ticket number, matched exactly, or the start of a name on the ticket. Trimmed; blank means no search.',
-    }),
+    search: z
+        .string()
+        .max(TICKET_SEARCH_MAX_LENGTH, 'That search is longer than any name on a ticket. Shorten it.')
+        .optional()
+        .openapi({
+            description:
+                'A ticket number, matched exactly, or the start of a name on the ticket. Trimmed; blank means no search.',
+        }),
 });
 
 /**
@@ -143,7 +150,7 @@ const TicketsConfigUpdateSchema = z
         moderationRoles: z
             .array(z.string().min(1).max(ROLE_ID_MAX_LENGTH))
             .min(1, 'Pick at least one moderation role, or nobody but admins can touch a ticket.')
-            .max(MODERATION_ROLES_MAX, 'That is more moderation roles than any server has. Trim the list.'),
+            .max(ROLE_LIST_MAX, 'That is more moderation roles than any server has. Trim the list.'),
     })
     .openapi('TicketsConfigUpdate', {
         description:
@@ -250,7 +257,8 @@ const listTicketsRoute = createRoute({
         200: jsonResponse('The matching tickets, and the guild-wide counts.', TicketListSchema),
         ...GUILD_SCOPED_ERRORS,
         400: errorBodyResponse(
-            'A filter was refused — a status that is not one, or a type too long to be one — or the server id is missing.'
+            'A filter was refused — a status that is not one, a type too long to be one, or a search too long ' +
+                'to match anything — or the server id is missing.'
         ),
     },
 });
@@ -550,21 +558,11 @@ export function ticketRoutes(): OpenAPIHono<AppEnv> {
             const guild = c.get('guild');
             const body = c.req.valid('json');
 
-            const rejected = body.moderationRoles.filter((roleId) => !guild.roles.cache.has(roleId));
+            // Assignable, not merely present: `@everyone`'s id is the guild id and is in the
+            // role cache, and as a moderation role it would make every member a moderator.
+            const rejected = body.moderationRoles.filter((roleId) => !isAssignableRole(guild, roleId));
             if (rejected.length > 0) {
-                // Named, not counted — the operator has to go find these — but only the first
-                // few, so the message stays a message. The array is capped at
-                // `MODERATION_ROLES_MAX`, and echoing every rejected id of a full one would put
-                // fifty snowflakes in a sentence nobody can read.
-                const named = rejected.slice(0, REJECTED_ROLES_ECHOED).join(', ');
-                const remainder = rejected.length - REJECTED_ROLES_ECHOED;
-                const suffix = remainder > 0 ? ` (and ${remainder} more)` : '';
-                return c.json(
-                    {
-                        error: `These are not roles in this server: ${named}${suffix}. Pick ones that exist — the bot cannot gate a ticket on a role Discord has never heard of.`,
-                    },
-                    400
-                );
+                return c.json({ error: describeRefusedRoles(guild, rejected, 'moderation roles') }, 400);
             }
 
             const result = await setTicketSettings({
@@ -635,6 +633,9 @@ export function ticketRoutes(): OpenAPIHono<AppEnv> {
 
 /* ---- Helpers ---- */
 
+/** How much of a refused ticket id is echoed back. */
+const ECHOED_ID_MAX_LENGTH = 32;
+
 /** The guild's config, or null. Read once per request and mapped over the rows. */
 async function readConfig(guildId: string): Promise<TicketingConfig | null> {
     const entity = await ticketingRepo.get(guildId);
@@ -658,7 +659,9 @@ type ResolveTicketResult =
 async function resolveTicket(guild: Guild, rawId: string): Promise<ResolveTicketResult> {
     const ticketId = Number(rawId);
     if (!Number.isSafeInteger(ticketId) || ticketId <= 0) {
-        return { ok: false, error: `\`${rawId}\` is not a ticket id.`, status: 400 };
+        // Echoed cut short: a path segment can be as long as the caller likes.
+        const shown = rawId.length > ECHOED_ID_MAX_LENGTH ? `${rawId.slice(0, ECHOED_ID_MAX_LENGTH)}…` : rawId;
+        return { ok: false, error: `\`${shown}\` is not a ticket id.`, status: 400 };
     }
 
     const ticket = await ticketsRepo.getById(ticketId);

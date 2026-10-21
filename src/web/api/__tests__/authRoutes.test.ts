@@ -7,7 +7,8 @@ import type { AppEnv } from '../../types';
  * redirect built from the other — so they are set before anything below is imported.
  */
 vi.hoisted(() => {
-    process.env.SESSION_SECRET ??= 'vitest-session-secret';
+    // At least 32 characters: a shorter one is refused and the session cannot be signed.
+    process.env.SESSION_SECRET ??= 'vitest-session-secret-at-least-32-characters';
     process.env.WEB_PUBLIC_URL ??= 'https://dashboard.test';
 });
 

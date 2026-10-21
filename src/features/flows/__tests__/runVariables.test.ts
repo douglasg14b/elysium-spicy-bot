@@ -18,6 +18,7 @@ import { rebuildResumeContext, resumeFlowRun } from '../engine/flowRunResume';
 import { validateAuthoredGraph } from '../engine/graphValidation';
 import { validateNodeData } from '../engine/nodeDataValidation';
 import { ACTION_RECORD_VALUE } from './fixtures/blocks/producer/actionRecordValue';
+import { fakeGuild } from './support/fakeGuild';
 import { sentCopy } from './support/sentCopy';
 
 /**
@@ -98,6 +99,11 @@ function makeSeed(): { context: FlowRunSeed; userSend: ReturnType<typeof vi.fn> 
         },
         userSend,
     };
+}
+
+/** The run's guild, holding `channel-1` — where the posting blocks below are pointed. */
+function guildWithChannel(send: ReturnType<typeof vi.fn>): FlowRunSeed['guild'] {
+    return fakeGuild({ id: GUILD_ID, name: 'Afterdark', channels: { 'channel-1': { send } } });
 }
 
 /** A client that can re-fetch the guild and member a resumed run needs. */
@@ -297,11 +303,7 @@ describe('a block consumes a value another block produced', () => {
         const channelSend = vi.fn().mockResolvedValue({ id: 'message-1' });
         const seed: FlowRunSeed = {
             ...context,
-            client: {
-                channels: {
-                    fetch: vi.fn().mockResolvedValue({ isTextBased: () => true, send: channelSend }),
-                },
-            } as unknown as FlowRunSeed['client'],
+            guild: guildWithChannel(channelSend),
         };
 
         const graph: FlowGraph = {
@@ -342,11 +344,7 @@ describe('a block consumes a value another block produced', () => {
                 channelSend,
                 seed: {
                     ...context,
-                    client: {
-                        channels: {
-                            fetch: vi.fn().mockResolvedValue({ isTextBased: () => true, send: channelSend }),
-                        },
-                    } as unknown as FlowRunSeed['client'],
+                    guild: guildWithChannel(channelSend),
                 },
             };
         }
@@ -449,10 +447,7 @@ describe('a member’s own name cannot ping the guild', () => {
     it('pins the mention allowlist when posting rendered copy to a channel', async () => {
         const { context } = makeSeed();
         const send = vi.fn().mockResolvedValue({ id: 'message-1' });
-        const channel = { isTextBased: () => true, send };
-        (context as { client: unknown }).client = {
-            channels: { fetch: vi.fn().mockResolvedValue(channel) },
-        };
+        context.guild = guildWithChannel(send);
         (requireSubject(context).user as { username: string }).username = '@everyone';
 
         const result = await executeFlow('flow-1', channelPostingGraph('Welcome {{subject.username}}!'), 'trigger', context);
@@ -469,10 +464,7 @@ describe('a member’s own name cannot ping the guild', () => {
     it('still lets {{subject.mention}} ping the subject, which is the point of it', async () => {
         const { context } = makeSeed();
         const send = vi.fn().mockResolvedValue({ id: 'message-1' });
-        const channel = { isTextBased: () => true, send };
-        (context as { client: unknown }).client = {
-            channels: { fetch: vi.fn().mockResolvedValue(channel) },
-        };
+        context.guild = guildWithChannel(send);
 
         await executeFlow('flow-1', channelPostingGraph('oi {{subject.mention}}'), 'trigger', context);
 

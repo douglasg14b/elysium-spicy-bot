@@ -53,6 +53,21 @@ import {
  * references), which the repo asks on every write.
  */
 
+/*
+ * How much one journey may declare. Far above anything authored — a journey is a handful
+ * of channels and roles — so they only ever stop a request nobody built by hand. Every
+ * resource is a Discord call at install, and every permission row an overwrite on it.
+ */
+
+/** The most resources one journey may declare. */
+export const JOURNEY_MAX_RESOURCES = 100;
+
+/** The most permission rows one resource may carry. */
+export const JOURNEY_MAX_PERMISSIONS_PER_RESOURCE = 20;
+
+/** The most roles one permission row may name. */
+export const JOURNEY_MAX_ROLES_PER_PERMISSION = 50;
+
 /** The key pattern's body, shared by the key rule and the declared-role reference rule. */
 const RESOURCE_KEY_PATTERN = '[a-z0-9]+(-[a-z0-9]+)*';
 
@@ -145,7 +160,11 @@ const PermissionAccessSchema = z.enum(PERMISSION_ACCESS_LEVELS).openapi('Permiss
 const PermissionIntentSchema = z
     .object({
         audience: PermissionAudienceSchema,
-        roleIds: z.array(PermissionRoleIdSchema).readonly().optional(),
+        roleIds: z
+            .array(PermissionRoleIdSchema)
+            .max(JOURNEY_MAX_ROLES_PER_PERMISSION, `A permission names at most ${JOURNEY_MAX_ROLES_PER_PERMISSION} roles.`)
+            .readonly()
+            .optional(),
         access: PermissionAccessSchema,
     })
     .openapi('PermissionIntent', {
@@ -193,7 +212,14 @@ export const ResourceDeclarationSchema = z
         /** For a `ticketType`, the type's label. */
         defaultName: z.string().min(1, 'Give the resource a name.').max(100, 'Resource names cap at 100 characters.'),
         parentKey: resourceKeySchema.optional(),
-        permissions: z.array(PermissionIntentSchema).readonly().optional(),
+        permissions: z
+            .array(PermissionIntentSchema)
+            .max(
+                JOURNEY_MAX_PERMISSIONS_PER_RESOURCE,
+                `A resource has at most ${JOURNEY_MAX_PERMISSIONS_PER_RESOURCE} permission rows.`
+            )
+            .readonly()
+            .optional(),
         description: z.string().max(500, 'Descriptions cap at 500 characters.').optional(),
         /** Set when the operator picked something that already exists instead of declaring a new one. */
         adoptDiscordId: discordIdSchema.optional(),
@@ -302,6 +328,15 @@ export const OrphanPathSchema = JourneyPathSchema.extend({
 
 const journeyNameSchema = z.string().min(1, 'Give the journey a name.').max(100, 'Journey names cap at 100 characters.');
 
+/**
+ * A journey's declarations, as every route that writes them takes them: one list, capped.
+ * Each resource is a channel, role, category or ticket type an install makes one Discord
+ * call for, so the cap bounds what one request can ask the bot to do.
+ */
+const journeyResourcesSchema = z
+    .array(ResourceDeclarationSchema)
+    .max(JOURNEY_MAX_RESOURCES, `A journey declares at most ${JOURNEY_MAX_RESOURCES} resources.`);
+
 const journeyDescriptionSchema = z.string().max(500, 'Descriptions cap at 500 characters.');
 
 /** The body of `POST /journeys`. */
@@ -310,7 +345,7 @@ export const JourneyCreateSchema = z
         journeyKey: resourceKeySchema,
         name: journeyNameSchema,
         description: journeyDescriptionSchema.optional(),
-        resources: z.array(ResourceDeclarationSchema),
+        resources: journeyResourcesSchema,
     })
     .openapi('JourneyCreate');
 
@@ -319,7 +354,7 @@ export const JourneyUpdateSchema = z
     .object({
         name: journeyNameSchema.optional(),
         description: journeyDescriptionSchema.nullable().optional(),
-        resources: z.array(ResourceDeclarationSchema).optional(),
+        resources: journeyResourcesSchema.optional(),
     })
     .openapi('JourneyUpdate', {
         description:
@@ -330,7 +365,7 @@ export const JourneyUpdateSchema = z
 /** The body of `PUT /flows/{flowId}/resources`: the whole list, an empty one removing the flow's journey. */
 export const FlowResourcesSaveSchema = z
     .object({
-        resources: z.array(ResourceDeclarationSchema),
+        resources: journeyResourcesSchema,
     })
     .openapi('FlowResourcesSave');
 

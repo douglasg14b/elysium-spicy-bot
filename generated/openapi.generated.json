@@ -2412,13 +2412,21 @@
                         "items": {
                             "$ref": "#/components/schemas/FlowEdge"
                         },
-                        "type": "array"
+                        "maxItems": 500,
+                        "type": "array",
+                        "x-messages": {
+                            "maxItems": "A flow holds at most 500 connections."
+                        }
                     },
                     "nodes": {
                         "items": {
                             "$ref": "#/components/schemas/FlowNode"
                         },
-                        "type": "array"
+                        "maxItems": 250,
+                        "type": "array",
+                        "x-messages": {
+                            "maxItems": "A flow holds at most 250 blocks."
+                        }
                     },
                     "version": {
                         "enum": [
@@ -2617,7 +2625,11 @@
                         "items": {
                             "$ref": "#/components/schemas/ResourceDeclaration"
                         },
-                        "type": "array"
+                        "maxItems": 100,
+                        "type": "array",
+                        "x-messages": {
+                            "maxItems": "A journey declares at most 100 resources."
+                        }
                     }
                 },
                 "required": [
@@ -3064,10 +3076,19 @@
                 "properties": {
                     "staffRoleIds": {
                         "items": {
+                            "maxLength": 32,
                             "minLength": 1,
-                            "type": "string"
+                            "type": "string",
+                            "x-messages": {
+                                "maxLength": "That's not a role id. Pick one from the list.",
+                                "minLength": "A staff role needs an id."
+                            }
                         },
-                        "type": "array"
+                        "maxItems": 50,
+                        "type": "array",
+                        "x-messages": {
+                            "maxItems": "That is more staff roles than any server has. Trim the list."
+                        }
                     }
                 },
                 "required": [
@@ -3345,7 +3366,11 @@
                         "items": {
                             "$ref": "#/components/schemas/ResourceDeclaration"
                         },
-                        "type": "array"
+                        "maxItems": 100,
+                        "type": "array",
+                        "x-messages": {
+                            "maxItems": "A journey declares at most 100 resources."
+                        }
                     }
                 },
                 "required": [
@@ -3463,7 +3488,11 @@
                         "items": {
                             "$ref": "#/components/schemas/ResourceDeclaration"
                         },
-                        "type": "array"
+                        "maxItems": 100,
+                        "type": "array",
+                        "x-messages": {
+                            "maxItems": "A journey declares at most 100 resources."
+                        }
                     }
                 },
                 "type": "object"
@@ -4248,7 +4277,11 @@
                                 "pattern": "A declared role reference must name a valid resource key (lowercase letters, numbers and single hyphens)."
                             }
                         },
-                        "type": "array"
+                        "maxItems": 50,
+                        "type": "array",
+                        "x-messages": {
+                            "maxItems": "A permission names at most 50 roles."
+                        }
                     }
                 },
                 "required": [
@@ -4476,7 +4509,11 @@
                         "items": {
                             "$ref": "#/components/schemas/PermissionIntent"
                         },
-                        "type": "array"
+                        "maxItems": 20,
+                        "type": "array",
+                        "x-messages": {
+                            "maxItems": "A resource has at most 20 permission rows."
+                        }
                     },
                     "ticketType": {
                         "$ref": "#/components/schemas/TicketTypeSettings"
@@ -5308,9 +5345,11 @@
                 "properties": {
                     "modChannelId": {
                         "minLength": 1,
+                        "pattern": "^(\\d{17,20})?$",
                         "type": "string",
                         "x-messages": {
-                            "minLength": "Pick a channel. Warning notices do not haunt the void."
+                            "minLength": "Pick a channel. Warning notices do not haunt the void.",
+                            "pattern": "That's not a channel id. Pick one from the list."
                         }
                     }
                 },
@@ -5384,7 +5423,7 @@
                                 }
                             }
                         },
-                        "description": "The user manages no server the bot is in."
+                        "description": "The user owns or administers no server the bot is in."
                     },
                     "500": {
                         "content": {
@@ -5595,6 +5634,16 @@
                         },
                         "description": "No valid session."
                     },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -5687,6 +5736,16 @@
                         },
                         "description": "The bot is not in this server."
                     },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -5767,6 +5826,16 @@
                             }
                         },
                         "description": "The bot is not in this server."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -5867,6 +5936,16 @@
                         },
                         "description": "The server has no ticket config yet: tickets have to be deployed in Discord first. Or a journey claimed a picked category while the save ran: that slot was declined, everything else was saved, so re-read the settings."
                     },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was over the size limit."
+                    },
                     "415": {
                         "content": {
                             "application/json": {
@@ -5886,6 +5965,16 @@
                             }
                         },
                         "description": "Another save of these settings is still running, so nothing was changed."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -5998,6 +6087,16 @@
                             }
                         },
                         "description": "The server has no ticket config yet; tickets still hold the type — deleted ones included, and the sentence names how many and some of their numbers; or a journey installed the type, and the sentence names it: uninstalling the journey lets go of it."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -6124,6 +6223,16 @@
                         },
                         "description": "The server has no ticket config yet: tickets have to be deployed in Discord first."
                     },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was over the size limit."
+                    },
                     "415": {
                         "content": {
                             "application/json": {
@@ -6133,6 +6242,16 @@
                             }
                         },
                         "description": "The body was not sent as JSON."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -6225,6 +6344,16 @@
                         },
                         "description": "The bot is not in this server."
                     },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -6314,6 +6443,16 @@
                         },
                         "description": "The bot is not in this server."
                     },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was over the size limit."
+                    },
                     "415": {
                         "content": {
                             "application/json": {
@@ -6323,6 +6462,16 @@
                             }
                         },
                         "description": "The body was not sent as JSON."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -6416,6 +6565,16 @@
                         },
                         "description": "The bot is not in this server."
                     },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -6473,7 +6632,7 @@
                                 }
                             }
                         },
-                        "description": "The body was refused, the graph is too broken to store (`issues` says where), or the server id is missing."
+                        "description": "The body was refused, the graph is too broken to store (`issues` says where), the server already holds 200 flows, or the server id is missing."
                     },
                     "401": {
                         "content": {
@@ -6505,6 +6664,16 @@
                         },
                         "description": "The bot is not in this server."
                     },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was over the size limit."
+                    },
                     "415": {
                         "content": {
                             "application/json": {
@@ -6514,6 +6683,16 @@
                             }
                         },
                         "description": "The body was not sent as JSON."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -6596,6 +6775,16 @@
                             }
                         },
                         "description": "The bot is not in this server, or the flow is not in it."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -6684,6 +6873,16 @@
                         },
                         "description": "The bot is not in this server, or the flow is not in it."
                     },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -6692,7 +6891,7 @@
                                 }
                             }
                         },
-                        "description": "The flow's journey could not be read, so its readiness cannot be judged; the sentence names the cause. Or something else failed unexpectedly."
+                        "description": "The flow's journey could not be read, so its readiness cannot be judged; the sentence names the journey. Or something else failed unexpectedly."
                     }
                 },
                 "summary": "One flow with its graph, and what stands between it and going live",
@@ -6781,6 +6980,16 @@
                         },
                         "description": "The bot is not in this server, or the flow is not in it."
                     },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was over the size limit."
+                    },
                     "415": {
                         "content": {
                             "application/json": {
@@ -6790,6 +6999,16 @@
                             }
                         },
                         "description": "The body was not sent as JSON."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -6890,6 +7109,16 @@
                         },
                         "description": "The bot is not in this server, or the flow or the journey is not in it."
                     },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was over the size limit."
+                    },
                     "415": {
                         "content": {
                             "application/json": {
@@ -6899,6 +7128,16 @@
                             }
                         },
                         "description": "The body was not sent as JSON."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -7003,6 +7242,16 @@
                             }
                         },
                         "description": "The bot is not in this server, or the flow is not in it."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -7114,6 +7363,16 @@
                         },
                         "description": "The bot is not in this server, or the flow is not in it."
                     },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was over the size limit."
+                    },
                     "415": {
                         "content": {
                             "application/json": {
@@ -7124,6 +7383,16 @@
                         },
                         "description": "The body was not sent as JSON."
                     },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -7132,7 +7401,7 @@
                                 }
                             }
                         },
-                        "description": "The flow's journey could not be read, so its readiness cannot be judged; the sentence names the cause. Or something else failed unexpectedly."
+                        "description": "The flow's journey could not be read, so its readiness cannot be judged; the sentence names the journey. Or something else failed unexpectedly."
                     }
                 },
                 "summary": "What a save of this graph would say is wrong with it. Changes nothing.",
@@ -7212,6 +7481,16 @@
                             }
                         },
                         "description": "The bot is not in this server, or the flow is not in it."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -7301,6 +7580,16 @@
                             }
                         },
                         "description": "The bot is not in this server, or the flow is not in it."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -7402,6 +7691,16 @@
                         },
                         "description": "The bot is not in this server, or the flow is not in it."
                     },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -7410,7 +7709,7 @@
                                 }
                             }
                         },
-                        "description": "The flow's journey could not be read, so its readiness cannot be judged; the sentence names the cause. Or something else failed unexpectedly."
+                        "description": "The flow's journey could not be read, so its readiness cannot be judged; the sentence names the journey. Or something else failed unexpectedly."
                     }
                 },
                 "summary": "Every operator's draft of a flow, graphs included",
@@ -7501,6 +7800,16 @@
                         },
                         "description": "The bot is not in this server, or the flow is not in it."
                     },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was over the size limit."
+                    },
                     "415": {
                         "content": {
                             "application/json": {
@@ -7510,6 +7819,16 @@
                             }
                         },
                         "description": "The body was not sent as JSON."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -7600,6 +7919,16 @@
                             }
                         },
                         "description": "The bot is not in this server, the flow is not in it, or the flow has no draft with that id."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -7710,6 +8039,16 @@
                         },
                         "description": "Nothing was grouped: this flow's journey is shared, both journeys declare the same key, or a journey with the new key already exists."
                     },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was over the size limit."
+                    },
                     "415": {
                         "content": {
                             "application/json": {
@@ -7719,6 +8058,16 @@
                             }
                         },
                         "description": "The body was not sent as JSON."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -7826,6 +8175,16 @@
                             }
                         },
                         "description": "This flow's journey is shared with other flows, which still install it."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -7936,6 +8295,16 @@
                         },
                         "description": "Another operation on this journey is running. Nothing was touched."
                     },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -8035,6 +8404,16 @@
                         },
                         "description": "The journey is not this flow's to install, or declares something that cannot be installed as shared server structure."
                     },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -8124,6 +8503,16 @@
                         },
                         "description": "The bot is not in this server, or the flow is not in it."
                     },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -8212,6 +8601,16 @@
                             }
                         },
                         "description": "The bot is not in this server, or the flow is not in it."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -8311,7 +8710,17 @@
                                 }
                             }
                         },
-                        "description": "The bot is not in this server."
+                        "description": "The bot is not in this server, or the flow is not in it."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -8431,6 +8840,16 @@
                         },
                         "description": "Nothing was written: other flows share the journey, or a journey keyed with this flow id already exists."
                     },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was over the size limit."
+                    },
                     "415": {
                         "content": {
                             "application/json": {
@@ -8440,6 +8859,16 @@
                             }
                         },
                         "description": "The body was not sent as JSON."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -8529,6 +8958,16 @@
                             }
                         },
                         "description": "The bot is not in this server."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -8629,6 +9068,16 @@
                         },
                         "description": "Nothing was deleted: the journey belongs to another flow, other flows share it, or the teardown was refused before it started."
                     },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -8720,6 +9169,16 @@
                             }
                         },
                         "description": "The bot is not in this server."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -8820,6 +9279,16 @@
                         },
                         "description": "A journey with that key already exists in this server."
                     },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was over the size limit."
+                    },
                     "415": {
                         "content": {
                             "application/json": {
@@ -8829,6 +9298,16 @@
                             }
                         },
                         "description": "The body was not sent as JSON."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -8922,6 +9401,16 @@
                         },
                         "description": "Flows are still attached; the sentence names each."
                     },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -9008,6 +9497,16 @@
                             }
                         },
                         "description": "The bot is not in this server, or the journey is not in it."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -9106,6 +9605,16 @@
                         },
                         "description": "The bot is not in this server, or the journey is not in it."
                     },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was over the size limit."
+                    },
                     "415": {
                         "content": {
                             "application/json": {
@@ -9115,6 +9624,16 @@
                             }
                         },
                         "description": "The body was not sent as JSON."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -9204,6 +9723,16 @@
                             }
                         },
                         "description": "The bot is not in this server, or the journey is not in it."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -9302,6 +9831,16 @@
                         },
                         "description": "The bot is not in this server, the journey is not in it, or the record is not one of its leftovers any more — already removed, or declared again."
                     },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -9390,6 +9929,16 @@
                             }
                         },
                         "description": "The bot is not in this server, or the journey is not in it."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -9500,6 +10049,16 @@
                         },
                         "description": "Nothing was repaired: the repair was refused before it started."
                     },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was over the size limit."
+                    },
                     "415": {
                         "content": {
                             "application/json": {
@@ -9509,6 +10068,16 @@
                             }
                         },
                         "description": "The body was not sent as JSON."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -9598,6 +10167,16 @@
                             }
                         },
                         "description": "The bot is not in this server, or the journey is not in it."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -9698,6 +10277,16 @@
                         },
                         "description": "Nothing was deleted: the teardown was refused before it started."
                     },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -9779,6 +10368,16 @@
                         },
                         "description": "The bot is not in this server."
                     },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -9859,6 +10458,16 @@
                             }
                         },
                         "description": "The bot is not in this server."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -9969,6 +10578,16 @@
                         },
                         "description": "The bot is not in this server."
                     },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -10061,6 +10680,16 @@
                         },
                         "description": "The bot is not in this server."
                     },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -10141,6 +10770,16 @@
                             }
                         },
                         "description": "The bot is not in this server."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -10231,6 +10870,16 @@
                         },
                         "description": "The bot is not in this server."
                     },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was over the size limit."
+                    },
                     "415": {
                         "content": {
                             "application/json": {
@@ -10240,6 +10889,16 @@
                             }
                         },
                         "description": "The body was not sent as JSON."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -10333,6 +10992,16 @@
                         },
                         "description": "The bot is not in this server."
                     },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was over the size limit."
+                    },
                     "415": {
                         "content": {
                             "application/json": {
@@ -10342,6 +11011,16 @@
                             }
                         },
                         "description": "The body was not sent as JSON."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -10379,7 +11058,11 @@
                         "required": false,
                         "schema": {
                             "description": "`open`, `closed` or `deleted`. Absent or blank means every status.",
-                            "type": "string"
+                            "maxLength": 16,
+                            "type": "string",
+                            "x-messages": {
+                                "maxLength": "That is not a ticket status. Try open, closed or deleted."
+                            }
                         }
                     },
                     {
@@ -10413,7 +11096,11 @@
                         "required": false,
                         "schema": {
                             "description": "A ticket number, matched exactly, or the start of a name on the ticket. Trimmed; blank means no search.",
-                            "type": "string"
+                            "maxLength": 100,
+                            "type": "string",
+                            "x-messages": {
+                                "maxLength": "That search is longer than any name on a ticket. Shorten it."
+                            }
                         }
                     }
                 ],
@@ -10436,7 +11123,7 @@
                                 }
                             }
                         },
-                        "description": "A filter was refused — a status that is not one, or a type too long to be one — or the server id is missing."
+                        "description": "A filter was refused — a status that is not one, a type too long to be one, or a search too long to match anything — or the server id is missing."
                     },
                     "401": {
                         "content": {
@@ -10467,6 +11154,16 @@
                             }
                         },
                         "description": "The bot is not in this server."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -10556,6 +11253,16 @@
                             }
                         },
                         "description": "The bot is not in this server, or the ticket is not in it."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -10656,6 +11363,16 @@
                         },
                         "description": "Nothing changed: the server has not finished setting up tickets, no longer declares the ticket's type, or the ticket is not in a state this action applies to. The sentence says which."
                     },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -10754,6 +11471,16 @@
                             }
                         },
                         "description": "Nothing changed: the server has not finished setting up tickets, no longer declares the ticket's type, or the ticket is not in a state this action applies to. The sentence says which."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {
@@ -10854,6 +11581,16 @@
                         },
                         "description": "Nothing changed: the server has not finished setting up tickets, no longer declares the ticket's type, or the ticket is not in a state this action applies to. The sentence says which."
                     },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -10953,6 +11690,16 @@
                         },
                         "description": "Nothing changed: the server has not finished setting up tickets, no longer declares the ticket's type, or the ticket is not in a state this action applies to. The sentence says which."
                     },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -11035,6 +11782,16 @@
                             }
                         },
                         "description": "No valid session."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
                     },
                     "500": {
                         "content": {

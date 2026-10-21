@@ -15,6 +15,7 @@ import { ACTION_SEND_DM } from '../blocks/actionSendDM';
 import { ACTION_WAIT_FOR_EVENT } from '../blocks/actionWaitForEvent';
 import { TRIGGER_BUTTON_CLICK } from '../blocks/triggerButtonClick';
 import { RESUME_EVENT, RESUME_TIMEOUT, type FlowRunSeed } from '../blocks/types';
+import { fakeGuild } from './support/fakeGuild';
 import { sentCopy } from './support/sentCopy';
 
 const GUILD_ID = 'guild-1';
@@ -95,7 +96,7 @@ function makeContext(): MockContext {
     return {
         context: {
             client: {} as FlowRunSeed['client'],
-            guild: { id: GUILD_ID } as FlowRunSeed['guild'],
+            guild: fakeGuild({ id: GUILD_ID, roles: [{ id: ROLE_ID }] }),
             subject,
             variables: {},
         },
@@ -124,7 +125,7 @@ function makeClient(options: { memberLeft?: boolean; guildGone?: boolean } = {})
     };
 
     const guild = {
-        id: GUILD_ID,
+        ...fakeGuild({ id: GUILD_ID, roles: [{ id: ROLE_ID }] }),
         members: {
             fetch: options.memberLeft
                 ? vi.fn().mockRejectedValue(new Error('Unknown Member'))

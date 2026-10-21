@@ -329,7 +329,10 @@ describe('applyInstallPlan', () => {
             staffRoleIds: [],
         });
 
-        expect(result.failure).toMatch(/rate limited/);
+        // Not a Discord refusal, so an answer that never arrived — said in a fixed
+        // sentence, with what was thrown kept in the log rather than the report.
+        expect(result.failure).toMatch(/never confirmed whether/);
+        expect(result.failure).not.toMatch(/rate limited/);
         expect(result.applied.map((entry) => entry.resourceKey)).toEqual(['arrivals-category']);
     });
 

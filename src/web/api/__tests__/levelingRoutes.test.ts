@@ -507,7 +507,7 @@ describe('GET /:guildId/leveling/users/:userId', () => {
         expect(body.metrics.memberSince).toBeNull();
     });
 
-    it.each(['abc', '12', '99999999999999999999999'])(
+    it.each(['abc', '12', '99999999999999999999999', '99999999999999999999'])(
         '400s `%s`, which is not a snowflake',
         async (rawId) => {
             const response = await get(`/leveling/users/${rawId}`);
@@ -516,10 +516,18 @@ describe('GET /:guildId/leveling/users/:userId', () => {
             expect(((await response.json()) as ErrorBody).error).toContain(rawId);
             // Rejected before the query, not after: the check exists so a path segment
             // cannot reach a lookup, and a 400 handed back *after* loading proves nothing.
-            // `'12'` and the 23-digit id are the two directions the length bound fails in.
+            // `'12'` and the 23-digit id are the two directions the length bound fails in;
+            // the 20-digit one fits the length but not a snowflake's 64 bits.
             expect(loadUserLevelStats).not.toHaveBeenCalled();
         }
     );
+
+    it('echoes only the start of an overlong id', async () => {
+        const response = await get(`/leveling/users/${'a'.repeat(5000)}`);
+
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as ErrorBody).error.length).toBeLessThan(100);
+    });
 
     it('never reaches the loader with a traversal segment in the id', async () => {
         /*

@@ -125,6 +125,22 @@ export class FlowsRepo {
         return rows.map((row) => this.assertValidGraph(row));
     }
 
+    /**
+     * How many flows a guild holds, for the create route's cap.
+     *
+     * `countAll<string | number>()` and `Number()`, as `levelingXpGrantRepo` does: postgres
+     * returns `COUNT(*)` as a `bigint`, which `pg` hands back as a string.
+     */
+    async countByGuildId(guildId: string): Promise<number> {
+        const row = await this.db
+            .selectFrom('flows')
+            .select((eb) => eb.fn.countAll<string | number>().as('count'))
+            .where('guildId', '=', guildId)
+            .executeTakeFirst();
+
+        return Number(row?.count ?? 0);
+    }
+
     async getByFlowId(flowId: string): Promise<FlowEntity | null> {
         const row = await this.db
             .selectFrom('flows')

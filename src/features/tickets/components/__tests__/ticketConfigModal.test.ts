@@ -89,16 +89,29 @@ function storedConfig(overrides: Partial<TicketingConfig> = {}): TicketingConfig
     };
 }
 
-function interaction(): ModalSubmitInteraction {
+/**
+ * A submit picking `selected`, in a guild whose role cache holds `role-new`, `@everyone`
+ * (keyed by the guild id, as on a real guild) and a bot-managed role.
+ */
+function interaction(selected: readonly string[] = ['role-new']): ModalSubmitInteraction {
     return {
-        guild: { id: 'guild-1' },
+        guild: {
+            id: 'guild-1',
+            roles: {
+                cache: new Map([
+                    ['role-new', { id: 'role-new', managed: false }],
+                    ['guild-1', { id: 'guild-1', managed: false }],
+                    ['role-bot', { id: 'role-bot', managed: true }],
+                ]),
+            },
+        },
         memberPermissions: { has: () => true },
         fields: {
             // No text inputs any more: reading one is a mistake, and would throw here.
             getTextInputValue: (id: string) => {
                 throw new Error(`The config modal read text input ${id}; it has none since categories moved to the dashboard.`);
             },
-            getSelectedRoles: () => new Map([['role-new', { id: 'role-new' }]]),
+            getSelectedRoles: () => new Map(selected.map((roleId) => [roleId, { id: roleId }])),
         },
         reply: vi.fn().mockResolvedValue(undefined),
     } as unknown as ModalSubmitInteraction;
@@ -237,6 +250,27 @@ describe('a config-modal save', () => {
             expect.objectContaining({ message: 'Unknown Message' })
         );
         logged.mockRestore();
+    });
+
+    it('refuses @everyone and bot-managed roles, and writes nothing', async () => {
+        // Discord's role select offers `@everyone`. As a moderation role it would make every
+        // member a ticket moderator.
+        mockGet.mockResolvedValue({
+            id: 1,
+            guildId: 'guild-1',
+            config: storedConfig(),
+            ticketNumberInc: 12,
+            entityVersion: 1,
+        } as TicketingConfigEntity);
+
+        const everyone = await TicketConfigModalComponent().handler(interaction(['role-new', 'guild-1']));
+        const managed = await TicketConfigModalComponent().handler(interaction(['role-bot']));
+
+        expect(everyone.status).toBe('error');
+        expect(everyone.message).toContain('@everyone');
+        expect(managed.status).toBe('error');
+        expect(mockUpdate).not.toHaveBeenCalled();
+        expect(mockUpsert).not.toHaveBeenCalled();
     });
 
     // No test here for "drops the dead `userTicketsDeployed`/`ticketChannelNameTemplate`

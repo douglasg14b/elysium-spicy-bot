@@ -18,13 +18,12 @@ describe('canManageGuild', () => {
         expect(canManageGuild({ owner: true, permissions: '0' })).toBe(true);
     });
 
-    it('admits Manage Guild', () => {
-        expect(canManageGuild({ owner: false, permissions: MANAGE_GUILD })).toBe(true);
+    it('rejects Manage Guild without Administrator', () => {
+        // Manage Server once let people in; the dashboard is now owners and Administrators only.
+        expect(canManageGuild({ owner: false, permissions: MANAGE_GUILD })).toBe(false);
     });
 
-    it('admits Administrator even without Manage Guild', () => {
-        // Discord does not expand ADMINISTRATOR into the other bits, so this has to be
-        // checked explicitly — an admin without Manage Guild is legal.
+    it('admits Administrator', () => {
         expect(canManageGuild({ owner: false, permissions: ADMINISTRATOR })).toBe(true);
     });
 
@@ -37,9 +36,14 @@ describe('canManageGuild', () => {
         expect(canManageGuild({ owner: false, permissions: SEND_MESSAGES })).toBe(false);
     });
 
-    it('admits a permission set that includes Manage Guild among others', () => {
-        const combined = String(BigInt(MANAGE_GUILD) | BigInt(SEND_MESSAGES));
+    it('admits a permission set that includes Administrator among others', () => {
+        const combined = String(BigInt(ADMINISTRATOR) | BigInt(SEND_MESSAGES));
         expect(canManageGuild({ owner: false, permissions: combined })).toBe(true);
+    });
+
+    it('rejects a permission set of Manage Guild among others, with no Administrator', () => {
+        const combined = String(BigInt(MANAGE_GUILD) | BigInt(SEND_MESSAGES) | BigInt(MODERATOR));
+        expect(canManageGuild({ owner: false, permissions: combined })).toBe(false);
     });
 
     it('fails closed on a malformed permissions string', () => {
@@ -48,7 +52,7 @@ describe('canManageGuild', () => {
 
     it('handles permission bitfields beyond 2^53', () => {
         // Permissions exceed Number.MAX_SAFE_INTEGER, which is why this is BigInt maths.
-        const highBit = String((1n << 50n) | BigInt(MANAGE_GUILD));
+        const highBit = String((1n << 50n) | BigInt(ADMINISTRATOR));
         expect(canManageGuild({ owner: false, permissions: highBit })).toBe(true);
     });
 });

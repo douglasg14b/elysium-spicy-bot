@@ -58,28 +58,73 @@ const IS_DEVELOPMENT = ENV === 'development';
 export const WEB_PUBLIC_URL = getStringOptional('WEB_PUBLIC_URL') ?? (IS_DEVELOPMENT ? `http://localhost:${WEB_PORT}` : undefined);
 /** Discord OAuth2 client secret (the app's secret, distinct from the bot token). */
 export const DISCORD_OAUTH_CLIENT_SECRET = getStringOptional('DISCORD_OAUTH_CLIENT_SECRET');
+
+/** The fixed throwaway session secret development falls back to. Refused anywhere else. */
+export const DEV_SESSION_SECRET = 'dev-only-insecure-session-secret';
+/** The shortest session secret accepted. The development fallback is exactly this long. */
+export const MIN_SESSION_SECRET_LENGTH = 32;
+
 /**
- * Secret used to sign the stateless session JWT cookie.
+ * Why a session secret cannot sign sessions, as the startup log names it — or undefined
+ * when it can. A secret anyone could guess is no secret: sessions are stateless JWTs,
+ * so whoever knows it can mint a session as anyone.
+ *
+ * The development fallback passes only in development; anywhere else it is a value
+ * published in this file.
+ */
+export function sessionSecretProblem(secret: string | undefined, isDevelopment: boolean): string | undefined {
+    if (!secret) return 'SESSION_SECRET (any long random string)';
+    if (secret === DEV_SESSION_SECRET && !isDevelopment) {
+        return `SESSION_SECRET (the development placeholder is refused outside ENV=development; set at least ${MIN_SESSION_SECRET_LENGTH} random characters)`;
+    }
+    if (secret.length < MIN_SESSION_SECRET_LENGTH) {
+        return `SESSION_SECRET (must be at least ${MIN_SESSION_SECRET_LENGTH} random characters)`;
+    }
+    return undefined;
+}
+
+const CONFIGURED_SESSION_SECRET = getStringOptional('SESSION_SECRET') ?? (IS_DEVELOPMENT ? DEV_SESSION_SECRET : undefined);
+const SESSION_SECRET_PROBLEM = sessionSecretProblem(CONFIGURED_SESSION_SECRET, IS_DEVELOPMENT);
+
+/**
+ * Secret used to sign the stateless session JWT cookie. Undefined when it is missing or
+ * too weak to use (see {@link sessionSecretProblem}), which keeps the dashboard off.
  *
  * Development falls back to a fixed throwaway value so the dashboard just runs.
  * Production must set a real one: sessions are stateless, so the secret IS the
  * security boundary, and a per-process random default would sign people out on
  * every restart.
  */
-export const SESSION_SECRET =
-    getStringOptional('SESSION_SECRET') ?? (IS_DEVELOPMENT ? 'dev-only-insecure-session-secret' : undefined);
+export const SESSION_SECRET = SESSION_SECRET_PROBLEM ? undefined : CONFIGURED_SESSION_SECRET;
+
+/** A comma-separated list of Discord ids from `key`; empty when it is unset. */
+function getIdList(key: string): string[] {
+    return (getStringOptional(key) || '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter((id) => id.length > 0);
+}
+
 /**
  * Optional comma-separated Discord user IDs that bypass per-guild permission checks.
  *
  * This is NOT a login gate. Who may sign in is decided by Discord: you get access to
- * the servers where you own, administer, or hold Manage Guild (see
- * `src/web/api/guildAccess.ts`). This list only exists so an operator can reach a
- * server they hold no role in. Empty is the normal case.
+ * the servers you own or are an Administrator of (see `src/web/api/guildAccess.ts`).
+ * This list only exists so an operator can reach a server they hold no role in. Empty
+ * is the normal case. It does not reach past {@link ALLOWED_GUILD_IDS}.
  */
-export const ADMIN_DISCORD_IDS = (getStringOptional('ADMIN_DISCORD_IDS') || '')
-    .split(',')
-    .map((id) => id.trim())
-    .filter((id) => id.length > 0);
+export const ADMIN_DISCORD_IDS = getIdList('ADMIN_DISCORD_IDS');
+
+/**
+ * Optional comma-separated guild IDs the bot may serve. The bot is a Public Bot, so
+ * anyone can add it to their own server; with this set, it leaves a server that adds it
+ * and is not listed, and the dashboard treats an unlisted server as not there.
+ *
+ * Empty or unset means every server is allowed, and the bot says so loudly at startup
+ * (see `src/features-system/guild-allowlist/`). Servers the bot is already in when it
+ * starts are never left, only logged — leaving one by mistake would need a re-invite.
+ */
+export const ALLOWED_GUILD_IDS = getIdList('ALLOWED_GUILD_IDS');
 
 /**
  * The web server only starts when the full required web config is present.
@@ -88,9 +133,9 @@ export const ADMIN_DISCORD_IDS = (getStringOptional('ADMIN_DISCORD_IDS') || '')
 export const WEB_ENABLED = Boolean(WEB_PUBLIC_URL && DISCORD_OAUTH_CLIENT_SECRET && SESSION_SECRET);
 
 /**
- * Which required web env vars are missing, each with a note on where its value comes
- * from. The one that cannot be defaulted is a secret, so the startup log says where to
- * get it.
+ * Which required web env vars are missing or unusable, each with a note on where its
+ * value comes from. The one that cannot be defaulted is a secret, so the startup log
+ * says where to get it.
  */
 export function getMissingWebEnv(): string[] {
     const missing: string[] = [];
@@ -100,7 +145,7 @@ export function getMissingWebEnv(): string[] {
             'DISCORD_OAUTH_CLIENT_SECRET (Discord Developer Portal → your app → OAuth2 → Client Secret)'
         );
     }
-    if (!SESSION_SECRET) missing.push('SESSION_SECRET (any long random string)');
+    if (SESSION_SECRET_PROBLEM) missing.push(SESSION_SECRET_PROBLEM);
     return missing;
 }
 

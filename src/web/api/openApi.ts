@@ -108,9 +108,21 @@ const UNEXPECTED_ERRORS = {
  * returning `c.json({ error }, 400)` fails to compile against a route that declares it.
  */
 
-/** What `requireAuth` answers before any authed route runs. */
-export const AUTHED_ERRORS = {
+/**
+ * What `requireAuth` alone answers, for the one authed route the rate limit does not cover:
+ * logout (see `registerApiRoutes`).
+ */
+export const SESSION_ERRORS = {
     401: errorBodyResponse('No valid session.'),
+};
+
+/**
+ * What `requireAuth`, and the per-user rate limit behind it (`rateLimit.ts`), answer before
+ * any authed route runs. The 429 carries `Retry-After`, in seconds.
+ */
+export const AUTHED_ERRORS = {
+    ...SESSION_ERRORS,
+    429: errorBodyResponse('The signed-in user sent too many requests. Wait for `Retry-After` seconds.'),
 };
 
 /**
@@ -132,11 +144,15 @@ export const GUILD_SCOPED_ERRORS = {
  * {@link GUILD_SCOPED_ERRORS} for a route that also refuses its own body. Both refusals
  * are 400s and the spec holds one entry per status, so the one entry names both causes.
  * The 415 is the validator's, for a body sent without a JSON content type; `apiRouter`'s
- * `onError` answers it in the same envelope.
+ * `onError` answers it in the same envelope. The 413 is the body limit's, in front of
+ * every `/api` route, for a body over `API_BODY_LIMIT_BYTES` (both in `index.ts`). Declared
+ * only where a body is taken: a route that reads none is never sent one by a client
+ * following the spec.
  */
 export const GUILD_SCOPED_BODY_ERRORS = {
     ...GUILD_SCOPED_ERRORS,
     400: errorBodyResponse('The body was refused, or the server id is missing.'),
+    413: errorBodyResponse('The body was over the size limit.'),
     415: errorBodyResponse('The body was not sent as JSON.'),
 };
 

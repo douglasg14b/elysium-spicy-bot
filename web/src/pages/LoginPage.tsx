@@ -24,8 +24,8 @@ export function LoginPage() {
                     </Stack>
 
                     <Text c="dimmed" size="sm" ta="center">
-                        The control room for your naughtiest server. Log in with Discord — only allowlisted
-                        admins get past the velvet rope.
+                        The control room for your naughtiest server. Log in with Discord — only server owners
+                        and Administrators get past the velvet rope.
                     </Text>
 
                     <Button

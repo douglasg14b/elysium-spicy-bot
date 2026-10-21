@@ -441,6 +441,30 @@ describe('flow resource declarations', () => {
         expect(await response.json()).toEqual({ resources: [] });
     });
 
+    it("404s for another server's flow, as every flow route does, and reads no journey", async () => {
+        flowsRepoMock.getByFlowId.mockResolvedValue({ flowId: FLOW_ID, guildId: 'other-guild', name: 'Theirs' });
+
+        const response = await app().request(`/${GUILD_ID}/flows/${FLOW_ID}/resources`);
+
+        expect(response.status).toBe(404);
+        expect(repo.getByKey).not.toHaveBeenCalled();
+    });
+
+    it('refuses more resources than any journey declares', async () => {
+        const many = Array.from({ length: 101 }, (_unused, index) => ({
+            key: `channel-${index}`,
+            kind: 'textChannel',
+            defaultName: `channel-${index}`,
+        }));
+
+        const response = await putResources(many);
+
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as { error: string }).error).toMatch(/at most 100 resources/);
+        expect(repo.create).not.toHaveBeenCalled();
+        expect(repo.update).not.toHaveBeenCalled();
+    });
+
     it('creates the journey on the first save, keyed on the flow id', async () => {
         repo.getByKey.mockResolvedValue(null);
         repo.create.mockResolvedValue(journeyRow({ resources: RESOURCES }));

@@ -270,3 +270,11 @@ export function guildObjectOwner(ownership: GuildOwnership, discordId: string): 
     const owner = ownerOf(ownership.bindings, discordId);
     return owner ? { kind: owner.kind, key: owner.key, label: describeOwner(owner, ownership.journeyNames) } : null;
 }
+
+/**
+ * Ceilings on a role-id list a request sends — the staff roles and the ticket moderation
+ * roles. A snowflake is at most 20 characters and no server has 50 such roles, so both are
+ * generous; they exist because each id is looked up and a refused one is named back.
+ */
+export const ROLE_LIST_MAX = 50;
+export const ROLE_ID_MAX_LENGTH = 32;

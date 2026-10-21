@@ -18,6 +18,10 @@ import { startOver } from './startOver';
  * it leaves standing. `recheckSession` asks `/me` whether the operator has signed in again
  * (in another tab): the same person, and every held request goes out; somebody else, and
  * the dashboard loads afresh as them, because what this page holds is not theirs.
+ *
+ * Somebody else signing in while this page is still signed in arrives the same way: the
+ * gate stamps each request with the id handed to `sessionBegan`, the API refuses one
+ * whose cookie now belongs to someone else with a 401, and the recheck finds them.
  */
 interface AuthContextValue {
     /** Kept while the session is expired: the page under the panel is still theirs. */
@@ -68,8 +72,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             try {
                 const { data: me } = await getCurrentUser();
                 if (superseded) return;
-                // Before the dashboard mounts, so its first request is already guarded.
-                sessionBegan();
+                // Before the dashboard mounts, so its first request is already guarded and
+                // names who it is sent for.
+                sessionBegan(me.id);
                 setSession({ kind: 'signedIn', user: me });
             } catch (err) {
                 if (superseded) return;
@@ -129,6 +134,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const logout = useCallback(async () => {
         try {
             await endSession();
+        } catch (err) {
+            // 401: already signed out here — or the cookie is somebody else's now, and the
+            // stamped request was refused rather than signing them out. Either way, done.
+            if (!(err instanceof ApiError) || err.status !== 401) throw err;
         } finally {
             // The cache is emptied so nothing one person loaded is on hand for whoever
             // signs in next in this tab; `AuthGate` shows the login page for a null user.

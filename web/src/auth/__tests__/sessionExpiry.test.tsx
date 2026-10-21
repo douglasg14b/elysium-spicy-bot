@@ -7,7 +7,7 @@ import { App } from '../../App';
 import { JourneyDriftDialog } from '../../flows/JourneyDriftDialog';
 import { installFakeApi, type FakeApi, type FakeApiHandler, type FakeApiMethod } from '../../__tests__/support/fakeApi';
 import { renderWithProviders } from '../../__tests__/support/renderWithProviders';
-import { onSessionLost, sessionBegan } from '../sessionGate';
+import { SESSION_USER_HEADER, onSessionLost, sessionBegan } from '../sessionGate';
 import { startOver } from '../startOver';
 
 vi.mock('../startOver', () => ({ startOver: vi.fn() }));
@@ -45,6 +45,23 @@ interface FakeSession {
 /** Answer `method path` while the session is live, and 401 as `requireAuth` does once it is not. */
 function guarded(api: FakeApi, session: FakeSession, method: FakeApiMethod, path: string, handler: FakeApiHandler): void {
     api.on(method, path, (request) => (session.user ? handler(request) : NOT_AUTHENTICATED));
+}
+
+/**
+ * In front of the fake API: refuse, as `requireAuth` does, a request whose
+ * `X-BrattyBot-User` names somebody other than the cookie's owner. Such a request never
+ * reaches a route. Installed after `installFakeApi`, whose teardown restores `fetch`.
+ */
+function refuseRequestsNamingSomebodyElse(session: FakeSession): void {
+    const reachRoutes = globalThis.fetch;
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const headers = input instanceof Request ? input.headers : new Headers(init?.headers);
+        const named = headers.get(SESSION_USER_HEADER);
+        if (named && named !== session.user?.id) {
+            return Promise.resolve(new Response(JSON.stringify(NOT_AUTHENTICATED.body), { status: 401 }));
+        }
+        return reachRoutes(input, init);
+    });
 }
 
 /** `/me`, answering for whoever the session belongs to — 401 when it belongs to nobody. */
@@ -213,6 +230,29 @@ describe('a session that runs out', () => {
         expect(requestsTo(api, 'PUT', CONFIG_PATH)).toHaveLength(1);
     });
 
+    it('loads the dashboard afresh when the cookie changes owner under a page still signed in, and carries out nothing as them', async () => {
+        onTestFinished(() => {
+            vi.mocked(startOver).mockClear();
+        });
+        const api = installFakeApi();
+        const session: FakeSession = { user: OPERATOR };
+        serveWarningsPage(api, session);
+        refuseRequestsNamingSomebodyElse(session);
+        const { user } = renderDashboardAt();
+        await user.click(await screen.findByRole('textbox', { name: 'Mod Log Channel' }));
+        await user.click(screen.getByRole('option', { name: '#mod-log' }));
+
+        // Somebody else signs in on another tab: the cookie is theirs, and nothing on this
+        // page has heard. Its Save names the last person, so the API refuses it.
+        session.user = SOMEBODY_ELSE;
+        await user.click(screen.getByRole('button', { name: 'Save changes' }));
+        await screen.findByRole('dialog', { name: PANEL_TITLE });
+        window.dispatchEvent(new Event('focus'));
+
+        await waitFor(() => expect(startOver).toHaveBeenCalledOnce());
+        expect(requestsTo(api, 'PUT', CONFIG_PATH)).toHaveLength(0);
+    });
+
     it('is the login page on a first visit with no session at all', async () => {
         const api = installFakeApi();
         serveWarningsPage(api, { user: null });
@@ -230,7 +270,7 @@ describe('a session that runs out', () => {
         api.on('GET', `/api/guilds/${GUILD_ID}/journeys/onboarding/drift`, () => NOT_AUTHENTICATED);
         const lost = vi.fn();
         onTestFinished(onSessionLost(lost));
-        sessionBegan();
+        sessionBegan(OPERATOR.id);
 
         renderWithProviders(
             <JourneyDriftDialog

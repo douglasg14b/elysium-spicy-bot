@@ -137,7 +137,14 @@ function ticketRow(overrides: Record<string, unknown> = {}) {
 function guildStub() {
     return {
         id: GUILD_ID,
-        roles: { cache: new Map([[MOD_ROLE, { id: MOD_ROLE, name: 'Mods', managed: false }]]) },
+        // `@everyone` is in the cache, keyed by the guild id, as it is on a real guild — so
+        // refusing it is the assignability check's doing, not a cache miss.
+        roles: {
+            cache: new Map([
+                [MOD_ROLE, { id: MOD_ROLE, name: 'Mods', managed: false }],
+                [GUILD_ID, { id: GUILD_ID, name: '@everyone', managed: false }],
+            ]),
+        },
         channels: { cache: new Map([[CATEGORY_ID, { id: CATEGORY_ID, name: 'Tickets' }]]) },
     };
 }
@@ -263,6 +270,19 @@ describe('GET /:guildId/tickets', () => {
         expect(ticketsRepoMock.listByGuild).not.toHaveBeenCalled();
     });
 
+    it('refuses an overlong status or search before echoing or querying either', async () => {
+        const longStatus = await get(`/tickets?status=${'x'.repeat(5000)}`);
+        const longSearch = await get(`/tickets?search=${'x'.repeat(5000)}`);
+
+        expect(longStatus.status).toBe(400);
+        expect(((await longStatus.json()) as ErrorBody).error).toBe(
+            'That is not a ticket status. Try open, closed or deleted.'
+        );
+        expect(longSearch.status).toBe(400);
+        expect(ticketsRepoMock.listByGuild).not.toHaveBeenCalled();
+        expect(ticketsRepoMock.searchByGuild).not.toHaveBeenCalled();
+    });
+
     it('treats blank filters as absent', async () => {
         await get('/tickets?status=&type=&unclaimed=');
 
@@ -363,6 +383,13 @@ describe('GET /:guildId/tickets/:ticketId', () => {
 
         expect(response.status).toBe(400);
         expect(((await response.json()) as ErrorBody).error).toBe('`nonsense` is not a ticket id.');
+    });
+
+    it('names only the start of an overlong id', async () => {
+        const response = await get(`/tickets/${'x'.repeat(5000)}`);
+
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as ErrorBody).error).toBe(`\`${'x'.repeat(32)}…\` is not a ticket id.`);
     });
 });
 
@@ -532,6 +559,17 @@ describe('PUT /:guildId/config/tickets', () => {
 
         expect(response.status).toBe(400);
         expect(((await response.json()) as ErrorBody).error).toContain('999999999999999999');
+        expect(setTicketSettings).not.toHaveBeenCalled();
+    });
+
+    it('rejects @everyone as a moderation role, though it is in the role cache', async () => {
+        // Its id is the guild id. As a moderation role it would make every member a
+        // ticket moderator.
+        const response = await send('/config/tickets', 'PUT', { ...settingsBody, moderationRoles: [MOD_ROLE, GUILD_ID] });
+
+        expect(response.status).toBe(400);
+        // Named as @everyone: its id is the server's and would mean nothing to the operator.
+        expect(((await response.json()) as ErrorBody).error).toContain("These can't be moderation roles: @everyone.");
         expect(setTicketSettings).not.toHaveBeenCalled();
     });
 

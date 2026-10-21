@@ -639,6 +639,32 @@ describe('committing a group', () => {
         });
     });
 
+    it('refuses a merge that would take one journey past the resource cap, and writes nothing', async () => {
+        // Each side alone is within the cap; a merge must not be a way around it.
+        // Imported here: a top-level import would load the routes before the mocks exist.
+        const { JOURNEY_MAX_RESOURCES } = await import('../journeyBody');
+        const half = Math.ceil(JOURNEY_MAX_RESOURCES / 2) + 1;
+        const resources = (prefix: string): ResourceDeclaration[] =>
+            Array.from({ length: half }, (_unused, index) =>
+                declaration({ key: `${prefix}-${index}`, defaultName: `${prefix}-${index}` })
+            );
+        attachFlows(
+            { [MOVING_FLOW_ID]: 'onboarding', [TARGET_FLOW_ID]: 'the-group' },
+            {
+                onboarding: journeyRow({ resources: resources('moving') }),
+                'the-group': journeyRow({ journeyKey: 'the-group', name: 'The Group', resources: resources('kept') }),
+            }
+        );
+
+        const response = await group({ targetFlowId: TARGET_FLOW_ID, resolution: 'merge' });
+
+        expect(response.status).toBe(400);
+        const body = (await response.json()) as { error: string };
+        expect(body.error).toContain(`more than ${JOURNEY_MAX_RESOURCES} resources`);
+        expect(journeysRepoMock.update).not.toHaveBeenCalled();
+        expect(linksRepo.attach).not.toHaveBeenCalled();
+    });
+
     it('merging two journeys that both declare one ticket type keeps a single declaration, the destination’s', async () => {
         // A ticket type's key is the type, so both name one thing. Sabotage-verified:
         // appending the moving declarations as they are hands the repo a duplicate key.

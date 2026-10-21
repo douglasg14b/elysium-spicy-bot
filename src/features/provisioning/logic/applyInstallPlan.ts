@@ -3,6 +3,7 @@ import { resourceBindingsRepo } from '../data/resourceBindingsRepo';
 import { journeyOwner, type ResourceBindingEntity } from '../data/resourceBindingsSchema';
 import { requireTicketTypeProvider, type TicketTypeCreateOutcome } from '../ticketTypeProvider';
 import { parseDeclaredRoleReference } from './declaredRoleReference';
+import { describeDiscordError } from './discordErrors';
 import {
     existsInGuildAs,
     isPlanApplicable,
@@ -143,9 +144,10 @@ export async function applyInstallPlan(
                 startsCreate: item.action === 'create',
             });
         } catch (error) {
+            logStoreFailure(`recording intent for "${item.resourceKey}"`, error);
             return {
                 applied,
-                failure: `Could not record provisioning intent for "${item.resourceKey}": ${describeError(error)}`,
+                failure: `Could not record provisioning intent for "${item.resourceKey}". Nothing was created; run install again.`,
             };
         }
 
@@ -239,12 +241,15 @@ export async function applyInstallPlan(
                 await discardOwnIntent();
                 return {
                     applied,
-                    failure: `Failed to ${item.action} ${item.kind} "${item.name}": ${describeError(error)}`,
+                    failure: `Failed to ${item.action} ${item.kind} "${item.name}": ${describeDiscordError(error)}`,
                 };
             }
+            // Whatever never arrived — a timeout, a dropped connection — is the log's to
+            // keep; the operator's next step is the same whichever it was.
+            console.error(`[provisioning] No answer from Discord creating ${item.kind} "${item.name}":`, error);
             return {
                 applied,
-                failure: `Discord never confirmed whether ${item.kind} "${item.name}" was created (${describeError(error)}). Run install again: if it was, the next plan takes it back rather than making another.`,
+                failure: `Discord never confirmed whether ${item.kind} "${item.name}" was created. Run install again: if it was, the next plan takes it back rather than making another.`,
             };
         }
 
@@ -307,9 +312,10 @@ export async function applyInstallPlan(
                           name: recordedName,
                       });
         } catch (error) {
+            logStoreFailure(`recording the binding of ${item.kind} "${item.name}" (${discordId})`, error);
             return {
                 applied,
-                failure: `${item.kind} "${item.name}" was ${settledState} in the server (${discordId}), but recording its binding failed: ${describeError(error)}. Re-run install to reconcile; do not delete it by hand first.`,
+                failure: `${item.kind} "${item.name}" was ${settledState} in the server (${discordId}), but recording its binding failed. Re-run install to reconcile; do not delete it by hand first.`,
             };
         }
 
@@ -407,7 +413,8 @@ async function applyTicketType(
             declaration.ticketType
         );
     } catch (error) {
-        return { failure: `Could not create the ticket type "${item.name}": ${describeError(error)}` };
+        logStoreFailure(`creating the ticket type "${item.name}"`, error);
+        return { failure: `Could not create the ticket type "${item.name}". Run install again.` };
     }
 
     let state: 'created' | 'adopted';
@@ -437,11 +444,12 @@ async function applyTicketType(
             name,
         });
     } catch (error) {
+        logStoreFailure(`recording the binding of ticket type "${name}"`, error);
         return {
             failure:
                 state === 'created'
-                    ? `The ticket type "${name}" was created, but recording that this journey installed it failed: ${describeError(error)}. Run install again; it finds the type and records it.`
-                    : `Could not record that this journey uses the ticket type "${name}": ${describeError(error)}`,
+                    ? `The ticket type "${name}" was created, but recording that this journey installed it failed. Run install again; it finds the type and records it.`
+                    : `Could not record that this journey uses the ticket type "${name}". Run install again.`,
         };
     }
 
@@ -623,6 +631,20 @@ function resolveParent(
     return parent;
 }
 
+/**
+ * The words of an error this module threw itself while preparing an item — a parent that is
+ * not a category, an adopted id that no longer resolves — which are written for the operator.
+ * Never for a database or Discord error: those go through {@link logStoreFailure} or
+ * `describeDiscordError`, so a driver's own message never reaches a response.
+ */
 function describeError(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Log a failed write to the bot's own store, whose cause stays out of the report: it is
+ * whatever the database driver said, which the operator cannot act on.
+ */
+function logStoreFailure(what: string, error: unknown): void {
+    console.error(`[provisioning] Failed ${what}:`, error);
 }

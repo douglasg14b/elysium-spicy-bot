@@ -79,7 +79,7 @@ marks it optional; arrays are declared empty rather than omitted, so a reader ca
 | `handles` | Every way a run can leave your block. See [Output handles](#output-handles). |
 | `outputs` | Values your block writes for later blocks to read, via `context.setOutput`. Read by the builder to offer an author the variables in scope. Discriminated on `naming` — `fixed` carries the name, `authored` names the config field holding it. See [Run variables](#run-variables). |
 | `requires` | Run context you cannot work without. See [Context requirements](#context-requirements). |
-| `capabilities` | Discord permissions the bot needs for your block to work. Declared, not yet enforced. |
+| `capabilities` | Discord permissions the bot needs for your block to work. Not yet checked against what the bot holds — but `manageRoles` is read as "this block changes a member's roles": a `rolePicker` on such a block naming `@everyone`, a managed role, or one carrying any of `PRIVILEGED_ROLE_PERMISSIONS` (`logic/roleSafety.ts`) is a readiness issue (`logic/guildReferences.ts`) — stored, but never switched on or deployed — and the block asks `changeableRole` (`logic/roleSafety.ts`) again in its own `run`. |
 | `emits` | What your action causes that can start a trigger — usually `[]`, and always `[]` on a trigger. Server-only. See [What a block causes](#what-a-block-causes--emits). |
 | `startedBy` | **Optional. Triggers only.** What fires you: `buttonClick`, `levelUp`, `memberJoin`, `memberLeave`, `messageSent`, `reactionAdd`, `scheduleDue`, or `ticketChanged`. `scheduleDue` is a schedule coming due: nothing on the gateway announces it, so `logic/reconcileGuildSchedules.ts` keeps a `flow_schedules` row per node with its next time and `logic/fireDueSchedules.ts` starts the due ones from the shared run tick, through an `onTick` hook `initFlows` hands the scheduler — the engine never names schedules. Its runs are about nobody, carry no channel, and are never limited. The gateway dispatchers select on this, so a new trigger for an existing source needs no dispatcher edit. Every dispatcher but the button's starts each run through one function, `startTriggeredRun` in `engine/triggeredRun.ts`, which isolates and logs a failure per run and is the only place a run start can be limited — only `messageSent` passes the flood limit. `ticketChanged` is a committed ticket change the ticket service announces through its subscriber seam; its dispatcher lives in `logic/ticketEventDispatch.ts` rather than `engine/`, because `ticket` is a word the engine vocabulary gate rejects, and it is the one source whose runs can be started by another run — see [How deep in a chain](#how-deep-in-a-chain--contextchaindepth). Leave it off any condition or action. |
 | `canSuspend` | Whether `run` may park the run. State it truthfully; conformance holds you to it. |
@@ -866,6 +866,16 @@ outage:
   `logic/flowReadiness.ts`. Never on read, so no stored graph is retroactively stranded.
 
 New rule? It is almost always the second one.
+
+A rule that needs the flow's **server** rather than its graph sits beside the second:
+`guildReferenceIssues` (`logic/guildReferences.ts`) refuses a picked channel, category or role
+that is not one of the server's own, read from its cache, and a role a `manageRoles` block may not
+change. Its issues are ordinary readiness issues, asked through `flowReadinessIssuesInGuild` by
+every caller holding the guild — the routes, the flows list, deploy — so the builder's marks and
+the switch-on refusal agree. The seed script, which has no Discord client, asks only the graph.
+A block that posts resolves its channel the same way at run time, from `context.guild`'s cache
+(`blocks/channelInGuild.ts`) — never `context.client.channels`, which reaches every server the
+bot is in.
 
 One rule is neither, because it is not about one graph: **a loop between flows** —
 `findFlowCycleThrough` in `engine/flowCycles.ts`. It is a conflict between a flow and the

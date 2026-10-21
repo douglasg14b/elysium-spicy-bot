@@ -6,6 +6,7 @@ import type { FlowValidationIssue } from '../../../features/flows/engine/nodeDat
 import type { ApiError } from '../../../../packages/web-sdk/src/apiError';
 import type { FlowWriteDecision } from '../../../features/flows/data/flowsRepo';
 import type { AppEnv } from '../../types';
+import { fakeGuild } from '../../../features/flows/__tests__/support/fakeGuild';
 
 /**
  * What `ApiError.issues` carries, held to the server's issue shape.
@@ -43,6 +44,7 @@ void sdkIssueFitsServer;
 const flowsRepoMock = {
     getByFlowId: vi.fn(),
     getByGuildId: vi.fn(),
+    countByGuildId: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
     mutate: vi.fn(),
@@ -95,6 +97,9 @@ const GUILD_ID = 'guild-1';
 const FLOW_ID = 'flow-1';
 const EMPTY_GRAPH: FlowGraph = { version: FLOW_GRAPH_VERSION, nodes: [], edges: [] };
 
+/** The one channel the guild holds — what an installed `qa-channel` resolved to. */
+const INSTALLED_CHANNEL_ID = '111111111111111111';
+
 /** A journey row the repo refused to read, as it now says so. */
 function malformedJourney(): InstanceType<typeof MalformedJourneyError> {
     return new MalformedJourneyError(FLOW_ID, new Error('its resources column is not an array.'));
@@ -103,7 +108,7 @@ function malformedJourney(): InstanceType<typeof MalformedJourneyError> {
 function app() {
     const outer = new Hono<AppEnv>();
     outer.use('*', async (c, next) => {
-        c.set('guild', { id: GUILD_ID } as never);
+        c.set('guild', fakeGuild({ id: GUILD_ID, channels: { [INSTALLED_CHANNEL_ID]: {} } }));
         c.set('user', { id: 'operator-1', username: 'operator', avatar: null, manageableGuildIds: [GUILD_ID] });
         await next();
     });
@@ -195,6 +200,8 @@ beforeEach(() => {
     // No other flows in the guild, so the loop check a switch-on or a live save asks
     // finds nothing — `flowLoopRoutes.test.ts` covers it against a real database.
     flowsRepoMock.getByGuildId.mockResolvedValue([]);
+    // Far below the cap, so every create here is judged on its graph alone.
+    flowsRepoMock.countByGuildId.mockResolvedValue(0);
     // Echoes the patch over the stored row, so a response reflects what was written.
     flowsRepoMock.update.mockImplementation(
         async (_flowId: string, patch: { graph?: FlowGraph; enabled?: boolean }) => {
@@ -271,7 +278,10 @@ describe('saving a graph that picked a declared resource', () => {
 
         expect(response.status).toBe(500);
         const body = (await response.json()) as { error: string };
-        expect(body.error).toContain('not an array');
+        // Names the journey, so the operator knows which row to look at — but not what
+        // the validator said about it, which stays in the log.
+        expect(body.error).toContain(`journey "${FLOW_ID}"`);
+        expect(body.error).not.toContain('not an array');
         // Not recovered from by treating the flow as declaring nothing, which would
         // blame the author's graph for a data problem they cannot see.
         expect(flowsRepoMock.update).not.toHaveBeenCalled();
@@ -403,7 +413,7 @@ describe('which graphs are stored, and which switches are refused', () => {
         // `flowDraftRoutes.test.ts`.
         declareQaChannel();
         const installed = graphPicking('qa-channel');
-        installed.nodes[0]!.data.channelId = '111111111111111111';
+        installed.nodes[0]!.data.channelId = INSTALLED_CHANNEL_ID;
         flowsRepoMock.getByFlowId.mockResolvedValue(storedFlow({ graph: installed }));
 
         const response = await put({ enabled: true });
@@ -437,7 +447,7 @@ describe('which graphs are stored, and which switches are refused', () => {
 
         expect(flowsRepoMock.update).toHaveBeenCalledWith(FLOW_ID, expect.objectContaining({ enabled: false }));
         expect(response.status).toBe(500);
-        expect(((await response.json()) as { error: string }).error).toMatch(/^Saved\. .*not an array/);
+        expect(((await response.json()) as { error: string }).error).toMatch(/^Saved\. .*can't read/);
     });
 
     it('refuses to switch on while its declarations cannot be read, writing nothing', async () => {
@@ -578,7 +588,7 @@ describe('checking a graph without saving it', () => {
         const response = await check({ graph: graphPicking('qa-channel') });
 
         expect(response.status).toBe(500);
-        expect(((await response.json()) as { error: string }).error).toContain('not an array');
+        expect(((await response.json()) as { error: string }).error).toContain(`journey "${FLOW_ID}"`);
     });
 });
 
@@ -711,5 +721,109 @@ describe('a flow switched on by someone else while a save was on its way', () =>
         });
         expect(flowsRepoMock.getByGuildId).not.toHaveBeenCalled();
         expect(flowsRepoMock.update).not.toHaveBeenCalled();
+    });
+});
+
+describe("a graph naming another server's channel", () => {
+    /** Posts into a channel this guild does not hold — another server's, as far as it knows. */
+    const FOREIGN_GRAPH: FlowGraph = {
+        version: FLOW_GRAPH_VERSION,
+        nodes: [
+            {
+                id: 'post',
+                type: 'action.sendMessage',
+                position: { x: 0, y: 0 },
+                data: { channelId: '999999999999999999', message: 'Hello from elsewhere.' },
+            },
+        ],
+        edges: [],
+    };
+
+    it('cannot be switched on, and the refusal marks the node and field', async () => {
+        const response = await put({ graph: FOREIGN_GRAPH, enabled: true });
+
+        expect(response.status).toBe(400);
+        const body = (await response.json()) as IssuesBody;
+        expect(body.issues).toEqual([
+            { nodeId: 'post', field: 'channelId', message: expect.stringMatching(/isn't in this server/) },
+        ]);
+        expect(flowsRepoMock.update).not.toHaveBeenCalled();
+    });
+
+    it('is what the check says too, so the builder agrees with the save', async () => {
+        const response = await app().request(`/${GUILD_ID}/flows/${FLOW_ID}/check`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ graph: FOREIGN_GRAPH }),
+        });
+
+        expect(response.status).toBe(200);
+        expect(((await response.json()) as { issues: IssuesBody['issues'] }).issues).toEqual([
+            { nodeId: 'post', field: 'channelId', message: expect.stringMatching(/isn't in this server/) },
+        ]);
+    });
+});
+
+describe('what a stored graph may hold', () => {
+    function create(body: unknown) {
+        return app().request(`/${GUILD_ID}/flows`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+    }
+
+    it('keeps only the keys each block declares, picker sidecars included', async () => {
+        const graph = graphPicking('qa-channel');
+        graph.nodes[0]!.data.smuggled = 'x'.repeat(1000);
+
+        const response = await create({ name: 'New', graph });
+
+        expect(response.status).toBe(201);
+        const stored = flowsRepoMock.create.mock.calls[0]?.[0] as { graph: FlowGraph };
+        expect(stored.graph.nodes[0]?.data).toEqual({ channelId: '', message: 'Hi', channelIdKey: 'qa-channel' });
+    });
+
+    it('keeps the keys an edit sends, minus what no block declares', async () => {
+        const graph = graphPicking(undefined);
+        graph.nodes[0]!.data.smuggled = true;
+
+        const response = await put({ graph });
+
+        expect(response.status).toBe(200);
+        expect(flowsRepoMock.update).toHaveBeenCalledWith(
+            FLOW_ID,
+            expect.objectContaining({
+                graph: expect.objectContaining({
+                    nodes: [expect.objectContaining({ data: { channelId: '', message: 'Hi' } })],
+                }),
+            })
+        );
+    });
+
+    it('refuses a graph of more blocks than any flow is built from', async () => {
+        const nodes = Array.from({ length: 251 }, (_unused, index) => ({
+            id: `node-${index}`,
+            type: 'action.sendMessage',
+            position: { x: 0, y: 0 },
+            data: {},
+        }));
+
+        const response = await create({ name: 'Huge', graph: { version: FLOW_GRAPH_VERSION, nodes, edges: [] } });
+
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as { error: string }).error).toMatch(/at most 250 blocks/);
+        expect(flowsRepoMock.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses a new flow once the server holds as many as it gets', async () => {
+        flowsRepoMock.countByGuildId.mockResolvedValue(200);
+
+        const response = await create({ name: 'One too many' });
+
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as { error: string }).error).toMatch(/already has 200 flows/);
+        expect(flowsRepoMock.countByGuildId).toHaveBeenCalledWith(GUILD_ID);
+        expect(flowsRepoMock.create).not.toHaveBeenCalled();
     });
 });

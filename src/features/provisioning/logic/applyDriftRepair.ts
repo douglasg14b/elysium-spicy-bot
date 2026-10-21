@@ -7,6 +7,7 @@ import {
 import { resourceBindingsRepo, type ResourceBindingsRepo } from '../data/resourceBindingsRepo';
 import { journeyOwner } from '../data/resourceBindingsSchema';
 import { describeOtherHolder, type GuildOwnership } from './bindingOwner';
+import { describeDiscordError } from './discordErrors';
 import type { JourneyDriftPlan } from './journeyDriftPlan';
 import { describeWithheldRepair, type ResourceDriftKind, type ResourceDriftReport } from './resourceDrift';
 import type { ResourceKind } from './resourceDeclaration';
@@ -201,14 +202,19 @@ export async function applyDriftRepair(
              * exists to prevent. Any consumer must branch on `repaired`, not on a name.
              */
             const partial = error instanceof PartialRepairError ? error.repaired : [];
+            // Only a `PartialRepairError`'s message is this module's own wording; anything
+            // else is an internal failure whose text must not reach the report.
+            if (!(error instanceof PartialRepairError)) {
+                console.error(`[provisioning] Repairing ${report.resourceKey} failed:`, error);
+            }
             results.push({
                 ...describe(report),
                 outcome: 'failed',
                 ...(partial.length > 0 ? { repaired: partial } : {}),
                 explanation:
-                    error instanceof Error
+                    error instanceof PartialRepairError
                         ? error.message
-                        : `Discord refused the change to **${report.name}**.`,
+                        : `Something went wrong repairing **${report.name}**, and it was not finished. Try again in a moment.`,
             });
         }
     }
@@ -391,10 +397,9 @@ async function repairOne(context: RepairOneInput): Promise<RepairOneResult> {
         try {
             await applyOneDrift({ context, drift, repaired });
         } catch (error) {
-            const refusal =
-                error instanceof Error
-                    ? error.message
-                    : `Discord refused the change to **${report.name}**.`;
+            // Only Discord throws in here: its answer is worded by `describeDiscordError`,
+            // which logs the whole of it, so the raw text never reaches the report.
+            const refusal = `Discord refused the change to **${report.name}**: ${describeDiscordError(error)}.`;
 
             /*
              * A rename that landed before a later drift failed is still recorded on the
@@ -417,7 +422,9 @@ async function repairOne(context: RepairOneInput): Promise<RepairOneResult> {
     }
 
     if (repaired.includes('renamed')) {
-        const note = await syncRenamedBinding(context);
+        // Through `recordLandedRename`: the rename has landed, so a database failure here
+        // is a note on a successful repair, not a failure of it.
+        const note = await recordLandedRename(context);
         if (note) notes.push(note);
     }
 
@@ -547,7 +554,11 @@ async function applyOneDrift({ context, drift, repaired }: ApplyOneDriftInput): 
 async function recordLandedRename(context: RepairOneInput): Promise<string | undefined> {
     try {
         return await syncRenamedBinding(context);
-    } catch {
+    } catch (error) {
+        console.error(
+            `[provisioning] Could not record the rename of binding ${context.report.bindingId}:`,
+            error
+        );
         return `The server was renamed, but **${context.report.name}**'s record could not be updated to match.`;
     }
 }

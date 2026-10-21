@@ -1001,10 +1001,17 @@ export type FlowContextRequirement = (typeof FLOW_CONTEXT_REQUIREMENTS)[number];
 /**
  * A Discord permission the bot must hold for a block to work.
  *
- * Declared only. Nothing checks these yet — reading them back to an
+ * Nothing checks that the bot holds them yet — reading them back to an
  * administrator is the provisioning work of a later milestone, and a block that
  * lies about them is a manifest bug found there rather than a silent failure
  * here.
+ *
+ * **`manageRoles` is read, though, as "this block changes a member's roles".**
+ * Save-time validation (`logic/guildReferences.ts`) holds every `rolePicker` on a
+ * block declaring it to the roles a flow may give or take (`logic/roleSafety.ts`):
+ * no `@everyone`, no managed role, nothing carrying a permission listed in
+ * `PRIVILEGED_ROLE_PERMISSIONS`. Such a block also asks
+ * `changeableRole` in its own `run`, since a role can gain those after the save.
  */
 export const BLOCK_CAPABILITIES = ['manageRoles', 'sendMessages', 'embedLinks', 'manageChannels', 'kickMembers'] as const;
 

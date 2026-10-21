@@ -4,6 +4,7 @@ import { ticketingRepo } from '../data/ticketingRepo';
 import type { StoredTicketingConfig, TicketingConfig } from '../data/ticketingSchema';
 import { updateDeployedTicketMessage } from '../utils/updateDeployedMessage';
 import { defaultTicketTypes } from '../data/defaultTicketTypes';
+import { describeRefusedRoles, isAssignableRole } from '../../../utils/isAssignableRole';
 
 const TICKET_CONFIG_MODAL_ID = 'ticket_config_modal';
 
@@ -62,6 +63,15 @@ export function TicketConfigModalComponent() {
                 status: 'error',
                 message: '❌ You must select at least one moderation role.',
             };
+        }
+
+        // Discord's role select offers `@everyone` too. As a moderation role it would make
+        // every member a ticket moderator, so the same check the dashboard runs refuses it
+        // here, along with bot-managed roles.
+        const guild = interaction.guild;
+        const rejected = moderationRoles.filter((roleId) => !isAssignableRole(guild, roleId));
+        if (rejected.length > 0) {
+            return { status: 'error', message: `❌ ${describeRefusedRoles(guild, rejected, 'moderation roles')}` };
         }
 
         try {

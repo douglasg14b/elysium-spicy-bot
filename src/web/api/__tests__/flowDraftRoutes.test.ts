@@ -6,6 +6,7 @@ import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../../features/flows/data
 import { flowJourneyLinksRepo, journeysRepo } from '../../../features/provisioning';
 import { database } from '../../../features-system/data-persistence/database';
 import { migrateTestDatabase } from '../../../features-system/data-persistence/__tests__/support/migrateTestDatabase';
+import { fakeGuild } from '../../../features/flows/__tests__/support/fakeGuild';
 import type { AppEnv } from '../../types';
 import { flowRoutes } from '../flowRoutes';
 
@@ -82,7 +83,8 @@ interface DraftBody {
 function app(operator: Operator): Hono<AppEnv> {
     const outer = new Hono<AppEnv>();
     outer.use('*', async (c, next) => {
-        c.set('guild', { id: GUILD_ID } as never);
+        // Holding the channel `qa-channel` is installed as, so an installed graph is ready.
+        c.set('guild', fakeGuild({ id: GUILD_ID, channels: { '111111111111111111': {} } }));
         c.set('user', { ...operator, avatar: null, manageableGuildIds: [GUILD_ID] });
         await next();
     });
@@ -228,6 +230,20 @@ describe('saving an incomplete graph onto a live flow', () => {
 
         expect(saved.body).toMatchObject({ savedAs: 'flow', enabled: false, graph: INCOMPLETE });
         expect(await draftsOf(live.flowId)).toEqual([]);
+    });
+});
+
+describe('writing a draft', () => {
+    it('keeps only the keys each block declares, as a save onto the flow does', async () => {
+        const flow = await flowWith(READY);
+        const smuggling: FlowGraph = structuredClone(INCOMPLETE);
+        smuggling.nodes[0]!.data.smuggled = 'x'.repeat(1000);
+
+        const saved = await saveDraft(ALICE, flow, { graph: smuggling });
+
+        expect(saved.status).toBe(200);
+        const [draft] = await draftsOf(flow.flowId);
+        expect(draft?.graph).toEqual(INCOMPLETE);
     });
 });
 
@@ -394,7 +410,9 @@ describe('reading a flow’s declarations', () => {
 
         expect(read.status).toBe(500);
         expect(read.body.error).toMatch(/stored in a state the server can't read/);
-        expect(read.body.error).toMatch(/not an array/);
+        // The row is named; what the validator said about it stays in the log.
+        expect(read.body.error).toContain(`journey "${journeyKey}"`);
+        expect(read.body.error).not.toMatch(/not an array/);
     });
 
     it('does not dress a driver error up as a malformed journey', async () => {

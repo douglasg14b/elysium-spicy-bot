@@ -9,6 +9,7 @@ import { deployTicketSystemCommand, handleDeployTicketSystem, initTicketsFeature
 import { initAIReply } from './features/ai-reply';
 import { initBirthdayFeature, startBirthdayAnnouncementScheduler, stopBirthdayAnnouncementScheduler } from './features/birthday-tracker';
 import { initActivityTracking } from './features-system/activity';
+import { initGuildAllowlist } from './features-system/guild-allowlist';
 import { initLeveling, stopLeveling } from './features/leveling';
 import { initWarnings } from './features/warnings';
 import { initFlows, stopFlowRunScheduler } from './features/flows';
@@ -19,6 +20,10 @@ interactionsRegistry.register(deployTicketSystemCommand, handleDeployTicketSyste
 // Provisioning has no Discord surface. Journeys are per-guild rows and slash commands
 // register globally, so a command could never offer a real journey picker — installing
 // and tearing down guild resources belongs to the dashboard, which knows the guild.
+
+// Keep the bot to the servers in ALLOWED_GUILD_IDS: a new join off the list is left,
+// a server already joined is only logged. Before login, so it hears the first ClientReady.
+initGuildAllowlist();
 
 // Initialize ticket system handlers
 initTicketsFeature();

@@ -15,9 +15,10 @@ export const SESSION_COOKIE = 'bratty_session';
 export const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 /**
- * What we carry in the JWT. `manageableGuildIds` are the guilds where the user has
- * Manage Guild (per the OAuth `guilds` payload); the API intersects these with the
- * bot's guilds. Standard JWT `exp`/`iat` claims are added by {@link mintSession}.
+ * What we carry in the JWT. `manageableGuildIds` are the guilds the user owns or is an
+ * Administrator of (per the OAuth `guilds` payload); the API intersects these with the
+ * bot's guilds and re-checks them live. Standard JWT `exp`/`iat` claims are added by
+ * {@link mintSession}.
  */
 export interface SessionUser {
     id: string;

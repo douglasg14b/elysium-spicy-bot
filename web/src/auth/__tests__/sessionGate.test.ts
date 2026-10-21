@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { onSessionLost, sessionBegan, sessionEnded, sessionGatedFetch, sessionRestored } from '../sessionGate';
+import {
+    SESSION_USER_HEADER,
+    onSessionLost,
+    sessionBegan,
+    sessionEnded,
+    sessionGatedFetch,
+    sessionRestored,
+} from '../sessionGate';
 
 /**
  * The session gate on its own, against a stub server whose session can run out and come
@@ -12,10 +19,13 @@ import { onSessionLost, sessionBegan, sessionEnded, sessionGatedFetch, sessionRe
 const ORIGIN = 'http://dashboard.test';
 const SETTINGS = `${ORIGIN}/api/guilds/900000000000000001/settings`;
 const ME = `${ORIGIN}/api/auth/me`;
+const OPERATOR_ID = '200000000000000002';
 
 interface SentRequest {
     readonly url: string;
     readonly body: string;
+    /** Who the request said it was sent for, or null when it named nobody. */
+    readonly user: string | null;
 }
 
 /** A server that answers 401 to everything while `session.live` is false. */
@@ -23,7 +33,7 @@ function stubServer(): { readonly session: { live: boolean }; readonly sent: Sen
     const session = { live: true };
     const sent: SentRequest[] = [];
     vi.stubGlobal('fetch', async (request: Request): Promise<Response> => {
-        sent.push({ url: request.url, body: await request.text() });
+        sent.push({ url: request.url, body: await request.text(), user: request.headers.get(SESSION_USER_HEADER) });
         return session.live
             ? new Response(JSON.stringify({ ok: true }), { status: 200 })
             : new Response(JSON.stringify({ error: 'Not authenticated' }), { status: 401 });
@@ -76,7 +86,7 @@ describe('the session gate', () => {
 
     it('holds a 401 while signed in, and sends the same body again once the session is back', async () => {
         const { session, sent } = stubServer();
-        sessionBegan();
+        sessionBegan(OPERATOR_ID);
         session.live = false;
 
         const saving = put(SETTINGS, { staffRoleIds: ['1'] });
@@ -89,14 +99,14 @@ describe('the session gate', () => {
 
         expect((await saving).status).toBe(200);
         expect(sent).toEqual([
-            { url: SETTINGS, body: '{"staffRoleIds":["1"]}' },
-            { url: SETTINGS, body: '{"staffRoleIds":["1"]}' },
+            { url: SETTINGS, body: '{"staffRoleIds":["1"]}', user: OPERATOR_ID },
+            { url: SETTINGS, body: '{"staffRoleIds":["1"]}', user: OPERATOR_ID },
         ]);
     });
 
     it('says the session is lost once, however many requests are refused together', async () => {
         const { session } = stubServer();
-        sessionBegan();
+        sessionBegan(OPERATOR_ID);
         session.live = false;
 
         const first = put(SETTINGS, { staffRoleIds: ['1'] });
@@ -111,7 +121,7 @@ describe('the session gate', () => {
 
     it('sends nothing new while the session is lost', async () => {
         const { session, sent } = stubServer();
-        sessionBegan();
+        sessionBegan(OPERATOR_ID);
         session.live = false;
         const refused = put(SETTINGS, { staffRoleIds: ['1'] });
         await hasSettled(refused);
@@ -124,12 +134,12 @@ describe('the session gate', () => {
         session.live = true;
         sessionRestored();
         expect((await later).status).toBe(200);
-        expect(sent.at(-1)).toEqual({ url: SETTINGS, body: '{"staffRoleIds":["2"]}' });
+        expect(sent.at(-1)).toEqual({ url: SETTINGS, body: '{"staffRoleIds":["2"]}', user: OPERATOR_ID });
     });
 
     it('never holds a call about the session itself — the recheck must be able to hear 401', async () => {
         const { session } = stubServer();
-        sessionBegan();
+        sessionBegan(OPERATOR_ID);
         session.live = false;
         void put(SETTINGS, { staffRoleIds: [] });
         await tick();
@@ -151,7 +161,7 @@ describe('the session gate', () => {
             }
             return new Response('{}', { status: live ? 200 : 401 });
         });
-        sessionBegan();
+        sessionBegan(OPERATOR_ID);
 
         const slow = put(SETTINGS, 'slow');
         const quick = put(SETTINGS, 'quick');
@@ -170,7 +180,7 @@ describe('the session gate', () => {
 
     it('lets go of a held request that is aborted, rather than waiting on a sign-in', async () => {
         const { session } = stubServer();
-        sessionBegan();
+        sessionBegan(OPERATOR_ID);
         session.live = false;
         const controller = new AbortController();
 
@@ -183,7 +193,7 @@ describe('the session gate', () => {
 
     it('leaves what it holds pending once signed out, and lets the next 401 through', async () => {
         const { session } = stubServer();
-        sessionBegan();
+        sessionBegan(OPERATOR_ID);
         session.live = false;
         const held = put(SETTINGS, { staffRoleIds: ['1'] });
         await hasSettled(held);
@@ -193,5 +203,62 @@ describe('the session gate', () => {
 
         expect(await hasSettled(held)).toBe(false);
         expect((await put(SETTINGS, {})).status).toBe(401);
+    });
+});
+
+describe('who a request says it is sent for', () => {
+    it('names the signed-in person on every gated request', async () => {
+        const { sent } = stubServer();
+        sessionBegan(OPERATOR_ID);
+
+        await put(SETTINGS, { staffRoleIds: [] });
+
+        expect(sent.map((request) => request.user)).toEqual([OPERATOR_ID]);
+    });
+
+    it('names nobody on a call about the session itself — `/me` must answer for whoever holds the cookie', async () => {
+        const { sent } = stubServer();
+        sessionBegan(OPERATOR_ID);
+
+        await sessionGatedFetch(new Request(ME));
+
+        expect(sent.map((request) => request.user)).toEqual([null]);
+    });
+
+    it('names the signed-in person on Log out, without holding it — a stale tab must not sign somebody else out', async () => {
+        const { session, sent } = stubServer();
+        sessionBegan(OPERATOR_ID);
+        session.live = false;
+
+        const response = await sessionGatedFetch(new Request(`${ORIGIN}/api/auth/logout`, { method: 'POST' }));
+
+        expect(response.status).toBe(401);
+        expect(lost).not.toHaveBeenCalled();
+        expect(sent.map((request) => request.user)).toEqual([OPERATOR_ID]);
+    });
+
+    it('names nobody before anyone is signed in, or after Log out', async () => {
+        const { sent } = stubServer();
+
+        await put(SETTINGS, {});
+        sessionBegan(OPERATOR_ID);
+        sessionEnded();
+        await put(SETTINGS, {});
+
+        expect(sent.map((request) => request.user)).toEqual([null, null]);
+    });
+
+    it('still names the same person when a held request goes out after the sign-in', async () => {
+        const { session, sent } = stubServer();
+        sessionBegan(OPERATOR_ID);
+        session.live = false;
+        const saving = put(SETTINGS, { staffRoleIds: ['1'] });
+        await hasSettled(saving);
+
+        session.live = true;
+        sessionRestored();
+        await saving;
+
+        expect(sent.map((request) => request.user)).toEqual([OPERATOR_ID, OPERATOR_ID]);
     });
 });

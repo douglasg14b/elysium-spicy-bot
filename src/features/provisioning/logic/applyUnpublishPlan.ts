@@ -205,6 +205,9 @@ async function forgetRow(
             explanation: item.action === 'forget' ? item.explanation : undefined,
         });
     } catch (error) {
+        // The cause goes to the log rather than the report: it is whatever the database
+        // driver said, which the operator cannot act on.
+        console.error(`[provisioning] Could not forget binding ${item.bindingId}:`, error);
         results.push({
             ...base,
             outcome: 'failed',
@@ -212,8 +215,8 @@ async function forgetRow(
             // gone, one another owner holds — left everything standing, and saying it was
             // "removed from the server" would claim a deletion that never happened.
             explanation: deletedHere
-                ? `The ${item.kind === 'role' ? 'role' : 'channel'} was removed from the server, but its record could not be deleted: ${describeError(error)}. Run this again to clear the leftover record.`
-                : `Its record could not be removed: ${describeError(error)}. Nothing else was touched; run this again to clear it.`,
+                ? `The ${item.kind === 'role' ? 'role' : 'channel'} was removed from the server, but its record could not be deleted. Run this again to clear the leftover record.`
+                : 'Its record could not be removed. Nothing else was touched; run this again to clear it.',
         });
     }
 }

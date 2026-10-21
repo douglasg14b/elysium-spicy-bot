@@ -41,15 +41,19 @@ export class DuplicateJourneyKeyError extends Error {
  *
  * Typed so a caller can tell "this row is corrupt" — a data problem worth naming to the
  * operator — from a driver or connection failure, which is an ordinary server error and
- * must not be dressed up as one. `cause` keeps the underlying complaint.
+ * must not be dressed up as one. `cause` keeps the underlying complaint, for the log;
+ * `journeyKey` names the row, for a response that must not carry the complaint itself.
  */
 export class MalformedJourneyError extends Error {
+    readonly journeyKey: string;
+
     constructor(journeyKey: string, cause: unknown) {
         super(
             `Journey ${journeyKey} is stored malformed: ${cause instanceof Error ? cause.message : String(cause)}`,
             { cause }
         );
         this.name = 'MalformedJourneyError';
+        this.journeyKey = journeyKey;
     }
 }
 

@@ -56,14 +56,14 @@ export async function readDeclaredKeys(
         if (!(cause instanceof MalformedJourneyError)) {
             throw cause;
         }
-        // The message only — no stack, which would be the one thing in a repo error
-        // worth keeping out of a response body.
-        const reason = cause.message;
+        // The journey's key only, so the operator knows which row to look at; what the
+        // validator said about it goes to the log, never into a response body.
+        console.error(`[flows] Flow ${flowId}'s journey is stored malformed:`, cause);
         return {
             ok: false,
             error:
-                "This flow's declared resources are stored in a state the server can't read, " +
-                `so whether it's ready to go live can't be checked: ${reason}`,
+                `This flow's declared resources (journey "${cause.journeyKey}") are stored in a state the ` +
+                "server can't read, so whether it's ready to go live can't be checked.",
         };
     }
 }

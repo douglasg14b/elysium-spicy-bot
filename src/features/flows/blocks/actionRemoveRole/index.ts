@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
+import { changeableRole } from '../../logic/roleSafety';
 import { requireSubject } from '../types';
 
 export const ACTION_REMOVE_ROLE = 'action.removeRole';
@@ -34,7 +35,13 @@ export const block: BlockManifest<RemoveRoleConfig> = {
     emits: [],
     canSuspend: false,
     async run(config, context) {
-        await requireSubject(context).roles.remove(config.roleId);
+        // Asked again on every run, as Assign Role asks it: stripping a moderator's
+        // role is as much a privilege change as handing one out.
+        const role = changeableRole(context.guild, config.roleId);
+        if (!role.ok) {
+            return { kind: 'fail', error: role.error };
+        }
+        await requireSubject(context).roles.remove(role.role.id);
         return { kind: 'continue' };
     },
 };

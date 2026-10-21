@@ -5,3 +5,4 @@ export * from './roleIdToName';
 export * from './timeFnCall';
 export * from './expiringArray';
 export * from './isUnknownMember';
+export * from './isAssignableRole';

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
+import { requireChannelInGuild } from '../channelInGuild';
 
 export const ACTION_SEND_MESSAGE = 'action.sendMessage';
 
@@ -45,14 +46,9 @@ export const block: BlockManifest<SendMessageConfig> = {
     emits: [],
     canSuspend: false,
     async run(config, context) {
-        const channel = await context.client.channels.fetch(config.channelId);
-        // Thrown rather than returned as `fail`: a channel that has stopped being
-        // sendable is not an expected outcome of this block, it is the world
-        // having changed underneath a saved flow. M1 keeps the existing behaviour;
-        // giving these a typed failure is a later milestone's taxonomy work.
-        if (!channel || !channel.isTextBased() || !('send' in channel)) {
-            throw new Error(`Channel ${config.channelId} is not a sendable text channel`);
-        }
+        // This guild's channels only — see `requireChannelInGuild` for why never the
+        // client's. Throws for one that is not sendable here.
+        const channel = await requireChannelInGuild(context.guild, config.channelId);
         // Mentions are pinned to users only. Copy is a template now, so a member's
         // own display name reaches this string — and a member called "@everyone"
         // would otherwise make any flow saying `{{subject.username}}` ping the

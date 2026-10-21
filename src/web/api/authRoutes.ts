@@ -3,7 +3,7 @@ import { WEB_PUBLIC_URL } from '../../environment';
 import type { AppEnv } from '../types';
 import { botDisplayName } from './botRoutes';
 import { hasManageableBotGuild, isSuperuser } from './guildAccess';
-import { AUTHED_ERRORS, apiRouter, errorBodyResponse, jsonResponse } from './openApi';
+import { SESSION_ERRORS, apiRouter, errorBodyResponse, jsonResponse } from './openApi';
 import {
     buildAuthorizeUrl,
     exchangeCode,
@@ -66,7 +66,7 @@ const loginCallbackRoute = createRoute({
     responses: {
         302: redirectResponse('To the dashboard, signed in: the session cookie is set.'),
         400: errorBodyResponse('The state is missing, expired or not ours, or Discord sent no code.'),
-        403: errorBodyResponse('The user manages no server the bot is in.'),
+        403: errorBodyResponse('The user owns or administers no server the bot is in.'),
         502: errorBodyResponse('Discord would not complete the sign-in.'),
     },
 });
@@ -91,7 +91,8 @@ const logoutRoute = createRoute({
     summary: 'Sign out',
     responses: {
         200: jsonResponse('Signed out.', LogoutResultSchema),
-        ...AUTHED_ERRORS,
+        // Not rate limited, so a 401 only: refusing a sign-out would leave the cookie live.
+        ...SESSION_ERRORS,
     },
 });
 
@@ -137,16 +138,16 @@ export function authRoutes(): OpenAPIHono<AppEnv> {
                 return c.json({ error: 'Failed to complete Discord sign-in.' }, 502);
             }
 
-            // Authorization is Discord's own: you get in if you can manage at least one
-            // server the bot is in. Superusers bypass the check so they can reach a server
+            // Authorization is Discord's own: you get in if you own or administer at least
+            // one server the bot is in. Superusers bypass the check so they can reach a server
             // they hold no role in. Rejecting here (rather than showing an empty dashboard)
             // keeps the "why can't I see anything?" case an explicit, readable error.
             if (!isSuperuser(user.id) && !hasManageableBotGuild(manageableGuildIds)) {
                 return c.json(
                     {
                         error:
-                            `You don't manage any servers that ${botDisplayName()} is in. You need Manage Server ` +
-                            'or Administrator on a server the bot has been invited to.',
+                            `Cute, but you don't run any servers ${botDisplayName()} is in. The dashboard is for ` +
+                            'server owners and Administrators only — Manage Server alone won’t get you through the door.',
                     },
                     403
                 );

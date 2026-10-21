@@ -21,6 +21,16 @@ const DISCORD_CLIENT = new Client({
      * configured; adding one would need revisiting this.
      */
     partials: [Partials.Message, Partials.Reaction, Partials.GuildMember],
+    /*
+     * Nothing pings a role, @everyone or @here unless its own send says so. A send passing
+     * `allowedMentions` replaces this whole object, so every send that sets its own is
+     * unaffected. No send in the bot deliberately pings a role or everyone; the ones this
+     * covers are text somebody else wrote reaching `content` — an AI reply echoing a
+     * `<@&id>`, a flow's name on its button post. `repliedUser` stays on because Discord
+     * defaults it to *off* whenever `allowed_mentions` is present, which would silently
+     * stop every `message.reply` pinging the person replied to.
+     */
+    allowedMentions: { parse: ['users'], repliedUser: true },
 });
 
 DISCORD_CLIENT.token = DISCORD_BOT_TOKEN;

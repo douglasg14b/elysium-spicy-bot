@@ -9,6 +9,7 @@ import { reconcileGuildSchedules } from '../../features/flows/logic/reconcileGui
 import { loadGuildOwnership } from '../../features/provisioning';
 import { warningsConfigRepo } from '../../features/warnings/data/warningsConfigRepo';
 import { setWarningsModChannel } from '../../features/warnings/logic/setWarningsModChannel';
+import { describeRefusedRoles, isAssignableRole } from '../../utils/isAssignableRole';
 import type { AppEnv } from '../types';
 import { accessibleGuilds } from './guildAccess';
 import {
@@ -18,6 +19,8 @@ import {
     GuildRoleSchema,
     GuildSchema,
     GuildSettingsSchema,
+    ROLE_ID_MAX_LENGTH,
+    ROLE_LIST_MAX,
     WarningsConfigSchema,
     type GuildRoleBody,
     type GuildSettingsBody,
@@ -44,9 +47,17 @@ import {
  * browser refuses with the same sentence the server would.
  */
 
+/**
+ * The mod-log channel, as a snowflake. Whether it is a text channel in *this* guild is
+ * asked of the guild's channel cache by `setWarningsModChannel`, never of Discord.
+ */
 const WarningsConfigUpdateSchema = z
     .object({
-        modChannelId: z.string().min(1, 'Pick a channel. Warning notices do not haunt the void.'),
+        modChannelId: z
+            .string()
+            .min(1, 'Pick a channel. Warning notices do not haunt the void.')
+            // Empty passes this one on purpose, so a field left blank gets only the sentence above.
+            .regex(/^(\d{17,20})?$/, "That's not a channel id. Pick one from the list."),
     })
     .openapi('WarningsConfigUpdate');
 
@@ -58,7 +69,14 @@ const WarningsConfigUpdateSchema = z
  */
 const GuildSettingsUpdateSchema = z
     .object({
-        staffRoleIds: z.array(z.string().min(1)),
+        staffRoleIds: z
+            .array(
+                z
+                    .string()
+                    .min(1, 'A staff role needs an id.')
+                    .max(ROLE_ID_MAX_LENGTH, "That's not a role id. Pick one from the list.")
+            )
+            .max(ROLE_LIST_MAX, 'That is more staff roles than any server has. Trim the list.'),
     })
     .openapi('GuildSettingsUpdate');
 
@@ -319,12 +337,7 @@ export function guildRoutes(): OpenAPIHono<AppEnv> {
             const added = staffRoleIds.filter((roleId) => !existing.includes(roleId));
             const rejected = added.filter((roleId) => !isAssignableRole(guild, roleId));
             if (rejected.length > 0) {
-                return c.json(
-                    {
-                        error: `These can't be staff roles: ${rejected.join(', ')}. Pick real, assignable roles — @everyone and bot-managed roles don't count.`,
-                    },
-                    400
-                );
+                return c.json({ error: describeRefusedRoles(guild, rejected, 'staff roles') }, 400);
             }
 
             const saved = await guildSettingsRepo.setStaffRoleIds(guild.id, staffRoleIds);
@@ -391,26 +404,6 @@ function resolveGuildSettings(guild: Guild, settings: StoredGuildSettings): Guil
         timeZone: settings.timeZone,
         defaultTimeZone: DEFAULT_GUILD_TIME_ZONE,
     };
-}
-
-/**
- * Whether a role id may be handed to a feature as a real, grantable role.
- *
- * Shared by the role picker and by staff-role validation, because the two drifting
- * apart is a security bug rather than an inconsistency. Two exclusions, and the first
- * is the dangerous one:
- *
- *  - **`@everyone`**, whose id *is the guild id*. A plain cache check accepts it. It
- *    then compiles to an overwrite keyed on the same id as the `everyone` audience,
- *    and since later intents override earlier ones per id
- *    (`compilePermissionIntents`), the canonical "deny everyone, then allow staff"
- *    declaration erases its own deny — producing a world-readable channel that every
- *    plan, embed, and dashboard still reports as staff-only.
- *  - **Managed** roles, which belong to a bot or integration and cannot be assigned.
- */
-function isAssignableRole(guild: Guild, roleId: string): boolean {
-    const role = guild.roles.cache.get(roleId);
-    return !!role && role.id !== guild.id && !role.managed;
 }
 
 /** The wire shape for warnings config: id plus resolved channel name for display. */

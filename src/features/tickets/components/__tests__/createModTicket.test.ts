@@ -106,6 +106,7 @@ function buttonInteraction(): ButtonInteraction & { showModal: ReturnType<typeof
     return {
         guild: { id: GUILD_ID },
         member: {
+            guild: { id: GUILD_ID },
             roles: { cache: { has: (roleId: string) => roleId === 'role-mod' } },
             permissions: { has: () => false },
         },

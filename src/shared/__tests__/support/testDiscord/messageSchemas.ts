@@ -59,11 +59,14 @@ const actionRowSchema = z.strictObject({
 });
 
 /**
- * Only the `parse` form. The explicit `users`/`roles` lists and `replied_user` change
- * which mentions Discord resolves, and nothing here has needed them.
+ * Only the `parse` form. The explicit `users`/`roles` lists change which mentions Discord
+ * resolves, and nothing here has needed them. `replied_user` is accepted because the bot's
+ * client default (`discordClient.ts`) sends it on every message; it only means anything on
+ * a reply, and a reference is not modelled here, so it changes nothing.
  */
 const allowedMentionsSchema = z.strictObject({
     parse: z.array(z.enum(['users', 'roles', 'everyone'])),
+    replied_user: z.boolean().optional(),
 });
 
 export const createMessageSchema = z.strictObject({
@@ -77,8 +80,9 @@ export const createMessageSchema = z.strictObject({
 
 /**
  * An edit. Absent members are left alone and present ones replace, exactly as Discord's
- * PATCH treats them. No `allowed_mentions`: discord.js sends the client default on an
- * edit of the bot's own message, and the harness client sets none.
+ * PATCH treats them. `allowed_mentions` arrives when the client has a default — discord.js
+ * sends it on an edit of the bot's own message — as `DISCORD_CLIENT` does; the harness's own
+ * client sets none.
  */
 export const editMessageSchema = z.strictObject({
     content: z.string().max(2000).optional(),
@@ -86,6 +90,7 @@ export const editMessageSchema = z.strictObject({
     enforce_nonce: z.literal(false),
     embeds: z.array(embedSchema).max(10).optional(),
     components: z.array(actionRowSchema).max(5).optional(),
+    allowed_mentions: allowedMentionsSchema.optional(),
 });
 
 export type CreateMessageBody = z.infer<typeof createMessageSchema>;

@@ -1,4 +1,5 @@
 import { CategoryChannel, ChannelType, Guild, PermissionsBitField, type OverwriteResolvable } from 'discord.js';
+import { isUsableModerationRole } from './hasModeratorRole';
 
 interface CreateTicketCategoryOptions {
     readonly guild: Guild;
@@ -43,7 +44,7 @@ export async function createTicketCategory({
     ];
 
     for (const roleId of moderationRoleIds) {
-        if (!guild.roles.cache.has(roleId)) continue;
+        if (!isUsableModerationRole(guild, roleId)) continue;
         overwrites.push({
             id: roleId,
             allow: [

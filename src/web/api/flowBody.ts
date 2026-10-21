@@ -1,10 +1,11 @@
 import { z } from '@hono/zod-openapi';
+import type { Guild } from 'discord.js';
 import type { FlowDraftEntity } from '../../features/flows/data/flowDraftsSchema';
 import { flowEdgeSchema, flowGraphSchema, flowNodeSchema, type FlowGraph } from '../../features/flows/data/flowGraph';
 import type { FlowScheduleNextRun } from '../../features/flows/data/flowSchedulesRepo';
 import type { FlowEntity } from '../../features/flows/data/flowsSchema';
 import { describeIssue, type FlowValidationIssue } from '../../features/flows/engine/nodeDataValidation';
-import { flowReadinessIssues } from '../../features/flows/logic/flowReadiness';
+import { flowReadinessIssuesInGuild } from '../../features/flows/logic/flowReadiness';
 import { JOURNEY_INSTALL_STATES } from '../../features/provisioning/logic/journeyInstallState';
 import type { FlowJourneyIndexEntry, FlowJourneyMembership } from './flowJourneyIndex';
 import {
@@ -78,11 +79,22 @@ export const flowDraftBaseSchema = z.iso.datetime();
 const FlowNodeSchema = z.object(flowNodeSchema.shape).openapi('FlowNode');
 const FlowEdgeSchema = z.object(flowEdgeSchema.shape).openapi('FlowEdge');
 
+/**
+ * The most blocks one flow may hold. Far above anything authored — the onboarding template
+ * is three, and a canvas of a few dozen is already hard to read — so it only ever stops a
+ * request nobody built by hand. Here rather than on `flowGraphSchema`, which also checks
+ * every stored graph on read: a cap there would make a flow saved before it unloadable.
+ */
+export const FLOW_MAX_NODES = 250;
+
+/** The most connections one flow may hold: two per block, for the same reason as {@link FLOW_MAX_NODES}. */
+export const FLOW_MAX_EDGES = 500;
+
 export const FlowGraphSchema = z
     .object({
         ...flowGraphSchema.shape,
-        nodes: z.array(FlowNodeSchema),
-        edges: z.array(FlowEdgeSchema),
+        nodes: z.array(FlowNodeSchema).max(FLOW_MAX_NODES, `A flow holds at most ${FLOW_MAX_NODES} blocks.`),
+        edges: z.array(FlowEdgeSchema).max(FLOW_MAX_EDGES, `A flow holds at most ${FLOW_MAX_EDGES} connections.`),
     })
     .openapi('FlowGraph');
 
@@ -138,7 +150,7 @@ export const FLOW_NOT_FOUND = errorBodyResponse('The bot is not in this server, 
 
 /** The 500 of a route that judges readiness and cannot read the flow's journey to do it. */
 export const DECLARATIONS_UNREADABLE = errorBodyResponse(
-    "The flow's journey could not be read, so its readiness cannot be judged; the sentence names the cause. Or something else failed unexpectedly."
+    "The flow's journey could not be read, so its readiness cannot be judged; the sentence names the journey. Or something else failed unexpectedly."
 );
 
 /** The 400 of a route that takes a graph: the body, the graph, or the server id was refused. */
@@ -433,16 +445,21 @@ export function flowDraft(
 
 /**
  * A stored flow as {@link FlowSummaryBody}, judged against its entry in the list's
- * journey index — so a row's `issueCount` costs no query of its own.
+ * journey index and the guild it is in — so a row's `issueCount` costs no query of its
+ * own, and counts what the builder marks.
  */
-export function flowSummary(flow: FlowEntity, entry: FlowJourneyIndexEntry | undefined): FlowSummaryBody {
+export function flowSummary(
+    flow: FlowEntity,
+    entry: FlowJourneyIndexEntry | undefined,
+    guild: Guild
+): FlowSummaryBody {
     return {
         flowId: flow.flowId,
         name: flow.name,
         enabled: flow.enabled,
         nodeCount: flow.graph.nodes.length,
         // A flow in no journey declares nothing, exactly as `declaredResourceKeys` answers.
-        issueCount: flowReadinessIssues(flow.graph, entry?.declaredKeys ?? new Set<string>()).length,
+        issueCount: flowReadinessIssuesInGuild(flow.graph, entry?.declaredKeys ?? new Set<string>(), guild).length,
         journey: entry?.membership ?? null,
         createdAt: new Date(flow.createdAt).toISOString(),
         updatedAt: new Date(flow.updatedAt).toISOString(),

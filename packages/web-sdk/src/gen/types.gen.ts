@@ -1449,7 +1449,7 @@ export type LoginCallbackErrors = {
      */
     400: ErrorBody;
     /**
-     * The user manages no server the bot is in.
+     * The user owns or administers no server the bot is in.
      */
     403: ErrorBody;
     /**
@@ -1576,6 +1576,10 @@ export type ListGuildsErrors = {
      */
     401: ErrorBody;
     /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
      * Something failed that the route did not expect. The server logged it.
      */
     500: ErrorBody;
@@ -1621,6 +1625,10 @@ export type GetGuildChannelsErrors = {
      */
     404: ErrorBody;
     /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
      * Something failed that the route did not expect. The server logged it.
      */
     500: ErrorBody;
@@ -1665,6 +1673,10 @@ export type GetTicketsConfigErrors = {
      * The bot is not in this server.
      */
     404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -1713,6 +1725,10 @@ export type UpdateTicketsConfigErrors = {
      */
     409: ErrorBody;
     /**
+     * The body was over the size limit.
+     */
+    413: ErrorBody;
+    /**
      * The body was not sent as JSON.
      */
     415: ErrorBody;
@@ -1720,6 +1736,10 @@ export type UpdateTicketsConfigErrors = {
      * Another save of these settings is still running, so nothing was changed.
      */
     423: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -1777,6 +1797,10 @@ export type DeleteTicketTypeErrors = {
      */
     409: ErrorBody;
     /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
      * Something failed that the route did not expect. The server logged it.
      */
     500: ErrorBody;
@@ -1829,9 +1853,17 @@ export type SaveTicketTypeErrors = {
      */
     409: ErrorBody;
     /**
+     * The body was over the size limit.
+     */
+    413: ErrorBody;
+    /**
      * The body was not sent as JSON.
      */
     415: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -1880,6 +1912,10 @@ export type GetWarningsConfigErrors = {
      */
     404: ErrorBody;
     /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
      * Something failed that the route did not expect. The server logged it.
      */
     500: ErrorBody;
@@ -1923,9 +1959,17 @@ export type UpdateWarningsConfigErrors = {
      */
     404: ErrorBody;
     /**
+     * The body was over the size limit.
+     */
+    413: ErrorBody;
+    /**
      * The body was not sent as JSON.
      */
     415: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -1970,6 +2014,10 @@ export type ListFlowsErrors = {
      */
     404: ErrorBody;
     /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
      * Something failed that the route did not expect. The server logged it.
      */
     500: ErrorBody;
@@ -1999,7 +2047,7 @@ export type CreateFlowData = {
 
 export type CreateFlowErrors = {
     /**
-     * The body was refused, the graph is too broken to store (`issues` says where), or the server id is missing.
+     * The body was refused, the graph is too broken to store (`issues` says where), the server already holds 200 flows, or the server id is missing.
      */
     400: FlowRefusal;
     /**
@@ -2015,9 +2063,17 @@ export type CreateFlowErrors = {
      */
     404: ErrorBody;
     /**
+     * The body was over the size limit.
+     */
+    413: ErrorBody;
+    /**
      * The body was not sent as JSON.
      */
     415: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -2063,6 +2119,10 @@ export type DeleteFlowErrors = {
      */
     404: ErrorBody;
     /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
      * Something failed that the route did not expect. The server logged it.
      */
     500: ErrorBody;
@@ -2107,7 +2167,11 @@ export type GetFlowErrors = {
      */
     404: ErrorBody;
     /**
-     * The flow's journey could not be read, so its readiness cannot be judged; the sentence names the cause. Or something else failed unexpectedly.
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
+     * The flow's journey could not be read, so its readiness cannot be judged; the sentence names the journey. Or something else failed unexpectedly.
      */
     500: ErrorBody;
 };
@@ -2151,9 +2215,17 @@ export type UpdateFlowErrors = {
      */
     404: ErrorBody;
     /**
+     * The body was over the size limit.
+     */
+    413: ErrorBody;
+    /**
      * The body was not sent as JSON.
      */
     415: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * The flow's journey could not be read. A request that could have been refused wrote nothing; a switch-off or rename was still written, and its sentence starts with 'Saved.' Or something else failed unexpectedly.
      */
@@ -2199,9 +2271,17 @@ export type AttachFlowToJourneyErrors = {
      */
     404: ErrorBody;
     /**
+     * The body was over the size limit.
+     */
+    413: ErrorBody;
+    /**
      * The body was not sent as JSON.
      */
     415: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -2246,6 +2326,10 @@ export type GetFlowAttachmentErrors = {
      * The bot is not in this server, or the flow is not in it.
      */
     404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -2293,11 +2377,19 @@ export type CheckFlowErrors = {
      */
     404: ErrorBody;
     /**
+     * The body was over the size limit.
+     */
+    413: ErrorBody;
+    /**
      * The body was not sent as JSON.
      */
     415: ErrorBody;
     /**
-     * The flow's journey could not be read, so its readiness cannot be judged; the sentence names the cause. Or something else failed unexpectedly.
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
+     * The flow's journey could not be read, so its readiness cannot be judged; the sentence names the journey. Or something else failed unexpectedly.
      */
     500: ErrorBody;
 };
@@ -2343,6 +2435,10 @@ export type DeployFlowErrors = {
      */
     404: ErrorBody;
     /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
      * Something failed that the route did not expect. The server logged it.
      */
     500: ErrorBody;
@@ -2386,6 +2482,10 @@ export type DetachFlowFromJourneyErrors = {
      * The bot is not in this server, or the flow is not in it.
      */
     404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -2431,7 +2531,11 @@ export type ListFlowDraftsErrors = {
      */
     404: ErrorBody;
     /**
-     * The flow's journey could not be read, so its readiness cannot be judged; the sentence names the cause. Or something else failed unexpectedly.
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
+     * The flow's journey could not be read, so its readiness cannot be judged; the sentence names the journey. Or something else failed unexpectedly.
      */
     500: ErrorBody;
 };
@@ -2477,9 +2581,17 @@ export type SaveMyFlowDraftErrors = {
      */
     404: ErrorBody;
     /**
+     * The body was over the size limit.
+     */
+    413: ErrorBody;
+    /**
      * The body was not sent as JSON.
      */
     415: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -2525,6 +2637,10 @@ export type DiscardFlowDraftErrors = {
      * The bot is not in this server, the flow is not in it, or the flow has no draft with that id.
      */
     404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -2574,9 +2690,17 @@ export type GroupFlowWithErrors = {
      */
     409: ErrorBody;
     /**
+     * The body was over the size limit.
+     */
+    413: ErrorBody;
+    /**
      * The body was not sent as JSON.
      */
     415: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -2627,6 +2751,10 @@ export type PreviewFlowGroupingErrors = {
      * This flow's journey is shared with other flows, which still install it.
      */
     409: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -2680,6 +2808,10 @@ export type InstallFlowErrors = {
      */
     423: ErrorBody;
     /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
      * Something failed that the route did not expect. The server logged it.
      */
     500: ErrorBody;
@@ -2728,6 +2860,10 @@ export type GetInstallPlanErrors = {
      */
     409: ErrorBody;
     /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
      * Something failed that the route did not expect. The server logged it.
      */
     500: ErrorBody;
@@ -2771,6 +2907,10 @@ export type GetFlowNextRunsErrors = {
      * The bot is not in this server, or the flow is not in it.
      */
     404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -2816,6 +2956,10 @@ export type GetPublishedStateErrors = {
      */
     404: ErrorBody;
     /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
      * Something failed that the route did not expect. The server logged it.
      */
     500: ErrorBody;
@@ -2856,9 +3000,13 @@ export type GetFlowResourcesErrors = {
      */
     403: ErrorBody;
     /**
-     * The bot is not in this server.
+     * The bot is not in this server, or the flow is not in it.
      */
     404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -2910,9 +3058,17 @@ export type SaveFlowResourcesErrors = {
      */
     409: ErrorBody;
     /**
+     * The body was over the size limit.
+     */
+    413: ErrorBody;
+    /**
      * The body was not sent as JSON.
      */
     415: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -2959,6 +3115,10 @@ export type UndeployFlowErrors = {
      * The bot is not in this server.
      */
     404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -3008,6 +3168,10 @@ export type UnpublishFlowErrors = {
      */
     409: ErrorBody;
     /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
      * Something failed that the route did not expect. The server logged it.
      */
     500: ErrorBody;
@@ -3050,6 +3214,10 @@ export type ListJourneysErrors = {
      * The bot is not in this server.
      */
     404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -3100,9 +3268,17 @@ export type CreateJourneyErrors = {
      */
     409: ErrorBody;
     /**
+     * The body was over the size limit.
+     */
+    413: ErrorBody;
+    /**
      * The body was not sent as JSON.
      */
     415: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -3152,6 +3328,10 @@ export type DeleteJourneyErrors = {
      */
     409: ErrorBody;
     /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
      * Something failed that the route did not expect. The server logged it.
      */
     500: ErrorBody;
@@ -3195,6 +3375,10 @@ export type GetJourneyErrors = {
      * The bot is not in this server, or the journey is not in it.
      */
     404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -3240,9 +3424,17 @@ export type UpdateJourneyErrors = {
      */
     404: ErrorBody;
     /**
+     * The body was over the size limit.
+     */
+    413: ErrorBody;
+    /**
      * The body was not sent as JSON.
      */
     415: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -3287,6 +3479,10 @@ export type GetJourneyDriftErrors = {
      * The bot is not in this server, or the journey is not in it.
      */
     404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -3333,6 +3529,10 @@ export type ForgetJourneyOrphanErrors = {
      */
     404: ErrorBody;
     /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
      * Something failed that the route did not expect. The server logged it.
      */
     500: ErrorBody;
@@ -3376,6 +3576,10 @@ export type GetJourneyPublishedStateErrors = {
      * The bot is not in this server, or the journey is not in it.
      */
     404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -3425,9 +3629,17 @@ export type RepairJourneyDriftErrors = {
      */
     409: ErrorBody;
     /**
+     * The body was over the size limit.
+     */
+    413: ErrorBody;
+    /**
      * The body was not sent as JSON.
      */
     415: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -3472,6 +3684,10 @@ export type UndeployJourneyErrors = {
      * The bot is not in this server, or the journey is not in it.
      */
     404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -3521,6 +3737,10 @@ export type UnpublishJourneyErrors = {
      */
     409: ErrorBody;
     /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
      * Something failed that the route did not expect. The server logged it.
      */
     500: ErrorBody;
@@ -3564,6 +3784,10 @@ export type ListLevelingErrors = {
      */
     404: ErrorBody;
     /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
      * Something failed that the route did not expect. The server logged it.
      */
     500: ErrorBody;
@@ -3606,6 +3830,10 @@ export type GetLevelingInsightsErrors = {
      * The bot is not in this server.
      */
     404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -3660,6 +3888,10 @@ export type GetLevelingUserErrors = {
      */
     404: ErrorBody;
     /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
      * Something failed that the route did not expect. The server logged it.
      */
     500: ErrorBody;
@@ -3702,6 +3934,10 @@ export type GetGuildRolesErrors = {
      * The bot is not in this server.
      */
     404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -3748,6 +3984,10 @@ export type GetGuildSettingsErrors = {
      */
     404: ErrorBody;
     /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
      * Something failed that the route did not expect. The server logged it.
      */
     500: ErrorBody;
@@ -3791,9 +4031,17 @@ export type UpdateGuildSettingsErrors = {
      */
     404: ErrorBody;
     /**
+     * The body was over the size limit.
+     */
+    413: ErrorBody;
+    /**
      * The body was not sent as JSON.
      */
     415: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -3838,9 +4086,17 @@ export type UpdateGuildTimeZoneErrors = {
      */
     404: ErrorBody;
     /**
+     * The body was over the size limit.
+     */
+    413: ErrorBody;
+    /**
      * The body was not sent as JSON.
      */
     415: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -3886,7 +4142,7 @@ export type ListTicketsData = {
 
 export type ListTicketsErrors = {
     /**
-     * A filter was refused — a status that is not one, or a type too long to be one — or the server id is missing.
+     * A filter was refused — a status that is not one, a type too long to be one, or a search too long to match anything — or the server id is missing.
      */
     400: ErrorBody;
     /**
@@ -3901,6 +4157,10 @@ export type ListTicketsErrors = {
      * The bot is not in this server.
      */
     404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -3945,6 +4205,10 @@ export type GetTicketErrors = {
      * The bot is not in this server, or the ticket is not in it.
      */
     404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -3994,6 +4258,10 @@ export type ClaimTicketErrors = {
      */
     409: ErrorBody;
     /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
      * Something failed that the route did not expect. The server logged it.
      */
     500: ErrorBody;
@@ -4041,6 +4309,10 @@ export type CloseTicketErrors = {
      * Nothing changed: the server has not finished setting up tickets, no longer declares the ticket's type, or the ticket is not in a state this action applies to. The sentence says which.
      */
     409: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -4090,6 +4362,10 @@ export type ReopenTicketErrors = {
      */
     409: ErrorBody;
     /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
      * Something failed that the route did not expect. The server logged it.
      */
     500: ErrorBody;
@@ -4137,6 +4413,10 @@ export type UnclaimTicketErrors = {
      * Nothing changed: the server has not finished setting up tickets, no longer declares the ticket's type, or the ticket is not in a state this action applies to. The sentence says which.
      */
     409: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */
@@ -4191,6 +4471,10 @@ export type GetNodeTypesErrors = {
      * No valid session.
      */
     401: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
     /**
      * Something failed that the route did not expect. The server logged it.
      */

@@ -98,6 +98,14 @@ function putTimeZone(body: unknown) {
     });
 }
 
+function putWarnings(body: unknown) {
+    return app().request(`/${GUILD_ID}/config/warnings`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+}
+
 interface SettingsBody {
     staffRoleIds: string[];
     staffRoles: { id: string; name: string }[];
@@ -266,6 +274,39 @@ describe('PUT /:guildId/settings', () => {
         await putSettings({ staffRoleIds: [STAFF_ROLE] });
 
         expect(guildSettingsRepoMock.setStaffRoleIds).toHaveBeenCalledWith(GUILD_ID, [STAFF_ROLE]);
+    });
+
+    it('refuses more staff roles than any server has, before looking any of them up', async () => {
+        const tooMany = Array.from({ length: 51 }, (_unused, index) => `1000000000000000${String(index).padStart(2, '0')}`);
+
+        const response = await putSettings({ staffRoleIds: tooMany });
+
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as ErrorBody).error).toBe(
+            'That is more staff roles than any server has. Trim the list.'
+        );
+        expect(guildSettingsRepoMock.getStaffRoleIds).not.toHaveBeenCalled();
+    });
+
+    it('refuses an id too long to be a role id', async () => {
+        const response = await putSettings({ staffRoleIds: ['9'.repeat(5000)] });
+
+        expect(response.status).toBe(400);
+        // Refused by the schema, not by the role lookup that would also miss it.
+        expect(((await response.json()) as ErrorBody).error).toBe("That's not a role id. Pick one from the list.");
+        expect(guildSettingsRepoMock.getStaffRoleIds).not.toHaveBeenCalled();
+    });
+
+    it('names only the first ten rejected ids, and counts the rest', async () => {
+        const unknown = Array.from({ length: 12 }, (_unused, index) => `9000000000000000${String(index).padStart(2, '0')}`);
+
+        const response = await putSettings({ staffRoleIds: unknown });
+        const { error } = (await response.json()) as ErrorBody;
+
+        expect(response.status).toBe(400);
+        expect(error).toContain(unknown[9]);
+        expect(error).not.toContain(unknown[10]);
+        expect(error).toContain('(and 2 more)');
     });
 
     it('rejects a body that is not a list of ids', async () => {
@@ -445,5 +486,17 @@ describe('refusals the request validator raises', () => {
 
         expect(response.status).toBe(500);
         expect(parentSaw).toEqual(['database fell over']);
+    });
+});
+
+describe('PUT /:guildId/config/warnings', () => {
+    it('refuses an id that is not a snowflake before it reaches the channel lookup', async () => {
+        const { setWarningsModChannel } = await import('../../../features/warnings/logic/setWarningsModChannel');
+
+        const response = await putWarnings({ modChannelId: 'not-a-channel' });
+
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as ErrorBody).error).toBe("That's not a channel id. Pick one from the list.");
+        expect(setWarningsModChannel).not.toHaveBeenCalled();
     });
 });

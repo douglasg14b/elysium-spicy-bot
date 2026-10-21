@@ -16,11 +16,26 @@ export function botCanPostWarningNotice(
     return permissions?.has([...REQUIRED_CHANNEL_PERMISSIONS]) ?? false;
 }
 
+/**
+ * This guild's channel by id, from the cache only.
+ *
+ * Never `guild.channels.fetch`: for an id this guild's cache does not hold, discord.js asks
+ * Discord for `GET /channels/{id}` — any channel anywhere — and a 403 for a guild the bot is
+ * not in counts towards Discord's invalid-request IP ban. The id arrives from a request
+ * body, so that would be a REST call per request on whatever id somebody sends. The cache
+ * is complete without it: the `Guilds` intent delivers every channel of a guild at
+ * GUILD_CREATE and keeps them current, so an id missing from it is not this guild's text
+ * channel.
+ */
+function cachedGuildChannel(guild: Guild, channelId: string): GuildBasedChannel | null {
+    return guild.channels.cache.get(channelId) ?? null;
+}
+
 export async function validateWarningsModChannel(
     guild: Guild,
     channelId: string
 ): Promise<WarningModChannelValidation> {
-    const selectedChannel = await guild.channels.fetch(channelId).catch(() => null);
+    const selectedChannel = cachedGuildChannel(guild, channelId);
 
     if (!selectedChannel || selectedChannel.type !== ChannelType.GuildText) {
         return {
@@ -41,7 +56,7 @@ export async function resolveWarningsModChannel(
         return null;
     }
 
-    const channel = await guild.channels.fetch(channelId).catch(() => null);
+    const channel = cachedGuildChannel(guild, channelId);
     if (!channel || channel.type !== ChannelType.GuildText) {
         return null;
     }

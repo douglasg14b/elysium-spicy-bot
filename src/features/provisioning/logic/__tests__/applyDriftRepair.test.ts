@@ -467,4 +467,36 @@ describe('applyDriftRepair', () => {
         expect(result.results[1]?.outcome).toBe('repaired');
         expect(fine.setName).toHaveBeenCalledWith('rules', expect.any(String));
     });
+
+    it("names the resource Discord refused, in fixed words rather than the error's own text", async () => {
+        const failing = fakeChannel('lobby');
+        failing.setName.mockRejectedValueOnce(new Error('connect ECONNREFUSED 10.0.0.7:443'));
+
+        const result = await applyDriftRepair({
+            guild: makeGuild({ 'channel-1': failing }),
+            plan: plan([report({ drift: [renamedDrift] })]),
+            approvedKeys: new Set(['welcome-channel']),
+            repo,
+        });
+
+        expect(result.results[0]?.outcome).toBe('failed');
+        expect(result.results[0]?.explanation).toMatch(/^Discord refused the change to \*\*welcome\*\*: /);
+        expect(result.results[0]?.explanation).not.toContain('10.0.0.7');
+    });
+
+    it('reports a landed rename as repaired when only its record failed, without the database’s words', async () => {
+        const channel = fakeChannel('lobby');
+        const failingRepo = { renameBinding: vi.fn(async () => Promise.reject(new Error('SQLITE_BUSY: database is locked'))) };
+
+        const result = await applyDriftRepair({
+            guild: makeGuild({ 'channel-1': channel }),
+            plan: plan([report({ drift: [renamedDrift] })]),
+            approvedKeys: new Set(['welcome-channel']),
+            repo: failingRepo,
+        });
+
+        expect(result.results[0]?.outcome).toBe('repaired');
+        expect(result.results[0]?.explanation).toContain('could not be updated to match');
+        expect(result.results[0]?.explanation).not.toContain('SQLITE_BUSY');
+    });
 });

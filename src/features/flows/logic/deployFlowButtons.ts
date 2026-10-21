@@ -12,7 +12,7 @@ import {
 import { flowsRepo, type FlowsRepo } from '../data/flowsRepo';
 import type { FlowEntity } from '../data/flowsSchema';
 import { readDeclaredKeys } from './declaredResourceKeys';
-import { flowReadinessIssues, problemCount } from './flowReadiness';
+import { flowReadinessIssuesInGuild, problemCount } from './flowReadiness';
 import { planButtonDeployment, type ButtonDestination } from './planButtonDeployment';
 import { undeployFlowButtons, type UndeployFlowButtonsResult } from './undeployFlowButtons';
 
@@ -110,7 +110,7 @@ export async function deployFlowButtons(
         return { ok: false, message: declared.error };
     }
 
-    const issues = flowReadinessIssues(flow.graph, declared.keys);
+    const issues = flowReadinessIssuesInGuild(flow.graph, declared.keys, guild);
     if (issues.length > 0) {
         return {
             ok: false,
@@ -125,7 +125,7 @@ export async function deployFlowButtons(
         return { ok: false, message: plan.message };
     }
 
-    const channels = await resolveChannels(guild, plan.destinations);
+    const channels = resolveChannels(guild, plan.destinations);
     if (!channels.ok) {
         return { ok: false, message: channels.message };
     }
@@ -175,7 +175,13 @@ export async function deployFlowButtons(
 
         let message: Awaited<ReturnType<TextChannel['send']>>;
         try {
-            message = await channel.send({ content: `**${flow.name}**`, components: rows });
+            // No mentions at all: the flow's name is whatever an operator typed, and a
+            // name holding "@everyone" would otherwise ping the server with the buttons.
+            message = await channel.send({
+                content: `**${flow.name}**`,
+                components: rows,
+                allowedMentions: { parse: [] },
+            });
         } catch (error) {
             console.error('[flows] Error posting flow trigger buttons:', error);
             /*
@@ -266,21 +272,21 @@ interface ResolvedDestination {
  * Returns pairs rather than a lookup table, so the posting loop cannot be written in a
  * way that silently drops a destination it fails to find.
  */
-async function resolveChannels(
+function resolveChannels(
     guild: Guild,
     destinations: readonly ButtonDestination[]
-): Promise<{ ok: true; resolved: readonly ResolvedDestination[] } | { ok: false; message: string }> {
+): { ok: true; resolved: readonly ResolvedDestination[] } | { ok: false; message: string } {
     const resolved: ResolvedDestination[] = [];
     const gone: string[] = [];
     const wrongType: string[] = [];
 
     for (const destination of destinations) {
-        // Cache first, then fetch — the repo's usual shape. A cache miss is ordinary
-        // for a channel this process has not touched yet, and treating one as "that
-        // channel is gone" would refuse a correct flow outright.
-        const channel =
-            guild.channels.cache.get(destination.channelId) ??
-            (await guild.channels.fetch(destination.channelId).catch(() => null));
+        // The guild's cache only. The Guilds intent keeps every channel of the guild
+        // cached, so a miss is a channel that is not in this server — and the id comes
+        // from the graph, so it may name another server's: `guild.channels.fetch` would
+        // ask Discord for it before refusing, and a 403 there counts towards Discord's
+        // ban on the bot's address.
+        const channel = guild.channels.cache.get(destination.channelId);
 
         if (!channel) {
             gone.push(destination.channelId);

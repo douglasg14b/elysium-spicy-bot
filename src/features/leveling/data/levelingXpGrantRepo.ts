@@ -2,7 +2,6 @@ import type { Transaction } from 'kysely';
 import { database, type Database } from '../../../features-system/data-persistence/database';
 import type { LevelingXpGrant, LevelingActivityTotals } from './levelingXpGrantSchema';
 import type { LevelingActivityEventType } from '../constants/activityEventTypes';
-import { aggregateActivityTotals } from '../logic/activityEventAggregation';
 import { toTimestampValue } from '../logic/xpGrant';
 
 export type RecordXpGrantInput = {
@@ -53,13 +52,60 @@ export class LevelingXpGrantRepo {
         return query.execute();
     }
 
+    /**
+     * One member's activity totals, summed by the database.
+     *
+     * The same answer `aggregateActivityTotals` gives over `getUserEvents`, without reading
+     * the rows: unbounded, that read is every grant a member ever earned, marshalled into JS
+     * on every member page and `/level` — on SQLite's one synchronous connection, time the
+     * whole bot is stalled for. A `flow` grant counts towards `eventCount` and `totalXp` and
+     * no per-kind counter, exactly as the JS switch leaves it.
+     *
+     * Every aggregate is typed `string | number | null` and converted: postgres returns a
+     * `bigint` `COUNT`/`SUM` as a **string**, and `SUM` over no rows is `NULL` on both.
+     */
     async getUserActivityTotals(
         guildId: string,
         userId: string,
         options?: { since?: Date }
     ): Promise<LevelingActivityTotals> {
-        const events = await this.getUserEvents(guildId, userId, options);
-        return aggregateActivityTotals(events);
+        let query = database
+            .selectFrom('leveling_xp_grants')
+            .select((eb) => {
+                const countWhen = (activityType: LevelingActivityEventType) =>
+                    eb.fn.sum<string | number | null>(
+                        eb.case().when('activityType', '=', activityType).then(1).else(0).end()
+                    );
+
+                return [
+                    eb.fn.countAll<string | number>().as('eventCount'),
+                    eb.fn.sum<string | number | null>('xpAmount').as('totalXp'),
+                    countWhen('message').as('messageCount'),
+                    countWhen('reaction').as('reactionCount'),
+                    countWhen('voice').as('voiceSessionCount'),
+                    eb.fn
+                        .sum<string | number | null>(eb.case().when('photoBonus', '=', true).then(1).else(0).end())
+                        .as('photoUploadCount'),
+                ];
+            })
+            .where('guildId', '=', guildId)
+            .where('userId', '=', userId);
+
+        if (options?.since) {
+            query = query.where('occurredAt', '>=', options.since);
+        }
+
+        const row = await query.executeTakeFirst();
+
+        return {
+            activityDate: 'total',
+            messageCount: Number(row?.messageCount ?? 0),
+            reactionCount: Number(row?.reactionCount ?? 0),
+            photoUploadCount: Number(row?.photoUploadCount ?? 0),
+            voiceSessionCount: Number(row?.voiceSessionCount ?? 0),
+            totalXp: Number(row?.totalXp ?? 0),
+            eventCount: Number(row?.eventCount ?? 0),
+        };
     }
 
     /**

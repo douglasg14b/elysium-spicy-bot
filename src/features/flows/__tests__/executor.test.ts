@@ -14,6 +14,7 @@ import { ACTION_WAIT_FOR_EVENT } from '../blocks/actionWaitForEvent';
 import { CONDITION_IN_CHANNEL } from '../blocks/conditionInChannel';
 import { TRIGGER_MEMBER_JOIN } from '../blocks/triggerMemberJoin';
 import type { FlowRunSeed } from '../blocks/types';
+import { fakeGuild } from './support/fakeGuild';
 import { sentCopy } from './support/sentCopy';
 
 const MEMBER_ROLE_ID = 'role-member-123';
@@ -41,7 +42,7 @@ function makeContext(options: { hasRoles?: string[] } = {}): MockContext {
 
     const context: FlowRunSeed = {
         client: {} as FlowRunSeed['client'],
-        guild: { id: 'guild-1' } as FlowRunSeed['guild'],
+        guild: fakeGuild({ roles: [{ id: MEMBER_ROLE_ID }] }),
         subject,
         variables: {},
     };

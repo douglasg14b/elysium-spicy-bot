@@ -43,6 +43,7 @@ import {
     ForgottenOrphanSchema,
     GroupPreviewSchema,
     JOURNEY_ERRORS,
+    JOURNEY_MAX_RESOURCES,
     JOURNEY_NOT_FOUND,
     journeyDetail,
     JourneyCreateSchema,
@@ -230,7 +231,7 @@ const getFlowResourcesRoute = createRoute({
             "The flow's declarations. Empty when it declares nothing, which is the normal state of a flow.",
             FlowResourcesSchema
         ),
-        ...GUILD_SCOPED_ERRORS,
+        ...FLOW_ERRORS,
     },
 });
 
@@ -546,14 +547,14 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
                 // No channel or message id to name — the throw came from the lookup that
                 // would have supplied them. The flow id is what the operator can act on,
                 // and reporting nothing at all would make a failed flow look like one
-                // with no buttons.
+                // with no buttons. The cause goes to the log, not the response: it is
+                // whatever the database driver said.
+                console.error(`[journeys] Could not read the button messages of flow ${flowId}:`, error);
                 results.push({
                     channelId: '',
                     messageId: '',
                     outcome: 'failed',
-                    explanation: `Could not read the buttons for flow ${flowId}: ${
-                        error instanceof Error ? error.message : String(error)
-                    }`,
+                    explanation: `Could not read the buttons for flow ${flowId}. Try again in a moment.`,
                 });
             }
         }
@@ -780,10 +781,19 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
      * for one keyed with its own id and finding nothing.
      *
      * Returns an empty list rather than a 404 when the flow has declared nothing —
-     * "no resources yet" is the normal state of every flow, not an error.
+     * "no resources yet" is the normal state of every flow, not an error. A flow that is
+     * not in this guild is a 404, as on every other flow route.
      */
     router.openapi(getFlowResourcesRoute, async (c) => {
-        const resolved = await resolveFlowJourney(c.get('guild').id, c.req.valid('param').flowId);
+        const guildId = c.get('guild').id;
+        const { flowId } = c.req.valid('param');
+        const flow = await flowsRepo.getByFlowId(flowId);
+        // Guild mismatch is a 404, not a 403 — never confirm another guild's flow exists.
+        if (!flow || flow.guildId !== guildId) {
+            return c.json({ error: 'Flow not found.' }, 404);
+        }
+
+        const resolved = await resolveFlowJourney(guildId, flowId);
         return c.json({ resources: resolved?.journey.resources ?? [] }, 200);
     });
 
@@ -1245,10 +1255,24 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
 
                 // A ticket type both sides declare is one type: the destination's
                 // declaration is kept and the moving copy dropped (`mergeDeclarations`).
+                const merged = mergeDeclarations(destinationJourney.resources, movingResources);
+
+                // The wire schema caps what one request declares; a merge adds two
+                // journeys' worth, so it is held to the same cap here, or repeated
+                // grouping would grow one journey without bound.
+                if (merged.length > JOURNEY_MAX_RESOURCES) {
+                    return c.json(
+                        {
+                            error: `Grouping these would give one journey more than ${JOURNEY_MAX_RESOURCES} resources, which is as many as a journey declares. Remove some first.`,
+                        },
+                        400
+                    );
+                }
+
                 destinationJourney = await journeysRepo.update(
                     guildId,
                     destinationJourney.journeyKey,
-                    { resources: mergeDeclarations(destinationJourney.resources, movingResources) }
+                    { resources: merged }
                 );
 
                 /*

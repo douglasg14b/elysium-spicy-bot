@@ -1,7 +1,9 @@
+import type { Guild } from 'discord.js';
 import type { FlowGraph } from '../data/flowGraph';
 import { authoredGraphIssues } from '../engine/graphValidation';
 import { validateNodeData, type FlowValidationIssue } from '../engine/nodeDataValidation';
 import { fieldRuleIssueMessage } from './blockFieldRules';
+import { guildReferenceIssues } from './guildReferences';
 import { pendingResourceFields } from './pendingResourceFields';
 import { collectApplicableResourceTargets } from './resourceTargets';
 
@@ -81,6 +83,24 @@ export function flowReadinessIssues(
         ...(nodeData.valid ? [] : nodeData.issues),
         ...authoredGraphIssues(graph),
     ];
+}
+
+/**
+ * {@link flowReadinessIssues}, plus what is wrong with the graph's picked ids in the server
+ * the flow belongs to ({@link guildReferenceIssues}).
+ *
+ * What every caller holding the flow's guild asks — the routes, the flows list, deploy —
+ * so the builder's marks, the list's count, the switch-on refusal and deploy cannot
+ * disagree about a picked channel that is not in the server. An issue here is an ordinary
+ * readiness issue: a switched-off flow stores the graph as unfinished, a live flow's save
+ * goes to the saver's draft, and switching on and deploying are refused.
+ */
+export function flowReadinessIssuesInGuild(
+    graph: FlowGraph,
+    declaredKeys: ReadonlySet<string>,
+    guild: Guild
+): readonly FlowValidationIssue[] {
+    return [...flowReadinessIssues(graph, declaredKeys), ...guildReferenceIssues(graph, guild)];
 }
 
 /**

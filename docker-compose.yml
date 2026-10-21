@@ -23,6 +23,8 @@ services:
             DISCORD_OAUTH_CLIENT_SECRET: ${DISCORD_OAUTH_CLIENT_SECRET}
             SESSION_SECRET: ${SESSION_SECRET}
             ADMIN_DISCORD_IDS: ${ADMIN_DISCORD_IDS}
+            # Comma-separated guild ids the bot serves; unset means every server (logged loudly).
+            ALLOWED_GUILD_IDS: ${ALLOWED_GUILD_IDS}
         # No `ports:` on purpose: the dashboard (WEB_PORT, 8080) is reached only through the
         # tunnel below, so nothing is published on the host.
         init: true # tiny init to forward signals & reap children

@@ -1,4 +1,5 @@
 import { createRoute, z, type OpenAPIHono } from '@hono/zod-openapi';
+import type { Guild } from 'discord.js';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../features/flows/data/flowGraph';
 import { flowSchedulesRepo } from '../../features/flows/data/flowSchedulesRepo';
 import { flowsRepo, type FlowWriteDecision } from '../../features/flows/data/flowsRepo';
@@ -6,10 +7,11 @@ import type { FlowEntity } from '../../features/flows/data/flowsSchema';
 import { describeFlowCycle, findFlowCycleThrough } from '../../features/flows/engine/flowCycles';
 import { validateFlowGraph } from '../../features/flows/engine/graphValidation';
 import type { FlowValidationIssue } from '../../features/flows/engine/nodeDataValidation';
+import { withDeclaredNodeData } from '../../features/flows/logic/declaredNodeData';
 import { readDeclaredKeys } from '../../features/flows/logic/declaredResourceKeys';
 import { deployFlowButtons } from '../../features/flows/logic/deployFlowButtons';
 import {
-    flowReadinessIssues,
+    flowReadinessIssuesInGuild,
     installBeforeEnablingMessage,
     problemCount,
     uninstalledResourceKeys,
@@ -35,7 +37,6 @@ import {
     flowSummary,
     FlowSummarySchema,
     FlowValidationIssuesSchema,
-    GRAPH_REFUSED,
     invalidGraphBody,
     type FlowSaveBody,
 } from './flowBody';
@@ -179,6 +180,14 @@ const checkFlowRoute = createRoute({
     },
 });
 
+/**
+ * The most flows one guild may hold. Far above anything a server builds by hand — each is a
+ * canvas somebody authored — so it only ever stops a request loop. A handler rule rather
+ * than a schema one, because it needs the database. Two creates landing together can both
+ * pass at the cap and leave it one over; it bounds a guild, it is not an exact quota.
+ */
+const FLOW_MAX_PER_GUILD = 200;
+
 const createFlowRoute = createRoute({
     method: 'post',
     path: '/{guildId}/flows',
@@ -189,7 +198,11 @@ const createFlowRoute = createRoute({
     responses: {
         201: jsonResponse('The new flow. An incomplete graph is stored, with its issues.', FlowSchema),
         ...GUILD_SCOPED_BODY_ERRORS,
-        400: GRAPH_REFUSED,
+        400: jsonResponse(
+            `The body was refused, the graph is too broken to store (\`issues\` says where), the server ` +
+                `already holds ${FLOW_MAX_PER_GUILD} flows, or the server id is missing.`,
+            FlowRefusalSchema
+        ),
     },
 });
 
@@ -415,17 +428,22 @@ interface FlowSaver {
  * row. If it goes live as the row stands now — another request switched the flow on or
  * off in between — the check is owed and cannot be made, so the write is refused with a
  * "save again" rather than let through unchecked.
+ *
+ * `guild` is the flow's own, for readiness's question about picked ids — a channel that
+ * is not in this server is an ordinary readiness issue here. Read from its caches only,
+ * so it stays synchronous and asks no database.
  */
 function decidePut(
     current: FlowEntity,
     request: FlowPutRequest,
     saver: FlowSaver,
     declaredKeys: ReadonlySet<string> | null,
-    otherLiveFlows: readonly FlowEntity[] | null
+    otherLiveFlows: readonly FlowEntity[] | null,
+    guild: Guild
 ): FlowWriteDecision<ReadinessRefusal> {
     if (declaredKeys) {
         const runs = request.graph ?? current.graph;
-        const issues = flowReadinessIssues(runs, declaredKeys);
+        const issues = flowReadinessIssuesInGuild(runs, declaredKeys, guild);
         const staysLive = current.enabled && request.enabled !== false;
 
         if (
@@ -663,7 +681,8 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
 
     // List a guild's flows (summaries — the builder fetches the graph on open).
     router.openapi(listFlowsRoute, async (c) => {
-        const guildId = c.get('guild').id;
+        const guild = c.get('guild');
+        const guildId = guild.id;
         const flows = await flowsRepo.getByGuildId(guildId);
 
         // One index for the whole list rather than a resolve per flow: the page groups
@@ -680,7 +699,7 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
         // readiness was on it; no row is judged against a guess.
         return c.json(
             {
-                flows: flows.map((flow) => flowSummary(flow, journeys.get(flow.flowId))),
+                flows: flows.map((flow) => flowSummary(flow, journeys.get(flow.flowId), guild)),
             },
             200
         );
@@ -688,7 +707,8 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
 
     // One flow with its full graph, and what stands between it and going live.
     router.openapi(getFlowRoute, async (c) => {
-        const guildId = c.get('guild').id;
+        const guild = c.get('guild');
+        const guildId = guild.id;
         const flow = await flowsRepo.getByFlowId(c.req.valid('param').flowId);
         // Guild mismatch is a 404, not a 403 — never confirm another guild's flow exists.
         if (!flow || flow.guildId !== guildId) {
@@ -703,7 +723,7 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
             return c.json({ error: declared.error }, 500);
         }
 
-        return c.json(flowDetail(flow, flowReadinessIssues(flow.graph, declared.keys)), 200);
+        return c.json(flowDetail(flow, flowReadinessIssuesInGuild(flow.graph, declared.keys, guild)), 200);
     });
 
     /*
@@ -738,7 +758,8 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
      * with the one Save gives a moment later.
      */
     router.openapi(checkFlowRoute, async (c) => {
-        const guildId = c.get('guild').id;
+        const guild = c.get('guild');
+        const guildId = guild.id;
         const { flowId } = c.req.valid('param');
         const { graph } = c.req.valid('json');
         const flow = await flowsRepo.getByFlowId(flowId);
@@ -756,12 +777,13 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
             return c.json({ error: declared.error }, 500);
         }
 
-        return c.json({ issues: flowReadinessIssues(structural.graph, declared.keys) }, 200);
+        return c.json({ issues: flowReadinessIssuesInGuild(structural.graph, declared.keys, guild) }, 200);
     });
 
     // Create a flow. Starts empty + disabled unless a graph is supplied.
     router.openapi(createFlowRoute, async (c) => {
-        const guildId = c.get('guild').id;
+        const guild = c.get('guild');
+        const guildId = guild.id;
         const body = c.req.valid('json');
 
         const structural = validateFlowGraph(
@@ -771,15 +793,26 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
             return c.json(invalidGraphBody(structural.errors), 400);
         }
 
+        if ((await flowsRepo.countByGuildId(guildId)) >= FLOW_MAX_PER_GUILD) {
+            return c.json(
+                {
+                    error: `This server already has ${FLOW_MAX_PER_GUILD} flows, which is as many as it gets. Delete one you're not using first.`,
+                },
+                400
+            );
+        }
+
+        const graph = withDeclaredNodeData(structural.graph);
+
         // No flow yet, so no journey and nothing declared. Correct rather than a
         // shortcut: a flow cannot reference a declaration it has not saved. An
         // incomplete graph is stored all the same — a new flow starts switched off.
-        const issues = flowReadinessIssues(structural.graph, new Set<string>());
+        const issues = flowReadinessIssuesInGuild(graph, new Set<string>(), guild);
 
         const flow = await flowsRepo.create({
             guildId,
             name: body.name,
-            graph: structural.graph,
+            graph,
             enabled: false,
         });
 
@@ -798,7 +831,8 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
      * a loop with the guild's other live flows. Switching off, or renaming, is never refused.
      */
     router.openapi(updateFlowRoute, async (c) => {
-        const guildId = c.get('guild').id;
+        const guild = c.get('guild');
+        const guildId = guild.id;
         const { flowId } = c.req.valid('param');
         const body = c.req.valid('json');
         const user = c.get('user');
@@ -814,7 +848,7 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
             if (!structural.valid) {
                 return c.json(invalidGraphBody(structural.errors), 400);
             }
-            graph = structural.graph;
+            graph = withDeclaredNodeData(structural.graph);
         }
         const request: FlowPutRequest = {
             name: body.name,
@@ -856,7 +890,7 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
             : null;
 
         const outcome = await flowsRepo.mutate(flowId, (current) =>
-            decidePut(current, request, saver, declared.ok ? declared.keys : null, otherLiveFlows)
+            decidePut(current, request, saver, declared.ok ? declared.keys : null, otherLiveFlows, guild)
         );
 
         if (outcome.kind === 'missing') {
@@ -874,7 +908,7 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
             return c.json({ error: `Saved. ${declared.error}` }, 500);
         }
 
-        const flow = flowDetail(outcome.flow, flowReadinessIssues(outcome.flow.graph, declared.keys));
+        const flow = flowDetail(outcome.flow, flowReadinessIssuesInGuild(outcome.flow.graph, declared.keys, guild));
         switch (outcome.kind) {
             case 'written':
                 return c.json({ ...flow, savedAs: 'flow' } satisfies FlowSaveBody, 200);
@@ -887,7 +921,7 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
                             outcome.draft,
                             saver.id,
                             outcome.flow.updatedAt,
-                            flowReadinessIssues(outcome.draft.graph, declared.keys)
+                            flowReadinessIssuesInGuild(outcome.draft.graph, declared.keys, guild)
                         ),
                         uninstalled: uninstalledResourceKeys(outcome.draft.graph, declared.keys),
                     } satisfies FlowSaveBody,

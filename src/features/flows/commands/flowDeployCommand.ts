@@ -52,14 +52,17 @@ export async function handleFlowDeployCommand(
 
     // Same validate-and-post path the web deploy route uses.
     const result = await deployFlowButtons(interaction.guild, flowId);
+    // No mentions in either answer: both can carry the flow's name, which is whatever an
+    // operator typed.
     if (!result.ok) {
-        await interaction.editReply({ content: `❌ ${result.message}` });
+        await interaction.editReply({ content: `❌ ${result.message}`, allowedMentions: { parse: [] } });
         return commandError(result.message);
     }
 
     const where = result.posted.map((entry) => `<#${entry.channelId}>`).join(', ');
     await interaction.editReply({
         content: `✅ Deployed ${result.buttonCount} button(s) for **${result.flow.name}** across ${where}.`,
+        allowedMentions: { parse: [] },
     });
 
     return commandSuccess('Flow deployed');

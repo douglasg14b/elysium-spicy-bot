@@ -1,5 +1,6 @@
 import type { Guild } from 'discord.js';
 import { ChannelType } from 'discord.js';
+import { describeDiscordError } from '../../provisioning/logic/discordErrors';
 import {
     flowButtonMessagesRepo,
     type FlowButtonMessagesRepo,
@@ -82,10 +83,13 @@ async function retireOne(
     try {
         await repo.forget(row.id);
     } catch (error) {
+        // The cause goes to the log rather than the report: it is whatever the database
+        // driver said, which the operator cannot act on and should not be shown.
+        console.error(`[flows] Removed button message ${row.messageId} but could not forget its record ${row.id}:`, error);
         return {
             ...base,
             outcome: 'failed',
-            explanation: `The buttons were removed, but their record could not be deleted: ${describeError(error)}. Run this again to clear it.`,
+            explanation: 'The buttons were removed, but their record could not be deleted. Run this again to clear it.',
         };
     }
 
@@ -116,9 +120,11 @@ async function deleteMessage(
         if (isUnknownMessage(error)) {
             return { outcome: 'alreadyGone' };
         }
+        // `describeDiscordError` words it from Discord's code and logs the rest, so the
+        // thrown text never reaches the report.
         return {
             outcome: 'failed',
-            explanation: `Could not delete the button message in <#${row.channelId}>: ${describeError(error)}`,
+            explanation: `Could not delete the button message in <#${row.channelId}>: ${describeDiscordError(error)}.`,
         };
     }
 }
@@ -137,8 +143,4 @@ function isUnknownMessage(error: unknown): boolean {
         'code' in error &&
         (error as { code: unknown }).code === 10008
     );
-}
-
-function describeError(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
 }
