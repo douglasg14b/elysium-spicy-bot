@@ -5,6 +5,7 @@ import { SqliteJsonPlugin } from '../../../../features-system/data-persistence/p
 import { withinDeadlockTimeout } from '../../../provisioning/__tests__/support/provisioningTestDb';
 import { TestDiscord, type ServerGuild } from '../../../../shared/__tests__/support/testDiscord';
 import { createTicketTestTables, seedTicketCategorySlots } from '../../__tests__/support/ticketTestTables';
+import { DEFAULT_TICKET_TYPES } from '../../data/defaultTicketTypes';
 import type { TicketingConfig } from '../../data/ticketingSchema';
 
 /**
@@ -32,6 +33,7 @@ vi.mock('../../../../features-system/data-persistence/database', () => ({
 }));
 
 const { setTicketSettings: setTicketSettingsUnguarded } = await import('../setTicketSettings');
+const { upsertTicketType } = await import('../setTicketTypes');
 const { ticketingRepo } = await import('../../data/ticketingRepo');
 
 /**
@@ -317,6 +319,134 @@ describe('saving the ticket category slots', () => {
 
         expect(first.ok).toBe(true);
         expect(second).toMatchObject({ ok: false, reason: 'busy' });
+        expect(categoryCreates(scenario.discord)).toHaveLength(1);
+    });
+});
+
+/*
+ * The type save sets a type's own categories through the same choreography — so only
+ * what is the type save's own is tested here: the keys it writes under, `null` going back
+ * to the server's, the type and its categories landing together, and the shared lock.
+ */
+describe("saving a ticket type's own categories", () => {
+    const SERVER_SLOTS = {
+        open: { name: 'Tickets', discordId: '900000000000000001', provenance: 'adopted' },
+        claimed: { name: 'Claimed', discordId: '900000000000000002', provenance: 'adopted' },
+        closed: { name: 'Closed', discordId: '900000000000000003', provenance: 'adopted' },
+    } as const;
+
+    const verification = { ...DEFAULT_TICKET_TYPES.verification };
+
+    it('makes a named category, adopts a picked one, and leaves the rest on the server’s', async () => {
+        const scenario = await startScenario(SERVER_SLOTS);
+        const existing = scenario.guild.createCategory({ name: 'Verify Claimed' });
+
+        const result = await upsertTicketType({
+            guild: scenario.discord.clientGuild(scenario.guild),
+            definition: verification,
+            categories: { open: { name: 'Verification' }, claimed: { discordId: existing.id }, closed: null },
+        });
+
+        expect(result.ok).toBe(true);
+        expect(categoryCreates(scenario.discord)).toHaveLength(1);
+        const saved = await stored(scenario.guild.id);
+        expect(saved.ticketTypes?.verification).toEqual(verification);
+        const own = saved.typeCategories.get('verification');
+        expect(own?.open).toMatchObject({ name: 'Verification', provenance: 'created' });
+        expect(own?.claimed).toEqual({ name: 'Verify Claimed', discordId: existing.id, provenance: 'adopted' });
+        expect(own?.closed).toBeUndefined();
+        // The server's slots are untouched, and the response is what was saved.
+        expect(saved.categories).toEqual(SERVER_SLOTS);
+        expect(result.ok && result.config.typeCategories).toEqual(saved.typeCategories);
+        expect(scenario.guild.channel(own?.open?.discordId ?? '').name).toBe('Verification');
+    });
+
+    it('puts a slot back on the server’s category when it is sent as null, keeping the category itself', async () => {
+        const scenario = await startScenario(SERVER_SLOTS);
+        const own = scenario.guild.createCategory({ name: 'Verification' });
+        const guild = scenario.discord.clientGuild(scenario.guild);
+        await upsertTicketType({
+            guild,
+            definition: verification,
+            categories: { open: { discordId: own.id }, claimed: null, closed: null },
+        });
+
+        const result = await upsertTicketType({
+            guild,
+            definition: verification,
+            categories: { open: null, claimed: null, closed: null },
+        });
+
+        expect(result.ok).toBe(true);
+        expect((await stored(scenario.guild.id)).typeCategories.get('verification')).toBeUndefined();
+        expect((await slotRows(scenario.guild.id)).map((row) => row.resourceKey)).toEqual(['claimed', 'closed', 'open']);
+        expect(own.exists).toBe(true);
+    });
+
+    it('leaves a slot it was not sent alone, so a stale save cannot undo another’s pick', async () => {
+        const scenario = await startScenario(SERVER_SLOTS);
+        const own = scenario.guild.createCategory({ name: 'Verify Claimed' });
+        const guild = scenario.discord.clientGuild(scenario.guild);
+        await upsertTicketType({ guild, definition: verification, categories: { claimed: { discordId: own.id } } });
+
+        // A tab opened before that save changes only the open slot.
+        const result = await upsertTicketType({ guild, definition: verification, categories: { open: { name: 'Verification' } } });
+
+        expect(result.ok).toBe(true);
+        const saved = (await stored(scenario.guild.id)).typeCategories.get('verification');
+        expect(saved?.claimed).toEqual({ name: 'Verify Claimed', discordId: own.id, provenance: 'adopted' });
+        expect(saved?.open).toMatchObject({ name: 'Verification', provenance: 'created' });
+    });
+
+    it('checks the type before making anything, so a refused type makes no category', async () => {
+        const scenario = await startScenario(SERVER_SLOTS);
+
+        const result = await upsertTicketType({
+            guild: scenario.discord.clientGuild(scenario.guild),
+            definition: { ...verification, nameTemplate: 'V{{user}}' },
+            categories: { open: { name: 'Verification' }, claimed: null, closed: null },
+        });
+
+        expect(result).toMatchObject({ ok: false, reason: 'invalid-input' });
+        expect(categoryCreates(scenario.discord)).toEqual([]);
+    });
+
+    it('names the type in a refusal about its category', async () => {
+        const scenario = await startScenario(SERVER_SLOTS);
+        const lobby = scenario.guild.createCategory({ name: 'Lobby' });
+        await journeyHolding(scenario.guild.id, { key: 'onboarding', name: 'Onboarding' }, lobby.id);
+
+        const result = await upsertTicketType({
+            guild: scenario.discord.clientGuild(scenario.guild),
+            definition: verification,
+            categories: { open: { discordId: lobby.id }, claimed: null, closed: null },
+        });
+
+        expect(result.ok ? '' : result.message).toBe(
+            '"Lobby" (picked for "Verification" open tickets) belongs to journey "Onboarding", so tickets can\'t use it. Pick another category, or type a name to have one made.'
+        );
+        expect(await stored(scenario.guild.id)).not.toHaveProperty(['ticketTypes', 'verification']);
+    });
+
+    it('is refused while the settings save is creating, sharing its lock', async () => {
+        const scenario = await startScenario(SERVER_SLOTS);
+        const guild = scenario.discord.clientGuild(scenario.guild);
+
+        const [settings, type] = await Promise.all([
+            setTicketSettings({
+                guild,
+                categories: { open: { name: 'New Tickets' }, claimed: null, closed: null },
+                moderationRoles: [scenario.moderatorRoleId],
+            }),
+            upsertTicketType({
+                guild,
+                definition: verification,
+                categories: { open: { name: 'Verification' }, claimed: null, closed: null },
+            }),
+        ]);
+
+        expect(settings.ok).toBe(true);
+        expect(type).toMatchObject({ ok: false, reason: 'busy' });
         expect(categoryCreates(scenario.discord)).toHaveLength(1);
     });
 });

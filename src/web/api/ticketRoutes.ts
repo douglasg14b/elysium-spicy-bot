@@ -14,7 +14,12 @@ import {
     type TicketTransition,
 } from '../../features/tickets/logic/applyTicketTransition';
 import { getTicketTypeDefinition } from '../../features/tickets/logic/ticketTypes';
-import { deleteTicketType, upsertTicketType, type SetTicketTypeRefusal } from '../../features/tickets/logic/setTicketTypes';
+import {
+    deleteTicketType,
+    upsertTicketType,
+    type SetTicketTypeRefusal,
+    type UpsertTicketTypeRefusal,
+} from '../../features/tickets/logic/setTicketTypes';
 import { setTicketSettings, type SetTicketSettingsRefusal } from '../../features/tickets/logic/setTicketSettings';
 import { TicketTypeKeySchema, TicketTypeLabelSchema } from '../../features/tickets/logic/ticketTypeRules';
 import { updateDeployedTicketMessage } from '../../features/tickets/utils/updateDeployedMessage';
@@ -112,7 +117,9 @@ const TicketListQuerySchema = z.object({
 
 /**
  * One category slot as the page sends it: an existing category by id, a new one by
- * name, or `null` to leave the slot as it is.
+ * name, or `null`. On the settings save `null` leaves a server-wide slot as it is; on a
+ * type save it puts the type's slot back on the server's, and an absent slot is the one
+ * left as it is.
  *
  * An id and a name are separate shapes, never one string that might be either — a
  * display name that doubles as a binding is how two same-named categories get confused.
@@ -170,9 +177,14 @@ const TicketTypeUpdateSchema = z
     .object({
         label: TicketTypeLabelSchema,
         ...TicketTypeSettingsSchema.shape,
+        categories: z.strictObject(categorySlotsShape(categoryChoice.optional())).optional(),
     })
     .openapi('TicketTypeUpdate', {
-        description: 'A ticket type, without its key: that is the path.',
+        description:
+            "A ticket type, without its key: that is the path. `categories` holds only the slots being " +
+            "changed: `null` puts a slot back on the server's category, and a slot given a `name` is created " +
+            'in Discord on save. An absent slot, or absent `categories`, is left as it is — so a stale tab ' +
+            "saving a label cannot undo another tab's category.",
     });
 
 /** The path of every route about one ticket. Its id is checked in the handler, whose refusal names it. */
@@ -244,6 +256,20 @@ const SETTINGS_REFUSAL_STATUS: Readonly<Record<SetTicketSettingsRefusal, 400 | 4
     'create-failed': 502,
     'taken-meanwhile': 409,
     'write-failed': 503,
+};
+
+/**
+ * The same table for a type save, which can create categories just as the settings save
+ * can. A "no config yet" answers as it does on a delete, rather than as a 400 because that
+ * is what a body error is.
+ */
+const TYPE_SAVE_REFUSAL_STATUS: Readonly<Record<UpsertTicketTypeRefusal, 400 | 409 | 423 | 502 | 503>> = {
+    'no-config': 409,
+    'invalid-input': 400,
+    'write-failed': 503,
+    busy: SETTINGS_REFUSAL_STATUS.busy,
+    'create-failed': SETTINGS_REFUSAL_STATUS['create-failed'],
+    'taken-meanwhile': SETTINGS_REFUSAL_STATUS['taken-meanwhile'],
 };
 
 const listTicketsRoute = createRoute({
@@ -355,17 +381,25 @@ const saveTicketTypeRoute = createRoute({
     path: '/{guildId}/config/tickets/types/{type}',
     operationId: 'saveTicketType',
     tags: ['tickets'],
-    summary: 'Add or replace one ticket type',
+    summary: 'Add or replace one ticket type, creating any category given a name',
     request: { params: TicketTypeSavePathSchema, body: jsonBody(TicketTypeUpdateSchema) },
     responses: {
         200: jsonResponse('The ticket config as saved, every type included.', TicketingConfigViewSchema),
         ...GUILD_SCOPED_BODY_ERRORS,
         400: errorBodyResponse(
             'The key or the body was refused, the template renders to nothing or to more than Discord allows a ' +
-                'channel name, or the server id is missing.'
+                'channel name, a picked category is gone or the bot cannot work in it, or the server id is missing.'
         ),
-        409: errorBodyResponse('The server has no ticket config yet: tickets have to be deployed in Discord first.'),
-        503: errorBodyResponse('The type could not be saved. Nothing changed.'),
+        409: errorBodyResponse(
+            'The server has no ticket config yet: tickets have to be deployed in Discord first. Or a journey ' +
+                'claimed a picked category while the save ran: that slot was declined, everything else was saved, ' +
+                'so re-read the settings.'
+        ),
+        423: errorBodyResponse('Another save of the ticket categories is still running, so nothing was changed.'),
+        502: errorBodyResponse('Discord refused to create a category. Everything else was saved, so re-read the settings.'),
+        503: errorBodyResponse(
+            'The type could not be saved. A category already made in Discord stays made, and the sentence names it.'
+        ),
     },
 });
 
@@ -584,11 +618,12 @@ export function ticketRoutes(): OpenAPIHono<AppEnv> {
         });
 
         /**
-         * Add or replace one ticket type.
+         * Add or replace one ticket type, and with `categories`, its own categories.
          *
          * The key, label and template were held to `ticketTypeRules.ts` before this runs;
          * the shared `upsertTicketType` renders the template to check it fits a channel
-         * name, and refuses a guild with no config.
+         * name, refuses a guild with no config, and — given categories — checks, creates
+         * and records them as the settings save does.
          */
         router.openapi(saveTicketTypeRoute, async (c) => {
             const guild = c.get('guild');
@@ -602,10 +637,10 @@ export function ticketRoutes(): OpenAPIHono<AppEnv> {
                 autoClaimOnOpen: body.autoClaimOnOpen,
             };
 
-            // Same table as the delete, so a "no config yet" on a save and on a delete get the
-            // same answer rather than one being a 400 because that is what a body error is.
-            const result = await upsertTicketType(guild.id, definition);
-            if (!result.ok) return c.json({ error: result.message }, REFUSAL_STATUS[result.reason]);
+            const result = await upsertTicketType(
+                body.categories ? { guild, definition, categories: body.categories } : { guildId: guild.id, definition }
+            );
+            if (!result.ok) return c.json({ error: result.message }, TYPE_SAVE_REFUSAL_STATUS[result.reason]);
 
             return c.json(ticketingConfigView(guild, result.config), 200);
         });

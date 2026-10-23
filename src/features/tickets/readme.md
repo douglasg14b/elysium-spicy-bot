@@ -24,6 +24,8 @@ Read them in this order; the boundary between the first two is the point.
 | Orchestration | `logic/applyTicketTransition.ts` | **The one path a lifecycle change takes.** Commit the row → sync the channel → re-render the state message → announce, in that order, for all six callers: the four buttons, `action.closeTicket`, and the dashboard. Takes a `Guild`, never an interaction. |
 | Handlers | `components/*` | Thin. `resolveTicketAction` does the shared gate; the service enforces the state rules; `applyTicketTransition` does the Discord sequence. |
 
+**Categories are binding rows, not config.** The three server-wide slots (`open`, `claimed`, `closed`) and each type's own (keyed `typeCategoryKey`) are `resource_bindings` rows under the ticket owner, assembled into `TicketingConfig` by `ticketingRepo`. `ticketCategoryFor` is the one answer to where a ticket sits — the type's own, else the server's — and both saves that pick categories (the settings and a type) go through `logic/ticketCategoryChoices.ts`.
+
 Ticketing is a **base capability**. Flows consume it through adapter blocks (`action.openTicket`, `action.closeTicket`, `condition.hasOpenTicket`) in the flows→tickets direction only.
 
 ## Two rules that are easy to break

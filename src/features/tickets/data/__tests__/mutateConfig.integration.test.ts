@@ -235,7 +235,7 @@ describe('the category slots, which live in resource_bindings', () => {
 
         const result = await withinDeadlockTimeout(
             ticketingRepo.mutateConfig(GUILD_ID, async (current, transaction) => {
-                await ticketingRepo.writeCategorySlots(GUILD_ID, { open: replacement }, transaction);
+                await ticketingRepo.writeCategoryBindings(GUILD_ID, new Map([['open', replacement]]), transaction);
                 return current.config;
             }),
             'mutateConfig'

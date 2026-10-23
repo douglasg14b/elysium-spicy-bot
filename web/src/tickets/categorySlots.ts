@@ -1,5 +1,6 @@
 /**
- * The ticket settings page's category slots: what the form holds, and what it sends.
+ * The ticket settings page's category slots: what the form holds, and what it sends — for
+ * the three server-wide slots, and for a type's own, which may also be "the server's".
  *
  * Each slot is either an **existing** category, chosen by id, or a **new** one, chosen by
  * the name it should be created under. The two never share a string: the picker's value is
@@ -10,7 +11,14 @@
  * component around them is layout.
  */
 
-import type { GuildChannel, TicketCategoryView, TicketingConfigView, TicketsConfigUpdate } from '@brattybot/web-sdk';
+import type {
+    GuildChannel,
+    TicketCategoryView,
+    TicketingConfigView,
+    TicketsConfigUpdate,
+    TicketTypeUpdate,
+    TicketTypeView,
+} from '@brattybot/web-sdk';
 import { channelOptionLabel, heldByLabel } from '../flows/resourceAdoption';
 
 /** The three places a ticket channel can sit, by where the ticket is in its life. */
@@ -125,6 +133,78 @@ export function categorySlotOptions(
     }
 
     return options;
+}
+
+/** The picker value meaning "use the server's category". Not a snowflake, so it cannot collide with one. */
+export const SERVER_DEFAULT_CATEGORY = '__default__';
+
+/** One of a type's slots as its dialog holds it: the server's category, or one of its own. */
+export type TypeCategoryDraft = { readonly mode: 'default' } | CategorySlotDraft;
+
+/** The slots a type save changes: a pick, or `null` for the server's. An absent slot is left as it is. */
+export type TicketTypeCategoryChanges = NonNullable<TicketTypeUpdate['categories']>;
+
+/** A type's slot as the dialog starts it: its own category if it has one, else the server's. */
+export function typeCategoryDraftFromView(view: TicketCategoryView | null): TypeCategoryDraft {
+    return view ? draftFromView(view) : { mode: 'default' };
+}
+
+/**
+ * What to send for a type's slots: only the ones the operator changed, as
+ * {@link choiceFromDraft} does for the server-wide slots and for the same reasons. A slot
+ * left as loaded is absent, so a stale dialog — one open across a recreate, or in a tab
+ * another tab has since saved over — cannot re-send an id the bot replaced, or put a slot
+ * back on the server's that somebody else gave a category. `undefined` when nothing
+ * changed, so a label edit leaves the categories alone entirely.
+ *
+ * A draft {@link typeCategoryProblem} refuses is never sent.
+ */
+export function typeCategoryChanges(
+    drafts: Readonly<Record<TicketCategorySlot, TypeCategoryDraft>>,
+    saved: TicketTypeView['categories'] | null
+): TicketTypeCategoryChanges | undefined {
+    const changes: TicketTypeCategoryChanges = {};
+    for (const slot of TICKET_CATEGORY_SLOTS) {
+        const draft = drafts[slot];
+        const savedId = saved?.[slot]?.discordId ?? null;
+        switch (draft.mode) {
+            case 'default':
+                if (savedId) changes[slot] = null;
+                break;
+            case 'create':
+                changes[slot] = { name: draft.name.trim() };
+                break;
+            case 'existing':
+                if (draft.discordId && draft.discordId !== savedId) changes[slot] = { discordId: draft.discordId };
+                break;
+            default: {
+                const unhandled: never = draft;
+                throw new Error(`Unhandled category draft: ${JSON.stringify(unhandled)}`);
+            }
+        }
+    }
+    return Object.keys(changes).length > 0 ? changes : undefined;
+}
+
+/** Why one of a type's slots cannot be saved as it stands, or undefined. */
+export function typeCategoryProblem(draft: TypeCategoryDraft): string | undefined {
+    if (draft.mode === 'existing' && !draft.discordId) return 'Pick a category, or go back to the server’s.';
+    return draft.mode === 'default' ? undefined : categorySlotProblem(draft);
+}
+
+/** The "use the server's" entry, naming the category it would be. */
+export function serverDefaultOption(serverView: TicketCategoryView | null): CategorySlotOption {
+    const name = serverView?.liveName ?? serverView?.name;
+    return { value: SERVER_DEFAULT_CATEGORY, label: name ? `Server default — ${name}` : 'Server default — not set yet' };
+}
+
+/**
+ * The slots a type has its own category for, as the types table names them, or null when
+ * it uses the server's for all three — the usual case, which the table leaves blank.
+ */
+export function ownCategorySummary(categories: TicketTypeView['categories']): string | null {
+    const own = TICKET_CATEGORY_SLOTS.filter((slot) => categories[slot]).map((slot) => CATEGORY_SLOT_COPY[slot].label);
+    return own.length > 0 ? `Own: ${own.join(', ')}` : null;
 }
 
 /**

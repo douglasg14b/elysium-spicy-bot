@@ -64,7 +64,7 @@ export type { InstallPlan, PlanItem, PlanAction, ResourceChoice } from './logic/
 export { isPlanApplicable, existsInGuildAs } from './logic/installPlan';
 
 // Binding by id, for a feature that owns guild objects without installing them — the
-// ticket feature's three categories. `lookupBoundChannel` reports `gone` only when
+// ticket feature's categories. `lookupBoundChannel` reports `gone` only when
 // Discord says `Unknown Channel`, so a caller may safely recreate on it.
 export { lookupBoundChannel } from './logic/lookupBoundChannel';
 export { describeDiscordError } from './logic/discordErrors';

@@ -4,7 +4,8 @@ import type { Database, DatabaseClient } from '../../../features-system/data-per
 import { DB_TYPE } from '../../../environment';
 import { resourceBindingsRepo, TICKETS_OWNER, type ResourceBindingEntity } from '../../provisioning';
 import {
-    TICKET_CATEGORY_SLOTS,
+    parseTypeCategoryKey,
+    typeCategoryKey,
     type BoundTicketCategory,
     type NewTicketingConfigEntity,
     type StoredTicketingConfig,
@@ -14,6 +15,7 @@ import {
     type TicketingConfig,
     type TicketingConfigEntity,
     type TicketingConfigUpdateEntity,
+    type TicketTypeCategories,
 } from './ticketingSchema';
 
 /**
@@ -58,8 +60,8 @@ export class TicketingRepo {
      * hazard has never fired. It is excluded structurally rather than left to
      * that continuing to be true.
      *
-     * Writes the blob only. Category slots are written by `setTicketSettings` through
-     * {@link writeCategorySlots}; a `categories` member on `config` is dropped.
+     * Writes the blob only. Categories are written by the saves in `ticketCategoryChoices` through
+     * {@link writeCategoryBindings}; `categories` and `typeCategories` on `config` are dropped.
      */
     async upsert(config: NewTicketingConfigEntity): Promise<TicketingConfigEntity> {
         const existing = await this.get(config.guildId);
@@ -107,7 +109,7 @@ export class TicketingRepo {
      * it is *inside* the transaction, never a copy read earlier. It returns the blob to
      * store; a spread of what it was handed is fine, since the serializer drops
      * `categories`. A mutator that changes slots writes their rows itself, on the
-     * transaction it is given ({@link writeCategorySlots}).
+     * transaction it is given ({@link writeCategoryBindings}).
      *
      * Returns the config as it now stands, **re-assembled from the rows on the same
      * transaction**, so a slot the mutator wrote is in it; or null when `mutate`
@@ -185,25 +187,24 @@ export class TicketingRepo {
     }
 
     /**
-     * Record category slots, each as the ticket feature's binding row for that slot.
+     * Record categories, each as the ticket feature's binding row under its key: a slot
+     * name for a server-wide slot, {@link typeCategoryKey} for a type's own.
      *
-     * Called from inside a `mutateConfig` mutator with its transaction, so the slots and
-     * the rest of the save land together. Nothing here checks who else holds a category;
-     * `setTicketSettings` asks `ownerOf` on the same transaction first.
+     * Called from inside a `mutateConfig` mutator with its transaction, so the categories
+     * and the rest of the save land together. Nothing here checks who else holds a
+     * category; `ticketCategoryChoices` asks on the same transaction first.
      */
-    async writeCategorySlots(
+    async writeCategoryBindings(
         guildId: string,
-        slots: Readonly<Partial<Record<TicketCategorySlot, BoundTicketCategory>>>,
+        bindings: ReadonlyMap<string, BoundTicketCategory>,
         executor: DatabaseClient
     ): Promise<void> {
-        for (const slot of TICKET_CATEGORY_SLOTS) {
-            const binding = slots[slot];
-            if (!binding) continue;
+        for (const [resourceKey, binding] of bindings) {
             await resourceBindingsRepo.upsertBinding(
                 {
                     guildId,
                     owner: TICKETS_OWNER,
-                    resourceKey: slot,
+                    resourceKey,
                     kind: 'category',
                     state: binding.provenance,
                     discordId: binding.discordId,
@@ -212,6 +213,24 @@ export class TicketingRepo {
                 executor
             );
         }
+    }
+
+    /**
+     * Drop a type's own categories in these slots, so the type uses the server's again.
+     * The categories stay in Discord. On the caller's transaction, as above.
+     */
+    async clearTypeCategories(
+        guildId: string,
+        type: string,
+        slots: readonly TicketCategorySlot[],
+        executor: DatabaseClient
+    ): Promise<void> {
+        await resourceBindingsRepo.forgetOwned(
+            guildId,
+            TICKETS_OWNER,
+            slots.map((slot) => typeCategoryKey(type, slot)),
+            executor
+        );
     }
 
     /**
@@ -248,19 +267,32 @@ export class TicketingRepo {
 }
 
 /**
- * The stored row with its category slots read from the ticket feature's binding rows.
+ * The stored row with its categories read from the ticket feature's binding rows: the
+ * server-wide slots, and each type's own.
  *
- * `categories` is set last, so a stale member a blob still carried — nothing should
- * write one, but `config` is JSON — never wins over the rows.
+ * Both are set last, so a stale member a blob still carried — nothing should write one,
+ * but `config` is JSON — never wins over the rows.
  */
 async function assemble(row: StoredTicketingConfigEntity, executor: DatabaseClient): Promise<TicketingConfigEntity> {
     const rows = await resourceBindingsRepo.listByOwner(row.guildId, TICKETS_OWNER, executor);
     const slot = (key: TicketCategorySlot): TicketCategoryBinding =>
         slotFromRow(rows.find((binding) => binding.resourceKey === key));
 
+    const typeCategories = new Map<string, TicketTypeCategories>();
+    for (const binding of rows) {
+        const key = parseTypeCategoryKey(binding.resourceKey);
+        const category = slotFromRow(binding);
+        if (!key || !category) continue;
+        typeCategories.set(key.type, { ...typeCategories.get(key.type), [key.slot]: category });
+    }
+
     return {
         ...row,
-        config: { ...row.config, categories: { open: slot('open'), claimed: slot('claimed'), closed: slot('closed') } },
+        config: {
+            ...row.config,
+            categories: { open: slot('open'), claimed: slot('claimed'), closed: slot('closed') },
+            typeCategories,
+        },
     };
 }
 
@@ -275,15 +307,19 @@ function slotFromRow(row: ResourceBindingEntity | undefined): TicketCategoryBind
 }
 
 /**
- * The blob as it is stored: everything but `categories`.
+ * The blob as it is stored: everything but `categories` and `typeCategories`.
  *
  * The one place a config becomes the column's text, used by every write. A mutator's
- * natural `{ ...current.config, ticketTypes }` carries the assembled slots along, and
- * writing them back would leave two records of the slots that can disagree — the very
- * thing the move to binding rows ended.
+ * natural `{ ...current.config, ticketTypes }` carries the assembled categories along, and
+ * writing them back would leave two records of them that can disagree — the very thing
+ * the move to binding rows ended.
  */
 function serializeStoredConfig(config: StoredTicketingConfig): string {
-    const { categories: _slots, ...stored } = config as StoredTicketingConfig & { readonly categories?: unknown };
+    const {
+        categories: _slots,
+        typeCategories: _typeSlots,
+        ...stored
+    } = config as StoredTicketingConfig & { readonly categories?: unknown; readonly typeCategories?: unknown };
     return JSON.stringify(stored);
 }
 

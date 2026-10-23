@@ -82,6 +82,7 @@ function configEntity(ticketTypes: Record<string, TicketTypeDefinition> | undefi
             claimed: { name: 'Claimed', discordId: '100000000000000002', provenance: 'created' },
             closed: { name: 'Closed', discordId: '100000000000000003', provenance: 'created' },
         },
+        typeCategories: new Map(),
         moderationRoles: ['role-mod'],
         ticketTypes,
     };

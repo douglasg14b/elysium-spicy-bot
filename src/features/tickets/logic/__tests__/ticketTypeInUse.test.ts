@@ -26,6 +26,7 @@ function config(): TicketingConfig {
             claimed: { name: 'Claimed', discordId: '900000000000000002', provenance: 'adopted' },
             closed: { name: 'Closed', discordId: '900000000000000003', provenance: 'adopted' },
         },
+        typeCategories: new Map(),
         moderationRoles: ['role-1'],
         ticketTypes: { ...DEFAULT_TICKET_TYPES },
     };
@@ -88,7 +89,7 @@ function harness(usage: TicketTypeUsageDeps): Harness {
     return {
         // No journey holds anything here; that refusal is `setTicketTypes.test.ts`'s.
         deps: {
-            repo: { mutateConfig },
+            repo: { mutateConfig, clearTypeCategories: vi.fn().mockResolvedValue(undefined) },
             usage,
             holders: { bindings: { listByGuild: async () => [] }, journeys: { listTicketTypeDeclarations: async () => [] } },
         },

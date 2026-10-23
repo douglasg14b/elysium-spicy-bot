@@ -31,6 +31,7 @@ function config(overrides: Partial<TicketingConfig> = {}): TicketingConfig {
             claimed: { name: 'Claimed', discordId: '900000000000000002', provenance: 'adopted' },
             closed: { name: 'Closed', discordId: '900000000000000003', provenance: 'adopted' },
         },
+        typeCategories: new Map(),
         moderationRoles: ['role-1'],
         ticketTypes: { ...DEFAULT_TICKET_TYPES },
         ...overrides,
@@ -62,6 +63,8 @@ interface Harness {
      * means the same thing it did before the write moved into a transaction.
      */
     update: ReturnType<typeof vi.fn>;
+    /** Stands in for dropping a type's own category rows. */
+    clearTypeCategories: ReturnType<typeof vi.fn>;
     /** The config as it was actually written, parsed back from the JSON string. */
     written: () => TicketingConfig;
 }
@@ -71,6 +74,7 @@ function harness(
     usage?: SetTicketTypesDeps['usage']
 ): Harness {
     const update = vi.fn().mockResolvedValue(undefined);
+    const clearTypeCategories = vi.fn().mockResolvedValue(undefined);
 
     /*
      * A faithful stand-in for the real `mutateConfig`: it hands the mutator the stored
@@ -110,8 +114,9 @@ function harness(
     );
 
     return {
-        deps: { repo: { mutateConfig }, usage, holders: NO_JOURNEY_HOLDS },
+        deps: { repo: { mutateConfig, clearTypeCategories }, usage, holders: NO_JOURNEY_HOLDS },
         update,
+        clearTypeCategories,
         // Asserted against the serialized payload rather than an in-memory object,
         // because the string is what the column receives.
         written: () => JSON.parse(update.mock.calls[0][0].config as string) as TicketingConfig,
@@ -127,7 +132,7 @@ describe('upsertTicketType template validation', () => {
     it('holds a direct caller to the declared rules: {{user}} is refused and nothing is written', async () => {
         const { deps, update } = harness();
 
-        const result = await upsertTicketType('guild-1', definition({ nameTemplate: 'S{{####}}-{{user}}' }), deps);
+        const result = await upsertTicketType({ guildId: 'guild-1', definition: definition({ nameTemplate: 'S{{####}}-{{user}}' }) }, deps);
 
         expect(result).toEqual({
             ok: false,
@@ -141,7 +146,7 @@ describe('upsertTicketType template validation', () => {
     it('refuses a key a channel name or a flow option cannot carry', async () => {
         const { deps, update } = harness();
 
-        const result = await upsertTicketType('guild-1', definition({ type: 'Appeals & Bans' }), deps);
+        const result = await upsertTicketType({ guildId: 'guild-1', definition: definition({ type: 'Appeals & Bans' }) }, deps);
 
         expect(result.ok).toBe(false);
         expect(update).not.toHaveBeenCalled();
@@ -152,11 +157,7 @@ describe('upsertTicketType template validation', () => {
         // Two 32-character usernames plus a long literal prefix. Under 100 as written,
         // over it once the tokens expand — which is why the check renders rather than
         // measuring the template string.
-        const result = await upsertTicketType(
-            'guild-1',
-            definition({ nameTemplate: `${'x'.repeat(50)}-{{subject}}-{{opener}}` }),
-            deps
-        );
+        const result = await upsertTicketType({ guildId: 'guild-1', definition: definition({ nameTemplate: `${'x'.repeat(50)}-{{subject}}-{{opener}}` }) }, deps);
 
         expect(result.ok).toBe(false);
         expect(result.ok === false && result.message).toBe(
@@ -169,7 +170,7 @@ describe('upsertTicketType template validation', () => {
         const { deps } = harness();
         // Only separators, so the collapse leaves nothing. Discord will not name a
         // channel the empty string.
-        const result = await upsertTicketType('guild-1', definition({ nameTemplate: '---' }), deps);
+        const result = await upsertTicketType({ guildId: 'guild-1', definition: definition({ nameTemplate: '---' }) }, deps);
 
         expect(result.ok).toBe(false);
         expect(result.ok === false && result.message).toContain('empty');
@@ -181,11 +182,7 @@ describe('upsertTicketType template validation', () => {
         // 96 characters at n=9999 and 98 at n=999999 — under the cap either way; this one
         // is 99 at four digits and 101 at six, so probing at 9999 would accept a template
         // that later breaks `channels.create` *after* the ticket number is allocated.
-        const result = await upsertTicketType(
-            'guild-1',
-            definition({ nameTemplate: `${'x'.repeat(35)}-{{####}}-{{subject}}-{{opener}}` }),
-            deps
-        );
+        const result = await upsertTicketType({ guildId: 'guild-1', definition: definition({ nameTemplate: `${'x'.repeat(35)}-{{####}}-{{subject}}-{{opener}}` }) }, deps);
 
         expect(result.ok).toBe(false);
         expect(result.ok === false && result.message).toContain('100');
@@ -194,11 +191,7 @@ describe('upsertTicketType template validation', () => {
     it('accepts a repeated token, which the renderer now substitutes everywhere', async () => {
         const { deps } = harness();
 
-        const result = await upsertTicketType(
-            'guild-1',
-            definition({ nameTemplate: 'A{{####}}-{{subject}}-{{subject}}' }),
-            deps
-        );
+        const result = await upsertTicketType({ guildId: 'guild-1', definition: definition({ nameTemplate: 'A{{####}}-{{subject}}-{{subject}}' }) }, deps);
 
         expect(result.ok).toBe(true);
     });
@@ -206,11 +199,7 @@ describe('upsertTicketType template validation', () => {
     it('accepts {{####}}, {{subject}} and {{opener}} together', async () => {
         const { deps, update } = harness();
 
-        const result = await upsertTicketType(
-            'guild-1',
-            definition({ nameTemplate: 'A{{####}}-{{subject}}-{{opener}}' }),
-            deps
-        );
+        const result = await upsertTicketType({ guildId: 'guild-1', definition: definition({ nameTemplate: 'A{{####}}-{{subject}}-{{opener}}' }) }, deps);
 
         expect(result.ok).toBe(true);
         expect(update).toHaveBeenCalledTimes(1);
@@ -221,11 +210,7 @@ describe('upsertTicketType persistence', () => {
     it('replaces a definition without touching the guild’s other types', async () => {
         const { deps, written } = harness();
 
-        const result = await upsertTicketType(
-            'guild-1',
-            definition({ type: 'support', label: 'Help Desk', nameTemplate: 'H{{####}}-{{subject}}' }),
-            deps
-        );
+        const result = await upsertTicketType({ guildId: 'guild-1', definition: definition({ type: 'support', label: 'Help Desk', nameTemplate: 'H{{####}}-{{subject}}' }) }, deps);
 
         expect(result.ok).toBe(true);
         const config = written();
@@ -237,7 +222,7 @@ describe('upsertTicketType persistence', () => {
     it('preserves every other config member, not only the types', async () => {
         const { deps, written } = harness();
 
-        await upsertTicketType('guild-1', definition(), deps);
+        await upsertTicketType({ guildId: 'guild-1', definition: definition() }, deps);
 
         // The same discipline the config modal needed: a write that names one member
         // must not drop the rest.
@@ -248,11 +233,7 @@ describe('upsertTicketType persistence', () => {
     it('stores a padded key, label and template normalized, so the record and its map key agree', async () => {
         const { deps, written } = harness();
 
-        const result = await upsertTicketType(
-            'guild-1',
-            definition({ type: '  appeals  ', label: ' Appeals ', nameTemplate: ' A{{####}} ' }),
-            deps
-        );
+        const result = await upsertTicketType({ guildId: 'guild-1', definition: definition({ type: '  appeals  ', label: ' Appeals ', nameTemplate: ' A{{####}} ' }) }, deps);
 
         expect(result.ok).toBe(true);
         // Validating the trimmed key and storing the untrimmed one would leave a type
@@ -268,7 +249,7 @@ describe('upsertTicketType persistence', () => {
     it('refuses a guild with no config row', async () => {
         const { deps, update } = harness(null);
 
-        const result = await upsertTicketType('guild-1', definition(), deps);
+        const result = await upsertTicketType({ guildId: 'guild-1', definition: definition() }, deps);
 
         expect(result.ok).toBe(false);
         expect(result.ok === false && result.message).toContain('no ticket config');
@@ -278,7 +259,7 @@ describe('upsertTicketType persistence', () => {
     it('refuses a key over 64 characters, naming the limit, and writes nothing', async () => {
         const { deps, update } = harness();
 
-        const result = await upsertTicketType('guild-1', definition({ type: 'a'.repeat(65) }), deps);
+        const result = await upsertTicketType({ guildId: 'guild-1', definition: definition({ type: 'a'.repeat(65) }) }, deps);
 
         expect(result.ok === false && result.reason).toBe('invalid-input');
         expect(result.ok === false && result.message).toContain('64 characters');
@@ -288,13 +269,13 @@ describe('upsertTicketType persistence', () => {
     it('accepts a key of exactly 64 characters', async () => {
         const { deps } = harness();
 
-        expect((await upsertTicketType('guild-1', definition({ type: 'a'.repeat(64) }), deps)).ok).toBe(true);
+        expect((await upsertTicketType({ guildId: 'guild-1', definition: definition({ type: 'a'.repeat(64) }) }, deps)).ok).toBe(true);
     });
 
     it('refuses a label over 45 characters — the Discord picker cannot show it — and writes nothing', async () => {
         const { deps, update } = harness();
 
-        const result = await upsertTicketType('guild-1', definition({ label: 'A'.repeat(46) }), deps);
+        const result = await upsertTicketType({ guildId: 'guild-1', definition: definition({ label: 'A'.repeat(46) }) }, deps);
 
         expect(result.ok === false && result.reason).toBe('invalid-input');
         expect(result.ok === false && result.message).toContain('45 characters');
@@ -304,7 +285,7 @@ describe('upsertTicketType persistence', () => {
     it('measures the label after trimming, so padding does not count against it', async () => {
         const { deps, written } = harness();
 
-        const result = await upsertTicketType('guild-1', definition({ label: `  ${'A'.repeat(45)}  ` }), deps);
+        const result = await upsertTicketType({ guildId: 'guild-1', definition: definition({ label: `  ${'A'.repeat(45)}  ` }) }, deps);
 
         expect(result.ok).toBe(true);
         expect(written().ticketTypes?.appeals.label).toBe('A'.repeat(45));
@@ -313,22 +294,25 @@ describe('upsertTicketType persistence', () => {
 
 describe('deleteTicketType', () => {
     it('removes a type no ticket has ever used, leaving the others', async () => {
-        const { deps, written } = harness(config(), UNUSED);
+        const { deps, written, clearTypeCategories } = harness(config(), UNUSED);
 
         const result = await deleteTicketType('guild-1', 'verification', deps);
 
         expect(result.ok).toBe(true);
         expect(written().ticketTypes).not.toHaveProperty('verification');
         expect(written().ticketTypes).toHaveProperty('support');
+        // Its own categories go with it, so a type made later under the key starts on the defaults.
+        expect(clearTypeCategories).toHaveBeenCalledWith('guild-1', 'verification', ['open', 'claimed', 'closed'], undefined);
     });
 
     it('refuses a type the guild does not declare', async () => {
-        const { deps, update } = harness(config(), UNUSED);
+        const { deps, update, clearTypeCategories } = harness(config(), UNUSED);
 
         const result = await deleteTicketType('guild-1', 'appeals', deps);
 
         expect(result.ok).toBe(false);
         expect(update).not.toHaveBeenCalled();
+        expect(clearTypeCategories).not.toHaveBeenCalled();
     });
 
     it('refuses a guild with no config row', async () => {
@@ -465,7 +449,7 @@ describe('createTicketTypeIfAbsent', () => {
 
         const refused = definition({ nameTemplate: 'A{{user}}' });
         const result = await createTicketTypeIfAbsent('guild-1', refused, deps);
-        const upserted = await upsertTicketType('guild-1', refused, deps);
+        const upserted = await upsertTicketType({ guildId: 'guild-1', definition: refused }, deps);
 
         expect(result).toMatchObject({ outcome: 'refused', reason: 'invalid-input' });
         expect(upserted.ok).toBe(false);

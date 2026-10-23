@@ -4,7 +4,11 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { SqliteJsonPlugin } from '../../../../features-system/data-persistence/plugins/sqliteJsonPlugin';
 import { TestDiscord, type ServerChannel, type ServerGuild } from '../../../../shared/__tests__/support/testDiscord';
 import { createTicketTestTables, seedTicketCategorySlots } from '../../__tests__/support/ticketTestTables';
-import type { ConfiguredTicketingConfig } from '../../data/ticketingSchema';
+import { DEFAULT_TICKET_TYPES } from '../../data/defaultTicketTypes';
+import { typeCategoryKey, type ConfiguredTicketingConfig } from '../../data/ticketingSchema';
+
+const SUPPORT = DEFAULT_TICKET_TYPES.support;
+const VERIFICATION = DEFAULT_TICKET_TYPES.verification;
 
 /**
  * Issue #22 at runtime: a category slot resolves by id, and only Discord's own
@@ -118,6 +122,7 @@ describe('resolving a ticket category slot', () => {
         const result = await resolveTicketCategory({
             guild: scenario.discord.clientGuild(scenario.guild),
             config: await storedConfig(scenario.guild.id),
+            definition: SUPPORT,
             slot: 'open',
         });
 
@@ -133,8 +138,8 @@ describe('resolving a ticket category slot', () => {
         const guild = scenario.discord.clientGuild(scenario.guild);
         const config = await storedConfig(scenario.guild.id);
         const [first, second] = await Promise.all([
-            resolveTicketCategory({ guild, config, slot: 'open' }),
-            resolveTicketCategory({ guild, config, slot: 'claimed' }),
+            resolveTicketCategory({ guild, config, definition: SUPPORT, slot: 'open' }),
+            resolveTicketCategory({ guild, config, definition: SUPPORT, slot: 'claimed' }),
         ]);
 
         expect(first.ok && second.ok).toBe(true);
@@ -181,6 +186,7 @@ describe('resolving a ticket category slot', () => {
         const result = await resolveTicketCategory({
             guild: scenario.discord.clientGuild(scenario.guild),
             config: await storedConfig(scenario.guild.id),
+            definition: SUPPORT,
             slot: 'open',
         });
         const recreatedId = result.ok ? result.value.id : 'no category';
@@ -211,8 +217,8 @@ describe('resolving a ticket category slot', () => {
         const guild = scenario.discord.clientGuild(scenario.guild);
         const staleConfig = await storedConfig(scenario.guild.id);
 
-        const first = await resolveTicketCategory({ guild, config: staleConfig, slot: 'open' });
-        const second = await resolveTicketCategory({ guild, config: staleConfig, slot: 'open' });
+        const first = await resolveTicketCategory({ guild, config: staleConfig, definition: SUPPORT, slot: 'open' });
+        const second = await resolveTicketCategory({ guild, config: staleConfig, definition: SUPPORT, slot: 'open' });
 
         expect(first.ok && second.ok).toBe(true);
         expect(second.ok && second.value.id).toBe(first.ok ? first.value.id : 'no first');
@@ -230,6 +236,7 @@ describe('resolving a ticket category slot', () => {
         const result = await resolveTicketCategory({
             guild,
             config: await storedConfig(scenario.guild.id),
+            definition: SUPPORT,
             slot: 'open',
         });
 
@@ -250,7 +257,7 @@ describe('resolving a ticket category slot', () => {
         const picked = scenario.guild.createCategory({ name: 'Picked' });
         await repickOpen(scenario.guild.id, picked.id);
 
-        const result = await resolveTicketCategory({ guild, config: staleConfig, slot: 'open' });
+        const result = await resolveTicketCategory({ guild, config: staleConfig, definition: SUPPORT, slot: 'open' });
 
         expect(result.ok && result.value.id).toBe(picked.id);
         expect(categoryCreates(scenario.discord)).toEqual([]);
@@ -274,6 +281,7 @@ describe('resolving a ticket category slot', () => {
         const result = await resolveTicketCategory({
             guild,
             config: staleEntity.config as ConfiguredTicketingConfig,
+            definition: SUPPORT,
             slot: 'open',
         });
 
@@ -289,5 +297,80 @@ describe('resolving a ticket category slot', () => {
         expect(madeId).not.toBe(picked.id);
         expect(() => scenario.guild.channel(madeId ?? '')).toThrow();
         expect(picked.exists).toBe(true);
+    });
+});
+
+describe("resolving a type's own category", () => {
+    /** The support type's own category for a slot, as the type save records it. */
+    async function giveSupportOwn(guildId: string, slot: 'open' | 'claimed' | 'closed', category: ServerChannel) {
+        await ticketingRepo.writeCategoryBindings(
+            guildId,
+            new Map([[typeCategoryKey('support', slot), { name: category.name, discordId: category.id, provenance: 'adopted' as const }]]),
+            db
+        );
+    }
+
+    it("routes a type to its own category, and to the server's in a slot it leaves alone", async () => {
+        const scenario = await startScenario();
+        const own = scenario.guild.createCategory({ name: 'Support Desk' });
+        scenario.discord.flushGateway();
+        await giveSupportOwn(scenario.guild.id, 'open', own);
+
+        const guild = scenario.discord.clientGuild(scenario.guild);
+        const config = await storedConfig(scenario.guild.id);
+        const open = await resolveTicketCategory({ guild, config, definition: SUPPORT, slot: 'open' });
+        const closed = await resolveTicketCategory({ guild, config, definition: SUPPORT, slot: 'closed' });
+        const otherType = await resolveTicketCategory({ guild, config, definition: VERIFICATION, slot: 'open' });
+
+        expect(open.ok && open.value.id).toBe(own.id);
+        expect(closed.ok && closed.value.id).toBe(scenario.closed.id);
+        expect(otherType.ok && otherType.value.id).toBe(scenario.open.id);
+    });
+
+    it("recreates a deleted own category and repoints the type's row, leaving the server's slot alone", async () => {
+        const scenario = await startScenario();
+        const own = scenario.guild.createCategory({ name: 'Support Desk' });
+        scenario.discord.flushGateway();
+        await giveSupportOwn(scenario.guild.id, 'open', own);
+        own.delete();
+        scenario.discord.flushGateway();
+
+        const result = await resolveTicketCategory({
+            guild: scenario.discord.clientGuild(scenario.guild),
+            config: await storedConfig(scenario.guild.id),
+            definition: SUPPORT,
+            slot: 'open',
+        });
+
+        const recreatedId = result.ok ? result.value.id : 'no category';
+        expect(scenario.guild.channel(recreatedId).name).toBe('Support Desk');
+        const saved = await storedConfig(scenario.guild.id);
+        expect(saved.typeCategories.get('support')?.open).toEqual({
+            name: 'Support Desk',
+            discordId: recreatedId,
+            provenance: 'created',
+        });
+        expect(saved.categories.open.discordId).toBe(scenario.open.id);
+    });
+
+    it("names the type when its own category cannot be reached", async () => {
+        const scenario = await startScenario();
+        const own = scenario.guild.createCategory({ name: 'Support Desk' });
+        scenario.discord.flushGateway();
+        await giveSupportOwn(scenario.guild.id, 'open', own);
+        own.delete();
+        scenario.discord.flushGateway();
+
+        const guild = scenario.discord.clientGuild(scenario.guild);
+        vi.spyOn(guild.channels, 'fetch').mockRejectedValueOnce(new Error('Request timed out'));
+
+        const result = await resolveTicketCategory({
+            guild,
+            config: await storedConfig(scenario.guild.id),
+            definition: SUPPORT,
+            slot: 'open',
+        });
+
+        expect(result.ok ? '' : String(result.error)).toMatch(/Could not reach the "Support" open tickets category "Support Desk"/);
     });
 });

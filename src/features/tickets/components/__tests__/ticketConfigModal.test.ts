@@ -21,7 +21,7 @@ import type { StoredTicketingConfig, TicketingConfig, TicketingConfigEntity } fr
 const mockGet = vi.fn();
 const mockUpdate = vi.fn();
 const mockUpsert = vi.fn();
-const mockWriteCategorySlots = vi.fn();
+const mockWriteCategoryBindings = vi.fn();
 
 /*
  * `mutateConfig` over whatever `mockGet` holds, recording the blob the mutator returned in
@@ -39,7 +39,7 @@ async function fakeMutateConfig(
     const next = mutate(current);
     if (!next) return null;
     await mockUpdate({ guildId, config: next });
-    return { ...next, categories: current.config.categories };
+    return { ...next, categories: current.config.categories, typeCategories: current.config.typeCategories };
 }
 
 vi.mock('../../data/ticketingRepo', () => ({
@@ -47,7 +47,7 @@ vi.mock('../../data/ticketingRepo', () => ({
         get: (...args: unknown[]) => mockGet(...args),
         update: (...args: unknown[]) => mockUpdate(...args),
         upsert: (...args: unknown[]) => mockUpsert(...args),
-        writeCategorySlots: (...args: unknown[]) => mockWriteCategorySlots(...args),
+        writeCategoryBindings: (...args: unknown[]) => mockWriteCategoryBindings(...args),
         mutateConfig: (guildId: string, mutate: (current: TicketingConfigEntity) => StoredTicketingConfig | null) =>
             fakeMutateConfig(guildId, mutate),
     },
@@ -74,6 +74,7 @@ function storedConfig(overrides: Partial<TicketingConfig> = {}): TicketingConfig
         modTicketsDeployedChannelId: 'channel-1',
         modTicketsDeployedMessageId: 'message-1',
         categories: BOUND_CATEGORIES,
+        typeCategories: new Map(),
         moderationRoles: ['role-old'],
         ticketTypes: {
             ...DEFAULT_TICKET_TYPES,
@@ -166,7 +167,7 @@ describe('a config-modal save', () => {
 
         await TicketConfigModalComponent().handler(interaction());
 
-        expect(mockWriteCategorySlots).not.toHaveBeenCalled();
+        expect(mockWriteCategoryBindings).not.toHaveBeenCalled();
     });
 
     it('preserves a config member this modal has never heard of', async () => {
@@ -203,7 +204,7 @@ describe('a config-modal save', () => {
         // No made-up slots: a new row has none until the dashboard links them, and the
         // slots are not the blob's to hold.
         expect(saved).not.toHaveProperty('categories');
-        expect(mockWriteCategorySlots).not.toHaveBeenCalled();
+        expect(mockWriteCategoryBindings).not.toHaveBeenCalled();
     });
 
     it('does not reset deployment state on a guild that is already deployed', async () => {

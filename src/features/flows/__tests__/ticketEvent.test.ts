@@ -84,6 +84,7 @@ function ticketGuild(types: readonly TicketTypeDefinition[]): TicketGuild & { re
             claimed: { name: claimed.name, discordId: claimed.id, provenance: 'adopted' },
             closed: { name: closed.name, discordId: closed.id, provenance: 'adopted' },
         },
+        typeCategories: new Map(),
         moderationRoles: [moderators.id],
         ticketTypes: Object.fromEntries(types.map((definition) => [definition.type, definition])),
     };

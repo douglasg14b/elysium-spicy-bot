@@ -70,9 +70,14 @@ import {
     categorySlotProblem,
     choiceFromDraft,
     draftFromView,
+    ownCategorySummary,
     TICKET_CATEGORY_SLOTS,
+    typeCategoryChanges,
+    typeCategoryDraftFromView,
+    typeCategoryProblem,
     type CategorySlotDraft,
     type TicketCategorySlot,
+    type TypeCategoryDraft,
 } from '../tickets/categorySlots';
 import { TicketCategorySlotField } from '../tickets/TicketCategorySlotField';
 import { TicketTypeFields } from '../tickets/TicketTypeFields';
@@ -90,6 +95,24 @@ import { PAGE_MAX_WIDTH } from '../theme';
 interface CategoriesDraft {
     readonly slots: Readonly<Record<TicketCategorySlot, CategorySlotDraft>>;
     readonly moderationRoles: string[];
+}
+
+/** A type's own categories, as its dialog holds them. */
+type TypeCategoriesDraft = Readonly<Record<TicketCategorySlot, TypeCategoryDraft>>;
+
+/** Every slot on the server's, as a new type starts. */
+const SERVER_DEFAULT_CATEGORIES: TypeCategoriesDraft = {
+    open: { mode: 'default' },
+    claimed: { mode: 'default' },
+    closed: { mode: 'default' },
+};
+
+function typeCategoriesFromView(type: TicketTypeView): TypeCategoriesDraft {
+    return {
+        open: typeCategoryDraftFromView(type.categories.open),
+        claimed: typeCategoryDraftFromView(type.categories.claimed),
+        closed: typeCategoryDraftFromView(type.categories.closed),
+    };
 }
 
 function categoriesFromConfig(config: TicketingConfigView): CategoriesDraft {
@@ -177,6 +200,13 @@ function TicketsConfigForm({ guildId }: TicketsConfigFormProps) {
     const [categoriesDraft, setCategoriesDraft] = useState<CategoriesDraft>();
 
     const [editing, setEditing] = useState<TicketTypeDraft | null>(null);
+    /*
+     * The edited type's own categories. Beside the draft rather than in it: the draft is
+     * also what a journey declares a type with, and a journey sets no categories.
+     */
+    const [editingCategories, setEditingCategories] = useState<TypeCategoriesDraft>(SERVER_DEFAULT_CATEGORIES);
+    /** The edited type's own categories as saved, for each picker's notes; null for a new type. */
+    const [savedTypeCategories, setSavedTypeCategories] = useState<TicketTypeView['categories'] | null>(null);
     /*
      * Whether the modal is editing something that already exists. The key is identity —
      * the path parameter a save writes to — so it is fixed once a type has one, and
@@ -327,29 +357,38 @@ function TicketsConfigForm({ guildId }: TicketsConfigFormProps) {
 
     function openNewType(): void {
         setEditing(emptyTicketTypeDraft());
+        setEditingCategories(SERVER_DEFAULT_CATEGORIES);
+        setSavedTypeCategories(null);
         setEditingExisting(false);
     }
 
     function openExistingType(type: TicketTypeView): void {
         setEditing(draftFromType(type));
+        setEditingCategories(typeCategoriesFromView(type));
+        setSavedTypeCategories(type.categories);
         setEditingExisting(true);
     }
 
     /*
      * The draft as it will be sent, checked against the save route's own rules. The key is
      * the path's to check and the rest the body's; each problem is the server's sentence
-     * for the first rule that field breaks.
+     * for the first rule that field breaks. A category slot's problem is the form's own:
+     * a name not typed yet, or a pick not made.
      */
     const typeRequest = editing ? ticketTypeRequest(editing) : null;
     const typeProblems = editing ? validateTicketTypeDraft(editing) : {};
-    const typeIsSendable = Object.keys(typeProblems).length === 0;
+    const typeCategoriesAreSendable = TICKET_CATEGORY_SLOTS.every((slot) => !typeCategoryProblem(editingCategories[slot]));
+    const typeIsSendable = Object.keys(typeProblems).length === 0 && typeCategoriesAreSendable;
 
     async function handleSaveType() {
         if (!typeRequest || !typeIsSendable) return;
         try {
             await saveType.mutateAsync({
                 path: { guildId, type: typeRequest.type },
-                body: typeRequest.body,
+                body: {
+                    ...typeRequest.body,
+                    categories: typeCategoryChanges(editingCategories, savedTypeCategories),
+                },
             });
             setEditing(null);
             notifications.show({
@@ -357,12 +396,24 @@ function TicketsConfigForm({ guildId }: TicketsConfigFormProps) {
                 title: 'Saved',
                 message: `“${typeRequest.body.label}” is on the menu.`,
             });
+            // The save may have created categories the pickers must now offer.
+            await queryClient.invalidateQueries({ queryKey: channelsKey });
         } catch (err) {
             // The server is the authority, and its refusal is the one that is true at the
             // moment of the attempt — including the renderer's checks the form cannot make —
             // so it is shown as written.
             const message = err instanceof ApiError ? err.message : "Couldn't save that type.";
-            notifications.show({ color: 'red', title: "Couldn't save", message });
+            notifications.show({ color: 'red', title: "Couldn't save", message, autoClose: false });
+            if (!(err instanceof ApiError)) return;
+            // 502 (one create failed) and a 409 for a category a journey took meanwhile both
+            // saved the rest, so the dialog no longer describes what is stored — and a slot
+            // still in "create" mode invites making the same category twice. It closes; the
+            // config re-reads on any refusal (`onError`). A 503 may have made categories it
+            // could not record, which the message names, so the pickers must offer them.
+            if (err.status === 409 || err.status === 502) setEditing(null);
+            if (err.status === 409 || err.status === 502 || err.status === 503) {
+                await queryClient.invalidateQueries({ queryKey: channelsKey });
+            }
         }
     }
 
@@ -448,9 +499,9 @@ function TicketsConfigForm({ guildId }: TicketsConfigFormProps) {
                 </Group>
                 <Text c="dimmed" size="13px" mb="lg" maw={560}>
                     A ticket moves between these three categories as it is claimed and
-                    closed. Pick ones you already have, or name new ones and the bot makes
-                    them. Renaming them in Discord later is fine; the bot follows the
-                    category, not its name.
+                    closed — unless its type has its own. Pick ones you already have, or
+                    name new ones and the bot makes them. Renaming them in Discord later is
+                    fine; the bot follows the category, not its name.
                 </Text>
 
                 <Stack gap="md" maw={520}>
@@ -564,6 +615,7 @@ function TicketsConfigForm({ guildId }: TicketsConfigFormProps) {
                                 <Table.Th w={150}>Key</Table.Th>
                                 <Table.Th>Channel name</Table.Th>
                                 <Table.Th w={150}>Auto-claim</Table.Th>
+                                <Table.Th w={190}>Categories</Table.Th>
                                 <Table.Th w={110} />
                             </Table.Tr>
                         </Table.Thead>
@@ -600,6 +652,11 @@ function TicketsConfigForm({ guildId }: TicketsConfigFormProps) {
                                                 Off
                                             </Text>
                                         )}
+                                    </Table.Td>
+                                    <Table.Td>
+                                        <Text size="12px" c="dark.1">
+                                            {ownCategorySummary(type.categories)}
+                                        </Text>
                                     </Table.Td>
                                     <Table.Td>
                                         <Group gap={6} justify="flex-end" wrap="nowrap">
@@ -671,6 +728,29 @@ function TicketsConfigForm({ guildId }: TicketsConfigFormProps) {
                                 />
                             }
                         />
+
+                        <div>
+                            <Text fw={700} size="14px">
+                                Categories
+                            </Text>
+                            <Text size="12.5px" c="dimmed" mb="xs" maw={560}>
+                                Where this type&apos;s tickets live. Leave a slot on the server&apos;s
+                                and it goes wherever every other ticket does.
+                            </Text>
+                            <Stack gap="md">
+                                {TICKET_CATEGORY_SLOTS.map((slot) => (
+                                    <TicketCategorySlotField
+                                        key={slot}
+                                        slot={slot}
+                                        view={editingCategories[slot].mode === 'default' ? null : savedTypeCategories?.[slot] ?? null}
+                                        channels={channels}
+                                        draft={editingCategories[slot]}
+                                        serverDefault={{ view: config.categories[slot] }}
+                                        onChange={(draft: TypeCategoryDraft) => setEditingCategories({ ...editingCategories, [slot]: draft })}
+                                    />
+                                ))}
+                            </Stack>
+                        </div>
 
                         <Group justify="flex-end" gap="sm">
                             <Button

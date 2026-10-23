@@ -405,6 +405,31 @@ export class ResourceBindingsRepo {
     }
 
     /**
+     * Drop one owner's rows under these keys, whatever state they are in.
+     *
+     * For the ticket feature, which records no intent and whose rows name categories it
+     * keeps in Discord either way — so, unlike {@link forget}, no object is orphaned: a
+     * type's own category going back to the server default, or the type being deleted.
+     * The executor is required because both run inside the ticket config's transaction,
+     * where a query on the singleton would deadlock SQLite's one connection.
+     */
+    async forgetOwned(
+        guildId: string,
+        owner: BindingOwner,
+        resourceKeys: readonly string[],
+        executor: DatabaseClient
+    ): Promise<void> {
+        if (resourceKeys.length === 0) return;
+        await executor
+            .deleteFrom('resource_bindings')
+            .where('guildId', '=', guildId)
+            .where('ownerKind', '=', owner.kind)
+            .where('ownerKey', '=', owner.key)
+            .where('resourceKey', 'in', [...resourceKeys])
+            .execute();
+    }
+
+    /**
      * Drop a binding row whatever state it is in.
      *
      * The unguarded counterpart to {@link discardIntent}, and deliberately separate

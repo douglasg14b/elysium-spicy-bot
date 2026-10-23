@@ -24,6 +24,7 @@ const TICKET_TYPES: TicketTypeView[] = [
             staff: { view: true, send: true, readHistory: true, manageMessages: true },
         },
         autoClaimOnOpen: false,
+        categories: { open: null, claimed: null, closed: null },
     },
 ];
 const CHANNELS: GuildChannel[] = [

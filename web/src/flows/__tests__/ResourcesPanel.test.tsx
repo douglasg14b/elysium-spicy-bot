@@ -256,6 +256,7 @@ describe('ResourcesPanel', () => {
             nameTemplate: 'V{{####}}-{{subject}}',
             permissions: PERMISSIONS,
             autoClaimOnOpen: false,
+            categories: { open: null, claimed: null, closed: null },
         };
 
         it('is added with the tickets page’s starting settings, and its label is edited without moving its key', async () => {

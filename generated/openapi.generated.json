@@ -4897,10 +4897,139 @@
                 "type": "object"
             },
             "TicketTypeUpdate": {
-                "description": "A ticket type, without its key: that is the path.",
+                "description": "A ticket type, without its key: that is the path. `categories` holds only the slots being changed: `null` puts a slot back on the server's category, and a slot given a `name` is created in Discord on save. An absent slot, or absent `categories`, is left as it is — so a stale tab saving a label cannot undo another tab's category.",
                 "properties": {
                     "autoClaimOnOpen": {
                         "type": "boolean"
+                    },
+                    "categories": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "claimed": {
+                                "anyOf": [
+                                    {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "discordId": {
+                                                "pattern": "^\\d{17,20}$",
+                                                "type": "string",
+                                                "x-messages": {
+                                                    "pattern": "That is not a Discord category id."
+                                                }
+                                            }
+                                        },
+                                        "required": [
+                                            "discordId"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "name": {
+                                                "maxLength": 100,
+                                                "minLength": 1,
+                                                "type": "string",
+                                                "x-messages": {
+                                                    "maxLength": "Discord caps a category name at 100 characters.",
+                                                    "minLength": "A new category needs a name. Discord insists on calling things something."
+                                                }
+                                            }
+                                        },
+                                        "required": [
+                                            "name"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "closed": {
+                                "anyOf": [
+                                    {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "discordId": {
+                                                "pattern": "^\\d{17,20}$",
+                                                "type": "string",
+                                                "x-messages": {
+                                                    "pattern": "That is not a Discord category id."
+                                                }
+                                            }
+                                        },
+                                        "required": [
+                                            "discordId"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "name": {
+                                                "maxLength": 100,
+                                                "minLength": 1,
+                                                "type": "string",
+                                                "x-messages": {
+                                                    "maxLength": "Discord caps a category name at 100 characters.",
+                                                    "minLength": "A new category needs a name. Discord insists on calling things something."
+                                                }
+                                            }
+                                        },
+                                        "required": [
+                                            "name"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "open": {
+                                "anyOf": [
+                                    {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "discordId": {
+                                                "pattern": "^\\d{17,20}$",
+                                                "type": "string",
+                                                "x-messages": {
+                                                    "pattern": "That is not a Discord category id."
+                                                }
+                                            }
+                                        },
+                                        "required": [
+                                            "discordId"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "name": {
+                                                "maxLength": 100,
+                                                "minLength": 1,
+                                                "type": "string",
+                                                "x-messages": {
+                                                    "maxLength": "Discord caps a category name at 100 characters.",
+                                                    "minLength": "A new category needs a name. Discord insists on calling things something."
+                                                }
+                                            }
+                                        },
+                                        "required": [
+                                            "name"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            }
+                        },
+                        "type": "object"
                     },
                     "label": {
                         "maxLength": 45,
@@ -4933,10 +5062,50 @@
                 "type": "object"
             },
             "TicketTypeView": {
-                "description": "One declared ticket type. `type` is its key: identity, fixed once saved.",
+                "description": "One declared ticket type. `type` is its key: identity, fixed once saved. `categories` is the type's own category per slot, null where it uses the server's.",
                 "properties": {
                     "autoClaimOnOpen": {
                         "type": "boolean"
+                    },
+                    "categories": {
+                        "properties": {
+                            "claimed": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/components/schemas/TicketCategoryView"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "closed": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/components/schemas/TicketCategoryView"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "open": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/components/schemas/TicketCategoryView"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            }
+                        },
+                        "required": [
+                            "open",
+                            "claimed",
+                            "closed"
+                        ],
+                        "type": "object"
                     },
                     "label": {
                         "type": "string"
@@ -4956,7 +5125,8 @@
                     "label",
                     "nameTemplate",
                     "permissions",
-                    "autoClaimOnOpen"
+                    "autoClaimOnOpen",
+                    "categories"
                 ],
                 "type": "object"
             },
@@ -6181,7 +6351,7 @@
                                 }
                             }
                         },
-                        "description": "The key or the body was refused, the template renders to nothing or to more than Discord allows a channel name, or the server id is missing."
+                        "description": "The key or the body was refused, the template renders to nothing or to more than Discord allows a channel name, a picked category is gone or the bot cannot work in it, or the server id is missing."
                     },
                     "401": {
                         "content": {
@@ -6221,7 +6391,7 @@
                                 }
                             }
                         },
-                        "description": "The server has no ticket config yet: tickets have to be deployed in Discord first."
+                        "description": "The server has no ticket config yet: tickets have to be deployed in Discord first. Or a journey claimed a picked category while the save ran: that slot was declined, everything else was saved, so re-read the settings."
                     },
                     "413": {
                         "content": {
@@ -6243,6 +6413,16 @@
                         },
                         "description": "The body was not sent as JSON."
                     },
+                    "423": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Another save of the ticket categories is still running, so nothing was changed."
+                    },
                     "429": {
                         "content": {
                             "application/json": {
@@ -6263,6 +6443,16 @@
                         },
                         "description": "Something failed that the route did not expect. The server logged it."
                     },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Discord refused to create a category. Everything else was saved, so re-read the settings."
+                    },
                     "503": {
                         "content": {
                             "application/json": {
@@ -6271,10 +6461,10 @@
                                 }
                             }
                         },
-                        "description": "The type could not be saved. Nothing changed."
+                        "description": "The type could not be saved. A category already made in Discord stays made, and the sentence names it."
                     }
                 },
-                "summary": "Add or replace one ticket type",
+                "summary": "Add or replace one ticket type, creating any category given a name",
                 "tags": [
                     "tickets"
                 ]

@@ -217,7 +217,7 @@ export const deleteTicketTypeMutation = (options?: Partial<Options<DeleteTicketT
 };
 
 /**
- * Add or replace one ticket type
+ * Add or replace one ticket type, creating any category given a name
  */
 export const saveTicketTypeMutation = (options?: Partial<Options<SaveTicketTypeData>>): UseMutationOptions<SaveTicketTypeResponse, SaveTicketTypeError, Options<SaveTicketTypeData>> => {
     const mutationOptions: UseMutationOptions<SaveTicketTypeResponse, SaveTicketTypeError, Options<SaveTicketTypeData>> = {

@@ -199,6 +199,10 @@ async function migrateDown(db: Kysely<any>, ownerKindExists: ColumnExists): Prom
     for (const row of ticketRows) {
         const guildId = String(columnOf(row, 'guild_id', 'guildId'));
         const slot = columnOf(row, 'resource_key', 'resourceKey');
+        // A ticket type's own category (`type:<key>:<slot>`, added 2026-10-22) has no place
+        // in the blob this restores, so rolling back drops it with the rest of the rows
+        // below: those types go back to the server-wide categories.
+        if (String(slot).startsWith('type:')) continue;
         if (!isSlot(slot)) {
             throw new Error(`A ticket binding in guild ${guildId} names "${String(slot)}", which is not a category slot.`);
         }

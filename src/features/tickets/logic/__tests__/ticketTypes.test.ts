@@ -18,6 +18,7 @@ function config(overrides: Partial<TicketingConfig> = {}): TicketingConfig {
             claimed: { name: 'Claimed', discordId: '900000000000000002', provenance: 'adopted' },
             closed: { name: 'Closed', discordId: '900000000000000003', provenance: 'adopted' },
         },
+        typeCategories: new Map(),
         moderationRoles: ['role-1'],
         ticketTypes: { ...DEFAULT_TICKET_TYPES },
         ...overrides,

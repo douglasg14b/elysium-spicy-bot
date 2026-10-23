@@ -1468,20 +1468,51 @@ export const zJourneyUpdate = z.object({
 });
 
 /**
- * A ticket type, without its key: that is the path.
+ * A ticket type, without its key: that is the path. `categories` holds only the slots being changed: `null` puts a slot back on the server's category, and a slot given a `name` is created in Discord on save. An absent slot, or absent `categories`, is left as it is — so a stale tab saving a label cannot undo another tab's category.
  */
 export const zTicketTypeUpdate = z.object({
     autoClaimOnOpen: z.boolean(),
+    categories: z.object({
+        claimed: z.union([
+            z.object({
+                discordId: z.string().regex(/^\d{17,20}$/, 'That is not a Discord category id.')
+            }),
+            z.object({
+                name: z.string().min(1, 'A new category needs a name. Discord insists on calling things something.').max(100, 'Discord caps a category name at 100 characters.')
+            })
+        ]).nullish(),
+        closed: z.union([
+            z.object({
+                discordId: z.string().regex(/^\d{17,20}$/, 'That is not a Discord category id.')
+            }),
+            z.object({
+                name: z.string().min(1, 'A new category needs a name. Discord insists on calling things something.').max(100, 'Discord caps a category name at 100 characters.')
+            })
+        ]).nullish(),
+        open: z.union([
+            z.object({
+                discordId: z.string().regex(/^\d{17,20}$/, 'That is not a Discord category id.')
+            }),
+            z.object({
+                name: z.string().min(1, 'A new category needs a name. Discord insists on calling things something.').max(100, 'Discord caps a category name at 100 characters.')
+            })
+        ]).nullish()
+    }).optional(),
     label: z.string().min(1, 'Give the type a label — operators have to pick it out of a list.').max(45, 'A label caps out at 45 characters — the mod ticket picker in Discord will not show more. Keep it snappy.'),
     nameTemplate: z.string().min(1, 'A channel-name template cannot be empty. Discord insists on calling channels something.').regex(/^(?:[^{}]|\{\{(?:####|subject|opener)\}\})*$/, 'Only `{{####}}`, `{{subject}}` and `{{opener}}` render here, each with exactly two braces either side — nothing else, and no, wishing does not count.'),
     permissions: zTicketPermissionModel
 });
 
 /**
- * One declared ticket type. `type` is its key: identity, fixed once saved.
+ * One declared ticket type. `type` is its key: identity, fixed once saved. `categories` is the type's own category per slot, null where it uses the server's.
  */
 export const zTicketTypeView = z.object({
     autoClaimOnOpen: z.boolean(),
+    categories: z.object({
+        claimed: zTicketCategoryView.nullable(),
+        closed: zTicketCategoryView.nullable(),
+        open: zTicketCategoryView.nullable()
+    }),
     label: z.string(),
     nameTemplate: z.string(),
     permissions: zTicketPermissionModel,

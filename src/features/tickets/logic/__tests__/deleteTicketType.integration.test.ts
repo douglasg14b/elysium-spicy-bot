@@ -166,6 +166,37 @@ describe('deleteTicketType against real sqlite', () => {
         expect(Object.keys(types)).toEqual(['support']);
     });
 
+    it("drops the type's own category rows on the same transaction, and no other row", async () => {
+        const now = new Date().toISOString();
+        for (const type of ['verification', 'support']) {
+            await db
+                .insertInto('resource_bindings')
+                .values({
+                    guildId: GUILD_ID,
+                    ownerKind: 'tickets',
+                    ownerKey: 'tickets',
+                    resourceKey: `type:${type}:open`,
+                    kind: 'category',
+                    state: 'adopted',
+                    discordId: '900000000000000009',
+                    name: 'Own',
+                    createdAt: now,
+                    updatedAt: now,
+                } as never)
+                .execute();
+        }
+
+        await withinTimeout(deleteTicketType(GUILD_ID, 'verification'), 'a delete with own categories');
+
+        const keys = await db
+            .selectFrom('resource_bindings')
+            .select('resourceKey')
+            .where('guildId', '=', GUILD_ID)
+            .orderBy('resourceKey')
+            .execute();
+        expect(keys.map((row) => row.resourceKey)).toEqual(['claimed', 'closed', 'open', 'type:support:open']);
+    });
+
     it('refuses a type an open ticket still holds, naming the count', async () => {
         await seedTicket('verification', 'open', 41);
 

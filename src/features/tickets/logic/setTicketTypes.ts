@@ -1,5 +1,22 @@
+import type { Guild } from 'discord.js';
 import { ticketingRepo, type TicketingRepo } from '../data/ticketingRepo';
-import type { TicketingConfig, TicketTypeDefinition } from '../data/ticketingSchema';
+import {
+    TICKET_CATEGORY_SLOTS,
+    typeCategoryKey,
+    type TicketCategorySlot,
+    type TicketingConfig,
+    type TicketTypeDefinition,
+} from '../data/ticketingSchema';
+import { describeCategorySlot } from './ticketCategories';
+import {
+    checkCategoryPicks,
+    createNamedCategories,
+    recordCategoryChanges,
+    withCategorySaveLock,
+    writeFailedMessage,
+    type CategoryPickTarget,
+    type TicketCategoryPick,
+} from './ticketCategoryChoices';
 import { buildTicketChannelName, getTicketTypeDefinition } from './ticketTypes';
 import { TicketTypeRulesSchema } from './ticketTypeRules';
 import {
@@ -52,8 +69,56 @@ export type SetTicketTypeResult =
     | { ok: true; config: TicketingConfig }
     | { ok: false; reason: SetTicketTypeRefusal; message: string };
 
+/**
+ * Why a type save was refused. Beyond the shared ones, the three a save that sets the
+ * type's categories can meet — the same three, and the same meanings, as the settings
+ * save's (`setTicketSettings`).
+ */
+export type UpsertTicketTypeRefusal =
+    | Extract<SetTicketTypeRefusal, 'no-config' | 'invalid-input' | 'write-failed'>
+    | 'busy'
+    | 'create-failed'
+    | 'taken-meanwhile';
+
+/** The refusals that still **saved** the type — see {@link UpsertTicketTypeResult}. */
+type PartlySavedTypeRefusal = Extract<UpsertTicketTypeRefusal, 'create-failed' | 'taken-meanwhile'>;
+
+/**
+ * `create-failed` and `taken-meanwhile` carry the config because they saved: the type,
+ * and every category that was made. Only the slot that failed is left as it was.
+ */
+export type UpsertTicketTypeResult =
+    | { ok: true; config: TicketingConfig }
+    | { ok: false; reason: PartlySavedTypeRefusal; message: string; config: TicketingConfig }
+    | { ok: false; reason: Exclude<UpsertTicketTypeRefusal, PartlySavedTypeRefusal>; message: string };
+
+/** What the type editor chose for one of a type's slots: its own category, or `null` for the server's. */
+export type TicketTypeCategoryChoice = TicketCategoryPick | null;
+
+/**
+ * The slots of a type's own categories a save changes: a pick, or `null` for the
+ * server's. An absent slot is left as it is, so a save composed against an older read
+ * — a stale tab, a dialog open across a recreate — cannot undo a slot it never touched.
+ */
+export type TicketTypeCategoryChanges = Readonly<Partial<Record<TicketCategorySlot, TicketTypeCategoryChoice>>>;
+
+/**
+ * One type to add or replace.
+ *
+ * Without `categories`, the type's own categories are left as they are, and nothing but
+ * the database is touched. With them, the save may create categories, so it takes the
+ * guild.
+ */
+export type UpsertTicketTypeInput =
+    | { readonly guildId: string; readonly definition: TicketTypeDefinition; readonly categories?: undefined }
+    | {
+          readonly guild: Guild;
+          readonly definition: TicketTypeDefinition;
+          readonly categories: TicketTypeCategoryChanges;
+      };
+
 export interface SetTicketTypesDeps {
-    readonly repo?: Pick<TicketingRepo, 'mutateConfig'>;
+    readonly repo?: Pick<TicketingRepo, 'mutateConfig' | 'clearTypeCategories'>;
     readonly usage?: TicketTypeUsageDeps;
     /** Which journeys hold a type — read by `deleteTicketType` only. */
     readonly holders?: TicketTypeHoldersDeps;
@@ -210,20 +275,44 @@ export function ticketTypeDefinitionProblem(definition: TicketTypeDefinition): s
  *
  * **Replaces** a type of the same key. A journey's install never comes through here: it
  * creates only when absent, through {@link createTicketTypeIfAbsent}.
+ *
+ * Given `categories`, also sets the type's own categories — checked, created and recorded
+ * by `ticketCategoryChoices`, under the lock the settings save holds — on the same
+ * transaction as the type. The definition is checked first, so a type that would be
+ * refused never makes a category.
  */
 export async function upsertTicketType(
-    guildId: string,
-    input: TicketTypeDefinition,
+    input: UpsertTicketTypeInput,
     deps?: SetTicketTypesDeps
-): Promise<SetTicketTypeResult> {
-    const repo = deps?.repo ?? ticketingRepo;
-
+): Promise<UpsertTicketTypeResult> {
     // Stored as parsed, so a padded key is stored as the key every lookup will use.
-    const check = checkTicketTypeDefinition(input);
+    const check = checkTicketTypeDefinition(input.definition);
     if (!check.ok) {
         return { ok: false, reason: 'invalid-input', message: check.message };
     }
     const definition = check.definition;
+
+    if (!input.categories) return writeTicketType(input.guildId, definition, deps);
+
+    const { guild, categories } = input;
+    return withCategorySaveLock(
+        guild.id,
+        () => ({
+            ok: false,
+            reason: 'busy',
+            message: 'Another save of this server’s ticket categories is still running, so nothing was changed. Wait a moment and try again.',
+        }),
+        () => writeTicketTypeWithCategories(guild, definition, categories, deps)
+    );
+}
+
+/** {@link upsertTicketType} without categories: the type record alone. */
+async function writeTicketType(
+    guildId: string,
+    definition: TicketTypeDefinition,
+    deps?: SetTicketTypesDeps
+): Promise<UpsertTicketTypeResult> {
+    const repo = deps?.repo ?? ticketingRepo;
 
     try {
         // Read, merge and write in one transaction, so a save that lands between
@@ -231,12 +320,7 @@ export async function upsertTicketType(
         // spreads both the config and the type record, so it touches exactly the one
         // type it names.
         const config = await repo.mutateConfig(guildId, (current) =>
-            current.config
-                ? {
-                      ...current.config,
-                      ticketTypes: { ...current.config.ticketTypes, [definition.type]: definition },
-                  }
-                : null
+            current.config ? withTicketType(current.config, definition) : null
         );
 
         // Null means there was no row, or no `config` on it — the only two ways the
@@ -254,6 +338,99 @@ export async function upsertTicketType(
             message: 'Could not save that ticket type. Try again in a second.',
         };
     }
+}
+
+/**
+ * {@link upsertTicketType} with the type's own categories: check every pick, create the
+ * named ones, then write the type and the categories once — the settings save's order.
+ */
+async function writeTicketTypeWithCategories(
+    guild: Guild,
+    definition: TicketTypeDefinition,
+    categories: TicketTypeCategoryChanges,
+    deps?: SetTicketTypesDeps
+): Promise<UpsertTicketTypeResult> {
+    const repo = deps?.repo ?? ticketingRepo;
+
+    const current = await ticketingRepo.get(guild.id);
+    if (!current?.config) {
+        return { ok: false, reason: 'no-config', message: NO_CONFIG_MESSAGE };
+    }
+
+    const own = current.config.typeCategories.get(definition.type);
+    const targets: CategoryPickTarget[] = [];
+    const toClear: TicketCategorySlot[] = [];
+    for (const slot of TICKET_CATEGORY_SLOTS) {
+        const pick = categories[slot];
+        if (pick === undefined) continue;
+        if (pick === null) {
+            toClear.push(slot);
+            continue;
+        }
+        targets.push({
+            resourceKey: typeCategoryKey(definition.type, slot),
+            described: describeCategorySlot(slot, definition.label),
+            pick,
+            currentDiscordId: own?.[slot]?.discordId ?? null,
+        });
+    }
+
+    const checked = await checkCategoryPicks(guild, targets);
+    if (!checked.ok) return { ok: false, reason: 'invalid-input', message: checked.message };
+
+    const { created, madeNames, failure } = await createNamedCategories(
+        guild,
+        checked.toCreate,
+        current.config.moderationRoles
+    );
+
+    let saved: TicketingConfig | null;
+    let takenMeanwhile: string[] = [];
+    try {
+        saved = await repo.mutateConfig(guild.id, async (row, transaction) => {
+            if (!row.config) return null;
+            takenMeanwhile = await recordCategoryChanges(
+                guild.id,
+                new Map([...checked.adopted, ...created]),
+                checked.journeyNames,
+                transaction
+            );
+            await repo.clearTypeCategories(guild.id, definition.type, toClear, transaction);
+            return withTicketType(row.config, definition);
+        });
+    } catch (error) {
+        console.error('[tickets] Error saving ticket type:', error);
+        return { ok: false, reason: 'write-failed', message: writeFailedMessage(madeNames, 'the ticket type') };
+    }
+
+    if (!saved) {
+        return { ok: false, reason: 'no-config', message: NO_CONFIG_MESSAGE };
+    }
+
+    if (takenMeanwhile.length > 0) {
+        const alsoFailed = failure ? ` ${failure}.` : '';
+        return {
+            ok: false,
+            reason: 'taken-meanwhile',
+            message: `${takenMeanwhile.join(' ')}${alsoFailed} Everything else was saved.`,
+            config: saved,
+        };
+    }
+
+    if (failure) {
+        return { ok: false, reason: 'create-failed', message: `${failure}. Everything else was saved.`, config: saved };
+    }
+
+    return { ok: true, config: saved };
+}
+
+/**
+ * The config with one type added or replaced, spreading both the config and the type
+ * record, so a save touches exactly the one type it names — the same discipline the
+ * config modal needed after it was found silently dropping every member it did not list.
+ */
+function withTicketType(config: TicketingConfig, definition: TicketTypeDefinition): TicketingConfig {
+    return { ...config, ticketTypes: { ...config.ticketTypes, [definition.type]: definition } };
 }
 
 /** What creating a type only-if-absent came to. */
@@ -309,10 +486,7 @@ export async function createTicketTypeIfAbsent(
                 return null;
             }
 
-            return {
-                ...current.config,
-                ticketTypes: { ...current.config.ticketTypes, [definition.type]: definition },
-            };
+            return withTicketType(current.config, definition);
         });
 
         if (config) return { outcome: 'created', config };
@@ -424,6 +598,11 @@ export async function deleteTicketType(
                 refusalReason = 'type-in-use';
                 return null;
             }
+
+            // Its own categories go with it — the rows, not the categories, which stay in
+            // Discord. Left behind, they would be picked up by a type made later under the
+            // same key.
+            await repo.clearTypeCategories(guildId, type, TICKET_CATEGORY_SLOTS, transaction);
 
             const remaining = { ...current.config.ticketTypes };
             delete remaining[type];

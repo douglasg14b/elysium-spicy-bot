@@ -6,6 +6,12 @@ import {
     categorySlotOptions,
     choiceFromDraft,
     draftFromView,
+    ownCategorySummary,
+    SERVER_DEFAULT_CATEGORY,
+    serverDefaultOption,
+    typeCategoryChanges,
+    typeCategoryDraftFromView,
+    typeCategoryProblem,
 } from '../categorySlots';
 
 const CHANNELS: GuildChannel[] = [
@@ -110,5 +116,62 @@ describe('ticket category slots', () => {
             liveName: 'Help Desk',
         };
         expect(categorySlotNote(renamed)).toMatch(/calls it “Help Desk” now.*remakes it as “Tickets”/);
+    });
+});
+
+describe("a type's own category slots", () => {
+    const OWN: TicketCategoryView = {
+        name: 'Verification',
+        discordId: '100000000000000001',
+        provenance: 'created',
+        liveName: 'Verification',
+    };
+
+    const SAVED = { open: OWN, claimed: null, closed: null };
+    const LOADED = {
+        open: typeCategoryDraftFromView(SAVED.open),
+        claimed: typeCategoryDraftFromView(SAVED.claimed),
+        closed: typeCategoryDraftFromView(SAVED.closed),
+    };
+
+    it("starts a slot the type has no category for on the server's", () => {
+        expect(LOADED.claimed).toEqual({ mode: 'default' });
+    });
+
+    it('sends nothing for a type whose categories were left as loaded, so a label edit cannot touch them', () => {
+        // Re-sending the loaded id is what a stale dialog would get refused for after the
+        // bot recreated the category; re-sending null would undo another tab's pick.
+        expect(typeCategoryChanges(LOADED, SAVED)).toBeUndefined();
+    });
+
+    it("sends only the changed slots: a new pick, a trimmed name, and null for back to the server's", () => {
+        expect(
+            typeCategoryChanges(
+                { open: { mode: 'default' }, claimed: { mode: 'create', name: '  Verify  ' }, closed: LOADED.closed },
+                SAVED
+            )
+        ).toEqual({ open: null, claimed: { name: 'Verify' } });
+        expect(
+            typeCategoryChanges({ ...LOADED, closed: { mode: 'existing', discordId: '100000000000000009' } }, SAVED)
+        ).toEqual({ closed: { discordId: '100000000000000009' } });
+    });
+
+    it('refuses a create with no name and a pick not made, but not the server’s', () => {
+        expect(typeCategoryProblem({ mode: 'create', name: '  ' })).toBeDefined();
+        expect(typeCategoryProblem({ mode: 'existing', discordId: null })).toBeDefined();
+        expect(typeCategoryProblem({ mode: 'default' })).toBeUndefined();
+    });
+
+    it("names the server's category in the default entry, by what Discord calls it now", () => {
+        expect(serverDefaultOption({ ...OWN, liveName: 'Help Desk' })).toEqual({
+            value: SERVER_DEFAULT_CATEGORY,
+            label: 'Server default — Help Desk',
+        });
+        expect(serverDefaultOption(null).label).toBe('Server default — not set yet');
+    });
+
+    it('names only the slots a type has its own category for', () => {
+        expect(ownCategorySummary({ open: OWN, claimed: null, closed: OWN })).toBe('Own: Open tickets, Closed tickets');
+        expect(ownCategorySummary({ open: null, claimed: null, closed: null })).toBeNull();
     });
 });

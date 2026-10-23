@@ -1326,20 +1326,42 @@ export type TicketTypeSettings = {
 };
 
 /**
- * A ticket type, without its key: that is the path.
+ * A ticket type, without its key: that is the path. `categories` holds only the slots being changed: `null` puts a slot back on the server's category, and a slot given a `name` is created in Discord on save. An absent slot, or absent `categories`, is left as it is — so a stale tab saving a label cannot undo another tab's category.
  */
 export type TicketTypeUpdate = {
     autoClaimOnOpen: boolean;
+    categories?: {
+        claimed?: {
+            discordId: string;
+        } | {
+            name: string;
+        } | null;
+        closed?: {
+            discordId: string;
+        } | {
+            name: string;
+        } | null;
+        open?: {
+            discordId: string;
+        } | {
+            name: string;
+        } | null;
+    };
     label: string;
     nameTemplate: string;
     permissions: TicketPermissionModel;
 };
 
 /**
- * One declared ticket type. `type` is its key: identity, fixed once saved.
+ * One declared ticket type. `type` is its key: identity, fixed once saved. `categories` is the type's own category per slot, null where it uses the server's.
  */
 export type TicketTypeView = {
     autoClaimOnOpen: boolean;
+    categories: {
+        claimed: TicketCategoryView | null;
+        closed: TicketCategoryView | null;
+        open: TicketCategoryView | null;
+    };
     label: string;
     nameTemplate: string;
     permissions: TicketPermissionModel;
@@ -1833,7 +1855,7 @@ export type SaveTicketTypeData = {
 
 export type SaveTicketTypeErrors = {
     /**
-     * The key or the body was refused, the template renders to nothing or to more than Discord allows a channel name, or the server id is missing.
+     * The key or the body was refused, the template renders to nothing or to more than Discord allows a channel name, a picked category is gone or the bot cannot work in it, or the server id is missing.
      */
     400: ErrorBody;
     /**
@@ -1849,7 +1871,7 @@ export type SaveTicketTypeErrors = {
      */
     404: ErrorBody;
     /**
-     * The server has no ticket config yet: tickets have to be deployed in Discord first.
+     * The server has no ticket config yet: tickets have to be deployed in Discord first. Or a journey claimed a picked category while the save ran: that slot was declined, everything else was saved, so re-read the settings.
      */
     409: ErrorBody;
     /**
@@ -1861,6 +1883,10 @@ export type SaveTicketTypeErrors = {
      */
     415: ErrorBody;
     /**
+     * Another save of the ticket categories is still running, so nothing was changed.
+     */
+    423: ErrorBody;
+    /**
      * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
      */
     429: ErrorBody;
@@ -1869,7 +1895,11 @@ export type SaveTicketTypeErrors = {
      */
     500: ErrorBody;
     /**
-     * The type could not be saved. Nothing changed.
+     * Discord refused to create a category. Everything else was saved, so re-read the settings.
+     */
+    502: ErrorBody;
+    /**
+     * The type could not be saved. A category already made in Discord stays made, and the sentence names it.
      */
     503: ErrorBody;
 };

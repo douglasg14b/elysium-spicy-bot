@@ -58,6 +58,7 @@ const config: ConfiguredTicketingConfig = {
         claimed: { name: 'Claimed', discordId: '900000000000000002', provenance: 'adopted' },
         closed: { name: 'Closed', discordId: '900000000000000003', provenance: 'adopted' },
     },
+    typeCategories: new Map(),
     moderationRoles: ['mod-role'],
     ticketTypes: { support: definition },
 };

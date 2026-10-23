@@ -8,7 +8,7 @@ import { buildTicketChannelName, getTicketTypeDefinition, toPermissionOverwrite 
 
 /**
  * The Discord half of a ticket: creating the channel and moving it between
- * categories.
+ * categories — its type's own, where it has one, else the server's.
  *
  * Split from `ticketService` so the decisions stay callable without a gateway.
  * This module knows how to make Discord reflect a ticket; it never decides
@@ -137,6 +137,7 @@ export async function createTicketChannelForTicket({
     const categoryResult = await resolveTicketCategory({
         guild,
         config,
+        definition,
         slot: ticket.claimerId ? 'claimed' : 'open',
     });
     if (!categoryResult.ok) return categoryResult;
@@ -220,7 +221,7 @@ export async function syncTicketChannelToState(
         }
     }
 
-    const categoryResult = await resolveTicketCategory({ guild, config, slot });
+    const categoryResult = await resolveTicketCategory({ guild, config, definition, slot });
     if (!categoryResult.ok) return categoryResult;
 
     try {

@@ -99,6 +99,7 @@ function storedConfig(overrides: Record<string, unknown> = {}) {
             claimed: { name: 'Claimed', discordId: '333333333333333333', provenance: 'adopted' },
             closed: { name: 'Closed', discordId: '444444444444444444', provenance: 'adopted' },
         },
+        typeCategories: new Map(),
         moderationRoles: [MOD_ROLE],
         ticketTypes: { support: supportDefinition },
         ...overrides,
@@ -690,10 +691,7 @@ describe('PUT /:guildId/config/tickets/types/:type', () => {
             nameTemplate: '  A{{####}}  ',
         });
 
-        expect(upsertTicketType).toHaveBeenCalledWith(
-            GUILD_ID,
-            expect.objectContaining({ type: 'appeals', label: 'Appeals', nameTemplate: 'A{{####}}' })
-        );
+        expect(upsertTicketType).toHaveBeenCalledWith({ guildId: GUILD_ID, definition: expect.objectContaining({ type: 'appeals', label: 'Appeals', nameTemplate: 'A{{####}}' }) });
     });
 
     it('forwards a render refusal from the shared save as a 400, in its own words', async () => {
@@ -741,10 +739,54 @@ describe('PUT /:guildId/config/tickets/types/:type', () => {
         const response = await send('/config/tickets/types/appeals', 'PUT', { ...validTypeBody, type: 'smuggled' });
 
         expect(response.status).toBe(200);
-        expect(upsertTicketType).toHaveBeenCalledWith(
-            GUILD_ID,
-            expect.objectContaining({ type: 'appeals' })
-        );
+        expect(upsertTicketType).toHaveBeenCalledWith({ guildId: GUILD_ID, definition: expect.objectContaining({ type: 'appeals' }) });
+    });
+
+    it("hands the shared save the guild and the type's categories when the body names them", async () => {
+        upsertTicketType.mockResolvedValue({ ok: true, config: storedConfig() });
+
+        const categories = { open: { discordId: CATEGORY_ID }, claimed: { name: '  Appeals Desk  ' }, closed: null };
+        const response = await send('/config/tickets/types/appeals', 'PUT', { ...validTypeBody, categories });
+
+        expect(response.status).toBe(200);
+        expect(upsertTicketType).toHaveBeenCalledWith({
+            guild: expect.objectContaining({ id: GUILD_ID }),
+            definition: expect.objectContaining({ type: 'appeals' }),
+            categories: { open: { discordId: CATEGORY_ID }, claimed: { name: 'Appeals Desk' }, closed: null },
+        });
+    });
+
+    it('shows each type its own categories, null where it uses the server’s', async () => {
+        upsertTicketType.mockResolvedValue({
+            ok: true,
+            config: storedConfig({
+                typeCategories: new Map([
+                    ['support', { open: { name: 'Support Desk', discordId: CATEGORY_ID, provenance: 'created' } }],
+                ]),
+            }),
+        });
+
+        const response = await send('/config/tickets/types/support', 'PUT', validTypeBody);
+        const view = (await response.json()) as { types: { type: string; categories: Record<string, unknown> }[] };
+
+        expect(view.types.find((type) => type.type === 'support')?.categories).toEqual({
+            open: expect.objectContaining({ name: 'Support Desk', discordId: CATEGORY_ID, provenance: 'created' }),
+            claimed: null,
+            closed: null,
+        });
+    });
+
+    it.each([
+        ['busy', 423],
+        ['create-failed', 502],
+        ['taken-meanwhile', 409],
+    ] as const)('answers a %s type save with %i, as the settings save does', async (reason, status) => {
+        upsertTicketType.mockResolvedValue({ ok: false, reason, message: 'Nope.', config: storedConfig() });
+
+        const response = await send('/config/tickets/types/appeals', 'PUT', validTypeBody);
+
+        expect(response.status).toBe(status);
+        expect(((await response.json()) as ErrorBody).error).toBe('Nope.');
     });
 
     it('rejects a label longer than the Discord picker can show, naming the limit', async () => {

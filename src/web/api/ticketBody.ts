@@ -202,19 +202,6 @@ type TicketBodyChecks = ChecksHold<{
 /** The checks in {@link TicketBodyChecks} that fail, or `never`. Asserted `never` in `__tests__/ticketBody.test-d.ts`. */
 export type TicketBodyMismatch = MismatchedChecks<TicketBodyChecks>;
 
-/** One declared type, as the config editor reads it. */
-const TicketTypeViewSchema = z
-    .object({
-        type: z.string(),
-        label: z.string(),
-        nameTemplate: z.string(),
-        permissions: TicketPermissionModelSchema,
-        autoClaimOnOpen: z.boolean(),
-    })
-    .openapi('TicketTypeView', {
-        description: 'One declared ticket type. `type` is its key: identity, fixed once saved.',
-    });
-
 /**
  * One category slot, for the settings page.
  *
@@ -247,6 +234,22 @@ type TicketCategoryViewBody = z.infer<typeof TicketCategoryViewSchema>;
 export function categorySlotsShape<Slot extends z.ZodType>(slot: Slot): Record<TicketCategorySlot, Slot> {
     return Object.fromEntries(TICKET_CATEGORY_SLOTS.map((name) => [name, slot])) as Record<TicketCategorySlot, Slot>;
 }
+
+/** One declared type, as the config editor reads it. */
+const TicketTypeViewSchema = z
+    .object({
+        type: z.string(),
+        label: z.string(),
+        nameTemplate: z.string(),
+        permissions: TicketPermissionModelSchema,
+        autoClaimOnOpen: z.boolean(),
+        categories: z.object(categorySlotsShape(z.union([TicketCategoryViewSchema, z.null()]))),
+    })
+    .openapi('TicketTypeView', {
+        description:
+            'One declared ticket type. `type` is its key: identity, fixed once saved. `categories` is the ' +
+            "type's own category per slot, null where it uses the server's.",
+    });
 
 /**
  * The ticket config for the config page.
@@ -336,9 +339,7 @@ export function ticketingConfigView(guild: Guild, config: TicketingConfig | null
             config ? { id: 0, guildId: guild.id, config, ticketNumberInc: 0, entityVersion: 1 } : null
         ),
         deployed: config?.modTicketsDeployed ?? false,
-        categories: Object.fromEntries(
-            TICKET_CATEGORY_SLOTS.map((slot) => [slot, categoryView(guild, config?.categories[slot] ?? null)])
-        ) as Record<TicketCategorySlot, TicketCategoryViewBody | null>,
+        categories: categoryViews(guild, (slot) => config?.categories[slot] ?? null),
         moderationRoleIds: [...moderationRoleIds],
         moderationRoles: moderationRoleIds
             .map((roleId) => guild.roles.cache.get(roleId))
@@ -350,6 +351,17 @@ export function ticketingConfigView(guild: Guild, config: TicketingConfig | null
             nameTemplate: definition.nameTemplate,
             permissions: definition.permissions,
             autoClaimOnOpen: definition.autoClaimOnOpen,
+            categories: categoryViews(guild, (slot) => config?.typeCategories.get(definition.type)?.[slot] ?? null),
         })),
     };
+}
+
+/** One view per slot, from whatever binding `bindingOf` gives for it. */
+function categoryViews(
+    guild: Guild,
+    bindingOf: (slot: TicketCategorySlot) => TicketCategoryBinding
+): Record<TicketCategorySlot, TicketCategoryViewBody | null> {
+    return Object.fromEntries(
+        TICKET_CATEGORY_SLOTS.map((slot) => [slot, categoryView(guild, bindingOf(slot))])
+    ) as Record<TicketCategorySlot, TicketCategoryViewBody | null>;
 }

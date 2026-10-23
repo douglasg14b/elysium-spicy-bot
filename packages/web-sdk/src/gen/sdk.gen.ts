@@ -76,7 +76,7 @@ export const updateTicketsConfig = <ThrowOnError extends boolean = true>(options
 export const deleteTicketType = <ThrowOnError extends boolean = true>(options: Options<DeleteTicketTypeData, ThrowOnError>): RequestResult<DeleteTicketTypeResponses, DeleteTicketTypeErrors, ThrowOnError> => (options.client ?? client).delete<DeleteTicketTypeResponses, DeleteTicketTypeErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/config/tickets/types/{type}', ...options });
 
 /**
- * Add or replace one ticket type
+ * Add or replace one ticket type, creating any category given a name
  */
 export const saveTicketType = <ThrowOnError extends boolean = true>(options: Options<SaveTicketTypeData, ThrowOnError>): RequestResult<SaveTicketTypeResponses, SaveTicketTypeErrors, ThrowOnError> => (options.client ?? client).put<SaveTicketTypeResponses, SaveTicketTypeErrors, ThrowOnError>({
     url: '/api/guilds/{guildId}/config/tickets/types/{type}',

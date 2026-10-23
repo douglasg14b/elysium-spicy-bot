@@ -105,7 +105,7 @@ describe('emptyTicketTypeDraft', () => {
 
 describe('draftFromType', () => {
     it('round-trips an existing type without altering it', () => {
-        const existing = {
+        const settings = {
             type: 'support',
             label: 'Support',
             nameTemplate: 'S{{####}}-{{subject}}',
@@ -113,6 +113,7 @@ describe('draftFromType', () => {
             autoClaimOnOpen: true,
         };
 
-        expect(draftFromType(existing)).toEqual(existing);
+        // Its categories are the dialog's, held beside the draft: a journey's type has none.
+        expect(draftFromType({ ...settings, categories: { open: null, claimed: null, closed: null } })).toEqual(settings);
     });
 });

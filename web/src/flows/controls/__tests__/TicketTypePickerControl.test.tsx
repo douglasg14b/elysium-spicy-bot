@@ -19,8 +19,8 @@ const PERMISSIONS: TicketTypeView['permissions'] = {
 
 /** Types this guild declared itself — the seeded two are nowhere in sight, and nothing misses them. */
 const TYPES: TicketTypeView[] = [
-    { type: 'aftercare', label: 'Aftercare Check-in', nameTemplate: 'aftercare-{{####}}', permissions: PERMISSIONS, autoClaimOnOpen: false },
-    { type: 'punishment-review', label: 'Punishment Review', nameTemplate: 'review-{{####}}', permissions: PERMISSIONS, autoClaimOnOpen: true },
+    { type: 'aftercare', label: 'Aftercare Check-in', nameTemplate: 'aftercare-{{####}}', permissions: PERMISSIONS, autoClaimOnOpen: false, categories: { open: null, claimed: null, closed: null } },
+    { type: 'punishment-review', label: 'Punishment Review', nameTemplate: 'review-{{####}}', permissions: PERMISSIONS, autoClaimOnOpen: true, categories: { open: null, claimed: null, closed: null } },
 ];
 
 type TicketTypeField = Extract<BlockConfigField, { control: 'ticketTypePicker' }>;

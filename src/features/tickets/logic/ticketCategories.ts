@@ -3,10 +3,14 @@ import { describeDiscordError, lookupBoundChannel } from '../../provisioning';
 import { fail, ok, type Result } from '../../../shared';
 import { ticketingRepo } from '../data/ticketingRepo';
 import {
+    isBoundTicketCategory,
     TICKET_CATEGORY_LABELS,
     type BoundTicketCategory,
     type ConfiguredTicketingConfig,
+    type TicketCategoryBinding,
     type TicketCategorySlot,
+    type TicketingConfig,
+    type TicketTypeDefinition,
 } from '../data/ticketingSchema';
 import { createTicketCategory } from './createTicketCategory';
 
@@ -37,30 +41,66 @@ const recreating = new Map<string, Promise<Result<CategoryChannel>>>();
 interface ResolveTicketCategoryInput {
     readonly guild: Guild;
     readonly config: ConfiguredTicketingConfig;
+    /** The ticket's type, whose own category for the slot wins over the server's. */
+    readonly definition: TicketTypeDefinition;
     readonly slot: TicketCategorySlot;
 }
 
-/** The category a slot is bound to, recreated under its expected name if it was deleted. */
+/**
+ * Where a ticket of this type sits in this slot: the type's own category if it has one,
+ * otherwise the server's. The one answer to that question — channel creation, the state
+ * sync and the recreate's re-read all ask here, so they cannot disagree.
+ */
+export function ticketCategoryFor(config: TicketingConfig, type: string, slot: TicketCategorySlot): TicketCategoryBinding {
+    return config.typeCategories.get(type)?.[slot] ?? config.categories[slot];
+}
+
+/**
+ * A slot as an operator reads it in a sentence: "open tickets", or `"Verification" open
+ * tickets` when it is a type's own.
+ */
+export function describeCategorySlot(slot: TicketCategorySlot, typeLabel?: string): string {
+    return typeLabel ? `"${typeLabel}" ${TICKET_CATEGORY_LABELS[slot]}` : TICKET_CATEGORY_LABELS[slot];
+}
+
+/** The category a ticket of this type belongs in for a slot, recreated under its expected name if it was deleted. */
 export async function resolveTicketCategory({
     guild,
     config,
+    definition,
     slot,
 }: ResolveTicketCategoryInput): Promise<Result<CategoryChannel>> {
-    return resolveBinding(guild, config, slot, config.categories[slot]);
+    return resolveBinding(guild, config, definition, slot, config);
 }
 
+/**
+ * `from` is the config the binding is read from: the caller's, or — after a gone lookup —
+ * the stored one, so the slot is named as the binding actually being resolved.
+ */
 async function resolveBinding(
     guild: Guild,
     config: ConfiguredTicketingConfig,
+    definition: TicketTypeDefinition,
     slot: TicketCategorySlot,
-    binding: BoundTicketCategory
+    from: TicketingConfig
 ): Promise<Result<CategoryChannel>> {
+    const binding = ticketCategoryFor(from, definition.type, slot);
+    const typeLabel = from.typeCategories.get(definition.type)?.[slot] ? definition.label : undefined;
+    const described = describeCategorySlot(slot, typeLabel);
+
+    // Only a type's own category can be unbound here — the server's slots are proved bound
+    // by `isTicketingConfigConfigured` — and no save writes one unbound. Refused all the
+    // same: the only way to act on it would be to find a category by name.
+    if (!isBoundTicketCategory(binding)) {
+        return fail(`The ${described} category is not linked to anything. Link it on the dashboard's ticket settings.`);
+    }
+
     let lookup;
     try {
         lookup = await lookupBoundChannel(guild, 'category', binding.discordId);
     } catch (error) {
         return fail(
-            `Could not reach the ${TICKET_CATEGORY_LABELS[slot]} category "${binding.name}" in Discord, so nothing was moved: ${describeDiscordError(error)}`
+            `Could not reach the ${described} category "${binding.name}" in Discord, so nothing was moved: ${describeDiscordError(error)}`
         );
     }
 
@@ -74,14 +114,13 @@ async function resolveBinding(
      * ones that do not. Without it, the second ticket makes a second category: #22's
      * duplicate, through a stale read.
      */
-    const stored = (await ticketingRepo.get(guild.id))?.config.categories[slot];
+    const storedConfig = (await ticketingRepo.get(guild.id))?.config;
+    const stored = storedConfig ? ticketCategoryFor(storedConfig, definition.type, slot) : null;
     if (!stored?.discordId) {
-        return fail(
-            `The ${TICKET_CATEGORY_LABELS[slot]} category is no longer linked to anything. Link it on the dashboard's ticket settings.`
-        );
+        return fail(`The ${described} category is no longer linked to anything. Link it on the dashboard's ticket settings.`);
     }
-    if (stored.discordId !== binding.discordId) {
-        return resolveBinding(guild, config, slot, stored);
+    if (storedConfig && stored.discordId !== binding.discordId) {
+        return resolveBinding(guild, config, definition, slot, storedConfig);
     }
 
     const key = `${guild.id}:${binding.discordId}`;

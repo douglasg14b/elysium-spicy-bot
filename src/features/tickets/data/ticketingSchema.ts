@@ -87,8 +87,9 @@ export interface TicketPermissionModel {
  * One ticket type, as an operator declares it.
  *
  * Four members beyond the key, and the boundary is deliberate. **Not** the
- * category — all three categories stay guild-wide (`TicketingConfig.categories`)
- * and `syncTicketChannelToState` keeps routing by *status*, not by type.
+ * categories — a type's own categories are binding rows like the defaults
+ * (`TicketingConfig.typeCategories`), so the journey fences see them, and this record
+ * is also what a journey declares a type with.
  * **Not** the opening content and **not** the available
  * controls: both are carried-forward items and both would need a second editor
  * before they are worth having.
@@ -209,6 +210,27 @@ export function isBoundTicketCategory(binding: TicketCategoryBinding): binding i
     return !!binding?.discordId;
 }
 
+/** The slots a type swaps in its own category for. A slot it leaves out uses the server's. */
+export type TicketTypeCategories = Readonly<Partial<Record<TicketCategorySlot, NonNullable<TicketCategoryBinding>>>>;
+
+/**
+ * The binding row key for one type's own category in one slot.
+ *
+ * The server-wide slots are keyed by the bare slot name. A type key is `^[a-z0-9_-]+$`
+ * (`ticketTypeRules.ts`), so it holds no `:` and the two kinds of key cannot collide.
+ */
+export function typeCategoryKey(type: string, slot: TicketCategorySlot): string {
+    return `type:${type}:${slot}`;
+}
+
+/** The type and slot a row key names, or null for a server-wide slot's key. */
+export function parseTypeCategoryKey(key: string): { readonly type: string; readonly slot: TicketCategorySlot } | null {
+    const match = /^type:([^:]+):([^:]+)$/.exec(key);
+    if (!match) return null;
+    const slot = TICKET_CATEGORY_SLOTS.find((candidate) => candidate === match[2]);
+    return slot ? { type: match[1], slot } : null;
+}
+
 export interface TicketingConfig {
     modTicketsDeployed: boolean;
     modTicketsDeployedChannelId: string | null;
@@ -225,6 +247,14 @@ export interface TicketingConfig {
      * read — a slot with no row is `null` — and strips it on every write.
      */
     categories: Record<TicketCategorySlot, TicketCategoryBinding>;
+
+    /**
+     * Each type's own categories, by type key: the slots it swaps in a category for.
+     * A type with none is absent. Binding rows keyed {@link typeCategoryKey}, assembled
+     * and stripped by `ticketingRepo` exactly as `categories` is. A `Map`, so a type keyed
+     * `constructor` cannot find a prototype member. Read through `ticketCategoryFor`.
+     */
+    typeCategories: ReadonlyMap<string, TicketTypeCategories>;
 
     moderationRoles: string[];
 
@@ -248,12 +278,12 @@ export interface TicketingConfig {
 }
 
 /**
- * The `config` blob as written: everything but the category slots, which are binding
- * rows. What a writer that creates a row builds (deploy, the config modal), and what a
+ * The `config` blob as written: everything but the categories, which are binding rows.
+ * What a writer that creates a row builds (deploy, the config modal), and what a
  * `mutateConfig` mutator returns — a spread of the assembled config is fine, because the
- * repo's serializer drops the `categories` it carries.
+ * repo's serializer drops the `categories` and `typeCategories` it carries.
  */
-export type StoredTicketingConfig = Omit<TicketingConfig, 'categories'>;
+export type StoredTicketingConfig = Omit<TicketingConfig, 'categories' | 'typeCategories'>;
 
 export interface ConfiguredTicketingConfig extends TicketingConfig {
     modTicketsDeployed: true;

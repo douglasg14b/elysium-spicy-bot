@@ -40,7 +40,8 @@ export interface BindingOwner {
 
 /**
  * The ticket feature, as an owner. It owns one set of rows per guild, so its key is fixed;
- * each row's `resourceKey` is the category slot (`open`, `claimed`, `closed`).
+ * each row's `resourceKey` is a server-wide category slot (`open`, `claimed`, `closed`) or
+ * a ticket type's own category in a slot (`typeCategoryKey` in `ticketingSchema.ts`).
  */
 export const TICKETS_OWNER: BindingOwner = { kind: 'tickets', key: 'tickets' };
 

@@ -181,7 +181,7 @@ describe('install', () => {
             permissions: DEFAULT_TICKET_TYPES.support.permissions,
             autoClaimOnOpen: true,
         };
-        expect((await upsertTicketType(scenario.guild.id, dashboardMade)).ok).toBe(true);
+        expect((await upsertTicketType({ guildId: scenario.guild.id, definition: dashboardMade })).ok).toBe(true);
 
         const result = await installJourney({ ...input, approvedPlan: plan });
 
