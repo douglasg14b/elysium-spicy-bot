@@ -330,8 +330,9 @@ export function useResourceAutosave({
              * worse than sending nothing. The debounced save has been holding, correctly,
              * and now there is no later keystroke to release it.
              *
-             * Warned rather than swallowed. It is reachable only by deliberately clearing
-             * a name or key and then navigating away — rows are seeded valid — but silent
+             * Warned rather than swallowed. It is reachable only by clearing a name or key,
+             * or leaving a "Specific roles" rule with no role picked, and then navigating
+             * away — rows are seeded valid — but silent
              * loss of declarations is not something to leave to a red chip the operator
              * has already walked away from.
              *
@@ -345,7 +346,7 @@ export function useResourceAutosave({
                     color: 'orange',
                     title: 'Some resources were not saved',
                     message:
-                        'A resource was left without a name or key, so the list could not be stored. Reopen the flow to finish it.',
+                        'A resource was left without a name or key, or with a permission rule naming no role, so the list could not be stored. Reopen the flow to finish it.',
                 });
                 return;
             }

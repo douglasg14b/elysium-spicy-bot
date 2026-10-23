@@ -225,6 +225,27 @@ describe('isWorthSaving', () => {
         expect(isWorthSaving([channel('welcome'), channel('')])).toBe(false);
     });
 
+    /**
+     * Switching a rule to "Specific roles" leaves it naming no role until one is picked.
+     * Sending that drew the server's refusal, whose re-read flipped the rule back to
+     * Everyone under the operator's cursor.
+     */
+    it('holds while a roles permission names no role yet', () => {
+        const pickingRoles: ResourceDeclaration = {
+            ...channel('welcome'),
+            permissions: [{ audience: 'roles', access: 'readWrite', roleIds: [] }],
+        };
+        expect(isWorthSaving([pickingRoles])).toBe(false);
+    });
+
+    it('sends a roles permission once it names a role', () => {
+        const withRole: ResourceDeclaration = {
+            ...channel('welcome'),
+            permissions: [{ audience: 'roles', access: 'readWrite', roleIds: ['123456789012345678'] }],
+        };
+        expect(isWorthSaving([withRole])).toBe(true);
+    });
+
     it('sends an empty list, which is how the last resource is removed', () => {
         expect(isWorthSaving([])).toBe(true);
     });

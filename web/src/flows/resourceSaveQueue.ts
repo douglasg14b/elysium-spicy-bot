@@ -179,7 +179,18 @@ export function decideAutosaveAction({
  * and dangling references are *not* checked here — those persist past the keystroke that
  * caused them, and silently declining to save them would leave the operator with no
  * feedback at all about why nothing was stored.
+ *
+ * A `roles` permission naming no role is held for the same reason as an empty name: it
+ * is the state every such rule starts in, the instant its audience is switched to
+ * "Specific roles" and before a role is picked. Sending it was destructive, not just
+ * noisy — the server refuses it (`rolesWithoutIdsRefusal`), and the refusal re-reads the
+ * stored list over the one on screen, flipping the rule back to its old audience.
  */
 export function isWorthSaving(resources: readonly ResourceDeclaration[]): boolean {
-    return resources.every((resource) => Boolean(resource.key) && Boolean(resource.defaultName));
+    return resources.every(
+        (resource) =>
+            Boolean(resource.key) &&
+            Boolean(resource.defaultName) &&
+            !resource.permissions?.some((intent) => intent.audience === 'roles' && !intent.roleIds?.length)
+    );
 }
