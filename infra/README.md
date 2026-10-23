@@ -16,7 +16,7 @@ browser → Cloudflare edge (TLS, WAF) → tunnel → cloudflared (compose sidec
 | Zone | `fettra.app`. Treated as shared: Pulumi owns only this one DNS record. |
 | Origin | `http://discord-spicy-bot:8080` (compose service + `WEB_PORT`), serving the built dashboard and `/api` |
 | LAN path | None. At home the dashboard goes through Cloudflare too. |
-| Deploys | Coolify, Docker Compose build pack, `docker-compose.yml`, branch `feat/web-ui-flow-engine` |
+| Deploys | Coolify, Docker Compose build pack, `docker-compose.prod.yml`, branch `feat/web-ui-flow-engine` |
 
 `index.ts` declares the tunnel, its ingress, and the DNS record. Nothing else in the zone: WAF and rate limit rules
 are zone-wide rulesets, so they're set by hand (below).
@@ -98,7 +98,7 @@ pulumi stack output tunnelToken --show-secrets | Set-Clipboard
 | `ADMIN_DISCORD_IDS` | optional; leave empty normally |
 | `ALLOWED_GUILD_IDS` | comma-separated ids of the servers the bot may work in. The bot is public, so set this: on joining any other server it leaves at once. Unset allows every server (logged at startup). Never leaves a server it is already in, but the dashboard hides any server not on the list — list every server you still manage. |
 
-`WEB_PUBLIC_URL` is fixed in `docker-compose.yml`, so it isn't a Coolify variable. Never paste Coolify deploy logs
+`WEB_PUBLIC_URL` is fixed in `docker-compose.prod.yml`, so it isn't a Coolify variable. Never paste Coolify deploy logs
 anywhere: they echo the whole environment in plaintext.
 
 Order: `pulumi up` → variables into Coolify → push → deploy. Coolify deploys from the remote branch.

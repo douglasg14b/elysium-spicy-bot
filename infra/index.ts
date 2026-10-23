@@ -23,7 +23,7 @@ import { Config, interpolate, secret } from '@pulumi/pulumi';
 const ZONE_NAME = 'fettra.app';
 
 /**
- * The dashboard's public hostname. `WEB_PUBLIC_URL` in docker-compose.yml names the same origin, because the OAuth
+ * The dashboard's public hostname. `WEB_PUBLIC_URL` in docker-compose.prod.yml names the same origin, because the OAuth
  * redirect URI is built from it; changing one means changing both, and the redirect registered on the Discord app.
  */
 const DASHBOARD_HOSTNAME = `brattybot.${ZONE_NAME}`;
@@ -51,7 +51,7 @@ const zoneId = config.require('zoneId');
 
 /**
  * Tunnel identity. `configSrc: 'cloudflare'` makes it remotely managed: Cloudflare stores the ingress rules
- * (declared below), so the connector in docker-compose.yml runs with only a token and no config file.
+ * (declared below), so the connector in docker-compose.prod.yml runs with only a token and no config file.
  */
 const dashboardTunnel = new ZeroTrustTunnelCloudflared(
     'dashboard-tunnel',
@@ -107,7 +107,7 @@ export const tunnelIngressVersion = dashboardTunnelIngress.version;
 export const dashboardHostname = DASHBOARD_HOSTNAME;
 
 /**
- * What TUNNEL_TOKEN in docker-compose.yml consumes. Anyone holding it can run a connector for this tunnel, so it is a
+ * What TUNNEL_TOKEN in docker-compose.prod.yml consumes. Anyone holding it can run a connector for this tunnel, so it is a
  * secret: encrypted in stack state and withheld from `pulumi stack output` unless asked for explicitly.
  */
 export const tunnelToken = secret(
