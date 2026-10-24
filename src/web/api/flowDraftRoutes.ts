@@ -5,6 +5,7 @@ import { validateFlowGraph } from '../../features/flows/engine/graphValidation';
 import { withDeclaredNodeData } from '../../features/flows/logic/declaredNodeData';
 import { readDeclaredKeys } from '../../features/flows/logic/declaredResourceKeys';
 import { flowReadinessIssuesInGuild } from '../../features/flows/logic/flowReadiness';
+import { loadUploadIndex } from '../../features/flows/logic/uploadReferences';
 import {
     DECLARATIONS_UNREADABLE,
     flowDraft,
@@ -20,6 +21,7 @@ import {
     invalidGraphBody,
 } from './flowBody';
 import { errorBodyResponse, jsonBody, jsonResponse, type ApiRouteRegistrar } from './openApi';
+import { staleBuilderRefusal } from './staleBuilderGraph';
 
 /**
  * Drafts of one flow — every operator's unsaved canvas — under
@@ -130,6 +132,11 @@ export function defineFlowDraftRoutes(router: ApiRouteRegistrar): undefined {
         if (!declared.ok) {
             return c.json({ error: declared.error }, 500);
         }
+        // One read for every draft's uploads, none when no draft names one.
+        const uploads = await loadUploadIndex(
+            guildId,
+            drafts.map((draft) => draft.graph)
+        );
 
         return c.json(
             {
@@ -138,7 +145,7 @@ export function defineFlowDraftRoutes(router: ApiRouteRegistrar): undefined {
                         draft,
                         viewerId,
                         flow.updatedAt,
-                        flowReadinessIssuesInGuild(draft.graph, declared.keys, guild)
+                        flowReadinessIssuesInGuild(draft.graph, declared.keys, guild, uploads)
                     )
                 ),
             },
@@ -167,6 +174,12 @@ export function defineFlowDraftRoutes(router: ApiRouteRegistrar): undefined {
         const structural = validateFlowGraph(body.graph);
         if (!structural.valid) {
             return c.json(invalidGraphBody(structural.errors), 400);
+        }
+        // A stale tab's autosave is refused too: a flat node stored here would have its
+        // keys stripped, and the next save from any tab would carry the empty node on.
+        const stale = staleBuilderRefusal(structural.graph);
+        if (stale) {
+            return c.json(stale, 400);
         }
 
         const draft = await flowDraftsRepo.upsertMine({

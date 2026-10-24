@@ -15,6 +15,11 @@ function pending(nodeId: string, ...fields: string[]): ReadonlyMap<string, Reado
     return new Map([[nodeId, new Set(fields)]]);
 }
 
+/** A Post Embed message of one embed titled "Hi", plus `extra` on that embed. */
+function embedMessage(extra: Record<string, unknown>): Record<string, unknown> {
+    return { embeds: [{ title: 'Hi', description: 'There', ...extra }] };
+}
+
 /** Every issue rendered the way a single-sentence client would show it. */
 function sentences(
     graph: FlowGraph,
@@ -90,7 +95,7 @@ describe('validateNodeData', () => {
                 id: 'embed',
                 type: ACTION_POST_EMBED,
                 position: { x: 0, y: 0 },
-                data: { channelId: 'chan-1', title: 'Hi', description: 'There', color: 'cyan' },
+                data: { channelId: 'chan-1', message: embedMessage({ color: 'cyan' }) },
             },
         ]);
 
@@ -99,7 +104,7 @@ describe('validateNodeData', () => {
         expect(result.valid).toBe(false);
         if (!result.valid) {
             expect(result.issues[0]?.nodeId).toBe('embed');
-            expect(result.issues[0]?.field).toBe('color');
+            expect(result.issues[0]?.field).toBe('message.embeds.0.color');
             expect(result.issues[0]?.message).toContain('hex');
         }
     });
@@ -117,12 +122,12 @@ describe('validateNodeData', () => {
                 position: { x: 0, y: 0 },
                 data: {
                     channelId: 'chan-1',
-                    title: 'Hi',
-                    description: 'There',
-                    fields: [
-                        { name: 'ok', value: 'fine' },
-                        { name: '', value: 'fine' },
-                    ],
+                    message: embedMessage({
+                        fields: [
+                            { name: 'ok', value: 'fine' },
+                            { name: '', value: 'fine' },
+                        ],
+                    }),
                 },
             },
         ]);
@@ -131,8 +136,8 @@ describe('validateNodeData', () => {
 
         expect(result.valid).toBe(false);
         if (!result.valid) {
-            expect(result.issues[0]?.field).toBe('fields.1.name');
-            expect(describeIssue(result.issues[0]!)).toContain('embed: fields.1.name:');
+            expect(result.issues[0]?.field).toBe('message.embeds.0.fields.1.name');
+            expect(describeIssue(result.issues[0]!)).toContain('embed: message.embeds.0.fields.1.name:');
         }
     });
 });
@@ -200,28 +205,25 @@ describe('validateNodeData with pending fields', () => {
                 id: 'embed',
                 type: ACTION_POST_EMBED,
                 position: { x: 0, y: 0 },
-                // `fields.0.name` is missing, which is a genuine issue.
-                data: {
-                    channelId: 'chan-1',
-                    title: 'Hi',
-                    description: 'There',
-                    fields: [{ value: 'v' }],
-                },
+                // `message.embeds.0.fields.0.name` is missing, which is a genuine issue.
+                data: { channelId: 'chan-1', message: embedMessage({ fields: [{ value: 'v' }] }) },
             },
             {
-                id: 'embed.fields.0',
+                id: 'embed.message.embeds.0.fields.0',
                 type: ACTION_ASSIGN_ROLE,
                 position: { x: 200, y: 0 },
                 data: { roleId: 'role-1' },
             },
         ]);
 
-        const result = validateNodeData(graph, { pendingFields: pending('embed.fields.0', 'name') });
+        const result = validateNodeData(graph, {
+            pendingFields: pending('embed.message.embeds.0.fields.0', 'name'),
+        });
 
         expect(result.valid).toBe(false);
         if (!result.valid) {
             expect(result.issues[0]?.nodeId).toBe('embed');
-            expect(result.issues[0]?.field).toBe('fields.0.name');
+            expect(result.issues[0]?.field).toBe('message.embeds.0.fields.0.name');
         }
     });
 
@@ -243,16 +245,11 @@ describe('validateNodeData with pending fields', () => {
                 id: 'embed',
                 type: ACTION_POST_EMBED,
                 position: { x: 0, y: 0 },
-                data: {
-                    channelId: 'chan-1',
-                    title: 'Hi',
-                    description: 'There',
-                    fields: [{ value: 'v' }],
-                },
+                data: { channelId: 'chan-1', message: embedMessage({ fields: [{ value: 'v' }] }) },
             },
         ]);
 
-        expect(sentences(graph, pending('embed', 'fields.0.name'))).toHaveLength(1);
+        expect(sentences(graph, pending('embed', 'message.embeds.0.fields.0.name'))).toHaveLength(1);
     });
 
     it('still rejects a non-emptiness rule on a pending field', () => {
@@ -262,18 +259,18 @@ describe('validateNodeData with pending fields', () => {
                 id: 'embed',
                 type: ACTION_POST_EMBED,
                 position: { x: 0, y: 0 },
-                data: { channelId: '', title: 'Hi', description: 'There', color: 'cyan' },
+                data: { channelId: '', message: embedMessage({ color: 'cyan' }) },
             },
         ]);
 
         const result = validateNodeData(graph, {
-            pendingFields: pending('embed', 'channelId', 'color'),
+            pendingFields: pending('embed', 'channelId', 'message'),
         });
 
         expect(result.valid).toBe(false);
         if (!result.valid) {
             expect(result.issues).toHaveLength(1);
-            expect(result.issues[0]?.field).toBe('color');
+            expect(result.issues[0]?.field).toBe('message.embeds.0.color');
         }
     });
 });

@@ -55,7 +55,7 @@ const FLAVOUR_ROLES = [
 export function seedDiscord(discord: TestDiscord): ScenarioGuild {
     const guild = discord.createGuild({
         name: GUILD_NAME,
-        bot: { permissions: ['ManageChannels', 'ManageRoles', 'SendMessages', 'ViewChannel', 'EmbedLinks'] },
+        bot: { permissions: ['ManageChannels', 'ManageRoles', 'SendMessages', 'ViewChannel', 'EmbedLinks', 'AttachFiles'] },
     });
 
     const staff = guild.createRole({ name: 'Staff' });

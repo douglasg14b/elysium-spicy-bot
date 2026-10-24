@@ -9,10 +9,12 @@
 
 import type {
     BlockConfigField,
+    DiscordMessage,
     Eligibility,
     GuildChannel,
     GuildRole,
     GuildSettings,
+    GuildUpload,
     ResourceDeclaration,
     TicketTypeView,
 } from '@brattybot/web-sdk';
@@ -82,6 +84,28 @@ export interface ControlContext {
      * failed, when such a control simply says nothing about the zone.
      */
     serverTimeZone?: ServerTimeZone;
+    /**
+     * The server's uploaded pictures, and the way to add one — for a control with picture
+     * parts (`message`). The page reads and sends; the control fetches nothing.
+     */
+    uploads: GuildUploads;
+}
+
+/** A server's uploaded pictures, as the page hands them to a control. */
+export interface GuildUploads {
+    /**
+     * The server's uploads, newest first, without their bytes. Empty until the page's read
+     * answers, and after one that failed — a picture can still be uploaded or linked then.
+     */
+    readonly items: readonly GuildUpload[];
+    /**
+     * Keep a picture for this server. Resolves with it as kept — the one already kept, when
+     * the server held these exact bytes — and throws the server's refusal (`ApiError`): too
+     * big, not a picture, or the server full.
+     */
+    readonly upload: (file: File) => Promise<GuildUpload>;
+    /** Where the browser shows one of this server's uploads from. */
+    readonly imageUrl: (uploadId: string) => string;
 }
 
 /** A server's time zone setting, as the guild-settings endpoint reports it. */
@@ -101,10 +125,11 @@ export function resourceKeyFieldFor(fieldKey: string): string {
  * in `FlowBuilderPage` for why the difference is load-bearing.
  *
  * `string[]` is `textList`'s value, `Record<string, unknown>[]` is `objectList`'s,
- * and `Eligibility` is `eligibility`'s. All three are a **new value every time**
- * rather than a mutated one: the patch lands in React state, so a control that
- * edited its current value in place would write a value the renderer cannot tell
- * apart from the old one. `objectList` is the first where that rule has to hold at
+ * `Eligibility` is `eligibility`'s and `DiscordMessage` is `message`'s — the generated
+ * type, so no hand-written message shape lives in the builder. All four are a **new
+ * value every time** rather than a mutated one: the patch lands in React state, so a
+ * control that edited its current value in place would write a value the renderer
+ * cannot tell apart from the old one. `objectList` is the first where that rule has to hold at
  * two levels — a new array of the *same* entry objects is just as invisible.
  *
  * A union of the concrete value types rather than `unknown`, deliberately. It is
@@ -118,8 +143,17 @@ export function resourceKeyFieldFor(fieldKey: string): string {
  * authority, exactly as it is for every other control.
  */
 export type ControlChange = (
-    value: string | number | string[] | Record<string, unknown>[] | Eligibility | undefined
+    value: string | number | string[] | Record<string, unknown>[] | Eligibility | DiscordMessage | undefined
 ) => void;
+
+/**
+ * One complaint addressed below a field, to the part it names — `embeds.0.title` inside a
+ * message. The path is relative to the field, dotted as the server addresses it.
+ */
+export interface NestedIssue {
+    readonly path: string;
+    readonly message: string;
+}
 
 /** Props every control in this directory takes. */
 export interface ControlProps<TField extends BlockConfigField = BlockConfigField> {
@@ -149,6 +183,12 @@ export interface ControlProps<TField extends BlockConfigField = BlockConfigField
      * inspector renders anything unplaced at node level rather than dropping it.
      */
     error?: string;
+    /**
+     * Complaints about the parts inside this field's value, each with its path relative to
+     * the field — only for a control that can show a part's complaint where the part is
+     * (`message`; see `placeIssues`). Every other control's dotted issues stay at node level.
+     */
+    issues?: readonly NestedIssue[];
 }
 
 /** Narrow an unknown `node.data` value to a string for controlled inputs. */

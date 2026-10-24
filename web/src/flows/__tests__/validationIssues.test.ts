@@ -41,7 +41,11 @@ describe('issuesByNode', () => {
 });
 
 describe('placeIssues', () => {
-    const fields = ['channelId', 'title', 'fields'];
+    const fields = [
+        { key: 'channelId', control: 'channelPicker' },
+        { key: 'title', control: 'text' },
+        { key: 'fields', control: 'objectList' },
+    ] as const;
 
     it('hands an issue to the control whose field it names', () => {
         const placed = placeIssues(
@@ -107,11 +111,56 @@ describe('placeIssues', () => {
             { nodeId: 'a', field: 'fields.0.name', message: 'two' },
             { nodeId: 'a', message: 'three' },
             { nodeId: 'a', field: 'nope', message: 'four' },
+            { nodeId: 'a', field: 'message.embeds.0.title', message: 'five' },
         ];
 
-        const placed = placeIssues(issues, fields);
+        const placed = placeIssues(issues, [...fields, { key: 'message', control: 'message' }]);
+        const nestedCount = [...placed.nested.values()].reduce((total, parts) => total + parts.length, 0);
 
-        expect(placed.byField.size + placed.nodeLevel.length).toBe(issues.length);
+        expect(placed.byField.size + nestedCount + placed.nodeLevel.length).toBe(issues.length);
+    });
+
+    describe('under a message field', () => {
+        const withMessage = [...fields, { key: 'message', control: 'message' }] as const;
+
+        it('hands a part complaint to the message control, its path relative to the field', () => {
+            const placed = placeIssues(
+                [
+                    { nodeId: 'a', field: 'message.embeds.0.title', message: 'Titles stop at 256 characters.' },
+                    { nodeId: 'a', field: 'message.embeds.1', message: 'Embed 2 is empty.' },
+                ],
+                withMessage
+            );
+
+            expect(placed.nested.get('message')).toEqual([
+                { path: 'embeds.0.title', message: 'Titles stop at 256 characters.' },
+                { path: 'embeds.1', message: 'Embed 2 is empty.' },
+            ]);
+            expect(placed.nodeLevel).toEqual([]);
+            expect(placed.byField.size).toBe(0);
+        });
+
+        it('still hands a complaint about the whole message to its error', () => {
+            const placed = placeIssues([{ nodeId: 'a', field: 'message', message: 'Fill this in.' }], withMessage);
+
+            expect(placed.byField.get('message')).toBe('Fill this in.');
+            expect(placed.nested.size).toBe(0);
+        });
+
+        it("leaves a list's dotted complaint at node level beside it", () => {
+            // Only a control that can point at a part takes complaints addressed below it.
+            const placed = placeIssues([{ nodeId: 'a', field: 'fields.0.name', message: 'Too long.' }], withMessage);
+
+            expect(placed.nested.size).toBe(0);
+            expect(placed.nodeLevel).toHaveLength(1);
+        });
+
+        it('lists a part complaint at node level while the message field is not drawn', () => {
+            const placed = placeIssues([{ nodeId: 'a', field: 'message.embeds.0.title', message: 'Too long.' }], fields);
+
+            expect(placed.nested.size).toBe(0);
+            expect(placed.nodeLevel).toHaveLength(1);
+        });
     });
 });
 

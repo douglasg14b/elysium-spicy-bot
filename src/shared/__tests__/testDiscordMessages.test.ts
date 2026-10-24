@@ -83,6 +83,7 @@ describe('TestDiscord answers message writes the way Discord does', () => {
                 authorId: liveGuild.client.user.id,
                 content: `<@${member.id}> read the pinned rules before you kneel.`,
                 embeds: [{ title: 'House rules', color: 0xff0000, type: EmbedType.Rich }],
+                attachments: [],
                 components: [],
                 pinned: false,
                 edited: false,
@@ -151,6 +152,40 @@ describe('TestDiscord answers message writes the way Discord does', () => {
         expect(liveChannel.lastPinTimestamp).toEqual(expect.any(Number));
     });
 
+    it('takes files sent multipart as attachments, with the embeds pointing at them kept as sent', async () => {
+        const { discord, channel, liveChannel } = await startedChannel();
+        const picture = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+
+        const sent = await liveChannel.send({
+            content: 'Dress code, illustrated.',
+            embeds: [
+                new EmbedBuilder()
+                    .setTitle('Latex Night')
+                    .setAuthor({ name: 'The Management', iconURL: 'https://example.com/boss.png' })
+                    .setURL('https://example.com/night')
+                    .setThumbnail('attachment://collar.png')
+                    .setImage('https://example.com/banner.png')
+                    .setFooter({ text: 'Shine responsibly.', iconURL: 'attachment://collar.png' }),
+            ],
+            files: [{ attachment: picture, name: 'collar.png' }],
+            allowedMentions: { parse: ['users'] },
+        });
+
+        const [request] = discord.writesTo(channel);
+        expect(request?.body).toMatchObject({ attachments: [{ id: '0' }] });
+        expect(request?.files).toEqual([{ index: 0, name: 'collar.png', contentType: 'image/png', bytes: picture }]);
+
+        const held = channel.message(sent.id);
+        expect(held.attachments).toEqual([{ filename: 'collar.png', size: picture.length, contentType: 'image/png' }]);
+        expect(held.embeds[0]).toMatchObject({
+            thumbnail: { url: 'attachment://collar.png' },
+            footer: { text: 'Shine responsibly.', icon_url: 'attachment://collar.png' },
+            author: { name: 'The Management', icon_url: 'https://example.com/boss.png' },
+        });
+        // discord.js builds its `Message` from the reply, attachments included.
+        expect(sent.attachments.map((attachment) => attachment.name)).toEqual(['collar.png']);
+    });
+
     it('refuses a message write on a channel told to reject writes, and still answers a read of it', async () => {
         const { discord, channel, liveGuild, liveChannel } = await startedChannel();
         channel.rejectWrites({ code: RESTJSONErrorCodes.MissingPermissions });
@@ -186,6 +221,24 @@ describe('TestDiscord refuses message behaviour it does not know', () => {
             /does not name a message/
         );
         await expect(discord.destroy()).rejects.toThrow(TestDiscordError);
+    });
+
+    it('refuses an embed pointing at a file the send did not upload, and an edit pointing at any', async () => {
+        const { discord, liveChannel } = await startedChannel();
+        const picture = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+        await expect(
+            liveChannel.send({
+                embeds: [new EmbedBuilder().setTitle('Gag order').setImage('attachment://missing.png')],
+                files: [{ attachment: picture, name: 'present.png' }],
+            })
+        ).rejects.toThrow(/attachment:\/\/missing\.png, but no uploaded file is named that/);
+
+        const sent = await liveChannel.send({ embeds: [new EmbedBuilder().setTitle('Plain')] });
+        await expect(
+            sent.edit({ embeds: [new EmbedBuilder().setTitle('Plain').setImage('attachment://present.png')] })
+        ).rejects.toThrow(/attachment links on an edit is not modelled/);
+        await expect(discord.destroy()).rejects.toThrow(/faulted 2 time/);
     });
 
     it('refuses an edit replacing the content of a message that mentions somebody', async () => {

@@ -4,6 +4,7 @@ import type { AppEnv } from '../types';
 import { FLOW_BLOCK_FIELD_RULES, flowBlockFieldRulesSchema } from './flowBlockFieldRules';
 import { registerApiRoutes } from './index';
 import { DiscordResourceKindSchema } from './journeyBody';
+import { DiscordMessageSchema } from './messageBody';
 import { ResourcePickerControlSchema } from './nodeBody';
 import { attachRequestMessages } from './requestMessages';
 
@@ -27,9 +28,11 @@ export type OpenApiDocument = ReturnType<OpenAPIHono['getOpenAPI31Document']>;
  *
  * Also carries `FlowBlockFieldRules`, the Flow Builder's rules for every block's config
  * fields (`flowBlockFieldRules.ts`). They are read off the block registry, so this awaits
- * block discovery first, as `initFlows` does before the web server starts. And two
- * vocabularies no route sends on its own that the browser branches on:
- * `DiscordResourceKind` (`journeyBody.ts`) and `ResourcePickerControl` (`nodeBody.ts`).
+ * block discovery first, as `initFlows` does before the web server starts. And three
+ * schemas no route sends on its own that the browser reads: two vocabularies it branches
+ * on, `DiscordResourceKind` (`journeyBody.ts`) and `ResourcePickerControl` (`nodeBody.ts`),
+ * and `DiscordMessage` (`messageBody.ts`), the message the builder edits and checks live —
+ * walked as a request, so its rules carry their sentences to the browser.
  *
  * Keys are sorted at every depth so the committed file, and the SDK generated from it, do
  * not churn when routers are mounted or registered in a different order. The price is
@@ -44,6 +47,7 @@ export async function buildOpenApiDocument(): Promise<OpenApiDocument> {
     app.openAPIRegistry.register(FLOW_BLOCK_FIELD_RULES, flowBlockFieldRulesSchema());
     app.openAPIRegistry.register('DiscordResourceKind', DiscordResourceKindSchema);
     app.openAPIRegistry.register('ResourcePickerControl', ResourcePickerControlSchema);
+    app.openAPIRegistry.register('DiscordMessage', DiscordMessageSchema);
     attachRequestMessages(app.openAPIRegistry.definitions);
 
     const document = app.getOpenAPI31Document({

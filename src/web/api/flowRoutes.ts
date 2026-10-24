@@ -18,6 +18,7 @@ import {
 } from '../../features/flows/logic/flowReadiness';
 import { getPublishedFlowState } from '../../features/flows/logic/publishedFlowState';
 import { undeployFlowButtons } from '../../features/flows/logic/undeployFlowButtons';
+import { loadUploadIndex, uploadIndexCovers, type UploadIndex } from '../../features/flows/logic/uploadReferences';
 import { guildSettingsRepo } from '../../features-system/guild-settings';
 import {
     DECLARATIONS_UNREADABLE,
@@ -42,6 +43,7 @@ import {
 } from './flowBody';
 import { defineFlowDraftRoutes } from './flowDraftRoutes';
 import { loadFlowJourneyIndex } from './flowJourneyIndex';
+import { staleBuilderRefusal } from './staleBuilderGraph';
 import { toDeclarationFromRow } from '../../features/provisioning/data/journeysRepo';
 import { resolveFlowJourney } from '../../features/provisioning/logic/resolveFlowJourney';
 import {
@@ -418,9 +420,11 @@ interface FlowSaver {
  *    already on are never asked; nor is a drafted save, which returned above.
  *  - Otherwise the row is written, and a graph arriving supersedes the saver's draft.
  *
- * `declaredKeys` is `null` exactly when the request could not have been refused — no
- * graph and no switch-on — because the caller reads the declarations only when they
- * can decide something.
+ * Only a request that **can** be refused is judged at all — one carrying a graph, or
+ * `enabled: true`. A switch-off or a rename is written as it is, whatever the stored graph
+ * holds, so nothing below can refuse one. `declaredKeys` is `null` when the caller could
+ * not read the declarations; the caller has already answered a refusable request with a
+ * 500 then, so only an unrefusable one arrives without them.
  *
  * `otherLiveFlows` is every *other* flow of the guild that is on — this flow's own stored
  * row left out, or its old graph would refuse the very edit that breaks a loop. `null`
@@ -432,6 +436,12 @@ interface FlowSaver {
  * `guild` is the flow's own, for readiness's question about picked ids — a channel that
  * is not in this server is an ordinary readiness issue here. Read from its caches only,
  * so it stays synchronous and asks no database.
+ *
+ * `uploads` is what the guild holds of the uploads named by the graph this request is
+ * judged on as the caller saw it — the one arriving, else the stored one — loaded before
+ * the transaction for the same reason as the declarations. A stored graph that changed in
+ * between can name an upload it was not loaded for; that switch-on is refused with a
+ * "save again", like a switch landing in between, rather than told a picture is missing.
  */
 function decidePut(
     current: FlowEntity,
@@ -439,11 +449,18 @@ function decidePut(
     saver: FlowSaver,
     declaredKeys: ReadonlySet<string> | null,
     otherLiveFlows: readonly FlowEntity[] | null,
-    guild: Guild
+    guild: Guild,
+    uploads: UploadIndex
 ): FlowWriteDecision<ReadinessRefusal> {
-    if (declaredKeys) {
+    if (declaredKeys && isRefusable(request)) {
         const runs = request.graph ?? current.graph;
-        const issues = flowReadinessIssuesInGuild(runs, declaredKeys, guild);
+        if (!uploadIndexCovers(uploads, runs)) {
+            return {
+                kind: 'refuse',
+                refusal: { error: 'This flow changed while you were saving. Save again.', issues: [] },
+            };
+        }
+        const issues = flowReadinessIssuesInGuild(runs, declaredKeys, guild, uploads);
         const staysLive = current.enabled && request.enabled !== false;
 
         if (
@@ -520,6 +537,15 @@ function decidePut(
 function goesLive(enabled: boolean, request: FlowPutRequest): boolean {
     const endsOn = request.enabled ?? enabled;
     return endsOn && (!enabled || request.graph !== undefined);
+}
+
+/**
+ * Whether a PUT can be refused at all: it carries a graph, or asks for the switch on.
+ * Switching off and renaming are never refused, so neither is judged. The one condition
+ * the route's reads and `decidePut` both ask, so what is read and what is judged agree.
+ */
+function isRefusable(request: FlowPutRequest): boolean {
+    return request.graph !== undefined || request.enabled === true;
 }
 
 /**
@@ -692,14 +718,19 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
             guildId,
             flows.map((flow) => flow.flowId)
         );
+        // Likewise one read for every flow's uploads, and none when no flow names one.
+        const uploads = await loadUploadIndex(
+            guildId,
+            flows.map((flow) => flow.graph)
+        );
 
-        // The same index answers each row's readiness: a flow's declared keys are its
-        // journey's, so `issueCount` costs no query beyond the three above. A malformed
+        // The same indexes answer each row's readiness: a flow's declared keys are its
+        // journey's, so `issueCount` costs no query beyond the ones above. A malformed
         // journey row fails the index — and so the list — exactly as it did before
         // readiness was on it; no row is judged against a guess.
         return c.json(
             {
-                flows: flows.map((flow) => flowSummary(flow, journeys.get(flow.flowId), guild)),
+                flows: flows.map((flow) => flowSummary(flow, journeys.get(flow.flowId), guild, uploads)),
             },
             200
         );
@@ -722,8 +753,9 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
         if (!declared.ok) {
             return c.json({ error: declared.error }, 500);
         }
+        const uploads = await loadUploadIndex(guildId, [flow.graph]);
 
-        return c.json(flowDetail(flow, flowReadinessIssuesInGuild(flow.graph, declared.keys, guild)), 200);
+        return c.json(flowDetail(flow, flowReadinessIssuesInGuild(flow.graph, declared.keys, guild, uploads)), 200);
     });
 
     /*
@@ -771,13 +803,19 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
         if (!structural.valid) {
             return c.json(invalidGraphBody(structural.errors), 400);
         }
+        // As the save would refuse it, so a stale tab hears "reload" before anyone presses Save.
+        const stale = staleBuilderRefusal(structural.graph);
+        if (stale) {
+            return c.json(stale, 400);
+        }
 
         const declared = await readDeclaredKeys(guildId, flow.flowId);
         if (!declared.ok) {
             return c.json({ error: declared.error }, 500);
         }
+        const uploads = await loadUploadIndex(guildId, [structural.graph]);
 
-        return c.json({ issues: flowReadinessIssuesInGuild(structural.graph, declared.keys, guild) }, 200);
+        return c.json({ issues: flowReadinessIssuesInGuild(structural.graph, declared.keys, guild, uploads) }, 200);
     });
 
     // Create a flow. Starts empty + disabled unless a graph is supplied.
@@ -791,6 +829,10 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
         );
         if (!structural.valid) {
             return c.json(invalidGraphBody(structural.errors), 400);
+        }
+        const stale = staleBuilderRefusal(structural.graph);
+        if (stale) {
+            return c.json(stale, 400);
         }
 
         if ((await flowsRepo.countByGuildId(guildId)) >= FLOW_MAX_PER_GUILD) {
@@ -807,7 +849,8 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
         // No flow yet, so no journey and nothing declared. Correct rather than a
         // shortcut: a flow cannot reference a declaration it has not saved. An
         // incomplete graph is stored all the same — a new flow starts switched off.
-        const issues = flowReadinessIssuesInGuild(graph, new Set<string>(), guild);
+        const uploads = await loadUploadIndex(guildId, [graph]);
+        const issues = flowReadinessIssuesInGuild(graph, new Set<string>(), guild, uploads);
 
         const flow = await flowsRepo.create({
             guildId,
@@ -848,6 +891,11 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
             if (!structural.valid) {
                 return c.json(invalidGraphBody(structural.errors), 400);
             }
+            // Before the strip below, which would erase the evidence — and the embed with it.
+            const stale = staleBuilderRefusal(structural.graph);
+            if (stale) {
+                return c.json(stale, 400);
+            }
             graph = withDeclaredNodeData(structural.graph);
         }
         const request: FlowPutRequest = {
@@ -867,8 +915,7 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
          * regardless, so a malformed journey row can never hold a live flow on.
          */
         const declared = await readDeclaredKeys(guildId, flowId);
-        const canBeRefused = graph !== undefined || request.enabled === true;
-        if (canBeRefused && !declared.ok) {
+        if (isRefusable(request) && !declared.ok) {
             return c.json({ error: declared.error }, 500);
         }
 
@@ -889,8 +936,17 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
             ? (await flowsRepo.getByGuildId(guildId)).filter((flow) => flow.enabled && flow.flowId !== flowId)
             : null;
 
+        /*
+         * The uploads named by the graph `decidePut` judges — the one arriving, else the
+         * stored one — read here, before the transaction, for the same reason again. Read
+         * for a rename or a switch-off too, though nothing judges them, because the answer
+         * describes the stored graph it leaves: read now, a failure writes nothing. No query
+         * when the graph names no upload.
+         */
+        const uploads = await loadUploadIndex(guildId, [graph ?? existing.graph]);
+
         const outcome = await flowsRepo.mutate(flowId, (current) =>
-            decidePut(current, request, saver, declared.ok ? declared.keys : null, otherLiveFlows, guild)
+            decidePut(current, request, saver, declared.ok ? declared.keys : null, otherLiveFlows, guild, uploads)
         );
 
         if (outcome.kind === 'missing') {
@@ -908,7 +964,20 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
             return c.json({ error: `Saved. ${declared.error}` }, 500);
         }
 
-        const flow = flowDetail(outcome.flow, flowReadinessIssuesInGuild(outcome.flow.graph, declared.keys, guild));
+        /*
+         * The graphs as written: the flow's, and the draft's when the save went to one. The
+         * index read above answers for them unless they name an upload it was not read for —
+         * a drafted save leaves the stored graph, and a rename or switch-off leaves a stored
+         * graph that may have changed after that read. Only then is it read again: the write
+         * has committed, so every read skipped here is one that cannot turn a save that
+         * happened into a 500.
+         */
+        const writtenGraphs =
+            outcome.kind === 'drafted' ? [outcome.flow.graph, outcome.draft.graph] : [outcome.flow.graph];
+        const written = writtenGraphs.every((writtenGraph) => uploadIndexCovers(uploads, writtenGraph))
+            ? uploads
+            : await loadUploadIndex(guildId, writtenGraphs);
+        const flow = flowDetail(outcome.flow, flowReadinessIssuesInGuild(outcome.flow.graph, declared.keys, guild, written));
         switch (outcome.kind) {
             case 'written':
                 return c.json({ ...flow, savedAs: 'flow' } satisfies FlowSaveBody, 200);
@@ -921,7 +990,7 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
                             outcome.draft,
                             saver.id,
                             outcome.flow.updatedAt,
-                            flowReadinessIssuesInGuild(outcome.draft.graph, declared.keys, guild)
+                            flowReadinessIssuesInGuild(outcome.draft.graph, declared.keys, guild, written)
                         ),
                         uninstalled: uninstalledResourceKeys(outcome.draft.graph, declared.keys),
                     } satisfies FlowSaveBody,

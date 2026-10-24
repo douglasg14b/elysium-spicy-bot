@@ -78,7 +78,7 @@ function variableHints(
 }
 
 /** Append a token to existing copy, with a space when there is something to separate. */
-function withToken(current: string, token: string): string {
+export function withToken(current: string, token: string): string {
     return current && !current.endsWith(' ') ? `${current} ${token}` : `${current}${token}`;
 }
 

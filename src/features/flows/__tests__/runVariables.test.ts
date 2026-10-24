@@ -17,6 +17,7 @@ import { executeFlow, executeFlowSegment } from '../engine/executor';
 import { rebuildResumeContext, resumeFlowRun } from '../engine/flowRunResume';
 import { validateAuthoredGraph } from '../engine/graphValidation';
 import { validateNodeData } from '../engine/nodeDataValidation';
+import { FIXTURE_ACTION_POSTS_ROWS } from './fixtures/blocks/list/actionPostsRows';
 import { ACTION_RECORD_VALUE } from './fixtures/blocks/producer/actionRecordValue';
 import { fakeGuild } from './support/fakeGuild';
 import { sentCopy } from './support/sentCopy';
@@ -43,31 +44,33 @@ const SUBJECT_MENTION = `<@${USER_ID}>`;
 const AVATAR_URL = 'https://cdn.discordapp.com/avatars/user-1/abc.webp';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const FIXTURE_ROOT = join(
-    dirname(fileURLToPath(import.meta.url)),
-    'fixtures',
-    'blocks',
-    'producer'
+const FIXTURE_ROOTS = ['producer', 'list'].map((folder) =>
+    join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'blocks', folder)
 );
 
 /**
- * The real registry plus the producer fixture.
+ * The real registry plus the producer fixture, and a block holding copy in list rows.
  *
- * Mocked rather than dropped into the product tree because the producer is not a
- * block anybody should be offered in a palette — and the discovery suite pins the
- * shipped list exactly, which is a gate worth keeping rather than loosening.
+ * Mocked rather than dropped into the product tree because neither is a block anybody
+ * should be offered in a palette — and the discovery suite pins the shipped list exactly,
+ * which is a gate worth keeping rather than loosening.
  */
 vi.mock('../blocks/registry', async (importOriginal) => {
     const actual = await importOriginal<typeof import('../blocks/registry')>();
-    let extra: ReadonlyMap<string, BlockManifest> | undefined;
+    const extra = new Map<string, BlockManifest>();
 
     return {
         ...actual,
         ensureBlocksDiscovered: async () => {
             await actual.ensureBlocksDiscovered();
-            extra ??= await actual.discoverBlocks<BlockManifest>(FIXTURE_ROOT);
+            if (extra.size > 0) return;
+            for (const root of FIXTURE_ROOTS) {
+                for (const [type, definition] of await actual.discoverBlocks<BlockManifest>(root)) {
+                    extra.set(type, definition);
+                }
+            }
         },
-        getBlockDefinition: (type: string) => extra?.get(type) ?? actual.getBlockDefinition(type),
+        getBlockDefinition: (type: string) => extra.get(type) ?? actual.getBlockDefinition(type),
     };
 });
 
@@ -293,10 +296,9 @@ describe('a block consumes a value another block produced', () => {
      * Copy one level down: a token inside an `objectList` entry.
      *
      * Worth its own case rather than folded into the scalar ones above, because
-     * the executor reaches it by a different path — `isCopyField` narrows to the
-     * two single-string arms and does not see a column, so a list field's copy is
-     * expanded by a second walk that could be absent while every test above stayed
-     * green.
+     * `copyLocationsOf` reaches it by a different arm — a column inside each row,
+     * written back at a nested path — which could be broken while every test above
+     * stayed green.
      */
     it('expands a token inside a list entry, not just in a plain copy field', async () => {
         const { context } = makeSeed();
@@ -311,29 +313,24 @@ describe('a block consumes a value another block produced', () => {
             nodes: [
                 { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
                 {
-                    id: 'embed',
-                    type: 'action.postEmbed',
+                    id: 'rows',
+                    type: FIXTURE_ACTION_POSTS_ROWS,
                     position: { x: 1, y: 0 },
                     data: {
                         channelId: 'channel-1',
-                        title: 'Welcome',
-                        description: 'Say hello.',
                         fields: [
                             { name: 'Who', value: 'It is {{subject.username}}, in {{guild.name}}.' },
                         ],
                     },
                 },
             ],
-            edges: [{ id: 'e1', source: 'trigger', target: 'embed' }],
+            edges: [{ id: 'e1', source: 'trigger', target: 'rows' }],
         } as FlowGraph;
 
         const result = await executeFlow('flow-1', graph, 'trigger', seed);
 
         expect(result.status).toBe('success');
-        const payload = channelSend.mock.calls[0]?.[0] as { embeds: { data: unknown }[] };
-        expect((payload.embeds[0] as { data: { fields?: unknown } }).data.fields).toEqual([
-            { name: 'Who', value: 'It is spicypete, in Afterdark.', inline: false },
-        ]);
+        expect(sentCopy(channelSend)).toEqual(['Who: It is spicypete, in Afterdark.']);
     });
 
     describe('an embed image that is a token', () => {
@@ -349,6 +346,7 @@ describe('a block consumes a value another block produced', () => {
             };
         }
 
+        /** Post Embed with one embed, plus `extra` on that embed. */
         function embedGraph(extra: Record<string, unknown>): FlowGraph {
             return {
                 version: FLOW_GRAPH_VERSION,
@@ -359,7 +357,10 @@ describe('a block consumes a value another block produced', () => {
                         id: 'embed',
                         type: 'action.postEmbed',
                         position: { x: 2, y: 0 },
-                        data: { channelId: 'channel-1', title: 'Welcome', description: 'Say hello.', ...extra },
+                        data: {
+                            channelId: 'channel-1',
+                            message: { embeds: [{ title: 'Welcome', description: 'Say hello.', ...extra }] },
+                        },
                     },
                 ],
                 edges: [
@@ -372,7 +373,7 @@ describe('a block consumes a value another block produced', () => {
         it('puts the subject’s avatar in the thumbnail', async () => {
             const { seed, channelSend } = embedSeed();
 
-            const result = await executeFlow('flow-1', embedGraph({ thumbnailUrl: '{{subject.avatarUrl}}' }), 'trigger', seed);
+            const result = await executeFlow('flow-1', embedGraph({ thumbnail: '{{subject.avatarUrl}}' }), 'trigger', seed);
 
             expect(result.status).toBe('success');
             const payload = channelSend.mock.calls[0]?.[0] as { embeds: { data: { thumbnail?: { url: string } } }[] };
@@ -384,17 +385,17 @@ describe('a block consumes a value another block produced', () => {
             // with a validation error that names neither the block nor the field.
             const { seed, channelSend } = embedSeed();
 
-            const result = await executeFlow('flow-1', embedGraph({ thumbnailUrl: '{{var.pic}}' }), 'trigger', seed);
+            const result = await executeFlow('flow-1', embedGraph({ thumbnail: '{{var.pic}}' }), 'trigger', seed);
 
             expect(result.status).toBe('error');
-            expect(result.error).toContain('Thumbnail');
+            expect(result.error).toContain('"Message" embed 1 thumbnail');
             expect(result.error).toContain('banana');
             expect(channelSend).not.toHaveBeenCalled();
         });
 
         it('saves a token in an image field, and still refuses a literal that is not a link', () => {
-            expect(validateNodeData(embedGraph({ imageUrl: '{{subject.avatarUrl}}' })).valid).toBe(true);
-            expect(validateNodeData(embedGraph({ imageUrl: 'not a link' })).valid).toBe(false);
+            expect(validateNodeData(embedGraph({ image: '{{subject.avatarUrl}}' })).valid).toBe(true);
+            expect(validateNodeData(embedGraph({ image: 'not a link' })).valid).toBe(false);
         });
     });
 
@@ -522,18 +523,16 @@ describe('save-time validation of authored copy', () => {
             nodes: [
                 { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
                 {
-                    id: 'embed',
-                    type: 'action.postEmbed',
+                    id: 'rows',
+                    type: FIXTURE_ACTION_POSTS_ROWS,
                     position: { x: 1, y: 0 },
                     data: {
                         channelId: 'channel-1',
-                        title: 'T',
-                        description: 'D',
                         fields: [{ name: 'Who', value: 'hi {{subject.nmae}}' }],
                     },
                 },
             ],
-            edges: [{ id: 'e1', source: 'trigger', target: 'embed' }],
+            edges: [{ id: 'e1', source: 'trigger', target: 'rows' }],
         } as FlowGraph;
 
         const result = validateAuthoredGraph(graph);

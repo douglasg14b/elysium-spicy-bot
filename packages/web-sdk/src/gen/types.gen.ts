@@ -253,6 +253,17 @@ export type BlockConfigField = {
         equals: Array<string>;
         field: string;
     };
+} | {
+    control: 'message';
+    defaultValue?: DiscordMessage;
+    description?: string;
+    key: string;
+    label: string;
+    swatches?: Array<string>;
+    visibleWhen?: {
+        equals: Array<string>;
+        field: string;
+    };
 };
 
 /**
@@ -351,6 +362,35 @@ export type DeployedButtonMessage = {
 
 export type DetachResult = {
     detached: boolean;
+};
+
+/**
+ * A Discord message: optional plain text above up to ten embeds. A picture is an upload (`upload:<uuid>`), an http(s) link, or text holding a token; the server judges its form, and the rules spanning parts, when it re-checks the node.
+ */
+export type DiscordMessage = {
+    content?: string;
+    embeds: Array<{
+        author?: {
+            iconUrl?: string;
+            name?: string;
+        };
+        color?: string;
+        description?: string;
+        fields?: Array<{
+            inline?: boolean;
+            name: string;
+            value: string;
+        }>;
+        footer?: {
+            iconUrl?: string;
+            text?: string;
+        };
+        image?: string;
+        thumbnail?: string;
+        timestamp?: boolean;
+        title?: string;
+        url?: string;
+    }>;
 };
 
 /**
@@ -457,17 +497,8 @@ export type FlowBlockFieldRules = {
         outputKey?: string;
     };
     'action.postEmbed': {
-        authorName?: string;
         channelId?: string;
-        color?: string;
-        description?: string;
-        fields?: Array<unknown>;
-        footerText?: string;
-        imageUrl?: unknown;
-        showTimestamp?: unknown;
-        thumbnailUrl?: unknown;
-        title?: string;
-        url?: unknown;
+        message?: unknown;
     };
     'action.prompt': {
         choices?: Array<unknown>;
@@ -818,6 +849,34 @@ export type GuildTimeZoneUpdate = {
 };
 
 /**
+ * A picture kept for this server's messages, without its bytes. A flow names it as `upload:<uploadId>`; `contentType` was read from the bytes, not from the file name.
+ */
+export type GuildUpload = {
+    byteSize: number;
+    contentType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+    createdAt: string;
+    fileName: string;
+    uploadId: string;
+    uploadedBy: string;
+};
+
+/**
+ * The server's uploads, newest first; `totalBytes` is their sizes added up, and `limitBytes` the most they may add up to.
+ */
+export type GuildUploadList = {
+    limitBytes: number;
+    totalBytes: number;
+    uploads: Array<GuildUploadListing>;
+};
+
+/**
+ * A picture kept for this server's messages, without its bytes, and every place a saved flow or a draft shows it — empty when nothing does, so it may be deleted.
+ */
+export type GuildUploadListing = GuildUpload & {
+    uses: Array<UploadUse>;
+};
+
+/**
  * The web server is up. `time` is the server's clock, as ISO.
  */
 export type Health = {
@@ -1110,7 +1169,7 @@ export type MovingResource = {
  */
 export type NodeDescriptor = {
     canSuspend: boolean;
-    capabilities: Array<'manageRoles' | 'sendMessages' | 'embedLinks' | 'manageChannels' | 'kickMembers'>;
+    capabilities: Array<'manageRoles' | 'sendMessages' | 'embedLinks' | 'manageChannels' | 'kickMembers' | 'attachFiles'>;
     cardSummary?: Array<BlockCardSummaryPart>;
     configFields: Array<BlockConfigField>;
     createsChannel?: boolean;
@@ -1438,6 +1497,25 @@ export type UnpublishedResource = {
     name: string;
     outcome: 'deleted' | 'forgotten' | 'refused' | 'failed';
     resourceKey: string;
+};
+
+/**
+ * The picture was not deleted: these places still show it. Swap it out of each, then try again.
+ */
+export type UploadInUse = ErrorBody & {
+    uses: Array<UploadUse>;
+};
+
+/**
+ * One place a picture is shown: the flow (as a draft names it, when the use is in one), the node, its block's label, and the part as the message editor names it (`embed 1 thumbnail`). `draftAuthorId` is set when the use is only in that person's unsaved draft.
+ */
+export type UploadUse = {
+    blockLabel: string;
+    draftAuthorId?: string;
+    flowId: string;
+    flowName: string;
+    nodeId: string;
+    where: string;
 };
 
 export type WarningsConfig = {
@@ -4463,6 +4541,222 @@ export type UnclaimTicketResponses = {
 };
 
 export type UnclaimTicketResponse = UnclaimTicketResponses[keyof UnclaimTicketResponses];
+
+export type ListGuildUploadsData = {
+    body?: never;
+    path: {
+        guildId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/uploads';
+};
+
+export type ListGuildUploadsErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type ListGuildUploadsError = ListGuildUploadsErrors[keyof ListGuildUploadsErrors];
+
+export type ListGuildUploadsResponses = {
+    /**
+     * The server's uploads, newest first, without their bytes, each with where it is shown; and how much of its allowance they take.
+     */
+    200: GuildUploadList;
+};
+
+export type ListGuildUploadsResponse = ListGuildUploadsResponses[keyof ListGuildUploadsResponses];
+
+export type UploadGuildImageData = {
+    body: Blob | File;
+    path: {
+        guildId: string;
+    };
+    query?: {
+        name?: string;
+    };
+    url: '/api/guilds/{guildId}/uploads';
+};
+
+export type UploadGuildImageErrors = {
+    /**
+     * The `name` was refused, or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+    /**
+     * Keeping it would take the server's uploads past 200 MB, so it was not kept.
+     */
+    409: ErrorBody;
+    /**
+     * The body did not declare its length (`Content-Length`). It was not read.
+     */
+    411: ErrorBody;
+    /**
+     * The picture's declared length was over 8 MB. It was not read.
+     */
+    413: ErrorBody;
+    /**
+     * The body was not sent as application/octet-stream, or is not a PNG, JPEG, GIF or WebP picture by its bytes.
+     */
+    415: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type UploadGuildImageError = UploadGuildImageErrors[keyof UploadGuildImageErrors];
+
+export type UploadGuildImageResponses = {
+    /**
+     * The server already held these exact bytes; nothing new was kept.
+     */
+    200: GuildUpload;
+    /**
+     * The picture as kept.
+     */
+    201: GuildUpload;
+};
+
+export type UploadGuildImageResponse = UploadGuildImageResponses[keyof UploadGuildImageResponses];
+
+export type DeleteGuildUploadData = {
+    body?: never;
+    path: {
+        guildId: string;
+        uploadId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/uploads/{uploadId}';
+};
+
+export type DeleteGuildUploadErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the server holds no upload with this id.
+     */
+    404: ErrorBody;
+    /**
+     * Something still shows the picture, so it was not deleted.
+     */
+    409: UploadInUse;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type DeleteGuildUploadError = DeleteGuildUploadErrors[keyof DeleteGuildUploadErrors];
+
+export type DeleteGuildUploadResponses = {
+    /**
+     * Deleted.
+     */
+    204: void;
+};
+
+export type DeleteGuildUploadResponse = DeleteGuildUploadResponses[keyof DeleteGuildUploadResponses];
+
+export type GetGuildUploadData = {
+    body?: never;
+    path: {
+        guildId: string;
+        uploadId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/uploads/{uploadId}';
+};
+
+export type GetGuildUploadErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the server holds no upload with this id.
+     */
+    404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type GetGuildUploadError = GetGuildUploadErrors[keyof GetGuildUploadErrors];
+
+export type GetGuildUploadResponses = {
+    /**
+     * The picture.
+     */
+    200: Blob | File;
+};
+
+export type GetGuildUploadResponse = GetGuildUploadResponses[keyof GetGuildUploadResponses];
 
 export type GetHealthData = {
     body?: never;

@@ -181,6 +181,8 @@ const DECLARED_BLOCK_DEPENDENTS: Readonly<Record<string, string>> = {
         'Residual: reads triggerSchedule\'s schema to key each Schedule node and work out its next time — in logic/ because time words are kept out of the engine; fireDueSchedules reads nodes through it rather than importing the block itself.',
     'src/features/flows/logic/scheduleTimes.ts':
         'Residual: takes triggerSchedule\'s config type and its table of interval lengths — the time math is the block\'s own rules, kept in logic/ so the block-dependents check can see the import.',
+    'src/web/api/staleBuilderGraph.ts':
+        'Temporary: a one-deploy bridge refusing saves from builder tabs older than actionPostEmbed\'s reshape to one `message` (2026-10-24 migration). Remove both together once no tab can predate it.',
 };
 
 /**

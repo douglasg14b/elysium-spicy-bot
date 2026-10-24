@@ -37,8 +37,11 @@ import type { PreviewPage, SeedContext } from './seedScenario';
 const STAFF_PERMISSIONS = { view: true, send: true, readHistory: true, manageMessages: true };
 const PARTICIPANT_PERMISSIONS = { view: true, send: true, readHistory: true, manageMessages: false };
 
-/** A long label on purpose — the config page's type table and the list's type badge both need one to stress. */
-const LONG_TYPE_LABEL = 'Immediate Safety & Consent Escalation — Staff Only, No Waiting Queue';
+/**
+ * A long label on purpose — the config page's type table and the list's type badge both need
+ * one to stress. At the 45-character cap the type route holds a label to, not past it.
+ */
+const LONG_TYPE_LABEL = 'Safety & Consent Escalation — Staff Only, Now';
 
 /** A type key this guild's config never declares, for the "row older than its type" state `getTicketTypeDefinition` documents. */
 const LEGACY_TYPE: TicketTypeDefinition = {

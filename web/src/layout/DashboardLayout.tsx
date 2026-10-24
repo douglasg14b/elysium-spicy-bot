@@ -25,6 +25,7 @@ import {
     IconCheck,
     IconChevronDown,
     IconLogout,
+    IconPhoto,
     IconSelector,
     IconSettings,
 } from '@tabler/icons-react';
@@ -51,6 +52,8 @@ const NAV: NavEntry[] = [
     { label: 'Tickets', to: '/tickets', icon: <IconTicket size={18} /> },
     { label: 'Birthdays', to: '/birthdays', icon: <IconCake size={18} /> },
     { label: 'Flows', to: '/flows', icon: <IconBolt size={18} />, isNew: true },
+    // Beside Flows because flows are what use the pictures; it is where a full server makes room.
+    { label: 'Uploads', to: '/uploads', icon: <IconPhoto size={18} />, isNew: true },
     // No Journeys entry: a journey is a scope flows are grouped into on the Flows page,
     // not a destination (PRD §5.8). One was added here and removed.
     // Last in "Configure" on purpose: everything above configures one feature, this

@@ -46,3 +46,14 @@ export function formatTimestampWithYear(iso: string): string {
     if (Number.isNaN(date.getTime())) return '—';
     return date.toLocaleDateString(undefined, { ...LIST_PARTS, year: 'numeric' });
 }
+
+/**
+ * The day alone — "24 Oct" — with the year only when it is not `now`'s. For something whose
+ * time of day says nothing, such as when a picture was uploaded.
+ */
+export function formatDay(iso: string, now: Date = new Date()): string {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return '—';
+    const sameYear = date.getFullYear() === now.getFullYear();
+    return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) });
+}

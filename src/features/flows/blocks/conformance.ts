@@ -1,5 +1,5 @@
 import { z, type ZodType } from 'zod';
-import { isCopyField, isVariablePickerField } from '../engine/copyRendering';
+import { carriesCopy, isVariablePickerField } from '../engine/copyRendering';
 import { ELIGIBILITY_CONFIG_KEY, ELIGIBILITY_ENFORCED_SOURCES } from '../engine/eligibility';
 import { FLOW_STEP_OUTCOME_KINDS } from '../engine/stepOutcome';
 import {
@@ -13,6 +13,7 @@ import {
     BLOCK_PALETTE_GROUPS,
     BLOCK_TRIGGER_SOURCES,
     FLOW_CONTEXT_REQUIREMENTS,
+    isObjectValue,
     type BlockConfigColumn,
     type BlockConfigField,
     type BlockConfigOption,
@@ -208,17 +209,23 @@ function checkEmits(label: string, block: Partial<Record<string, unknown>>): rea
 
 /**
  * Whether a field's stored value can be a `{{var}}` rather than the value itself: copy the
- * executor renders, or a picker that takes a variable in place of a choice — asked through
- * the executor's own predicates, so a new token-holding shape is caught here the day it is
- * taught to them.
+ * executor renders — a copy field, a list's copy column, a message — or a picker that takes a
+ * variable in place of a choice. Asked through the executor's own predicates, so a new
+ * token-holding shape is caught here the day it is taught to them.
  */
 function isTokenField(field: unknown): boolean {
-    if (typeof readProperty(field, 'control') !== 'string') {
+    const control = readProperty(field, 'control');
+    const controls: readonly unknown[] = BLOCK_CONTROL_TYPES;
+    // A control outside the vocabulary is reported by `checkVocabulary`. `carriesCopy` reads
+    // a list's columns, so a list whose columns are malformed — reported by
+    // `checkFieldColumns` — is not asked.
+    const columns = readProperty(field, 'columns');
+    const columnsUsable = Array.isArray(columns) && columns.every(isObjectValue);
+    if (!controls.includes(control) || (control === 'objectList' && !columnsUsable)) {
         return false;
     }
-    // A record with a string `control`, which is all the two predicates read.
     const declared = field as BlockConfigField;
-    return isCopyField(declared) || isVariablePickerField(declared);
+    return carriesCopy(declared) || isVariablePickerField(declared);
 }
 
 /**
@@ -859,11 +866,12 @@ function checkVisibleWhenSource(
  * What a control stores, as values its field's schema must take and values it must refuse
  * — for the controls whose stored shape is fixed by the control rather than by the block.
  *
- * A time-of-day control writes `HH:MM` and a days-of-week control writes `'mon'` …
- * `'sun'`, whatever block asks for one. A schema looser than that would save a value the
- * control can never draw (and the reader of the value would have to guess at it); a
- * stricter one would refuse a value the control offers. Probed, like every other schema
- * check here, so the check holds however the schema is written.
+ * A time-of-day control writes `HH:MM`, a days-of-week control writes `'mon'` … `'sun'`,
+ * and a message control writes a message object, whatever block asks for one. A schema
+ * looser than that would save a value the control can never draw (and the reader of the
+ * value would have to guess at it); a stricter one — a message field over a string schema —
+ * would refuse a value the control offers. Probed, like every other schema check here, so
+ * the check holds however the schema is written.
  */
 interface ControlShapeProbes {
     readonly accepts: readonly unknown[];
@@ -885,6 +893,12 @@ function controlShapeProbes(control: unknown): ControlShapeProbes | undefined {
                 accepts: BLOCK_DAY_KEYS.map((day) => [day]),
                 refuses: [['Mon'], ['monday'], ['someday'], 'mon'],
                 description: `a list of the seven day keys, ${BLOCK_DAY_KEYS.map((day) => `'${day}'`).join(', ')}`,
+            };
+        case 'message':
+            return {
+                accepts: [{ embeds: [{ title: 'a' }] }],
+                refuses: [{}, 'x'],
+                description: 'a message object holding an `embeds` list',
             };
         default:
             return undefined;

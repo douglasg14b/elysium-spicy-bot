@@ -6,6 +6,7 @@ import { fieldRuleIssueMessage } from './blockFieldRules';
 import { guildReferenceIssues } from './guildReferences';
 import { pendingResourceFields } from './pendingResourceFields';
 import { collectApplicableResourceTargets } from './resourceTargets';
+import { uploadReferenceIssues, type UploadIndex } from './uploadReferences';
 
 /**
  * Everything standing between a structurally sound graph and a flow that may run.
@@ -86,21 +87,32 @@ export function flowReadinessIssues(
 }
 
 /**
- * {@link flowReadinessIssues}, plus what is wrong with the graph's picked ids in the server
- * the flow belongs to ({@link guildReferenceIssues}).
+ * {@link flowReadinessIssues}, plus what is wrong with the graph's picked ids
+ * ({@link guildReferenceIssues}) and its uploaded pictures ({@link uploadReferenceIssues}) in
+ * the server the flow belongs to.
  *
  * What every caller holding the flow's guild asks — the routes, the flows list, deploy —
  * so the builder's marks, the list's count, the switch-on refusal and deploy cannot
- * disagree about a picked channel that is not in the server. An issue here is an ordinary
- * readiness issue: a switched-off flow stores the graph as unfinished, a live flow's save
- * goes to the saver's draft, and switching on and deploying are refused.
+ * disagree about a picked channel or an upload that is not in the server. An issue here is
+ * an ordinary readiness issue: a switched-off flow stores the graph as unfinished, a live
+ * flow's save goes to the saver's draft, and switching on and deploying are refused.
+ *
+ * Synchronous, because it is asked inside `flowsRepo.mutate`'s transaction. So the uploads
+ * arrive as an index the caller awaited first (`loadUploadIndex`), outside any transaction.
+ *
+ * @param uploads - Loaded for this graph, among others; it throws otherwise.
  */
 export function flowReadinessIssuesInGuild(
     graph: FlowGraph,
     declaredKeys: ReadonlySet<string>,
-    guild: Guild
+    guild: Guild,
+    uploads: UploadIndex
 ): readonly FlowValidationIssue[] {
-    return [...flowReadinessIssues(graph, declaredKeys), ...guildReferenceIssues(graph, guild)];
+    return [
+        ...flowReadinessIssues(graph, declaredKeys),
+        ...guildReferenceIssues(graph, guild),
+        ...uploadReferenceIssues(graph, uploads),
+    ];
 }
 
 /**

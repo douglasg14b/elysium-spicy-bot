@@ -1,11 +1,6 @@
 import { EmbedBuilder } from 'discord.js';
 import { describe, expect, it, vi } from 'vitest';
-import {
-    block as actionPostEmbedNode,
-    hexColorToInt,
-    postEmbedConfigSchema,
-    type PostEmbedConfig,
-} from '../blocks/actionPostEmbed';
+import { block as actionPostEmbedNode, postEmbedConfigSchema, type PostEmbedConfig } from '../blocks/actionPostEmbed';
 import { block as conditionInChannelNode } from '../blocks/conditionInChannel';
 import type { FlowRunContext } from '../blocks/types';
 import { fakeGuild } from './support/fakeGuild';
@@ -113,54 +108,48 @@ describe('action.postEmbed', () => {
     }
 
     /**
-     * A config as the executor hands one over: through the schema, so declared
-     * defaults are applied.
-     *
-     * The literals below are deliberately the *stored* shape — which for most of
-     * these is the shape a graph saved before this block grew fields still holds —
-     * so parsing them here is also the check that such a graph still runs.
+     * A config as the executor hands one over: through the schema, so declared defaults
+     * (`fields`, `inline`, `timestamp`) are applied. `embeds` are given as stored.
      */
-    function parseConfig(stored: Record<string, unknown>): PostEmbedConfig {
-        return postEmbedConfigSchema.parse(stored);
+    function parseConfig(channelId: string, message: Record<string, unknown>): PostEmbedConfig {
+        return postEmbedConfigSchema.parse({ channelId, message });
     }
 
-    it('sends an embed built from the configured title, description and colour', async () => {
+    /** One embed holding a title and a body, plus whatever else a case adds. */
+    function oneEmbed(extra: Record<string, unknown> = {}): Record<string, unknown> {
+        return { embeds: [{ title: 'T', description: 'D', ...extra }] };
+    }
+
+    it('sends the plain text and every embed, with mentions pinned to users', async () => {
         const send = vi.fn().mockResolvedValue({ id: 'message-1' });
-        const context = contextWithChannel(send);
 
         const outcome = await actionPostEmbedNode.run(
-            parseConfig({
-                channelId: CHANNEL_ID,
-                title: 'Spicy News',
-                description: 'The dungeon reopens at midnight.',
-                color: '#00A2FF',
+            parseConfig(CHANNEL_ID, {
+                content: 'Listen up.',
+                embeds: [
+                    { title: 'Spicy News', description: 'The dungeon reopens at midnight.', color: '#00A2FF' },
+                    { description: 'No colour here.' },
+                ],
             }),
-            context
-        );
-
-        expect(outcome).toEqual({ kind: 'continue' });
-
-        expect(send).toHaveBeenCalledTimes(1);
-        const payload = send.mock.calls[0]?.[0] as { embeds: EmbedBuilder[] };
-        expect(payload.embeds).toHaveLength(1);
-
-        const embed = payload.embeds[0];
-        expect(embed).toBeInstanceOf(EmbedBuilder);
-        expect(embed?.data.title).toBe('Spicy News');
-        expect(embed?.data.description).toBe('The dungeon reopens at midnight.');
-        expect(embed?.data.color).toBe(0x00a2ff);
-    });
-
-    it('omits the colour when none is configured', async () => {
-        const send = vi.fn().mockResolvedValue({ id: 'message-1' });
-
-        await actionPostEmbedNode.run(
-            parseConfig({ channelId: CHANNEL_ID, title: 'Plain', description: 'No colour here.' }),
             contextWithChannel(send)
         );
 
-        const payload = send.mock.calls[0]?.[0] as { embeds: EmbedBuilder[] };
-        expect(payload.embeds[0]?.data.color).toBeUndefined();
+        expect(outcome).toEqual({ kind: 'continue' });
+        expect(send).toHaveBeenCalledTimes(1);
+        const payload = send.mock.calls[0]?.[0] as {
+            content: string;
+            embeds: EmbedBuilder[];
+            files: unknown[];
+            allowedMentions: unknown;
+        };
+        expect(payload.content).toBe('Listen up.');
+        expect(payload.embeds.map((embed) => embed.data)).toEqual([
+            { title: 'Spicy News', description: 'The dungeon reopens at midnight.', color: 0x00a2ff },
+            { description: 'No colour here.' },
+        ]);
+        expect(payload.files).toEqual([]);
+        // As Send Message pins them: the plain text is copy a member's name can reach.
+        expect(payload.allowedMentions).toEqual({ parse: ['users'] });
     });
 
     it("never posts into a channel that is not in the run's own server, though the bot can see it", async () => {
@@ -176,10 +165,7 @@ describe('action.postEmbed', () => {
         };
 
         await expect(
-            actionPostEmbedNode.run(
-                parseConfig({ channelId: 'another-servers-channel', title: 'T', description: 'D' }),
-                context
-            )
+            actionPostEmbedNode.run(parseConfig('another-servers-channel', oneEmbed()), context)
         ).rejects.toThrow(/not a sendable text channel in this server/);
         expect(clientFetch).not.toHaveBeenCalled();
         expect(send).not.toHaveBeenCalled();
@@ -192,36 +178,30 @@ describe('action.postEmbed', () => {
             guild: fakeGuild({ uncachedChannels: { 'archived-thread': { send } } }),
         };
 
-        await actionPostEmbedNode.run(
-            parseConfig({ channelId: 'archived-thread', title: 'T', description: 'D' }),
-            context
-        );
+        await actionPostEmbedNode.run(parseConfig('archived-thread', oneEmbed()), context);
         expect(send).toHaveBeenCalledTimes(1);
     });
 
-    it('converts a hex colour string to the integer discord.js expects', () => {
-        expect(hexColorToInt('#00A2FF')).toBe(0x00a2ff);
-        expect(hexColorToInt('#000000')).toBe(0);
-        expect(hexColorToInt('#ffffff')).toBe(0xffffff);
-    });
-
-    it('builds the fields and flat scalars an author configured', async () => {
+    it('builds every part of an embed an author configured, linked pictures included', async () => {
         const send = vi.fn().mockResolvedValue({ id: 'message-1' });
 
         await actionPostEmbedNode.run(
-            parseConfig({
-                channelId: CHANNEL_ID,
-                title: 'House Rules',
-                description: 'Read them.',
-                url: 'https://example.com/rules',
-                authorName: 'The Management',
-                imageUrl: 'https://example.com/banner.png',
-                thumbnailUrl: 'https://example.com/icon.png',
-                footerText: 'Behave yourselves.',
-                showTimestamp: 'true',
-                fields: [
-                    { name: 'Safewords', value: 'Red means stop.', inline: true },
-                    { name: 'Consent', value: 'Enthusiastic, or not at all.' },
+            parseConfig(CHANNEL_ID, {
+                embeds: [
+                    {
+                        title: 'House Rules',
+                        description: 'Read them.',
+                        url: 'https://example.com/rules',
+                        author: { name: 'The Management', iconUrl: 'https://example.com/boss.png' },
+                        image: 'https://example.com/banner.png',
+                        thumbnail: 'https://example.com/icon.png',
+                        footer: { text: 'Behave yourselves.', iconUrl: 'https://example.com/foot.png' },
+                        timestamp: true,
+                        fields: [
+                            { name: 'Safewords', value: 'Red means stop.', inline: true },
+                            { name: 'Consent', value: 'Enthusiastic, or not at all.' },
+                        ],
+                    },
                 ],
             }),
             contextWithChannel(send)
@@ -231,10 +211,10 @@ describe('action.postEmbed', () => {
         const embed = payload.embeds[0]?.data;
 
         expect(embed?.url).toBe('https://example.com/rules');
-        expect(embed?.author?.name).toBe('The Management');
+        expect(embed?.author).toEqual({ name: 'The Management', icon_url: 'https://example.com/boss.png' });
         expect(embed?.image?.url).toBe('https://example.com/banner.png');
         expect(embed?.thumbnail?.url).toBe('https://example.com/icon.png');
-        expect(embed?.footer?.text).toBe('Behave yourselves.');
+        expect(embed?.footer).toEqual({ text: 'Behave yourselves.', icon_url: 'https://example.com/foot.png' });
         expect(embed?.timestamp).toEqual(expect.any(String));
         // `inline` defaults to false rather than being left absent, so the two
         // rows differ in the one way the author actually set.
@@ -257,13 +237,16 @@ describe('action.postEmbed', () => {
         const send = vi.fn().mockResolvedValue({ id: 'message-1' });
 
         const outcome = await actionPostEmbedNode.run(
-            parseConfig({
-                channelId: CHANNEL_ID,
-                title: 'T',
-                description: 'D',
-                fields: [
-                    { name: 'Fine', value: 'Also fine.' },
-                    { name: 'Blank', value: '   ' },
+            parseConfig(CHANNEL_ID, {
+                embeds: [
+                    { title: 'First' },
+                    {
+                        title: 'T',
+                        fields: [
+                            { name: 'Fine', value: 'Also fine.' },
+                            { name: 'Blank', value: '   ' },
+                        ],
+                    },
                 ],
             }),
             contextWithChannel(send)
@@ -271,36 +254,111 @@ describe('action.postEmbed', () => {
 
         expect(outcome).toEqual({
             kind: 'fail',
-            // One-based, matching the form the author is looking at.
-            error: expect.stringContaining('Field 2'),
+            // One-based, matching the editor the author is looking at.
+            error: expect.stringContaining('"Message" embed 2 field 2'),
         });
         expect(send).not.toHaveBeenCalled();
     });
 
     /**
-     * The one limit no single field can carry, and the reason it is checked in
-     * `run` rather than in the schema: every part here is comfortably within its
-     * own cap, and only the total is over.
+     * A part whose whole text was a token that came out empty. The payload builder leaves an
+     * empty title off rather than send it, which would leave Discord an embed with nothing in
+     * it — refused with a 400 nobody can act on.
      */
-    it('fails naming the total when the whole embed exceeds Discord 6000 characters', async () => {
+    it('fails naming the embed when every part of it rendered to nothing', async () => {
         const send = vi.fn().mockResolvedValue({ id: 'message-1' });
+        const rendered: PostEmbedConfig = {
+            channelId: CHANNEL_ID,
+            message: { embeds: [{ title: '', fields: [], timestamp: false }] },
+        };
 
-        const outcome = await actionPostEmbedNode.run(
-            parseConfig({
-                channelId: CHANNEL_ID,
-                title: 'T',
-                description: 'd'.repeat(4000),
-                fields: Array.from({ length: 3 }, (_entry, index) => ({
-                    name: `Field ${index}`,
-                    value: 'v'.repeat(1000),
-                })),
-            }),
-            contextWithChannel(send)
-        );
+        const outcome = await actionPostEmbedNode.run(rendered, contextWithChannel(send));
+
+        expect(outcome).toEqual({ kind: 'fail', error: expect.stringMatching(/tokens were filled in.*Embed 1 is empty/) });
+        expect(send).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Parts whose tokens came out as nothing but blank space. Sent as they are, Discord
+     * refuses the message with a 400 naming `content` or `embeds.0.title` and nothing an
+     * author can act on; left out, the message's own rules say what that leaves.
+     */
+    it('fails in the product’s words when every part came out as blank space', async () => {
+        const send = vi.fn().mockResolvedValue({ id: 'message-1' });
+        const rendered: PostEmbedConfig = { channelId: CHANNEL_ID, message: { content: ' \n ', embeds: [] } };
+
+        const outcome = await actionPostEmbedNode.run(rendered, contextWithChannel(send));
 
         expect(outcome).toEqual({
             kind: 'fail',
-            error: expect.stringContaining('6000'),
+            error: "Once its tokens were filled in: This message is empty. Give it some plain text or an embed — Discord won't post nothing.",
+        });
+        expect(send).not.toHaveBeenCalled();
+    });
+
+    it('leaves out a footer whose text came out blank, and says its icon has nothing beside it', async () => {
+        const send = vi.fn().mockResolvedValue({ id: 'message-1' });
+        const rendered: PostEmbedConfig = {
+            channelId: CHANNEL_ID,
+            message: {
+                embeds: [
+                    {
+                        title: 'T',
+                        footer: { text: '   ', iconUrl: 'https://example.com/foot.png' },
+                        fields: [],
+                        timestamp: false,
+                    },
+                ],
+            },
+        };
+
+        const outcome = await actionPostEmbedNode.run(rendered, contextWithChannel(send));
+
+        expect(outcome).toEqual({ kind: 'fail', error: expect.stringContaining("Embed 1's footer needs some text") });
+        expect(send).not.toHaveBeenCalled();
+    });
+
+    it('sends text parts trimmed of the blank space their tokens left around them', async () => {
+        const send = vi.fn().mockResolvedValue({ id: 'message-1' });
+        const rendered: PostEmbedConfig = {
+            channelId: CHANNEL_ID,
+            message: {
+                content: '  Kneel.  ',
+                embeds: [{ title: ' Rules ', description: '\nBehave.\n', fields: [], timestamp: false }],
+            },
+        };
+
+        await actionPostEmbedNode.run(rendered, contextWithChannel(send));
+
+        const payload = send.mock.calls[0]?.[0] as { content: string; embeds: EmbedBuilder[] };
+        expect(payload.content).toBe('Kneel.');
+        expect(payload.embeds.map((embed) => embed.data)).toEqual([{ title: 'Rules', description: 'Behave.' }]);
+    });
+
+    /**
+     * The one limit no single field can carry. A save refuses the words an author wrote
+     * when they are over on their own; this is the rest — tokens that came out long, which
+     * only a run can count. Every part here is comfortably within its own cap, and only
+     * the total is over.
+     */
+    it('fails naming the total when the embeds together came out over Discord 6000 characters', async () => {
+        const send = vi.fn().mockResolvedValue({ id: 'message-1' });
+        // As rendered: two `{{var.essay}}` bodies that filled in long.
+        const rendered: PostEmbedConfig = {
+            channelId: CHANNEL_ID,
+            message: {
+                embeds: [
+                    { title: 'T', description: 'd'.repeat(4000), fields: [], timestamp: false },
+                    { title: 'U', description: 'd'.repeat(2000), fields: [], timestamp: false },
+                ],
+            },
+        };
+
+        const outcome = await actionPostEmbedNode.run(rendered, contextWithChannel(send));
+
+        expect(outcome).toEqual({
+            kind: 'fail',
+            error: expect.stringMatching(/tokens were filled in.*6002 characters.*6000/),
         });
         // Nothing is posted: a partially-trimmed embed would read as the flow
         // being broken rather than as the embed being too long.

@@ -1,6 +1,7 @@
 import { ChannelType, OverwriteType, RESTJSONErrorCodes, type RESTOptions } from 'discord.js';
 import { z } from 'zod';
 import { createMessageSchema, editMessageSchema } from './messageSchemas';
+import type { MessageFile } from './messageState';
 import type { ServerState } from './serverState';
 import { TestDiscordError } from './testDiscordError';
 
@@ -30,8 +31,10 @@ export interface RecordedRequest {
     readonly path: string;
     /** The query string's parameters. Absent when the request carried none. */
     readonly query?: Readonly<Record<string, string>>;
-    /** The parsed JSON body, or undefined when none was sent. */
+    /** The parsed JSON body — a multipart request's `payload_json` — or undefined when none was sent. */
     readonly body: unknown;
+    /** The files a multipart request uploaded, in form order. Absent when it sent none. */
+    readonly files?: readonly MessageFile[];
     /** What the harness answered with. Absent when the request hit a harness gap. */
     readonly status?: number;
 }
@@ -162,7 +165,13 @@ interface Route {
      * Parse and check the request without changing anything, and return the write it
      * describes. Throws on anything the harness does not model.
      */
-    prepare(state: ServerState, params: RouteParams, rawBody: unknown, rawQuery: URLSearchParams): PreparedWrite;
+    prepare(
+        state: ServerState,
+        params: RouteParams,
+        rawBody: unknown,
+        rawQuery: URLSearchParams,
+        files: readonly MessageFile[]
+    ): PreparedWrite;
 }
 
 interface RouteDefinition<Body, Query> {
@@ -173,9 +182,11 @@ interface RouteDefinition<Body, Query> {
      * none: any query parameter at all faults, like an unmodelled body field.
      */
     readonly query?: z.ZodType<Query>;
+    /** Whether the route takes uploaded files. Absent means none: a multipart request faults. */
+    readonly takesFiles?: true;
     /** Every refusal beyond the schema. Reads state only; throws to refuse. */
-    validate?(state: ServerState, params: RouteParams, body: Body, query: Query): void;
-    apply(state: ServerState, params: RouteParams, body: Body, query: Query): RouteResponse;
+    validate?(state: ServerState, params: RouteParams, body: Body, query: Query, files: readonly MessageFile[]): void;
+    apply(state: ServerState, params: RouteParams, body: Body, query: Query, files: readonly MessageFile[]): RouteResponse;
 }
 
 /**
@@ -190,7 +201,10 @@ interface RouteDefinition<Body, Query> {
 function defineRoute<Body, Query = undefined>(definition: RouteDefinition<Body, Query>): Route {
     return {
         key: definition.key,
-        prepare(state, params, rawBody, rawQuery) {
+        prepare(state, params, rawBody, rawQuery, files) {
+            if (files.length > 0 && !definition.takesFiles) {
+                throw new TestDiscordError(`TestDiscord's handler for ${definition.key} does not model uploaded files.`);
+            }
             const parsed = definition.schema.safeParse(rawBody);
             if (!parsed.success) {
                 throw new TestDiscordError(
@@ -199,8 +213,8 @@ function defineRoute<Body, Query = undefined>(definition: RouteDefinition<Body, 
             }
             const body = parsed.data;
             const query = parseQuery(definition, rawQuery);
-            definition.validate?.(state, params, body, query);
-            return () => definition.apply(state, params, body, query);
+            definition.validate?.(state, params, body, query, files);
+            return () => definition.apply(state, params, body, query, files);
         },
     };
 }
@@ -439,13 +453,15 @@ const ROUTES: readonly Route[] = [
          */
         key: 'POST /channels/:channelId/messages',
         schema: createMessageSchema,
+        // Multipart when the message carries files — see `ServerMessages` on what is modelled.
+        takesFiles: true,
         // A thread takes a message exactly as a text channel does.
-        validate(state, params, body) {
-            if (state.hasMessageChannel(params.channelId)) state.messages.checkSend(params.channelId, body);
+        validate(state, params, body, _query, files) {
+            if (state.hasMessageChannel(params.channelId)) state.messages.checkSend(params.channelId, body, files);
         },
-        apply(state, params, body) {
+        apply(state, params, body, _query, files) {
             if (!state.hasMessageChannel(params.channelId)) return unknownChannel();
-            return { status: 200, body: state.messages.send(params.channelId, body) };
+            return { status: 200, body: state.messages.send(params.channelId, body, files) };
         },
     }),
     defineRoute({
@@ -567,14 +583,45 @@ function apiPath(url: string): string {
     return new URL(url).pathname.replace(/^\/api\/v\d+/, '');
 }
 
-function parseBody(body: unknown, method: string, path: string): unknown {
-    if (body === undefined || body === null) return undefined;
-    if (typeof body !== 'string') {
-        throw new TestDiscordError(
-            `TestDiscord received a non-JSON body for ${method} ${path}. Multipart uploads are not modelled.`
-        );
+/** A request body as the routes read it: the JSON, and any files uploaded beside it. */
+interface ParsedBody {
+    readonly body: unknown;
+    readonly files: readonly MessageFile[];
+}
+
+/** `files[n]`, the key `@discordjs/rest` gives the n-th file of a multipart request. */
+const FILE_PART = /^files\[(\d+)\]$/;
+
+/**
+ * The body as it crossed the wire: a JSON string, or — for a request carrying files — the
+ * `FormData` `@discordjs/rest` builds, holding the JSON as `payload_json` and each file as
+ * `files[n]`. Any other part, or any other kind of body, faults.
+ */
+async function parseBody(body: unknown, method: string, path: string): Promise<ParsedBody> {
+    if (body === undefined || body === null) return { body: undefined, files: [] };
+    if (typeof body === 'string') return { body: JSON.parse(body), files: [] };
+    if (!(body instanceof FormData)) {
+        throw new TestDiscordError(`TestDiscord received a body for ${method} ${path} that is neither JSON nor a form.`);
     }
-    return JSON.parse(body);
+
+    let payload: unknown;
+    const files: MessageFile[] = [];
+    for (const [key, value] of body.entries()) {
+        const file = FILE_PART.exec(key);
+        if (key === 'payload_json' && typeof value === 'string') {
+            payload = JSON.parse(value);
+        } else if (file?.[1] !== undefined && typeof value !== 'string') {
+            files.push({
+                index: Number(file[1]),
+                name: value.name,
+                contentType: value.type,
+                bytes: Buffer.from(await value.arrayBuffer()),
+            });
+        } else {
+            throw new TestDiscordError(`TestDiscord received a form part "${key}" for ${method} ${path}, which is not modelled.`);
+        }
+    }
+    return { body: payload, files };
 }
 
 function jsonResponse(status: number, payload: unknown): Response {
@@ -602,14 +649,15 @@ function answer(
     method: string,
     path: string,
     rawBody: unknown,
-    rawQuery: URLSearchParams
+    rawQuery: URLSearchParams,
+    files: readonly MessageFile[]
 ): { status: number; response: Response } {
     for (const route of ROUTES) {
         const params = matchRoute(route, method, path);
         if (!params) continue;
 
         // Checked first, so an unmodelled request is loud even on a channel told to refuse.
-        const write = route.prepare(state, params, rawBody, rawQuery);
+        const write = route.prepare(state, params, rawBody, rawQuery, files);
 
         const rateLimit = params.guildId ? state.takeRateLimit(params.guildId, route.key) : undefined;
         if (rateLimit) {
@@ -629,6 +677,11 @@ function answer(
     }
 
     throw new TestDiscordError(`TestDiscord has no handler for ${method} ${path}.`);
+}
+
+/** A parsed body as a {@link RecordedRequest} carries it: `files` only when there were some. */
+function recordedBody({ body, files }: ParsedBody): Pick<RecordedRequest, 'body' | 'files'> {
+    return files.length > 0 ? { body, files } : { body };
 }
 
 /** A response as `@discordjs/rest` types what `makeRequest` resolves with. */
@@ -663,17 +716,18 @@ export function createRestTransport(
         const path = apiPath(url);
         const searchParams = new URL(url).searchParams;
         const query = searchParams.size > 0 ? { query: Object.fromEntries(searchParams) } : {};
-        let body: unknown;
+        let parsed: ParsedBody = { body: undefined, files: [] };
 
         try {
-            body = parseBody(init.body, method, path);
-            const { status, response } = deferral.deferDuring(() => answer(state, method, path, body, searchParams));
-            log.requests.push({ method, path, ...query, body, status });
+            parsed = await parseBody(init.body, method, path);
+            const { body, files } = parsed;
+            const { status, response } = deferral.deferDuring(() => answer(state, method, path, body, searchParams, files));
+            log.requests.push({ method, path, ...query, ...recordedBody(parsed), status });
             return asRestResponse(response);
         } catch (error) {
             // Every throw here is the harness's own — a gap in what it models, or a request
             // it refuses to guess at — never a Discord answer, which is always a response.
-            log.requests.push({ method, path, ...query, body });
+            log.requests.push({ method, path, ...query, ...recordedBody(parsed) });
             log.faults.push(error instanceof Error ? error : new TestDiscordError(String(error)));
             throw error;
         }

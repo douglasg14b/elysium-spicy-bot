@@ -1,6 +1,7 @@
 import { screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { BlockConfigField } from '@brattybot/web-sdk';
+import { NO_UPLOADS } from '../../../__tests__/support/noUploads';
 import { renderWithProviders } from '../../../__tests__/support/renderWithProviders';
 import { ALL_REQUIREMENTS_AVAILABLE, type AvailableVariable } from '../../variables';
 import { ChannelPickerControl } from '../PickerControls';
@@ -38,6 +39,7 @@ function renderPicker(options: { variables: AvailableVariable[]; value?: string;
         requirements: ALL_REQUIREMENTS_AVAILABLE,
         declaredResources: [],
         setConfigKey,
+        uploads: NO_UPLOADS,
     };
 
     const rendered = renderWithProviders(

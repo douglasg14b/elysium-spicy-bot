@@ -296,6 +296,7 @@ only renders** — never the other way round.
 | `variableSelect` | a bare variable name | one variable an earlier block records, picked by name. `valueKind` narrows it to one kind; leave it off to take any variable. See [Reading a variable by name](#reading-a-variable-by-name). |
 | `timeOfDay` | `HH:MM`, 24-hour | a time of day on the server's clock. Drawn as hour, minute (any minute, searchable) and AM/PM, with the server's zone under it — or the ask to pick one, linking to Server Settings, while none is picked. Conformance holds the schema to the stored shape: it must take `00:00` and `23:59` and refuse `24:00` and `9:00` — `z.string().regex(/^([01]\d\|2[0-3]):[0-5]\d$/, '…')`. |
 | `daysOfWeek` | `BlockDayKey[]` (`'mon'` … `'sun'`) | any of the seven days, offered Monday first as chips and written in week order. The keys are declared once, as `BLOCK_DAY_KEYS` in `blocks/manifest.ts` (mirrored in the browser under the vocabulary drift gate) — build your enum from them. Conformance holds the schema to exactly those seven keys. Its own `defaultValue: readonly string[]`, like `textList`'s. Refuse repeats with `.refine()`, not `uniqueItems`, and sort with a `.transform()` inside the field if order must not matter to you (`trigger.schedule`). |
+| `message` | a message object: `{ content?, embeds }`, up to 10 embeds | a whole Discord message — plain text above, embeds with header and footer icons, fields, thumbnail and image — edited in its own window, since the inspector is too narrow to draw an embed. Build the schema from `messageConfigSchema` in `src/shared/discordMessage/`, never by hand: its picture parts take `upload:<id>`, an http(s) link or a token, and its `superRefine` holds the rules that span parts (an empty message or embed, an icon with no text beside it, Discord's 6000 characters counted outside tokens). `swatches`: the embed colours offered, the first one colouring a new embed. `defaultValue` is schema input and must parse, and an empty message does not — so declare none, as Post Embed does: the window opens on one fresh embed and writes it on the first edit, and an untouched node gets "Fill this in." on Save. Always copy — there is no `rendersTokens` to forget (see [Copy and `{{tokens}}`](#copy-and-tokens)). Complaints under it (`message.embeds.0.title`) reach the control as `issues`, paths relative to the field: the inspector counts them, and the window marks the part each names. Conformance probes the schema for the stored shape: it must take `{ embeds: [{ title: 'a' }] }` and refuse `{}` and `'x'`. The field exports to the browser as `unchecked`; the window checks each part live against the SDK's `zDiscordMessage`, built from the same `messageShape`. |
 
 ### Fields that only sometimes apply — `visibleWhen`
 
@@ -396,10 +397,9 @@ here.
 
 Three things worth knowing before you declare one:
 
-- **`rendersTokens` works per column**, and the expansion is a *separate walk*
-  from the scalar one. `isCopyField` narrows to the two single-string arms and
-  does not see a column; `copyColumnsOf` is its counterpart, and both the
-  executor and save-time validation use them together.
+- **`rendersTokens` works per column**. `copyLocationsOf` finds each copy
+  column of each row alongside the scalar fields, and both the executor and
+  save-time validation walk by it.
 - **Conformance checks the columns against the schema** (`checkFieldColumns`).
   An entry's keys live inside an array element, so the key-for-key agreement
   between `configFields` and the schema's top level does not reach them — a
@@ -459,6 +459,7 @@ way that field's own `control` already implies:
 | `variableSelect` | the bare variable name |
 | `timeOfDay` | the 12-hour clock: `9:00 AM` |
 | `daysOfWeek` | the days in week order, `Mon, Wed, Fri` — or `Every day` when all seven are picked |
+| `message` | its headline: the first embed's title, else its body, else the plain text, else `2 embeds`. A message with nothing in it reads as unset. Post Embed: `[{ key: 'channelId', emptyText: 'no channel picked' }, { key: 'message', prefix: ' · ', quote: true, truncate: 20, hideWhenEmpty: true }]` → `#rules · "House rules"` |
 
 A part whose field is currently hidden by its `visibleWhen` renders **nothing** — not its
 value, not its `emptyText`, and its `stopIfEmpty` does not cut the line short.
@@ -801,23 +802,33 @@ Available in this slice, and nothing else:
 | --- | --- |
 | `{{subject.mention}}` | A ping for the member the run is about |
 | `{{subject.username}}` | Their username, unpinged |
+| `{{subject.displayName}}` | What the member list calls them: server nickname, else display name, else username |
+| `{{subject.id}}` | Their user id |
+| `{{subject.accountAge}}` | How old their account is, `3 days`, read at render time |
+| `{{subject.avatarUrl}}` | A link to their avatar — never empty, so it is the token a `message` picture takes |
 | `{{actor.mention}}` | Whoever caused this step. **Refused at save after a block that parks, in a parking block's own copy** (rendered again on waking), **and below a trigger that does not say who acted** (Member Leaves) |
 | `{{guild.name}}` | The server's name |
 | `{{var.<name>}}` | A value an earlier block recorded |
 
 The `text` and `longText` arms carry the flag, as do an `objectList`'s `text` and `longText`
-**columns**, and it is **off by default** — which is the right default, because most string
+**columns**. A `message` field carries none: it is always copy — every text part, and every
+picture that is not an upload. Elsewhere the flag is **off by default** — which is the right default, because most string
 fields are not copy: a message id, an emoji, a button label. Turning it on for one of those would
 turn a stray brace into a failed run. Forgetting it on a field that *is* copy is the more visible
 mistake: the braces are posted verbatim.
 
-A column's copy is expanded by a **separate walk** from a field's. `isCopyField` narrows to the
-two single-string arms and cannot see a column; `copyColumnsOf` answers the other half, and the
-executor and `checkCopyTokens` each use both. A failure inside a list names the row an author
-sees — `"Fields" Text on entry 2` — because "the Fields field is wrong" is unactionable on a list
-of twenty.
+Every copy string a node holds — a field, a column of a list row, a part of a message — is found
+by one walk, `copyLocationsOf` (`engine/copyRendering.ts`), which the executor renders by and
+save-time validation (`checkCopyTokens`, the token requirements) checks by. Each location is
+`{ path, where, maxLength, checkRendered? }`; the executor writes a rendered string back at its
+path, copying only the containers on the way. A message's locations come from
+`messageCopyLocations` in `src/shared/discordMessage/`, and a token's requirement is the same
+there as anywhere: `{{subject.mention}}` in embed 3's footer needs a member. A failure names the
+part an author sees — `"Fields" Text on entry 2`, `"Message" embed 2 field 1 text`,
+`"Message" embed 1 footer icon` — because "the Fields field is wrong" is unactionable on a list of
+twenty.
 
-Three things fail rather than degrade, all of them naming the node:
+Four things fail rather than degrade, all of them naming the node:
 
 - a token outside the table above, **rejected when the flow is saved** — except `{{var.<name>}}`,
   which is still accepted on sight. The builder now warns about a name nothing upstream writes,
@@ -826,6 +837,10 @@ Three things fail rather than degrade, all of them naming the node:
 - a `{{var.…}}` nothing recorded by the time your block runs
 - copy that exceeds the field's `maxLength` **once rendered** — which is not the length the
   author typed, since `{{subject.mention}}` is 19 characters that expand to about 22
+- a `message`'s picture whose tokens did not come out as an http(s) link — `upload:<id>`
+  included, so a value read from member text is never attached as an upload. The location
+  carries the rule (`checkRendered`), and the executor asks it right after rendering, the one
+  place that still knows the picture was copy
 
 There is deliberately no expression language, no conditionals, and no formatting. A flow builder
 is not a template engine.
@@ -842,8 +857,9 @@ So a block that sends copy passes an explicit allowlist, never a bare string:
 await channel.send({ content: rendered, allowedMentions: { parse: ['users'] } });
 ```
 
-Use `{ parse: ['users'] }` where `{{subject.mention}}` must still ping the one member it names,
-and `{ parse: [] }` for embed bodies, which have no reason to mention anyone. All three shipped
+Use `{ parse: ['users'] }` where `{{subject.mention}}` must still ping the one member it names —
+Post Embed's plain text above its embeds included — and `{ parse: [] }` where nothing should
+mention anyone. All three shipped
 send paths do this — `action.sendMessage`, `action.sendDM`, `action.postEmbed` — and the test
 helper `__tests__/support/sentCopy.ts` throws on a bare-string payload so a fourth path cannot
 quietly skip it and stay green.
@@ -876,6 +892,21 @@ the switch-on refusal agree. The seed script, which has no Discord client, asks 
 A block that posts resolves its channel the same way at run time, from `context.guild`'s cache
 (`blocks/channelInGuild.ts`) — never `context.client.channels`, which reaches every server the
 bot is in.
+
+`uploadReferenceIssues` (`logic/uploadReferences.ts`) sits beside `guildReferenceIssues`, and
+reports two things: an uploaded picture a
+`message` field shows that this server does not hold — deleted, or copied from another server's
+flow — at the part (`message.embeds.0.image`), and a message showing more than 10 uploads or more
+than `MESSAGE_LIMITS.uploadBytes` of them at `message`. The rules are `messageUploadProblems`
+(`src/shared/discordMessage/`), which Post Embed's `run` asks again. Readiness stays
+synchronous, because it is asked inside `flowsRepo.mutate`'s transaction, so the uploads arrive
+as an `UploadIndex` — `flowReadinessIssuesInGuild`'s fourth argument — that the caller awaits
+first with `loadUploadIndex(guildId, graphs)`, **outside any transaction**: SQLite has one
+connection, and a query inside the transaction waits on it forever. The load makes no query when
+no graph names an upload. An index answers only for the graphs it was loaded for, and judging
+another throws; a caller judging a row that changed since its read asks `uploadIndexCovers`
+first. A new rule that needs the database takes the same shape: load before the transaction,
+judge synchronously.
 
 One rule is neither, because it is not about one graph: **a loop between flows** —
 `findFlowCycleThrough` in `engine/flowCycles.ts`. It is a conflict between a flow and the
@@ -915,7 +946,7 @@ that has not caught up fails by name. It checks, from your declaration alone, th
   well formed — see [Card summary](#card-summary)
 - your `emits` is `[]` on a trigger; each emission names a source in the vocabulary; each
   carried value is exactly `{ value }` or `{ fromField }`; and a `fromField` names one of your
-  own fields that cannot hold a `{{var}}` — not `rendersTokens`, not a picker in
+  own fields that cannot hold a `{{var}}` — not `rendersTokens`, not a `message`, not a picker in
   `PICKER_VALUE_KINDS` — since a written token would compare unequal to everything and hide a
   loop
 
@@ -991,9 +1022,17 @@ whole bot tree into `tsc -b` and break `pnpm build:web` — and each copy carrie
 | `web/src/flows/builtinTokens.ts` | `RENDERABLE_TOKENS` and `TOKEN_REQUIREMENTS` in `engine/copyRendering.ts` | `src/web/api/__tests__/builtinTokenDrift.test.ts` |
 | `REQUIREMENT_ABSENT_WHEN` in `web/src/flows/variables.ts` | `REQUIREMENT_ABSENT_WHEN` in `engine/graphValidation.ts` | `src/web/api/__tests__/builtinTokenDrift.test.ts` |
 | `web/src/flows/ticketChannelName.ts` | `buildTicketChannelNameForType` in `tickets/logic/ticketTypes.ts` | `src/features/tickets/logic/__tests__/ticketChannelNamePreviewDrift.test.ts` |
+| `web/src/flows/messageEditor/messageCharacters.ts` — the message window's 6000-character meter | `MESSAGE_LIMITS.totalCharacters` and `messageCharacterCount(message, 'outsideTokens')` in `src/shared/discordMessage/` | `src/shared/discordMessage/__tests__/messageMeterDrift.test.ts` |
+| `partPath` / `partLabel` in `web/src/flows/messageEditor/messageDraft.ts` — where the window marks a complaint, and what it calls each part | `messageCopyLocations` / `messagePictures` in `src/shared/discordMessage/messageParts.ts` | `src/shared/discordMessage/__tests__/messageMeterDrift.test.ts` |
+
+A message's per-part limits are not on this list: they travel in the spec as `DiscordMessage`
+(`src/web/api/messageBody.ts`), and the window reads its counters and sentences from the SDK's
+`zDiscordMessage` (`messageEditor/partRules.ts`). Only the total spans parts, so only the total is
+copied. Its gate counts token-bearing messages through both, not just the number.
 
 **A gate lives beside its authority, not beside the copy.** The token gates answer to
-something under `src/web/api/`; the channel-name one to the ticketing feature, so it sits there.
+something under `src/web/api/`; the channel-name one to the ticketing feature, so it sits there;
+the message ones to `src/shared/discordMessage/`.
 A gate placed
 beside the browser copy would run in the workspace that cannot import the authority.
 

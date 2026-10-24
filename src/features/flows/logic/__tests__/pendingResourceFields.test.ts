@@ -97,10 +97,10 @@ function requiredPickerFields(): PickerCase[] {
  *
  * Asked of the **schema** rather than of the field declarations, by parsing and
  * filling in whatever it objects to. Guessing from `control` was the first attempt
- * and was wrong in a way worth recording: `action.postEmbed` declares `url`,
- * `imageUrl` and `thumbnailUrl` as `text`, but their schemas are optional *URLs* —
- * so filling every `text` field with a placeholder made a block fail these tests
- * over three fields that were never required in the first place.
+ * and was wrong in a way worth recording: `action.postEmbed`, when it held flat keys,
+ * declared `url`, `imageUrl` and `thumbnailUrl` as `text`, but their schemas were
+ * optional *URLs* — so filling every `text` field with a placeholder made a block fail
+ * these tests over three fields that were never required in the first place.
  *
  * Only fields the schema genuinely demands get a value, and each gets one of the
  * right shape. Anything it still objects to after that is a block this helper does
@@ -166,6 +166,9 @@ function placeholderFor(field: BlockConfigField | undefined): unknown {
             return 'support';
         case 'duration':
             return 1000;
+        case 'message':
+            // The smallest message the rules take: one embed with a title.
+            return { embeds: [{ title: 'x' }] };
         default:
             // Every required field on today's pickers is a snowflake or a line of
             // copy. A block whose required field is neither fails loudly here, which

@@ -380,6 +380,15 @@ const GENERIC_VOCABULARY = [
     // domain-free as `from` and `onto`. The finder's other words are contract words, on
     // the domain list beside `chain`.
     'through',
+    // The one copy walk (`copyLocationsOf` in `engine/copyRendering.ts`): each string a run
+    // fills tokens into, with the path to it — at a config key, in a list's row, or deep in
+    // a message. Where a value sits, on the footing of `path` and `index`. Folds onto no
+    // proven rejection.
+    'location',
+    // The `message` control's shape probe in `blocks/conformance.ts` builds a message with
+    // one titled embed — an object literal's key, which {@link MEMBER} reads as a declared
+    // member. A title is a heading in any codebase. Folds onto no proven rejection.
+    'title',
 ];
 
 /**

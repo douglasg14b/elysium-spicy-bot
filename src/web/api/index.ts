@@ -1,5 +1,8 @@
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import { bodyLimit } from 'hono/body-limit';
+import { createMiddleware } from 'hono/factory';
+import { UPLOAD_BODY_LIMIT_BYTES, UPLOAD_SIZE_LABEL } from '../../features-system/guild-uploads';
+import { MIB } from '../../shared/byteSizes';
 import type { AppEnv } from '../types';
 import { requireAuth, requireGuildAccess } from '../auth/middleware';
 import { dashboardRateLimiter } from '../rateLimit';
@@ -12,6 +15,7 @@ import { journeyRoutes } from './journeyRoutes';
 import { levelingRoutes } from './levelingRoutes';
 import { nodeRoutes } from './nodeRoutes';
 import { ticketRoutes } from './ticketRoutes';
+import { uploadRoutes } from './uploadRoutes';
 
 /**
  * The largest request body any `/api` route accepts: 1 MiB.
@@ -22,20 +26,63 @@ import { ticketRoutes } from './ticketRoutes';
  * character takes three bytes. The seeded onboarding flow, with a 2000-character welcome DM,
  * is 2.8 KB.
  */
-export const API_BODY_LIMIT_BYTES = 1024 * 1024;
+export const API_BODY_LIMIT_BYTES = MIB;
 
 /** What a body over {@link API_BODY_LIMIT_BYTES} is told. */
 export const BODY_TOO_LARGE_SENTENCE = 'That body is way too much for me to take in one go. Trim it down and try again.';
 
+/** What a picture over {@link UPLOAD_BODY_LIMIT_BYTES} is told. */
+export const UPLOAD_TOO_LARGE_SENTENCE = `That picture is a bit too much, even for me. ${UPLOAD_SIZE_LABEL} or less, please.`;
+
+/** What a picture upload sent without a declared length is told. */
+export const UPLOAD_LENGTH_REQUIRED_SENTENCE =
+    "Tell me how big that picture is first (Content-Length). I don't take mystery packages.";
+
+/** The one route whose body is a picture: `POST /api/guilds/{guildId}/uploads`. */
+const UPLOAD_PATH = /^\/api\/guilds\/[^/]+\/uploads$/;
+
 /**
- * The cap on every `/api` body. Answers the 413 itself rather than throwing: the default
- * throws a plain-text one, which the root error handler would pass on as it is instead of
- * in the API's envelope.
+ * Every body but a picture's: read up to {@link API_BODY_LIMIT_BYTES} and no further. Answers
+ * its 413 itself rather than throwing: the default throws a plain-text one, which the root
+ * error handler would pass on as it is instead of in the API's envelope.
  */
-export const apiBodyLimit = bodyLimit({
+const defaultBodyLimit = bodyLimit({
     maxSize: API_BODY_LIMIT_BYTES,
     onError: (c) => c.json({ error: BODY_TOO_LARGE_SENTENCE }, 413),
 });
+
+/**
+ * A picture's body is judged by its declared length alone, and never read here.
+ *
+ * Not `bodyLimit`: given a body with no length, that reads it into memory up to the cap
+ * before passing it on, and this runs before the session check — so anyone, signed in or
+ * not, could have the server hold 8 MiB per open connection. Instead a picture must declare
+ * its length (a browser always does for a `Blob` or `File`, and the SDK's call sends one), a
+ * declared length over {@link UPLOAD_BODY_LIMIT_BYTES} is refused unread, and Node's parser
+ * stops the handler's read at the declared length.
+ */
+const uploadLengthLimit = createMiddleware<AppEnv>(async (c, next) => {
+    const declared = c.req.header('content-length');
+    if (!declared || !/^\d+$/.test(declared) || c.req.header('transfer-encoding') !== undefined) {
+        return c.json({ error: UPLOAD_LENGTH_REQUIRED_SENTENCE }, 411);
+    }
+    if (Number(declared) > UPLOAD_BODY_LIMIT_BYTES) {
+        return c.json({ error: UPLOAD_TOO_LARGE_SENTENCE }, 413);
+    }
+    await next();
+});
+
+/**
+ * The cap on every `/api` body: {@link UPLOAD_BODY_LIMIT_BYTES} for a picture upload,
+ * {@link API_BODY_LIMIT_BYTES} for everything else.
+ *
+ * One middleware that picks the cap, rather than a second limit on the upload route: both
+ * would run, and the smaller would refuse every picture over 1 MiB. Chosen by method and path
+ * alone, before anything reads the body.
+ */
+export const apiBodyLimit = createMiddleware<AppEnv>((c, next) =>
+    c.req.method === 'POST' && UPLOAD_PATH.test(c.req.path) ? uploadLengthLimit(c, next) : defaultBodyLimit(c, next)
+);
 
 /**
  * Registers all JSON API routes under /api.
@@ -48,9 +95,10 @@ export const apiBodyLimit = bodyLimit({
  * request but logout is then counted against the signed-in user's budgets (`rateLimit.ts`),
  * which is why `AUTHED_ERRORS` declares a 429 and `SESSION_ERRORS` does not.
  *
- * Every body is capped at {@link API_BODY_LIMIT_BYTES} before anything else runs, authed or
- * not. One that declares its length is refused unread; one sent without a length is read up
- * to the cap and no further.
+ * Every body is capped before anything else runs, authed or not ({@link apiBodyLimit}). A
+ * picture upload must declare its length, up to {@link UPLOAD_BODY_LIMIT_BYTES}, and is never
+ * read here. Any other body is capped at {@link API_BODY_LIMIT_BYTES}: one that declares its
+ * length is refused unread, one sent without a length is read up to the cap and no further.
  *
  * `app` is an `OpenAPIHono` because a parent collects the OpenAPI definitions of the
  * routers mounted on it only if it is one itself (see `openApi.ts`). The spec is built
@@ -101,6 +149,9 @@ export function registerApiRoutes(app: OpenAPIHono<AppEnv>): void {
     // A member's XP is moderator-facing data in a guild the caller already administers, so
     // it is the existing tier rather than a second authorization concept.
     app.route('/api/guilds', levelingRoutes());
+    // Uploaded pictures — the one route whose body may pass 1 MiB (see `apiBodyLimit`). Same
+    // prefix again, so `requireGuildAccess` above authorizes it and the router adds nothing.
+    app.route('/api/guilds', uploadRoutes());
 
     // Node catalogue for the builder palette — authed, but not guild-scoped.
     app.use('/api/nodes', requireAuth);

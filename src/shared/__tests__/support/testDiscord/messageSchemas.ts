@@ -6,7 +6,7 @@ import { z } from 'zod';
  * routes parse theirs.
  *
  * Narrower than what Discord accepts, on purpose: embeds carry only the members an
- * `EmbedBuilder` has been seen to send here, and components only action rows of
+ * `EmbedBuilder` has been seen to send here (Post Embed's every part, author `url` aside), and components only action rows of
  * custom-id buttons. A new member in the product's output is a new behaviour to model,
  * and a strict schema is what makes it announce itself instead of being stored and
  * forgotten.
@@ -18,12 +18,23 @@ import { z } from 'zod';
 
 const snowflake = z.string().regex(/^\d{17,20}$/);
 
+/**
+ * A picture or link on an embed, as `EmbedBuilder` sends it: a plain string, which may be an
+ * `attachment://<name>` naming a file the same request uploads. Which names are allowed is
+ * the message's to check, against its files (`ServerMessages.checkSend`).
+ */
+const embedLink = z.string().min(1);
+
 const embedSchema = z.strictObject({
     title: z.string().max(256).optional(),
     description: z.string().max(4096).optional(),
+    url: embedLink.optional(),
     color: z.number().int().min(0).max(0xffffff).optional(),
     timestamp: z.iso.datetime().optional(),
-    footer: z.strictObject({ text: z.string().max(2048) }).optional(),
+    author: z.strictObject({ name: z.string().max(256), icon_url: embedLink.optional() }).optional(),
+    thumbnail: z.strictObject({ url: embedLink }).optional(),
+    image: z.strictObject({ url: embedLink }).optional(),
+    footer: z.strictObject({ text: z.string().max(2048), icon_url: embedLink.optional() }).optional(),
     fields: z
         .array(
             z.strictObject({
@@ -69,6 +80,11 @@ const allowedMentionsSchema = z.strictObject({
     replied_user: z.boolean().optional(),
 });
 
+/**
+ * A message create. With files, discord.js sends it multipart — this as `payload_json`, each
+ * file as `files[n]` — and lists one `attachments` entry per file, its `id` the file's index.
+ * It sends no `description` unless one was given, and nothing here gives one.
+ */
 export const createMessageSchema = z.strictObject({
     content: z.string().max(2000).optional(),
     tts: z.literal(false),
@@ -76,6 +92,10 @@ export const createMessageSchema = z.strictObject({
     embeds: z.array(embedSchema).max(10).optional(),
     components: z.array(actionRowSchema).max(5).optional(),
     allowed_mentions: allowedMentionsSchema.optional(),
+    attachments: z
+        .array(z.strictObject({ id: z.string().regex(/^\d+$/) }))
+        .max(10)
+        .optional(),
 });
 
 /**

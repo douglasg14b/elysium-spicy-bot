@@ -7,6 +7,8 @@ import {
     type VariablePickerControl,
 } from '../blocks/manifest';
 import type { FlowRunSeed, FlowVariableValue } from '../blocks/types';
+import { COPY_TOKEN_PATTERN } from '../../../shared/copyTokens';
+import { messageCopyLocations } from '../../../shared/discordMessage/messageParts';
 import { formatElapsed } from '../../../utils/formatElapsed';
 
 /**
@@ -34,19 +36,13 @@ import { formatElapsed } from '../../../utils/formatElapsed';
 const VARIABLE_NAMESPACE = 'var';
 
 /**
- * Everything `{{…}}` could contain, matched permissively on purpose.
- *
- * Deliberately **not** narrowed to the tokens that resolve: an unknown token has
- * to be *seen* in order to be rejected by name. A pattern matching only valid
- * tokens would leave `{{subject.foo}}` as ordinary text, which would then be sent
- * to a member with its braces intact — the one outcome this module exists to
- * prevent.
- *
- * Inner whitespace is tolerated (`{{ subject.mention }}`) because an author will
- * type it and a renderer that silently ignored such a token would be reported as
- * a bug in the feature rather than in the copy.
+ * Everything `{{…}}` could contain, matched permissively on purpose — see
+ * `COPY_TOKEN_PATTERN` in `src/shared/copyTokens.ts`, which also tells a message's
+ * pictures that hold a token from those that are links. A renderer that silently
+ * ignored a token it did not recognise would send the braces to a member: the one
+ * outcome this module exists to prevent.
  */
-const TOKEN_PATTERN = /\{\{\s*([^{}]*?)\s*\}\}/g;
+const TOKEN_PATTERN = COPY_TOKEN_PATTERN;
 
 /** How a resolvable non-variable token reads its value off the run. */
 type TokenResolver = (context: FlowRunSeed) => string | undefined;
@@ -336,105 +332,180 @@ export function describeVocabulary(): string {
     return `You can use ${RENDERABLE_TOKENS.map((token) => `{{${token}}}`).join(', ')}, or {{var.name}} for a value an earlier block recorded.`;
 }
 
-/**
- * Whether a field's value is authored copy whose tokens get expanded.
- *
- * Lives here rather than in the executor because the validator asks the same
- * question at save time, and two copies of it would eventually disagree — the
- * dangerous direction being a validator that fails *open*, letting copy through
- * unchecked to fail in front of a member. A type guard, so callers keep the
- * narrowed arm and can read `maxLength` off it.
- */
-export function isCopyField(
-    field: BlockConfigField
-): field is Extract<BlockConfigField, { control: 'text' | 'longText' }> {
-    return (field.control === 'text' || field.control === 'longText') && field.rendersTokens === true;
+/** Where a string sits in a node's data: its config key, then any index or key below it. */
+export type CopyPath = readonly (string | number)[];
+
+/** One authored string a node's tokens are expanded in, where it is, and how long it may get. */
+export interface CopyLocation {
+    /** From the node's data down: `['message']`, `['fields', 1, 'value']`, `['message', 'embeds', 0, 'title']`. */
+    readonly path: CopyPath;
+    /**
+     * Where it is, as the author reads it: `"Message"`, `"Fields" Text on entry 2`, or
+     * `"Message" embed 2 field 1 text` — one-based, because the form numbers rows from one.
+     */
+    readonly where: string;
+    /** The part's own limit, checked again once rendered; absent where none is declared. */
+    readonly maxLength?: number;
+    readonly value: string;
+    /**
+     * What the rendered text must still be, beyond its length: given {@link where} and the
+     * text the tokens came out as, a sentence naming the part when it cannot be sent, else
+     * `undefined`. Absent for plain copy, which may come out as anything. A message's picture
+     * carries one — it must come out as a link (`messageCopyLocations`).
+     */
+    readonly checkRendered?: (where: string, rendered: string) => string | undefined;
 }
 
 /**
- * The copy-bearing columns of an `objectList` field, or nothing.
+ * Every string in one field's value whose tokens the engine expands — **the one walk** the
+ * executor renders by and save-time validation checks by, so a string one of them finds
+ * cannot be one the other quietly skips. The dangerous direction is a validator that fails
+ * *open*, letting copy through unchecked to fail in front of a member.
  *
- * The second half of {@link isCopyField}, kept beside it for the same reason it
- * exists at all: a field whose copy lives one level down — inside the entries of
- * a list — is still copy, and the executor and the save-time validator must agree
- * about which strings those are. Returning the columns rather than a boolean lets
- * both callers read each column's own `maxLength` and `label` off what they get.
+ * Found by declaration, never by block:
  *
- * Separate from `isCopyField` rather than folded into it because the two narrow to
- * different things: one says "this key holds a string to expand", the other says
- * "this key holds a list of records, some of whose keys hold strings to expand".
- * A single predicate returning both would leave every caller re-deciding which
- * shape it had been handed.
+ * - a `text` or `longText` field declaring `rendersTokens`;
+ * - each copy column (`rendersTokens`) of each row of an `objectList`;
+ * - every copy string of a `message` — its text parts, and each picture that is not an
+ *   upload, which carries `checkRendered` (`messageCopyLocations` in `src/shared/discordMessage`).
+ *
+ * Reads the value as stored, before any schema has judged it: a value of the wrong shape
+ * gives nothing, and a part that is not a string is skipped, leaving its shape to the schema.
  */
-export function copyColumnsOf(field: BlockConfigField): readonly BlockConfigColumn[] {
-    if (field.control !== 'objectList') {
-        return [];
+export function copyLocationsOf(field: BlockConfigField, value: unknown): readonly CopyLocation[] {
+    const copy = fieldCopyOf(field);
+    switch (copy.kind) {
+        case 'none':
+            return [];
+        case 'string':
+            if (typeof value !== 'string') {
+                return [];
+            }
+            return [
+                {
+                    path: [field.key],
+                    where: `"${field.label}"`,
+                    value,
+                    ...(copy.maxLength === undefined ? {} : { maxLength: copy.maxLength }),
+                },
+            ];
+        case 'columns': {
+            if (!Array.isArray(value)) {
+                return [];
+            }
+            return value.flatMap((entry: unknown, index) => {
+                if (entry === null || typeof entry !== 'object') {
+                    return [];
+                }
+                const row = entry as Readonly<Record<string, unknown>>;
+                return copy.columns.flatMap((column): CopyLocation[] => {
+                    const text = row[column.key];
+                    if (typeof text !== 'string') {
+                        return [];
+                    }
+                    return [
+                        {
+                            path: [field.key, index, column.key],
+                            where: `"${field.label}" ${column.label} on entry ${index + 1}`,
+                            value: text,
+                            ...(column.maxLength === undefined ? {} : { maxLength: column.maxLength }),
+                        },
+                    ];
+                });
+            });
+        }
+        case 'message':
+            return messageCopyLocations(value).map((location) => ({
+                ...location,
+                path: [field.key, ...location.path],
+                where: `"${field.label}" ${location.where}`,
+            }));
+        default: {
+            const illegal: never = copy;
+            throw new Error(`Unknown field copy ${JSON.stringify(illegal)}.`);
+        }
     }
-    return field.columns.filter((column) => column.rendersTokens === true);
+}
+
+/**
+ * Whether a field can hold copy at all — whether {@link copyLocationsOf} could ever find a
+ * string in it. Asked where there is no value to walk: conformance keeps such a field out of
+ * an emission's `fromField`, since a written token would compare unequal to everything.
+ */
+export function carriesCopy(field: BlockConfigField): boolean {
+    return fieldCopyOf(field).kind !== 'none';
+}
+
+/** Where a field keeps its copy: one string, some columns of each row, a whole message, or nowhere. */
+type FieldCopy =
+    | { readonly kind: 'none' }
+    | { readonly kind: 'string'; readonly maxLength: number | undefined }
+    | { readonly kind: 'columns'; readonly columns: readonly BlockConfigColumn[] }
+    | { readonly kind: 'message' };
+
+/**
+ * The one switch on every control that decides whether — and in what shape — a field holds
+ * copy, so a new control decides it here once and both {@link copyLocationsOf} and
+ * {@link carriesCopy} follow.
+ */
+function fieldCopyOf(field: BlockConfigField): FieldCopy {
+    switch (field.control) {
+        case 'text':
+        case 'longText':
+            return field.rendersTokens === true ? { kind: 'string', maxLength: field.maxLength } : { kind: 'none' };
+        case 'objectList': {
+            const columns = field.columns.filter((column) => column.rendersTokens === true);
+            return columns.length > 0 ? { kind: 'columns', columns } : { kind: 'none' };
+        }
+        case 'message':
+            return { kind: 'message' };
+        case 'rolePicker':
+        case 'channelPicker':
+        case 'categoryPicker':
+        case 'ticketTypePicker':
+        case 'duration':
+        case 'segmented':
+        case 'select':
+        case 'colour':
+        case 'textList':
+        case 'eligibility':
+        case 'variableSelect':
+        case 'timeOfDay':
+        case 'daysOfWeek':
+            return { kind: 'none' };
+        default: {
+            const illegal: never = field;
+            throw new Error(`Unknown control ${JSON.stringify(illegal)}.`);
+        }
+    }
 }
 
 /** One authored string a node's tokens are expanded in, and where an author finds it. */
 export interface CopyString {
-    /** The field holding it — the copy field itself, or the `objectList` it sits inside. */
+    /** The field holding it — the copy field itself, or the list or message it sits inside. */
     readonly field: BlockConfigField;
-    /**
-     * Where it is, as the author reads it: `"Message"`, or `"Fields" Text on entry 2` —
-     * one-based, because the form numbers rows from one.
-     */
+    /** Where it is, as {@link CopyLocation} words it. */
     readonly where: string;
     readonly value: string;
 }
 
 /**
- * Every string on a node whose tokens the engine would expand: its visible copy fields
- * ({@link isCopyField}) and the copy columns ({@link copyColumnsOf}) of its visible lists.
+ * Every string on a node whose tokens the engine would expand, in its visible fields — the
+ * locations {@link copyLocationsOf} finds, with the field each sits in.
  *
- * The one walk save-time validation reads copy through — for unknown tokens, and for
- * what the tokens a node uses need from the run — so neither reader can skip a hidden
- * field the other honours, or miss the copy one level down that the other finds. Hidden
- * fields are skipped because the executor neither renders nor hands them to `run`.
+ * What save-time validation reads copy through — for unknown tokens, and for what the tokens
+ * a node uses need from the run. Hidden fields are skipped because the executor neither
+ * renders nor hands them to `run`.
  */
 export function visibleCopyStrings(
     fields: readonly BlockConfigField[],
     nodeData: Readonly<Record<string, unknown>>
 ): readonly CopyString[] {
-    const strings: CopyString[] = [];
-    for (const field of fields) {
-        if (!isFieldVisible(field, fields, nodeData)) {
-            continue;
-        }
-
-        if (isCopyField(field)) {
-            const value = nodeData[field.key];
-            if (typeof value === 'string') {
-                strings.push({ field, where: `"${field.label}"`, value });
-            }
-            continue;
-        }
-
-        const columns = copyColumnsOf(field);
-        const entries = nodeData[field.key];
-        if (columns.length === 0 || !Array.isArray(entries)) {
-            continue;
-        }
-        for (const [index, entry] of entries.entries()) {
-            if (entry === null || typeof entry !== 'object') {
-                continue;
-            }
-            const row = entry as Record<string, unknown>;
-            for (const column of columns) {
-                const value = row[column.key];
-                if (typeof value === 'string') {
-                    strings.push({
-                        field,
-                        where: `"${field.label}" ${column.label} on entry ${index + 1}`,
-                        value,
-                    });
-                }
-            }
-        }
-    }
-    return strings;
+    return fields
+        .filter((field) => isFieldVisible(field, fields, nodeData))
+        .flatMap((field) =>
+            copyLocationsOf(field, nodeData[field.key]).map(({ where, value }) => ({ field, where, value }))
+        );
 }
 
 /**
@@ -443,7 +514,7 @@ export function visibleCopyStrings(
  *
  * A picker is not copy: it takes **one** `{{var.<name>}}` and nothing around it,
  * because a channel id with a word in front of it is not a channel. Kept beside
- * {@link isCopyField} so the executor and save-time validation ask the same
+ * {@link copyLocationsOf} so the executor and save-time validation ask the same
  * question about the same fields.
  */
 export function isVariablePickerField(

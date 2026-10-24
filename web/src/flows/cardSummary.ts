@@ -18,6 +18,7 @@ import { formatDaysOfWeek, formatTimeOfDay } from './clockValues';
 import { ELIGIBILITY_PRINCIPALS, type EligibilityPrincipal } from './contractValues';
 import { resourceKeyFieldFor } from './controls/types';
 import { formatDuration } from './nodeMeta';
+import { readStoredMessage } from './storedMessage';
 import { isFieldVisible, isShownBy, pickerVariableOf } from './variables';
 
 /** Shown when a block declares no `cardSummary` at all. */
@@ -62,6 +63,19 @@ function truncate(text: string, max: number): string {
  */
 function singularise(noun: string): string {
     return noun.endsWith('s') ? noun.slice(0, -1) : noun;
+}
+
+/**
+ * A message as one line: its first embed's title, else that embed's body, else the plain
+ * text, else how many embeds it holds — the words an author would recognise it by. A message
+ * with nothing in it reads as unset, which is what drives `emptyText` in the caller.
+ */
+function messageHeadline(raw: unknown): string {
+    const { content, embeds } = readStoredMessage(raw);
+    const headline = embeds[0]?.title ?? embeds[0]?.description ?? content;
+    if (headline) return headline;
+    if (embeds.length === 0) return '';
+    return `${embeds.length} ${embeds.length === 1 ? 'embed' : 'embeds'}`;
 }
 
 /**
@@ -252,6 +266,8 @@ function resolveValue(
         // In week order, and `Every day` once all seven are picked.
         case 'daysOfWeek':
             return formatDaysOfWeek(raw);
+        case 'message':
+            return messageHeadline(raw);
         default: {
             const unhandled: never = field;
             void unhandled;

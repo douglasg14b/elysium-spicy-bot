@@ -15,6 +15,7 @@ import { readDeclaredKeys } from './declaredResourceKeys';
 import { flowReadinessIssuesInGuild, problemCount } from './flowReadiness';
 import { planButtonDeployment, type ButtonDestination } from './planButtonDeployment';
 import { undeployFlowButtons, type UndeployFlowButtonsResult } from './undeployFlowButtons';
+import { loadUploadIndex } from './uploadReferences';
 
 /**
  * Where one message landed, so the caller can report per channel rather than per flow.
@@ -110,7 +111,9 @@ export async function deployFlowButtons(
         return { ok: false, message: declared.error };
     }
 
-    const issues = flowReadinessIssuesInGuild(flow.graph, declared.keys, guild);
+    // No transaction is open here, so the upload read cannot wait on one.
+    const uploads = await loadUploadIndex(guildId, [flow.graph]);
+    const issues = flowReadinessIssuesInGuild(flow.graph, declared.keys, guild, uploads);
     if (issues.length > 0) {
         return {
             ok: false,

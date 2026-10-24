@@ -21,6 +21,7 @@ import {
 } from '../../features/flows/blocks/manifest';
 import { ELIGIBILITY_PERMISSIONS, eligibilitySchema, type Eligibility } from '../../features/flows/engine/eligibility';
 import { RESOURCE_PICKER_CONTROL_TYPES } from '../../features/flows/logic/resourceTargets';
+import { DiscordMessageSchema } from './messageBody';
 import type { NodeDescriptor } from './nodeRoutes';
 import type { ChecksHold, MismatchedChecks, SchemaMatches } from './openApi';
 
@@ -242,6 +243,13 @@ const CONFIG_FIELD_ARMS = {
         control: z.literal('daysOfWeek'),
         defaultValue: z.array(BlockDayKeySchema).readonly().optional(),
     }),
+    message: z.object({
+        ...fieldBase,
+        control: z.literal('message'),
+        /** Colours to offer for an embed's stripe; the first colours a new embed. */
+        swatches: z.array(z.string()).readonly().optional(),
+        defaultValue: DiscordMessageSchema.optional(),
+    }),
 } satisfies { [Control in BlockControlType]: z.ZodObject };
 
 const BlockConfigFieldSchema = z
@@ -262,6 +270,7 @@ const BlockConfigFieldSchema = z
         CONFIG_FIELD_ARMS.variableSelect,
         CONFIG_FIELD_ARMS.timeOfDay,
         CONFIG_FIELD_ARMS.daysOfWeek,
+        CONFIG_FIELD_ARMS.message,
     ])
     .openapi('BlockConfigField', {
         description: 'One editable config field, in the order the inspector renders it, discriminated on `control`.',

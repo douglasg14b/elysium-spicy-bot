@@ -4,6 +4,7 @@ import {
     MessageType,
     SnowflakeUtil,
     type APIActionRowComponent,
+    type APIAttachment,
     type APIComponentInMessageActionRow,
     type APIEmbed,
     type APIGuildMemberNoUser,
@@ -38,6 +39,15 @@ import { TestDiscordError } from './testDiscordError';
  *  - **Embeds and components are stored as sent** otherwise. Discord re-serialises an
  *    embed's timestamp (`+00:00` and microseconds) and gives each component a numeric
  *    `id`; neither is modelled, so nothing may assert on either.
+ *  - **Files** arrive with a send, multipart (`payload_json` plus `files[n]`), and are
+ *    stored as the message's `attachments`, named as uploaded, with a CDN-shaped `url`.
+ *    The payload's `attachments` must list exactly one entry per file, by index, and every
+ *    `attachment://<name>` link in an embed must name a file the same send uploads —
+ *    anything else faults, because what Discord does with it is not modelled. Discord
+ *    rewrites such a link to the file's CDN link in what it stores; that is **not**
+ *    modelled either, so an embed keeps `attachment://<name>` as sent, and nothing may
+ *    assert that it came back as a CDN link. An edit carrying files or `attachment://`
+ *    links faults.
  *  - **Pinning** posts the system notice Discord posts (type `ChannelPinnedMessage`,
  *    referencing the pinned message, which the API documents) and announces
  *    CHANNEL_PINS_UPDATE, which the `Guilds` intent delivers.
@@ -72,6 +82,22 @@ import { TestDiscordError } from './testDiscordError';
 /** What the router has already checked a message write to be. */
 export type MessageDraft = CreateMessageBody;
 
+/** One file a multipart request uploaded, as the router read it off the form. */
+export interface MessageFile {
+    /** `n` of the form's `files[n]` — what the payload's `attachments[].id` names it by. */
+    readonly index: number;
+    readonly name: string;
+    readonly contentType: string;
+    readonly bytes: Buffer;
+}
+
+/** An attachment as a test reads it. */
+export interface ServerAttachmentView {
+    readonly filename: string;
+    readonly size: number;
+    readonly contentType: string | null;
+}
+
 /**
  * A message somebody other than the bot's REST calls sent — a member, the bot from
  * elsewhere, or a webhook — as `ServerChannel.receiveMessage` describes it.
@@ -100,6 +126,7 @@ export interface ServerMessageView {
     readonly authorId: string;
     readonly content: string;
     readonly embeds: readonly APIEmbed[];
+    readonly attachments: readonly ServerAttachmentView[];
     readonly components: readonly APIActionRowComponent<APIComponentInMessageActionRow>[];
     readonly pinned: boolean;
     /** Whether anybody has edited it since it was sent. */
@@ -123,6 +150,11 @@ export function toMessageView(message: APIMessage): ServerMessageView {
         authorId: message.author.id,
         content: message.content,
         embeds: structuredClone(message.embeds),
+        attachments: message.attachments.map((attachment) => ({
+            filename: attachment.filename,
+            size: attachment.size,
+            contentType: attachment.content_type ?? null,
+        })),
         components: structuredClone(
             (message.components ?? []).filter(
                 (component): component is APIActionRowComponent<APIComponentInMessageActionRow> =>
@@ -160,7 +192,7 @@ export class ServerMessages {
     }
 
     /** Refuse a send the harness cannot model. Reads only, so the router can run it before a rejection. */
-    checkSend(channelId: string, draft: MessageDraft): void {
+    checkSend(channelId: string, draft: MessageDraft, files: readonly MessageFile[] = []): void {
         // A text channel or a thread: the two places the harness keeps messages.
         const { guildId, holdsMessages } = this.host.messageChannel(channelId);
         if (!holdsMessages) {
@@ -168,16 +200,17 @@ export class ServerMessages {
                 `TestDiscord received a message for ${channelId}, which is not a text channel or a thread. What Discord answers is not modelled.`
             );
         }
-        if (!draft.content && !draft.embeds?.length && !draft.components?.length) {
+        if (!draft.content && !draft.embeds?.length && !draft.components?.length && files.length === 0) {
             throw new TestDiscordError(
                 `TestDiscord received an empty message for ${channelId}. Discord refuses one with a 400 the harness does not model.`
             );
         }
+        checkFiles(draft, files);
         this.mentionedUsers(guildId, draft);
     }
 
-    send(channelId: string, draft: MessageDraft): APIMessage {
-        this.checkSend(channelId, draft);
+    send(channelId: string, draft: MessageDraft, files: readonly MessageFile[] = []): APIMessage {
+        this.checkSend(channelId, draft, files);
         const { guildId } = this.host.messageChannel(channelId);
 
         const message: APIMessage = {
@@ -186,6 +219,7 @@ export class ServerMessages {
             mentions: this.mentionedUsers(guildId, draft),
             embeds: (draft.embeds ?? []).map(richEmbed),
             components: structuredClone(draft.components ?? []),
+            attachments: files.map((file) => storedAttachment(channelId, file)),
         };
         this.store(channelId, message);
         this.announceCreate(message);
@@ -257,6 +291,12 @@ export class ServerMessages {
         if (body.content !== undefined && message.mentions.length > 0) {
             throw new TestDiscordError(
                 `TestDiscord received an edit replacing the content of ${messageId}, which mentions somebody. How Discord recomputes mentions on an edit is not modelled.`
+            );
+        }
+        const attachmentLink = (body.embeds ?? []).flatMap(embedLinks).find(isAttachmentLink);
+        if (attachmentLink) {
+            throw new TestDiscordError(
+                `TestDiscord received an edit of ${messageId} whose embed points at ${attachmentLink}. How Discord resolves attachment links on an edit is not modelled.`
             );
         }
     }
@@ -457,4 +497,55 @@ function webhookAuthor(): APIUser {
 /** Discord stamps every embed a bot sends as `rich`. */
 function richEmbed(embed: APIEmbed): APIEmbed {
     return { ...structuredClone(embed), type: EmbedType.Rich };
+}
+
+const ATTACHMENT_SCHEME = 'attachment://';
+
+function isAttachmentLink(link: string): boolean {
+    return link.startsWith(ATTACHMENT_SCHEME);
+}
+
+/** Every link and picture an embed carries: its title link, header icon, thumbnail, image and footer icon. */
+function embedLinks(embed: APIEmbed): string[] {
+    return [embed.url, embed.author?.icon_url, embed.thumbnail?.url, embed.image?.url, embed.footer?.icon_url].filter(
+        (link): link is string => link !== undefined
+    );
+}
+
+/**
+ * Refuse files the harness cannot model: a payload whose `attachments` do not list each
+ * uploaded file exactly once by its index, and an embed pointing at `attachment://<name>`
+ * where no uploaded file has that name.
+ */
+function checkFiles(draft: MessageDraft, files: readonly MessageFile[]): void {
+    const listed = (draft.attachments ?? []).map((attachment) => Number(attachment.id)).sort((left, right) => left - right);
+    const uploaded = files.map((file) => file.index).sort((left, right) => left - right);
+    if (listed.length !== uploaded.length || listed.some((index, position) => index !== uploaded[position])) {
+        throw new TestDiscordError(
+            `TestDiscord received attachments [${listed.join(', ')}] for files [${uploaded.join(', ')}]. A message whose attachments do not match its files is not modelled.`
+        );
+    }
+
+    const names = new Set(files.map((file) => file.name));
+    for (const link of (draft.embeds ?? []).flatMap(embedLinks)) {
+        if (isAttachmentLink(link) && !names.has(link.slice(ATTACHMENT_SCHEME.length))) {
+            throw new TestDiscordError(
+                `TestDiscord received an embed pointing at ${link}, but no uploaded file is named that. What Discord does with it is not modelled.`
+            );
+        }
+    }
+}
+
+/** An uploaded file as Discord stores it on the message, with a CDN-shaped link that leads nowhere. */
+function storedAttachment(channelId: string, file: MessageFile): APIAttachment {
+    const id = SnowflakeUtil.generate().toString();
+    const path = `attachments/${channelId}/${id}/${encodeURIComponent(file.name)}`;
+    return {
+        id,
+        filename: file.name,
+        size: file.bytes.length,
+        url: `https://cdn.discordapp.com/${path}`,
+        proxy_url: `https://media.discordapp.net/${path}`,
+        content_type: file.contentType,
+    };
 }

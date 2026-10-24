@@ -5,7 +5,16 @@ export interface PreviewPage {
     /** Dashboard path, e.g. `/flows`. */
     readonly path: string;
     readonly note: string;
+    /**
+     * What a person would click after the page loads to reach the state worth a picture — a
+     * card, then the button opening a window — in order. `shoot.ts` does them before shooting;
+     * for a page opened by hand, the note says what to click.
+     */
+    readonly steps?: readonly PreviewStep[];
 }
+
+/** One click: on a button by its accessible name, or on the first element showing some text. */
+export type PreviewStep = { readonly clickButton: string } | { readonly clickText: string };
 
 /**
  * Where the preview server lists its seeded pages. Under `/api` so Vite's proxy forwards

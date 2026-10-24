@@ -1,5 +1,11 @@
 /**
- * Node's `Request`, taught to take jsdom's `AbortSignal` and a relative URL.
+ * Where Vitest's jsdom environment and Node's `fetch` disagree, settled for the `dom` and `e2e`
+ * projects — named for the first of them, `Request`; the rest came after:
+ *
+ *  - `Request`, taught to take jsdom's `AbortSignal` and a relative URL (any page; both projects).
+ *  - Node's `Blob` and `File` (a page uploading a picture; both projects).
+ *  - Node's `FormData`, `Uint8Array` and `ArrayBuffer` (the bot sending a message with files, so
+ *    the `e2e` project; harmless in `dom`, where nothing else reads them).
  *
  * Vitest's jsdom environment replaces `AbortController` and `AbortSignal` with jsdom's,
  * but leaves `Request` as Node's — and Node's refuses any signal that is not its own
@@ -18,6 +24,7 @@
  * `node:util`, and the dashboard's type-check has no Node types.
  */
 
+import { Blob as NodeBlob, File as NodeFile } from 'node:buffer';
 import { transferableAbortController } from 'node:util';
 
 const NodeRequest = globalThis.Request;
@@ -54,3 +61,30 @@ class JsdomRequest extends NodeRequest {
 }
 
 globalThis.Request = JsdomRequest;
+
+/*
+ * Node's `Blob`, `File` and `FormData`, in place of jsdom's — the same disagreement once
+ * more, both ways round:
+ *
+ *  - A page uploading a picture hands the `File` it was given straight to the SDK as the
+ *    request body, and Node's `Request` takes only its own `Blob`: jsdom's is turned into the
+ *    text "[object File]", so the server would receive eleven bytes of nonsense.
+ *  - The bot sends a message with files as multipart (`@discordjs/rest` appends a `Blob` to a
+ *    `FormData`), and jsdom's `FormData` refuses any `Blob` but its own.
+ *
+ * In a browser, and in the bot, each of these comes from one implementation with the fetch
+ * that sends it, as they now do here. Node's `FormData` is not importable by name, so it is
+ * taken from a form Node's own `Response` parses.
+ */
+globalThis.Blob = NodeBlob;
+globalThis.File = NodeFile;
+/*
+ * And Node's `Uint8Array` and `ArrayBuffer`: the environment hands out jsdom's, so a `Buffer`
+ * — Node's — is not `instanceof Uint8Array`, and `@discordjs/rest` (which asks exactly that
+ * before attaching a file) writes the bytes out as text, every byte over 0x7F turned into
+ * U+FFFD. Read off a `Buffer`, since the names themselves now answer with jsdom's.
+ */
+globalThis.Uint8Array = Object.getPrototypeOf(Buffer.prototype).constructor as Uint8ArrayConstructor;
+globalThis.ArrayBuffer = Buffer.alloc(1).buffer.constructor as ArrayBufferConstructor;
+const emptyForm = new Response('', { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+globalThis.FormData = (await emptyForm.formData()).constructor as typeof FormData;

@@ -57,6 +57,18 @@ export class FlowDraftsRepo {
         return rows.map((row) => this.assertValidGraph(row));
     }
 
+    /** Every draft of every flow in a guild, whoever wrote it — what the upload usage reader walks. */
+    async listByGuildId(guildId: string): Promise<FlowDraftEntity[]> {
+        const rows = await this.db
+            .selectFrom('flow_drafts')
+            .selectAll()
+            .where('guildId', '=', guildId)
+            .orderBy('id', 'asc')
+            .execute();
+
+        return rows.map((row) => this.assertValidGraph(row));
+    }
+
     /**
      * Write the author's draft of this flow, creating it or replacing its content.
      *

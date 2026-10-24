@@ -8,7 +8,10 @@ export interface RecordedApiRequest {
     readonly method: FakeApiMethod;
     /** Pathname plus search, exactly as fetched. */
     readonly path: string;
-    /** The parsed JSON body, or `undefined` when none was sent. */
+    /**
+     * The parsed JSON body, the raw bytes of a body sent as anything but JSON (an upload's
+     * `application/octet-stream`), or `undefined` when none was sent.
+     */
     readonly body: unknown;
 }
 
@@ -58,8 +61,7 @@ export function installFakeApi(): FakeApi {
         const url = new URL(sent.url);
         const method = sent.method.toUpperCase() as FakeApiMethod;
         const path = `${url.pathname}${url.search}`;
-        const text = await sent.text();
-        const body = text ? (JSON.parse(text) as unknown) : undefined;
+        const body = await readBody(sent);
         const request: RecordedApiRequest = { method, path, body };
         requests.push(request);
 
@@ -110,6 +112,20 @@ export function heldReply(): HeldReply {
         send = settle;
     });
     return { reply, send };
+}
+
+/**
+ * A request's body as the server would read it: raw bytes (an upload's picture, which is not
+ * text and would throw inside the fake if parsed) as bytes, anything else as JSON — a string
+ * body sent without a content type arrives as `text/plain`, and is still JSON.
+ */
+async function readBody(sent: Request): Promise<unknown> {
+    if (sent.headers.get('content-type')?.startsWith('application/octet-stream')) {
+        const bytes = new Uint8Array(await sent.arrayBuffer());
+        return bytes.length > 0 ? bytes : undefined;
+    }
+    const text = await sent.text();
+    return text ? (JSON.parse(text) as unknown) : undefined;
 }
 
 function routeKey(method: FakeApiMethod, path: string): string {

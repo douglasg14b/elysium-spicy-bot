@@ -1,7 +1,14 @@
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { API_BODY_LIMIT_BYTES, BODY_TOO_LARGE_SENTENCE } from '../api';
+import { UPLOAD_BODY_LIMIT_BYTES } from '../../features-system/guild-uploads';
+import { MIB } from '../../shared/byteSizes';
+import {
+    API_BODY_LIMIT_BYTES,
+    BODY_TOO_LARGE_SENTENCE,
+    UPLOAD_LENGTH_REQUIRED_SENTENCE,
+    UPLOAD_TOO_LARGE_SENTENCE,
+} from '../api';
 import { DASHBOARD_RATE_LIMITS, dashboardRateLimiter, RATE_LIMITED_SENTENCE } from '../rateLimit';
 import { buildApp, CLIENT_BUILD_DIR } from '../server';
 import type { AppEnv } from '../types';
@@ -230,6 +237,69 @@ describe('buildApp body limit', () => {
         });
 
         expect(response.status).toBe(401);
+    });
+});
+
+/**
+ * The picture upload is the one route with a larger cap. The cap is picked by method and
+ * path, so the larger one must reach that route and nothing else.
+ */
+describe('buildApp upload body limit', () => {
+    const uploadPath = `${GUILD_PATH}/uploads`;
+    /** A body with no declared length: `app.request` sets none for a `Uint8Array`. */
+    const rawBytes = (size: number, method = 'POST'): RequestInit => ({
+        method,
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: new Uint8Array(size),
+    });
+    /** A small body that declares `declaredLength`, which is all the upload cap looks at. */
+    const declaring = (declaredLength: number, headers: Record<string, string> = {}): RequestInit => ({
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/octet-stream',
+            'Content-Length': String(declaredLength),
+            ...headers,
+        },
+        body: new Uint8Array(8),
+    });
+
+    it('refuses a declared length over the upload cap with its own sentence, before asking for a session', async () => {
+        const response = await buildApp().request(uploadPath, declaring(UPLOAD_BODY_LIMIT_BYTES + 1));
+
+        expect(response.status).toBe(413);
+        expect(await response.json()).toEqual({ error: UPLOAD_TOO_LARGE_SENTENCE });
+        expect(UPLOAD_TOO_LARGE_SENTENCE).toContain('8 MB');
+    });
+
+    it('lets a declared length at the upload cap through to the session check', async () => {
+        const response = await buildApp().request(uploadPath, declaring(UPLOAD_BODY_LIMIT_BYTES));
+
+        expect(response.status).toBe(401);
+    });
+
+    it('refuses a picture with no declared length with 411, unread, before asking for a session', async () => {
+        // Under the cap, so a cap that read the body would pass it on to the session check's 401.
+        const response = await buildApp().request(uploadPath, rawBytes(1024));
+
+        expect(response.status).toBe(411);
+        expect(await response.json()).toEqual({ error: UPLOAD_LENGTH_REQUIRED_SENTENCE });
+    });
+
+    it.each([
+        ['another route', 'PUT', `${GUILD_PATH}/flows/flow-1`],
+        ['another method on the upload path', 'PUT', uploadPath],
+        ['a path below the upload path', 'POST', `${uploadPath}/upload-1`],
+    ])('still refuses a 2 MiB body to %s at the 1 MiB cap', async (_label, method, path) => {
+        const response = await buildApp().request(path, rawBytes(2 * MIB, method));
+
+        expect(response.status).toBe(413);
+        expect(await response.json()).toEqual({ error: BODY_TOO_LARGE_SENTENCE });
+    });
+
+    it("refuses an upload to a server the signed-in user may not manage with 403", async () => {
+        const response = await buildApp().request(uploadPath, declaring(8, { 'X-Test-User': 'alice' }));
+
+        expect(response.status).toBe(403);
     });
 });
 

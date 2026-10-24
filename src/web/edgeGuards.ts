@@ -55,11 +55,17 @@ export const refusePlaintextRequests = createMiddleware<AppEnv>(async (c, next) 
 });
 
 /**
- * Marks every API answer as never cacheable. Cloudflare caches by file extension, so JSON
- * under `/api` is not cached today; this keeps one member's guilds, flows and tickets out of
- * any shared cache even if a cache rule is added later.
+ * Marks every API answer as never cacheable, unless its route chose a `Cache-Control` of its
+ * own. Cloudflare caches by file extension, so JSON under `/api` is not cached today; this
+ * keeps one member's guilds, flows and tickets out of any shared cache even if a cache rule
+ * is added later.
+ *
+ * The one route that chooses is an uploaded picture (`getGuildUpload`), whose bytes never
+ * change: it answers `private`, so it still stays out of any shared cache.
  */
 export const noStoreApiResponses = createMiddleware<AppEnv>(async (c, next) => {
     await next();
-    c.header('Cache-Control', 'private, no-store');
+    if (!c.res.headers.has('Cache-Control')) {
+        c.header('Cache-Control', 'private, no-store');
+    }
 });

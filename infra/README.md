@@ -127,7 +127,11 @@ Order: `pulumi up` → variables into Coolify → push → deploy. Coolify deplo
 
 The app refuses plain HTTP on its own as well, marks every `/api` answer `private, no-store`, and sends security
 headers on every answer — HSTS, `nosniff`, and framing refused (`X-Frame-Options: DENY`, `frame-ancestors 'none'`)
-(`src/web/edgeGuards.ts`). It also refuses any `/api` body over 1 MiB (`src/web/api/index.ts`).
+(`src/web/edgeGuards.ts`). It also refuses any `/api` body over 1 MiB, except a picture upload
+(`POST /api/guilds/{guildId}/uploads`), which may be up to 8 MiB and must declare its length (`src/web/api/index.ts`).
+None of the rules above caps a request body, so the upload passes the edge as long as the zone's plan limit on request
+bodies is above 8 MiB (Cloudflare publishes 100 MB for Free; confirm the zone's plan). An uploaded picture is the one `/api` answer marked
+`private, max-age=31536000, immutable` instead of `no-store`; `private` keeps it out of Cloudflare's cache.
 
 ## 7. Verify
 

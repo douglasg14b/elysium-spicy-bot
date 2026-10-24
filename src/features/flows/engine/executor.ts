@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { FLOW_MAX_NODE_VISITS, FLOW_MAX_VARIABLES_SIZE, FLOW_ROOT_CHAIN_DEPTH } from '../constants';
 import type { FlowEdge, FlowGraph, FlowNode } from '../data/flowGraph';
 import { flowRunsRepo } from '../data/flowRunsRepo';
-import { parseNodeConfig, type BlockKind, type BlockManifest } from '../blocks/manifest';
+import { isObjectValue, parseNodeConfig, type BlockKind, type BlockManifest } from '../blocks/manifest';
 import { getBlockDefinition } from '../blocks/registry';
 import type {
     FlowResume,
@@ -12,11 +12,11 @@ import type {
     FlowVariableValue,
 } from '../blocks/types';
 import {
-    copyColumnsOf,
-    isCopyField,
+    copyLocationsOf,
     isVariablePickerField,
     renderCopy,
     resolvePickerVariable,
+    type CopyPath,
 } from './copyRendering';
 import { checkMessageWaitHasMember, messageWaitIndex } from './messageWaitIndex';
 import { describeMissingRequirement, missingRequirement, type RunLeg } from './nodeRequirements';
@@ -691,7 +691,8 @@ function chainDepthOf(context: FlowRunSeed): number {
 type RenderedConfig = { ok: true; config: unknown } | { ok: false; error: string };
 
 /**
- * Expand the tokens in every config field a block declared as copy.
+ * Expand the tokens in every string a block's fields hold as copy — a copy field, a list's
+ * copy columns, every part of a message — and resolve a picker holding a variable.
  *
  * Runs between `safeParse` and `run` on purpose. Before it, and the schema would
  * be validating a string the author never wrote; after it, and `run` would have
@@ -701,26 +702,23 @@ type RenderedConfig = { ok: true; config: unknown } | { ok: false; error: string
  *
  * Fields are found by their declaration, never by name or by block type: asking
  * "which fields say they carry copy" is one rule, where asking "is this
- * action.sendMessage" would be a branch per block and a gate failure.
+ * action.sendMessage" would be a branch per block and a gate failure. The copy
+ * itself is found by `copyLocationsOf` — the same walk save-time validation
+ * checks by — whether it sits at a config key, in a list's rows, or in a message.
  */
 function renderNodeCopy(block: BlockManifest, config: unknown, context: FlowRunSeed, leg: RunLeg): RenderedConfig {
-    const copyFields = block.configFields.filter(isCopyField);
-    const listFields = block.configFields.filter((field) => copyColumnsOf(field).length > 0);
-    const pickerFields = block.configFields.filter(isVariablePickerField);
-    if (
-        (copyFields.length === 0 && listFields.length === 0 && pickerFields.length === 0) ||
-        config === null ||
-        typeof config !== 'object'
-    ) {
+    if (config === null || typeof config !== 'object') {
         return { ok: true, config };
     }
 
     const source = config as Record<string, unknown>;
-    let expanded: Record<string, unknown> | undefined;
+    // Built only on the first token, so a node whose copy has none keeps the exact object
+    // the schema produced.
+    let expanded: unknown;
 
     // A picker naming a value an earlier block recorded, rather than a fixed
     // choice. A plain snowflake has no braces and passes through untouched.
-    for (const field of pickerFields) {
+    for (const field of block.configFields.filter(isVariablePickerField)) {
         const value = source[field.key];
         if (typeof value !== 'string' || !value.includes('{{')) {
             continue;
@@ -731,95 +729,65 @@ function renderNodeCopy(block: BlockManifest, config: unknown, context: FlowRunS
             return { ok: false, error: result.error };
         }
 
-        expanded ??= { ...source };
-        expanded[field.key] = result.text;
+        expanded = setAtPath(expanded ?? source, [field.key], result.text);
     }
 
-    for (const field of copyFields) {
-        const value = source[field.key];
-        // An optional field the author left unset, or a key the schema shaped
-        // into something other than a string, is simply not copy to expand.
-        if (typeof value !== 'string' || !value.includes('{{')) {
-            continue;
-        }
-
-        const result = renderCopy(value, {
-            context,
-            leg,
-            fieldLabel: `"${field.label}"`,
-            ...(field.maxLength === undefined ? {} : { maxLength: field.maxLength }),
-        });
-        if (!result.ok) {
-            return { ok: false, error: result.error };
-        }
-
-        // Copied lazily: a node whose copy contains no token keeps the exact
-        // object the schema produced, so the overwhelmingly common case adds
-        // nothing at all.
-        expanded ??= { ...source };
-        expanded[field.key] = result.text;
-    }
-
-    // The same expansion one level down, for copy living inside the entries of a
-    // list. Entries are rebuilt rather than mutated: the value handed in is the
-    // object the schema produced, and a block that kept a reference to its own
-    // config would otherwise see it change under it.
-    for (const field of listFields) {
-        const entries = source[field.key];
-        if (!Array.isArray(entries)) {
-            continue;
-        }
-
-        const columns = copyColumnsOf(field);
-        const rendered = [...entries];
-        let updated = false;
-
-        for (const [index, entry] of entries.entries()) {
-            if (entry === null || typeof entry !== 'object') {
+    for (const field of block.configFields) {
+        for (const location of copyLocationsOf(field, source[field.key])) {
+            // Copy with no token is left exactly as the schema produced it, so the
+            // overwhelmingly common case copies nothing at all.
+            if (!location.value.includes('{{')) {
                 continue;
             }
 
-            const row = entry as Record<string, unknown>;
-            let nextRow: Record<string, unknown> | undefined;
-
-            for (const column of columns) {
-                const value = row[column.key];
-                if (typeof value !== 'string' || !value.includes('{{')) {
-                    continue;
-                }
-
-                const result = renderCopy(value, {
-                    context,
-                    leg,
-                    // Names the row as an author sees it — one-based, because the
-                    // form numbers rows from one and a message naming "entry 0"
-                    // sends them to the wrong line.
-                    fieldLabel: `"${field.label}" ${column.label} on entry ${index + 1}`,
-                    ...(column.maxLength === undefined ? {} : { maxLength: column.maxLength }),
-                });
-                // The first failure stops the node, matching the scalar loop
-                // above and `renderCopy`'s own first-failure-wins rule.
-                if (!result.ok) {
-                    return { ok: false, error: result.error };
-                }
-
-                nextRow ??= { ...row };
-                nextRow[column.key] = result.text;
+            const result = renderCopy(location.value, {
+                context,
+                leg,
+                fieldLabel: location.where,
+                ...(location.maxLength === undefined ? {} : { maxLength: location.maxLength }),
+            });
+            // The first failure stops the node, matching `renderCopy`'s own
+            // first-failure-wins rule.
+            if (!result.ok) {
+                return { ok: false, error: result.error };
+            }
+            // A part that must come out as something in particular — a picture as a link —
+            // is judged here, the one place that still knows the text was copy.
+            const refusal = location.checkRendered?.(location.where, result.text);
+            if (refusal) {
+                return { ok: false, error: refusal };
             }
 
-            if (nextRow) {
-                rendered[index] = nextRow;
-                updated = true;
-            }
-        }
-
-        if (updated) {
-            expanded ??= { ...source };
-            expanded[field.key] = rendered;
+            expanded = setAtPath(expanded ?? source, location.path, result.text);
         }
     }
 
     return { ok: true, config: expanded ?? config };
+}
+
+/**
+ * `target` with the string at `path` replaced, copying each object and array on the way
+ * down and nothing else — the value handed in is the object the schema produced, and a
+ * block that kept a reference to its own config would otherwise see it change under it.
+ *
+ * A path that does not lead through what the walk saw — an index into an object, a key into
+ * an array, a step into nothing — throws: the walk that named it read this same value, so
+ * that would be a bug, not an author's mistake.
+ */
+function setAtPath(target: unknown, path: CopyPath, value: string): unknown {
+    const [segment, ...below] = path;
+    if (segment === undefined) {
+        return value;
+    }
+    if (Array.isArray(target) && typeof segment === 'number') {
+        const next = [...target];
+        next[segment] = setAtPath(target[segment], below, value);
+        return next;
+    }
+    if (isObjectValue(target) && typeof segment === 'string') {
+        return { ...target, [segment]: setAtPath(target[segment], below, value) };
+    }
+    throw new Error(`Copy path segment ${JSON.stringify(segment)} does not fit the value it steps into.`);
 }
 
 /**

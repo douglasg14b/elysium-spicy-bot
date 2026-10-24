@@ -17,7 +17,7 @@ import type {
     TicketTypeView,
 } from '@brattybot/web-sdk';
 import { renderControl } from './controls/renderControl';
-import type { ControlContext, ServerTimeZone } from './controls/types';
+import type { ControlContext, GuildUploads, ServerTimeZone } from './controls/types';
 import { KIND_STYLES } from './nodeMeta';
 import { ticketChannelNameFor } from './ticketChannelName';
 import { describeUnconnectedExit } from './unconnectedExits';
@@ -62,6 +62,8 @@ interface NodeInspectorProps {
      * until the page's fetch answers, or after it failed.
      */
     serverTimeZone?: ServerTimeZone;
+    /** The server's uploaded pictures and the way to add one, for a control with pictures. */
+    uploads: GuildUploads;
     /**
      * What the server last found wrong with this node — at the last save, or the last
      * re-check as focus left a field.
@@ -92,6 +94,7 @@ export function NodeInspector({
     requirements,
     declaredResources,
     serverTimeZone,
+    uploads,
     issues,
     unconnectedExits,
     onChange,
@@ -108,10 +111,7 @@ export function NodeInspector({
     const shownFields = descriptor.configFields.filter((field) =>
         isFieldVisible(field, descriptor.configFields, config)
     );
-    const placed = placeIssues(
-        issues,
-        shownFields.map((field) => field.key)
-    );
+    const placed = placeIssues(issues, shownFields);
     const context: ControlContext = {
         roles,
         channels,
@@ -123,6 +123,7 @@ export function NodeInspector({
         // node directly rather than going through its single-key `onChange`.
         setConfigKey: (key, value) => onChange({ [key]: value }),
         ...(serverTimeZone ? { serverTimeZone } : {}),
+        uploads,
     };
 
     return (
@@ -209,7 +210,8 @@ export function NodeInspector({
                             (value) => onChange({ [field.key]: value }),
                             context,
                             config,
-                            placed.byField.get(field.key)
+                            placed.byField.get(field.key),
+                            placed.nested.get(field.key)
                         )}
                     </div>
                 ))}

@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../../features/flows/data/flowGraph';
 import { ensureBlocksDiscovered } from '../../../features/flows/blocks/registry';
 import type { FlowValidationIssue } from '../../../features/flows/engine/nodeDataValidation';
@@ -88,6 +88,8 @@ vi.mock('../../../features/provisioning/data/resourceBindingsRepo', () => ({
 }));
 
 const { flowRoutes } = await import('../flowRoutes');
+const { STALE_BUILDER_MESSAGE } = await import('../staleBuilderGraph');
+const { guildUploadsRepo } = await import('../../../features-system/guild-uploads');
 const { MalformedJourneyError } = await import('../../../features/provisioning/data/journeysRepo');
 
 // The validators read the block registry.
@@ -234,6 +236,11 @@ beforeEach(() => {
         ...storedFlow({ graph: input.graph }),
         name: input.name,
     }));
+});
+
+// The uploads repo is real but never reached here: a case naming an upload spies on it.
+afterEach(() => {
+    vi.restoreAllMocks();
 });
 
 describe('saving a graph that picked a declared resource', () => {
@@ -721,6 +728,166 @@ describe('a flow switched on by someone else while a save was on its way', () =>
         });
         expect(flowsRepoMock.getByGuildId).not.toHaveBeenCalled();
         expect(flowsRepoMock.update).not.toHaveBeenCalled();
+    });
+});
+
+const UPLOAD_ID = '0f0e0d0c-0b0a-4908-8706-050403020100';
+const OTHER_UPLOAD_ID = '1f1e1d1c-1b1a-4918-9716-151413121110';
+
+/** Post Embed into the guild's channel, its image the upload `uploadId`. */
+function postingUpload(uploadId: string): FlowGraph {
+    return {
+        version: FLOW_GRAPH_VERSION,
+        nodes: [
+            {
+                id: 'post',
+                type: 'action.postEmbed',
+                position: { x: 0, y: 0 },
+                data: {
+                    channelId: INSTALLED_CHANNEL_ID,
+                    message: { embeds: [{ title: 'New', image: `upload:${uploadId}` }] },
+                },
+            },
+        ],
+        edges: [],
+    };
+}
+
+/**
+ * The route reads what the guild holds of the uploads the row names as it read it — none —
+ * before the transaction, which may not query. By the time the transaction sees the row,
+ * another save has given it an upload that read was never asked about.
+ */
+describe('a stored graph that gained an upload while a save was on its way', () => {
+    /**
+     * The row as the route reads it first, then as the transaction sees it — and, for a write
+     * that goes through, as `update` echoes it back.
+     */
+    function raceToUpload(written: 'refused' | 'written'): void {
+        const gained = storedFlow({ enabled: false, graph: postingUpload(UPLOAD_ID) });
+        flowsRepoMock.getByFlowId.mockResolvedValueOnce(storedFlow({ enabled: false })).mockResolvedValueOnce(gained);
+        if (written === 'written') {
+            flowsRepoMock.getByFlowId.mockResolvedValueOnce(gained);
+        }
+    }
+
+    it('refuses the switch-on with a "save again" rather than calling the picture missing', async () => {
+        raceToUpload('refused');
+
+        const response = await put({ enabled: true });
+
+        expect(response.status).toBe(400);
+        expect(await response.json()).toEqual({
+            error: 'This flow changed while you were saving. Save again.',
+            issues: [],
+        });
+        expect(flowsRepoMock.update).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['a switch-off', { enabled: false }],
+        ['a rename', { name: 'Renamed' }],
+    ])('writes %s all the same, which is never refused, and describes the graph it leaves', async (_request, body) => {
+        raceToUpload('written');
+        // This server holds no such upload. Read once, after the write, for the graph as written.
+        const sizesFor = vi.spyOn(guildUploadsRepo, 'sizesFor').mockResolvedValue([]);
+
+        const response = await put(body);
+
+        expect(response.status).toBe(200);
+        expect(flowsRepoMock.update).toHaveBeenCalledTimes(1);
+        expect(sizesFor).toHaveBeenCalledTimes(1);
+        expect(((await response.json()) as DetailBody).issues).toEqual([
+            { nodeId: 'post', field: 'message.embeds.0.image', message: expect.stringMatching(/isn't in this server/) },
+        ]);
+    });
+});
+
+describe('what a save reads of the uploads', () => {
+    it('reads only the uploads the arriving graph names, once, and reuses that for the answer', async () => {
+        // Stored with one upload, sent with another: only the one being judged is read.
+        flowsRepoMock.getByFlowId.mockResolvedValue(storedFlow({ graph: postingUpload(OTHER_UPLOAD_ID) }));
+        const sizesFor = vi
+            .spyOn(guildUploadsRepo, 'sizesFor')
+            .mockResolvedValue([{ uploadId: UPLOAD_ID, byteSize: 1024 }]);
+
+        const response = await put({ graph: postingUpload(UPLOAD_ID) });
+
+        expect(response.status).toBe(200);
+        expect(((await response.json()) as DetailBody).issues).toEqual([]);
+        expect(sizesFor.mock.calls).toEqual([[GUILD_ID, [UPLOAD_ID]]]);
+    });
+});
+
+describe('a save from a builder tab older than the Post Embed editor', () => {
+    /** Post Embed as the old builder wrote it: flat keys, no `message`. */
+    const FLAT_GRAPH: FlowGraph = {
+        version: FLOW_GRAPH_VERSION,
+        nodes: [
+            {
+                id: 'post',
+                type: 'action.postEmbed',
+                position: { x: 0, y: 0 },
+                data: { channelId: INSTALLED_CHANNEL_ID, title: 'House Rules', description: 'Read them.', showTimestamp: 'false' },
+            },
+        ],
+        edges: [],
+    };
+    const REFUSAL = { error: STALE_BUILDER_MESSAGE, issues: [{ nodeId: 'post', message: STALE_BUILDER_MESSAGE }] };
+
+    it('is refused on a switched-off flow, where it would have overwritten the stored embed', async () => {
+        const response = await put({ graph: FLAT_GRAPH });
+
+        expect(response.status).toBe(400);
+        expect(await response.json()).toEqual(REFUSAL);
+        expect(flowsRepoMock.mutate).not.toHaveBeenCalled();
+        expect(flowsRepoMock.update).not.toHaveBeenCalled();
+    });
+
+    it('is refused by create and by the check, as by the save', async () => {
+        const created = await app().request(`/${GUILD_ID}/flows`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ name: 'Old tab', graph: FLAT_GRAPH }),
+        });
+        const checked = await app().request(`/${GUILD_ID}/flows/${FLOW_ID}/check`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ graph: FLAT_GRAPH }),
+        });
+
+        expect(created.status).toBe(400);
+        expect(await created.json()).toEqual(REFUSAL);
+        expect(flowsRepoMock.create).not.toHaveBeenCalled();
+        expect(checked.status).toBe(400);
+        expect(await checked.json()).toEqual(REFUSAL);
+    });
+
+    it('stores a node that kept its message, dropping only the stale keys beside it', async () => {
+        const graph = postingUpload(UPLOAD_ID);
+        graph.nodes[0]!.data.title = 'An old tab’s edit';
+        vi.spyOn(guildUploadsRepo, 'sizesFor').mockResolvedValue([{ uploadId: UPLOAD_ID, byteSize: 1024 }]);
+
+        const response = await put({ graph });
+
+        expect(response.status).toBe(200);
+        expect(flowsRepoMock.update).toHaveBeenCalledWith(
+            FLOW_ID,
+            expect.objectContaining({ graph: postingUpload(UPLOAD_ID) })
+        );
+    });
+
+    it('lets a fresh Post Embed through, which holds neither shape yet', async () => {
+        const graph: FlowGraph = {
+            version: FLOW_GRAPH_VERSION,
+            nodes: [{ id: 'post', type: 'action.postEmbed', position: { x: 0, y: 0 }, data: { channelId: '' } }],
+            edges: [],
+        };
+
+        const response = await put({ graph });
+
+        expect(response.status).toBe(200);
+        expect(flowsRepoMock.update).toHaveBeenCalledTimes(1);
     });
 });
 

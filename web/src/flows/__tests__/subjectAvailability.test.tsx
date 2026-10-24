@@ -2,6 +2,7 @@ import { screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { Edge } from '@xyflow/react';
 import type { BlockConfigField, FlowContextRequirement, NodeDescriptor } from '@brattybot/web-sdk';
+import { NO_UPLOADS } from '../../__tests__/support/noUploads';
 import { renderWithProviders } from '../../__tests__/support/renderWithProviders';
 import { NodeInspector } from '../NodeInspector';
 import { NEEDS_A_MEMBER_NOTE, NodePalette } from '../NodePalette';
@@ -148,6 +149,7 @@ function renderInspector(target: NodeDescriptor, requirements: RequirementAvaila
             variables={[]}
             requirements={requirements}
             declaredResources={[]}
+            uploads={NO_UPLOADS}
             issues={[]}
             unconnectedExits={[]}
             onChange={onChange}

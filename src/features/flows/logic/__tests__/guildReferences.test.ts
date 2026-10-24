@@ -132,7 +132,7 @@ describe('readiness in the guild', () => {
     it('reports the guild issues alongside the graph ones', () => {
         const graph = graphOf(node('post', 'action.sendMessage', { channelId: 'another-servers-channel', message: '' }));
 
-        const issues = flowReadinessIssuesInGuild(graph, new Set(), guild());
+        const issues = flowReadinessIssuesInGuild(graph, new Set(), guild(), { named: new Set(), sizes: new Map() });
 
         expect(issues.map((issue) => issue.field)).toEqual(['message', 'channelId']);
     });

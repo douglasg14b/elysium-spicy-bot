@@ -17,6 +17,7 @@ import { executeFlow } from '../engine/executor';
 import { rebuildResumeContext, resumeFlowRun } from '../engine/flowRunResume';
 import { authoredGraphIssues } from '../engine/graphValidation';
 import type { FlowValidationIssue } from '../engine/nodeDataValidation';
+import { FIXTURE_ACTION_POSTS_ROWS } from './fixtures/blocks/list/actionPostsRows';
 import { FIXTURE_ACTION_DECLARES_SUBJECT } from './fixtures/blocks/subjectAbsent/actionDeclaresSubject';
 import { FIXTURE_ACTION_HIDDEN_CHOICE } from './fixtures/blocks/subjectAbsent/actionHiddenChoice';
 import { FIXTURE_TRIGGER_SUPPLIES_NOBODY } from './fixtures/blocks/subjectAbsent/triggerSuppliesNobody';
@@ -36,19 +37,26 @@ import { sentCopy } from './support/sentCopy';
 const GUILD_ID = 'guild-1';
 const USER_ID = 'user-1';
 const CHANNEL_ID = 'channel-1';
-const FIXTURE_ROOT = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'blocks', 'subjectAbsent');
+const FIXTURE_ROOTS = ['subjectAbsent', 'list'].map((folder) =>
+    join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'blocks', folder)
+);
 
 vi.mock('../blocks/registry', async (importOriginal) => {
     const actual = await importOriginal<typeof import('../blocks/registry')>();
-    let extra: ReadonlyMap<string, BlockManifest> | undefined;
+    const extra = new Map<string, BlockManifest>();
 
     return {
         ...actual,
         ensureBlocksDiscovered: async () => {
             await actual.ensureBlocksDiscovered();
-            extra ??= await actual.discoverBlocks<BlockManifest>(FIXTURE_ROOT);
+            if (extra.size > 0) return;
+            for (const root of FIXTURE_ROOTS) {
+                for (const [type, definition] of await actual.discoverBlocks<BlockManifest>(root)) {
+                    extra.set(type, definition);
+                }
+            }
         },
-        getBlockDefinition: (type: string) => extra?.get(type) ?? actual.getBlockDefinition(type),
+        getBlockDefinition: (type: string) => extra.get(type) ?? actual.getBlockDefinition(type),
     };
 });
 
@@ -98,9 +106,8 @@ const NEEDS_A_MEMBER: readonly { readonly name: string; readonly node: () => Flo
     {
         name: '{{subject.username}} in an objectList column',
         node: () =>
-            node('target', 'action.postEmbed', {
+            node('target', FIXTURE_ACTION_POSTS_ROWS, {
                 channelId: CHANNEL_ID,
-                title: 'Roll call',
                 fields: [{ name: 'Who', value: '{{subject.username}}', inline: false }],
             }),
         cause: /for \{\{subject\.username\}\} in "Fields" Text on entry 1/,
@@ -127,6 +134,15 @@ const NEEDS_A_MEMBER: readonly { readonly name: string; readonly node: () => Flo
     },
     { name: 'Wait for Event', node: () => node('target', 'action.waitForEvent', { eventKind: 'reactionAdd' }) },
     { name: 'Ask a Question', node: () => node('target', 'action.prompt', { question: 'Well?', choices: ['Yes'] }) },
+    {
+        name: "{{subject.username}} in a Post Embed's message",
+        node: () =>
+            node('target', 'action.postEmbed', {
+                channelId: CHANNEL_ID,
+                message: { embeds: [{ title: 'Roll call', fields: [{ name: 'Who', value: '{{subject.username}}' }] }] },
+            }),
+        cause: /for \{\{subject\.username\}\} in "Message" embed 1 field 1 text/,
+    },
 ];
 
 describe('save refuses what needs a member where a run about nobody reaches', () => {

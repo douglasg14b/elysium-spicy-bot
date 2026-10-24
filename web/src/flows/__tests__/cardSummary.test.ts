@@ -107,6 +107,19 @@ describe('summarizeFromDescriptor', () => {
         expect(summarize(descriptor, { categoryId: 'deleted-category' })).toBe('In no category picked');
     });
 
+    it('reads a message by its first embed’s title, then its body, then the plain text, then its embed count', () => {
+        const descriptor = descriptorWith(
+            [{ key: 'message', label: 'Message', control: 'message' }],
+            [{ key: 'message', emptyText: 'nothing to say' }]
+        );
+        expect(summarize(descriptor, { message: { content: 'Hi', embeds: [{ title: 'House Rules', description: 'Read them.' }] } })).toBe('House Rules');
+        expect(summarize(descriptor, { message: { content: 'Hi', embeds: [{ description: 'Read them.' }] } })).toBe('Read them.');
+        expect(summarize(descriptor, { message: { content: 'Hi', embeds: [{ color: '#FF2D95' }] } })).toBe('Hi');
+        expect(summarize(descriptor, { message: { embeds: [{ image: 'https://cdn.example/a.png' }, {}] } })).toBe('2 embeds');
+        expect(summarize(descriptor, { message: { content: '   ', embeds: [] } })).toBe('nothing to say');
+        expect(summarize(descriptor, { message: 'not a message' })).toBe('nothing to say');
+    });
+
     it('names a ticket type by its label, shows a key the guild dropped as the key, and empty as empty', () => {
         const descriptor = descriptorWith(
             [{ key: 'ticketType', label: 'Ticket type', control: 'ticketTypePicker', optional: true }],

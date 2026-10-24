@@ -11,7 +11,8 @@ import { PREVIEW_PAGES_PATH, type PreviewPage } from './previewPages';
  *                      [--widths 1440,1280,1024,390] [--out web/e2e/preview/.shots]
  *
  * Start `pnpm preview:dashboard` first. Each page is written as `<name>@<width>.png`,
- * full height. Alongside each file this prints what a picture can hide: horizontal
+ * full height, after the clicks its seed lists (`PreviewPage.steps`) — so a window or a
+ * popover can be shot open. Alongside each file this prints what a picture can hide: horizontal
  * overflow, containers that scroll sideways, text cut off inside its box, console
  * errors, and failed API calls.
  *
@@ -106,6 +107,14 @@ async function main(): Promise<void> {
                 });
 
                 await page.goto(`${base}${target.path}`, { waitUntil: 'networkidle' });
+                for (const step of target.steps ?? []) {
+                    const clicked =
+                        'clickButton' in step
+                            ? page.getByRole('button', { name: step.clickButton, exact: true })
+                            : page.getByText(step.clickText);
+                    await clicked.first().click();
+                    await page.waitForLoadState('networkidle');
+                }
                 // Mantine's transitions are short; this lets the last one land before the picture.
                 await page.waitForTimeout(300);
 

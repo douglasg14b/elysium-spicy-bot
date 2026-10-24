@@ -36,8 +36,10 @@ const TEXT_VALUE_MAX_LENGTH = 1000;
  * The number is a **string** until `run`: there is no number control, a `text` box
  * yields a string, and `z.coerce.number()` would turn a cleared box into `0` — a value
  * the author never typed, written as though they had. The boolean stays `'true' |
- * 'false'` with no `.transform()`, for the reason `actionPostEmbed` gives on
- * `showTimestamp`: conformance reads a default as schema input.
+ * 'false'` with no `.transform()`: `checkFieldDefault` reads a schema's default by
+ * parsing `undefined`, which on a transforming schema yields the *output* (`false`)
+ * while a `segmented` field declares its default as *input* (`'false'`), so the two
+ * could never agree and the block would fail conformance.
  */
 export const setVariableConfigSchema = z
     .object({

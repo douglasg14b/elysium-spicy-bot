@@ -151,6 +151,7 @@ import { NodeInspector } from '../flows/NodeInspector';
 import type { ServerTimeZone } from '../flows/controls/types';
 import { nextRunForNode, sameNextRun } from '../flows/nextRun';
 import { useFlowNextRuns } from '../flows/useFlowNextRuns';
+import { useGuildUploads } from '../flows/useGuildUploads';
 import { JourneyAttachmentControl } from '../flows/JourneyAttachmentControl';
 import { INSTALL_QUERY_PARAM } from '../flows/installStateChip';
 import { ResourcesDialog } from '../flows/ResourcesDialog';
@@ -482,6 +483,12 @@ function FlowBuilder() {
         invalidate: invalidateNextRuns,
         markSaved: markNodesSaved,
     } = useFlowNextRuns(selected?.id, flowId);
+    /**
+     * The server's uploaded pictures and the upload itself, for the message window's picture
+     * parts. Read beside the flow, never instead of it: a failed read leaves the builder as it
+     * is, with nothing listed under "Already uploaded".
+     */
+    const guildUploads = useGuildUploads(selected?.id);
 
     const [deployOpen, setDeployOpen] = useState(false);
     const [deploying, setDeploying] = useState(false);
@@ -2247,6 +2254,7 @@ function FlowBuilder() {
                                 requirements={availableRequirements}
                                 declaredResources={declaredResources}
                                 serverTimeZone={serverTimeZone}
+                                uploads={guildUploads}
                                 issues={issuesForNode.get(selectedNode.id) ?? []}
                                 unconnectedExits={selectedNode.data.unconnectedExits}
                                 onChange={updateNodeConfig}

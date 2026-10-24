@@ -581,8 +581,8 @@ function checkCopyTokens(graph: FlowGraph): readonly FlowValidationIssue[] {
             }
         }
 
-        // Copy fields, and copy living inside the entries of a list, through the same
-        // predicates the executor renders by — so a string the engine would expand
+        // Copy fields, copy inside the entries of a list and every part of a message,
+        // through the same walk the executor renders by (`copyLocationsOf`) — so a string the engine would expand
         // cannot be one this check quietly skips. Checked at save rather than left to
         // run time: an author who mistypes a token should learn here, not when a
         // member is watching the flow fail.

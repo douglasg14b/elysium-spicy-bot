@@ -6,6 +6,7 @@ import type { FlowScheduleNextRun } from '../../features/flows/data/flowSchedule
 import type { FlowEntity } from '../../features/flows/data/flowsSchema';
 import { describeIssue, type FlowValidationIssue } from '../../features/flows/engine/nodeDataValidation';
 import { flowReadinessIssuesInGuild } from '../../features/flows/logic/flowReadiness';
+import type { UploadIndex } from '../../features/flows/logic/uploadReferences';
 import { JOURNEY_INSTALL_STATES } from '../../features/provisioning/logic/journeyInstallState';
 import type { FlowJourneyIndexEntry, FlowJourneyMembership } from './flowJourneyIndex';
 import {
@@ -445,13 +446,14 @@ export function flowDraft(
 
 /**
  * A stored flow as {@link FlowSummaryBody}, judged against its entry in the list's
- * journey index and the guild it is in — so a row's `issueCount` costs no query of its
- * own, and counts what the builder marks.
+ * journey index, the guild it is in and the list's upload index — so a row's `issueCount`
+ * costs no query of its own, and counts what the builder marks.
  */
 export function flowSummary(
     flow: FlowEntity,
     entry: FlowJourneyIndexEntry | undefined,
-    guild: Guild
+    guild: Guild,
+    uploads: UploadIndex
 ): FlowSummaryBody {
     return {
         flowId: flow.flowId,
@@ -459,7 +461,8 @@ export function flowSummary(
         enabled: flow.enabled,
         nodeCount: flow.graph.nodes.length,
         // A flow in no journey declares nothing, exactly as `declaredResourceKeys` answers.
-        issueCount: flowReadinessIssuesInGuild(flow.graph, entry?.declaredKeys ?? new Set<string>(), guild).length,
+        issueCount: flowReadinessIssuesInGuild(flow.graph, entry?.declaredKeys ?? new Set<string>(), guild, uploads)
+            .length,
         journey: entry?.membership ?? null,
         createdAt: new Date(flow.createdAt).toISOString(),
         updatedAt: new Date(flow.updatedAt).toISOString(),

@@ -2,6 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { messageConfigSchema } from '../../../shared/discordMessage';
 import { checkBlockConformance, checkBlockOutcome, checkEmissionTargets } from '../blocks/conformance';
 import type { BlockManifest } from '../blocks/manifest';
 import { discoverBlocks, ensureBlocksDiscovered, listBlockDefinitions } from '../blocks/registry';
@@ -1208,6 +1209,23 @@ describe('a control whose stored shape the control decides', () => {
 
         expect(issues).toMatch(/configSchema refuses \["wed"\]/);
     });
+
+    const messageManifest = (schema: z.ZodType) =>
+        manifestWith({
+            configSchema: z.object({ message: schema }),
+            configFields: [{ key: 'message', label: 'Message', control: 'message' }],
+        });
+
+    it('accepts a message over the shared message schema', () => {
+        expect(checkBlockConformance(messageManifest(messageConfigSchema))).toEqual([]);
+    });
+
+    it('catches a message field over a string schema, which refuses every message the editor builds', () => {
+        const issues = checkBlockConformance(messageManifest(z.string())).join('\n');
+
+        expect(issues).toMatch(/the message field "message" stores a message object .* refuses \{"embeds":\[\{"title":"a"\}\]\}/);
+        expect(issues).toMatch(/accepts "x"/);
+    });
 });
 
 describe('a card-summary part shown only while a choice holds a value', () => {
@@ -1389,6 +1407,36 @@ describe('what a block says it causes', () => {
             emits: [{ startedBy: 'ticketChanged', carries: { ticketType: { fromField: 'channelId' } } }],
         });
         expect(checkBlockConformance(picker).join()).toMatch(/from "channelId", which can hold a \{\{var\}\}/);
+    });
+
+    it('catches a fromField naming a message, every part of which is copy', () => {
+        const message = manifestWith({
+            configSchema: z.object({ message: messageConfigSchema }),
+            configFields: [{ key: 'message', label: 'Message', control: 'message' }],
+            emits: [{ startedBy: 'ticketChanged', carries: { ticketType: { fromField: 'message' } } }],
+        });
+
+        expect(checkBlockConformance(message).join()).toMatch(/from "message", which can hold a \{\{var\}\}/);
+    });
+
+    it('catches a fromField naming a list with a copy column, and passes one without', () => {
+        const list = (rendersTokens: boolean) =>
+            manifestWith({
+                configSchema: z.object({ rows: z.array(z.object({ value: z.string().min(1) })).default([]) }),
+                configFields: [
+                    {
+                        key: 'rows',
+                        label: 'Rows',
+                        control: 'objectList',
+                        defaultValue: [],
+                        columns: [{ key: 'value', label: 'Text', control: 'longText', rendersTokens }],
+                    },
+                ],
+                emits: [{ startedBy: 'ticketChanged', carries: { ticketType: { fromField: 'rows' } } }],
+            });
+
+        expect(checkBlockConformance(list(true)).join()).toMatch(/from "rows", which can hold a \{\{var\}\}/);
+        expect(checkBlockConformance(list(false)).join()).not.toMatch(/from "rows"/);
     });
 
     it('catches a carried value of neither shape, and a source outside the vocabulary', () => {

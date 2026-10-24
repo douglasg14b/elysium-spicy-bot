@@ -20,8 +20,9 @@ export type { RunLeg } from './copyRendering';
  * 1. its block's `requires`;
  * 2. the `requires` of the option picked in each visible `select` or `segmented` field —
  *    Time Since's "the member's last message" needs a member, its channel source does not;
- * 3. the requirement of each built-in token in its visible copy, `objectList` columns
- *    included — `{{subject.mention}}` needs a member, `{{guild.name}}` nothing.
+ * 3. the requirement of each built-in token in its visible copy, wherever
+ *    `copyLocationsOf` finds it — `objectList` columns and a message's parts included —
+ *    `{{subject.mention}}` needs a member, `{{guild.name}}` nothing.
  *
  * One function, so the validator that refuses a graph and the executor that refuses a
  * step cannot come to disagree about what a node needs. A trigger's `requires` reads the

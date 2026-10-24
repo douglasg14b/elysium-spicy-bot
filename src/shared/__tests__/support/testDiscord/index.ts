@@ -11,7 +11,7 @@ export type {
     ServerRole,
     ServerThread,
 } from './handles';
-export type { ServerMessageView } from './messageState';
+export type { MessageFile, ServerAttachmentView, ServerMessageView } from './messageState';
 export type {
     ChannelReadRoute,
     ChannelWriteRoute,

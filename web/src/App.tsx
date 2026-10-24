@@ -18,6 +18,7 @@ import { ServerSettingsPage } from './pages/ServerSettingsPage';
 import { TicketsListPage } from './pages/TicketsListPage';
 import { TicketDetailPage } from './pages/TicketDetailPage';
 import { TicketsConfigPage } from './pages/TicketsConfigPage';
+import { UploadsPage } from './pages/UploadsPage';
 
 /**
  * Root. Gates on auth: unauthenticated users get the login page; authenticated ones
@@ -117,6 +118,7 @@ function AuthGate() {
                      * go — PRD §5.8 and item 39. One was built here and removed.
                      */}
                     <Route path="/flows/:flowId" element={<FlowBuilderPage />} />
+                    <Route path="/uploads" element={<UploadsPage />} />
                     <Route path="/settings" element={<ServerSettingsPage />} />
                     <Route path="*" element={<Navigate to="/warnings" replace />} />
                 </Route>

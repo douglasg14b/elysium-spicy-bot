@@ -3,8 +3,8 @@
 import { queryOptions, type UseMutationOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { attachFlowToJourney, checkFlow, claimTicket, closeTicket, createFlow, createJourney, deleteFlow, deleteJourney, deleteTicketType, deployFlow, detachFlowFromJourney, discardFlowDraft, forgetJourneyOrphan, getBotIdentity, getCurrentUser, getFlow, getFlowAttachment, getFlowNextRuns, getFlowResources, getGuildChannels, getGuildRoles, getGuildSettings, getHealth, getInstallPlan, getJourney, getJourneyDrift, getJourneyPublishedState, getLevelingInsights, getLevelingUser, getNodeTypes, getPublishedState, getTicket, getTicketsConfig, getWarningsConfig, groupFlowWith, installFlow, listFlowDrafts, listFlows, listGuilds, listJourneys, listLeveling, listTickets, login, loginCallback, logout, type Options, previewFlowGrouping, reopenTicket, repairJourneyDrift, saveFlowResources, saveMyFlowDraft, saveTicketType, unclaimTicket, undeployFlow, undeployJourney, unpublishFlow, unpublishJourney, updateFlow, updateGuildSettings, updateGuildTimeZone, updateJourney, updateTicketsConfig, updateWarningsConfig } from '../sdk.gen';
-import type { AttachFlowToJourneyData, AttachFlowToJourneyError, AttachFlowToJourneyResponse, CheckFlowData, CheckFlowError, CheckFlowResponse, ClaimTicketData, ClaimTicketError, ClaimTicketResponse, CloseTicketData, CloseTicketError, CloseTicketResponse, CreateFlowData, CreateFlowError, CreateFlowResponse, CreateJourneyData, CreateJourneyError, CreateJourneyResponse, DeleteFlowData, DeleteFlowError, DeleteFlowResponse, DeleteJourneyData, DeleteJourneyError, DeleteJourneyResponse, DeleteTicketTypeData, DeleteTicketTypeError, DeleteTicketTypeResponse, DeployFlowData, DeployFlowError, DeployFlowResponse, DetachFlowFromJourneyData, DetachFlowFromJourneyError, DetachFlowFromJourneyResponse, DiscardFlowDraftData, DiscardFlowDraftError, DiscardFlowDraftResponse, ForgetJourneyOrphanData, ForgetJourneyOrphanError, ForgetJourneyOrphanResponse, GetBotIdentityData, GetBotIdentityError, GetBotIdentityResponse, GetCurrentUserData, GetCurrentUserError, GetCurrentUserResponse, GetFlowAttachmentData, GetFlowAttachmentError, GetFlowAttachmentResponse, GetFlowData, GetFlowError, GetFlowNextRunsData, GetFlowNextRunsError, GetFlowNextRunsResponse, GetFlowResourcesData, GetFlowResourcesError, GetFlowResourcesResponse, GetFlowResponse, GetGuildChannelsData, GetGuildChannelsError, GetGuildChannelsResponse, GetGuildRolesData, GetGuildRolesError, GetGuildRolesResponse, GetGuildSettingsData, GetGuildSettingsError, GetGuildSettingsResponse, GetHealthData, GetHealthError, GetHealthResponse, GetInstallPlanData, GetInstallPlanError, GetInstallPlanResponse, GetJourneyData, GetJourneyDriftData, GetJourneyDriftError, GetJourneyDriftResponse, GetJourneyError, GetJourneyPublishedStateData, GetJourneyPublishedStateError, GetJourneyPublishedStateResponse, GetJourneyResponse, GetLevelingInsightsData, GetLevelingInsightsError, GetLevelingInsightsResponse, GetLevelingUserData, GetLevelingUserError, GetLevelingUserResponse, GetNodeTypesData, GetNodeTypesError, GetNodeTypesResponse, GetPublishedStateData, GetPublishedStateError, GetPublishedStateResponse, GetTicketData, GetTicketError, GetTicketResponse, GetTicketsConfigData, GetTicketsConfigError, GetTicketsConfigResponse, GetWarningsConfigData, GetWarningsConfigError, GetWarningsConfigResponse, GroupFlowWithData, GroupFlowWithError, GroupFlowWithResponse, InstallFlowData, InstallFlowError, InstallFlowResponse, ListFlowDraftsData, ListFlowDraftsError, ListFlowDraftsResponse, ListFlowsData, ListFlowsError, ListFlowsResponse, ListGuildsData, ListGuildsError, ListGuildsResponse, ListJourneysData, ListJourneysError, ListJourneysResponse, ListLevelingData, ListLevelingError, ListLevelingResponse, ListTicketsData, ListTicketsError, ListTicketsResponse, LoginCallbackData, LoginCallbackError, LoginData, LoginError, LogoutData, LogoutError, LogoutResponse, PreviewFlowGroupingData, PreviewFlowGroupingError, PreviewFlowGroupingResponse, ReopenTicketData, ReopenTicketError, ReopenTicketResponse, RepairJourneyDriftData, RepairJourneyDriftError, RepairJourneyDriftResponse, SaveFlowResourcesData, SaveFlowResourcesError, SaveFlowResourcesResponse, SaveMyFlowDraftData, SaveMyFlowDraftError, SaveMyFlowDraftResponse, SaveTicketTypeData, SaveTicketTypeError, SaveTicketTypeResponse, UnclaimTicketData, UnclaimTicketError, UnclaimTicketResponse, UndeployFlowData, UndeployFlowError, UndeployFlowResponse, UndeployJourneyData, UndeployJourneyError, UndeployJourneyResponse, UnpublishFlowData, UnpublishFlowError, UnpublishFlowResponse, UnpublishJourneyData, UnpublishJourneyError, UnpublishJourneyResponse, UpdateFlowData, UpdateFlowError, UpdateFlowResponse, UpdateGuildSettingsData, UpdateGuildSettingsError, UpdateGuildSettingsResponse, UpdateGuildTimeZoneData, UpdateGuildTimeZoneError, UpdateGuildTimeZoneResponse, UpdateJourneyData, UpdateJourneyError, UpdateJourneyResponse, UpdateTicketsConfigData, UpdateTicketsConfigError, UpdateTicketsConfigResponse, UpdateWarningsConfigData, UpdateWarningsConfigError, UpdateWarningsConfigResponse } from '../types.gen';
+import { attachFlowToJourney, checkFlow, claimTicket, closeTicket, createFlow, createJourney, deleteFlow, deleteGuildUpload, deleteJourney, deleteTicketType, deployFlow, detachFlowFromJourney, discardFlowDraft, forgetJourneyOrphan, getBotIdentity, getCurrentUser, getFlow, getFlowAttachment, getFlowNextRuns, getFlowResources, getGuildChannels, getGuildRoles, getGuildSettings, getGuildUpload, getHealth, getInstallPlan, getJourney, getJourneyDrift, getJourneyPublishedState, getLevelingInsights, getLevelingUser, getNodeTypes, getPublishedState, getTicket, getTicketsConfig, getWarningsConfig, groupFlowWith, installFlow, listFlowDrafts, listFlows, listGuilds, listGuildUploads, listJourneys, listLeveling, listTickets, login, loginCallback, logout, type Options, previewFlowGrouping, reopenTicket, repairJourneyDrift, saveFlowResources, saveMyFlowDraft, saveTicketType, unclaimTicket, undeployFlow, undeployJourney, unpublishFlow, unpublishJourney, updateFlow, updateGuildSettings, updateGuildTimeZone, updateJourney, updateTicketsConfig, updateWarningsConfig, uploadGuildImage } from '../sdk.gen';
+import type { AttachFlowToJourneyData, AttachFlowToJourneyError, AttachFlowToJourneyResponse, CheckFlowData, CheckFlowError, CheckFlowResponse, ClaimTicketData, ClaimTicketError, ClaimTicketResponse, CloseTicketData, CloseTicketError, CloseTicketResponse, CreateFlowData, CreateFlowError, CreateFlowResponse, CreateJourneyData, CreateJourneyError, CreateJourneyResponse, DeleteFlowData, DeleteFlowError, DeleteFlowResponse, DeleteGuildUploadData, DeleteGuildUploadError, DeleteGuildUploadResponse, DeleteJourneyData, DeleteJourneyError, DeleteJourneyResponse, DeleteTicketTypeData, DeleteTicketTypeError, DeleteTicketTypeResponse, DeployFlowData, DeployFlowError, DeployFlowResponse, DetachFlowFromJourneyData, DetachFlowFromJourneyError, DetachFlowFromJourneyResponse, DiscardFlowDraftData, DiscardFlowDraftError, DiscardFlowDraftResponse, ForgetJourneyOrphanData, ForgetJourneyOrphanError, ForgetJourneyOrphanResponse, GetBotIdentityData, GetBotIdentityError, GetBotIdentityResponse, GetCurrentUserData, GetCurrentUserError, GetCurrentUserResponse, GetFlowAttachmentData, GetFlowAttachmentError, GetFlowAttachmentResponse, GetFlowData, GetFlowError, GetFlowNextRunsData, GetFlowNextRunsError, GetFlowNextRunsResponse, GetFlowResourcesData, GetFlowResourcesError, GetFlowResourcesResponse, GetFlowResponse, GetGuildChannelsData, GetGuildChannelsError, GetGuildChannelsResponse, GetGuildRolesData, GetGuildRolesError, GetGuildRolesResponse, GetGuildSettingsData, GetGuildSettingsError, GetGuildSettingsResponse, GetGuildUploadData, GetGuildUploadError, GetGuildUploadResponse, GetHealthData, GetHealthError, GetHealthResponse, GetInstallPlanData, GetInstallPlanError, GetInstallPlanResponse, GetJourneyData, GetJourneyDriftData, GetJourneyDriftError, GetJourneyDriftResponse, GetJourneyError, GetJourneyPublishedStateData, GetJourneyPublishedStateError, GetJourneyPublishedStateResponse, GetJourneyResponse, GetLevelingInsightsData, GetLevelingInsightsError, GetLevelingInsightsResponse, GetLevelingUserData, GetLevelingUserError, GetLevelingUserResponse, GetNodeTypesData, GetNodeTypesError, GetNodeTypesResponse, GetPublishedStateData, GetPublishedStateError, GetPublishedStateResponse, GetTicketData, GetTicketError, GetTicketResponse, GetTicketsConfigData, GetTicketsConfigError, GetTicketsConfigResponse, GetWarningsConfigData, GetWarningsConfigError, GetWarningsConfigResponse, GroupFlowWithData, GroupFlowWithError, GroupFlowWithResponse, InstallFlowData, InstallFlowError, InstallFlowResponse, ListFlowDraftsData, ListFlowDraftsError, ListFlowDraftsResponse, ListFlowsData, ListFlowsError, ListFlowsResponse, ListGuildsData, ListGuildsError, ListGuildsResponse, ListGuildUploadsData, ListGuildUploadsError, ListGuildUploadsResponse, ListJourneysData, ListJourneysError, ListJourneysResponse, ListLevelingData, ListLevelingError, ListLevelingResponse, ListTicketsData, ListTicketsError, ListTicketsResponse, LoginCallbackData, LoginCallbackError, LoginData, LoginError, LogoutData, LogoutError, LogoutResponse, PreviewFlowGroupingData, PreviewFlowGroupingError, PreviewFlowGroupingResponse, ReopenTicketData, ReopenTicketError, ReopenTicketResponse, RepairJourneyDriftData, RepairJourneyDriftError, RepairJourneyDriftResponse, SaveFlowResourcesData, SaveFlowResourcesError, SaveFlowResourcesResponse, SaveMyFlowDraftData, SaveMyFlowDraftError, SaveMyFlowDraftResponse, SaveTicketTypeData, SaveTicketTypeError, SaveTicketTypeResponse, UnclaimTicketData, UnclaimTicketError, UnclaimTicketResponse, UndeployFlowData, UndeployFlowError, UndeployFlowResponse, UndeployJourneyData, UndeployJourneyError, UndeployJourneyResponse, UnpublishFlowData, UnpublishFlowError, UnpublishFlowResponse, UnpublishJourneyData, UnpublishJourneyError, UnpublishJourneyResponse, UpdateFlowData, UpdateFlowError, UpdateFlowResponse, UpdateGuildSettingsData, UpdateGuildSettingsError, UpdateGuildSettingsResponse, UpdateGuildTimeZoneData, UpdateGuildTimeZoneError, UpdateGuildTimeZoneResponse, UpdateJourneyData, UpdateJourneyError, UpdateJourneyResponse, UpdateTicketsConfigData, UpdateTicketsConfigError, UpdateTicketsConfigResponse, UpdateWarningsConfigData, UpdateWarningsConfigError, UpdateWarningsConfigResponse, UploadGuildImageData, UploadGuildImageError, UploadGuildImageResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -1088,6 +1088,82 @@ export const unclaimTicketMutation = (options?: Partial<Options<UnclaimTicketDat
     };
     return mutationOptions;
 };
+
+export const listGuildUploadsQueryKey = (options: Options<ListGuildUploadsData>) => createQueryKey('listGuildUploads', options);
+
+/**
+ * The server's uploaded pictures, newest first
+ */
+export const listGuildUploadsOptions = (options: Options<ListGuildUploadsData>) => queryOptions<ListGuildUploadsResponse, ListGuildUploadsError, ListGuildUploadsResponse, ReturnType<typeof listGuildUploadsQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await listGuildUploads({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: listGuildUploadsQueryKey(options)
+});
+
+/**
+ * Keep a picture for this server's messages
+ *
+ * The body is the picture's raw bytes, up to 8 MB; `name` is its file name, for display. Its type is read from the bytes, never from the name. The same bytes uploaded twice to one server are kept once: the second upload answers 200 with the first one.
+ */
+export const uploadGuildImageMutation = (options?: Partial<Options<UploadGuildImageData>>): UseMutationOptions<UploadGuildImageResponse, UploadGuildImageError, Options<UploadGuildImageData>> => {
+    const mutationOptions: UseMutationOptions<UploadGuildImageResponse, UploadGuildImageError, Options<UploadGuildImageData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await uploadGuildImage({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Delete an uploaded picture nothing shows
+ *
+ * Refused while any saved flow or draft shows the picture, with every place that does. Messages the bot has already posted keep their copy: Discord holds those, not this server.
+ */
+export const deleteGuildUploadMutation = (options?: Partial<Options<DeleteGuildUploadData>>): UseMutationOptions<DeleteGuildUploadResponse, DeleteGuildUploadError, Options<DeleteGuildUploadData>> => {
+    const mutationOptions: UseMutationOptions<DeleteGuildUploadResponse, DeleteGuildUploadError, Options<DeleteGuildUploadData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await deleteGuildUpload({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const getGuildUploadQueryKey = (options: Options<GetGuildUploadData>) => createQueryKey('getGuildUpload', options);
+
+/**
+ * One uploaded picture
+ *
+ * The picture itself, as the content type its bytes were read as, for an `<img src>` on a signed-in page. Not JSON, so not meant for the SDK.
+ */
+export const getGuildUploadOptions = (options: Options<GetGuildUploadData>) => queryOptions<GetGuildUploadResponse, GetGuildUploadError, GetGuildUploadResponse, ReturnType<typeof getGuildUploadQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getGuildUpload({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getGuildUploadQueryKey(options)
+});
 
 export const getHealthQueryKey = (options?: Options<GetHealthData>) => createQueryKey('getHealth', options);
 

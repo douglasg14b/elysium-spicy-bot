@@ -11,7 +11,8 @@
  * save failed and shown a clean form.
  */
 
-import type { FlowValidationIssue } from '@brattybot/web-sdk';
+import type { BlockConfigField, FlowValidationIssue } from '@brattybot/web-sdk';
+import type { NestedIssue } from './controls/types';
 
 /** Issues grouped by the node they blame, for the canvas and the inspector. */
 export function issuesByNode(
@@ -65,6 +66,12 @@ export interface PlacedIssues {
     /** One message per field key, ready to hand a control as its `error`. */
     readonly byField: ReadonlyMap<string, string>;
     /**
+     * Complaints about a part inside a drawn `message` field, per field key, each with its
+     * path relative to the field (`embeds.0.title`) — ready to hand the control as its
+     * `issues`, which marks the part the path names.
+     */
+    readonly nested: ReadonlyMap<string, readonly NestedIssue[]>;
+    /**
      * Everything that could not be placed under a control.
      *
      * Three kinds end up here, and lumping them together is deliberate — the author
@@ -81,16 +88,18 @@ export interface PlacedIssues {
  * Split one node's issues into the ones a control can show and the ones it cannot.
  *
  * @param issues - Every issue blaming this node.
- * @param fieldKeys - The config fields the inspector is actually drawing. An issue
+ * @param fields - The config fields the inspector is actually drawing. An issue
  * naming anything else cannot be placed, and saying so requires knowing this — which
- * is why it is a parameter rather than something inferred from the path.
+ * is why it is a parameter rather than something inferred from the path. Their controls
+ * say which of them take complaints addressed below them.
  */
 export function placeIssues(
     issues: readonly FlowValidationIssue[],
-    fieldKeys: readonly string[]
+    fields: readonly Pick<BlockConfigField, 'key' | 'control'>[]
 ): PlacedIssues {
-    const drawn = new Set(fieldKeys);
+    const drawn = new Map(fields.map((field) => [field.key, field.control]));
     const byField = new Map<string, string>();
+    const nested = new Map<string, NestedIssue[]>();
     const nodeLevel: FlowValidationIssue[] = [];
 
     for (const issue of issues) {
@@ -102,10 +111,20 @@ export function placeIssues(
             byField.set(issue.field, existing ? `${existing} ${issue.message}` : issue.message);
             continue;
         }
+
+        // Only a message shows a complaint about a part of its value where the part is;
+        // every other control's dotted issues name something it cannot point at.
+        const [fieldKey = '', ...below] = issue.field?.split('.') ?? [];
+        if (below.length > 0 && drawn.get(fieldKey) === 'message') {
+            const part: NestedIssue = { path: below.join('.'), message: issue.message };
+            nested.set(fieldKey, [...(nested.get(fieldKey) ?? []), part]);
+            continue;
+        }
+
         nodeLevel.push(issue);
     }
 
-    return { byField, nodeLevel };
+    return { byField, nested, nodeLevel };
 }
 
 /**

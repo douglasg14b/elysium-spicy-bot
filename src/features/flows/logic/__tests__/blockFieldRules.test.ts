@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { messageConfigSchema } from '../../../../shared/discordMessage';
 import type { BlockManifest } from '../../blocks/manifest';
 import { ensureBlocksDiscovered, getBlockDefinition, listBlockDefinitions } from '../../blocks/registry';
 import { VARIABLE_NAME_MESSAGE } from '../../blocks/variableName';
@@ -246,7 +247,7 @@ describe('deriving one block’s rules', () => {
             ],
             pattern: undefined,
         });
-        expect(rulesOf('action.postEmbed').get('authorName')).toMatchObject({
+        expect(rulesOf('action.kickMember').get('reason')).toMatchObject({
             limits: [{ keyword: 'minLength', sentence: "Can't be empty." }, { keyword: 'maxLength' }],
         });
     });
@@ -271,6 +272,18 @@ describe('deriving one block’s rules', () => {
         expect(rulesOf('trigger.buttonClick').get('eligibility')).toEqual({ kind: 'unchecked' });
         // An enum: zod's sentence for a wrong type is not the one the server sends.
         expect(rulesOf('trigger.buttonClick').get('style')).toEqual({ kind: 'unchecked' });
+    });
+
+    it('leaves a message to the server, refinements and all, without failing the emit', () => {
+        // The browser checks a message's parts against `zDiscordMessage` instead; the field
+        // as a whole is an object, whose keywords are server-only.
+        const block: Block = {
+            type: 'test.block',
+            configSchema: z.object({ message: messageConfigSchema }),
+            configFields: [{ key: 'message', label: 'Message', control: 'message' }],
+        };
+
+        expect(browserFieldRules(block).get('message')).toEqual({ kind: 'unchecked' });
     });
 });
 
@@ -317,7 +330,7 @@ describe('how the server words a field rule', () => {
     it('asks for a required field left empty or left out', () => {
         expect(messagesFor('action.sendDM', 'message', '')).toEqual(['Fill this in.']);
         expect(messagesFor('action.sendDM', 'message', undefined)).toEqual(['Fill this in.']);
-        expect(messagesFor('action.postEmbed', 'authorName', '')).toEqual(["Can't be empty."]);
+        expect(messagesFor('action.kickMember', 'reason', '')).toEqual(["Can't be empty."]);
     });
 
     it('keeps the block’s own wording for a pattern', () => {

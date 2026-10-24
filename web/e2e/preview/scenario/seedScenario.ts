@@ -4,8 +4,10 @@ import type { PreviewPage } from '../previewPages';
 import type { SeedApi } from './seedApi';
 import { seedDiscord, type ScenarioGuild } from './seedDiscord';
 import { seedFlows } from './seedFlows';
+import { seedMessageEditor } from './seedMessageEditor';
 import { seedSettings } from './seedSettings';
 import { seedTickets } from './seedTickets';
+import { seedUploads } from './seedUploads';
 
 export type { PreviewPage };
 
@@ -32,6 +34,8 @@ export const seedScenario = {
         const pages: PreviewPage[] = [];
         pages.push(...(await seedSettings(context)));
         pages.push(...(await seedFlows(context)));
+        pages.push(...(await seedMessageEditor(context)));
+        pages.push(...(await seedUploads(context)));
         pages.push(...(await seedTickets(context)));
         return pages;
     },

@@ -29,6 +29,7 @@ import { ResourceBindingTable } from '../../features/provisioning/data/resourceB
 import { JourneyTable } from '../../features/provisioning/data/journeysSchema';
 import { FlowJourneyLinkTable } from '../../features/provisioning/data/flowJourneyLinksSchema';
 import { GuildSettingsTable } from '../guild-settings/data/guildSettingsSchema';
+import { GuildUploadsTable } from '../guild-uploads/data/guildUploadsSchema';
 import { ActivityEventsTable } from '../activity/data/activityEventsSchema';
 import { ActivityRecorderSessionsTable } from '../activity/data/activityRecorderSessionsSchema';
 
@@ -54,6 +55,7 @@ export interface Database {
     journeys: JourneyTable;
     flow_journey_links: FlowJourneyLinkTable;
     guild_settings: GuildSettingsTable;
+    guild_uploads: GuildUploadsTable;
     activity_events: ActivityEventsTable;
     activity_recorder_sessions: ActivityRecorderSessionsTable;
 }
@@ -114,6 +116,9 @@ function getDatabaseClient() {
                 // neither. Its dates still need parsing on both dialects, hence this.
                 flow_journey_links: ['createdAt', 'updatedAt'],
                 guild_settings: ['createdAt', 'updatedAt'],
+                // No boolean or JSON columns, so absent from both sqlite-only plugins below.
+                // `bytes` is a Buffer on both drivers, which the sqlite binding plugin binds as is.
+                guild_uploads: ['createdAt'],
                 // No boolean or JSON columns, so absent from both sqlite-only plugins below.
                 activity_events: ['occurredAt'],
                 // Likewise absent from both sqlite-only plugins: dates only.

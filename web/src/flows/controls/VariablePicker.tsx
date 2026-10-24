@@ -26,7 +26,7 @@ import { describeUnavailableRequirement, referencedVariables, variableToken } fr
 
 interface VariablePickerProps {
     /** What upstream blocks write, in the order a run would write them. */
-    variables: AvailableVariable[];
+    variables: readonly AvailableVariable[];
     /** Which requirements the run reaching this node can be relied on to carry. */
     requirements: RequirementAvailability;
     /** The copy currently in the field, scanned for references. */

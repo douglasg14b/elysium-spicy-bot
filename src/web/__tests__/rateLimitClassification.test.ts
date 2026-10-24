@@ -75,6 +75,12 @@ const EXPECTED_BUDGET: Readonly<Record<string, RateBudget>> = {
     updateTicketsConfig: 'discord',
     saveTicketType: 'discord',
     deleteTicketType: 'discord',
+    // Uploads. Database only; the upload is bounded by the server's total, not the Discord budget,
+    // and the delete only frees room.
+    uploadGuildImage: 'general',
+    listGuildUploads: 'general',
+    getGuildUpload: 'general',
+    deleteGuildUpload: 'general',
 };
 
 const GUILD_SCOPED_PREFIX = '/api/guilds/{guildId}/';

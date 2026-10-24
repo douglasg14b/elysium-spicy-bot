@@ -15,13 +15,14 @@ import { EligibilityControl } from './EligibilityControl';
 import { CategoryPickerControl, ChannelPickerControl, RolePickerControl } from './PickerControls';
 import { ColourControl } from './ColourControl';
 import { DurationControl } from './DurationControl';
+import { MessageControl } from './MessageControl';
 import { SegmentedChoiceControl, SelectChoiceControl } from './ChoiceControls';
 import { LongTextControl, TextControl } from './TextControls';
 import { ObjectListControl } from './ObjectListControl';
 import { TextListControl } from './TextListControl';
 import { TicketTypePickerControl } from './TicketTypePickerControl';
 import { VariableSelectControl } from './VariableSelectControl';
-import type { ControlChange, ControlContext } from './types';
+import type { ControlChange, ControlContext, NestedIssue } from './types';
 
 /**
  * Render one config field's control.
@@ -34,6 +35,8 @@ import type { ControlChange, ControlContext } from './types';
  * @param error - Why the last save refused this field, if it did. Passed to every
  * control rather than to the ones that happen to want it, so a new control gets
  * field-level errors by taking the prop it already has.
+ * @param issues - Complaints about parts inside the field's value, with paths relative
+ * to the field. Only a control that can place them is handed any (see `placeIssues`).
  */
 export function renderControl(
     field: BlockConfigField,
@@ -41,9 +44,10 @@ export function renderControl(
     onChange: ControlChange,
     context: ControlContext,
     config?: Record<string, unknown>,
-    error?: string
+    error?: string,
+    issues?: readonly NestedIssue[]
 ): ReactElement {
-    const props = { value, onChange, context, config, error };
+    const props = { value, onChange, context, config, error, issues };
 
     switch (field.control) {
         case 'rolePicker':
@@ -78,6 +82,8 @@ export function renderControl(
             return <TimeOfDayControl field={field} {...props} />;
         case 'daysOfWeek':
             return <DaysOfWeekControl field={field} {...props} />;
+        case 'message':
+            return <MessageControl field={field} {...props} />;
         default: {
             // Adding a member to `BLOCK_CONTROL_TYPES` without implementing it here
             // is a compile error, by design.

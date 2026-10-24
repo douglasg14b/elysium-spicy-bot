@@ -2,11 +2,13 @@ import { Events, type Client } from 'discord.js';
 import { interactionsRegistry } from '../../features-system/commands';
 import { DISCORD_CLIENT } from '../../discordClient';
 import { registerActivitySubscriber } from '../../features-system/activity';
+import { registerUploadUsageReader } from '../../features-system/guild-uploads';
 import { registerLevelUpSubscriber } from '../leveling';
 import { registerResourceWriteBack } from '../provisioning';
 import { registerTicketSubscriber } from '../tickets';
 import { applyResourcesToFlows } from './logic/applyResourcesToFlows';
 import { fireDueSchedules } from './logic/fireDueSchedules';
+import { flowUploadUses } from './logic/flowUploadUses';
 import { reconcileGuildSchedules, registerScheduleReconcile } from './logic/reconcileGuildSchedules';
 import { ticketChangeSubscriber } from './logic/ticketEventDispatch';
 import { ensureBlocksDiscovered } from './blocks/registry';
@@ -54,6 +56,13 @@ async function initializeFlows(): Promise<void> {
     // consume the provisioning barrel, and provisioning must not know flows exist.
     // Without this line an install still succeeds and simply writes nothing back.
     registerResourceWriteBack(applyResourcesToFlows);
+
+    // Tell guild-uploads where flows show uploaded pictures, saved and in drafts, so the
+    // dashboard lists each picture's uses and refuses to delete one still shown.
+    //
+    // Registered from this side because guild-uploads imports no feature. Without this line
+    // the uploads list and every delete fail loudly rather than treat a picture as unused.
+    registerUploadUsageReader(flowUploadUses);
 
     // Tell leveling to notify us when somebody levels up.
     //

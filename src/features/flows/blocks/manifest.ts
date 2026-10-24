@@ -1,4 +1,5 @@
 import type { ZodSafeParseResult, ZodType } from 'zod';
+import type { DiscordMessageInput } from '../../../shared/discordMessage';
 import type { Eligibility } from '../engine/eligibility';
 import type { FlowStepOutcome } from '../engine/stepOutcome';
 import type { FlowRunContext } from './types';
@@ -186,6 +187,17 @@ export const BLOCK_CONTROL_TYPES = [
      * schema to exactly those seven keys.
      */
     'daysOfWeek',
+    /**
+     * A whole Discord message — plain text and up to ten embeds — as one object-valued key,
+     * the `eligibility` precedent: one control over one key.
+     *
+     * Its model lives outside flows (`src/shared/discordMessage/`), because messages are
+     * not only a flow's. It is copy: every text part and every picture that is not an
+     * upload has its `{{tokens}}` filled in before `run`, with no `rendersTokens` to
+     * declare — see `copyLocationsOf` in `engine/copyRendering.ts`. Conformance holds the
+     * field's schema to the stored shape (`controlShapeProbes` in `conformance.ts`).
+     */
+    'message',
 ] as const;
 
 export type BlockControlType = (typeof BLOCK_CONTROL_TYPES)[number];
@@ -272,10 +284,10 @@ export interface BlockConfigColumn {
      * before `run` sees them. Never on a `toggle`.
      *
      * Same meaning and same default-off reasoning as a `text` field's own flag,
-     * one level down — see {@link BlockConfigField}. `isCopyField` does not narrow
-     * to this arm; `renderNodeCopy` walks the columns separately, because the value
-     * it must expand is a string inside an array of records rather than a string at
-     * a config key.
+     * one level down — see {@link BlockConfigField}. Found by the same walk as a
+     * field's: `copyLocationsOf` in `engine/copyRendering.ts` lists each copy column
+     * of each row by its path, which the executor renders and save-time validation
+     * checks alike.
      */
     readonly rendersTokens?: boolean;
 }
@@ -463,12 +475,11 @@ export type BlockConfigField =
           readonly addLabel?: string;
           readonly defaultValue?: readonly string[];
           /*
-           * Deliberately no `rendersTokens`. `isCopyField` in
-           * `engine/copyRendering.ts` narrows to the two single-string arms, and
-           * both the executor and save-time validation read one string off the
-           * narrowed field. Admitting a list would mean expanding and validating
-           * per entry in both places; declaring the flag before that exists would
-           * be a field claiming an expansion nothing performs.
+           * Deliberately no `rendersTokens`. `copyLocationsOf` in
+           * `engine/copyRendering.ts` is the one walk the executor and save-time
+           * validation find copy by, and it knows no list of strings. Admitting one
+           * means teaching it that arm; declaring the flag before that would be a
+           * field claiming an expansion nothing performs.
            */
       })
     | (BlockConfigFieldBase & {
@@ -561,6 +572,21 @@ export type BlockConfigField =
            */
           readonly control: 'daysOfWeek';
           readonly defaultValue?: readonly BlockDayKey[];
+      })
+    | (BlockConfigFieldBase & {
+          /**
+           * A whole message — plain text and embeds — as one object. Always copy: there is
+           * no `rendersTokens` to forget, because a message is nothing but copy and pictures.
+           */
+          readonly control: 'message';
+          /** Colours to offer for an embed's stripe; the first colours a new embed. */
+          readonly swatches?: readonly string[];
+          /**
+           * The starting message, as schema input like every default. A declared one must
+           * parse, and the rules refuse an empty message, so a block that has no sensible
+           * default declares none and lets the editor start from one fresh embed.
+           */
+          readonly defaultValue?: DiscordMessageInput;
       });
 
 /**
@@ -1013,7 +1039,14 @@ export type FlowContextRequirement = (typeof FLOW_CONTEXT_REQUIREMENTS)[number];
  * `PRIVILEGED_ROLE_PERMISSIONS`. Such a block also asks
  * `changeableRole` in its own `run`, since a role can gain those after the save.
  */
-export const BLOCK_CAPABILITIES = ['manageRoles', 'sendMessages', 'embedLinks', 'manageChannels', 'kickMembers'] as const;
+export const BLOCK_CAPABILITIES = [
+    'manageRoles',
+    'sendMessages',
+    'embedLinks',
+    'manageChannels',
+    'kickMembers',
+    'attachFiles',
+] as const;
 
 export type BlockCapability = (typeof BLOCK_CAPABILITIES)[number];
 

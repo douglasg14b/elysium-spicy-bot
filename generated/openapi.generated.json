@@ -1029,6 +1029,58 @@
                             "control"
                         ],
                         "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "control": {
+                                "enum": [
+                                    "message"
+                                ],
+                                "type": "string"
+                            },
+                            "defaultValue": {
+                                "$ref": "#/components/schemas/DiscordMessage"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "key": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "swatches": {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "visibleWhen": {
+                                "properties": {
+                                    "equals": {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "field": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "field",
+                                    "equals"
+                                ],
+                                "type": "object"
+                            }
+                        },
+                        "required": [
+                            "key",
+                            "label",
+                            "control"
+                        ],
+                        "type": "object"
                     }
                 ]
             },
@@ -1354,6 +1406,148 @@
                 },
                 "required": [
                     "detached"
+                ],
+                "type": "object"
+            },
+            "DiscordMessage": {
+                "description": "A Discord message: optional plain text above up to ten embeds. A picture is an upload (`upload:<uuid>`), an http(s) link, or text holding a token; the server judges its form, and the rules spanning parts, when it re-checks the node.",
+                "properties": {
+                    "content": {
+                        "maxLength": 2000,
+                        "minLength": 1,
+                        "type": "string",
+                        "x-messages": {
+                            "maxLength": "Plain text stops at 2000 characters — Discord's rule, not ours.",
+                            "minLength": "Plain text needs at least one character — or leave it out."
+                        }
+                    },
+                    "embeds": {
+                        "items": {
+                            "properties": {
+                                "author": {
+                                    "properties": {
+                                        "iconUrl": {
+                                            "type": "string"
+                                        },
+                                        "name": {
+                                            "maxLength": 256,
+                                            "minLength": 1,
+                                            "type": "string",
+                                            "x-messages": {
+                                                "maxLength": "Header text stops at 256 characters.",
+                                                "minLength": "Header text needs at least one character — or leave the header out."
+                                            }
+                                        }
+                                    },
+                                    "type": "object"
+                                },
+                                "color": {
+                                    "pattern": "^#[0-9a-fA-F]{6}$",
+                                    "type": "string",
+                                    "x-messages": {
+                                        "pattern": "Colour must be a hex value like #00A2FF"
+                                    }
+                                },
+                                "description": {
+                                    "maxLength": 4096,
+                                    "minLength": 1,
+                                    "type": "string",
+                                    "x-messages": {
+                                        "maxLength": "An embed body stops at 4096 characters.",
+                                        "minLength": "The body needs at least one character — or leave it out."
+                                    }
+                                },
+                                "fields": {
+                                    "items": {
+                                        "properties": {
+                                            "inline": {
+                                                "type": "boolean"
+                                            },
+                                            "name": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string",
+                                                "x-messages": {
+                                                    "maxLength": "Field headings stop at 256 characters.",
+                                                    "minLength": "A field needs a heading."
+                                                }
+                                            },
+                                            "value": {
+                                                "maxLength": 1024,
+                                                "minLength": 1,
+                                                "type": "string",
+                                                "x-messages": {
+                                                    "maxLength": "Field text stops at 1024 characters.",
+                                                    "minLength": "A field needs some text under its heading."
+                                                }
+                                            }
+                                        },
+                                        "required": [
+                                            "name",
+                                            "value"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    "maxItems": 25,
+                                    "type": "array",
+                                    "x-messages": {
+                                        "maxItems": "An embed holds 25 fields, tops."
+                                    }
+                                },
+                                "footer": {
+                                    "properties": {
+                                        "iconUrl": {
+                                            "type": "string"
+                                        },
+                                        "text": {
+                                            "maxLength": 2048,
+                                            "minLength": 1,
+                                            "type": "string",
+                                            "x-messages": {
+                                                "maxLength": "Footer text stops at 2048 characters.",
+                                                "minLength": "Footer text needs at least one character — or leave the footer out."
+                                            }
+                                        }
+                                    },
+                                    "type": "object"
+                                },
+                                "image": {
+                                    "type": "string"
+                                },
+                                "thumbnail": {
+                                    "type": "string"
+                                },
+                                "timestamp": {
+                                    "type": "boolean"
+                                },
+                                "title": {
+                                    "maxLength": 256,
+                                    "minLength": 1,
+                                    "type": "string",
+                                    "x-messages": {
+                                        "maxLength": "Titles stop at 256 characters.",
+                                        "minLength": "A title needs at least one character — or leave it out."
+                                    }
+                                },
+                                "url": {
+                                    "pattern": "^[Hh][Tt][Tt][Pp][Ss]?:\\/\\/[^\\s/?#]+\\S*$",
+                                    "type": "string",
+                                    "x-messages": {
+                                        "pattern": "A title link has to be a full link starting http:// or https://."
+                                    }
+                                }
+                            },
+                            "type": "object"
+                        },
+                        "maxItems": 10,
+                        "type": "array",
+                        "x-messages": {
+                            "maxItems": "10 embeds is the most Discord takes in one message."
+                        }
+                    }
+                },
+                "required": [
+                    "embeds"
                 ],
                 "type": "object"
             },
@@ -1789,15 +1983,6 @@
                     },
                     "action.postEmbed": {
                         "properties": {
-                            "authorName": {
-                                "maxLength": 256,
-                                "minLength": 1,
-                                "type": "string",
-                                "x-messages": {
-                                    "maxLength": "No more than 256 characters.",
-                                    "minLength": "Can't be empty."
-                                }
-                            },
                             "channelId": {
                                 "minLength": 1,
                                 "type": "string",
@@ -1805,52 +1990,7 @@
                                     "minLength": "Fill this in."
                                 }
                             },
-                            "color": {
-                                "pattern": "^#[0-9a-fA-F]{6}$",
-                                "type": "string",
-                                "x-messages": {
-                                    "pattern": "Colour must be a hex value like #00A2FF"
-                                }
-                            },
-                            "description": {
-                                "maxLength": 4096,
-                                "minLength": 1,
-                                "type": "string",
-                                "x-messages": {
-                                    "maxLength": "No more than 4096 characters.",
-                                    "minLength": "Fill this in."
-                                }
-                            },
-                            "fields": {
-                                "items": {},
-                                "maxItems": 25,
-                                "type": "array",
-                                "x-messages": {
-                                    "maxItems": "No more than 25 entries."
-                                }
-                            },
-                            "footerText": {
-                                "maxLength": 2048,
-                                "minLength": 1,
-                                "type": "string",
-                                "x-messages": {
-                                    "maxLength": "No more than 2048 characters.",
-                                    "minLength": "Can't be empty."
-                                }
-                            },
-                            "imageUrl": {},
-                            "showTimestamp": {},
-                            "thumbnailUrl": {},
-                            "title": {
-                                "maxLength": 256,
-                                "minLength": 1,
-                                "type": "string",
-                                "x-messages": {
-                                    "maxLength": "No more than 256 characters.",
-                                    "minLength": "Fill this in."
-                                }
-                            },
-                            "url": {}
+                            "message": {}
                         },
                         "type": "object"
                     },
@@ -3113,6 +3253,89 @@
                 ],
                 "type": "object"
             },
+            "GuildUpload": {
+                "description": "A picture kept for this server's messages, without its bytes. A flow names it as `upload:<uploadId>`; `contentType` was read from the bytes, not from the file name.",
+                "properties": {
+                    "byteSize": {
+                        "type": "integer"
+                    },
+                    "contentType": {
+                        "enum": [
+                            "image/png",
+                            "image/jpeg",
+                            "image/gif",
+                            "image/webp"
+                        ],
+                        "type": "string"
+                    },
+                    "createdAt": {
+                        "type": "string"
+                    },
+                    "fileName": {
+                        "type": "string"
+                    },
+                    "uploadId": {
+                        "type": "string"
+                    },
+                    "uploadedBy": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "uploadId",
+                    "fileName",
+                    "contentType",
+                    "byteSize",
+                    "uploadedBy",
+                    "createdAt"
+                ],
+                "type": "object"
+            },
+            "GuildUploadList": {
+                "description": "The server's uploads, newest first; `totalBytes` is their sizes added up, and `limitBytes` the most they may add up to.",
+                "properties": {
+                    "limitBytes": {
+                        "type": "integer"
+                    },
+                    "totalBytes": {
+                        "type": "integer"
+                    },
+                    "uploads": {
+                        "items": {
+                            "$ref": "#/components/schemas/GuildUploadListing"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "uploads",
+                    "totalBytes",
+                    "limitBytes"
+                ],
+                "type": "object"
+            },
+            "GuildUploadListing": {
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/GuildUpload"
+                    },
+                    {
+                        "properties": {
+                            "uses": {
+                                "items": {
+                                    "$ref": "#/components/schemas/UploadUse"
+                                },
+                                "type": "array"
+                            }
+                        },
+                        "required": [
+                            "uses"
+                        ],
+                        "type": "object"
+                    }
+                ],
+                "description": "A picture kept for this server's messages, without its bytes, and every place a saved flow or a draft shows it — empty when nothing does, so it may be deleted."
+            },
             "Health": {
                 "description": "The web server is up. `time` is the server's clock, as ISO.",
                 "properties": {
@@ -4112,7 +4335,8 @@
                                 "sendMessages",
                                 "embedLinks",
                                 "manageChannels",
-                                "kickMembers"
+                                "kickMembers",
+                                "attachFiles"
                             ],
                             "type": "string"
                         },
@@ -5487,6 +5711,59 @@
                     "kind",
                     "name",
                     "outcome"
+                ],
+                "type": "object"
+            },
+            "UploadInUse": {
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/ErrorBody"
+                    },
+                    {
+                        "properties": {
+                            "uses": {
+                                "items": {
+                                    "$ref": "#/components/schemas/UploadUse"
+                                },
+                                "type": "array"
+                            }
+                        },
+                        "required": [
+                            "uses"
+                        ],
+                        "type": "object"
+                    }
+                ],
+                "description": "The picture was not deleted: these places still show it. Swap it out of each, then try again."
+            },
+            "UploadUse": {
+                "description": "One place a picture is shown: the flow (as a draft names it, when the use is in one), the node, its block's label, and the part as the message editor names it (`embed 1 thumbnail`). `draftAuthorId` is set when the use is only in that person's unsaved draft.",
+                "properties": {
+                    "blockLabel": {
+                        "type": "string"
+                    },
+                    "draftAuthorId": {
+                        "type": "string"
+                    },
+                    "flowId": {
+                        "type": "string"
+                    },
+                    "flowName": {
+                        "type": "string"
+                    },
+                    "nodeId": {
+                        "type": "string"
+                    },
+                    "where": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "flowId",
+                    "flowName",
+                    "nodeId",
+                    "blockLabel",
+                    "where"
                 ],
                 "type": "object"
             },
@@ -11904,6 +12181,496 @@
                 "summary": "Release a ticket's claim",
                 "tags": [
                     "tickets"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/uploads": {
+            "get": {
+                "operationId": "listGuildUploads",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/GuildUploadList"
+                                }
+                            }
+                        },
+                        "description": "The server's uploads, newest first, without their bytes, each with where it is shown; and how much of its allowance they take."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
+                    }
+                },
+                "summary": "The server's uploaded pictures, newest first",
+                "tags": [
+                    "uploads"
+                ]
+            },
+            "post": {
+                "description": "The body is the picture's raw bytes, up to 8 MB; `name` is its file name, for display. Its type is read from the bytes, never from the name. The same bytes uploaded twice to one server are kept once: the second upload answers 200 with the first one.",
+                "operationId": "uploadGuildImage",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "name",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/octet-stream": {
+                            "schema": {
+                                "format": "binary",
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/GuildUpload"
+                                }
+                            }
+                        },
+                        "description": "The server already held these exact bytes; nothing new was kept."
+                    },
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/GuildUpload"
+                                }
+                            }
+                        },
+                        "description": "The picture as kept."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The `name` was refused, or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Keeping it would take the server's uploads past 200 MB, so it was not kept."
+                    },
+                    "411": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body did not declare its length (`Content-Length`). It was not read."
+                    },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The picture's declared length was over 8 MB. It was not read."
+                    },
+                    "415": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was not sent as application/octet-stream, or is not a PNG, JPEG, GIF or WebP picture by its bytes."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
+                    }
+                },
+                "summary": "Keep a picture for this server's messages",
+                "tags": [
+                    "uploads"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/uploads/{uploadId}": {
+            "delete": {
+                "description": "Refused while any saved flow or draft shows the picture, with every place that does. Messages the bot has already posted keep their copy: Discord holds those, not this server.",
+                "operationId": "deleteGuildUpload",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "uploadId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Deleted."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, or the server holds no upload with this id."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UploadInUse"
+                                }
+                            }
+                        },
+                        "description": "Something still shows the picture, so it was not deleted."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
+                    }
+                },
+                "summary": "Delete an uploaded picture nothing shows",
+                "tags": [
+                    "uploads"
+                ]
+            },
+            "get": {
+                "description": "The picture itself, as the content type its bytes were read as, for an `<img src>` on a signed-in page. Not JSON, so not meant for the SDK.",
+                "operationId": "getGuildUpload",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "uploadId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "image/gif": {
+                                "schema": {
+                                    "format": "binary",
+                                    "type": "string"
+                                }
+                            },
+                            "image/jpeg": {
+                                "schema": {
+                                    "format": "binary",
+                                    "type": "string"
+                                }
+                            },
+                            "image/png": {
+                                "schema": {
+                                    "format": "binary",
+                                    "type": "string"
+                                }
+                            },
+                            "image/webp": {
+                                "schema": {
+                                    "format": "binary",
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "The picture.",
+                        "headers": {
+                            "Cache-Control": {
+                                "description": "Always `private, max-age=31536000, immutable`: an upload's bytes never change, so the browser may keep them. Refusals stay `private, no-store`.",
+                                "schema": {
+                                    "enum": [
+                                        "private, max-age=31536000, immutable"
+                                    ],
+                                    "type": "string"
+                                }
+                            },
+                            "X-Content-Type-Options": {
+                                "description": "Always `nosniff`: the picture is only ever what its content type says.",
+                                "schema": {
+                                    "enum": [
+                                        "nosniff"
+                                    ],
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, or the server holds no upload with this id."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
+                    }
+                },
+                "summary": "One uploaded picture",
+                "tags": [
+                    "uploads"
                 ]
             }
         },

@@ -189,6 +189,35 @@ export const zDetachResult = z.object({
 });
 
 /**
+ * A Discord message: optional plain text above up to ten embeds. A picture is an upload (`upload:<uuid>`), an http(s) link, or text holding a token; the server judges its form, and the rules spanning parts, when it re-checks the node.
+ */
+export const zDiscordMessage = z.object({
+    content: z.string().min(1, 'Plain text needs at least one character — or leave it out.').max(2000, 'Plain text stops at 2000 characters — Discord\'s rule, not ours.').optional(),
+    embeds: z.array(z.object({
+        author: z.object({
+            iconUrl: z.string().optional(),
+            name: z.string().min(1, 'Header text needs at least one character — or leave the header out.').max(256, 'Header text stops at 256 characters.').optional()
+        }).optional(),
+        color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Colour must be a hex value like #00A2FF').optional(),
+        description: z.string().min(1, 'The body needs at least one character — or leave it out.').max(4096, 'An embed body stops at 4096 characters.').optional(),
+        fields: z.array(z.object({
+            inline: z.boolean().optional(),
+            name: z.string().min(1, 'A field needs a heading.').max(256, 'Field headings stop at 256 characters.'),
+            value: z.string().min(1, 'A field needs some text under its heading.').max(1024, 'Field text stops at 1024 characters.')
+        })).max(25, 'An embed holds 25 fields, tops.').optional(),
+        footer: z.object({
+            iconUrl: z.string().optional(),
+            text: z.string().min(1, 'Footer text needs at least one character — or leave the footer out.').max(2048, 'Footer text stops at 2048 characters.').optional()
+        }).optional(),
+        image: z.string().optional(),
+        thumbnail: z.string().optional(),
+        timestamp: z.boolean().optional(),
+        title: z.string().min(1, 'A title needs at least one character — or leave it out.').max(256, 'Titles stop at 256 characters.').optional(),
+        url: z.string().regex(/^[Hh][Tt][Tt][Pp][Ss]?:\/\/[^\s\/?#]+\S*$/, 'A title link has to be a full link starting http:// or https://.').optional()
+    })).max(10, '10 embeds is the most Discord takes in one message.')
+});
+
+/**
  * The resource kinds that are objects in the Discord guild, each with a snowflake. A `ticketType` is not one: it lives in the ticket settings, named by its key.
  */
 export const zDiscordResourceKind = z.enum([
@@ -304,17 +333,8 @@ export const zFlowBlockFieldRules = z.object({
         outputKey: z.string().min(1, 'Fill this in.').max(64, 'No more than 64 characters.').regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'A name must start with a letter and use only letters, numbers and underscores — that is what {{var.name}} can address.').optional()
     }),
     'action.postEmbed': z.object({
-        authorName: z.string().min(1, 'Can\'t be empty.').max(256, 'No more than 256 characters.').optional(),
         channelId: z.string().min(1, 'Fill this in.').optional(),
-        color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Colour must be a hex value like #00A2FF').optional(),
-        description: z.string().min(1, 'Fill this in.').max(4096, 'No more than 4096 characters.').optional(),
-        fields: z.array(z.unknown()).max(25, 'No more than 25 entries.').optional(),
-        footerText: z.string().min(1, 'Can\'t be empty.').max(2048, 'No more than 2048 characters.').optional(),
-        imageUrl: z.unknown().optional(),
-        showTimestamp: z.unknown().optional(),
-        thumbnailUrl: z.unknown().optional(),
-        title: z.string().min(1, 'Fill this in.').max(256, 'No more than 256 characters.').optional(),
-        url: z.unknown().optional()
+        message: z.unknown().optional()
     }),
     'action.prompt': z.object({
         choices: z.array(z.unknown()).min(1, 'Add at least 1 entry.').max(5, 'No more than 5 entries.').optional(),
@@ -626,6 +646,18 @@ export const zBlockConfigField = z.union([
             equals: z.array(z.string()),
             field: z.string()
         }).optional()
+    }),
+    z.object({
+        control: z.enum(['message']),
+        defaultValue: zDiscordMessage.optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        swatches: z.array(z.string()).optional(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
     })
 ]);
 
@@ -874,6 +906,23 @@ export const zGuildTimeZoneUpdate = z.object({
 });
 
 /**
+ * A picture kept for this server's messages, without its bytes. A flow names it as `upload:<uploadId>`; `contentType` was read from the bytes, not from the file name.
+ */
+export const zGuildUpload = z.object({
+    byteSize: z.int(),
+    contentType: z.enum([
+        'image/png',
+        'image/jpeg',
+        'image/gif',
+        'image/webp'
+    ]),
+    createdAt: z.string(),
+    fileName: z.string(),
+    uploadId: z.string(),
+    uploadedBy: z.string()
+});
+
+/**
  * The web server is up. `time` is the server's clock, as ISO.
  */
 export const zHealth = z.object({
@@ -1118,7 +1167,8 @@ export const zNodeDescriptor = z.object({
         'sendMessages',
         'embedLinks',
         'manageChannels',
-        'kickMembers'
+        'kickMembers',
+        'attachFiles'
     ])),
     cardSummary: z.array(zBlockCardSummaryPart).optional(),
     configFields: z.array(zBlockConfigField),
@@ -1624,6 +1674,41 @@ export const zUnpublishedResource = z.object({
 export const zUnpublishResult = z.object({
     results: z.array(zUnpublishedResource)
 });
+
+/**
+ * One place a picture is shown: the flow (as a draft names it, when the use is in one), the node, its block's label, and the part as the message editor names it (`embed 1 thumbnail`). `draftAuthorId` is set when the use is only in that person's unsaved draft.
+ */
+export const zUploadUse = z.object({
+    blockLabel: z.string(),
+    draftAuthorId: z.string().optional(),
+    flowId: z.string(),
+    flowName: z.string(),
+    nodeId: z.string(),
+    where: z.string()
+});
+
+/**
+ * A picture kept for this server's messages, without its bytes, and every place a saved flow or a draft shows it — empty when nothing does, so it may be deleted.
+ */
+export const zGuildUploadListing = zGuildUpload.and(z.object({
+    uses: z.array(zUploadUse)
+}));
+
+/**
+ * The server's uploads, newest first; `totalBytes` is their sizes added up, and `limitBytes` the most they may add up to.
+ */
+export const zGuildUploadList = z.object({
+    limitBytes: z.int(),
+    totalBytes: z.int(),
+    uploads: z.array(zGuildUploadListing)
+});
+
+/**
+ * The picture was not deleted: these places still show it. Swap it out of each, then try again.
+ */
+export const zUploadInUse = zErrorBody.and(z.object({
+    uses: z.array(zUploadUse)
+}));
 
 export const zWarningsConfig = z.object({
     modChannelId: z.string().nullable(),
@@ -2249,6 +2334,50 @@ export const zUnclaimTicketPath = z.object({
  * The ticket as it now stands. `syncWarning` is set when its channel did not follow.
  */
 export const zUnclaimTicketResponse = zTicketActionResult;
+
+export const zListGuildUploadsPath = z.object({
+    guildId: z.string()
+});
+
+/**
+ * The server's uploads, newest first, without their bytes, each with where it is shown; and how much of its allowance they take.
+ */
+export const zListGuildUploadsResponse = zGuildUploadList;
+
+export const zUploadGuildImageBody = z.string();
+
+export const zUploadGuildImagePath = z.object({
+    guildId: z.string()
+});
+
+export const zUploadGuildImageQuery = z.object({
+    name: z.string().optional()
+});
+
+/**
+ * The server already held these exact bytes; nothing new was kept.
+ */
+export const zUploadGuildImageResponse = zGuildUpload;
+
+export const zDeleteGuildUploadPath = z.object({
+    guildId: z.string(),
+    uploadId: z.string()
+});
+
+/**
+ * Deleted.
+ */
+export const zDeleteGuildUploadResponse = z.void();
+
+export const zGetGuildUploadPath = z.object({
+    guildId: z.string(),
+    uploadId: z.string()
+});
+
+/**
+ * The picture.
+ */
+export const zGetGuildUploadResponse = z.string();
 
 /**
  * Up.

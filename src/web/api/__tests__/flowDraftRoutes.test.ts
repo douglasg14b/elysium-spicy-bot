@@ -429,3 +429,33 @@ describe('reading a flow’s declarations', () => {
         expect(read.body.error).toBe('Internal error.');
     });
 });
+
+describe('the autosave of a builder tab older than the Post Embed editor', () => {
+    it('is refused, and stores no draft — the flat node would be stripped to nothing', async () => {
+        const flow = await flowWith(READY);
+        const flat: FlowGraph = {
+            version: FLOW_GRAPH_VERSION,
+            nodes: [
+                {
+                    id: 'post',
+                    type: 'action.postEmbed',
+                    position: { x: 0, y: 0 },
+                    data: { channelId: '111111111111111111', title: 'House Rules', imageUrl: 'https://example.com/a.png' },
+                },
+            ],
+            edges: [],
+        };
+
+        const saved = await send<{ error: string; issues: { nodeId?: string }[] }>(
+            ALICE,
+            'PUT',
+            `/flows/${flow.flowId}/drafts/mine`,
+            { name: 'Greeter', graph: flat, baseUpdatedAt: flow.updatedAt }
+        );
+
+        expect(saved.status).toBe(400);
+        expect(saved.body.error).toMatch(/Reload the page, then save again/);
+        expect(saved.body.issues.map((issue) => issue.nodeId)).toEqual(['post']);
+        expect(await draftsOf(flow.flowId)).toEqual([]);
+    });
+});

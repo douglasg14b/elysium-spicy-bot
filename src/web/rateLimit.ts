@@ -74,14 +74,19 @@ type WriteMethod = 'POST' | 'PUT' | 'PATCH' | 'DELETE';
  * moves between fields: the draft autosave (every 2 s of typing), the resource autosave
  * (600 ms) to either of its targets — a flow's resources, or a journey's from the flows page —
  * and the readiness check (on blur and after a structural edit). Counted against the general
- * budget alone, since typing would run through 30 a minute. Every other write under a guild
- * counts against the Discord budget, so a new write is covered until it is listed here.
+ * budget alone, since typing would run through 30 a minute. Also the picture upload, which
+ * touches only the database and is bounded by its own per-server total instead, and the
+ * picture delete, which touches only the database and frees room rather than taking it. Every other
+ * write under a guild counts against the Discord budget, so a new write is covered until it
+ * is listed here.
  */
 const DATABASE_ONLY_WRITES: readonly { readonly method: WriteMethod; readonly path: RegExp }[] = [
     { method: 'PUT', path: /^flows\/[^/]+\/drafts\/mine$/ },
     { method: 'PUT', path: /^flows\/[^/]+\/resources$/ },
     { method: 'PUT', path: /^journeys\/[^/]+$/ },
     { method: 'POST', path: /^flows\/[^/]+\/check$/ },
+    { method: 'POST', path: /^uploads$/ },
+    { method: 'DELETE', path: /^uploads\/[^/]+$/ },
 ];
 
 /** The part of a guild-scoped path after `/api/guilds/{guildId}/`. */

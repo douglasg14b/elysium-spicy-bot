@@ -1,0 +1,52 @@
+/*
+ * The message window's hover and focus affordances — the one thing inline styles cannot
+ * say. Every part of the message is a click target, and like MEE6 it shows a dashed edge
+ * only while the pointer is on it, so a filled embed reads as the finished message rather
+ * than as a form. Everything else in the window is styled inline, as the rest of the
+ * dashboard is. Namespaced `mx-` so nothing outside the window can match.
+ */
+
+.mx-part {
+    border: 1px dashed transparent;
+    border-radius: 4px;
+    transition: border-color 80ms ease;
+}
+
+.mx-part:hover,
+.mx-part:focus-visible {
+    border-color: #4e5058;
+    outline: none;
+}
+
+.mx-part[data-problem] {
+    border-color: var(--mantine-color-red-5);
+}
+
+/*
+ * The text box a clicked part turns into, as tall as the text it replaced. Mantine gives every
+ * input a 36px minimum, which would make a one-line title jump; it cannot be cleared inline,
+ * where the autosizing textarea refuses any `minHeight` and throws.
+ */
+.mx-part-input {
+    min-height: 0;
+}
+
+.mx-picture {
+    transition: filter 80ms ease, border-color 80ms ease;
+}
+
+.mx-picture:hover,
+.mx-picture:focus-visible {
+    filter: brightness(1.12);
+    outline: none;
+}
+
+.mx-field-tools {
+    opacity: 0;
+    transition: opacity 80ms ease;
+}
+
+.mx-field:hover .mx-field-tools,
+.mx-field:focus-within .mx-field-tools {
+    opacity: 1;
+}

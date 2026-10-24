@@ -1,4 +1,4 @@
-import type { FlowValidationIssue } from './gen/types.gen';
+import type { FlowValidationIssue, UploadUse } from './gen/types.gen';
 
 /**
  * Every refusal the dashboard API answers with, as every SDK call throws it — so one
@@ -33,7 +33,12 @@ export class ApiError extends Error {
          * Typed by the spec's `FlowValidationIssue`, the one issue shape any error body
          * carries. `src/web/api/__tests__/flowRoutes.test.ts` holds it to the server's.
          */
-        public readonly issues: readonly FlowValidationIssue[] = []
+        public readonly issues: readonly FlowValidationIssue[] = [],
+        /**
+         * Every place a picture is still shown, when a delete of it is refused (the spec's
+         * `UploadInUse`, a 409). Empty for every other refusal, as `issues` is.
+         */
+        public readonly uses: readonly UploadUse[] = []
     ) {
         super(message);
         this.name = 'ApiError';
@@ -46,18 +51,20 @@ export class ApiError extends Error {
  *
  * `body` is whatever the response held — the parsed JSON, the raw text when it was not
  * JSON, or nothing — so every field is checked rather than trusted: a proxy or an older
- * server can put anything there, and a non-array `issues` would otherwise reach a `.map`
- * in the builder as a render-time crash.
+ * server can put anything there, and a non-array `issues` or `uses` would otherwise reach a
+ * `.map` in a page as a render-time crash.
  */
 export function apiErrorFromBody(status: number, body: unknown): ApiError {
     let message = `Request failed (${status})`;
     let issues: readonly FlowValidationIssue[] = [];
+    let uses: readonly UploadUse[] = [];
 
     if (body && typeof body === 'object') {
-        const { error, issues: bodyIssues } = body as { error?: unknown; issues?: unknown };
+        const { error, issues: bodyIssues, uses: bodyUses } = body as { error?: unknown; issues?: unknown; uses?: unknown };
         if (typeof error === 'string' && error) message = error;
         if (Array.isArray(bodyIssues)) issues = bodyIssues as FlowValidationIssue[];
+        if (Array.isArray(bodyUses)) uses = bodyUses as UploadUse[];
     }
 
-    return new ApiError(status, message, issues);
+    return new ApiError(status, message, issues, uses);
 }
