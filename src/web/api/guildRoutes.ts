@@ -221,14 +221,17 @@ const updateGuildTimeZoneRoute = createRoute({
  */
 export function guildRoutes(): OpenAPIHono<AppEnv> {
     return apiRouter((router) => {
-        // Guilds the bot is in that this user may manage.
+        // Guilds the bot is in that this user may manage, by name: the dashboard's server
+        // menu lists them in this order and falls back to the first.
         router.openapi(listGuildsRoute, (c) => {
-            const guilds = accessibleGuilds(c.get('user')).map((g) => ({
-                id: g.id,
-                name: g.name,
-                iconURL: g.iconURL({ size: 128 }),
-                memberCount: g.memberCount,
-            }));
+            const guilds = accessibleGuilds(c.get('user'))
+                .sort((left, right) => left.name.localeCompare(right.name))
+                .map((g) => ({
+                    id: g.id,
+                    name: g.name,
+                    iconURL: g.iconURL({ size: 128 }),
+                    memberCount: g.memberCount,
+                }));
             return c.json({ guilds }, 200);
         });
 

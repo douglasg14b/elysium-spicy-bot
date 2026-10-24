@@ -22,16 +22,20 @@ import {
     IconTicket,
     IconCake,
     IconBolt,
+    IconCheck,
     IconChevronDown,
     IconLogout,
+    IconSelector,
     IconSettings,
 } from '@tabler/icons-react';
+import type { Guild } from '@brattybot/web-sdk';
 import { NavLink as RouterNavLink, Outlet, useLocation } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { useBotIdentity } from '../brand/BotIdentityContext';
 import { Wordmark } from '../brand/Wordmark';
 import { useGuilds } from '../guilds/GuildContext';
+import { useGuildSwitch } from '../guilds/useGuildSwitch';
 
 interface NavEntry {
     label: string;
@@ -61,10 +65,78 @@ function monogram(name: string): string {
     return name.slice(0, 2).toUpperCase();
 }
 
+/** A guild's icon, or its monogram when it has none. */
+function GuildAvatar({ guild, size }: { readonly guild: Guild; readonly size: number }) {
+    return (
+        <Avatar src={guild.iconURL ?? undefined} radius="md" size={size} color="gray">
+            {monogram(guild.name)}
+        </Avatar>
+    );
+}
+
+interface ServerCardProps {
+    readonly guilds: readonly Guild[];
+    readonly selected: Guild;
+    readonly onSwitch: (guildId: string) => void;
+}
+
+/**
+ * The server the dashboard is working on, and — when the operator manages more than one —
+ * the menu that switches it. With a single server there is nothing to pick, so no chevron.
+ */
+function ServerCard({ guilds, selected, onSwitch }: ServerCardProps) {
+    const switchable = guilds.length > 1;
+    const card = (
+        <Group gap={10} px="xs" py={8} wrap="nowrap" style={{ borderRadius: 8 }} bg="dark.6">
+            <GuildAvatar guild={selected} size={34} />
+            <Stack gap={0} style={{ overflow: 'hidden', flex: 1 }}>
+                <Tooltip label={selected.name} openDelay={300} withinPortal>
+                    <Text size="13.5px" fw={600} truncate>
+                        {selected.name}
+                    </Text>
+                </Tooltip>
+                <Text size="11px" c="dark.2">
+                    {selected.memberCount.toLocaleString()} members
+                </Text>
+            </Stack>
+            {switchable && <IconSelector size={16} color="var(--mantine-color-dark-2)" style={{ flexShrink: 0 }} />}
+        </Group>
+    );
+    if (!switchable) return card;
+
+    return (
+        <Menu shadow="md" width="target" position="bottom-start">
+            <Menu.Target>
+                <UnstyledButton w="100%" aria-label={`Server: ${selected.name}. Switch server`}>
+                    {card}
+                </UnstyledButton>
+            </Menu.Target>
+            <Menu.Dropdown>
+                {guilds.map((guild) => {
+                    const current = guild.id === selected.id;
+                    return (
+                        <Menu.Item
+                            key={guild.id}
+                            leftSection={<GuildAvatar guild={guild} size={24} />}
+                            rightSection={current ? <IconCheck size={14} /> : undefined}
+                            onClick={current ? undefined : () => onSwitch(guild.id)}
+                        >
+                            <Text size="sm" truncate>
+                                {guild.name}
+                            </Text>
+                        </Menu.Item>
+                    );
+                })}
+            </Menu.Dropdown>
+        </Menu>
+    );
+}
+
 export function DashboardLayout() {
     const { user, logout } = useAuth();
     const { name: botName, logoUrl } = useBotIdentity();
-    const { selected, loading } = useGuilds();
+    const { guilds, selected, loading } = useGuilds();
+    const { switching, switchTo } = useGuildSwitch();
     const location = useLocation();
     const [navOpened, { toggle: toggleNav, close: closeNav }] = useDisclosure();
 
@@ -154,21 +226,14 @@ export function DashboardLayout() {
                                 <Loader size="xs" color="brand" />
                             </Center>
                         ) : selected ? (
-                            <Group gap={10} px="xs" py={8} style={{ borderRadius: 8 }} bg="dark.6">
-                                <Avatar src={selected.iconURL ?? undefined} radius="md" size={34} color="gray">
-                                    {monogram(selected.name)}
-                                </Avatar>
-                                <Stack gap={0} style={{ overflow: 'hidden' }}>
-                                    <Tooltip label={selected.name} openDelay={300} withinPortal>
-                                        <Text size="13.5px" fw={600} truncate>
-                                            {selected.name}
-                                        </Text>
-                                    </Tooltip>
-                                    <Text size="11px" c="dark.2">
-                                        {selected.memberCount.toLocaleString()} members
-                                    </Text>
-                                </Stack>
-                            </Group>
+                            <ServerCard
+                                guilds={guilds}
+                                selected={selected}
+                                onSwitch={(guildId) => {
+                                    closeNav();
+                                    switchTo(guildId);
+                                }}
+                            />
                         ) : (
                             <Text size="xs" c="dimmed">
                                 No servers yet.
@@ -231,7 +296,9 @@ export function DashboardLayout() {
             </AppShell.Navbar>
 
             <AppShell.Main>
-                <Outlet />
+                {/* Keyed by server so a switch starts every page afresh: none of them holds
+                    a form, a canvas or a draft over from the server it was opened on. */}
+                {!switching && <Outlet key={selected?.id} />}
             </AppShell.Main>
         </AppShell>
     );
