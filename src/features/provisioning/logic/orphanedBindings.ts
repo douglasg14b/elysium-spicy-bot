@@ -1,6 +1,8 @@
 import type { ResourceBindingEntity } from '../data/resourceBindingsSchema';
+import { isPostedMessageRow, requireMessagePresence, type MessagePresence } from './lookupBoundMessage';
 import {
     isDiscordResource,
+    nonDiscordResourceKind,
     type DiscordResourceKind,
     type JourneyDeclaration,
     type ResourceKind,
@@ -83,6 +85,12 @@ export interface FindOrphanedBindingsInput {
      * only; a ticket type is branched off before it.
      */
     readonly existsInGuild: (kind: DiscordResourceKind, discordId: string) => boolean;
+    /**
+     * Whether each message this journey posted is still there, keyed by resource key
+     * (`readMessagePresence`, over `bindings`). A message row is never in the guild's cache,
+     * so `existsInGuild` cannot answer for it. Required when a posted message's row is met.
+     */
+    readonly messagePresence?: ReadonlyMap<string, MessagePresence>;
 }
 
 /**
@@ -109,15 +117,45 @@ export function findOrphanedBindings(
              * did vanish is forgotten all the same.
              */
             if (!isDiscordResource(binding)) {
-                return {
-                    bindingId: binding.id,
-                    resourceKey: binding.resourceKey,
-                    kind: binding.kind,
-                    name: binding.name,
-                    stillInGuild: true,
-                    mayDelete: false,
-                    neverSettled: false,
-                };
+                const kind = nonDiscordResourceKind(binding.kind);
+                switch (kind) {
+                    case 'ticketType':
+                        return {
+                            bindingId: binding.id,
+                            resourceKey: binding.resourceKey,
+                            kind: binding.kind,
+                            name: binding.name,
+                            stillInGuild: true,
+                            mayDelete: false,
+                            neverSettled: false,
+                        };
+                    /*
+                     * A message no longer declared: still posted unless Discord said it is
+                     * gone. One the bot could not read counts as still there — saying "gone"
+                     * about a message that may be posted would invite forgetting the only
+                     * record of it.
+                     */
+                    case 'message': {
+                        const posted = isPostedMessageRow(binding);
+                        const presence = posted
+                            ? requireMessagePresence(input.messagePresence, binding, 'its leftovers were listed')
+                            : undefined;
+                        return {
+                            bindingId: binding.id,
+                            resourceKey: binding.resourceKey,
+                            kind: binding.kind,
+                            name: binding.name,
+                            ...(binding.discordId ? { discordId: binding.discordId } : {}),
+                            stillInGuild: posted && presence !== 'gone',
+                            mayDelete: binding.state === 'created',
+                            neverSettled: binding.state === 'intended',
+                        };
+                    }
+                    default: {
+                        const unreachable: never = kind;
+                        throw new Error(`Unhandled resource kind: ${String(unreachable)}`);
+                    }
+                }
             }
 
             return {
@@ -170,6 +208,11 @@ export function describeOrphan(orphan: OrphanedBinding): string {
         return `**${orphan.name}** is no longer declared by this journey, and the ${label} is already gone from the server. Only the leftover record remains.`;
     }
 
+    // A message is posted rather than "in your server", and is only ever created here.
+    if (orphan.kind === 'message') {
+        return `**${orphan.name}** is no longer declared by this journey, but the message is still posted. Nothing installs or updates it any more.`;
+    }
+
     // A live object behind a never-settled row: the install crashed partway. Neither
     // "already gone" nor "we made this" is true, so it gets its own sentence rather
     // than being rounded to whichever is closer.
@@ -189,4 +232,5 @@ const KIND_LABEL: Record<ResourceKind, string> = {
     textChannel: 'channel',
     role: 'role',
     ticketType: 'ticket type',
+    message: 'message',
 };

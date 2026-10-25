@@ -43,11 +43,13 @@ export function slugifyResourceName(name: string): string {
  * Make a key unique within a list by suffixing it.
  *
  * A duplicate key is rejected by the server, and silently renaming the operator's
- * resource would be worse than a suffix they can see and edit.
+ * resource would be worse than a suffix they can see and edit. Takes anything keyed, so a
+ * message's buttons — whose keys follow the same pattern and must be unique the same way —
+ * are given theirs by the same rule.
  */
 export function uniqueResourceKey(
     desired: string,
-    existing: readonly ResourceDeclaration[]
+    existing: readonly { readonly key: string }[]
 ): string {
     // A name of only punctuation slugs to nothing, and an empty key fails the
     // server's own `min(1)`. Falling back keeps the failure out of the save path.
@@ -107,9 +109,10 @@ export function canAdoptFromChannelList(kind: ResourceKind): boolean {
  * channel. The panel simply never offered roles a picker, so the capability was
  * unreachable for a third of the resources an operator can declare.
  *
- * Exhaustive on `ResourceKind` so a fourth kind cannot be added without deciding this —
+ * Exhaustive on `ResourceKind` so a new kind cannot be added without deciding this —
  * and the fourth, a ticket type, decided no: it is found by its key, and one that already
- * exists is used as it is, so there is nothing to point at.
+ * exists is used as it is, so there is nothing to point at. The fifth, a message, decided no
+ * too: the bot can only edit a message it posted, so install always posts its own.
  */
 export function canAdopt(kind: ResourceKind): boolean {
     switch (kind) {
@@ -118,6 +121,7 @@ export function canAdopt(kind: ResourceKind): boolean {
         case 'role':
             return true;
         case 'ticketType':
+        case 'message':
             return false;
         default: {
             const unreachable: never = kind;
@@ -179,19 +183,34 @@ export function heldByLabel(label: string, ownerLabel: string): string {
 }
 
 /**
- * Whether a kind can be placed inside a category.
+ * The kind of declared resource a row of this kind sits in, or `undefined` for one that sits
+ * in nothing: a text channel goes in a category, and a message is posted in a text channel.
  *
- * Text channels only, and stricter than the server's own check on purpose.
- * `validateJourneyDeclaration` rejects a *role* with a parent but accepts a
- * *category* with one — and then `applyInstallPlan`'s category branch creates with no
- * `parent` argument at all, so the parent is stored and silently ignored. Offering
- * the control for a category is a form with no effect.
+ * A category gets none, stricter than the server's own check on purpose:
+ * `validateJourneyDeclaration` accepts a *category* with a parent — and then
+ * `applyInstallPlan`'s category branch creates with no `parent` argument at all, so the
+ * parent is stored and silently ignored. Offering the control for a category is a form with
+ * no effect.
  *
- * One predicate rather than three inline `kind !== 'role'` checks, so a fourth kind
- * cannot answer this differently in the panel than in the declaration builders.
+ * One answer rather than inline `kind` checks, so a new kind cannot answer this differently
+ * in the panel than in the declaration builders — and exhaustive, so it cannot be added
+ * without deciding.
  */
-export function canHaveParent(kind: ResourceKind): boolean {
-    return kind === 'textChannel';
+export function parentKindFor(kind: ResourceKind): ResourceKind | undefined {
+    switch (kind) {
+        case 'textChannel':
+            return 'category';
+        case 'message':
+            return 'textChannel';
+        case 'category':
+        case 'role':
+        case 'ticketType':
+            return undefined;
+        default: {
+            const unreachable: never = kind;
+            throw new Error(`Unhandled resource kind: ${String(unreachable)}`);
+        }
+    }
 }
 
 /**
@@ -391,8 +410,8 @@ export function declarationForAdoptedResource(
         adoptDiscordId: target.id,
     };
 
-    // Only carried when the kind can actually hold one — see `canHaveParent`.
-    if (parentKey && canHaveParent(kind)) {
+    // Only carried when the kind can actually hold one — see `parentKindFor`.
+    if (parentKey && parentKindFor(kind)) {
         declaration.parentKey = parentKey;
     }
 
@@ -502,6 +521,9 @@ function generatedNameFor(kind: ResourceKind): string {
         // A label, read in a list of ticket types, so it reads like one.
         case 'ticketType':
             return 'New ticket type';
+        // Only the dashboard shows a message's name, so it reads like a label too.
+        case 'message':
+            return 'New message';
         default: {
             const unreachable: never = kind;
             throw new Error(`Unhandled resource kind: ${String(unreachable)}`);
@@ -515,10 +537,17 @@ function generatedNameFor(kind: ResourceKind): string {
  * A ticket type also gets the settings it would be created with — the same starting
  * arrangement the tickets page offers a new type, so neither surface hands out a type
  * whose channel nobody can see.
+ *
+ * A message gets one embed titled with its name, so it can be saved the moment it is added
+ * (an empty message is refused), and goes in the first declared text channel when no
+ * parent is given — a message is almost always added for a channel already on the list.
  */
 export function declarationForNewResource(input: NewResourceInput): ResourceDeclaration {
-    const { kind, existing, parentKey } = input;
+    const { kind, existing } = input;
     const name = input.name.trim() || generatedNameFor(kind);
+    const parentKey =
+        input.parentKey ??
+        (kind === 'message' ? existing.find((resource) => resource.kind === 'textChannel')?.key : undefined);
 
     const declaration: ResourceDeclaration = {
         key: uniqueResourceKey(slugifyResourceName(name), existing),
@@ -526,13 +555,17 @@ export function declarationForNewResource(input: NewResourceInput): ResourceDecl
         defaultName: name,
     };
 
-    if (parentKey && canHaveParent(kind)) {
+    if (parentKey && parentKindFor(kind)) {
         declaration.parentKey = parentKey;
     }
 
     if (kind === 'ticketType') {
         const { nameTemplate, permissions, autoClaimOnOpen } = emptyTicketTypeDraft();
         declaration.ticketType = { nameTemplate, permissions, autoClaimOnOpen };
+    }
+
+    if (kind === 'message') {
+        declaration.message = { embeds: [{ title: name }] };
     }
 
     return declaration;

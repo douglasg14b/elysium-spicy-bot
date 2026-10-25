@@ -5,13 +5,14 @@ import { registerUploadUsageReader } from '../../../src/features-system/guild-up
 import { applyResourcesToFlows } from '../../../src/features/flows/logic/applyResourcesToFlows';
 import { flowUploadUses } from '../../../src/features/flows/logic/flowUploadUses';
 import { registerScheduleReconcile } from '../../../src/features/flows/logic/reconcileGuildSchedules';
-import { registerResourceWriteBack } from '../../../src/features/provisioning';
+import { initProvisioning, registerResourceWriteBack } from '../../../src/features/provisioning';
 import { registerTicketTypeProvisioning } from '../../../src/features/tickets/logic/ticketTypeProvisioning';
 
 /**
  * What `bot.ts` does before its web server answers, minus the gateway: migrate the
  * database, discover the flow blocks, tell provisioning where to write the ids it
- * creates and how to reach ticket types, tell guild-uploads where flows show pictures, and
+ * creates and how to reach ticket types, tell guild-uploads where journeys' messages and
+ * flows show pictures (`initProvisioning`, then flows' reader), and
  * keep each guild's schedules in step with its saved flows. `initFlows` and
  * `initTicketsFeature` do those in production; their gateway listeners and run scheduler
  * are left out because nothing here runs flows.
@@ -29,6 +30,7 @@ export async function bootBotForDashboard(): Promise<void> {
     await ensureBlocksDiscovered();
     registerResourceWriteBack(applyResourcesToFlows);
     registerTicketTypeProvisioning();
+    initProvisioning();
     registerUploadUsageReader(flowUploadUses);
     registerScheduleReconcile(flowsRepo);
 }

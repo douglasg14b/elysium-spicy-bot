@@ -5,6 +5,7 @@
  */
 
 import { createContext, useContext } from 'react';
+import type { MessageButton } from '@brattybot/web-sdk';
 import type { GuildUploads } from '../controls/types';
 import type { AvailableVariable, RequirementAvailability } from '../variables';
 import type { MessageDraft } from './messageDraft';
@@ -39,6 +40,22 @@ export interface EditorScope {
     readonly uploads: GuildUploads;
     /** The colours the block offers; the first one colours a new embed. */
     readonly swatches: readonly string[];
+    /**
+     * Whether the message takes `{{tokens}}`. A message no run posts — a message resource —
+     * has nobody to fill one in, so it offers no `{x}` and no picture Token tab.
+     */
+    readonly tokens: boolean;
+    /** The buttons under the message, for one that has them; `undefined` draws no button row. */
+    readonly buttons: EditorButtons | undefined;
+}
+
+/** A message's buttons as the window edits them. */
+export interface EditorButtons {
+    readonly value: readonly MessageButton[];
+    /** Every edit, at once. */
+    readonly onChange: (next: MessageButton[]) => void;
+    /** What is wrong with each button, by position; a complaint about the whole list under `-1`. */
+    readonly issues?: ReadonlyMap<number, readonly string[]>;
 }
 
 export const EditorScopeContext = createContext<EditorScope | null>(null);

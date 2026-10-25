@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ResourceBindingEntity } from '../../data/resourceBindingsSchema';
+import type { MessagePresence } from '../lookupBoundMessage';
 import { describeOrphan, findOrphanedBindings } from '../orphanedBindings';
 import type { JourneyDeclaration, ResourceKind } from '../resourceDeclaration';
 
@@ -193,5 +194,46 @@ describe('a ticket type no longer declared', () => {
         expect(asked).toEqual([]);
         expect(orphan).toMatchObject({ kind: 'ticketType', mayDelete: false, neverSettled: false, stillInGuild: true });
         expect(describeOrphan(orphan!)).toMatch(/ticket type stays in your ticket settings/);
+    });
+});
+
+describe('a message no longer declared', () => {
+    const posted = () =>
+        binding({ resourceKey: 'rules-panel', kind: 'message', discordId: 'msg-1', name: 'Rules panel', messageChannelId: 'chan-1' });
+
+    function orphanWith(presence: MessagePresence) {
+        const asked: string[] = [];
+        const [orphan] = findOrphanedBindings({
+            journey: journey([]),
+            bindings: [posted()],
+            existsInGuild: (kind, discordId) => {
+                asked.push(`${kind}:${discordId}`);
+                return false;
+            },
+            messagePresence: new Map([['rules-panel', presence]]),
+        });
+        // A message's id is in no guild cache; only what Discord said decides.
+        expect(asked).toEqual([]);
+        return orphan!;
+    }
+
+    it('is still posted, deletable, and says so', () => {
+        const orphan = orphanWith('found');
+
+        expect(orphan).toMatchObject({ kind: 'message', stillInGuild: true, mayDelete: true, neverSettled: false });
+        expect(describeOrphan(orphan)).toBe(
+            '**Rules panel** is no longer declared by this journey, but the message is still posted. Nothing installs or updates it any more.'
+        );
+    });
+
+    it('is gone when Discord said so', () => {
+        const orphan = orphanWith('gone');
+
+        expect(orphan.stillInGuild).toBe(false);
+        expect(describeOrphan(orphan)).toMatch(/the message is already gone from the server/);
+    });
+
+    it('counts as still posted when it could not be read, so its record is not forgotten on a guess', () => {
+        expect(orphanWith({ unreadable: 'Discord is having a moment' }).stillInGuild).toBe(true);
     });
 });

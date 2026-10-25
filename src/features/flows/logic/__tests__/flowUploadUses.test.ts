@@ -73,7 +73,7 @@ describe('flowUploadUses', () => {
 
         const uses = await flowUploadUses(guildId);
 
-        const saved = { flowId: flow.flowId, flowName: 'Welcome flow', nodeId: 'post', blockLabel: 'Post Embed' };
+        const saved = { kind: 'flow', flowId: flow.flowId, flowName: 'Welcome flow', nodeId: 'post', blockLabel: 'Post Embed' };
         expect(uses).toEqual([
             { ...saved, uploadId: thumbnail, where: 'embed 1 thumbnail' },
             { ...saved, uploadId: header, where: 'embed 2 header icon' },
@@ -102,6 +102,7 @@ describe('flowUploadUses', () => {
 
         expect(await flowUploadUses(guildId)).toEqual([
             {
+                kind: 'flow',
                 uploadId,
                 flowId: flow.flowId,
                 flowName: 'Renamed in the draft',
@@ -124,6 +125,7 @@ describe('flowUploadUses', () => {
 
         expect(await flowUploadUses(guildId)).toEqual([
             {
+                kind: 'flow',
                 uploadId,
                 flowId: flow.flowId,
                 flowName: 'Fixture flow',
@@ -153,6 +155,7 @@ describe('flowUploadUses', () => {
 
         expect(await flowUploadUses(guildId)).toEqual([
             {
+                kind: 'flow',
                 uploadId,
                 flowId: flow.flowId,
                 flowName: 'Hidden flow',
@@ -181,7 +184,7 @@ describe('flowUploadUses', () => {
             baseUpdatedAt: new Date().toISOString(),
         });
 
-        const at = { flowId: flow.flowId, flowName: 'Both', nodeId: 'post', blockLabel: 'Post Embed' };
+        const at = { kind: 'flow', flowId: flow.flowId, flowName: 'Both', nodeId: 'post', blockLabel: 'Post Embed' };
         expect(await flowUploadUses(guildId)).toEqual([
             { ...at, uploadId: shared, where: 'embed 1 image' },
             { ...at, uploadId: draftOnly, where: 'embed 1 thumbnail', draftAuthorId: 'author-2' },

@@ -2,11 +2,13 @@ import { ChannelType, PermissionFlagsBits, type Guild } from 'discord.js';
 import { describe, expect, it } from 'vitest';
 import type { ResourceBindingEntity } from '../../data/resourceBindingsSchema';
 import type { GuildOwnership } from '../bindingOwner';
+import type { MessagePresence } from '../lookupBoundMessage';
 import type { ResourceKind } from '../resourceDeclaration';
 import {
     buildUnpublishPlan,
     plannedDeletions,
     plannedRefusals,
+    plannedSettingsKept,
     type BuildUnpublishPlanInput,
     type UnpublishPlan,
 } from '../unpublishPlan';
@@ -562,5 +564,82 @@ describe('a ticket type', () => {
 
         expect(itemFor(plan, 'desk').action).toBe('forget');
         expect(plannedDeletions(plan)).toEqual([]);
+    });
+});
+
+/**
+ * A message the journey posted, decided from whether it is still there — read from Discord
+ * by the service and handed in. Its row alone says where it is, so no declaration is needed.
+ */
+describe('a message', () => {
+    const RULES = textChannel('chan-rules', 'rules');
+
+    function messageRow(overrides: Partial<ResourceBindingEntity> = {}): ResourceBindingEntity {
+        return binding({
+            resourceKey: 'rules-panel',
+            kind: 'message',
+            discordId: 'msg-1',
+            name: 'Rules panel',
+            messageChannelId: RULES.id,
+            messageDigest: 'digest',
+            ...overrides,
+        });
+    }
+
+    function planWith(presence: MessagePresence | undefined, bindings: readonly ResourceBindingEntity[] = [messageRow()]) {
+        return planFor({
+            // No Manage Channels or Roles: the bot needs nothing to delete its own post.
+            guild: makeGuild({ channels: [RULES], permissions: [] }),
+            journeyKey: 'journey-1',
+            bindings,
+            messagePresence: new Map(presence ? [['rules-panel', presence]] : []),
+        });
+    }
+
+    it('deletes a message still posted, saying where it is', () => {
+        const plan = planWith('found');
+
+        expect(itemFor(plan, 'rules-panel')).toMatchObject({
+            action: 'delete',
+            kind: 'message',
+            discordId: 'msg-1',
+            messageChannelId: RULES.id,
+        });
+    });
+
+    it('forgets a message already gone', () => {
+        const plan = planWith('gone');
+
+        expect(itemFor(plan, 'rules-panel')).toMatchObject({ action: 'forget', discordId: 'msg-1' });
+        expect(itemFor(plan, 'rules-panel').explanation).toMatch(/already gone from its channel/);
+    });
+
+    it('refuses, naming the channel and why, a message it could not read — neither deleted nor forgotten', () => {
+        const plan = planWith({ unreadable: "the bot can't even see it" });
+
+        expect(itemFor(plan, 'rules-panel')).toMatchObject({ action: 'refuse', refusalReason: 'unreadable' });
+        expect(itemFor(plan, 'rules-panel').explanation).toMatch(
+            /^Couldn't check whether it's still posted in #rules: the bot can't even see it\./
+        );
+    });
+
+    it('refuses a message row in any state but created, failing closed', () => {
+        const plan = planWith('found', [messageRow({ state: 'adopted' })]);
+
+        expect(itemFor(plan, 'rules-panel')).toMatchObject({ action: 'refuse', refusalReason: 'unrecognised-state' });
+    });
+
+    it('goes before the channel it is posted in', () => {
+        const plan = planWith('found', [binding({ resourceKey: 'rules', discordId: RULES.id, name: 'rules' }), messageRow()]);
+
+        expect(plan.items.map((item) => item.resourceKey)).toEqual(['rules-panel', 'rules']);
+    });
+
+    it('is never listed as a setting kept', () => {
+        expect(plannedSettingsKept(planWith('gone'))).toEqual([]);
+    });
+
+    it('throws when its teardown was planned without checking whether it is still there', () => {
+        expect(() => planWith(undefined)).toThrow(/without checking whether it is still there/);
     });
 });

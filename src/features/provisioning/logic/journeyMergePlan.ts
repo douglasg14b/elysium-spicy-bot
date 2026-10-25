@@ -1,5 +1,10 @@
 import type { ResourceBindingEntity } from '../data/resourceBindingsSchema';
-import { isDiscordResourceKind, type ResourceDeclaration } from './resourceDeclaration';
+import {
+    isDiscordResourceKind,
+    nonDiscordResourceKind,
+    type ResourceDeclaration,
+    type ResourceKind,
+} from './resourceDeclaration';
 
 /**
  * What moving a flow between journeys would do to the resources it declares.
@@ -192,6 +197,25 @@ export function planJourneyMerge(input: {
         canMerge: collisions.length === 0,
         collisions,
         sharedTicketTypes,
-        orphaned: moving.filter((resource) => resource.live !== null && isDiscordResourceKind(resource.kind)),
+        orphaned: moving.filter((resource) => resource.live !== null && isOrphanedWhenLeft(resource.kind)),
     };
+}
+
+/** Whether a live resource of this kind is stranded when its record is left behind: a Discord object or a posted message is. */
+function isOrphanedWhenLeft(kind: ResourceKind): boolean {
+    if (isDiscordResourceKind(kind)) return true;
+
+    const settingKind = nonDiscordResourceKind(kind);
+    switch (settingKind) {
+        // Stays in the ticket settings whatever happens to its record.
+        case 'ticketType':
+            return false;
+        // Stays posted in its channel, with nothing left that knows this bot posted it.
+        case 'message':
+            return true;
+        default: {
+            const unreachable: never = settingKind;
+            throw new Error(`Unhandled resource kind: ${String(unreachable)}`);
+        }
+    }
 }

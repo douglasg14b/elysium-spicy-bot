@@ -1,14 +1,18 @@
 import { ChannelType, PermissionFlagsBits, SnowflakeUtil, type Guild } from 'discord.js';
+import { messageUploadIds, messageUploadProblems } from '../../../shared/discordMessage';
 import { journeyOwner, type ResourceBindingEntity } from '../data/resourceBindingsSchema';
 import type { TicketTypeReading } from '../ticketTypeProvider';
 import { describeOtherHolder, type GuildOwnership } from './bindingOwner';
 import { parseDeclaredRoleReference } from './declaredRoleReference';
+import { isPostedMessageRow, requireMessagePresence, type MessagePresence } from './lookupBoundMessage';
+import { describeMessageResourceProblem, messageResourceProblems } from './messageResourceProblems';
 import { compilePermissionIntents, type PermissionIntentContext } from './permissionIntent';
 import { normaliseResourceName } from './resourceName';
 import {
     orderResourcesForApply,
     assertInstallable,
     isDiscordResource,
+    nonDiscordResourceKind,
     validateJourneyDeclaration,
     type DiscordResourceKind,
     type JourneyDeclaration,
@@ -46,8 +50,9 @@ export interface PlanItem {
      */
     readonly reason?: string;
     /**
-     * Something the operator should know that does not stop the apply. Today only the
-     * ticket feature's "not fully set up yet" on a ticket type item.
+     * Something the operator should know that does not stop the apply: the ticket
+     * feature's "not fully set up yet" on a ticket type item, and on a message with
+     * buttons, that nothing listens to them yet.
      */
     readonly note?: string;
     readonly parentKey?: string;
@@ -138,6 +143,21 @@ export interface BuildInstallPlanInput {
      * since the plan cannot say create or reuse without it.
      */
     readonly ticketTypes?: TicketTypeReading;
+    /**
+     * Whether each message this journey posted is still there, keyed by resource key
+     * (`readMessagePresence`, over this journey's rows).
+     *
+     * Required when a settled message row is met — `previewInstall` always reads it — and
+     * such a row with no entry throws, as a ticket type without `ticketTypes` does: whether
+     * to reuse or repost cannot be guessed.
+     */
+    readonly messagePresence?: ReadonlyMap<string, MessagePresence>;
+    /**
+     * The size of each upload the journey's messages show that this guild holds, upload id →
+     * bytes (`guildUploadsRepo.sizesFor`, in one read). An id missing from it is not in this
+     * guild, and a message showing it is blocked. Required when a message names an upload.
+     */
+    readonly uploadSizes?: ReadonlyMap<string, number>;
 }
 
 /**
@@ -173,10 +193,45 @@ const KIND_LABEL: Record<ResourceKind, string> = {
     textChannel: 'channel',
     role: 'role',
     ticketType: 'ticket type',
+    message: 'message',
 };
 
 /** Why an existing ticket type is reused or recorded, never rewritten. */
 const TICKET_TYPE_USED_AS_IT_IS = 'Already here, so it is used as it is — install never changes an existing ticket type.';
+
+/**
+ * The note on every message with buttons, because in step 2 nothing can listen to one.
+ * Step 3 swaps it for the name of the flow that does.
+ */
+export const MESSAGE_BUTTONS_UNHEARD_NOTE =
+    'Nobody listens to its buttons yet — a press answers "Nothing\'s hooked up to this yet".';
+
+/** Why a message posted before is posted again. */
+const MESSAGE_POSTED_AGAIN = 'The message this journey posted no longer exists, so it will be posted again.';
+
+/**
+ * What a message needs the bot to be allowed, server-wide: to post it, to show its embeds,
+ * and to read it back to check it is still there. Attach Files is asked apart, and only when
+ * a message shows an upload.
+ */
+const MESSAGE_PERMISSIONS = [
+    [PermissionFlagsBits.SendMessages, 'Send Messages'],
+    [PermissionFlagsBits.EmbedLinks, 'Embed Links'],
+    [PermissionFlagsBits.ReadMessageHistory, 'Read Message History'],
+] as const;
+
+/** `**A**`, `**A** and **B**`, `**A**, **B** and **C**`. */
+function boldList(names: readonly string[]): string {
+    const bold = names.map((name) => `**${name}**`);
+    return bold.length <= 1 ? bold.join('') : `${bold.slice(0, -1).join(', ')} and ${bold.at(-1)}`;
+}
+
+/** A channel as an operator would look for it: `#rules`, or its id when the cache does not hold it. */
+export function describeChannel(guild: Guild, channelId: string | null): string {
+    if (!channelId) return 'a channel this server no longer records';
+    const channel = guild.channels.cache.get(channelId);
+    return channel ? `#${channel.name}` : `channel ${channelId}`;
+}
 
 /**
  * Whether a snowflake resolves to something of the expected kind, in this guild.
@@ -233,6 +288,24 @@ function collectBlockers(guild: Guild, resources: readonly ResourceDeclaration[]
     }
     if (needsRoles && !me.permissions.has(PermissionFlagsBits.ManageRoles)) {
         blockers.push('The bot lacks **Manage Roles**, which this journey needs to create its roles.');
+    }
+
+    // Server-wide, as Manage Channels is. No declared intent can take these away in a
+    // channel install creates — the access table touches only view, send, threads and
+    // reactions, and never the bot's own overwrite. A channel install reuses keeps its own
+    // overwrites, and those are checked per message (`planMessage`), as a blocked item.
+    const messages = resources.filter((resource) => resource.kind === 'message');
+    if (messages.length > 0) {
+        const missing = MESSAGE_PERMISSIONS.filter(([flag]) => !me.permissions.has(flag)).map(([, name]) => name);
+        if (missing.length > 0) {
+            blockers.push(
+                `The bot lacks ${boldList(missing)}, which this journey needs to post its messages and check they're still there.`
+            );
+        }
+        const showsUploads = messages.some((message) => messageUploadIds(message.message).length > 0);
+        if (showsUploads && !me.permissions.has(PermissionFlagsBits.AttachFiles)) {
+            blockers.push('The bot lacks **Attach Files**, which this journey needs to post the pictures uploaded for its messages.');
+        }
     }
 
     // A bot can only create roles below its own highest. At position 0 it has no
@@ -374,9 +447,20 @@ export function buildInstallPlan(input: BuildInstallPlanInput): InstallPlan {
     );
     const alreadyBound = new Set(boundInGuild);
     for (const binding of existingBindings) {
-        // Discord objects only: a ticket type row's id is a type key.
+        // Discord objects only: a ticket type row's id is a type key, and a message's names
+        // nothing a name match could find.
         if (binding.discordId && isDiscordResource(binding)) alreadyBound.add(binding.discordId);
     }
+    const requirePresence = (row: ResourceBindingEntity): MessagePresence =>
+        requireMessagePresence(input.messagePresence, row, 'its plan was built');
+    const requireUploadSizes = (): ReadonlyMap<string, number> => {
+        if (!input.uploadSizes) {
+            throw new Error(
+                `Journey "${journey.journeyKey}" declares a message showing an upload, but its plan was built without reading the server's uploads.`
+            );
+        }
+        return input.uploadSizes;
+    };
     const items: PlanItem[] = [];
 
     for (const resource of orderResourcesForApply(journey.resources)) {
@@ -396,11 +480,46 @@ export function buildInstallPlan(input: BuildInstallPlanInput): InstallPlan {
             parentKey: resource.parentKey,
         } as const;
 
-        // A ticket type is not a Discord object, so none of what follows — permissions,
-        // the guild cache, crash recovery, name matching, ownership — applies to it.
-        // Branched here, before any of it, rather than threaded through each.
+        // A ticket type or a message is not a Discord object, so none of what follows —
+        // permissions, the guild cache, crash recovery, name matching, ownership —
+        // applies to it. Branched here, before any of it, rather than threaded through each.
         if (!isDiscordResource(resource)) {
-            items.push(planTicketType(base, bindingByKey.get(resource.key), requireTicketTypes()));
+            const kind = nonDiscordResourceKind(resource.kind);
+            switch (kind) {
+                case 'ticketType':
+                    items.push(planTicketType(base, bindingByKey.get(resource.key), requireTicketTypes()));
+                    continue;
+                case 'message':
+                    items.push(
+                        planMessage({
+                            base,
+                            guild,
+                            declaration: resource,
+                            existing: bindingByKey.get(resource.key),
+                            planned: items,
+                            presence: requirePresence,
+                            uploadSizes: requireUploadSizes,
+                        })
+                    );
+                    continue;
+                default: {
+                    const unreachable: never = kind;
+                    throw new Error(`Unhandled resource kind: ${String(unreachable)}`);
+                }
+            }
+        }
+
+        // A message this journey posted, under a key now declared as a channel, category
+        // or role. Planned as absent, the apply would take its row over and leave the
+        // message posted with nothing that knows it is ours — so it is blocked, as a ticket
+        // type over a row of another kind is.
+        const bound = bindingByKey.get(resource.key);
+        if (bound?.kind === 'message') {
+            items.push({
+                ...base,
+                action: 'blocked',
+                reason: `This journey still holds a message under the key "${resource.key}". Uninstall the journey, or give the ${KIND_LABEL[resource.kind]} another key.`,
+            });
             continue;
         }
 
@@ -424,8 +543,7 @@ export function buildInstallPlan(input: BuildInstallPlanInput): InstallPlan {
         // A ticket type row under a key now declared as a channel, category or role names
         // nothing in Discord, so it is planned as if absent. The apply rebinds that row to
         // what it creates or adopts, writing the new kind — it is never left labelled a
-        // ticket type, which uninstall would only forget.
-        const bound = bindingByKey.get(resource.key);
+        // ticket type, which uninstall would only forget. A message row was blocked above.
         const existing = bound && isDiscordResource(bound) ? bound : undefined;
         if (existing?.discordId && existing.state !== 'intended') {
             const stillThere =
@@ -620,6 +738,146 @@ function planTicketType(
               ...note,
           }
         : { ...base, action: 'create', ...note };
+}
+
+interface PlanMessageInput {
+    readonly base: Pick<PlanItem, 'resourceKey' | 'kind' | 'name' | 'parentKey'>;
+    readonly guild: Guild;
+    readonly declaration: ResourceDeclaration;
+    /** This journey's row under the key, of whatever kind. */
+    readonly existing: ResourceBindingEntity | undefined;
+    /** The items planned so far — every resource ordered before this one, its channel included. */
+    readonly planned: readonly PlanItem[];
+    readonly presence: (row: ResourceBindingEntity) => MessagePresence;
+    readonly uploadSizes: () => ReadonlyMap<string, number>;
+}
+
+/**
+ * The plan item for one declared message.
+ *
+ * A message is posted in its channel and kept there, never edited by install — bringing a
+ * posted message up to date is drift's job. So:
+ *
+ *  - **no channel picked** → `blocked`; saving one is allowed, installing it is not;
+ *  - **posted, and still there** → `reuse` — unless its channel is not the one the journey
+ *    now names: Discord cannot move a message, so that is `blocked`, saying how to settle it;
+ *  - **posted, and gone** → `create` again, saying so;
+ *  - **posted, and unreadable** → `blocked`, naming the channel and why — never guessed
+ *    into either of the other two;
+ *  - **never posted** → `create`.
+ *
+ * A `create` whose message Discord would refuse, or whose uploads this server does not
+ * hold, is `blocked` naming the part, so a failing post is found before the install rather
+ * than halfway through it. Any item for a message with buttons carries the note that
+ * nothing listens to them yet.
+ *
+ * A row under this key of another kind is a resource whose kind changed after install, and
+ * is blocked as `planTicketType` blocks one: writing the message's row over it would forget
+ * what it records.
+ */
+function planMessage(input: PlanMessageInput): PlanItem {
+    const { base, guild, declaration, existing } = input;
+    const note = declaration.buttons?.length ? { note: MESSAGE_BUTTONS_UNHEARD_NOTE } : {};
+
+    if (existing && existing.kind !== 'message') {
+        return {
+            ...base,
+            action: 'blocked',
+            reason: `This journey still holds a ${KIND_LABEL[existing.kind]} under the key "${base.resourceKey}". Uninstall the journey, or give the message another key.`,
+        };
+    }
+    if (!declaration.parentKey) {
+        return { ...base, action: 'blocked', reason: 'Pick the channel it goes in.', ...note };
+    }
+    const parent = input.planned.find((item) => item.resourceKey === declaration.parentKey);
+    if (parent?.action === 'blocked') {
+        // Its channel's own item says why; comparing against a channel this plan cannot
+        // place would only report a move that never happened.
+        return { ...base, action: 'blocked', reason: 'Its channel can\'t be installed as it stands, so neither can this.', ...note };
+    }
+
+    // The channel as this plan has it: bound already (reuse, adopt or recover carry its id).
+    // One this install is about to create has no id, and cannot be where a message is.
+    const parentId = parent && parent.action !== 'create' ? parent.discordId : undefined;
+    const posted = existing && isPostedMessageRow(existing) ? existing : undefined;
+    if (posted) {
+        const presence = input.presence(posted);
+        const where = describeChannel(guild, posted.messageChannelId);
+        if (typeof presence === 'object') {
+            return { ...base, action: 'blocked', reason: `Couldn't check it in ${where}: ${presence.unreadable}.`, ...note };
+        }
+        switch (presence) {
+            case 'found':
+                if (posted.messageChannelId !== parentId) {
+                    return {
+                        ...base,
+                        action: 'blocked',
+                        reason: `It's posted in ${where}, but this journey now puts it in another channel. Discord can't move a message: delete it there and install again.`,
+                        ...note,
+                    };
+                }
+                return { ...base, action: 'reuse', discordId: posted.discordId, ...note };
+            case 'gone':
+                break;
+            default: {
+                const unreachable: never = presence;
+                throw new Error(`Unhandled message presence: ${String(unreachable)}`);
+            }
+        }
+    }
+
+    const problem = messageCreateProblem(base.name, declaration, input.uploadSizes);
+    if (problem) {
+        return { ...base, action: 'blocked', reason: problem, ...note };
+    }
+    const shutOut = parentId ? channelShutsBotOut(guild, parentId, declaration) : undefined;
+    if (shutOut) {
+        return { ...base, action: 'blocked', reason: shutOut, ...note };
+    }
+    return posted ? { ...base, action: 'create', reason: MESSAGE_POSTED_AGAIN, ...note } : { ...base, action: 'create', ...note };
+}
+
+/**
+ * Why the bot cannot post this message in a channel the journey already holds, in the
+ * operator's words, or undefined when it can. The server-wide check is `collectBlockers`';
+ * this is a reused channel's own overwrites, which install never touches for the bot — so a
+ * post there would fail with 50013 halfway through the apply, after earlier items landed.
+ */
+function channelShutsBotOut(guild: Guild, channelId: string, declaration: ResourceDeclaration): string | undefined {
+    const me = guild.members.me;
+    if (!me) {
+        // Nothing to check permissions against — not the same as lacking them.
+        const where = describeChannel(guild, channelId);
+        return `Couldn't see the bot's own member, so whether it can post in ${where} can't be checked. Try again in a moment.`;
+    }
+    const channel = guild.channels.cache.get(channelId);
+    const granted = channel ? channel.permissionsFor(me) : null;
+    const needed: readonly (readonly [bigint, string])[] = [
+        [PermissionFlagsBits.ViewChannel, 'View Channel'],
+        ...MESSAGE_PERMISSIONS,
+        ...(messageUploadIds(declaration.message).length > 0 ? [[PermissionFlagsBits.AttachFiles, 'Attach Files'] as const] : []),
+    ];
+    const missing = needed.filter(([flag]) => !granted?.has(flag)).map(([, name]) => name);
+    if (missing.length === 0) return undefined;
+    return `The bot lacks ${boldList(missing)} in ${describeChannel(guild, channelId)}, which posting it there needs. Fix that channel's permissions, then install again.`;
+}
+
+/**
+ * Why a message cannot be posted as declared, in the operator's words, or undefined when it
+ * can: the save rules first (`messageResourceProblems`), then its uploads against what this
+ * server holds. The first problem only, named by the message's name and the part.
+ */
+function messageCreateProblem(
+    name: string,
+    declaration: ResourceDeclaration,
+    uploadSizes: () => ReadonlyMap<string, number>
+): string | undefined {
+    const [problem] = messageResourceProblems(declaration);
+    if (problem) return describeMessageResourceProblem(name, problem);
+
+    if (messageUploadIds(declaration.message).length === 0) return undefined;
+    const [uploadProblem] = messageUploadProblems(declaration.message, uploadSizes());
+    return uploadProblem ? describeMessageResourceProblem(name, uploadProblem) : undefined;
 }
 
 /** Whether a plan can be applied at all. A blocked item stops the whole apply. */

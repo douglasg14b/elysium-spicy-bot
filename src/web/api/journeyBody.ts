@@ -15,6 +15,15 @@ import type {
     SharedTicketType,
 } from '../../features/provisioning/logic/journeyMergePlan';
 import {
+    MESSAGE_BUTTON_STYLES,
+    MESSAGE_MAX_BUTTONS,
+    type MessageButton,
+} from '../../features/provisioning/logic/messageButtons';
+import {
+    describeMessageResourceProblem,
+    messageResourceProblems,
+} from '../../features/provisioning/logic/messageResourceProblems';
+import {
     PERMISSION_ACCESS_LEVELS,
     PERMISSION_AUDIENCES,
     type PermissionIntent,
@@ -27,6 +36,10 @@ import {
 import { RESOURCE_DRIFT_KINDS } from '../../features/provisioning/logic/resourceDrift';
 import { normaliseResourceName } from '../../features/provisioning/logic/resourceName';
 import { ticketTypeDefinitionProblem } from '../../features/tickets/logic/setTicketTypes';
+import { uploadSizesFor } from '../../features-system/guild-uploads/logic/readMessageUploads';
+import { DISCORD_BUTTON_LABEL_MAX_LENGTH } from '../../shared/discordButtons';
+import { messageUploadProblems } from '../../shared/discordMessage';
+import { DiscordMessageSchema } from './messageBody';
 import { TicketTypeSettingsSchema } from './ticketBody';
 import {
     errorBodyResponse,
@@ -124,15 +137,17 @@ export const PermissionRoleIdSchema = z
     );
 
 /**
- * What kind of thing a declared resource is: a category, channel or role in the guild, or a
- * ticket type in the guild's ticket settings.
+ * What kind of thing a declared resource is: a category, channel or role in the guild, a
+ * ticket type in the guild's ticket settings, or a message the bot posts in one of the
+ * journey's text channels.
  */
 const ResourceKindSchema = z.enum(RESOURCE_KINDS).openapi('ResourceKind');
 
 /**
- * The kinds of resource that are objects in the Discord guild — categories, channels and
- * roles, each with a snowflake. The fourth kind, `ticketType`, is a row in the ticket
- * settings named by its key: no parent, no channel permissions, nothing to adopt by id.
+ * The kinds of resource that are objects in the guild's cache — categories, channels and
+ * roles, each with a snowflake, each adoptable. A `ticketType` is a row in the ticket
+ * settings named by its key, and a `message` is posted by install inside a declared text
+ * channel: neither has channel permissions or anything to adopt by id.
  *
  * No route sends it on its own; it is registered as a component (`openApiDocument.ts`) so
  * the browser branches on the server's own list before reaching for the channel or role
@@ -141,7 +156,8 @@ const ResourceKindSchema = z.enum(RESOURCE_KINDS).openapi('ResourceKind');
 export const DiscordResourceKindSchema = z.enum(DISCORD_RESOURCE_KINDS).openapi('DiscordResourceKind', {
     description:
         'The resource kinds that are objects in the Discord guild, each with a snowflake. A `ticketType` ' +
-        'is not one: it lives in the ticket settings, named by its key.',
+        'is not one: it lives in the ticket settings, named by its key. Nor is a `message`: install posts ' +
+        'it in a declared text channel, and it is never adopted.',
 });
 
 /** Who a permission intent is about. `roles` names its roles in `roleIds`. */
@@ -187,6 +203,41 @@ const PermissionIntentSchema = z
  */
 const discordIdSchema = z.string().regex(/^\d{17,20}$/, 'A channel or role id is 17 to 20 digits.');
 
+/** How a message's button looks: the four styles that answer a press. */
+const MessageButtonStyleSchema = z.enum(MESSAGE_BUTTON_STYLES).openapi('MessageButtonStyle');
+
+/**
+ * One button under a message resource.
+ *
+ * The key follows the resource key rule, for the same reason: it travels in the button's
+ * custom_id (`mbtn:<key>`), which Discord caps at 100 characters. That keys are unique within
+ * their message spans the list, so the spec cannot carry it; `messageResourceRefusal` asks.
+ */
+const MessageButtonSchema = z
+    .object({
+        key: z
+            .string()
+            .min(1, 'Give the button a key.')
+            .max(64, 'Button keys cap at 64 characters.')
+            .regex(
+                new RegExp(`^${RESOURCE_KEY_PATTERN}$`),
+                'Button keys use lowercase letters, numbers and single hyphens (for example `let-me-in`).'
+            ),
+        label: z
+            .string()
+            .min(1, 'A button needs a label — something to press.')
+            .max(
+                DISCORD_BUTTON_LABEL_MAX_LENGTH,
+                `Button labels stop at ${DISCORD_BUTTON_LABEL_MAX_LENGTH} characters — Discord's rule, not ours.`
+            ),
+        style: MessageButtonStyleSchema,
+    })
+    .openapi('MessageButton', {
+        description:
+            'A button under a message resource. `key` is its identity within the message — what a press is ' +
+            'routed by — so relabelling it changes nothing that listens to it.',
+    });
+
 /**
  * A resource a journey declares, as every route sends and receives it.
  *
@@ -203,7 +254,8 @@ const discordIdSchema = z.string().regex(/^\d{17,20}$/, 'A channel or role id is
  *
  * A ticket type's label is trimmed instead, as the ticket feature trims it on create, so the
  * declaration, the binding's name and the type itself say the same thing — not run through
- * `normaliseResourceName`, which the panel runs as the operator types.
+ * `normaliseResourceName`, which the panel runs as the operator types. A message's name is
+ * trimmed the same way: Discord never sees it, only the dashboard and its refusals do.
  */
 export const ResourceDeclarationSchema = z
     .object({
@@ -230,11 +282,24 @@ export const ResourceDeclarationSchema = z
          * renderer are {@link ticketTypeDeclarationRefusal}'s.
          */
         ticketType: TicketTypeSettingsSchema.optional(),
+        /**
+         * What a `message` resource posts. Its shape travels in the spec; the rules spanning
+         * parts, the picture forms, the no-tokens rule and its uploads are the handler's
+         * ({@link messageResourceRefusal}, {@link messageUploadsRefusal}). Which kinds may
+         * carry it is `validateJourneyDeclaration`'s call.
+         */
+        message: DiscordMessageSchema.optional(),
+        /** The buttons under a `message` resource, in order. */
+        buttons: z
+            .array(MessageButtonSchema)
+            .max(MESSAGE_MAX_BUTTONS, `A message holds ${MESSAGE_MAX_BUTTONS} buttons, tops — five rows of five.`)
+            .readonly()
+            .optional(),
     })
     .transform((resource) => ({
         ...resource,
         defaultName:
-            resource.kind === 'ticketType'
+            resource.kind === 'ticketType' || resource.kind === 'message'
                 ? resource.defaultName.trim()
                 : normaliseResourceName(resource.kind, resource.defaultName),
     }))
@@ -242,9 +307,11 @@ export const ResourceDeclarationSchema = z
         description:
             'A resource a journey needs, named by a key stable across servers. `defaultName` is ' +
             'stored as Discord will hold it: a text channel lowercased, whitespace hyphenated; for a ' +
-            '`ticketType` it is the type\'s label, trimmed. `adoptDiscordId` adopts something that ' +
-            'already exists instead of creating it. `ticketType` holds a ticket type\'s settings, and ' +
-            'only a `ticketType` resource carries it.',
+            '`ticketType` it is the type\'s label, and for a `message` the name the dashboard shows it ' +
+            'by, both trimmed. `adoptDiscordId` adopts something that already exists instead of creating ' +
+            'it. `ticketType` holds a ticket type\'s settings, and only a `ticketType` resource carries it. ' +
+            '`message` and `buttons` hold what a `message` resource posts, and only a `message` carries ' +
+            'them; its `parentKey` names the text channel it is posted in.',
     });
 
 const ResourceDeclarationsSchema = z.array(ResourceDeclarationSchema).readonly();
@@ -304,12 +371,63 @@ export function ticketTypeDeclarationRefusal(resources: readonly ResourceDeclara
 }
 
 /**
+ * Why a list of declarations is refused for a message resource that could not be posted as
+ * it stands, or `undefined` when every one could. Names the first problem by the message's
+ * name and part: `"Rules panel" embed 2 footer: …`.
+ *
+ * Provisioning's rules (`messageResourceProblems`): the message parses as a Post Embed
+ * node's does, holds no `{{tokens}}` anywhere, and gives each button its own key. Asked
+ * here rather than as a refinement for the reason the others are: each spans parts or needs
+ * more than the spec can say, so the browser could not be given it.
+ */
+export function messageResourceRefusal(resources: readonly ResourceDeclaration[]): string | undefined {
+    for (const resource of resources) {
+        if (resource.kind !== 'message') continue;
+
+        const [problem] = messageResourceProblems(resource);
+        if (problem) return describeMessageResourceProblem(resource.defaultName, problem);
+    }
+    return undefined;
+}
+
+/**
  * What the routes that take resources refuse a valid-shaped list for, beyond the schema:
- * {@link rolesWithoutIdsRefusal}, then {@link ticketTypeDeclarationRefusal}. One call, so the
- * three routes cannot ask a different set.
+ * {@link rolesWithoutIdsRefusal}, then {@link ticketTypeDeclarationRefusal}, then
+ * {@link messageResourceRefusal}. One call, so the three routes cannot ask a different set.
+ * The uploads, which need the database, are {@link messageUploadsRefusal}'s, asked after it.
  */
 export function declarationsRefusal(resources: readonly ResourceDeclaration[]): string | undefined {
-    return rolesWithoutIdsRefusal(resources) ?? ticketTypeDeclarationRefusal(resources);
+    return rolesWithoutIdsRefusal(resources) ?? ticketTypeDeclarationRefusal(resources) ?? messageResourceRefusal(resources);
+}
+
+/**
+ * Why a list of declarations is refused for a message resource's uploaded pictures, or
+ * `undefined` when every one can go: each upload a message shows is this server's, and each
+ * message stays within Discord's file count and bytes (`messageUploadProblems`, the rules a
+ * Post Embed node is saved and run under). Named like {@link messageResourceRefusal}.
+ *
+ * Async because it reads the sizes this server holds: one query for every message in the
+ * list, **for this guild only**, so an upload id copied from another server's journey is not
+ * in it — and none at all when no message shows an upload. Sizes only, never the pictures.
+ *
+ * Awaited by the three routes straight after {@link declarationsRefusal}, before any write:
+ * SQLite has one connection, so this must never run inside a transaction.
+ */
+export async function messageUploadsRefusal(
+    guildId: string,
+    resources: readonly ResourceDeclaration[]
+): Promise<string | undefined> {
+    const messages = resources.filter((resource) => resource.kind === 'message' && resource.message);
+    const sizes = await uploadSizesFor(
+        guildId,
+        messages.flatMap((resource) => (resource.message ? [resource.message] : []))
+    );
+
+    for (const resource of messages) {
+        const [problem] = messageUploadProblems(resource.message, sizes);
+        if (problem) return describeMessageResourceProblem(resource.defaultName, problem);
+    }
+    return undefined;
 }
 
 /** The path of every route about one journey. */
@@ -609,6 +727,7 @@ const RepairedResourceSchema = z
  */
 type JourneyBodyChecks = ChecksHold<{
     PermissionIntent: SchemaMatches<typeof PermissionIntentSchema, PermissionIntent>;
+    MessageButton: SchemaMatches<typeof MessageButtonSchema, MessageButton>;
     ResourceDeclaration: SchemaMatches<typeof ResourceDeclarationSchema, ResourceDeclaration>;
     MovingResource: SchemaMatches<typeof MovingResourceSchema, MovingResource>;
     KeyCollision: SchemaMatches<typeof KeyCollisionSchema, KeyCollision>;

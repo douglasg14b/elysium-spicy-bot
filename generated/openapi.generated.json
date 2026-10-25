@@ -1552,7 +1552,7 @@
                 "type": "object"
             },
             "DiscordResourceKind": {
-                "description": "The resource kinds that are objects in the Discord guild, each with a snowflake. A `ticketType` is not one: it lives in the ticket settings, named by its key.",
+                "description": "The resource kinds that are objects in the Discord guild, each with a snowflake. A `ticketType` is not one: it lives in the ticket settings, named by its key. Nor is a `message`: install posts it in a declared text channel, and it is never adopted.",
                 "enum": [
                     "category",
                     "textChannel",
@@ -1570,7 +1570,8 @@
                             "renamed",
                             "reparented",
                             "wrongType",
-                            "permissions"
+                            "permissions",
+                            "outOfDate"
                         ],
                         "type": "string"
                     }
@@ -2921,6 +2922,44 @@
                 },
                 "type": "object"
             },
+            "FlowUploadUse": {
+                "description": "A picture shown in a flow: the flow (as a draft names it, when the use is in one), the node, its block's label, and the part as the message editor names it (`embed 1 thumbnail`). `draftAuthorId` is set when the use is only in that person's unsaved draft.",
+                "properties": {
+                    "blockLabel": {
+                        "type": "string"
+                    },
+                    "draftAuthorId": {
+                        "type": "string"
+                    },
+                    "flowId": {
+                        "type": "string"
+                    },
+                    "flowName": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "enum": [
+                            "flow"
+                        ],
+                        "type": "string"
+                    },
+                    "nodeId": {
+                        "type": "string"
+                    },
+                    "where": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "kind",
+                    "flowId",
+                    "flowName",
+                    "nodeId",
+                    "blockLabel",
+                    "where"
+                ],
+                "type": "object"
+            },
             "FlowValidationIssue": {
                 "description": "One problem with a graph. `nodeId` names the node it is on and `field` the dotted path into its config (e.g. `fields.0.name`); a problem with the graph as a whole has neither.",
                 "properties": {
@@ -3334,7 +3373,7 @@
                         "type": "object"
                     }
                 ],
-                "description": "A picture kept for this server's messages, without its bytes, and every place a saved flow or a draft shows it — empty when nothing does, so it may be deleted."
+                "description": "A picture kept for this server's messages, without its bytes, and every place a saved flow, a draft or a journey's message shows it — empty when nothing does, so it may be deleted."
             },
             "Health": {
                 "description": "The web server is up. `time` is the server's clock, as ISO.",
@@ -3412,7 +3451,8 @@
                             "category",
                             "textChannel",
                             "role",
-                            "ticketType"
+                            "ticketType",
+                            "message"
                         ],
                         "type": "string"
                     },
@@ -3640,6 +3680,41 @@
                     "cleanKeys",
                     "unchecked",
                     "orphans"
+                ],
+                "type": "object"
+            },
+            "JourneyMessageUploadUse": {
+                "description": "A picture shown in a message a journey declares as a resource: the journey, the message (its key and its name), and the part as the message editor names it (`embed 1 image`).",
+                "properties": {
+                    "journeyKey": {
+                        "type": "string"
+                    },
+                    "journeyName": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "enum": [
+                            "journeyMessage"
+                        ],
+                        "type": "string"
+                    },
+                    "messageName": {
+                        "type": "string"
+                    },
+                    "resourceKey": {
+                        "type": "string"
+                    },
+                    "where": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "kind",
+                    "journeyKey",
+                    "journeyName",
+                    "resourceKey",
+                    "messageName",
+                    "where"
                 ],
                 "type": "object"
             },
@@ -4284,6 +4359,49 @@
                 ],
                 "type": "object"
             },
+            "MessageButton": {
+                "description": "A button under a message resource. `key` is its identity within the message — what a press is routed by — so relabelling it changes nothing that listens to it.",
+                "properties": {
+                    "key": {
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+                        "type": "string",
+                        "x-messages": {
+                            "maxLength": "Button keys cap at 64 characters.",
+                            "minLength": "Give the button a key.",
+                            "pattern": "Button keys use lowercase letters, numbers and single hyphens (for example `let-me-in`)."
+                        }
+                    },
+                    "label": {
+                        "maxLength": 80,
+                        "minLength": 1,
+                        "type": "string",
+                        "x-messages": {
+                            "maxLength": "Button labels stop at 80 characters — Discord's rule, not ours.",
+                            "minLength": "A button needs a label — something to press."
+                        }
+                    },
+                    "style": {
+                        "$ref": "#/components/schemas/MessageButtonStyle"
+                    }
+                },
+                "required": [
+                    "key",
+                    "label",
+                    "style"
+                ],
+                "type": "object"
+            },
+            "MessageButtonStyle": {
+                "enum": [
+                    "Primary",
+                    "Secondary",
+                    "Success",
+                    "Danger"
+                ],
+                "type": "string"
+            },
             "MovingResource": {
                 "properties": {
                     "declaredName": {
@@ -4596,7 +4714,8 @@
                             "category-has-survivors",
                             "missing-permission",
                             "unrecognised-state",
-                            "interrupted-create"
+                            "interrupted-create",
+                            "unreadable"
                         ],
                         "type": "string"
                     },
@@ -4660,7 +4779,8 @@
                                 "renamed",
                                 "reparented",
                                 "wrongType",
-                                "permissions"
+                                "permissions",
+                                "outOfDate"
                             ],
                             "type": "string"
                         },
@@ -4679,13 +4799,23 @@
                 "type": "object"
             },
             "ResourceDeclaration": {
-                "description": "A resource a journey needs, named by a key stable across servers. `defaultName` is stored as Discord will hold it: a text channel lowercased, whitespace hyphenated; for a `ticketType` it is the type's label, trimmed. `adoptDiscordId` adopts something that already exists instead of creating it. `ticketType` holds a ticket type's settings, and only a `ticketType` resource carries it.",
+                "description": "A resource a journey needs, named by a key stable across servers. `defaultName` is stored as Discord will hold it: a text channel lowercased, whitespace hyphenated; for a `ticketType` it is the type's label, and for a `message` the name the dashboard shows it by, both trimmed. `adoptDiscordId` adopts something that already exists instead of creating it. `ticketType` holds a ticket type's settings, and only a `ticketType` resource carries it. `message` and `buttons` hold what a `message` resource posts, and only a `message` carries them; its `parentKey` names the text channel it is posted in.",
                 "properties": {
                     "adoptDiscordId": {
                         "pattern": "^\\d{17,20}$",
                         "type": "string",
                         "x-messages": {
                             "pattern": "A channel or role id is 17 to 20 digits."
+                        }
+                    },
+                    "buttons": {
+                        "items": {
+                            "$ref": "#/components/schemas/MessageButton"
+                        },
+                        "maxItems": 25,
+                        "type": "array",
+                        "x-messages": {
+                            "maxItems": "A message holds 25 buttons, tops — five rows of five."
                         }
                     },
                     "defaultName": {
@@ -4717,6 +4847,9 @@
                     },
                     "kind": {
                         "$ref": "#/components/schemas/ResourceKind"
+                    },
+                    "message": {
+                        "$ref": "#/components/schemas/DiscordMessage"
                     },
                     "parentKey": {
                         "maxLength": 64,
@@ -4755,7 +4888,8 @@
                     "category",
                     "textChannel",
                     "role",
-                    "ticketType"
+                    "ticketType",
+                    "message"
                 ],
                 "type": "string"
             },
@@ -5686,7 +5820,8 @@
                             "category",
                             "textChannel",
                             "role",
-                            "ticketType"
+                            "ticketType",
+                            "message"
                         ],
                         "type": "string"
                     },
@@ -5737,35 +5872,22 @@
                 "description": "The picture was not deleted: these places still show it. Swap it out of each, then try again."
             },
             "UploadUse": {
-                "description": "One place a picture is shown: the flow (as a draft names it, when the use is in one), the node, its block's label, and the part as the message editor names it (`embed 1 thumbnail`). `draftAuthorId` is set when the use is only in that person's unsaved draft.",
-                "properties": {
-                    "blockLabel": {
-                        "type": "string"
+                "description": "One place a picture is shown: in a flow (`kind: flow`), or in a journey's message resource (`kind: journeyMessage`).",
+                "discriminator": {
+                    "mapping": {
+                        "flow": "#/components/schemas/FlowUploadUse",
+                        "journeyMessage": "#/components/schemas/JourneyMessageUploadUse"
                     },
-                    "draftAuthorId": {
-                        "type": "string"
-                    },
-                    "flowId": {
-                        "type": "string"
-                    },
-                    "flowName": {
-                        "type": "string"
-                    },
-                    "nodeId": {
-                        "type": "string"
-                    },
-                    "where": {
-                        "type": "string"
-                    }
+                    "propertyName": "kind"
                 },
-                "required": [
-                    "flowId",
-                    "flowName",
-                    "nodeId",
-                    "blockLabel",
-                    "where"
-                ],
-                "type": "object"
+                "oneOf": [
+                    {
+                        "$ref": "#/components/schemas/FlowUploadUse"
+                    },
+                    {
+                        "$ref": "#/components/schemas/JourneyMessageUploadUse"
+                    }
+                ]
             },
             "WarningsConfig": {
                 "properties": {

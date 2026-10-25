@@ -14,6 +14,8 @@ import { HTTPError, RESTJSONErrorCodes } from 'discord.js';
 export const DISCORD_UNKNOWN_CHANNEL = 10003;
 /** 10004 `Unknown Guild`. */
 export const DISCORD_UNKNOWN_GUILD = 10004;
+/** 10008 `Unknown Message`. */
+export const DISCORD_UNKNOWN_MESSAGE = 10008;
 /** 10011 `Unknown Role`. */
 export const DISCORD_UNKNOWN_ROLE = 10011;
 
@@ -26,10 +28,21 @@ export function discordErrorCode(error: unknown): number | undefined {
     return undefined;
 }
 
-/** "It is not there": an unknown channel, guild or role. */
+/**
+ * "It is not there": an unknown channel, guild, message or role.
+ *
+ * A message counts because uninstall deletes a journey's messages before their channels,
+ * and one deleted by hand between the plan and the confirm answers 10008 — the desired
+ * state, not a failure.
+ */
 export function isAlreadyGone(error: unknown): boolean {
     const code = discordErrorCode(error);
-    return code === DISCORD_UNKNOWN_CHANNEL || code === DISCORD_UNKNOWN_GUILD || code === DISCORD_UNKNOWN_ROLE;
+    return (
+        code === DISCORD_UNKNOWN_CHANNEL ||
+        code === DISCORD_UNKNOWN_GUILD ||
+        code === DISCORD_UNKNOWN_MESSAGE ||
+        code === DISCORD_UNKNOWN_ROLE
+    );
 }
 
 /** 50013 `Missing Permissions`, 50001 `Missing Access`. Named so the advice is useful. */

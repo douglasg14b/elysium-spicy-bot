@@ -232,7 +232,8 @@ export class ResourceBindingsRepo {
      * row under a key now declared as a channel, the commonest way a kind changes. Left
      * as it was, the channel this install created would be recorded as a ticket type,
      * which every fence skips and uninstall only forgets: a created channel nothing would
-     * ever delete.
+     * ever delete. The message columns are cleared with it, since they mean something only
+     * on a `message` row.
      */
     async rebind(input: {
         id: number;
@@ -249,6 +250,8 @@ export class ResourceBindingsRepo {
                 kind: input.kind,
                 state: input.state,
                 name: input.name,
+                messageChannelId: null,
+                messageDigest: null,
                 updatedAt: new Date().toISOString(),
             })
             .where('id', '=', input.id)
@@ -315,13 +318,17 @@ export class ResourceBindingsRepo {
      *    snowflake (`applyInstallPlan`). A type may be shared by any number of journeys
      *    and the dashboard, since nothing ever deletes or rewrites one for a journey, so
      *    there is no fence to run.
+     *
+     * Never a `message`, which records where it was posted ({@link upsertPostedMessage}).
+     * The message columns are written null, so a row that was a message and is now
+     * something else does not keep a channel and a fingerprint that mean nothing.
      */
     async upsertBinding(
         input: {
             readonly guildId: string;
             readonly owner: BindingOwner;
             readonly resourceKey: string;
-            readonly kind: ResourceKind;
+            readonly kind: Exclude<ResourceKind, 'message'>;
             readonly state: Extract<ResourceBindingState, 'created' | 'adopted'>;
             readonly discordId: string;
             readonly name: string;
@@ -341,6 +348,8 @@ export class ResourceBindingsRepo {
                 state: input.state,
                 discordId: input.discordId,
                 name: input.name,
+                messageChannelId: null,
+                messageDigest: null,
                 createdAt: now,
                 updatedAt: now,
             })
@@ -350,10 +359,91 @@ export class ResourceBindingsRepo {
                     state: input.state,
                     discordId: input.discordId,
                     name: input.name,
+                    messageChannelId: null,
+                    messageDigest: null,
                     updatedAt: now,
                 })
             )
             .execute();
+    }
+
+    /**
+     * Record a message a journey has just posted: its id, the channel it is in, and the
+     * fingerprint of the declaration it was posted from. Whatever row was under the key
+     * before is replaced — the message it named was gone, which is why this one was posted.
+     *
+     * Written after the post, not before it as an intent: a message cannot be half-made, and
+     * an intent row could recover nothing a later install could act on (the plan's
+     * correction 3). The cost is the ticket type's: a crash between the post and this write
+     * leaves a message no row knows about, which the operator deletes by hand.
+     *
+     * Always `created`: a message is never adopted. On the conflict target `upsertBinding`
+     * uses, so one key is still one row.
+     */
+    async upsertPostedMessage(input: {
+        readonly guildId: string;
+        readonly journeyKey: string;
+        readonly resourceKey: string;
+        /** The posted message's id. */
+        readonly discordId: string;
+        readonly channelId: string;
+        readonly digest: string;
+        readonly name: string;
+    }): Promise<void> {
+        const now = new Date().toISOString();
+
+        await database
+            .insertInto('resource_bindings')
+            .values({
+                guildId: input.guildId,
+                ownerKind: 'journey',
+                ownerKey: input.journeyKey,
+                resourceKey: input.resourceKey,
+                kind: 'message',
+                state: 'created',
+                discordId: input.discordId,
+                name: input.name,
+                messageChannelId: input.channelId,
+                messageDigest: input.digest,
+                createdAt: now,
+                updatedAt: now,
+            })
+            .onConflict((oc) =>
+                oc.columns(['guildId', 'ownerKind', 'ownerKey', 'resourceKey']).doUpdateSet({
+                    kind: 'message',
+                    state: 'created',
+                    discordId: input.discordId,
+                    name: input.name,
+                    messageChannelId: input.channelId,
+                    messageDigest: input.digest,
+                    updatedAt: now,
+                })
+            )
+            .execute();
+    }
+
+    /**
+     * Store the fingerprint of the declaration a posted message now shows, after a repair
+     * edited it in place.
+     *
+     * Guarded like {@link renameBinding}: by the row id, with the message id as the
+     * optimistic check, so a row that moved on to another message underneath the repair is
+     * left alone. Zero rows back is that refusal.
+     */
+    async recordMessageDigest(input: {
+        readonly id: number;
+        readonly expectedDiscordId: string;
+        readonly digest: string;
+    }): Promise<boolean> {
+        const result = await database
+            .updateTable('resource_bindings')
+            .set({ messageDigest: input.digest, updatedAt: new Date().toISOString() })
+            .where('id', '=', input.id)
+            .where('kind', '=', 'message')
+            .where('discordId', '=', input.expectedDiscordId)
+            .executeTakeFirst();
+
+        return Number(result.numUpdatedRows) > 0;
     }
 
     /**
@@ -443,12 +533,17 @@ export class ResourceBindingsRepo {
      * object is already gone, or for a `forget` it planned on purpose. A row removed
      * while its channel still stands would orphan that channel with nothing left that
      * knows we made it.
+     *
+     * `expectedDiscordId`, when given, removes the row only while it still names that
+     * object. Uninstall passes it for a message: its plan is read before the journey lock
+     * is taken, and an install holding the lock meanwhile reposts onto the **same row**
+     * (`upsertPostedMessage`) — forgetting by id alone would drop the only record of the
+     * new post. False back is that refusal.
      */
-    async forget(id: number): Promise<boolean> {
-        const result = await database
-            .deleteFrom('resource_bindings')
-            .where('id', '=', id)
-            .executeTakeFirst();
+    async forget(id: number, expectedDiscordId?: string): Promise<boolean> {
+        let query = database.deleteFrom('resource_bindings').where('id', '=', id);
+        if (expectedDiscordId !== undefined) query = query.where('discordId', '=', expectedDiscordId);
+        const result = await query.executeTakeFirst();
 
         return Number(result.numDeletedRows) > 0;
     }

@@ -48,6 +48,7 @@ import {
     type ResourceDeclaration,
     type TicketTypeView,
 } from '@brattybot/web-sdk';
+import type { GuildUploads } from './controls/types';
 import { ResourcesPanel } from './ResourcesPanel';
 import { loadResources, resourceTargetIdentity, type ResourceSaveTarget } from './resourceSaveTarget';
 import { useResourceAutosave } from './useResourceAutosave';
@@ -118,6 +119,11 @@ interface ResourcesDialogProps {
     readonly loadError?: string | null;
     /** Told when the server confirms a save, so the caller can adopt the normalised list. */
     readonly onSaved: (resources: ResourceDeclaration[]) => void;
+    /**
+     * The server's uploaded pictures, for a message's window: the page's, read through
+     * `useGuildUploads`, so every picture box on the page shows the same list.
+     */
+    readonly uploads: GuildUploads;
 }
 
 export function ResourcesDialog({
@@ -134,10 +140,22 @@ export function ResourcesDialog({
     loaded,
     loadError,
     onSaved,
+    uploads,
 }: ResourcesDialogProps) {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const { roles, channels, ticketTypes } = useGuildDirectory(guildId, opened);
+    /*
+     * How many message windows are open over this dialog. Mantine closes a modal on any
+     * Escape in the page — a window-level listener, not one on the modal — so without this an
+     * Escape that finishes a part or closes a picture box in the window would shut the whole
+     * list with it.
+     */
+    const [windowsOpen, setWindowsOpen] = useState(0);
+    const onMessageWindowChange = useCallback(
+        (open: boolean) => setWindowsOpen((count) => Math.max(0, count + (open ? 1 : -1))),
+        []
+    );
 
     useResourceAutosave({
         guildId,
@@ -154,6 +172,7 @@ export function ResourcesDialog({
         <Modal
             opened={opened}
             onClose={onClose}
+            closeOnEscape={windowsOpen === 0}
             title={title}
             /*
              * Generously sized, and the reasoning moved here with the markup: a resource
@@ -200,6 +219,8 @@ export function ResourcesDialog({
                         scope={target.kind}
                         saving={saving}
                         error={error ?? undefined}
+                        uploads={uploads}
+                        onMessageWindowChange={onMessageWindowChange}
                     />
                 )}
             </Stack>

@@ -5,6 +5,14 @@
 // through this barrel, and the dependency stays one-directional by design.
 export * from './provisioningService';
 
+// Wiring: the upload usage reader for journeys' message resources. Called from `bot.ts`
+// before `initFlows`, and from every other boot root that serves the dashboard.
+export { initProvisioning } from './initProvisioning';
+
+// A message resource's buttons are pressed by `mbtn:<buttonKey>`. Provisioning owns the
+// prefix because it renders the buttons; flows registers the one handler for it.
+export { MESSAGE_BUTTON_CUSTOM_ID_PREFIX } from './logic/messageButtons';
+
 // Journeys are rows, scoped to a guild. The engine ships none of its own: what is
 // installable is whatever an operator has authored for that server.
 export { getJourney, listJourneys } from './journeys/journeySource';

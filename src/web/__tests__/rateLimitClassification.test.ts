@@ -24,9 +24,10 @@ const EXPECTED_BUDGET: Readonly<Record<string, RateBudget>> = {
     updateFlow: 'discord',
     deleteFlow: 'discord',
     deployFlow: 'discord',
-    getInstallPlan: 'general',
+    // The plan and the inventory fetch each message resource the journey posted.
+    getInstallPlan: 'discord',
     installFlow: 'discord',
-    getPublishedState: 'general',
+    getPublishedState: 'discord',
     undeployFlow: 'discord',
     unpublishFlow: 'discord',
     // Drafts. The autosave is the one write here typing sends.
@@ -41,10 +42,11 @@ const EXPECTED_BUDGET: Readonly<Record<string, RateBudget>> = {
     getGuildSettings: 'general',
     updateGuildSettings: 'discord',
     updateGuildTimeZone: 'discord',
-    // Journeys. Drift fetches every channel; both resource autosave targets are typing.
+    // Journeys. Drift fetches every channel, the inventory every posted message; both
+    // resource autosave targets are typing.
     listJourneys: 'general',
     getJourney: 'general',
-    getJourneyPublishedState: 'general',
+    getJourneyPublishedState: 'discord',
     undeployJourney: 'discord',
     unpublishJourney: 'discord',
     getJourneyDrift: 'discord',

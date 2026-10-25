@@ -125,6 +125,8 @@ function bindingRow(
         state: 'created',
         discordId: '900',
         name: resourceKey,
+        messageChannelId: null,
+        messageDigest: null,
         createdAt: new Date('2026-09-01T00:00:00.000Z'),
         updatedAt: new Date('2026-09-01T00:00:00.000Z'),
         ...overrides,

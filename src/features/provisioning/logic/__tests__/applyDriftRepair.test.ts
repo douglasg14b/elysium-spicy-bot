@@ -2,6 +2,7 @@ import { ChannelType, PermissionFlagsBits, type Guild } from 'discord.js';
 import { describe, expect, it, vi } from 'vitest';
 import { applyDriftRepair, withAdoptionReasserted } from '../applyDriftRepair';
 import type { JourneyDriftPlan } from '../journeyDriftPlan';
+import type { PreparedMessageEdit } from '../prepareMessageEdit';
 import type { ResourceDriftKind, ResourceDriftReport } from '../resourceDrift';
 
 /**
@@ -107,7 +108,7 @@ const renamedDrift: ResourceDriftKind = {
     actual: 'lobby',
 };
 
-const repo = { renameBinding: vi.fn(async () => true) };
+const repo = { renameBinding: vi.fn(async () => true), recordMessageDigest: vi.fn(async () => true) };
 
 describe('applyDriftRepair', () => {
     it('renames a channel back to what the journey declared', async () => {
@@ -486,7 +487,10 @@ describe('applyDriftRepair', () => {
 
     it('reports a landed rename as repaired when only its record failed, without the database’s words', async () => {
         const channel = fakeChannel('lobby');
-        const failingRepo = { renameBinding: vi.fn(async () => Promise.reject(new Error('SQLITE_BUSY: database is locked'))) };
+        const failingRepo = {
+            renameBinding: vi.fn(async () => Promise.reject(new Error('SQLITE_BUSY: database is locked'))),
+            recordMessageDigest: vi.fn(async () => true),
+        };
 
         const result = await applyDriftRepair({
             guild: makeGuild({ 'channel-1': channel }),
@@ -497,6 +501,111 @@ describe('applyDriftRepair', () => {
 
         expect(result.results[0]?.outcome).toBe('repaired');
         expect(result.results[0]?.explanation).toContain('could not be updated to match');
+        expect(result.results[0]?.explanation).not.toContain('SQLITE_BUSY');
+    });
+});
+
+/**
+ * An out-of-date message: one edit, prepared by the caller, then its fingerprint recorded.
+ * The whole cycle against real discord.js is `provisioningMessage.integration.test.ts`; these
+ * are the branches it cannot reach.
+ */
+describe('applyDriftRepair on an out-of-date message', () => {
+    const PANEL = report({
+        bindingId: 7,
+        resourceKey: 'rules-panel',
+        name: 'Rules panel',
+        kind: 'message',
+        discordId: 'message-1',
+        drift: [{ kind: 'outOfDate', declarationMoved: true, embedsHidden: false }],
+    });
+
+    const READY: PreparedMessageEdit = {
+        status: 'ready',
+        bindingId: 7,
+        channelId: 'channel-rules',
+        messageId: 'message-1',
+        edit: { content: '', embeds: [], components: [], files: [], allowedMentions: { parse: [] }, flags: [] },
+        digest: 'digest-new',
+    };
+
+    /** A guild holding #rules, whose message edits go to `edit`. */
+    function guildWithRules(edit: ReturnType<typeof vi.fn>): Guild {
+        const rules = { id: 'channel-rules', name: 'rules', type: ChannelType.GuildText, messages: { edit } };
+        return {
+            id: 'guild-1',
+            channels: { cache: { get: (id: string) => (id === rules.id ? rules : undefined) } },
+        } as never;
+    }
+
+    it('refuses one whose edit was never prepared, and sends nothing', async () => {
+        const edit = vi.fn(async () => undefined);
+
+        const result = await applyDriftRepair({
+            guild: guildWithRules(edit),
+            plan: plan([PANEL]),
+            approvedKeys: new Set(['rules-panel']),
+            repo,
+        });
+
+        expect(edit).not.toHaveBeenCalled();
+        expect(result.results).toEqual([
+            expect.objectContaining({ outcome: 'refused', explanation: expect.stringContaining('Nothing was changed') }),
+        ]);
+    });
+
+    it('refuses one prepared as refused with its own words, and sends nothing', async () => {
+        const edit = vi.fn(async () => undefined);
+        const refusal = '"Rules panel" embed 1: Embed 1 is empty. Fix it, then repair again — nothing was changed.';
+
+        const result = await applyDriftRepair({
+            guild: guildWithRules(edit),
+            plan: plan([PANEL]),
+            approvedKeys: new Set(['rules-panel']),
+            messageEdits: new Map([['rules-panel', { status: 'refused', refusal }]]),
+            repo,
+        });
+
+        expect(edit).not.toHaveBeenCalled();
+        expect(result.results).toEqual([expect.objectContaining({ outcome: 'refused', explanation: refusal })]);
+    });
+
+    it('edits the message where its row says, then records the new fingerprint against that post', async () => {
+        const edit = vi.fn(async () => undefined);
+        const recordMessageDigest = vi.fn(async () => true);
+
+        const result = await applyDriftRepair({
+            guild: guildWithRules(edit),
+            plan: plan([PANEL]),
+            approvedKeys: new Set(['rules-panel']),
+            messageEdits: new Map([['rules-panel', READY]]),
+            repo: { renameBinding: vi.fn(async () => true), recordMessageDigest },
+        });
+
+        expect(edit).toHaveBeenCalledWith('message-1', READY.edit);
+        expect(recordMessageDigest).toHaveBeenCalledWith({ id: 7, expectedDiscordId: 'message-1', digest: 'digest-new' });
+        expect(result.results).toEqual([
+            { resourceKey: 'rules-panel', kind: 'message', name: 'Rules panel', outcome: 'repaired', repaired: ['outOfDate'] },
+        ]);
+    });
+
+    it('reports a landed edit as repaired when only its record failed, with a note and without the database’s words', async () => {
+        const edit = vi.fn(async () => undefined);
+
+        const result = await applyDriftRepair({
+            guild: guildWithRules(edit),
+            plan: plan([PANEL]),
+            approvedKeys: new Set(['rules-panel']),
+            messageEdits: new Map([['rules-panel', READY]]),
+            repo: {
+                renameBinding: vi.fn(async () => true),
+                recordMessageDigest: vi.fn(async () => Promise.reject(new Error('SQLITE_BUSY: database is locked'))),
+            },
+        });
+
+        expect(edit).toHaveBeenCalledTimes(1);
+        expect(result.results[0]).toMatchObject({ outcome: 'repaired', repaired: ['outOfDate'] });
+        expect(result.results[0]?.explanation).toContain('repairing again is harmless');
         expect(result.results[0]?.explanation).not.toContain('SQLITE_BUSY');
     });
 });

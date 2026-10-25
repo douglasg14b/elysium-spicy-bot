@@ -1,17 +1,22 @@
 import type { TicketTypeSettings } from '../../tickets/data/ticketingSchema';
+import type { DiscordMessageInput } from '../../../shared/discordMessage';
 import { declaredRoleReferencesIn } from './declaredRoleReference';
+import type { MessageButton } from './messageButtons';
 import type { PermissionIntent } from './permissionIntent';
 
 /**
- * The kinds of resource that are objects in the Discord guild: categories, channels and
- * roles. Each has a snowflake, can be created, renamed and deleted, and is held by one
- * owner at a time.
+ * The kinds of resource that are objects in the guild's cache, which can be adopted and
+ * owned: categories, channels and roles. Each has a snowflake, can be created, renamed and
+ * deleted, and is held by one owner at a time.
  *
- * Split out of {@link RESOURCE_KINDS} because the fourth kind, `ticketType`, is none of
- * those things — it is a row in the guild's ticket config, named by its key. Every helper
- * that asks Discord about an object takes a {@link DiscordResourceKind}, so handing one a
- * ticket type does not compile, and each stage branches on {@link isDiscordResourceKind}
- * once, at the top of its per-resource loop.
+ * Split out of {@link RESOURCE_KINDS} because the other kinds are none of those things. A
+ * `ticketType` is a row in the guild's ticket config, named by its key. A `message` is
+ * posted in one of the journey's channels: it has a snowflake, but it is not in the guild's
+ * cache, it cannot be adopted, and only the journey that posted it can hold it. Every
+ * helper that asks the cache about an object, matches one by name or runs the intent
+ * lifecycle takes a {@link DiscordResourceKind}, so handing one either of the others does
+ * not compile, and each stage branches on {@link isDiscordResourceKind} once, at the top of
+ * its per-resource loop — then on {@link nonDiscordResourceKind} for the rest.
  */
 export const DISCORD_RESOURCE_KINDS = ['category', 'textChannel', 'role'] as const;
 export type DiscordResourceKind = (typeof DISCORD_RESOURCE_KINDS)[number];
@@ -33,13 +38,35 @@ export type DiscordResourceKind = (typeof DISCORD_RESOURCE_KINDS)[number];
  * Deliberately *not* `TICKET_TYPES`, which this comment used to cite: that union was
  * deleted when a ticket type became a row in `ticketing_config` rather than a branch
  * in source. Ticket *status* stayed closed for exactly the reason stated here.
+ *
+ * `message` is a message the bot posts and keeps in one of the journey's text channels
+ * (its `parentKey`): plain text, up to ten embeds and up to 25 buttons
+ * (`docs/plans/message-resource-step-2.md`). It is never adopted, since the bot can only
+ * edit what it posted itself.
  */
-export const RESOURCE_KINDS = [...DISCORD_RESOURCE_KINDS, 'ticketType'] as const;
+export const RESOURCE_KINDS = [...DISCORD_RESOURCE_KINDS, 'ticketType', 'message'] as const;
 export type ResourceKind = (typeof RESOURCE_KINDS)[number];
 
-/** Whether a resource kind is an object in the Discord guild, rather than a ticket type. */
+/** The kinds {@link isDiscordResourceKind} answers no for: a ticket type, or a message. */
+export type NonDiscordResourceKind = Exclude<ResourceKind, DiscordResourceKind>;
+
+/** Whether a resource kind is an object in the guild's cache, rather than a ticket type or a message. */
 export function isDiscordResourceKind(kind: ResourceKind): kind is DiscordResourceKind {
     return (DISCORD_RESOURCE_KINDS as readonly ResourceKind[]).includes(kind);
+}
+
+/**
+ * A kind already known not to be a Discord object, narrowed so a `switch` over it is
+ * exhaustive. Asked in the other arm of an {@link isDiscordResource} branch, which narrows
+ * the value it was asked of but leaves a property read off it at the full union.
+ *
+ * @throws on a Discord kind — the caller branched the wrong way.
+ */
+export function nonDiscordResourceKind(kind: ResourceKind): NonDiscordResourceKind {
+    if (isDiscordResourceKind(kind)) {
+        throw new Error(`Resource kind "${kind}" is a Discord object; it was handed to a branch for ticket types and messages.`);
+    }
+    return kind;
 }
 
 /**
@@ -91,7 +118,25 @@ export interface ResourceDeclaration {
     readonly ticketType?: TicketTypeSettings;
 
     /**
-     * The key of the category this belongs under, for channels.
+     * What a `message` resource posts: plain text and up to ten embeds, as a Post Embed
+     * node's `message` field holds one (`src/shared/discordMessage`). Required for that kind
+     * and refused on every other.
+     *
+     * Stored as authored, defaults unfilled. Whether it is a message Discord would take —
+     * the per-part and cross-part rules, no tokens, uploads in this server — is a content
+     * rule, checked on save (`messageResourceProblems`), not on every read.
+     */
+    readonly message?: DiscordMessageInput;
+
+    /**
+     * The buttons under a `message` resource, in order, laid out in rows of five. Refused on
+     * every other kind; absent or empty means a message with no buttons.
+     */
+    readonly buttons?: readonly MessageButton[];
+
+    /**
+     * The key of the resource this belongs under: the category a channel sits in, or the
+     * text channel a message is posted in.
      *
      * A key rather than a snowflake, because the parent is very often created by the
      * same install and has no id until it exists.
@@ -207,6 +252,7 @@ export function validateJourneyDeclaration(journey: JourneyDeclaration): void {
 
     for (const resource of journey.resources) {
         validateTicketTypeShape(resource);
+        validateMessageShape(resource);
     }
 
     for (const resource of journey.resources) {
@@ -218,24 +264,42 @@ export function validateJourneyDeclaration(journey: JourneyDeclaration): void {
                 `Resource "${resource.key}" names parent "${resource.parentKey}", which this journey does not declare.`
             );
         }
-        if (parent.kind !== 'category') {
-            throw new ResourceDeclarationError(
-                `Resource "${resource.key}" names parent "${resource.parentKey}", which is a ${parent.kind}. Only a category can be a parent.`
-            );
-        }
-        if (resource.kind === 'role') {
-            throw new ResourceDeclarationError(
-                `Role "${resource.key}" declares a parent. Roles do not live under categories.`
-            );
-        }
-        // Discord categories do not nest, and `applyInstallPlan`'s category branch
-        // creates with no `parent` argument at all — so a category's parent was
-        // accepted, stored, and silently ignored. Refused here rather than left as a
-        // field that looks like it does something.
-        if (resource.kind === 'category') {
-            throw new ResourceDeclarationError(
-                `Category "${resource.key}" declares a parent. Categories do not nest inside other categories.`
-            );
+        // Two kinds of parent, each for exactly one kind of child: a category holds text
+        // channels, and a text channel holds messages. Nothing else has a parent.
+        switch (resource.kind) {
+            case 'textChannel':
+                if (parent.kind !== 'category') {
+                    throw new ResourceDeclarationError(
+                        `Resource "${resource.key}" names parent "${resource.parentKey}", which is a ${parent.kind}. A channel's parent can only be a category.`
+                    );
+                }
+                break;
+            case 'message':
+                if (parent.kind !== 'textChannel') {
+                    throw new ResourceDeclarationError(
+                        `Message "${resource.key}" names parent "${resource.parentKey}", which is a ${parent.kind}. A message is posted in a text channel, so only a text channel can be its parent.`
+                    );
+                }
+                break;
+            case 'role':
+                throw new ResourceDeclarationError(
+                    `Role "${resource.key}" declares a parent. Roles do not live under categories.`
+                );
+            // Discord categories do not nest, and `applyInstallPlan`'s category branch
+            // creates with no `parent` argument at all — so a category's parent was
+            // accepted, stored, and silently ignored. Refused here rather than left as a
+            // field that looks like it does something.
+            case 'category':
+                throw new ResourceDeclarationError(
+                    `Category "${resource.key}" declares a parent. Categories do not nest inside other categories.`
+                );
+            // Refused by `validateTicketTypeShape` above, before any parent is looked at.
+            case 'ticketType':
+                break;
+            default: {
+                const unreachable: never = resource.kind;
+                throw new Error(`Unhandled resource kind: ${String(unreachable)}`);
+            }
         }
     }
 
@@ -330,6 +394,43 @@ function validateTicketTypeShape(resource: ResourceDeclaration): void {
     if (resource.adoptDiscordId) {
         throw new ResourceDeclarationError(
             `Ticket type "${resource.key}" names something to adopt. A ticket type is found by its key; one that already exists is used as it is.`
+        );
+    }
+}
+
+/**
+ * Check a message carries what it posts and nothing it cannot use, and that no other kind
+ * carries a message or buttons.
+ *
+ * Structural only, as {@link validateTicketTypeShape} is: whether the message is one Discord
+ * would take is a content rule, checked on save (`messageResourceProblems`). A content rule
+ * here would make one bad row fail every read of the journey, and with it the flows list.
+ *
+ * A message has no overwrites of its own — it shows to whoever can read its channel — and
+ * nothing to adopt, since the bot can only edit a message it posted. Each field would be
+ * stored and silently ignored, so each is refused instead.
+ */
+function validateMessageShape(resource: ResourceDeclaration): void {
+    if (resource.kind !== 'message') {
+        if (resource.message || resource.buttons) {
+            throw new ResourceDeclarationError(
+                `Resource "${resource.key}" is a ${resource.kind} but carries a message or buttons. Only a message has those.`
+            );
+        }
+        return;
+    }
+
+    if (!resource.message) {
+        throw new ResourceDeclarationError(`Message "${resource.key}" has nothing in it to post.`);
+    }
+    if (resource.permissions?.length) {
+        throw new ResourceDeclarationError(
+            `Message "${resource.key}" declares channel permissions. A message shows to whoever can read the channel it is posted in.`
+        );
+    }
+    if (resource.adoptDiscordId) {
+        throw new ResourceDeclarationError(
+            `Message "${resource.key}" names something to adopt. The bot can only edit a message it posted, so install always posts its own.`
         );
     }
 }

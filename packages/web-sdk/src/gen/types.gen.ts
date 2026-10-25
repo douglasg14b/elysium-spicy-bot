@@ -394,13 +394,13 @@ export type DiscordMessage = {
 };
 
 /**
- * The resource kinds that are objects in the Discord guild, each with a snowflake. A `ticketType` is not one: it lives in the ticket settings, named by its key.
+ * The resource kinds that are objects in the Discord guild, each with a snowflake. A `ticketType` is not one: it lives in the ticket settings, named by its key. Nor is a `message`: install posts it in a declared text channel, and it is never adopted.
  */
 export type DiscordResourceKind = 'category' | 'textChannel' | 'role';
 
 export type DriftDetail = {
     explanation: string;
-    kind: 'renamed' | 'reparented' | 'wrongType' | 'permissions';
+    kind: 'renamed' | 'reparented' | 'wrongType' | 'permissions' | 'outOfDate';
 };
 
 export type DriftRepair = {
@@ -760,6 +760,19 @@ export type FlowUpdate = {
 };
 
 /**
+ * A picture shown in a flow: the flow (as a draft names it, when the use is in one), the node, its block's label, and the part as the message editor names it (`embed 1 thumbnail`). `draftAuthorId` is set when the use is only in that person's unsaved draft.
+ */
+export type FlowUploadUse = {
+    blockLabel: string;
+    draftAuthorId?: string;
+    flowId: string;
+    flowName: string;
+    kind: 'flow';
+    nodeId: string;
+    where: string;
+};
+
+/**
  * One problem with a graph. `nodeId` names the node it is on and `field` the dotted path into its config (e.g. `fields.0.name`); a problem with the graph as a whole has neither.
  */
 export type FlowValidationIssue = {
@@ -870,7 +883,7 @@ export type GuildUploadList = {
 };
 
 /**
- * A picture kept for this server's messages, without its bytes, and every place a saved flow or a draft shows it — empty when nothing does, so it may be deleted.
+ * A picture kept for this server's messages, without its bytes, and every place a saved flow, a draft or a journey's message shows it — empty when nothing does, so it may be deleted.
  */
 export type GuildUploadListing = GuildUpload & {
     uses: Array<UploadUse>;
@@ -898,7 +911,7 @@ export type InstallPlan = {
 export type InstallPlanItem = {
     action: 'create' | 'adopt' | 'recover' | 'reuse' | 'blocked';
     discordId?: string;
-    kind: 'category' | 'textChannel' | 'role' | 'ticketType';
+    kind: 'category' | 'textChannel' | 'role' | 'ticketType' | 'message';
     name: string;
     note?: string;
     reason?: string;
@@ -950,6 +963,18 @@ export type JourneyDrift = {
     journeyKey: string;
     orphans: Array<OrphanedResource>;
     unchecked: Array<UncheckedResource>;
+};
+
+/**
+ * A picture shown in a message a journey declares as a resource: the journey, the message (its key and its name), and the part as the message editor names it (`embed 1 image`).
+ */
+export type JourneyMessageUploadUse = {
+    journeyKey: string;
+    journeyName: string;
+    kind: 'journeyMessage';
+    messageName: string;
+    resourceKey: string;
+    where: string;
 };
 
 /**
@@ -1154,6 +1179,17 @@ export type LogoutResult = {
     ok: true;
 };
 
+/**
+ * A button under a message resource. `key` is its identity within the message — what a press is routed by — so relabelling it changes nothing that listens to it.
+ */
+export type MessageButton = {
+    key: string;
+    label: string;
+    style: MessageButtonStyle;
+};
+
+export type MessageButtonStyle = 'Primary' | 'Secondary' | 'Success' | 'Danger';
+
 export type MovingResource = {
     declaredName: string;
     key: string;
@@ -1231,7 +1267,7 @@ export type PublishedResource = {
     explanation?: string;
     kind: string;
     name: string;
-    refusalReason?: 'adopted' | 'category-has-survivors' | 'missing-permission' | 'unrecognised-state' | 'interrupted-create';
+    refusalReason?: 'adopted' | 'category-has-survivors' | 'missing-permission' | 'unrecognised-state' | 'interrupted-create' | 'unreadable';
     refused: boolean;
     resourceKey: string;
     survivors?: Array<string>;
@@ -1246,25 +1282,27 @@ export type RepairedResource = {
     kind: ResourceKind;
     name: string;
     outcome: 'repaired' | 'refused' | 'failed';
-    repaired?: Array<'renamed' | 'reparented' | 'wrongType' | 'permissions'>;
+    repaired?: Array<'renamed' | 'reparented' | 'wrongType' | 'permissions' | 'outOfDate'>;
     resourceKey: string;
 };
 
 /**
- * A resource a journey needs, named by a key stable across servers. `defaultName` is stored as Discord will hold it: a text channel lowercased, whitespace hyphenated; for a `ticketType` it is the type's label, trimmed. `adoptDiscordId` adopts something that already exists instead of creating it. `ticketType` holds a ticket type's settings, and only a `ticketType` resource carries it.
+ * A resource a journey needs, named by a key stable across servers. `defaultName` is stored as Discord will hold it: a text channel lowercased, whitespace hyphenated; for a `ticketType` it is the type's label, and for a `message` the name the dashboard shows it by, both trimmed. `adoptDiscordId` adopts something that already exists instead of creating it. `ticketType` holds a ticket type's settings, and only a `ticketType` resource carries it. `message` and `buttons` hold what a `message` resource posts, and only a `message` carries them; its `parentKey` names the text channel it is posted in.
  */
 export type ResourceDeclaration = {
     adoptDiscordId?: string;
+    buttons?: Array<MessageButton>;
     defaultName: string;
     description?: string;
     key: string;
     kind: ResourceKind;
+    message?: DiscordMessage;
     parentKey?: string;
     permissions?: Array<PermissionIntent>;
     ticketType?: TicketTypeSettings;
 };
 
-export type ResourceKind = 'category' | 'textChannel' | 'role' | 'ticketType';
+export type ResourceKind = 'category' | 'textChannel' | 'role' | 'ticketType' | 'message';
 
 /**
  * The config-field controls that write a `<field>Key` resource sidecar. An empty field of one of these beside a sidecar waits on install; whether that is fine is the server’s call.
@@ -1493,7 +1531,7 @@ export type UnpublishResult = {
 
 export type UnpublishedResource = {
     explanation?: string;
-    kind: 'category' | 'textChannel' | 'role' | 'ticketType';
+    kind: 'category' | 'textChannel' | 'role' | 'ticketType' | 'message';
     name: string;
     outcome: 'deleted' | 'forgotten' | 'refused' | 'failed';
     resourceKey: string;
@@ -1507,16 +1545,13 @@ export type UploadInUse = ErrorBody & {
 };
 
 /**
- * One place a picture is shown: the flow (as a draft names it, when the use is in one), the node, its block's label, and the part as the message editor names it (`embed 1 thumbnail`). `draftAuthorId` is set when the use is only in that person's unsaved draft.
+ * One place a picture is shown: in a flow (`kind: flow`), or in a journey's message resource (`kind: journeyMessage`).
  */
-export type UploadUse = {
-    blockLabel: string;
-    draftAuthorId?: string;
-    flowId: string;
-    flowName: string;
-    nodeId: string;
-    where: string;
-};
+export type UploadUse = ({
+    kind: 'flow';
+} & FlowUploadUse) | ({
+    kind: 'journeyMessage';
+} & JourneyMessageUploadUse);
 
 export type WarningsConfig = {
     modChannelId: string | null;

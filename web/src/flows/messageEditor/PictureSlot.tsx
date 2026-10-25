@@ -49,9 +49,18 @@ const SHAPES: Readonly<Record<PictureKind, CSSProperties>> = {
 
 type PictureTab = 'upload' | 'link' | 'token';
 
-function tabFor(value: PictureValue | undefined): PictureTab {
-    return value?.kind === 'link' ? 'link' : value?.kind === 'token' ? 'token' : 'upload';
+/**
+ * The tab a picture opens on: its own kind's. A token in a message that takes none opens on
+ * Link, where its text can be seen and replaced — the part already says it cannot stay.
+ */
+function tabFor(value: PictureValue | undefined, tokens: boolean): PictureTab {
+    if (value?.kind === 'token') return tokens ? 'token' : 'link';
+    return value?.kind === 'link' ? 'link' : 'upload';
 }
+
+const UPLOAD_TAB = { value: 'upload', label: 'Upload' } as const;
+const LINK_TAB = { value: 'link', label: 'Link' } as const;
+const TOKEN_TAB = { value: 'token', label: 'Token' } as const;
 
 export function PictureSlot({ part }: { readonly part: PicturePart }) {
     const scope = useEditorScope();
@@ -170,7 +179,7 @@ function PictureChooser({ part, problems, onDone }: PictureChooserProps) {
     const scope = useEditorScope();
     const value = readPicture(scope.message, part) ?? '';
     const picture = value ? readPictureValue(value) : undefined;
-    const [tab, setTab] = useState<PictureTab>(tabFor(picture));
+    const [tab, setTab] = useState<PictureTab>(tabFor(picture, scope.tokens));
     // Only text a person typed is offered back to edit: an upload ref is not something to type over.
     const typed = picture?.kind === 'upload' ? '' : value;
     const noun = partNoun(part.kind);
@@ -183,11 +192,7 @@ function PictureChooser({ part, problems, onDone }: PictureChooserProps) {
                 size="xs"
                 value={tab}
                 onChange={(next) => setTab(next as PictureTab)}
-                data={[
-                    { value: 'upload', label: 'Upload' },
-                    { value: 'link', label: 'Link' },
-                    { value: 'token', label: 'Token' },
-                ]}
+                data={scope.tokens ? [UPLOAD_TAB, LINK_TAB, TOKEN_TAB] : [UPLOAD_TAB, LINK_TAB]}
             />
 
             {tab === 'upload' ? <UploadTab current={picture} onPick={(uploadId) => set(uploadRef(uploadId))} /> : null}

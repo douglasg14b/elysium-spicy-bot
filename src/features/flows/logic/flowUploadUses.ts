@@ -1,4 +1,4 @@
-import type { UploadUse } from '../../../features-system/guild-uploads';
+import type { FlowUploadUse } from '../../../features-system/guild-uploads';
 import { messageUploadPlaces } from '../../../shared/discordMessage';
 import { flowDraftsRepo } from '../data/flowDraftsRepo';
 import type { FlowGraph } from '../data/flowGraph';
@@ -17,11 +17,12 @@ interface GraphOwner {
  * Hidden fields count — a field its `visibleWhen` hides still holds the picture, and
  * switching the choice back would show it again.
  */
-function usesInGraph(graph: FlowGraph, owner: GraphOwner): UploadUse[] {
+function usesInGraph(graph: FlowGraph, owner: GraphOwner): FlowUploadUse[] {
     return graph.nodes.flatMap((node) =>
         messageFieldsOf(node).flatMap(({ block, field }) =>
             messageUploadPlaces(node.data[field.key]).map(
-                (place): UploadUse => ({
+                (place): FlowUploadUse => ({
+                    kind: 'flow',
                     uploadId: place.uploadId,
                     flowId: owner.flowId,
                     flowName: owner.flowName,
@@ -36,7 +37,7 @@ function usesInGraph(graph: FlowGraph, owner: GraphOwner): UploadUse[] {
 }
 
 /** What makes two uses the same place: the upload, the flow's node, and the part. */
-function placeKey(use: UploadUse): string {
+function placeKey(use: FlowUploadUse): string {
     return JSON.stringify([use.uploadId, use.flowId, use.nodeId, use.where]);
 }
 
@@ -56,7 +57,7 @@ function placeKey(use: UploadUse): string {
  * between the two reads is still seen by the second. Read the other way round, it would be in
  * neither, and a delete would take a picture the flow had just been saved with.
  */
-export async function flowUploadUses(guildId: string): Promise<readonly UploadUse[]> {
+export async function flowUploadUses(guildId: string): Promise<readonly FlowUploadUse[]> {
     const drafts = await flowDraftsRepo.listByGuildId(guildId);
     const flows = await flowsRepo.getByGuildId(guildId);
 

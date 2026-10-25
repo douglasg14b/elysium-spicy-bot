@@ -270,7 +270,7 @@ export function JourneyDriftDialog({
                                     {entry.name}
                                 </Text>
                                 {' — '}
-                                {entry.reason}
+                                {withEmphasis(entry.reason)}
                             </Text>
                         ))}
                     </Stack>

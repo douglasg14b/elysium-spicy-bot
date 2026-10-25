@@ -8,7 +8,7 @@
  * part, and its answer marks the part it names.
  */
 
-import { zDiscordMessage } from '@brattybot/web-sdk';
+import { zDiscordMessage, zMessageButton, zResourceDeclaration } from '@brattybot/web-sdk';
 import type { TextPart } from './messageDraft';
 
 const embedRules = zDiscordMessage.shape.embeds.element.shape;
@@ -67,3 +67,9 @@ export const MAX_EMBEDS = maximumOf(zDiscordMessage.shape.embeds._zod.bag.maximu
 
 /** The most fields one embed holds. */
 export const MAX_FIELDS = maximumOf(embedRules.fields.unwrap()._zod.bag.maximum, 'DiscordMessage.embeds[].fields');
+
+/** The most buttons one message resource holds — five rows of five. */
+export const MAX_BUTTONS = maximumOf(zResourceDeclaration.shape.buttons.unwrap()._zod.bag.maximum, 'ResourceDeclaration.buttons');
+
+/** A button label's rule, read off the generated `MessageButton` as a text part's is. */
+export const BUTTON_LABEL_RULE: PartRule = ruleOf(zMessageButton.shape.label);

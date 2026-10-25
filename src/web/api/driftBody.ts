@@ -105,11 +105,12 @@ const OrphanedResourceSchema = z
     })
     .openapi('OrphanedResource');
 
-/** A resource found, but whose permissions could not be compared, and why. */
+/** A resource found, but whose permissions — or, for a message, whose post — could not be compared, and why. */
 const UncheckedResourceSchema = z
     .object({
         resourceKey: z.string(),
         name: z.string(),
+        /** Server-authored prose. Markdown with `**bold**` segments. */
         reason: z.string(),
     })
     .openapi('UncheckedResource');

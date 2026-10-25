@@ -16,6 +16,7 @@
 
 import type { PermissionIntent, ResourceDeclaration } from '@brattybot/web-sdk';
 import { declaredRoleOptionValue, parseDeclaredRoleReference } from './declaredRoleReference';
+import { parentKindFor } from './resourceAdoption';
 
 /**
  * One row as the list renders it: the declaration, where it sits, and how deep.
@@ -32,14 +33,14 @@ export interface ResourceRowEntry {
     /** Position in the list handed in — the key for chips and for patches. */
     readonly index: number;
     /**
-     * Indentation depth. `0` for a category, a role, or a top-level channel; `1` for a
-     * channel shown under its category.
+     * Indentation depth. `0` for a category, a role, a ticket type, a top-level channel, or
+     * a message with no channel; one deeper than its parent for a channel shown under its
+     * category or a message under its channel — so `2` for a message in a channel in a
+     * category.
      *
      * A number rather than a boolean because it is multiplied by the indent width, and
-     * because `canHaveParent` limiting nesting to one level today is a property of the
-     * *server's* model rather than of this list — `validateJourneyDeclaration` rejects a
-     * category with a parent, so depth cannot currently exceed 1. If that ever changes,
-     * this is already the right shape and the sort is the only thing to revisit.
+     * because it is also how `filterResourceRows` finds a row's parent: the nearest row
+     * above it one level shallower.
      */
     readonly depth: number;
     /**
@@ -66,16 +67,19 @@ export interface ResourceRowEntry {
  * row you were about to click moves out from under the cursor. Alphabetical sorting was
  * the rejected alternative for exactly that reason.
  *
- * Three groups, in this order, matching the mockup:
+ * Five groups, in this order, matching the mockup:
  *
- *  1. each category, followed by the channels parented to it;
- *  2. channels with no parent, or whose parent does not exist;
- *  3. roles, which are neither containers nor contained;
- *  4. ticket types, which are not Discord objects at all.
+ *  1. each category, followed by the channels parented to it, each channel followed by
+ *     the messages posted in it;
+ *  2. channels with no parent, or whose parent does not exist, each followed by its
+ *     messages;
+ *  3. messages with no channel, or whose channel does not exist;
+ *  4. roles, which are neither containers nor contained;
+ *  5. ticket types, which are not Discord objects at all.
  *
- * An orphan — a channel whose `parentKey` names nothing — lands in group 2 rather than
- * vanishing. It is exactly the state item 7's rename fix exists to prevent, and a row
- * the operator cannot see is a row they cannot repair.
+ * An orphan — a channel or a message whose `parentKey` names nothing — lands in group 2
+ * or 3 rather than vanishing. It is exactly the state item 7's rename fix exists to
+ * prevent, and a row the operator cannot see is a row they cannot repair.
  */
 export function orderResourceRows(
     resources: readonly ResourceDeclaration[]
@@ -87,13 +91,14 @@ export function orderResourceRows(
     // Named rather than "whatever is left", which is what this used to do: a ticket type
     // would have been filed with the channels, as one with no category.
     const channels = entries.filter(({ resource }) => resource.kind === 'textChannel');
+    const messages = entries.filter(({ resource }) => resource.kind === 'message');
     const ticketTypes = entries.filter(({ resource }) => resource.kind === 'ticketType');
 
     const rows: ResourceRowEntry[] = [];
     /**
-     * Which channels a category has already claimed.
+     * Which channels and messages a parent has already claimed.
      *
-     * Needed because two categories can hold the **same key** — briefly, while the
+     * Needed because two parents can hold the **same key** — briefly, while the
      * operator is fixing the duplicate the red `duplicateKey` chip is complaining
      * about. Without this, a child matching that key is emitted under both of them, and
      * since the panel renders with `key={row.index}` and keys both the expanded-row set
@@ -103,13 +108,24 @@ export function orderResourceRows(
      */
     const placed = new Set<number>();
 
+    /** A channel's row, then the rows of the messages posted in it, one level deeper. */
+    const pushChannel = (channel: (typeof entries)[number], depth: number) => {
+        rows.push({ ...channel, depth, isFilterContext: false });
+        for (const message of messages) {
+            if (message.resource.parentKey === channel.resource.key && !placed.has(message.index)) {
+                placed.add(message.index);
+                rows.push({ ...message, depth: depth + 1, isFilterContext: false });
+            }
+        }
+    };
+
     for (const category of categories) {
         rows.push({ ...category, depth: 0, isFilterContext: false });
 
         for (const channel of channels) {
             if (channel.resource.parentKey === category.resource.key && !placed.has(channel.index)) {
                 placed.add(channel.index);
-                rows.push({ ...channel, depth: 1, isFilterContext: false });
+                pushChannel(channel, 1);
             }
         }
     }
@@ -119,7 +135,15 @@ export function orderResourceRows(
         // declared category. The second is the dangling reference the rename fix closes
         // off; showing it top-level is how an operator gets at it if one ever survives.
         if (!placed.has(channel.index)) {
-            rows.push({ ...channel, depth: 0, isFilterContext: false });
+            pushChannel(channel, 0);
+        }
+    }
+
+    for (const message of messages) {
+        // No channel yet — `messageNoChannel`'s case — or a channel that is not declared.
+        // After every channel, so it reads as "not in any of those".
+        if (!placed.has(message.index)) {
+            rows.push({ ...message, depth: 0, isFilterContext: false });
         }
     }
 
@@ -173,8 +197,15 @@ export function resourceMatchesFilter(resource: ResourceDeclaration, query: stri
  * it as scenery: it is not a search result, and styling it like one would claim the
  * category matched when it did not.
  *
- * A category that matches on its own name is a normal result and brings its children
- * with it — searching for a category means wanting to see what is inside it.
+ * A parent that matches on its own name is a normal result and brings everything inside
+ * it — searching for a category means wanting to see what is inside it, and a channel
+ * brings the messages posted in it.
+ *
+ * **Walked by position, not by key.** The rows arrive in `orderResourceRows`'s order, where
+ * everything inside a row follows it one or more levels deeper, so a row's parent is the
+ * nearest row above it one level shallower. Asking by key would find two parents for a
+ * child while two rows share a key mid-edit — the state `orderResourceRows` already refuses
+ * to emit twice.
  */
 export function filterResourceRows(
     rows: readonly ResourceRowEntry[],
@@ -182,45 +213,32 @@ export function filterResourceRows(
 ): readonly ResourceRowEntry[] {
     if (!query.trim()) return rows;
 
-    const matched = new Set(
-        rows
-            .filter((row) => resourceMatchesFilter(row.resource, query))
-            .map((row) => row.index)
+    const visible = new Set<number>();
+    rows.forEach((row, position) => {
+        if (!resourceMatchesFilter(row.resource, query)) return;
+        visible.add(position);
+        // Everything inside a match: the rows after it that sit deeper than it does.
+        for (let inside = position + 1; inside < rows.length && (rows[inside]?.depth ?? 0) > row.depth; inside += 1) {
+            visible.add(inside);
+        }
+    });
+
+    // Every parent owed to a visible row, all the way up, that is not visible itself.
+    const context = new Set<number>();
+    for (const position of visible) {
+        let depth = rows[position]?.depth ?? 0;
+        for (let above = position - 1; above >= 0 && depth > 0; above -= 1) {
+            const candidate = rows[above];
+            if (candidate && candidate.depth === depth - 1) {
+                if (!visible.has(above)) context.add(above);
+                depth -= 1;
+            }
+        }
+    }
+
+    return rows.flatMap((row, position) =>
+        visible.has(position) ? [row] : context.has(position) ? [{ ...row, isFilterContext: true }] : []
     );
-
-    // A matching category shows everything inside it; the child does not have to match
-    // too. Collected first so the pass below can treat them as matches.
-    const parentKeysOfMatches = new Set(
-        rows
-            .filter((row) => matched.has(row.index) && row.resource.kind === 'category')
-            .map((row) => row.resource.key)
-    );
-
-    const visible = rows.filter(
-        (row) =>
-            matched.has(row.index) ||
-            (row.depth > 0 && row.resource.parentKey !== undefined &&
-                parentKeysOfMatches.has(row.resource.parentKey))
-    );
-
-    const visibleIndexes = new Set(visible.map((row) => row.index));
-
-    // Any category owed to a visible child, that is not already visible itself.
-    const contextKeys = new Set(
-        visible
-            .filter((row) => row.depth > 0)
-            .flatMap((row) => row.resource.parentKey ?? [])
-    );
-
-    return rows
-        .filter(
-            (row) =>
-                visibleIndexes.has(row.index) ||
-                (row.resource.kind === 'category' && contextKeys.has(row.resource.key))
-        )
-        .map((row) =>
-            visibleIndexes.has(row.index) ? row : { ...row, isFilterContext: true }
-        );
 }
 
 /**
@@ -505,7 +523,8 @@ export function danglingRoleReferences(
 }
 
 /**
- * Whether a `parentKey` names something that is not a declared category.
+ * Whether a `parentKey` names something that is not a declared resource of the kind that
+ * row may sit in — a category for a channel, a text channel for a message.
  *
  * Same purpose as `danglingRoleReferences`: the rename tests assert this stays empty,
  * which is the condition `validateJourneyDeclaration` actually enforces.
@@ -513,19 +532,16 @@ export function danglingRoleReferences(
 export function danglingParentKeys(
     resources: readonly ResourceDeclaration[]
 ): readonly string[] {
-    const categoryKeys = new Set(
-        resources
-            .filter((resource) => resource.kind === 'category')
-            .map((resource) => resource.key)
-    );
-
     // `!== undefined` rather than truthiness: `parentKey: ''` is a *dangling* reference,
     // not an absent one, and the server refuses it. Truthiness would read the empty
     // string as "no parent" and report the list clean — a check blind to one of the
     // states it exists to catch.
-    return resources.flatMap((resource) =>
-        resource.parentKey !== undefined && !categoryKeys.has(resource.parentKey)
-            ? [resource.parentKey]
-            : []
-    );
+    return resources.flatMap((resource) => {
+        if (resource.parentKey === undefined) return [];
+        const parentKind = parentKindFor(resource.kind);
+        const held = resources.some(
+            (candidate) => candidate.key === resource.parentKey && candidate.kind === parentKind
+        );
+        return held ? [] : [resource.parentKey];
+    });
 }

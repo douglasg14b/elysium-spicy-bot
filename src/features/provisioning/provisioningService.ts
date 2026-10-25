@@ -1,4 +1,5 @@
 import type { Guild } from 'discord.js';
+import { uploadSizesFor } from '../../features-system/guild-uploads';
 import { journeysRepo } from './data/journeysRepo';
 import { resourceBindingsRepo } from './data/resourceBindingsRepo';
 import type { ResourceBindingEntity } from './data/resourceBindingsSchema';
@@ -31,7 +32,14 @@ import {
 } from './logic/applyDriftRepair';
 import { buildUnpublishPlan, type UnpublishPlan } from './logic/unpublishPlan';
 import { journeyBusyMessage, withJourneyLock } from './logic/journeyOperationLock';
-import { isDiscordResource, type JourneyDeclaration } from './logic/resourceDeclaration';
+import { readMessagePresence, readMessageState, type MessageState } from './logic/lookupBoundMessage';
+import { prepareMessageEdit, type MessageEditPreparation } from './logic/prepareMessageEdit';
+import {
+    isDiscordResource,
+    nonDiscordResourceKind,
+    type JourneyDeclaration,
+    type ResourceKind,
+} from './logic/resourceDeclaration';
 
 export interface PreviewInstallInput {
     readonly guild: Guild;
@@ -68,6 +76,14 @@ export async function previewInstall(input: PreviewInstallInput): Promise<Instal
         ? await requireTicketTypeProvider().read(input.guild.id)
         : undefined;
 
+    // One fetch per message this journey has posted and still declares, and one read of the
+    // sizes of every upload its messages show — none at all for a journey without messages.
+    const messagePresence = (await readDeclaredMessageState(input.guild, input.journey, existingBindings)).presence;
+    const uploadSizes = await uploadSizesFor(
+        input.guild.id,
+        input.journey.resources.flatMap((resource) => (resource.kind === 'message' && resource.message ? [resource.message] : []))
+    );
+
     return buildInstallPlan({
         guild: input.guild,
         journey: input.journey,
@@ -75,6 +91,8 @@ export async function previewInstall(input: PreviewInstallInput): Promise<Instal
         boundInGuild,
         ownership,
         ticketTypes,
+        messagePresence,
+        uploadSizes,
         choices: input.choices,
         permissionContext: {
             subjectId: input.subjectId,
@@ -186,7 +204,10 @@ export async function previewUnpublish(
     // its ticket type rows are forgotten like the rest.
     const { rows, ownership } = await readGuildBindings(guild.id);
     const bindings = rows.filter((binding) => isJourneyBinding(binding, journeyKey));
-    return buildUnpublishPlan({ guild, journeyKey, bindings, ownership });
+    // From the rows alone: a message's row records its channel, so a journey whose row is
+    // gone still finds — and deletes — what it posted.
+    const messagePresence = await readMessagePresence(guild, bindings);
+    return buildUnpublishPlan({ guild, journeyKey, bindings, ownership, messagePresence });
 }
 
 export interface PreviewDriftInput {
@@ -221,22 +242,46 @@ export async function previewDrift(input: PreviewDriftInput): Promise<JourneyDri
     await input.guild.channels.fetch();
 
     // The guild's rows rather than this journey's alone, so a resource another owner also
-    // holds can be reported without a repair that would undo that owner's setup.
-    const ownership = await loadGuildOwnership(input.guild.id);
-    const bindings = ownership.bindings.filter((binding) =>
-        isJourneyBinding(binding, input.journey.journeyKey)
-    );
+    // holds can be reported without a repair that would undo that owner's setup. This
+    // journey's own rows are taken from all of them, not from the ownership view, which
+    // leaves out every row that is not a Discord object — a message's included.
+    const { rows, ownership } = await readGuildBindings(input.guild.id);
+    const bindings = rows.filter((binding) => isJourneyBinding(binding, input.journey.journeyKey));
+    // One fetch per message this journey has posted and still declares, which also says
+    // whether somebody hid its embeds.
+    const messageState = await readDeclaredMessageState(input.guild, input.journey, bindings);
 
     return buildJourneyDriftPlan({
         guild: input.guild,
         journey: input.journey,
         bindings,
         ownership,
+        messagePresence: messageState.presence,
+        embedsSuppressed: messageState.embedsSuppressed,
         permissionContext: {
             subjectId: input.subjectId,
             staffRoleIds: input.staffRoleIds,
         },
     });
+}
+
+/**
+ * {@link readMessageState} for the posted messages a journey still declares, among its
+ * rows: one fetch each, and none for a journey that declares no message. A message it no
+ * longer declares is an orphan, and `previewOrphans` reads that one.
+ */
+async function readDeclaredMessageState(
+    guild: Guild,
+    journey: JourneyDeclaration,
+    journeyRows: readonly ResourceBindingEntity[]
+): Promise<MessageState> {
+    const declaredMessageKeys = new Set(
+        journey.resources.filter((resource) => resource.kind === 'message').map((resource) => resource.key)
+    );
+    return readMessageState(
+        guild,
+        journeyRows.filter((row) => declaredMessageKeys.has(row.resourceKey))
+    );
 }
 
 /**
@@ -256,11 +301,19 @@ export async function previewOrphans(input: {
         input.journey.journeyKey
     );
 
+    // Only the rows no longer declared: a message the journey still declares is drift's.
+    const declaredKeys = new Set(input.journey.resources.map((resource) => resource.key));
+    const messagePresence = await readMessagePresence(
+        input.guild,
+        bindings.filter((binding) => !declaredKeys.has(binding.resourceKey))
+    );
+
     return findOrphanedBindings({
         journey: input.journey,
         bindings,
-        // Discord objects only; `findOrphanedBindings` branches a ticket type off first.
+        // Discord objects only; `findOrphanedBindings` branches a ticket type and a message off first.
         existsInGuild: (kind, discordId) => existsInGuildAs(input.guild, kind, discordId),
+        messagePresence,
     });
 }
 
@@ -315,8 +368,10 @@ async function repairUnderLock(input: RepairDriftInput): Promise<ApplyDriftRepai
      * repo has shipped before.
      */
     // The guild's rows, so sharing is re-derived alongside adoption: an object another
-    // owner holds is never reshaped, whatever the plan that travelled here says.
-    const ownership = await loadGuildOwnership(input.guild.id);
+    // owner holds is never reshaped, whatever the plan that travelled here says. This
+    // journey's message rows come from all of them: the ownership view leaves those out.
+    const { rows, ownership } = await readGuildBindings(input.guild.id);
+    const journeyRows = rows.filter((binding) => isJourneyBinding(binding, input.journey.journeyKey));
     const bindings = ownership.bindings.filter((binding) =>
         isJourneyBinding(binding, input.journey.journeyKey)
     );
@@ -352,12 +407,73 @@ async function repairUnderLock(input: RepairDriftInput): Promise<ApplyDriftRepai
         if (compiled) compiledOverwrites.set(declaration.key, compiled);
     }
 
+    const messageEdits = await prepareMessageEdits(input, plan, journeyRows);
+
     return applyDriftRepair({
         guild: input.guild,
         plan,
         approvedKeys: input.approvedKeys,
         compiledOverwrites,
+        messageEdits,
     });
+}
+
+/**
+ * The edit for every approved out-of-date message, or why it is refused — before anything is
+ * sent, so a message whose declaration Discord would now refuse, or whose uploads are gone,
+ * is refused whole with nothing touched (`prepareMessageEdit`).
+ *
+ * Where each edit goes is read from the journey's row, not the report. The report names the
+ * post it was checked against: a row that has moved on to another post since — reposted by
+ * an install between the check and this repair — is refused rather than repaired, because
+ * nobody was shown a finding about that one.
+ *
+ * No second presence read: the edit itself is the check, and a message deleted since answers
+ * 10008, which the applier reports.
+ */
+async function prepareMessageEdits(
+    input: RepairDriftInput,
+    plan: JourneyDriftPlan,
+    journeyRows: readonly ResourceBindingEntity[]
+): Promise<ReadonlyMap<string, MessageEditPreparation>> {
+    const edits = new Map<string, MessageEditPreparation>();
+
+    for (const report of plan.drifted) {
+        if (!input.approvedKeys.has(report.resourceKey)) continue;
+        if (!report.drift.some((entry) => entry.kind === 'outOfDate')) continue;
+
+        const declaration = input.journey.resources.find(
+            (resource) => resource.key === report.resourceKey && resource.kind === 'message'
+        );
+        const row = journeyRows.find((candidate) => candidate.resourceKey === report.resourceKey && candidate.kind === 'message');
+        if (!declaration || !row) {
+            edits.set(report.resourceKey, {
+                status: 'refused',
+                refusal: `**${report.name}** is no longer a message this journey has posted. Nothing was changed; check again.`,
+            });
+            continue;
+        }
+        if (row.discordId !== report.discordId) {
+            edits.set(report.resourceKey, {
+                status: 'refused',
+                refusal: `**${report.name}** was posted again since the check, so that check's finding no longer applies. Nothing was changed; check again.`,
+            });
+            continue;
+        }
+
+        try {
+            edits.set(report.resourceKey, await prepareMessageEdit(input.guild.id, declaration, row));
+        } catch (error) {            // One message that cannot be prepared refuses that message alone: every other
+            // approved repair in the run still goes ahead. The cause stays in the log.
+            console.error(`[provisioning] Preparing the repair of message "${report.resourceKey}" failed:`, error);
+            edits.set(report.resourceKey, {
+                status: 'refused',
+                refusal: `"${report.name}" couldn't be prepared. Nothing was changed; try again.`,
+            });
+        }
+    }
+
+    return edits;
 }
 
 export interface UnpublishJourneyInput {
@@ -439,6 +555,26 @@ export async function resolveJourneyResources(
         ? await requireTicketTypeProvider().read(guild.id)
         : undefined;
 
+    /**
+     * Whether a settled row of a kind that is not in the guild's cache still names something,
+     * or `undefined` for a row no node config can hold.
+     */
+    const nonDiscordBindingExists = (bindingKind: ResourceKind, discordId: string): boolean | undefined => {
+        const kind = nonDiscordResourceKind(bindingKind);
+        switch (kind) {
+            case 'ticketType':
+                return ticketTypes?.status === 'ok' && ticketTypes.types.has(discordId);
+            // No node's config holds a message's id, so there is nothing to write back — and
+            // telling whether it is still posted would cost a fetch per message per install.
+            case 'message':
+                return undefined;
+            default: {
+                const unreachable: never = kind;
+                throw new Error(`Unhandled resource kind: ${String(unreachable)}`);
+            }
+        }
+    };
+
     for (const binding of bindings) {
         if (!binding.discordId || binding.state === 'intended') continue;
 
@@ -446,8 +582,9 @@ export async function resolveJourneyResources(
             ? binding.kind === 'role'
                 ? guild.roles.cache.has(binding.discordId)
                 : guild.channels.cache.has(binding.discordId)
-            : ticketTypes?.status === 'ok' && ticketTypes.types.has(binding.discordId);
+            : nonDiscordBindingExists(binding.kind, binding.discordId);
 
+        if (exists === undefined) continue;
         if (exists) {
             live.set(binding.resourceKey, binding.discordId);
         } else {

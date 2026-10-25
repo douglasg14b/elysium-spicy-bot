@@ -4,11 +4,12 @@ import { DISCORD_CLIENT } from '../../discordClient';
 import { registerActivitySubscriber } from '../../features-system/activity';
 import { registerUploadUsageReader } from '../../features-system/guild-uploads';
 import { registerLevelUpSubscriber } from '../leveling';
-import { registerResourceWriteBack } from '../provisioning';
+import { MESSAGE_BUTTON_CUSTOM_ID_PREFIX, registerResourceWriteBack } from '../provisioning';
 import { registerTicketSubscriber } from '../tickets';
 import { applyResourcesToFlows } from './logic/applyResourcesToFlows';
 import { fireDueSchedules } from './logic/fireDueSchedules';
 import { flowUploadUses } from './logic/flowUploadUses';
+import { handleMessageButtonPress } from './logic/messageButtonPress';
 import { reconcileGuildSchedules, registerScheduleReconcile } from './logic/reconcileGuildSchedules';
 import { ticketChangeSubscriber } from './logic/ticketEventDispatch';
 import { ensureBlocksDiscovered } from './blocks/registry';
@@ -134,6 +135,12 @@ async function initializeFlows(): Promise<void> {
         }
         return handleFlowChoiceInteraction(interaction);
     });
+
+    // Presses on the buttons under a journey's message resource: `mbtn:<buttonKey>`.
+    // Provisioning owns the prefix and renders the buttons; this is its one handler, and
+    // the registry refuses a second. Disjoint from `flow:` and `flowc:` under the
+    // longest-prefix match. Step 3 routes a press from here to the flow listening to it.
+    interactionsRegistry.registerDynamic(`${MESSAGE_BUTTON_CUSTOM_ID_PREFIX}:`, handleMessageButtonPress);
 
     // Gateway trigger: member joins (requires the GuildMembers intent, present).
     DISCORD_CLIENT.on(Events.GuildMemberAdd, (member) => {

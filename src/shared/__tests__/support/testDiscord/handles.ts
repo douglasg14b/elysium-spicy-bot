@@ -204,15 +204,40 @@ export class ServerChannel {
     }
 
     /**
-     * Make Discord refuse the bot's reads of this channel's history from now on, with the
-     * 50001 it sends a bot that lost access. Injected for the reason `rejectWrites` is, and
-     * kept in the same slot: a channel refuses one way at a time.
+     * Make Discord refuse the bot's reads of this channel's messages from now on — a page of
+     * history and a single message alike — with the 50001 it sends a bot that lost access.
+     * Injected for the reason `rejectWrites` is, and kept in the same slot: a channel refuses
+     * one way at a time.
      */
     refuseHistory(): void {
         this.state.rejectWrites(this.id, {
             code: RESTJSONErrorCodes.MissingAccess,
-            route: 'GET /channels/:channelId/messages',
+            route: ['GET /channels/:channelId/messages', 'GET /channels/:channelId/messages/:messageId'],
         });
+    }
+
+    /**
+     * An operator converting this text channel to an announcement channel — what a Community
+     * server does to its rules channel. Its messages stay. See `ServerState.convertToAnnouncement`.
+     */
+    convertToAnnouncement(): void {
+        this.state.convertToAnnouncement(this.id);
+    }
+
+    /**
+     * A moderator hiding one message's embeds here ("Remove all embeds" in the Discord client):
+     * SUPPRESS_EMBEDS, the one change to the bot's own message anyone else can make. See
+     * `ServerMessages.suppressEmbeds`.
+     */
+    suppressEmbeds(messageId: string): void {
+        this.state.channel(this.id);
+        this.state.messages.suppressEmbeds(this.id, messageId);
+    }
+
+    /** An operator deleting one message here in the Discord client — the bot's post, say. */
+    deleteMessage(messageId: string): void {
+        this.state.channel(this.id);
+        this.state.messages.delete(this.id, messageId);
     }
 
     /** Somebody sending a message here — see {@link IncomingMessageOptions}. Returns its id. */

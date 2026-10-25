@@ -1,4 +1,4 @@
-import { ButtonStyle, ComponentType } from 'discord.js';
+import { ButtonStyle, ComponentType, MessageFlags } from 'discord.js';
 import { z } from 'zod';
 
 /**
@@ -81,9 +81,18 @@ const allowedMentionsSchema = z.strictObject({
 });
 
 /**
+ * A message's `attachments`, as discord.js lists them: one `{ id }` per file the request
+ * uploads, its `id` the file's index. On an edit an id may also be one of the message's stored
+ * attachments, which keeps it — not modelled; `ServerMessages.checkEdit` refuses one. It sends
+ * no `description` unless one was given, and nothing here gives one.
+ */
+const attachmentsSchema = z
+    .array(z.strictObject({ id: z.string().regex(/^\d+$/) }))
+    .max(10);
+
+/**
  * A message create. With files, discord.js sends it multipart — this as `payload_json`, each
- * file as `files[n]` — and lists one `attachments` entry per file, its `id` the file's index.
- * It sends no `description` unless one was given, and nothing here gives one.
+ * file as `files[n]` — and lists one `attachments` entry per file.
  */
 export const createMessageSchema = z.strictObject({
     content: z.string().max(2000).optional(),
@@ -92,10 +101,7 @@ export const createMessageSchema = z.strictObject({
     embeds: z.array(embedSchema).max(10).optional(),
     components: z.array(actionRowSchema).max(5).optional(),
     allowed_mentions: allowedMentionsSchema.optional(),
-    attachments: z
-        .array(z.strictObject({ id: z.string().regex(/^\d+$/) }))
-        .max(10)
-        .optional(),
+    attachments: attachmentsSchema.optional(),
 });
 
 /**
@@ -103,6 +109,10 @@ export const createMessageSchema = z.strictObject({
  * PATCH treats them. `allowed_mentions` arrives when the client has a default — discord.js
  * sends it on an edit of the bot's own message — as `DISCORD_CLIENT` does; the harness's own
  * client sets none.
+ *
+ * `attachments` arrives whenever the edit is given `files`, even none: discord.js 14 lists the
+ * new files' indices as the whole list (`MessagePayload.resolveBody`), multipart when there are
+ * files and plain JSON when `files` is empty — so `files: []` sends `attachments: []`.
  */
 export const editMessageSchema = z.strictObject({
     content: z.string().max(2000).optional(),
@@ -111,6 +121,12 @@ export const editMessageSchema = z.strictObject({
     embeds: z.array(embedSchema).max(10).optional(),
     components: z.array(actionRowSchema).max(5).optional(),
     allowed_mentions: allowedMentionsSchema.optional(),
+    attachments: attachmentsSchema.optional(),
+    /**
+     * SUPPRESS_EMBEDS set or cleared — the one flag an edit may change. Absent leaves the
+     * message's flags alone; `0` shows hidden embeds again, as a repair sends it.
+     */
+    flags: z.union([z.literal(0), z.literal(MessageFlags.SuppressEmbeds)]).optional(),
 });
 
 export type CreateMessageBody = z.infer<typeof createMessageSchema>;

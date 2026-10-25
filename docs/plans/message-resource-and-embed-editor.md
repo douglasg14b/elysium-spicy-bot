@@ -1,6 +1,6 @@
 # A posted message is a journey resource
 
-> **Status**: Design agreed 2026-10-23. Step 1 built 2026-10-24, live run pending ([message-editor-step-1.md](message-editor-step-1.md)). Steps 2 and 3 not started
+> **Status**: Design agreed 2026-10-23. Step 1 built 2026-10-24, live run pending ([message-editor-step-1.md](message-editor-step-1.md)). Step 2 built 2026-10-25, live run pending ([message-resource-step-2.md](message-resource-step-2.md)). Step 3 not started
 > **Owner**: Douglas
 > **PRD**: `docs/prds/flow-engine-v2-journeys-and-provisioning.md` §5.7 (resources a journey declares). Also serves its open follow-up *a journey can set up the ticket system*, whose panel is a posted message
 > **Reverses**: [shared-binding-table.md](shared-binding-table.md):29, for designed messages only (below)
@@ -100,7 +100,7 @@ Every picture part (header icon, thumbnail, image, footer icon) takes one of thr
 One at a time. Each is planned against the code as it stands when it starts.
 
 1. **The editor, on Post Embed.** Post Embed gains plain text above, several embeds, the header and footer icons, and uploaded images, all edited in the MEE6-style window. Existing Post Embed nodes keep working; the step's plan decides whether by a data migration or by the schema reading the old shape. Useful on its own. **Built 2026-10-24, live run pending** ([message-editor-step-1.md](message-editor-step-1.md)): by a data migration, since the schema could not read the old shape (see that plan). Where the build departs from this design is under "Step 1 as built" below.
-2. **The message resource.** Declare it in Resources with the editor, and give it buttons. Install posts it, install reposts it if deleted, repair edits it, uninstall deletes it. A button press answers "Nothing's hooked up to this yet" until step 3.
+2. **The message resource.** Declare it in Resources with the editor, and give it buttons. Install posts it, install reposts it if deleted, repair edits it, uninstall deletes it. A button press answers "Nothing's hooked up to this yet" until step 3. **Built 2026-10-25, live run pending** ([message-resource-step-2.md](message-resource-step-2.md)). Where the build departs from this design is under "Step 2 as built" below.
 3. **Button Click listens to a message's button.** Covers the trigger's message and button picker, the inline "+ New button" / "+ New message", the one-flow-per-button refusal, and the new click routing. Today's triggers and their deployed messages are converted. Deploy, `/flow-deploy` and `flow_button_messages` are retired. The step's plan decides how a message posted under the old ids changes over without its buttons going dead.
 
 ## Step 1 as built
@@ -123,6 +123,22 @@ Built 2026-10-24; the live run on an unboosted guild is pending (the checklist i
   - A title link must parse as a URL.
 - **A builder tab older than the deploy is refused on save** ("Reload the page, then save again"), because it would strip the migrated message. This is a one-deploy bridge (`src/web/api/staleBuilderGraph.ts`), to be removed in a later deploy. `FLOW_GRAPH_VERSION` was not bumped, because it is checked on every read of a stored graph.
 - **The window edits the node live**, and Cancel puts back the message as it was when the window opened.
+
+## Step 2 as built
+
+Built 2026-10-25; the live run is pending (the checklist is in [message-resource-step-2.md](message-resource-step-2.md), "The live run", and includes all of step 1's). Where it departs from, or settles, what this design said:
+
+- **`message` is a resource kind but not a Discord resource kind.** It joins `RESOURCE_KINDS`, not `DISCORD_RESOURCE_KINDS`: every helper typed by the latter reads the guild cache or runs the name match and the intent lifecycle, none of which fits a message.
+- **The binding stores the channel and a fingerprint** (`message_channel_id`, `message_digest`), not "the channel from the parent's binding" (:55). Uninstall works from binding rows alone, with no declaration, so a message row has to know its own channel.
+- **Drift compares a fingerprint, not the live message** (:76). Only the bot can edit its own post, so the only drift is the declaration moving on. The fingerprint is a SHA-256 of key-sorted JSON, because Postgres `jsonb` reorders keys.
+- **Every existence check fetches the message** (:57), once per plan, with `force`. A message the bot can't read blocks install and uninstall, and drift lists it as unchecked, neither clean nor drifted.
+- **No tokens at all in a resource message**, `{{guild.name}}` included. A posted sign has no run to render them against.
+- **A resource message pings nobody**, unlike Post Embed's plain text.
+- **Its channel is fixed once installed.** Discord can't move a message: install refuses a changed channel rather than reposting, and the dashboard locks the picker.
+- **An announcement channel counts as a text channel** for a message, since a Community server converts its `#rules` channel into one.
+- **The button prefix is `mbtn:<buttonKey>`**, owned by provisioning; flows registers the one handler, which in step 2 only answers the sentence. Discord's button constants moved to `src/shared/discordButtons.ts` so both can use them.
+- **The dashboard holds the autosave on a browser copy of the save rules**, so a message refusable mid-edit (a fresh empty embed, a half-typed link) is not sent and reverted. This holds the whole Resources list while it lasts, and a red chip says why.
+- **The window has no colour presets** in a resource message: the swatches are Post Embed's field config.
 
 ## Not in this
 

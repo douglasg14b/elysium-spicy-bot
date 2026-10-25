@@ -7,8 +7,15 @@ import {
 import { resourceBindingsRepo, type ResourceBindingsRepo } from '../data/resourceBindingsRepo';
 import { journeyOwner } from '../data/resourceBindingsSchema';
 import { describeOtherHolder, type GuildOwnership } from './bindingOwner';
-import { describeDiscordError } from './discordErrors';
+import {
+    DISCORD_UNKNOWN_CHANNEL,
+    DISCORD_UNKNOWN_MESSAGE,
+    describeDiscordError,
+    discordErrorCode,
+} from './discordErrors';
 import type { JourneyDriftPlan } from './journeyDriftPlan';
+import { lookupMessageChannel } from './lookupBoundMessage';
+import type { MessageEditPreparation } from './prepareMessageEdit';
 import { describeWithheldRepair, type ResourceDriftKind, type ResourceDriftReport } from './resourceDrift';
 import type { ResourceKind } from './resourceDeclaration';
 
@@ -37,6 +44,12 @@ import type { ResourceKind } from './resourceDeclaration';
  * already refuses to delete on that ground. Drift is still *detected* on an adopted
  * resource — a staff-only channel going public matters regardless of who made it — but
  * acting on it is the operator's call, not ours.
+ *
+ * ## A message is edited, never reposted
+ *
+ * An `outOfDate` message is brought up to its declaration by one edit of the same message,
+ * so it keeps its id and its place in the channel (`prepareMessageEdit` builds it). One
+ * deleted since the check is reported, not posted again: posting is install's.
  */
 
 /**
@@ -92,8 +105,17 @@ export interface ApplyDriftRepairInput {
      * refused rather than guessed at.
      */
     readonly compiledOverwrites?: ReadonlyMap<string, readonly PermissionOverwriteWrite[]>;
+    /**
+     * Each approved out-of-date message's edit, prepared by the caller, by resource key — or
+     * why it is refused.
+     *
+     * Prepared outside for the reason the overwrites are: it reads the declaration and the
+     * guild's uploads, which this module does not hold. A key whose drift is `outOfDate` and
+     * that is missing here, or prepared as refused, is refused with nothing touched.
+     */
+    readonly messageEdits?: ReadonlyMap<string, MessageEditPreparation>;
     /** Overridable for tests; production uses the module singleton. */
-    readonly repo?: Pick<ResourceBindingsRepo, 'renameBinding'>;
+    readonly repo?: Pick<ResourceBindingsRepo, 'renameBinding' | 'recordMessageDigest'>;
     /** Shown in the Discord audit log against every change. */
     readonly reason?: string;
 }
@@ -337,6 +359,16 @@ function refuseReason(
         return `**${report.name}**'s permissions were not checked, so they are not repaired. ${uncheckedHere.reason}`;
     }
 
+    // An out-of-date message whose edit could not be prepared — a declaration Discord would
+    // refuse, an upload gone — is refused whole, before its edit is sent.
+    if (report.drift.some((entry) => entry.kind === 'outOfDate')) {
+        const prepared = input.messageEdits?.get(report.resourceKey);
+        if (!prepared) {
+            return `**${report.name}**'s edit was not prepared, so it is not repaired. Nothing was changed.`;
+        }
+        if (prepared.status === 'refused') return prepared.refusal;
+    }
+
     return undefined;
 }
 
@@ -376,8 +408,11 @@ interface RepairOneInput {
     readonly report: ResourceDriftReport;
     readonly input: ApplyDriftRepairInput;
     readonly reason: string;
-    readonly repo: Pick<ResourceBindingsRepo, 'renameBinding'>;
+    readonly repo: Pick<ResourceBindingsRepo, 'renameBinding' | 'recordMessageDigest'>;
 }
+
+/** A repaired message's answer when the message has gone since the check: install's to post again. */
+export const MESSAGE_DELETED_SINCE_CHECK = 'It was deleted since the check — install posts it again.';
 
 /**
  * Apply every approved drift on one resource, returning what was actually put back.
@@ -398,8 +433,12 @@ async function repairOne(context: RepairOneInput): Promise<RepairOneResult> {
             await applyOneDrift({ context, drift, repaired });
         } catch (error) {
             // Only Discord throws in here: its answer is worded by `describeDiscordError`,
-            // which logs the whole of it, so the raw text never reaches the report.
-            const refusal = `Discord refused the change to **${report.name}**: ${describeDiscordError(error)}.`;
+            // which logs the whole of it, so the raw text never reaches the report — unless
+            // the drift worded it itself, as a message deleted since the check does.
+            const refusal =
+                error instanceof PartialRepairError
+                    ? error.message
+                    : `Discord refused the change to **${report.name}**: ${describeDiscordError(error)}.`;
 
             /*
              * A rename that landed before a later drift failed is still recorded on the
@@ -425,6 +464,12 @@ async function repairOne(context: RepairOneInput): Promise<RepairOneResult> {
         // Through `recordLandedRename`: the rename has landed, so a database failure here
         // is a note on a successful repair, not a failure of it.
         const note = await recordLandedRename(context);
+        if (note) notes.push(note);
+    }
+
+    if (repaired.includes('outOfDate')) {
+        // The edit has landed, so this too is a note at worst.
+        const note = await recordRepairedDigest(context);
         if (note) notes.push(note);
     }
 
@@ -542,6 +587,36 @@ async function applyOneDrift({ context, drift, repaired }: ApplyOneDriftInput): 
                 // so a new drift kind cannot be added without deciding what repairing
                 // it means.
             break;
+
+            case 'outOfDate': {
+                // Refused up front by `refuseReason` unless it was prepared.
+                const prepared = input.messageEdits?.get(report.resourceKey);
+                if (prepared?.status !== 'ready') break;
+
+                /*
+                 * No fetch first: the edit is the check, as uninstall's delete is. A message
+                 * deleted since the check — or its channel — answers 10008 or 10003, which is
+                 * install's to post again, not something to retry.
+                 */
+                const channel = await lookupMessageChannel(guild, prepared.channelId);
+                if (channel.status === 'gone') throw new PartialRepairError(MESSAGE_DELETED_SINCE_CHECK, repaired);
+                try {
+                    await channel.channel.messages.edit(prepared.messageId, prepared.edit);
+                } catch (error) {
+                    const code = discordErrorCode(error);
+                    if (code === DISCORD_UNKNOWN_MESSAGE || code === DISCORD_UNKNOWN_CHANNEL) {
+                        throw new PartialRepairError(MESSAGE_DELETED_SINCE_CHECK, repaired);
+                    }
+                    throw error;
+                }
+                repaired.push('outOfDate');
+                break;
+            }
+
+            default: {
+                const unreachable: never = drift;
+                throw new Error(`Unhandled drift kind: ${String(unreachable)}`);
+            }
     }
 }
 
@@ -560,6 +635,34 @@ async function recordLandedRename(context: RepairOneInput): Promise<string | und
             error
         );
         return `The server was renamed, but **${context.report.name}**'s record could not be updated to match.`;
+    }
+}
+
+/**
+ * Record the fingerprint of what a repair just posted over a message, so the next check
+ * reads it as current. Called only once the edit has landed.
+ *
+ * A failure is a note on a repair that worked, never a failure of it: the message says what
+ * the journey declares, and only the record is behind — the next check calls it out of date
+ * again, and repairing again is harmless. Guarded by the message id, so a row that moved on to
+ * another post meanwhile is left alone.
+ */
+async function recordRepairedDigest(context: RepairOneInput): Promise<string | undefined> {
+    const { report, input, repo } = context;
+    const prepared = input.messageEdits?.get(report.resourceKey);
+    if (prepared?.status !== 'ready') return undefined;
+
+    try {
+        const recorded = await repo.recordMessageDigest({
+            id: prepared.bindingId,
+            expectedDiscordId: prepared.messageId,
+            digest: prepared.digest,
+        });
+        if (recorded) return undefined;
+        return `**${report.name}** was updated, but its record had moved on — posted again meanwhile, most likely — so it was left as it stands.`;
+    } catch (error) {
+        console.error(`[provisioning] Could not record the repair of message binding ${prepared.bindingId}:`, error);
+        return `**${report.name}** was updated, but its record could not be. The next check will call it out of date again; repairing again is harmless.`;
     }
 }
 

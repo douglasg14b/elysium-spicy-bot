@@ -154,6 +154,8 @@ function bindingRow(overrides: Partial<ResourceBindingEntity> = {}): ResourceBin
         state: 'created',
         discordId: '123456789012345678',
         name: 'questions',
+        messageChannelId: null,
+        messageDigest: null,
         createdAt: new Date('2026-09-19T10:00:00Z'),
         updatedAt: new Date('2026-09-19T10:00:00Z'),
         ...overrides,

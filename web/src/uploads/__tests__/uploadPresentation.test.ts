@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { filterUploads, uploaderLabel, uploadTypeLabel } from '../uploadPresentation';
 
 const USE: UploadUse = {
+    kind: 'flow',
     flowId: '11111111-1111-1111-1111-111111111111',
     flowName: 'Welcome flow',
     nodeId: 'welcome',

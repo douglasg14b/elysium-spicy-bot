@@ -449,6 +449,39 @@ describe('render order', () => {
     });
 });
 
+describe('a message resource', () => {
+    const panel = (overrides: Partial<ResourceDeclaration> = {}): ResourceDeclaration => ({
+        key: 'rules-panel',
+        kind: 'message',
+        defaultName: 'Rules panel',
+        parentKey: 'questions',
+        message: { embeds: [{ title: 'House rules' }] },
+        ...overrides,
+    });
+
+    it('is quiet in its channel when the save would take it', () => {
+        expect(idsAt(detectResourceProblems([channel(), panel()]), 1)).toEqual([]);
+    });
+
+    it('says why it will not save, in the server’s words and naming the part', () => {
+        const [, entry] = detectResourceProblems([
+            channel(),
+            panel({ message: { embeds: [{ title: 'House rules' }, { footer: { text: 'Mind yourself, {{subject.mention}}' } }] } }),
+        ]);
+
+        expect(entry?.chips).toEqual([
+            {
+                id: 'messageNotSaveable',
+                detail: { problem: expect.stringMatching(/^embed 2 footer: No tokens here — this message sits in its channel/) },
+            },
+        ]);
+    });
+
+    it('is told it has no channel, and nothing else, when it has none', () => {
+        expect(idsFor(panel({ parentKey: undefined }))).toEqual(['messageNoChannel']);
+    });
+});
+
 describe('hasBlockingResourceProblem', () => {
     it('is true when any row carries an error-tier chip', () => {
         const detected = detectResourceProblems([channel({ key: 'dup' }), channel({ key: 'dup' })]);

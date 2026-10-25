@@ -9,7 +9,7 @@ import {
 /** The reader hook: every registered reader's uses, and a loud failure when there are none. */
 
 function use(uploadId: string, flowId: string): UploadUse {
-    return { uploadId, flowId, flowName: 'Flow', nodeId: 'node', blockLabel: 'Post Embed', where: 'embed 1 image' };
+    return { kind: 'flow', uploadId, flowId, flowName: 'Flow', nodeId: 'node', blockLabel: 'Post Embed', where: 'embed 1 image' };
 }
 
 afterEach(() => {

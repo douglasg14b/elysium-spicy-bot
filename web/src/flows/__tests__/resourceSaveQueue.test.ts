@@ -251,6 +251,25 @@ describe('isWorthSaving', () => {
     });
 
     /**
+     * A message is refusable mid-edit as a matter of course — a fresh empty embed is the
+     * window's second click — and the refusal's re-read would revert the window under the
+     * author. The whole list waits, the other rows' edits with it.
+     */
+    it('holds the whole list while a message would be refused, and sends it once fixed', () => {
+        const panel = (embeds: NonNullable<ResourceDeclaration['message']>['embeds']): ResourceDeclaration => ({
+            key: 'rules-panel',
+            kind: 'message',
+            defaultName: 'Rules panel',
+            parentKey: 'welcome',
+            message: { embeds },
+        });
+
+        expect(isWorthSaving([channel('welcome'), panel([{ title: 'House rules' }, {}])])).toBe(false);
+        expect(isWorthSaving([channel('welcome'), panel([{ title: 'Hi {{subject.mention}}' }])])).toBe(false);
+        expect(isWorthSaving([channel('welcome'), panel([{ title: 'House rules' }])])).toBe(true);
+    });
+
+    /**
      * A partially typed key is a perfectly good key — `my-chann` on the way to
      * `my-channel` satisfies the slug pattern. Holding on those would mean the list was
      * only ever saved on the rare keystroke, which is the opposite of the intent.

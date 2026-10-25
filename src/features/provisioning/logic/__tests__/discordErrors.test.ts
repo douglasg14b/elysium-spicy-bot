@@ -1,6 +1,6 @@
 import { DiscordAPIError, HTTPError, RESTJSONErrorCodes } from 'discord.js';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
-import { describeDiscordError } from '../discordErrors';
+import { describeDiscordError, isAlreadyGone } from '../discordErrors';
 
 /**
  * `describeDiscordError` feeds HTTP response bodies and dashboard reports, so what it must
@@ -60,5 +60,19 @@ describe('describeDiscordError', () => {
         expect(described).not.toContain('RAW-DETAIL');
         expect(described).toContain('logs');
         expect(logged).toHaveBeenCalledWith(expect.any(String), raw);
+    });
+});
+
+describe('isAlreadyGone', () => {
+    it('counts an unknown message as gone, beside an unknown channel, guild and role', () => {
+        expect(isAlreadyGone(apiError(RESTJSONErrorCodes.UnknownMessage, 404))).toBe(true);
+        expect(isAlreadyGone(apiError(RESTJSONErrorCodes.UnknownChannel, 404))).toBe(true);
+        expect(isAlreadyGone(apiError(RESTJSONErrorCodes.UnknownGuild, 404))).toBe(true);
+        expect(isAlreadyGone(apiError(RESTJSONErrorCodes.UnknownRole, 404))).toBe(true);
+    });
+
+    it('does not count a refusal as gone', () => {
+        expect(isAlreadyGone(apiError(RESTJSONErrorCodes.MissingAccess))).toBe(false);
+        expect(isAlreadyGone(new Error(RAW))).toBe(false);
     });
 });

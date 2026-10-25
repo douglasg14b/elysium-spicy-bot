@@ -11,7 +11,9 @@
  * it opens on one fresh embed, written by the first edit.
  *
  * Knows no block: whoever opens it says what it is called and hands it the page's variables
- * and uploads, so a message that is not a block's field can open the same window.
+ * and uploads, so a message that is not a block's field can open the same window — a message
+ * resource does, with `tokens={false}` (nothing fills a token in a message no run posts) and its
+ * `buttons`, drawn under the embeds. Cancel puts the buttons back too.
  */
 
 import { useCallback, useRef, useState, type KeyboardEvent } from 'react';
@@ -19,9 +21,10 @@ import { Button, Group, Modal, Progress, SegmentedControl, Stack, Alert, Text } 
 import { IconAlertTriangle, IconPlus } from '@tabler/icons-react';
 import { brandLogoUrl, FALLBACK_BOT_NAME } from '../../brand';
 import type { ControlContext, NestedIssue } from '../controls/types';
+import { ButtonRow } from './ButtonRow';
 import { DISCORD, postedAtLabel, TOOL_COLUMN } from './discordLook';
 import { EmbedCard } from './EmbedCard';
-import { EditorScopeContext, useEditorScope, type EditorMode, type EditorScope } from './editorScope';
+import { EditorScopeContext, useEditorScope, type EditorButtons, type EditorMode, type EditorScope } from './editorScope';
 import { MESSAGE_TOTAL_CHARACTERS, messageCharacterCount } from './messageCharacters';
 import { addEmbed, readMessageDraft, startingMessage, type MessageDraft } from './messageDraft';
 import { placeMessageIssues } from './messageIssues';
@@ -43,6 +46,13 @@ export interface MessageEditorProps extends Pick<ControlContext, 'variables' | '
     readonly issues: readonly NestedIssue[];
     /** The server's complaint about the message as a whole, if any. */
     readonly error?: string;
+    /**
+     * Whether the message takes `{{tokens}}` — the default. `false` hides `{x}` on every part
+     * and the picture box's Token tab, for a message posted with no run to fill one in.
+     */
+    readonly tokens?: boolean;
+    /** The buttons under the message, for one that has them: a row under the embeds, up to 25. */
+    readonly buttons?: EditorButtons;
     readonly onClose: () => void;
 }
 
@@ -64,10 +74,13 @@ export function MessageEditor({
     uploads,
     issues,
     error,
+    tokens = true,
+    buttons,
     onClose,
 }: MessageEditorProps) {
-    // What Cancel puts back: the value as it was when the window opened.
+    // What Cancel puts back: the value and the buttons as they were when the window opened.
     const [snapshot] = useState(value);
+    const [buttonsSnapshot] = useState(buttons?.value);
     const [mode, setMode] = useState<EditorMode>('edit');
     const [editing, setEditing] = useState<string | null>(null);
     const [uploadsInFlight, setUploadsInFlight] = useState(0);
@@ -110,6 +123,7 @@ export function MessageEditor({
     const cancel = () => {
         cancelled.current = true;
         if (value !== snapshot) onChange(readMessageDraft(snapshot));
+        if (buttons && buttons.value !== buttonsSnapshot) buttons.onChange([...(buttonsSnapshot ?? [])]);
         onClose();
     };
 
@@ -142,6 +156,8 @@ export function MessageEditor({
         requirements,
         uploads,
         swatches,
+        tokens,
+        buttons,
     };
 
     return (
@@ -226,6 +242,7 @@ function Stage({ unplaced }: { readonly unplaced: readonly string[] }) {
             ) : null}
             <Author />
             <EditorEmbeds />
+            <ButtonRow />
         </div>
     );
 }

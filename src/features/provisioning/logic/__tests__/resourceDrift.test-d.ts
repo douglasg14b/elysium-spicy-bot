@@ -1,5 +1,5 @@
 import { describe, expectTypeOf, it } from 'vitest';
-import type { ResourceDriftKindsMismatch } from '../resourceDrift';
+import type { RESOURCE_DRIFT_KINDS, ResourceDriftKindsMismatch } from '../resourceDrift';
 
 /*
  * `RESOURCE_DRIFT_KINDS` names every drift kind and nothing else, so the repair result's
@@ -9,5 +9,9 @@ import type { ResourceDriftKindsMismatch } from '../resourceDrift';
 describe('RESOURCE_DRIFT_KINDS', () => {
     it('lists exactly the drift kinds', () => {
         expectTypeOf<ResourceDriftKindsMismatch>().toBeNever();
+    });
+
+    it("names a message's own drift, so the repair result's wire can report it put one back", () => {
+        expectTypeOf<'outOfDate'>().toExtend<(typeof RESOURCE_DRIFT_KINDS)[number]>();
     });
 });

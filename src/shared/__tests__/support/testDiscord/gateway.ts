@@ -166,6 +166,12 @@ function describeMismatch(client: Client, event: HarnessEvent): string | undefin
             return agrees ? undefined : `message ${event.d.id} does not carry the content, pin or edit time Discord sent`;
         }
 
+        case GatewayDispatchEvents.MessageDelete: {
+            const channel = client.channels.cache.get(event.d.channel_id);
+            if (!channel?.isTextBased()) return `the client holds no text channel ${event.d.channel_id}`;
+            return channel.messages.cache.has(event.d.id) ? `the client still holds message ${event.d.id}` : undefined;
+        }
+
         default: {
             const unverified: never = event;
             throw new TestDiscordError(`No self-check exists for ${JSON.stringify(unverified)}.`);

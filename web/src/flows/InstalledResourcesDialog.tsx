@@ -33,6 +33,7 @@ import {
 } from '@brattybot/web-sdk';
 import { ResourceGroup, TeardownActions } from './publishedInventory';
 import { summarisePublished } from './publishedSummary';
+import { uninstallNotice } from './uninstallNotice';
 
 interface InstalledResourcesDialogProps {
     readonly opened: boolean;
@@ -159,17 +160,11 @@ export function InstalledResourcesDialog({
     const unpublish = useMutation({
         ...unpublishFlowMutation(),
         onSuccess: async ({ results }) => {
-            const deleted = results.filter((result) => result.outcome === 'deleted').length;
-            const failed = results.filter((result) => result.outcome === 'failed');
-
-            notifications.show({
-                color: failed.length > 0 ? 'orange' : 'brand',
-                title: failed.length > 0 ? 'Partly done' : 'Uninstalled',
-                message:
-                    failed.length > 0
-                        ? `${deleted} deleted; ${failed.length} refused: ${failed[0].explanation ?? 'Discord said no.'}`
-                        : `${deleted} thing${deleted === 1 ? '' : 's'} deleted from the server. Anything adopted was left exactly where it was.`,
-            });
+            // What the operator was shown would be left alone, before they confirmed.
+            const shownAsKept = new Set(
+                (publishedQuery.data?.refusedResources ?? []).map((resource) => resource.resourceKey)
+            );
+            notifications.show({ ...uninstallNotice(results, shownAsKept) });
 
             await refreshPublished();
             onChanged?.('unpublish');

@@ -47,7 +47,14 @@ export type ResourceDriftKind =
           readonly actualParentId: string | null;
       }
     | { readonly kind: 'wrongType'; readonly declared: ResourceKind; readonly actual: string }
-    | { readonly kind: 'permissions'; readonly differences: readonly PermissionDifference[] };
+    | { readonly kind: 'permissions'; readonly differences: readonly PermissionDifference[] }
+    /**
+     * A posted message that no longer shows what its journey declares: the declaration has
+     * moved on since it was posted or last repaired (`messageDrift.ts`), or somebody hid its
+     * embeds (SUPPRESS_EMBEDS), or both. What to write is the declaration, which repair already
+     * holds; the two flags only say which, for the sentence.
+     */
+    | { readonly kind: 'outOfDate'; readonly declarationMoved: boolean; readonly embedsHidden: boolean };
 
 /**
  * Every {@link ResourceDriftKind}'s `kind`, as a value — what a repair reports it put back.
@@ -61,6 +68,7 @@ export const RESOURCE_DRIFT_KINDS = [
     'reparented',
     'wrongType',
     'permissions',
+    'outOfDate',
 ] as const satisfies readonly ResourceDriftKind['kind'][];
 
 /**
@@ -241,6 +249,8 @@ const KIND_LABEL: Record<ResourceKind, string> = {
     // Never reached: drift skips ticket types (`buildJourneyDriftPlan`). Named for the
     // table's completeness, not because a type can drift.
     ticketType: 'ticket type',
+    // Never reached either: a message has its own drift, which compares no live snapshot.
+    message: 'message',
 };
 
 /**
@@ -493,6 +503,17 @@ export function describeDrift(drift: ResourceDriftKind, kind: ResourceKind): str
         case 'permissions': {
             const count = drift.differences.length;
             return `Permission overwrites no longer match for ${count === 1 ? '1 role or member' : `${count} roles or members`}.`;
+        }
+        case 'outOfDate':
+            if (!drift.embedsHidden) {
+                return "What's posted is older than this journey's message. Repair edits it in place, so it keeps its spot in the channel.";
+            }
+            return drift.declarationMoved
+                ? "What's posted is older than this journey's message, and somebody hid its embeds. Repair edits it in place, so it keeps its spot and shows them again."
+                : 'Somebody hid its embeds in Discord ("Remove all embeds"). Repair edits it in place and puts them back on show.';
+        default: {
+            const unreachable: never = drift;
+            throw new Error(`Unhandled drift kind: ${String(unreachable)}`);
         }
     }
 }

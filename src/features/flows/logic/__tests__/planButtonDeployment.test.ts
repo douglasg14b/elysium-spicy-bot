@@ -4,7 +4,8 @@ import { TRIGGER_BUTTON_CLICK } from '../../blocks/triggerButtonClick';
 import { OPEN_GATE, ELIGIBILITY_CONFIG_KEY } from '../../engine/eligibility';
 import type { FlowGraph, FlowNode } from '../../data/flowGraph';
 import type { FlowEntity } from '../../data/flowsSchema';
-import { MAX_BUTTONS_PER_MESSAGE, planButtonDeployment } from '../planButtonDeployment';
+import { DISCORD_MAX_BUTTONS_PER_MESSAGE as MAX_BUTTONS_PER_MESSAGE } from '../../../../shared/discordButtons';
+import { planButtonDeployment } from '../planButtonDeployment';
 
 /**
  * Where a flow's trigger buttons go, decided from the graph alone.

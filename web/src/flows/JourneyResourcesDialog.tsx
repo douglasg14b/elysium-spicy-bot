@@ -37,6 +37,7 @@ import {
 import { joinWithAnd } from './nameLists';
 import { ResourceGroup, TeardownActions } from './publishedInventory';
 import { summarisePublished } from './publishedSummary';
+import { uninstallNotice } from './uninstallNotice';
 
 interface JourneyResourcesDialogProps {
     readonly opened: boolean;
@@ -174,17 +175,9 @@ export function JourneyResourcesDialog({
             const {
                 data: { results },
             } = await unpublishJourney({ path: { guildId, journeyKey } });
-            const deleted = results.filter((result) => result.outcome === 'deleted').length;
-            const failed = results.filter((result) => result.outcome === 'failed');
-
-            notifications.show({
-                color: failed.length > 0 ? 'orange' : 'brand',
-                title: failed.length > 0 ? 'Partly done' : 'Uninstalled',
-                message:
-                    failed.length > 0
-                        ? `${deleted} deleted; ${failed.length} refused: ${failed[0].explanation ?? 'Discord said no.'}`
-                        : `${deleted} thing${deleted === 1 ? '' : 's'} deleted from the server. Anything adopted was left exactly where it was.`,
-            });
+            // What the operator was shown would be left alone, before they confirmed.
+            const shownAsKept = new Set((published?.refusedResources ?? []).map((resource) => resource.resourceKey));
+            notifications.show({ ...uninstallNotice(results, shownAsKept) });
 
             // A failed re-read leaves the last good inventory on screen rather than
             // blanking it: the teardown above already reported what it did, and

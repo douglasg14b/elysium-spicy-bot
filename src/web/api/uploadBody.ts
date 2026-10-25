@@ -1,5 +1,11 @@
 import { z } from '@hono/zod-openapi';
-import { IMAGE_CONTENT_TYPES, type GuildUpload, type UploadUse } from '../../features-system/guild-uploads';
+import {
+    IMAGE_CONTENT_TYPES,
+    type FlowUploadUse,
+    type GuildUpload,
+    type JourneyMessageUploadUse,
+    type UploadUse,
+} from '../../features-system/guild-uploads';
 import { ErrorBodySchema, type ChecksHold, type MismatchedChecks, type SchemaMatches } from './openApi';
 
 /**
@@ -23,9 +29,14 @@ export const GuildUploadSchema = z
 
 export type GuildUploadBody = z.infer<typeof GuildUploadSchema>;
 
-/** One place an upload is shown: an `UploadUse` without the upload's id, which its listing already carries. */
-export const UploadUseSchema = z
+/**
+ * One place a flow's node shows an upload. Each arm of {@link UploadUseSchema} is named, as
+ * the spec's discriminator maps every `kind` to a component (the `savedAs` precedent,
+ * `flowBody.ts`).
+ */
+const FlowUploadUseSchema = z
     .object({
+        kind: z.literal('flow'),
         flowId: z.string(),
         flowName: z.string(),
         nodeId: z.string(),
@@ -33,21 +44,49 @@ export const UploadUseSchema = z
         where: z.string(),
         draftAuthorId: z.string().optional(),
     })
-    .openapi('UploadUse', {
+    .openapi('FlowUploadUse', {
         description:
-            'One place a picture is shown: the flow (as a draft names it, when the use is in one), the ' +
+            'A picture shown in a flow: the flow (as a draft names it, when the use is in one), the ' +
             'node, its block\'s label, and the part as the message editor names it (`embed 1 thumbnail`). ' +
             '`draftAuthorId` is set when the use is only in that person\'s unsaved draft.',
     });
 
+/** One place a journey's message resource shows an upload. */
+const JourneyMessageUploadUseSchema = z
+    .object({
+        kind: z.literal('journeyMessage'),
+        journeyKey: z.string(),
+        journeyName: z.string(),
+        resourceKey: z.string(),
+        messageName: z.string(),
+        where: z.string(),
+    })
+    .openapi('JourneyMessageUploadUse', {
+        description:
+            'A picture shown in a message a journey declares as a resource: the journey, the message ' +
+            '(its key and its name), and the part as the message editor names it (`embed 1 image`).',
+    });
+
+/** One place an upload is shown: an `UploadUse` without the upload's id, which its listing already carries. */
+export const UploadUseSchema = z
+    .discriminatedUnion('kind', [FlowUploadUseSchema, JourneyMessageUploadUseSchema])
+    .openapi('UploadUse', {
+        description: 'One place a picture is shown: in a flow (`kind: flow`), or in a journey\'s message resource (`kind: journeyMessage`).',
+    });
+
 export type UploadUseBody = z.infer<typeof UploadUseSchema>;
 
+/** `Omit` taken arm by arm, so each arm of a union keeps its own members. */
+type DistributiveOmit<Type, Key extends PropertyKey> = Type extends unknown ? Omit<Type, Key> : never;
+
 /**
- * {@link UploadUseSchema} states guild-uploads' `UploadUse`, less the id. Asserted in
- * `__tests__/uploadBody.test-d.ts`; see {@link SchemaMatches}.
+ * {@link UploadUseSchema} states guild-uploads' `UploadUse`, less the id, arm by arm and as
+ * a whole. Asserted in `__tests__/uploadBody.test-d.ts`; see {@link SchemaMatches}.
  */
 type UploadBodyChecks = ChecksHold<{
-    UploadUse: SchemaMatches<typeof UploadUseSchema, Omit<UploadUse, 'uploadId'>>;
+    FlowUploadUse: SchemaMatches<typeof FlowUploadUseSchema, Omit<FlowUploadUse, 'uploadId'>>;
+    JourneyMessageUploadUse: SchemaMatches<typeof JourneyMessageUploadUseSchema, Omit<JourneyMessageUploadUse, 'uploadId'>>;
+    UploadUse: SchemaMatches<typeof UploadUseSchema, DistributiveOmit<UploadUse, 'uploadId'>>;
 }>;
 
 /** The checks in {@link UploadBodyChecks} that fail, or `never`. */
@@ -58,8 +97,8 @@ export const GuildUploadListingSchema = GuildUploadSchema.extend({
     uses: z.array(UploadUseSchema),
 }).openapi('GuildUploadListing', {
     description:
-        'A picture kept for this server\'s messages, without its bytes, and every place a saved flow or a ' +
-        'draft shows it — empty when nothing does, so it may be deleted.',
+        'A picture kept for this server\'s messages, without its bytes, and every place a saved flow, a ' +
+        'draft or a journey\'s message shows it — empty when nothing does, so it may be deleted.',
 });
 
 /** The server's uploads, and how much of its allowance they take. */

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { GuildChannel, GuildRole, ResourceDeclaration, TicketTypeView } from '@brattybot/web-sdk';
+import { NO_UPLOADS } from '../../__tests__/support/noUploads';
 import { renderWithProviders } from '../../__tests__/support/renderWithProviders';
 import { ResourcesPanel } from '../ResourcesPanel';
 
@@ -44,6 +45,7 @@ function renderPanel(setup: PanelSetup) {
                 roles={setup.roles ?? []}
                 installedKeys={setup.installedKeys}
                 ticketTypes={setup.ticketTypes}
+                uploads={NO_UPLOADS}
             />
         );
     }
@@ -319,6 +321,115 @@ describe('ResourcesPanel', () => {
 
             renderPanel({ resources, ticketTypes: [VERIFICATION], installedKeys: new Set(['verification']) });
             expect(screen.queryByText('Already here')).toBeNull();
+        });
+    });
+
+    describe('a message', () => {
+        const DECLARED: ResourceDeclaration[] = [
+            { key: 'arrivals', kind: 'category', defaultName: 'Arrivals' },
+            { key: 'rules', kind: 'textChannel', defaultName: 'rules', parentKey: 'arrivals' },
+            { key: 'lobby', kind: 'textChannel', defaultName: 'lobby' },
+            { key: 'verified', kind: 'role', defaultName: 'Verified' },
+        ];
+        const PANEL: ResourceDeclaration = {
+            key: 'rules-panel',
+            kind: 'message',
+            defaultName: 'Rules panel',
+            parentKey: 'rules',
+            message: { embeds: [{ title: 'House rules' }] },
+            buttons: [{ key: 'let-me-in', label: 'Let me in', style: 'Success' }],
+        };
+
+        it('is added in the first declared channel, on one embed titled with its name', async () => {
+            const { user, current } = renderPanel({ resources: DECLARED });
+
+            await user.click(screen.getByRole('button', { name: 'Message' }));
+
+            expect(current().at(-1)).toEqual({
+                key: 'new-message',
+                kind: 'message',
+                defaultName: 'New message',
+                parentKey: 'rules',
+                message: { embeds: [{ title: 'New message' }] },
+            });
+            expect(screen.getByRole('textbox', { name: 'Name' })).toBe(document.activeElement);
+            expect(screen.getByText('1 embed')).toBeTruthy();
+        });
+
+        it('offers only the declared text channels to post it in', async () => {
+            const { user, current } = renderPanel({ resources: [...DECLARED, PANEL] });
+
+            await user.click(screen.getByRole('button', { name: 'Expand Rules panel' }));
+            await user.click(screen.getByRole('textbox', { name: 'Posted in' }));
+
+            expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['#rules', '#lobby']);
+            await user.click(screen.getByRole('option', { name: '#lobby' }));
+            expect(current().at(-1)?.parentKey).toBe('lobby');
+        });
+
+        it('fixes the channel once installed, without disabling the field', async () => {
+            const { user, current } = renderPanel({
+                resources: [...DECLARED, PANEL],
+                installedKeys: new Set(['rules-panel']),
+            });
+
+            await user.click(screen.getByRole('button', { name: 'Expand Rules panel' }));
+            const picker = screen.getByRole('textbox', { name: 'Posted in' });
+
+            expect(picker.hasAttribute('readonly')).toBe(true);
+            expect(picker.hasAttribute('disabled')).toBe(false);
+            expect(screen.getByText(/Discord can't move a message/)).toBeTruthy();
+            // No clear button either, which would move it to no channel at all.
+            expect(current().at(-1)?.parentKey).toBe('rules');
+        });
+
+        it('opens the message window with its buttons, and writes an edit back to the row', async () => {
+            const { user, current } = renderPanel({ resources: [...DECLARED, PANEL] });
+
+            await user.click(screen.getByRole('button', { name: 'Expand Rules panel' }));
+            await user.click(screen.getByRole('button', { name: 'Edit message' }));
+            const window = screen.getByRole('dialog');
+            expect(within(window).getByRole('button', { name: 'Let me in' })).toBeTruthy();
+
+            await user.click(within(window).getByRole('button', { name: 'Add button' }));
+            await user.click(within(window).getByRole('button', { name: 'Embed 1 title' }));
+            await user.type(within(window).getByRole('textbox', { name: 'Embed 1 title' }), '!');
+
+            expect(current().at(-1)).toMatchObject({
+                message: { embeds: [{ title: 'House rules!' }] },
+                buttons: [
+                    { key: 'let-me-in', label: 'Let me in', style: 'Success' },
+                    { key: 'new-button', label: 'New button', style: 'Primary' },
+                ],
+            });
+        });
+
+        it('puts the message and the buttons back together on Cancel', async () => {
+            const { user, current } = renderPanel({ resources: [...DECLARED, PANEL] });
+
+            await user.click(screen.getByRole('button', { name: 'Expand Rules panel' }));
+            await user.click(screen.getByRole('button', { name: 'Edit message' }));
+            const window = screen.getByRole('dialog');
+            await user.click(within(window).getByRole('button', { name: 'Add button' }));
+            await user.click(within(window).getByRole('button', { name: 'Embed 1 title' }));
+            await user.type(within(window).getByRole('textbox', { name: 'Embed 1 title' }), '!');
+            await user.click(within(window).getByRole('button', { name: 'Cancel' }));
+
+            // Both put back, in two writes on one tick — neither may undo the other.
+            expect(current().at(-1)).toEqual(PANEL);
+        });
+
+        it('wears a red chip saying why, and an orange one with no channel', async () => {
+            renderPanel({
+                resources: [
+                    ...DECLARED,
+                    { ...PANEL, message: { embeds: [{ title: 'Hi {{subject.displayName}}' }] } },
+                    { ...PANEL, key: 'stray', defaultName: 'Stray', parentKey: undefined },
+                ],
+            });
+
+            expect(screen.getByRole('button', { name: /Won’t save/ })).toBeTruthy();
+            expect(screen.getByRole('button', { name: /No channel/ })).toBeTruthy();
         });
     });
 });

@@ -26,6 +26,7 @@ const BIRTHDAY_FLOW = '22222222-2222-2222-2222-222222222222';
 const RULES_FLOW = '33333333-3333-3333-3333-333333333333';
 
 const LIVE_USE: UploadUse = {
+    kind: 'flow',
     flowId: WELCOME_FLOW,
     flowName: 'Welcome flow',
     nodeId: 'welcome',
@@ -33,6 +34,7 @@ const LIVE_USE: UploadUse = {
     where: 'embed 1 thumbnail',
 };
 const DRAFT_USE: UploadUse = {
+    kind: 'flow',
     flowId: BIRTHDAY_FLOW,
     flowName: 'Birthday shout',
     nodeId: 'shout',
@@ -160,6 +162,25 @@ describe('the Uploads page', () => {
         expect(meter()).toBe('6.1 MB of 200 MB used');
     });
 
+    it("shows a journey's message as a use, linking to the flows page where its resources are edited", async () => {
+        const journeyUse: UploadUse = {
+            kind: 'journeyMessage',
+            journeyKey: 'onboarding',
+            journeyName: 'Onboarding',
+            resourceKey: 'rules-panel',
+            messageName: 'Rules panel',
+            where: 'embed 1 image',
+        };
+        serveUploads([{ ...OLD_HEADER, uses: [journeyUse] }]);
+        renderUploadsPage();
+
+        const header = await card('old-rules-header.png');
+        const [use] = within(within(header).getByRole('list', { name: 'Where old-rules-header.png is used' })).getAllByRole('listitem');
+        expect(within(use!).getByRole('link', { name: 'Onboarding' }).getAttribute('href')).toBe('/flows');
+        expect(use!.textContent).toBe('Onboarding · message Rules panel · embed 1 image');
+        expect(within(use!).queryByText('Draft')).toBeNull();
+    });
+
     it('filters to the pictures in use, and to the ones nothing uses', async () => {
         serveUploads([LOGO, OLD_HEADER]);
         const { user } = renderUploadsPage();
@@ -234,6 +255,7 @@ describe('deleting a picture', () => {
     it("shows the server's places when it refuses one the page thought unused, and keeps focus in the dialog", async () => {
         const api = serveUploads([LOGO, OLD_HEADER]);
         const rulesUse: UploadUse = {
+            kind: 'flow',
             flowId: RULES_FLOW,
             flowName: 'Rules reminder',
             nodeId: 'remind',

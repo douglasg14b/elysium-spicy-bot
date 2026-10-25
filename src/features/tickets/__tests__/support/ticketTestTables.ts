@@ -4,6 +4,7 @@ import { up as createTicketingConfig } from '../../../../features-system/data-pe
 import { up as createResourceBindings } from '../../../../features-system/data-persistence/migrations/2026-09-18-Create_Resource_Bindings';
 import { up as createJourneys } from '../../../../features-system/data-persistence/migrations/2026-09-19-Create_Journeys';
 import { up as ownerKeyResourceBindings } from '../../../../features-system/data-persistence/migrations/2026-10-10-Owner_Keyed_Resource_Bindings';
+import { up as resourceBindingMessagePost } from '../../../../features-system/data-persistence/migrations/2026-10-25-Resource_Binding_Message_Post';
 import { TICKETS_OWNER } from '../../../provisioning/data/resourceBindingsSchema';
 import { TICKET_CATEGORY_SLOTS, type TicketingConfig } from '../../data/ticketingSchema';
 
@@ -25,6 +26,7 @@ export async function createTicketTestTables(db: Kysely<any>): Promise<void> {
     await createResourceBindings(db);
     await createJourneys(db);
     await ownerKeyResourceBindings(db);
+    await resourceBindingMessagePost(db);
 }
 
 /**

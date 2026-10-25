@@ -331,8 +331,8 @@ export function useResourceAutosave({
              * and now there is no later keystroke to release it.
              *
              * Warned rather than swallowed. It is reachable only by clearing a name or key,
-             * or leaving a "Specific roles" rule with no role picked, and then navigating
-             * away — rows are seeded valid — but silent
+             * leaving a "Specific roles" rule with no role picked, or leaving a message the
+             * save would refuse, and then navigating away — rows are seeded valid — but silent
              * loss of declarations is not something to leave to a red chip the operator
              * has already walked away from.
              *
@@ -346,7 +346,7 @@ export function useResourceAutosave({
                     color: 'orange',
                     title: 'Some resources were not saved',
                     message:
-                        'A resource was left without a name or key, or with a permission rule naming no role, so the list could not be stored. Reopen the flow to finish it.',
+                        'A resource was left without a name or key, with a permission rule naming no role, or with a message the save would refuse, so the list could not be stored. Reopen it to finish the job.',
                 });
                 return;
             }

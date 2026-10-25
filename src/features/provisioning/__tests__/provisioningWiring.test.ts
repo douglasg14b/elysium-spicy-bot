@@ -28,6 +28,18 @@ const API_SOURCE = readFileSync(
     'utf8'
 );
 
+const INIT_SOURCE = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'initProvisioning.ts'), 'utf8');
+
+const INIT_FLOWS_SOURCE = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'flows', 'initFlows.ts'),
+    'utf8'
+);
+
+const BOOT_BOT_SOURCE = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', 'web', 'e2e', 'support', 'bootBot.ts'),
+    'utf8'
+);
+
 /**
  * Strip comments before asserting a symbol is *absent*.
  *
@@ -55,7 +67,6 @@ describe('provisioning has no Discord surface', () => {
      */
     it('registers no provisioning command or component in bot.ts', () => {
         expect(BOT_CODE).not.toMatch(/InstallJourney/);
-        expect(BOT_CODE).not.toMatch(/initProvisioning/);
         expect(BOT_CODE).not.toMatch(/provisioning:apply/);
     });
 
@@ -70,7 +81,48 @@ describe('provisioning has no Discord surface', () => {
         const barrelCode = codeOf(barrel);
 
         expect(barrelCode).not.toMatch(/handleInstallJourney|buildInstallJourneyCommand/);
-        expect(barrelCode).not.toMatch(/initProvisioning/);
+    });
+
+    /*
+     * `initProvisioning` once registered the Discord install command, and was deleted with
+     * it — so this block asserted the name never came back. It came back in step 2 of the
+     * message resource (`docs/plans/message-resource-step-2.md`, pick 17) to register the
+     * upload usage reader, which is no Discord surface. What is still asserted is the
+     * property: nothing it wires answers an interaction. A message resource's button
+     * presses are flows' to handle (`initFlows`), not provisioning's.
+     */
+    it('wires no interaction from initProvisioning', () => {
+        const initCode = codeOf(INIT_SOURCE);
+        expect(initCode).not.toMatch(/interactionsRegistry|registerDynamic|\.register\(/);
+        expect(initCode).toMatch(/registerUploadUsageReader\(journeyMessageUploadUses\)/);
+    });
+});
+
+describe('the upload usage reader is reachable', () => {
+    it('is wired from bot.ts before the flow engine', () => {
+        // Without it the uploads page would let a picture a journey's message shows be
+        // deleted: flows' reader alone answers "no uses" for it.
+        const provisioning = BOT_CODE.indexOf('initProvisioning()');
+        expect(provisioning).toBeGreaterThan(-1);
+        expect(provisioning).toBeLessThan(BOT_CODE.indexOf('await initFlows()'));
+    });
+
+    /*
+     * `uploadUsesForGuild` throws only when no reader is registered at all, so a boot root
+     * that wires one of the two and forgets the other answers "no uses" for the forgotten
+     * feature's pictures — and lets a delete remove one still shown. Each boot root that
+     * serves the dashboard is read for both here instead.
+     */
+    it('registers both readers in bot.ts: provisioning\'s, and flows\' through initFlows', () => {
+        expect(BOT_CODE).toMatch(/\binitProvisioning\(\)/);
+        expect(BOT_CODE).toMatch(/\bawait initFlows\(\)/);
+        expect(codeOf(INIT_FLOWS_SOURCE)).toMatch(/registerUploadUsageReader\(flowUploadUses\)/);
+    });
+
+    it('registers both readers in the dashboard harness (web/e2e/support/bootBot.ts)', () => {
+        const bootCode = codeOf(BOOT_BOT_SOURCE);
+        expect(bootCode).toMatch(/\binitProvisioning\(\)/);
+        expect(bootCode).toMatch(/registerUploadUsageReader\(flowUploadUses\)/);
     });
 });
 
@@ -88,9 +140,8 @@ describe('the engine ships no journeys of its own', () => {
     it('has no startup hook a journey could be registered in', () => {
         // The point of the whole authoring change: a fresh install has zero journeys
         // until an operator creates one. `initProvisioning` used to be checked for a
-        // bundled registration; it was deleted with the Discord surface, so the
-        // property now holds for a stronger reason — provisioning runs nothing at
-        // startup, and bot.ts is where a re-added hook would have to appear.
+        // bundled registration; today it wires only the upload usage reader (asserted
+        // above), and bot.ts is where a re-added hook would have to appear.
         expect(BOT_CODE).not.toMatch(/registerJourney/);
     });
 });

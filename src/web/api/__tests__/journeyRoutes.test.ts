@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppEnv } from '../../types';
 
 /**
@@ -68,6 +68,7 @@ vi.mock('../../../features/provisioning/data/flowJourneyLinksRepo', () => ({
 }));
 
 const { journeyRoutes } = await import('../journeyRoutes');
+const { guildUploadsRepo } = await import('../../../features-system/guild-uploads');
 
 const GUILD_ID = 'guild-1';
 
@@ -750,5 +751,111 @@ describe('requests the validator refuses', () => {
             'A `roles` permission must name at least one role.'
         );
         expect(repo.update).not.toHaveBeenCalled();
+    });
+});
+
+/**
+ * A message resource is judged before anything is written, on every route that takes
+ * resources: its content by `messageResourceProblems`, then its uploads against this
+ * server's. The sentence names the message and the part, as the dashboard shows it.
+ */
+describe('a message resource on the routes that take resources', () => {
+    const FLOW_ID = '11111111-2222-3333-4444-555555555555';
+    const UPLOAD_ID = '0f0e0d0c-0b0a-4908-8706-050403020100';
+
+    const CHANNEL = { key: 'rules', kind: 'textChannel', defaultName: 'rules' };
+
+    function panel(secondEmbed: Record<string, unknown>) {
+        return {
+            key: 'rules-panel',
+            kind: 'message',
+            defaultName: 'Rules panel',
+            parentKey: 'rules',
+            message: { embeds: [{ title: 'House rules' }, secondEmbed] },
+            buttons: [{ key: 'let-me-in', label: 'Let me in', style: 'Success' }],
+        };
+    }
+
+    const WITH_TOKEN = [CHANNEL, panel({ title: 'Safewords', footer: { text: 'Mind yourself, {{subject.mention}}' } })];
+    const WITH_UPLOAD = [CHANNEL, panel({ title: 'Safewords', image: `upload:${UPLOAD_ID}` })];
+
+    const ROUTES = [
+        {
+            route: 'POST /journeys',
+            send: (resources: unknown) => post({ journeyKey: 'qa', name: 'Q&A', resources }),
+        },
+        {
+            route: 'PUT /journeys/{journeyKey}',
+            send: (resources: unknown) =>
+                app().request(`/${GUILD_ID}/journeys/qa`, {
+                    method: 'PUT',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ resources }),
+                }),
+        },
+        {
+            route: 'PUT /flows/{flowId}/resources',
+            send: (resources: unknown) =>
+                app().request(`/${GUILD_ID}/flows/${FLOW_ID}/resources`, {
+                    method: 'PUT',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ resources }),
+                }),
+        },
+    ];
+
+    beforeEach(() => {
+        repo.getByKey.mockResolvedValue(journeyRow());
+        flowsRepoMock.getByFlowId.mockResolvedValue({ flowId: FLOW_ID, guildId: GUILD_ID, name: 'Q&A' });
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it.each(ROUTES)('$route refuses a token, naming the message and the part, before writing', async ({ send }) => {
+        const response = await send(WITH_TOKEN);
+
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as { error: string }).error).toMatch(/^"Rules panel" embed 2 footer: No tokens here/);
+        expect(repo.create).not.toHaveBeenCalled();
+        expect(repo.update).not.toHaveBeenCalled();
+    });
+
+    it.each(ROUTES)("$route refuses an upload this server doesn't hold", async ({ send }) => {
+        // Another server's upload: read for this guild only, so it is not found.
+        const sizesFor = vi.spyOn(guildUploadsRepo, 'sizesFor').mockResolvedValue([]);
+
+        const response = await send(WITH_UPLOAD);
+
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as { error: string }).error).toBe(
+            `"Rules panel" embed 2 image: That uploaded picture isn't in this server. Pick another, or upload it again.`
+        );
+        expect(sizesFor.mock.calls).toEqual([[GUILD_ID, [UPLOAD_ID]]]);
+        expect(repo.create).not.toHaveBeenCalled();
+        expect(repo.update).not.toHaveBeenCalled();
+    });
+
+    it('saves a message showing an upload this server holds', async () => {
+        vi.spyOn(guildUploadsRepo, 'sizesFor').mockResolvedValue([{ uploadId: UPLOAD_ID, byteSize: 1024 }]);
+        repo.create.mockResolvedValue(journeyRow({ resources: WITH_UPLOAD }));
+
+        const response = await post({ journeyKey: 'qa', name: 'Q&A', resources: WITH_UPLOAD });
+
+        expect(response.status).toBe(201);
+        expect(repo.create).toHaveBeenCalledWith(
+            expect.objectContaining({ resources: [CHANNEL, expect.objectContaining({ kind: 'message' })] })
+        );
+    });
+
+    it('reads no upload sizes for a message that shows none', async () => {
+        const sizesFor = vi.spyOn(guildUploadsRepo, 'sizesFor');
+        repo.create.mockResolvedValue(journeyRow());
+
+        const response = await post({ journeyKey: 'qa', name: 'Q&A', resources: [CHANNEL, panel({ title: 'Safewords' })] });
+
+        expect(response.status).toBe(201);
+        expect(sizesFor).not.toHaveBeenCalled();
     });
 });

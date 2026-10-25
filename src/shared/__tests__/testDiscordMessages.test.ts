@@ -88,6 +88,7 @@ describe('TestDiscord answers message writes the way Discord does', () => {
                 pinned: false,
                 edited: false,
                 referencedMessageId: null,
+                embedsSuppressed: false,
             },
         ]);
         // The reply is what discord.js builds its `Message` from, mentions included.
@@ -108,6 +109,55 @@ describe('TestDiscord answers message writes the way Discord does', () => {
         expect(held.embeds).toEqual([{ title: 'After', type: EmbedType.Rich }]);
         expect(held.edited).toBe(true);
         expect(edited.editedTimestamp).not.toBeNull();
+    });
+
+    it('replaces the attachments with exactly the files an edit uploads, as discord.js sends an edit given files', async () => {
+        const { discord, channel, liveChannel } = await startedChannel();
+        const before = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]);
+        const after = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 2, 2]);
+        const sent = await liveChannel.send({
+            embeds: [new EmbedBuilder().setTitle('Old cuffs').setImage('attachment://old.png')],
+            files: [{ attachment: before, name: 'old.png' }],
+        });
+
+        await liveChannel.messages.edit(sent.id, {
+            content: '',
+            embeds: [new EmbedBuilder().setTitle('New cuffs').setImage('attachment://new.png')],
+            components: [],
+            files: [{ attachment: after, name: 'new.png' }],
+            allowedMentions: { parse: [] },
+        });
+
+        // What discord.js put on the wire: the new file's index as the whole list.
+        const edit = discord.writesTo(channel).at(-1);
+        expect(edit?.method).toBe('PATCH');
+        expect(edit?.body).toMatchObject({ content: '', components: [], attachments: [{ id: '0' }] });
+        expect(edit?.files).toEqual([{ index: 0, name: 'new.png', contentType: 'image/png', bytes: after }]);
+
+        const held = channel.message(sent.id);
+        expect(held.attachments).toEqual([{ filename: 'new.png', size: after.length, contentType: 'image/png' }]);
+        expect(held.embeds[0]).toMatchObject({ title: 'New cuffs', image: { url: 'attachment://new.png' } });
+
+        // `files: []` goes as plain JSON with `attachments: []`, and clears them.
+        await liveChannel.messages.edit(sent.id, { embeds: [new EmbedBuilder().setTitle('Bare wrists')], files: [] });
+        expect(discord.writesTo(channel).at(-1)?.body).toMatchObject({ attachments: [] });
+        expect(channel.message(sent.id).attachments).toEqual([]);
+    });
+
+    it('holds the messages of a text channel an operator made an announcement channel, and answers for them there', async () => {
+        const { discord, channel, liveGuild, liveChannel } = await startedChannel();
+        const sent = await liveChannel.send({ content: 'Rules. Read them.' });
+
+        channel.convertToAnnouncement();
+        discord.flushGateway();
+
+        const converted = liveGuild.channels.cache.get(channel.id);
+        expect(converted?.type).toBe(ChannelType.GuildAnnouncement);
+        if (converted?.type !== ChannelType.GuildAnnouncement) throw new Error('The client did not convert the channel.');
+        const fetched = await converted.messages.fetch({ message: sent.id, force: true });
+        expect(fetched.content).toBe('Rules. Read them.');
+        await converted.messages.edit(sent.id, { content: 'Rules. Obey them.' });
+        expect(channel.message(sent.id).content).toBe('Rules. Obey them.');
     });
 
     it('answers a fetch past the cache, and 10008 for a message it does not hold', async () => {
@@ -223,7 +273,7 @@ describe('TestDiscord refuses message behaviour it does not know', () => {
         await expect(discord.destroy()).rejects.toThrow(TestDiscordError);
     });
 
-    it('refuses an embed pointing at a file the send did not upload, and an edit pointing at any', async () => {
+    it('refuses an embed pointing at a file the send did not upload, and an edit pointing at one it did not', async () => {
         const { discord, liveChannel } = await startedChannel();
         const picture = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
@@ -237,8 +287,23 @@ describe('TestDiscord refuses message behaviour it does not know', () => {
         const sent = await liveChannel.send({ embeds: [new EmbedBuilder().setTitle('Plain')] });
         await expect(
             sent.edit({ embeds: [new EmbedBuilder().setTitle('Plain').setImage('attachment://present.png')] })
-        ).rejects.toThrow(/attachment links on an edit is not modelled/);
+        ).rejects.toThrow(/attachment:\/\/present\.png, but no uploaded file is named that/);
         await expect(discord.destroy()).rejects.toThrow(/faulted 2 time/);
+    });
+
+    it('refuses an edit that keeps an attachment the message already holds', async () => {
+        const { discord, liveChannel } = await startedChannel();
+        const picture = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+        const sent = await liveChannel.send({ content: 'Leash rules.', files: [{ attachment: picture, name: 'leash.png' }] });
+        const [held] = sent.attachments.values();
+        if (!held) throw new Error('The send stored no attachment.');
+
+        // By id, as Discord documents keeping one. (An `Attachment` itself goes out whole, which
+        // the strict schema refuses before this rule is reached.)
+        await expect(liveChannel.messages.edit(sent.id, { content: 'Leash rules, revised.', attachments: [{ id: held.id }] })).rejects.toThrow(
+            /keeping its attachment .* is not modelled/
+        );
+        await expect(discord.destroy()).rejects.toThrow(/faulted 1 time/);
     });
 
     it('refuses an edit replacing the content of a message that mentions somebody', async () => {
@@ -305,6 +370,55 @@ describe('TestDiscord answers history reads the way Discord does', () => {
         expect(discord.faults).toEqual([]);
 
         await expect(liveChannel.messages.fetch({ before: channel.id })).rejects.toThrow(/does not model this query/);
+        await expect(discord.destroy()).rejects.toThrow(/faulted 1 time/);
+    });
+
+    it('refuses a single-message read of a refused channel with 50001 too, as for a bot that lost access', async () => {
+        const { discord, channel, liveChannel } = await startedChannel();
+        const sent = await liveChannel.send({ content: 'Still here, you just cannot see it.' });
+        channel.refuseHistory();
+
+        const refused = await liveChannel.messages.fetch({ message: sent.id, force: true }).catch((caught: unknown) => caught);
+
+        expect(refused).toMatchObject({ code: RESTJSONErrorCodes.MissingAccess, status: 403 });
+        expect(channel.message(sent.id).content).toBe('Still here, you just cannot see it.');
+        expect(discord.faults).toEqual([]);
+    });
+});
+
+describe('TestDiscord answers message deletes the way Discord does', () => {
+    it("deletes the bot's message with a 204, after which a fetch answers 10008", async () => {
+        const { discord, channel, liveChannel } = await startedChannel();
+        const sent = await liveChannel.send({ content: 'This one self-destructs.' });
+
+        await liveChannel.messages.delete(sent.id);
+
+        expect(channel.messages).toEqual([]);
+        expect(discord.requests.filter((request) => request.method === 'DELETE').map((request) => request.path)).toEqual([
+            `/channels/${channel.id}/messages/${sent.id}`,
+        ]);
+        await expect(liveChannel.messages.fetch({ message: sent.id, force: true })).rejects.toMatchObject({
+            code: RESTJSONErrorCodes.UnknownMessage,
+        });
+    });
+
+    it('answers 10008 for a message already gone — deleted by an operator in the client', async () => {
+        const { channel, liveChannel } = await startedChannel();
+        const sent = await liveChannel.send({ content: 'Gone before the bot got to it.' });
+
+        channel.deleteMessage(sent.id);
+        const missing = await liveChannel.messages.delete(sent.id).catch((caught: unknown) => caught);
+
+        expect(missing).toBeInstanceOf(DiscordAPIError);
+        expect(missing).toMatchObject({ code: RESTJSONErrorCodes.UnknownMessage, status: 404 });
+    });
+
+    it("refuses a bot delete of somebody else's message, which needs Manage Messages it does not model", async () => {
+        const { discord, channel, member, liveChannel } = await startedChannel();
+        const theirs = channel.receiveMessage({ from: member, content: 'Mine, not yours.' });
+
+        await expect(liveChannel.messages.delete(theirs)).rejects.toThrow(/which the bot did not write/);
+        expect(channel.message(theirs).content).toBe('Mine, not yours.');
         await expect(discord.destroy()).rejects.toThrow(/faulted 1 time/);
     });
 });
@@ -475,6 +589,26 @@ describe('TestDiscord dispatches message events to a client that asked for them'
 
         expect(() => discord.flushGateway()).not.toThrow();
         expect(liveChannel.messages.cache.get(sent.id)).toMatchObject({ content: 'Pinned and changed.', pinned: true });
+    });
+
+    it("announces the bot's delete as MESSAGE_DELETE once flushed, and an operator's at once — each leaving the cache without it", async () => {
+        const { discord, channel, liveChannel } = await channelHeardBy(MESSAGE_EVENT_INTENTS);
+        const deleted: string[] = [];
+        liveChannel.client.on(Events.MessageDelete, (message) => deleted.push(message.id));
+        const byBot = await liveChannel.send({ content: 'Deleted by the bot.' });
+        const byOperator = await liveChannel.send({ content: 'Deleted by a moderator.' });
+        discord.flushGateway();
+
+        await liveChannel.messages.delete(byBot.id);
+        // discord.js leaves its cache alone on the 204; the event is what removes it.
+        expect(liveChannel.messages.cache.has(byBot.id)).toBe(true);
+        discord.flushGateway();
+        expect(deleted).toEqual([byBot.id]);
+        expect(liveChannel.messages.cache.has(byBot.id)).toBe(false);
+
+        channel.deleteMessage(byOperator.id);
+        expect(deleted).toEqual([byBot.id, byOperator.id]);
+        expect(liveChannel.messages.cache.has(byOperator.id)).toBe(false);
     });
 
     it('dispatches no message event to a client without the GuildMessages intent', async () => {

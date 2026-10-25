@@ -10,6 +10,7 @@ import { flowDraftsRepo } from '../../../features/flows/data/flowDraftsRepo';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../../features/flows/data/flowGraph';
 import { flowsRepo } from '../../../features/flows/data/flowsRepo';
 import { flowUploadUses } from '../../../features/flows/logic/flowUploadUses';
+import { initProvisioning, journeysRepo } from '../../../features/provisioning';
 import type { AppEnv } from '../../types';
 import type { GuildUploadBody, GuildUploadListBody, UploadUseBody } from '../uploadBody';
 import {
@@ -94,10 +95,39 @@ async function useInFlowAndDraft(guildId: string, uploadId: string): Promise<Upl
         graph: showing(uploadId),
         baseUpdatedAt: new Date().toISOString(),
     });
-    const at = { nodeId: 'post', blockLabel: 'Post Embed', where: 'embed 1 image' };
+    const at = { kind: 'flow' as const, nodeId: 'post', blockLabel: 'Post Embed', where: 'embed 1 image' };
     return [
         { flowId: live.flowId, flowName: 'Welcome flow', ...at },
         { flowId: drafted.flowId, flowName: 'Goodbye flow', ...at, draftAuthorId: 'user-drafter' },
+    ];
+}
+
+/**
+ * A journey declaring a channel and a message whose header icon and image show `uploadId` —
+ * not installed, since a declaration is what install posts.
+ */
+async function useInJourneyMessage(guildId: string, uploadId: string): Promise<UploadUseBody[]> {
+    await journeysRepo.create({
+        guildId,
+        journeyKey: 'onboarding',
+        name: 'Onboarding',
+        resources: [
+            { key: 'rules', kind: 'textChannel', defaultName: 'rules' },
+            {
+                key: 'rules-panel',
+                kind: 'message',
+                defaultName: 'Rules panel',
+                parentKey: 'rules',
+                message: {
+                    embeds: [{ title: 'House rules', author: { name: 'Mgmt', iconUrl: `upload:${uploadId}` }, image: `upload:${uploadId}` }],
+                },
+            },
+        ],
+    });
+    const at = { kind: 'journeyMessage' as const, journeyKey: 'onboarding', journeyName: 'Onboarding', resourceKey: 'rules-panel', messageName: 'Rules panel' };
+    return [
+        { ...at, where: 'embed 1 header icon' },
+        { ...at, where: 'embed 1 image' },
     ];
 }
 
@@ -108,6 +138,8 @@ function remove(guildId: string, uploadId: string) {
 beforeAll(async () => {
     await ensureBlocksDiscovered();
     await migrateTestDatabase();
+    // As `bot.ts` wires them: journeys' message resources, then flows.
+    initProvisioning();
     registerUploadUsageReader(flowUploadUses);
 });
 
@@ -287,6 +319,20 @@ describe('DELETE /:guildId/uploads/:uploadId', () => {
         const guildId = 'guild-delete-in-use';
         const { uploadId } = await kept(guildId);
         const uses = await useInFlowAndDraft(guildId, uploadId);
+
+        const response = await remove(guildId, uploadId);
+
+        expect(response.status).toBe(409);
+        expect(await response.json()).toEqual({ error: UPLOAD_IN_USE_SENTENCE, uses });
+        expect((await app(guildId).request(`/${guildId}/uploads/${uploadId}`)).status).toBe(200);
+    });
+
+    it("refuses with 409 while a journey's message shows it, listing each place, and keeps it", async () => {
+        const guildId = 'guild-delete-journey-use';
+        const { uploadId } = await kept(guildId);
+        const uses = await useInJourneyMessage(guildId, uploadId);
+        // Another server's journey naming the same id is not a use here.
+        await useInJourneyMessage('guild-delete-journey-use-other', uploadId);
 
         const response = await remove(guildId, uploadId);
 

@@ -45,6 +45,7 @@
  */
 
 import type { ResourceDeclaration } from '@brattybot/web-sdk';
+import { messageResourceProblems } from './messageResourceProblems';
 
 /**
  * How long editing must pause before the declaration list is written to the server.
@@ -185,12 +186,21 @@ export function decideAutosaveAction({
  * "Specific roles" and before a role is picked. Sending it was destructive, not just
  * noisy — the server refuses it (`rolesWithoutIdsRefusal`), and the refusal re-reads the
  * stored list over the one on screen, flipping the rule back to its old audience.
+ *
+ * A message resource the save would refuse is held for the same reason, and is the one place
+ * this check is the server's whole rule rather than a weaker one (pick 12 of
+ * `docs/plans/message-resource-step-2.md`): a message is refusable mid-edit as a matter of
+ * course — a fresh empty embed, an icon added before its text, a picture link half typed — and
+ * the refusal's re-read would revert the message window under the author's hands. The browser's
+ * mirror of the server's rules (`messageResourceProblems.ts`) decides, and the row's red
+ * `messageNotSaveable` chip says why nothing is being stored.
  */
 export function isWorthSaving(resources: readonly ResourceDeclaration[]): boolean {
     return resources.every(
         (resource) =>
             Boolean(resource.key) &&
             Boolean(resource.defaultName) &&
-            !resource.permissions?.some((intent) => intent.audience === 'roles' && !intent.roleIds?.length)
+            !resource.permissions?.some((intent) => intent.audience === 'roles' && !intent.roleIds?.length) &&
+            messageResourceProblems(resource).length === 0
     );
 }

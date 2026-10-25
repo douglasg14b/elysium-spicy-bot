@@ -2,7 +2,13 @@ import type { Guild } from 'discord.js';
 import { resourceBindingsRepo, type ResourceBindingsRepo } from '../data/resourceBindingsRepo';
 import { describeDiscordError as describeError, isAlreadyGone, isPermissionProblem } from './discordErrors';
 import { existsInGuildAs } from './installPlan';
-import { isDiscordResource, type DiscordResourceKind, type ResourceKind } from './resourceDeclaration';
+import { lookupMessageChannel } from './lookupBoundMessage';
+import {
+    isDiscordResource,
+    nonDiscordResourceKind,
+    type DiscordResourceKind,
+    type ResourceKind,
+} from './resourceDeclaration';
 import { survivorsOf, type UnpublishItem, type UnpublishPlan } from './unpublishPlan';
 
 /**
@@ -109,8 +115,31 @@ export async function applyUnpublishPlan(
         // A ticket type is only ever forgotten (`buildUnpublishPlan`), and nothing in the
         // guild or the ticket settings is touched to do it: the row goes, the type stays.
         if (!isDiscordResource(item)) {
-            await forgetRow(repo, item, results, base, false);
-            continue;
+            const kind = nonDiscordResourceKind(item.kind);
+            switch (kind) {
+                case 'ticketType':
+                    await forgetRow(repo, item, results, base, false);
+                    continue;
+                case 'message': {
+                    /*
+                     * No re-read before the delete, unlike a channel's cache check below: the
+                     * delete is the check. A message deleted by hand since the plan answers
+                     * 10008, which `isAlreadyGone` counts as done — one request rather than
+                     * a fetch and then a delete.
+                     */
+                    const deletion = item.action === 'delete' ? await deleteMessageFromGuild(guild, item) : 'alreadyGone';
+                    if (typeof deletion === 'object') {
+                        results.push({ ...base, outcome: 'failed', explanation: deletion.failure });
+                        continue;
+                    }
+                    await forgetRow(repo, item, results, base, deletion === 'deleted');
+                    continue;
+                }
+                default: {
+                    const unreachable: never = kind;
+                    throw new Error(`Unhandled resource kind: ${String(unreachable)}`);
+                }
+            }
         }
 
         /*
@@ -198,7 +227,28 @@ async function forgetRow(
     deletedHere: boolean
 ): Promise<void> {
     try {
-        await repo.forget(item.bindingId);
+        // A message's row is forgotten only while it still names the post this plan read:
+        // an install may have reposted onto the same row since (`ResourceBindingsRepo.forget`).
+        const expectedDiscordId = item.kind === 'message' ? item.discordId : undefined;
+        const forgotten = await repo.forget(item.bindingId, expectedDiscordId);
+        if (expectedDiscordId !== undefined && !forgotten) {
+            /*
+             * The row moved on to another post — an install reposted it meanwhile — so this
+             * resource is not uninstalled: its record stays, naming the new post. Not
+             * `forgotten` and not `deleted`, which would read as uninstalled; `refused`, the
+             * outcome for something this run left in place on purpose. (The new post itself
+             * goes if its channel is deleted later in this run; the next uninstall then finds
+             * it gone and forgets the row.)
+             */
+            results.push({
+                ...base,
+                outcome: 'refused',
+                explanation: deletedHere
+                    ? 'The message this plan named was deleted, but it had been posted again meanwhile, most likely, so its record now names the new post and was left as it stands. Uninstall again to clear it.'
+                    : 'Its record had moved on by the time it was cleared — posted again meanwhile, most likely — so it was left as it stands. Uninstall again to clear it.',
+            });
+            return;
+        }
         results.push({
             ...base,
             outcome: deletedHere ? 'deleted' : 'forgotten',
@@ -215,9 +265,52 @@ async function forgetRow(
             // gone, one another owner holds — left everything standing, and saying it was
             // "removed from the server" would claim a deletion that never happened.
             explanation: deletedHere
-                ? `The ${item.kind === 'role' ? 'role' : 'channel'} was removed from the server, but its record could not be deleted. Run this again to clear the leftover record.`
+                ? `The ${item.kind === 'role' || item.kind === 'message' ? item.kind : 'channel'} was removed from the server, but its record could not be deleted. Run this again to clear the leftover record.`
                 : 'Its record could not be removed. Nothing else was touched; run this again to clear it.',
         });
+    }
+}
+
+/** What deleting one posted message came to: this run deleted it, it was already gone, or why not. */
+type MessageDeletion = 'deleted' | 'alreadyGone' | { readonly failure: string };
+
+/**
+ * Delete one message the journey posted, from the channel its row records, returning the
+ * problem rather than throwing — as {@link deleteFromGuild} does, for the same reason.
+ *
+ * Gone only on Discord's word: a channel `lookupMessageChannel` resolves as gone took the
+ * message with it, and a delete answered 10008 or 10003 raced a manual one — both
+ * `alreadyGone`, which is the objective, and told apart from `deleted` so the report never
+ * claims somebody else's cleanup. The bot needs no Manage Messages to delete its own post,
+ * so a permission refusal here is a channel that shut it out. Discord's message delete
+ * takes no audit-log reason.
+ */
+async function deleteMessageFromGuild(guild: Guild, item: UnpublishItem): Promise<MessageDeletion> {
+    if (!item.discordId || !item.messageChannelId) {
+        return { failure: 'The plan names this message without saying where it is posted. Run this again.' };
+    }
+
+    let lookup: Awaited<ReturnType<typeof lookupMessageChannel>>;
+    try {
+        // A text channel, or the announcement channel it was converted to.
+        lookup = await lookupMessageChannel(guild, item.messageChannelId);
+    } catch (error) {
+        return { failure: `Couldn't find the channel it is posted in: ${describeError(error)}` };
+    }
+    if (lookup.status === 'gone') return 'alreadyGone';
+    const { channel } = lookup;
+
+    try {
+        await channel.messages.delete(item.discordId);
+        return 'deleted';
+    } catch (error) {
+        if (isAlreadyGone(error)) {
+            return 'alreadyGone';
+        }
+        if (isPermissionProblem(error)) {
+            return { failure: `Discord would not allow it — check the bot can still see #${channel.name}: ${describeError(error)}` };
+        }
+        return { failure: `Discord refused to delete it: ${describeError(error)}` };
     }
 }
 

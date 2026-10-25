@@ -1,15 +1,15 @@
 import { ButtonBuilder } from 'discord.js';
+import {
+    BUTTON_STYLE_MAP,
+    DISCORD_BUTTONS_PER_ROW,
+    DISCORD_MAX_BUTTONS_PER_MESSAGE,
+} from '../../../shared/discordButtons';
 import { isTriggerStartedBy } from '../blocks/registry';
-import { BUTTON_STYLE_MAP, buttonClickConfigSchema } from '../blocks/triggerButtonClick';
+import { buttonClickConfigSchema } from '../blocks/triggerButtonClick';
 import type { FlowEntity } from '../data/flowsSchema';
 import type { FlowGraph, FlowNode } from '../data/flowGraph';
 import { buildFlowCustomId } from '../utils/customId';
 import { collectApplicableResourceTargets } from './resourceTargets';
-
-/** Discord's limits on one message's components. Both are hard API errors, not advice. */
-const BUTTONS_PER_ROW = 5;
-const ROWS_PER_MESSAGE = 5;
-export const MAX_BUTTONS_PER_MESSAGE = BUTTONS_PER_ROW * ROWS_PER_MESSAGE;
 
 /** One channel's worth of buttons, already chunked into rows Discord will accept. */
 export interface ButtonDestination {
@@ -108,18 +108,18 @@ export function planButtonDeployment(flow: FlowEntity): ButtonDeploymentPlan {
          * instead. Twenty-five triggers into one channel is also well past the point
          * where the answer is a second flow.
          */
-        if (grouped.buttons.length > MAX_BUTTONS_PER_MESSAGE) {
+        if (grouped.buttons.length > DISCORD_MAX_BUTTONS_PER_MESSAGE) {
             return {
                 ok: false,
                 message:
                     `<#${channelId}> is set to receive ${grouped.buttons.length} buttons, and one message holds ` +
-                    `${MAX_BUTTONS_PER_MESSAGE}. Send some of them somewhere else.`,
+                    `${DISCORD_MAX_BUTTONS_PER_MESSAGE}. Send some of them somewhere else.`,
             };
         }
 
         destinations.push({
             channelId,
-            rows: chunk(grouped.buttons, BUTTONS_PER_ROW),
+            rows: chunk(grouped.buttons, DISCORD_BUTTONS_PER_ROW),
             nodeIds: grouped.nodes.map((node) => node.id),
             buttonCount: grouped.buttons.length,
         });

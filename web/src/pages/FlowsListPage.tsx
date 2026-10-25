@@ -111,6 +111,7 @@ import {
     uniqueJourneyKey,
 } from '../flows/journeyAttachment';
 import { ResourcesDialog, useLoadedResources } from '../flows/ResourcesDialog';
+import { useGuildUploads } from '../flows/useGuildUploads';
 import { LeaveGroupDialog } from '../flows/LeaveGroupDialog';
 import { problemCount, summarizeIssues } from '../flows/validationIssues';
 import { useGuilds } from '../guilds/GuildContext';
@@ -1055,6 +1056,10 @@ export function FlowsListPage() {
         [editingJourneyKey]
     );
     const journeyResources = useLoadedResources(selected?.id, editingTarget);
+    // The server's pictures, for a declared message's window. Read only while a journey's
+    // resources are open: the list itself shows no picture, so loading it costs a request
+    // for nothing.
+    const guildUploads = useGuildUploads(editingJourneyKey ? selected?.id : undefined);
 
     /**
      * Re-read the whole list.
@@ -2089,6 +2094,7 @@ export function FlowsListPage() {
                     loaded={journeyResources.loaded}
                     loadError={journeyResources.loadError}
                     onSaved={journeyResources.setResources}
+                    uploads={guildUploads}
                 />
             )}
 

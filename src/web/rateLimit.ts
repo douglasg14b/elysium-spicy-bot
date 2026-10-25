@@ -64,6 +64,11 @@ const DISCORD_READS: readonly RegExp[] = [
     /^leveling\/users\/[^/]+$/,
     // A full channel fetch, so drift sees fresh permission overwrites.
     /^journeys\/[^/]+\/drift$/,
+    // One message fetch per message resource the journey posted, to tell whether it is still
+    // there: the install plan, and the published inventories, which plan a teardown.
+    /^flows\/[^/]+\/install-plan$/,
+    /^flows\/[^/]+\/published$/,
+    /^journeys\/[^/]+\/published$/,
 ];
 
 /** A method that writes, as Hono reports it. */

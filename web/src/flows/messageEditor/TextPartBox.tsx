@@ -26,7 +26,7 @@ interface TextPartBoxProps {
     readonly styleOver?: CSSProperties;
     /** Whether Enter starts a new line, rather than finishing the part. */
     readonly multiline?: boolean;
-    /** Whether the part takes `{{tokens}}`. A title link does not. */
+    /** Whether the part takes `{{tokens}}`. A title link does not, and nothing does in a message that takes none. */
     readonly takesTokens?: boolean;
 }
 
@@ -77,7 +77,7 @@ export function TextPartBox({ part, placeholder, styleOver, multiline = false, t
                 problems={problems}
                 textStyle={textStyle}
                 multiline={multiline}
-                takesTokens={takesTokens}
+                takesTokens={takesTokens && scope.tokens}
                 onFinishFromKeyboard={() => {
                     returnFocus.current = true;
                 }}

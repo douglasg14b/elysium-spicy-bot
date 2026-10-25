@@ -4,6 +4,7 @@ import { migrateTestDatabase } from '../../features-system/data-persistence/__te
 import { registerUploadUsageReader } from '../../features-system/guild-uploads';
 import { ensureBlocksDiscovered } from '../../features/flows/blocks/registry';
 import { flowUploadUses } from '../../features/flows/logic/flowUploadUses';
+import { initProvisioning } from '../../features/provisioning';
 import { MIB } from '../../shared/byteSizes';
 import { buildOpenApiDocument } from '../api/openApiDocument';
 import { UPLOAD_CACHE_CONTROL, UPLOAD_NOT_AN_IMAGE_SENTENCE } from '../api/uploadRoutes';
@@ -64,7 +65,9 @@ function rawUpload(bytes: Uint8Array): RequestInit {
 beforeAll(async () => {
     await ensureBlocksDiscovered();
     await migrateTestDatabase();
-    // As `initFlows` does: the list asks what uses each picture, and fails with no reader.
+    // As `initProvisioning` and `initFlows` do: the list asks what uses each picture, and
+    // fails with no reader.
+    initProvisioning();
     registerUploadUsageReader(flowUploadUses);
 });
 

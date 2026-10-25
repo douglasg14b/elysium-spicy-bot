@@ -91,7 +91,16 @@ export type ResourceChipTone = 'info' | 'warn' | 'blocksInstall' | 'error';
  * lost in the merge: no chip ever pointed at `nameField`, and the two that pointed at
  * `adoptPicker` are asking for the same control by its new name.
  */
-export type ResourceChipJumpTarget = 'nameCombobox' | 'keyField' | 'rules' | 'rule' | 'ticketTypeFields';
+export type ResourceChipJumpTarget =
+    | 'nameCombobox'
+    | 'keyField'
+    | 'rules'
+    | 'rule'
+    | 'ticketTypeFields'
+    /** A message row's "Edit message" button, which opens the window the problem is in. */
+    | 'messageEditor'
+    /** A message row's "Posted in" picker. */
+    | 'parentPicker';
 
 /** Every chip this vocabulary can show. Adding one means adding it here first. */
 export type ResourceChipId =
@@ -107,6 +116,8 @@ export type ResourceChipId =
     | 'duplicateAdoption'
     | 'invalidKey'
     | 'invalidTicketType'
+    | 'messageNotSaveable'
+    | 'messageNoChannel'
     | 'ruleNamesNoRole';
 
 /**
@@ -126,8 +137,8 @@ export interface ResourceChipDetail {
     readonly field?: 'key' | 'name';
     /**
      * The server's own sentence for what is wrong with that field, as the generated zod
-     * carries it — "Resource keys cap at 64 characters.", say. For `invalidKey`, whose
-     * tooltip shows it in place of the chip's general `reason`.
+     * carries it — "Resource keys cap at 64 characters.", say. For `invalidKey` and
+     * `messageNotSaveable`, whose tooltip shows it in place of the chip's general `reason`.
      */
     readonly problem?: string;
 }
@@ -356,6 +367,40 @@ export const RESOURCE_CHIPS: Record<ResourceChipId, ResourceChipStyle> = {
         jumpTo: 'ticketTypeFields',
     },
 
+    /**
+     * A message resource the journey save would refuse, judged by the browser's mirror of the
+     * server's rules (`messageResourceProblems.ts`). Its tooltip is the first problem, in the
+     * server's own words and naming the part.
+     *
+     * Red for a second reason besides the save's refusal: while it shows, the whole list is
+     * held back from saving (`isWorthSaving`), because a refused save re-reads the stored list
+     * over the window someone is typing in. The chip is how they learn that nothing is being
+     * stored until it is fixed.
+     */
+    messageNotSaveable: {
+        tone: 'error',
+        color: 'red',
+        icon: IconX,
+        label: () => 'Won’t save',
+        reason: 'Something in the message breaks a rule the save checks — an empty embed, a part over its limit, a {{token}}, two buttons with one key. Nothing in this list is saved until it is fixed.',
+        jumpTo: 'messageEditor',
+    },
+
+    /**
+     * A message with nowhere to go. It saves — a message row can be left without a channel
+     * while the channel is being made, and removing a channel clears its messages' — but
+     * `installPlan` blocks it with "Pick the channel it goes in.", which is the install-time
+     * claim this tier exists for.
+     */
+    messageNoChannel: {
+        tone: 'blocksInstall',
+        color: 'orange',
+        icon: IconAlertTriangle,
+        label: () => 'No channel',
+        reason: 'Not posted in any channel. The save takes it; `installPlan` blocks it with "Pick the channel it goes in."',
+        jumpTo: 'parentPicker',
+    },
+
     ruleNamesNoRole: {
         tone: 'error',
         color: 'red',
@@ -379,11 +424,13 @@ export const RESOURCE_CHIP_ORDER: readonly ResourceChipId[] = [
     'duplicateAdoption',
     'invalidKey',
     'invalidTicketType',
+    'messageNotSaveable',
     'ruleNamesNoRole',
     // Below the save-blockers and above the warnings: a row that cannot be saved has a
     // more urgent problem than one that cannot be installed, and both outrank "this is
     // probably not what you meant".
     'nameTaken',
+    'messageNoChannel',
     'nobodyCanSee',
     'perRunOnly',
     'permissionsUntouched',

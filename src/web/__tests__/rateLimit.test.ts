@@ -200,6 +200,10 @@ describe('callsDiscord', () => {
         ['GET', `${GUILD}/leveling`],
         ['GET', `${GUILD}/leveling/users/900000000000000002`],
         ['GET', `${GUILD}/journeys/onboarding/drift`],
+        // These three fetch each posted message to learn whether it is still there.
+        ['GET', `${GUILD}/journeys/onboarding/published`],
+        ['GET', `${GUILD}/flows/flow-1/published`],
+        ['GET', `${GUILD}/flows/flow-1/install-plan`],
     ])('counts %s %s against the Discord budget', (method, path) => {
         expect(callsDiscord(method, path)).toBe(true);
     });
@@ -213,8 +217,6 @@ describe('callsDiscord', () => {
         ['GET', `${GUILD}/roles`],
         ['GET', `${GUILD}/leveling/insights`],
         ['GET', `${GUILD}/tickets`],
-        ['GET', `${GUILD}/journeys/onboarding/published`],
-        ['GET', `${GUILD}/flows/flow-1/install-plan`],
         ['GET', '/api/guilds'],
         ['GET', '/api/nodes'],
         ['POST', '/api/auth/logout'],

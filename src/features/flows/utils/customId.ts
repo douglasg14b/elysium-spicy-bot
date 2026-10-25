@@ -1,8 +1,5 @@
-import {
-    DISCORD_CUSTOM_ID_MAX_LENGTH,
-    FLOW_CHOICE_CUSTOM_ID_PREFIX,
-    FLOW_CUSTOM_ID_PREFIX,
-} from '../constants';
+import { DISCORD_CUSTOM_ID_MAX_LENGTH } from '../../../shared/discordButtons';
+import { FLOW_CHOICE_CUSTOM_ID_PREFIX, FLOW_CUSTOM_ID_PREFIX } from '../constants';
 
 export interface ParsedFlowCustomId {
     flowId: string;

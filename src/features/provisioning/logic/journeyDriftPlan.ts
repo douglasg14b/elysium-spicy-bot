@@ -2,13 +2,23 @@ import { ChannelType, type Guild, type GuildBasedChannel } from 'discord.js';
 import { journeyOwner, type ResourceBindingEntity } from '../data/resourceBindingsSchema';
 import { describeOtherHolder, type GuildOwnership } from './bindingOwner';
 import { parseDeclaredRoleReference } from './declaredRoleReference';
+import { describeChannel } from './installPlan';
+import { isPostedMessageRow, requireMessagePresence, type MessagePresence } from './lookupBoundMessage';
+import { messageDigest } from './messageDrift';
 import {
     compilePermissionIntents,
     PermissionIntentError,
     type PermissionIntent,
     type PermissionIntentContext,
 } from './permissionIntent';
-import { isDiscordResource, type DiscordResourceKind, type JourneyDeclaration } from './resourceDeclaration';
+import {
+    isDiscordResource,
+    nonDiscordResourceKind,
+    type DiscordResourceKind,
+    type JourneyDeclaration,
+    type ResourceDeclaration,
+} from './resourceDeclaration';
+import { normaliseResourceName } from './resourceName';
 import {
     detectResourceDrift,
     hasDrift,
@@ -38,6 +48,11 @@ import {
  *
  * So the question this module answers is narrow on purpose: *of the things we did
  * install and which are still there, which are no longer what we said they were.*
+ *
+ * **A message is compared by fingerprint, not against a live snapshot** — it has no name,
+ * parent or overwrites to read, and only the bot can change it (`checkMessage`). It is the one
+ * resource read from Discord here rather than from the cache, through the presence map its
+ * caller fetched.
  */
 
 export interface JourneyDriftPlan {
@@ -67,23 +82,36 @@ export interface JourneyDriftPlan {
      * prevent. Reported as drift, it would offer a repair that cannot be computed.
      *
      * The live instance is a `subject` audience, which names a per-run member and has
-     * no meaning while provisioning shared guild structure.
+     * no meaning while provisioning shared guild structure. The other is a posted message
+     * the bot could not read — a channel that shut it out — which is neither.
      */
     readonly unchecked: readonly UncheckedResource[];
 }
 
-/** A resource that was found, but whose permissions could not be compared. */
+/** A resource that was found, but whose permissions — or, for a message, whose post — could not be compared. */
 export interface UncheckedResource {
     readonly resourceKey: string;
     readonly name: string;
-    /** Why the comparison could not be made, in words an operator can act on. */
+    /** Why the comparison could not be made, in words an operator can act on. May carry `**bold**`. */
     readonly reason: string;
 }
 
 export interface BuildJourneyDriftPlanInput {
     readonly guild: Guild;
     readonly journey: JourneyDeclaration;
+    /** This journey's rows, of every kind: a message's row is the only record of its post. */
     readonly bindings: readonly ResourceBindingEntity[];
+    /**
+     * Whether each posted message this journey still declares is still there, by resource key,
+     * as `readMessagePresence` read it. Required whenever a declared message has a posted row:
+     * the check throws rather than guess (`requireMessagePresence`).
+     */
+    readonly messagePresence?: ReadonlyMap<string, MessagePresence>;
+    /**
+     * The resource keys of found messages whose embeds somebody hid (SUPPRESS_EMBEDS), from
+     * the same read as {@link messagePresence}. Absent means none.
+     */
+    readonly embedsSuppressed?: ReadonlySet<string>;
     /**
      * The same permission inputs the install preview takes.
      *
@@ -116,8 +144,12 @@ export function buildJourneyDriftPlan(input: BuildJourneyDriftPlanInput): Journe
     const { guild, journey, bindings, permissionContext, ownership } = input;
     const self = journeyOwner(journey.journeyKey);
 
+    // Every kind, for a message's own row; Discord objects only for everything that resolves
+    // a key to a snowflake — a parent, a role reference — so a row of another kind left under
+    // such a key can never be read as one.
+    const rowByKey = new Map(bindings.map((binding) => [binding.resourceKey, binding] as const));
     const bindingByKey = new Map(
-        bindings.map((binding) => [binding.resourceKey, binding] as const)
+        bindings.filter((binding) => isDiscordResource(binding)).map((binding) => [binding.resourceKey, binding] as const)
     );
 
     const drifted: ResourceDriftReport[] = [];
@@ -125,16 +157,57 @@ export function buildJourneyDriftPlan(input: BuildJourneyDriftPlanInput): Journe
     const unchecked: UncheckedResource[] = [];
 
     for (const declaration of journey.resources) {
-        // A ticket type is never measured against its declaration: install uses an
-        // existing type exactly as it stands and never changes one, so a difference is not
-        // drift for anyone to repair.
-        if (!isDiscordResource(declaration)) continue;
+        if (!isDiscordResource(declaration)) {
+            const kind = nonDiscordResourceKind(declaration.kind);
+            switch (kind) {
+                // A ticket type is never measured against its declaration: install uses an
+                // existing type exactly as it stands and never changes one, so a difference
+                // is not drift for anyone to repair.
+                case 'ticketType':
+                    continue;
+                case 'message': {
+                    const outcome = checkMessage({
+                        guild,
+                        declaration,
+                        row: rowByKey.get(declaration.key),
+                        declaredChannelId: declaration.parentKey
+                            ? (bindingByKey.get(declaration.parentKey)?.discordId ?? undefined)
+                            : undefined,
+                        messagePresence: input.messagePresence,
+                        embedsSuppressed: input.embedsSuppressed?.has(declaration.key) ?? false,
+                    });
+                    switch (outcome.status) {
+                        case 'drifted':
+                            drifted.push(outcome.report);
+                            break;
+                        case 'clean':
+                            cleanKeys.push(declaration.key);
+                            break;
+                        case 'unchecked':
+                            unchecked.push(outcome.entry);
+                            break;
+                        case 'install':
+                            break;
+                        default: {
+                            const unreachable: never = outcome;
+                            throw new Error(`Unhandled message check: ${String(unreachable)}`);
+                        }
+                    }
+                    continue;
+                }
+                default: {
+                    const unreachable: never = kind;
+                    throw new Error(`Unhandled resource kind: ${String(unreachable)}`);
+                }
+            }
+        }
 
         const binding = bindingByKey.get(declaration.key);
 
         // Never installed, or recorded but never reached the guild. Install's subject. (A
-        // ticket type row under a key now declared as a channel names no Discord object
-        // either; install plans that key as new and rebinds the row, kind and all.)
+        // ticket type or message row under a key now declared as a channel names nothing in
+        // the guild's cache either; install plans that key as new and rebinds the row, kind
+        // and all.)
         if (!binding?.discordId || binding.state === 'intended' || !isDiscordResource(binding)) continue;
 
         const live = readLiveResource(guild, binding.kind, binding.discordId);
@@ -191,6 +264,99 @@ export function buildJourneyDriftPlan(input: BuildJourneyDriftPlanInput): Journe
         drifted,
         cleanKeys,
         unchecked,
+    };
+}
+
+interface CheckMessageInput {
+    readonly guild: Guild;
+    readonly declaration: ResourceDeclaration;
+    /** The row under the message's key, of whatever kind. */
+    readonly row: ResourceBindingEntity | undefined;
+    /** The id the declared channel is bound to, or undefined when it has none (or no channel is declared). */
+    readonly declaredChannelId: string | undefined;
+    readonly messagePresence: ReadonlyMap<string, MessagePresence> | undefined;
+    /** Whether somebody hid its embeds (SUPPRESS_EMBEDS), as the presence read found it. */
+    readonly embedsSuppressed: boolean;
+}
+
+/** Where one declared message lands in the report — or `install`, when it is install's subject and none of drift's. */
+type MessageCheck =
+    | { readonly status: 'drifted'; readonly report: ResourceDriftReport }
+    | { readonly status: 'clean' }
+    | { readonly status: 'unchecked'; readonly entry: UncheckedResource }
+    | { readonly status: 'install' };
+
+/**
+ * Whether a posted message still says what its declaration says, by fingerprint (`messageDigest`).
+ *
+ * Only the bot can edit its own message's content, so its content drifts only when its
+ * declaration moves on, and the fingerprint stored at its post and after each repair is exact
+ * (`messageDrift.ts`). The one thing anyone else can change is whether its embeds show:
+ * somebody with Manage Messages can hide them ("Remove all embeds", SUPPRESS_EMBEDS), which
+ * the fingerprint cannot see, so the presence read reports it. So:
+ *
+ *  - **never posted**, or posted and **gone** → install's: it posts it (again). Not drift, for
+ *    the header's reason;
+ *  - **posted in another channel** than the one now declared, or the declared channel not
+ *    bound → install's too: Discord cannot move a message, and install blocks it saying so;
+ *  - **unreadable** → `unchecked`, with why — neither clean nor drifted, which is what that
+ *    list is for: certifying a message nobody could look at would be a false clean, and
+ *    offering to repair it would edit blind;
+ *  - **found**, fingerprint differs, or its embeds hidden → `outOfDate`, saying which,
+ *    repairable: an adopted or shared message does not exist, and the repair's edit clears
+ *    the flag;
+ *  - **found**, same fingerprint, embeds showing → clean.
+ *
+ * A row with no fingerprint (written by something other than `upsertPostedMessage`) proves
+ * nothing about what is posted, so it is out of date: repairing writes one, and harmlessly.
+ */
+function checkMessage(input: CheckMessageInput): MessageCheck {
+    const { guild, declaration, row, declaredChannelId } = input;
+    if (!row || row.kind !== 'message' || !isPostedMessageRow(row)) return { status: 'install' };
+
+    const name = normaliseResourceName('message', declaration.defaultName);
+    const presence = requireMessagePresence(input.messagePresence, row, 'its drift check was built');
+    if (typeof presence === 'object') {
+        return {
+            status: 'unchecked',
+            entry: {
+                resourceKey: declaration.key,
+                name,
+                reason: `Couldn't check it in ${describeChannel(guild, row.messageChannelId)}: ${presence.unreadable}.`,
+            },
+        };
+    }
+    switch (presence) {
+        case 'gone':
+            return { status: 'install' };
+        case 'found':
+            break;
+        default: {
+            const unreachable: never = presence;
+            throw new Error(`Unhandled message presence: ${String(unreachable)}`);
+        }
+    }
+
+    if (!declaredChannelId || row.messageChannelId !== declaredChannelId) return { status: 'install' };
+
+    if (!declaration.message) {
+        // `validateJourneyDeclaration` requires one on every message resource, on every read.
+        throw new Error(`Message resource "${declaration.key}" declares no message.`);
+    }
+    const declarationMoved = row.messageDigest !== messageDigest(declaration.message, declaration.buttons);
+    if (!declarationMoved && !input.embedsSuppressed) return { status: 'clean' };
+
+    return {
+        status: 'drifted',
+        report: {
+            bindingId: row.id,
+            resourceKey: declaration.key,
+            name,
+            kind: 'message',
+            discordId: row.discordId,
+            drift: [{ kind: 'outOfDate', declarationMoved, embedsHidden: input.embedsSuppressed }],
+            repairable: true,
+        },
     };
 }
 

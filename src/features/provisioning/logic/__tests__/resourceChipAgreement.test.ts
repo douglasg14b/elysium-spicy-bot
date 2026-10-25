@@ -111,6 +111,30 @@ function ticketType(
     };
 }
 
+/** The channel a message resource is posted in. */
+const RULES_CHANNEL: BrowserResourceDeclaration = { key: 'rules', kind: 'textChannel', defaultName: 'rules' };
+
+type BrowserMessage = NonNullable<BrowserResourceDeclaration['message']>;
+
+/** A declared message, posted in {@link RULES_CHANNEL} unless overridden. Clean as it stands. */
+function message(
+    overrides: Partial<BrowserResourceDeclaration> = {},
+    content: BrowserMessage = { embeds: [{ title: 'House rules', description: 'Be filthy, be kind.' }] }
+): BrowserResourceDeclaration {
+    return {
+        key: 'rules-panel',
+        kind: 'message',
+        defaultName: 'Rules panel',
+        parentKey: 'rules',
+        message: content,
+        buttons: [
+            { key: 'let-me-in', label: 'Let me in', style: 'Success' },
+            { key: 'nope', label: 'Nope', style: 'Danger' },
+        ],
+        ...overrides,
+    };
+}
+
 /**
  * Declarations the server refuses, each named by the chip that should have warned.
  *
@@ -141,6 +165,31 @@ const REJECTED: readonly { chip: string; resources: BrowserResourceDeclaration[]
     { chip: 'invalidTicketType (label of spaces)', resources: [ticketType({ defaultName: '   ' })] },
     { chip: 'invalidTicketType (empty template)', resources: [ticketType({}, '   ')] },
     { chip: 'invalidKey (ticket type with no label)', resources: [ticketType({ defaultName: '' })] },
+    {
+        chip: 'messageNotSaveable (a token)',
+        resources: [RULES_CHANNEL, message({}, { embeds: [{ title: 'Welcome, {{subject.displayName}}' }] })],
+    },
+    {
+        chip: 'messageNotSaveable (two buttons, one key)',
+        resources: [
+            RULES_CHANNEL,
+            message({
+                buttons: [
+                    { key: 'let-me-in', label: 'Let me in', style: 'Success' },
+                    { key: 'let-me-in', label: 'Me too', style: 'Primary' },
+                ],
+            }),
+        ],
+    },
+    { chip: 'messageNotSaveable (an empty embed)', resources: [RULES_CHANNEL, message({}, { embeds: [{ title: 'Rules' }, {}] })] },
+    {
+        chip: 'messageNotSaveable (over 6000 characters)',
+        resources: [RULES_CHANNEL, message({}, { embeds: [{ description: 'x'.repeat(4096) }, { description: 'y'.repeat(1905) }] })],
+    },
+    {
+        chip: 'messageNotSaveable (a half-typed picture link)',
+        resources: [RULES_CHANNEL, message({}, { embeds: [{ title: 'Rules', thumbnail: 'htt' }] })],
+    },
     {
         chip: 'ruleNamesNoRole (no ids)',
         resources: [
@@ -248,6 +297,24 @@ const ACCEPTED: readonly { name: string; resources: BrowserResourceDeclaration[]
     { name: 'a declared ticket type', resources: [ticketType(), channel()] },
     { name: 'a ticket type label at exactly 45 characters', resources: [ticketType({ defaultName: 'x'.repeat(45) })] },
     { name: 'a ticket type keyed like the seeded verification', resources: [ticketType({ key: 'verification' })] },
+    { name: 'a clean message in its channel', resources: [RULES_CHANNEL, message()] },
+    {
+        name: 'a message with plain text, two embeds, an upload and no buttons',
+        resources: [
+            RULES_CHANNEL,
+            message(
+                { buttons: undefined },
+                {
+                    content: 'Read these before you touch anything.',
+                    embeds: [
+                        { title: 'House rules', image: 'upload:7d4f3b52-9a51-4a7b-8f53-0f6c5b0d2c11' },
+                        { title: 'Safewords', footer: { text: 'Red means stop' } },
+                    ],
+                }
+            ),
+        ],
+    },
+    { name: 'a message with no channel — No channel, install-blocking only', resources: [message({ parentKey: undefined })] },
 ];
 
 describe('red chips agree with the server', () => {
@@ -500,6 +567,41 @@ describe('install-blocking chips agree with the install planner', () => {
 
         expect(plan.items[0]?.action).toBe('create');
         expect(browserSeesInstallBlocker(labelled, { ...browserGuild, roles: [] })).toBe(false);
+    });
+});
+
+/**
+ * `messageNoChannel`, the second `blocksInstall` chip: a message saved without a channel. The
+ * save takes it (an `ACCEPTED` row above); this holds the other half against the planner, and
+ * that the chip goes once a channel is picked — when the planner moves on to its other checks.
+ */
+describe('the "No channel" chip agrees with the install planner', () => {
+    const plan = (resources: BrowserResourceDeclaration[]) =>
+        buildInstallPlan({
+            guild: guildWith([], []),
+            journey: { journeyKey: 'flow-1', name: 'Flow 1', resources: resources as JourneyDeclaration['resources'] },
+            existingBindings: [],
+            messagePresence: new Map(),
+            uploadSizes: new Map(),
+        });
+    const chipped = (resources: BrowserResourceDeclaration[]) =>
+        detectResourceProblems(resources).some((entry) => entry.chips.some((chip) => chip.id === 'messageNoChannel'));
+
+    it('the install really blocks a message with no channel, as the chip claims', () => {
+        const unplaced = [message({ parentKey: undefined })];
+
+        expect(plan(unplaced).items.find((item) => item.resourceKey === 'rules-panel')).toMatchObject({
+            action: 'blocked',
+            reason: 'Pick the channel it goes in.',
+        });
+        expect(chipped(unplaced)).toBe(true);
+    });
+
+    it('is quiet on a message in a declared channel, which the planner posts', () => {
+        const placed = [RULES_CHANNEL, message()];
+
+        expect(plan(placed).items.find((item) => item.resourceKey === 'rules-panel')?.action).toBe('create');
+        expect(chipped(placed)).toBe(false);
     });
 });
 

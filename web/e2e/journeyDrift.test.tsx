@@ -156,3 +156,87 @@ describe('the drift dialog against real routes and TestDiscord', () => {
         expect(await screen.findByText(CLEAN)).toBeTruthy();
     });
 });
+
+describe('the drift dialog on a journey that posted a message', () => {
+    const HOUSE_KEY = 'house';
+    const PANEL_KEY = 'rules-panel';
+
+    function house(title: string): JourneyDeclaration {
+        return {
+            journeyKey: HOUSE_KEY,
+            name: 'House',
+            resources: [
+                { key: 'rules', kind: 'textChannel', defaultName: 'rules' },
+                {
+                    key: PANEL_KEY,
+                    kind: 'message',
+                    defaultName: 'Rules panel',
+                    parentKey: 'rules',
+                    message: { content: 'Read these, then pick.', embeds: [{ title }] },
+                    buttons: [{ key: 'agree', label: 'I agree', style: 'Success' }],
+                },
+            ],
+        };
+    }
+
+    async function installHouse() {
+        const discord = new TestDiscord();
+        running.push(discord);
+        const guild = discord.createGuild({
+            bot: { permissions: ['ManageChannels', 'ManageRoles', 'SendMessages', 'EmbedLinks', 'ReadMessageHistory'] },
+        });
+        const client = await discord.start();
+        const liveGuild = discord.clientGuild(guild);
+        const journey = house('House rules');
+        await journeysRepo.create({ guildId: guild.id, journeyKey: HOUSE_KEY, name: journey.name, resources: journey.resources });
+
+        const input = { guild: liveGuild, journey, staffRoleIds: [] };
+        const result = await installJourney({ ...input, approvedPlan: await previewInstall(input) });
+        expect(result.failure).toBeUndefined();
+        const rulesId = result.applied.find((entry) => entry.resourceKey === 'rules')?.discordId;
+        const messageId = result.applied.find((entry) => entry.resourceKey === PANEL_KEY)?.discordId;
+        if (!rulesId || !messageId) throw new Error('The install posted no rules panel.');
+        discord.flushGateway();
+
+        installDashboardApi(client);
+        return { guild, rules: guild.channel(rulesId), messageId };
+    }
+
+    function openHouseDialog(guildId: string) {
+        return renderWithProviders(
+            <JourneyDriftDialog
+                opened
+                onClose={() => undefined}
+                guildId={guildId}
+                journeyKey={HOUSE_KEY}
+                journeyName="House"
+                subject="journey"
+            />
+        );
+    }
+
+    it('reads an untouched message as clean', async () => {
+        const { guild } = await installHouse();
+
+        openHouseDialog(guild.id);
+
+        expect(await screen.findByText('All 2 things this journey installed are still exactly as declared.')).toBeTruthy();
+    });
+
+    it('reports a changed message as out of date, and repair edits it in place', async () => {
+        const { guild, rules, messageId } = await installHouse();
+        await journeysRepo.update(guild.id, HOUSE_KEY, { resources: house('House rules, revised').resources });
+
+        const { user } = openHouseDialog(guild.id);
+        expect(
+            await screen.findByText(
+                "What's posted is older than this journey's message. Repair edits it in place, so it keeps its spot in the channel."
+            )
+        ).toBeTruthy();
+        await user.click(await screen.findByRole('button', { name: 'Repair 1 resource' }));
+
+        expect(await screen.findByText('All 2 things this journey installed are still exactly as declared.')).toBeTruthy();
+        expect(rules.messages.map((message) => message.id)).toEqual([messageId]);
+        expect(rules.message(messageId).embeds.map((embed) => embed.title)).toEqual(['House rules, revised']);
+    });
+});

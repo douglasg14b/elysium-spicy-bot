@@ -77,6 +77,7 @@ describe('naming a single resource by kind', () => {
             textChannel: kindLabel('textChannel'),
             role: kindLabel('role'),
             ticketType: kindLabel('ticketType'),
+            message: kindLabel('message'),
         };
 
         expect(labels).toEqual({
@@ -84,6 +85,7 @@ describe('naming a single resource by kind', () => {
             textChannel: 'channel',
             role: 'role',
             ticketType: 'ticket type',
+            message: 'message',
         });
     });
 

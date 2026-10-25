@@ -13,6 +13,8 @@ function binding(overrides: Partial<ResourceBindingEntity> = {}): ResourceBindin
         state: 'created',
         discordId: '100',
         name: 'welcome',
+        messageChannelId: null,
+        messageDigest: null,
         createdAt: new Date('2026-09-23T10:00:00.000Z'),
         updatedAt: new Date('2026-09-23T10:00:00.000Z'),
         ...overrides,
@@ -174,5 +176,32 @@ describe('a ticket type in the install state', () => {
                 ],
             })
         ).toMatchObject({ state: 'all', installedKeys: ['welcome', 'verify'] });
+    });
+});
+
+/*
+ * The dashboard locks a message's channel picker once its key is installed (pick 10 of
+ * `docs/plans/message-resource-step-2.md`), reading this list. A posted message's row is
+ * `created` with the message's id, so it counts as any other live row does — no message
+ * branch was needed, and this holds it so.
+ */
+describe('a message in the install state', () => {
+    it('counts as installed once it is posted, so its key is frozen', () => {
+        expect(
+            summariseJourneyInstall({
+                declaredKeys: ['welcome', 'rules-panel'],
+                bindings: [
+                    binding(),
+                    binding({
+                        id: 2,
+                        resourceKey: 'rules-panel',
+                        kind: 'message',
+                        discordId: '1100000000000000099',
+                        messageChannelId: '100',
+                        messageDigest: 'digest',
+                    }),
+                ],
+            })
+        ).toMatchObject({ state: 'all', installedKeys: ['welcome', 'rules-panel'] });
     });
 });

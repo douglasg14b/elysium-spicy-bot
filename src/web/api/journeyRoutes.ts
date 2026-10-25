@@ -55,6 +55,7 @@ import {
     OrphanPathSchema,
     RepairResultSchema,
     declarationsRefusal,
+    messageUploadsRefusal,
     type AttachedFlowBody,
 } from './journeyBody';
 import {
@@ -810,7 +811,7 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
         const { flowId } = c.req.valid('param');
         const { resources } = c.req.valid('json');
 
-        const refusal = declarationsRefusal(resources);
+        const refusal = declarationsRefusal(resources) ?? (await messageUploadsRefusal(guildId, resources));
         if (refusal) {
             return c.json({ error: refusal }, 400);
         }
@@ -1325,7 +1326,8 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
     router.openapi(createJourneyRoute, async (c) => {
         const body = c.req.valid('json');
 
-        const listRefusal = declarationsRefusal(body.resources);
+        const listRefusal =
+            declarationsRefusal(body.resources) ?? (await messageUploadsRefusal(c.get('guild').id, body.resources));
         if (listRefusal) {
             return c.json({ error: listRefusal }, 400);
         }
@@ -1353,7 +1355,9 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
         const { journeyKey } = c.req.valid('param');
         const body = c.req.valid('json');
 
-        const listRefusal = body.resources ? declarationsRefusal(body.resources) : undefined;
+        const listRefusal = body.resources
+            ? (declarationsRefusal(body.resources) ?? (await messageUploadsRefusal(guildId, body.resources)))
+            : undefined;
         if (listRefusal) {
             return c.json({ error: listRefusal }, 400);
         }

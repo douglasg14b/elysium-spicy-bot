@@ -238,6 +238,14 @@ Note that the disabling is **tidiness, not the guarantee** — a client holding 
 still send the press, and the park-scoped claim is what makes that harmless. Do not treat a
 successful edit as a security boundary.
 
+**Discord's button limits come from `src/shared/discordButtons.ts`**, not from flows: the four
+style names and their discord.js map (`BUTTON_STYLES`, `BUTTON_STYLE_MAP`), the customId and
+label lengths (`DISCORD_CUSTOM_ID_MAX_LENGTH`, `DISCORD_BUTTON_LABEL_MAX_LENGTH`) and the row
+sizes. A journey's message resource posts buttons too, and provisioning may not import flows, so
+the constants moved there; a block that posts buttons imports them from there rather than
+declaring its own. Its customIds keep flows' prefixes (`flow:`, `flowc:`); `mbtn:` belongs to the
+message resource.
+
 ### Waking up
 
 **A parked run resumes at your node, not the one after it.** Your `run` is called a second

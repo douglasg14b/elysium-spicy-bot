@@ -9,7 +9,8 @@ import {
     type PromptConfig,
 } from '../blocks/actionPrompt';
 import type { FlowRunContext } from '../blocks/types';
-import { DISCORD_CUSTOM_ID_MAX_LENGTH, FLOW_CHOICE_CUSTOM_ID_PREFIX } from '../constants';
+import { DISCORD_CUSTOM_ID_MAX_LENGTH } from '../../../shared/discordButtons';
+import { FLOW_CHOICE_CUSTOM_ID_PREFIX } from '../constants';
 import type { FlowEntity } from '../data/flowsSchema';
 import { ELIGIBILITY_CONFIG_KEY, OPEN_GATE, type Eligibility } from '../engine/eligibility';
 import {

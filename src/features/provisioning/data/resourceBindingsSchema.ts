@@ -109,6 +109,23 @@ export interface ResourceBindingTable {
      */
     name: string;
 
+    /**
+     * For a `message`: the channel it was posted in. Null on every other kind.
+     *
+     * The binding carries it because uninstall and the orphan list work from binding rows
+     * alone (`buildUnpublishPlan`), with no declaration to find the parent channel through
+     * — and a message cannot be found, or deleted, without its channel. Discord cannot move
+     * a message, so this never changes while the row names the same message.
+     */
+    messageChannelId: ColumnType<string | null, string | null | undefined, string | null>;
+
+    /**
+     * For a `message`: the fingerprint of the declaration it was posted, or last repaired,
+     * from (`messageDigest`). Null on every other kind. Drift reads it: nobody but the bot
+     * can edit what the bot posted, so a stale fingerprint is the only way a message drifts.
+     */
+    messageDigest: ColumnType<string | null, string | null | undefined, string | null>;
+
     createdAt: ColumnType<Date, string, string>;
     updatedAt: ColumnType<Date, string, string>;
 }

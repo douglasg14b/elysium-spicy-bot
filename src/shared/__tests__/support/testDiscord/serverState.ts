@@ -17,6 +17,7 @@ import {
     ThreadAutoArchiveDuration,
     type APIGuildCategoryChannel,
     type APIGuildMember,
+    type APINewsChannel,
     type APIOverwrite,
     type APIPublicThreadChannel,
     type APIRole,
@@ -28,6 +29,7 @@ import {
     type GatewayGuildMemberRemoveDispatchData,
     type GatewayGuildRoleModifyDispatchData,
     type GatewayMessageCreateDispatchData,
+    type GatewayMessageDeleteDispatchData,
     type GatewayMessageUpdateDispatchData,
     type GatewayReadyDispatchData,
     type PermissionsString,
@@ -42,9 +44,15 @@ import { TestDiscordError } from './testDiscordError';
  * `guild_id` is optional on the API type because some gateway payloads omit it, but every
  * channel Discord sends in a CHANNEL_* dispatch carries it — and discord.js cannot place a
  * channel in its guild without it.
+ *
+ * An announcement channel is only ever a text channel an operator converted
+ * (`ServerChannel.convertToAnnouncement`), as a Community server does to its rules channel:
+ * nothing creates one, so {@link CreatableChannelType} leaves it out.
  */
-export type ServerChannelPayload = (APITextChannel | APIGuildCategoryChannel) & { guild_id: string };
+export type ServerChannelPayload = (APITextChannel | APINewsChannel | APIGuildCategoryChannel) & { guild_id: string };
 export type ModelledChannelType = ServerChannelPayload['type'];
+/** The channel kinds the bot or a test may create. */
+export type CreatableChannelType = ChannelType.GuildText | ChannelType.GuildCategory;
 
 /**
  * An active public thread under a text channel.
@@ -74,7 +82,8 @@ export type HarnessEvent =
     | { readonly t: GatewayDispatchEvents.GuildMemberRemove; readonly d: GatewayGuildMemberRemoveDispatchData }
     | { readonly t: GatewayDispatchEvents.GuildCreate; readonly d: GatewayGuildCreateDispatchData }
     | { readonly t: GatewayDispatchEvents.MessageCreate; readonly d: GatewayMessageCreateDispatchData }
-    | { readonly t: GatewayDispatchEvents.MessageUpdate; readonly d: GatewayMessageUpdateDispatchData };
+    | { readonly t: GatewayDispatchEvents.MessageUpdate; readonly d: GatewayMessageUpdateDispatchData }
+    | { readonly t: GatewayDispatchEvents.MessageDelete; readonly d: GatewayMessageDeleteDispatchData };
 
 /** Where published events go once a client is connected. Before that, nowhere. */
 export interface EventSink {
@@ -90,7 +99,7 @@ export interface ChannelEdit {
 
 /** A channel to create. Every field is explicit; defaults belong to the caller. */
 export interface NewChannel {
-    readonly type: ModelledChannelType;
+    readonly type: CreatableChannelType;
     readonly name: string;
     readonly parentId: string | null;
     readonly overwrites: readonly APIOverwrite[];
@@ -185,7 +194,7 @@ const UNSEEN_TEXT_NAME_WHITESPACE = /^\s|\s$|\s\s|[^\S ]/;
  * copied from the product would agree with the product exactly where both are wrong.
  */
 function refuseUnseenName(type: ModelledChannelType, name: string): void {
-    if (type === ChannelType.GuildText && UNSEEN_TEXT_NAME_WHITESPACE.test(name)) {
+    if (type !== ChannelType.GuildCategory && UNSEEN_TEXT_NAME_WHITESPACE.test(name)) {
         throw new TestDiscordError(
             `TestDiscord received the text channel name ${JSON.stringify(name)}, whose leading, trailing, repeated or non-space whitespace Discord rewrites in a way that is not modelled. Verify it against live Discord before modelling it.`
         );
@@ -209,7 +218,8 @@ function refuseUnseenName(type: ModelledChannelType, name: string): void {
  * name whose punctuation Discord would rewrite is therefore stored verbatim, which is
  * a known gap: the harness certifies nothing about punctuation either way.
  *
- * Categories keep their case and spaces in Discord, so they pass through untouched.
+ * Categories keep their case and spaces in Discord, so they pass through untouched. An
+ * announcement channel is named as a text channel is.
  *
  * Written here rather than imported from the product's `normaliseResourceName`, on
  * purpose: the harness is an independent model of Discord, and borrowing the product's
@@ -218,6 +228,7 @@ function refuseUnseenName(type: ModelledChannelType, name: string): void {
 function storedChannelName(type: ModelledChannelType, name: string): string {
     switch (type) {
         case ChannelType.GuildText:
+        case ChannelType.GuildAnnouncement:
             return name.toLowerCase().replaceAll(' ', '-');
         case ChannelType.GuildCategory:
             return name;
@@ -449,7 +460,7 @@ export class ServerState {
         const { channel } = this.locateChannel(channelId);
 
         // A category's parent can only ever be null, which `checkEdit` has established.
-        if (edit.parentId !== undefined && channel.type === ChannelType.GuildText) channel.parent_id = edit.parentId;
+        if (edit.parentId !== undefined && channel.type !== ChannelType.GuildCategory) channel.parent_id = edit.parentId;
         if (edit.name !== undefined) channel.name = storedChannelName(channel.type, edit.name);
         if (edit.overwrites !== undefined) {
             channel.permission_overwrites = edit.overwrites.map((overwrite) => ({ ...overwrite }));
@@ -457,6 +468,23 @@ export class ServerState {
 
         this.sink?.publish({ t: GatewayDispatchEvents.ChannelUpdate, d: structuredClone(channel) });
         return structuredClone(channel);
+    }
+
+    /**
+     * An operator turning a text channel into an announcement channel, as a Community server
+     * does to its rules channel. Same id, name, parent, overwrites and messages; Discord
+     * announces the new type as a CHANNEL_UPDATE, on which discord.js replaces its cached
+     * channel with one of the new class.
+     */
+    convertToAnnouncement(channelId: string): void {
+        const { guild, channel } = this.locateChannel(channelId);
+        if (channel.type !== ChannelType.GuildText) {
+            throw new TestDiscordError(`Channel ${channelId} is not a text channel, so it cannot be made an announcement channel.`);
+        }
+        const converted: ServerChannelPayload = { ...channel, type: ChannelType.GuildAnnouncement };
+        guild.channels.set(channelId, converted);
+
+        this.sink?.publish({ t: GatewayDispatchEvents.ChannelUpdate, d: structuredClone(converted) });
     }
 
     /** Create or replace the overwrite for one id, leaving every other overwrite alone. */
@@ -491,7 +519,7 @@ export class ServerState {
         // Deleting a category orphans its children, which Discord announces as a
         // CHANNEL_UPDATE per child. Unmodelled, so refused rather than half-done.
         const hasChildren = [...guild.channels.values()].some(
-            (candidate) => candidate.type === ChannelType.GuildText && candidate.parent_id === channelId
+            (candidate) => candidate.type !== ChannelType.GuildCategory && candidate.parent_id === channelId
         );
         if (hasChildren) {
             throw new TestDiscordError(
@@ -614,7 +642,7 @@ export class ServerState {
         const thread = this.findThread(channelId);
         if (thread) return { guildId: thread.guild_id, holdsMessages: true };
         const { channel } = this.locateChannel(channelId);
-        return { guildId: channel.guild_id, holdsMessages: channel.type === ChannelType.GuildText };
+        return { guildId: channel.guild_id, holdsMessages: channel.type !== ChannelType.GuildCategory };
     }
 
     /** Whether Discord holds this channel or thread. */

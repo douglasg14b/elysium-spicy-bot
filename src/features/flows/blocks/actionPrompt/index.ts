@@ -1,6 +1,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
 import { z } from 'zod';
-import { DISCORD_BUTTON_LABEL_MAX_LENGTH, FLOW_MAX_CHOICES, FLOW_MAX_DELAY_MS } from '../../constants';
+import { DISCORD_BUTTON_LABEL_MAX_LENGTH } from '../../../../shared/discordButtons';
+import { FLOW_MAX_CHOICES, FLOW_MAX_DELAY_MS } from '../../constants';
 import {
     eligibilityConfigSchema,
     ELIGIBILITY_CONFIG_KEY,

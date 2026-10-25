@@ -1,4 +1,6 @@
-import { ChannelType, DiscordAPIError, type CategoryChannel, type Guild } from 'discord.js';
+import { ChannelType, DiscordAPIError, type CategoryChannel, type Guild, type Message } from 'discord.js';
+import { readMessageUploads } from '../../../features-system/guild-uploads';
+import { buildMessagePayload, messageConfigSchema } from '../../../shared/discordMessage';
 import { resourceBindingsRepo } from '../data/resourceBindingsRepo';
 import { journeyOwner, type ResourceBindingEntity } from '../data/resourceBindingsSchema';
 import { requireTicketTypeProvider, type TicketTypeCreateOutcome } from '../ticketTypeProvider';
@@ -11,6 +13,10 @@ import {
     type InstallPlan,
     type PlanItem,
 } from './installPlan';
+import { isMessageChannel } from './lookupBoundMessage';
+import { buildButtonRows } from './messageButtons';
+import { messageDigest } from './messageDrift';
+import { describeMessageResourceProblem } from './messageResourceProblems';
 import {
     compilePermissionIntents,
     type PermissionIntent,
@@ -18,6 +24,7 @@ import {
 } from './permissionIntent';
 import {
     isDiscordResource,
+    nonDiscordResourceKind,
     type DiscordResourceKind,
     type JourneyDeclaration,
     type ResourceDeclaration,
@@ -122,15 +129,30 @@ export async function applyInstallPlan(
             };
         }
 
-        // A ticket type is a row in the ticket settings, not a Discord object: nothing here
-        // can be half-made, so there is no intent row, and none of the Discord error
-        // handling below applies. Branched before `recordIntent`, which takes only a
-        // Discord kind.
+        // A ticket type is a row in the ticket settings, not a Discord object, and a message
+        // is posted whole or not at all: neither can be half-made, so neither has an intent
+        // row, and none of the Discord object handling below applies. Branched before
+        // `recordIntent`, which takes only a Discord kind.
         if (!isDiscordResource(item)) {
-            const outcome = await applyTicketType(guild.id, journey.journeyKey, item, declaration);
-            if ('failure' in outcome) return { applied, failure: outcome.failure };
-            applied.push(outcome);
-            continue;
+            const kind = nonDiscordResourceKind(item.kind);
+            switch (kind) {
+                case 'ticketType': {
+                    const outcome = await applyTicketType(guild.id, journey.journeyKey, item, declaration);
+                    if ('failure' in outcome) return { applied, failure: outcome.failure };
+                    applied.push(outcome);
+                    continue;
+                }
+                case 'message': {
+                    const outcome = await applyMessage(guild, journey.journeyKey, item, declaration, idByKey);
+                    if ('failure' in outcome) return { applied, failure: outcome.failure };
+                    applied.push(outcome);
+                    continue;
+                }
+                default: {
+                    const unreachable: never = kind;
+                    throw new Error(`Unhandled resource kind: ${String(unreachable)}`);
+                }
+            }
         }
 
         let binding: ResourceBindingEntity;
@@ -454,6 +476,107 @@ async function applyTicketType(
     }
 
     return { resourceKey: item.resourceKey, discordId: item.resourceKey, action: state, name };
+}
+
+/**
+ * Apply one message item: post it in its channel, then record where.
+ *
+ *  1. The channel is the one this apply bound to the message's parent — reused or just
+ *     created — and must be in the cache, a text channel or an announcement channel.
+ *  2. Its uploads are read for this guild (`readMessageUploads`), judged again, and attached.
+ *  3. It goes out as one send: the message, its buttons in rows of five, and no pings — a
+ *     standing message in a channel should not ping whoever it names each time it is posted.
+ *  4. The row is written with the message's id, its channel and its fingerprint
+ *     (`upsertPostedMessage`), over the row of a message that was gone.
+ *
+ * No intent row, as for a ticket type: there is nothing half-made to recover. So a row that
+ * fails to write after the post leaves a message nothing records, and the failure says to
+ * delete it by hand — the next install would otherwise post a second.
+ */
+async function applyMessage(
+    guild: Guild,
+    journeyKey: string,
+    item: PlanItem,
+    declaration: ResourceDeclaration,
+    idByKey: ReadonlyMap<string, string>
+): Promise<AppliedResource | { readonly failure: string }> {
+    if (item.action !== 'create') {
+        // A message is never adopted or recovered, and a reused one never reaches here.
+        return {
+            failure: `"${item.resourceKey}" is a message, which has nothing to ${item.action}. The plan is malformed — rebuild it.`,
+        };
+    }
+    if (!declaration.message || !declaration.parentKey) {
+        // `validateJourneyDeclaration` requires the message, and the plan blocks one with no
+        // channel — so this is a declaration that skipped both.
+        return { failure: `Message "${item.name}" has nothing to post, or nowhere to post it. Rebuild the plan.` };
+    }
+
+    const channelId = idByKey.get(declaration.parentKey);
+    const channel = channelId ? guild.channels.cache.get(channelId) : undefined;
+    // A text channel, or the announcement channel a Community server turned it into.
+    if (!channelId || !channel || !isMessageChannel(channel)) {
+        // Ordering puts the channel first, so this is a channel that failed, was skipped, or
+        // went between its own item and this one.
+        return {
+            failure: `Message "${item.name}" goes in "${declaration.parentKey}", which this install has no text channel for. Run install again.`,
+        };
+    }
+
+    const parsed = messageConfigSchema.safeParse(declaration.message);
+    if (!parsed.success) {
+        // The plan judged it; a declaration changed since would have made the plan stale.
+        return { failure: `Message "${item.name}" can't be posted as it stands: ${parsed.error.issues[0]?.message ?? 'it is not a message'}` };
+    }
+
+    let uploads: Awaited<ReturnType<typeof readMessageUploads>>;
+    try {
+        uploads = await readMessageUploads(guild.id, declaration.message);
+    } catch (error) {
+        logStoreFailure(`reading the uploads of message "${item.name}"`, error);
+        return { failure: `Could not read the pictures message "${item.name}" shows. Nothing was posted; run install again.` };
+    }
+    if (!uploads.ok) {
+        return { failure: describeMessageResourceProblem(item.name, uploads.problem) };
+    }
+    // Before the post, so nothing between the post and its record can throw but the write.
+    const digest = messageDigest(declaration.message, declaration.buttons);
+
+    let posted: Message;
+    try {
+        posted = await channel.send({
+            ...buildMessagePayload(parsed.data, uploads.files),
+            components: buildButtonRows(declaration.buttons ?? []),
+            allowedMentions: { parse: [] },
+        });
+    } catch (error) {
+        if (error instanceof DiscordAPIError) {
+            return { failure: `Failed to post message "${item.name}" in #${channel.name}: ${describeDiscordError(error)}` };
+        }
+        // An answer that never arrived: the message may be in the channel all the same.
+        console.error(`[provisioning] No answer from Discord posting message "${item.name}":`, error);
+        return {
+            failure: `Discord never confirmed whether message "${item.name}" was posted in #${channel.name}. Check there before installing again — if it landed, delete it, or there'll be two.`,
+        };
+    }
+
+    try {
+        await resourceBindingsRepo.upsertPostedMessage({
+            guildId: guild.id,
+            journeyKey,
+            resourceKey: item.resourceKey,
+            discordId: posted.id,
+            channelId: channel.id,
+            digest,
+            name: item.name,
+        });
+    } catch (error) {
+        logStoreFailure(`recording the post of message "${item.name}" (${posted.id})`, error);        return {
+            failure: `Message "${item.name}" was posted (${posted.id}), but recording it failed — delete it by hand before installing again, or there'll be two.`,
+        };
+    }
+
+    return { resourceKey: item.resourceKey, discordId: posted.id, action: 'created', name: item.name };
 }
 
 /**

@@ -55,7 +55,18 @@ const FLAVOUR_ROLES = [
 export function seedDiscord(discord: TestDiscord): ScenarioGuild {
     const guild = discord.createGuild({
         name: GUILD_NAME,
-        bot: { permissions: ['ManageChannels', 'ManageRoles', 'SendMessages', 'ViewChannel', 'EmbedLinks', 'AttachFiles'] },
+        bot: {
+            permissions: [
+                'ManageChannels',
+                'ManageRoles',
+                'SendMessages',
+                'ViewChannel',
+                'EmbedLinks',
+                'AttachFiles',
+                // A journey's message is read back for drift, so its install asks for this too.
+                'ReadMessageHistory',
+            ],
+        },
     });
 
     const staff = guild.createRole({ name: 'Staff' });

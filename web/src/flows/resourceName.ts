@@ -20,6 +20,7 @@ export function normaliseResourceName(kind: ResourceKind, name: string): string 
         case 'category':
         case 'role':
         case 'ticketType':
+        case 'message':
             return name;
         default: {
             const unreachable: never = kind;

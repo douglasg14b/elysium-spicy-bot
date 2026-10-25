@@ -15,10 +15,13 @@ export {
 export { IMAGE_CONTENT_TYPES, IMAGE_EXTENSIONS } from './logic/detectImageType';
 export { storeGuildUpload } from './logic/storeGuildUpload';
 export { deleteGuildUpload, type DeleteGuildUploadOutcome } from './logic/deleteGuildUpload';
+export { readMessageUploads, uploadSizesFor, type MessageUploadRead } from './logic/readMessageUploads';
 export {
     clearUploadUsageReadersForTests,
     registerUploadUsageReader,
     uploadUsesForGuild,
+    type FlowUploadUse,
+    type JourneyMessageUploadUse,
     type UploadUsageReader,
     type UploadUse,
 } from './logic/uploadUsage';

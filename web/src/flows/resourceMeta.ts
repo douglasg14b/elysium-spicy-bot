@@ -15,6 +15,7 @@
 import {
     IconFolder,
     IconHash,
+    IconMessage,
     IconShieldHalfFilled,
     IconTicket,
     type Icon as TablerIcon,
@@ -69,6 +70,15 @@ export const RESOURCE_KIND_STYLES: Record<ResourceKind, ResourceKindStyle> = {
         prefix: '',
         namePlaceholder: 'e.g. Verification',
     },
+    // A message the bot posts in one of the journey's channels. Its name is only ever the
+    // dashboard's, so there is no prefix for Discord to write.
+    message: {
+        color: 'teal',
+        icon: IconMessage,
+        label: 'Message',
+        prefix: '',
+        namePlaceholder: 'e.g. Rules panel',
+    },
 };
 
 /**
@@ -76,10 +86,10 @@ export const RESOURCE_KIND_STYLES: Record<ResourceKind, ResourceKindStyle> = {
  *
  * Not the generated `zResourceKind.options`: that array's order is the server's
  * vocabulary, and this one is a UI judgement — a channel is what an operator
- * declares most often, so it comes first, and a ticket type, the one setting rather
- * than an object, last.
+ * declares most often, so it comes first, a message straight after it because it is
+ * posted in one, and a ticket type, the one setting rather than an object, last.
  */
-export const RESOURCE_KIND_ORDER: readonly ResourceKind[] = ['textChannel', 'category', 'role', 'ticketType'];
+export const RESOURCE_KIND_ORDER: readonly ResourceKind[] = ['textChannel', 'message', 'category', 'role', 'ticketType'];
 
 /**
  * A declared resource's name with its kind's prefix, e.g. `#questions`.

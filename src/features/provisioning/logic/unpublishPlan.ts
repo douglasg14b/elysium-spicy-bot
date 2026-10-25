@@ -1,10 +1,12 @@
 import { ChannelType, PermissionFlagsBits, type Guild } from 'discord.js';
 import { journeyOwner, type ResourceBindingEntity } from '../data/resourceBindingsSchema';
 import { describeOtherHolder, type GuildOwnership } from './bindingOwner';
-import { existsInGuildAs, findInterruptedCreates } from './installPlan';
+import { describeChannel, existsInGuildAs, findInterruptedCreates } from './installPlan';
+import { requireMessagePresence, type MessagePresence } from './lookupBoundMessage';
 import {
     isDiscordResource,
     isDiscordResourceKind,
+    nonDiscordResourceKind,
     type DiscordResourceKind,
     type ResourceKind,
 } from './resourceDeclaration';
@@ -42,6 +44,12 @@ export const REFUSAL_REASONS = [
      * deleted on a guess nor forgotten as "never created" — see `buildUnpublishPlan`.
      */
     'interrupted-create',
+    /**
+     * A message whose channel the bot could not read, so whether it is still posted is
+     * unknown. Neither deleted nor forgotten on a guess: forgetting a message that is there
+     * would leave it posted with nothing that knows it is ours.
+     */
+    'unreadable',
 ] as const;
 export type RefusalReason = (typeof REFUSAL_REASONS)[number];
 
@@ -54,6 +62,11 @@ export interface UnpublishItem {
     readonly action: UnpublishAction;
     /** Set when the binding points at a guild object. Absent for an `intended` row. */
     readonly discordId?: string;
+    /**
+     * Set for a `message`: the channel it is posted in, which the applier deletes it from.
+     * The binding's own record, since no declaration may be left to find the channel by.
+     */
+    readonly messageChannelId?: string;
     /** Set for `refuse`. */
     readonly refusalReason?: RefusalReason;
     /** Set for `refuse`: the whole story, in words an operator can act on. */
@@ -87,6 +100,13 @@ export interface BuildUnpublishPlanInput {
      * deleted. Required, because omitting it is the unsafe direction for both.
      */
     readonly ownership: GuildOwnership;
+    /**
+     * Whether each message this journey posted is still there, keyed by resource key
+     * (`readMessagePresence`, over `bindings`). Required when a posted message's row is met
+     * — `previewUnpublish` always reads it — and such a row with no entry throws: deleting
+     * or forgetting on a guess are both wrong.
+     */
+    readonly messagePresence?: ReadonlyMap<string, MessagePresence>;
 }
 
 const KIND_LABEL: Record<ResourceKind, string> = {
@@ -94,6 +114,7 @@ const KIND_LABEL: Record<ResourceKind, string> = {
     textChannel: 'channel',
     role: 'role',
     ticketType: 'ticket type',
+    message: 'message',
 };
 
 /**
@@ -115,22 +136,25 @@ function ticketTypeStays(name: string): string {
  * flow whose journey row was deleted still has live bindings, which is exactly the
  * case this feature exists to clean up.
  *
- * So the order is by kind instead. It is sound because Discord's containment is only
- * one level deep and only one shape: a category holds channels, nothing holds a
- * category, and nothing holds a role. Channels first empties every category before it
- * is considered; roles are unordered with respect to both because nothing contains
- * them.
+ * So the order is by kind instead. It is sound because containment comes in only two
+ * fixed shapes: a text channel holds the messages posted in it, a category holds
+ * channels, nothing holds a category, and nothing holds a role. Messages first empties
+ * every channel, and channels then empty every category before it is considered; roles
+ * are unordered with respect to all three because nothing contains them.
  *
  * The ordering is a convenience, not the safety property — {@link survivorsOf} reads
  * the *guild* for a category's children, so a category is refused on what is actually
  * inside it rather than on what this sort believed would be gone by then.
  */
 const KIND_ORDER: Record<ResourceKind, number> = {
-    textChannel: 0,
-    role: 1,
-    category: 2,
+    // Before the text channel it is posted in: deleting the channel takes the message with
+    // it, and a delete answered "Unknown Channel" is a gone message, not a deleted one.
+    message: 0,
+    textChannel: 1,
+    role: 2,
+    category: 3,
     // Only ever forgotten, so its place is immaterial; last keeps the deletions together.
-    ticketType: 3,
+    ticketType: 4,
 };
 
 /**
@@ -276,10 +300,24 @@ export function buildUnpublishPlan(input: BuildUnpublishPlanInput): UnpublishPla
          * and the delete path below has no business seeing a row whose `discordId` is a
          * key. The applier carries a `forget` out without asking anyone, the ticket
          * feature included.
+         *
+         * A message has its own branch too: its id names nothing in the guild's cache, and
+         * whether it is still posted was read from Discord before this plan was built.
          */
         if (!isDiscordResource(binding)) {
-            items.push({ ...base, action: 'forget', explanation: ticketTypeStays(binding.name) });
-            continue;
+            const kind = nonDiscordResourceKind(binding.kind);
+            switch (kind) {
+                case 'ticketType':
+                    items.push({ ...base, action: 'forget', explanation: ticketTypeStays(binding.name) });
+                    continue;
+                case 'message':
+                    items.push(planMessageTeardown(guild, binding, input.messagePresence));
+                    continue;
+                default: {
+                    const unreachable: never = kind;
+                    throw new Error(`Unhandled resource kind: ${String(unreachable)}`);
+                }
+            }
         }
 
         /*
@@ -448,6 +486,68 @@ export function buildUnpublishPlan(input: BuildUnpublishPlanInput): UnpublishPla
     return { guildId: guild.id, journeyKey, items };
 }
 
+/**
+ * What uninstall does to one message this journey posted.
+ *
+ *  - **posted and there** → `delete`. The bot needs no permission to delete its own post;
+ *  - **gone** — deleted by hand, or with its channel → `forget`;
+ *  - **unreadable** → `refuse`, naming the channel and why. Deleting would be a guess, and
+ *    forgetting a message that is still there would leave it posted with no record;
+ *  - **any other state, or no id** → `refuse`. A message's row is only ever written
+ *    `created` (`upsertPostedMessage`), so anything else is a row this code did not write,
+ *    and it fails closed as the rest of this file does.
+ *
+ * No ownership fence: a message is never adopted and never held by a second owner.
+ */
+function planMessageTeardown(
+    guild: Guild,
+    binding: ResourceBindingEntity,
+    messagePresence: ReadonlyMap<string, MessagePresence> | undefined
+): UnpublishItem {
+    const base = {
+        bindingId: binding.id,
+        resourceKey: binding.resourceKey,
+        kind: binding.kind,
+        name: binding.name,
+    } as const;
+
+    if (binding.state !== 'created' || !binding.discordId || !binding.messageChannelId) {
+        return {
+            ...base,
+            ...(binding.discordId ? { discordId: binding.discordId } : {}),
+            action: 'refuse',
+            refusalReason: 'unrecognised-state',
+            explanation: `This message's record is in the state "${binding.state}"${binding.messageChannelId ? '' : ' with no channel'}, which this teardown does not recognise. Refusing to delete anything it cannot account for.`,
+        };
+    }
+
+    const presence = requireMessagePresence(messagePresence, binding, 'its teardown was planned');
+
+    const posted = { ...base, discordId: binding.discordId, messageChannelId: binding.messageChannelId };
+    if (typeof presence === 'object') {
+        return {
+            ...posted,
+            action: 'refuse',
+            refusalReason: 'unreadable',
+            explanation: `Couldn't check whether it's still posted in ${describeChannel(guild, binding.messageChannelId)}: ${presence.unreadable}. Nothing is deleted or forgotten on a guess — sort out the bot's access, then run this again.`,
+        };
+    }
+    switch (presence) {
+        case 'gone':
+            return {
+                ...posted,
+                action: 'forget',
+                explanation: 'This message is already gone from its channel, so only the leftover record is removed.',
+            };
+        case 'found':
+            return { ...posted, action: 'delete' };
+        default: {
+            const unreachable: never = presence;
+            throw new Error(`Unhandled message presence: ${String(unreachable)}`);
+        }
+    }
+}
+
 /** What this plan would actually destroy in the guild. */
 export function plannedDeletions(plan: UnpublishPlan): readonly UnpublishItem[] {
     return plan.items.filter((item) => item.action === 'delete');
@@ -466,5 +566,23 @@ export function plannedRefusals(plan: UnpublishPlan): readonly UnpublishItem[] {
  * ticket type "nothing live", and offer no uninstall — the one step that lets the type go.
  */
 export function plannedSettingsKept(plan: UnpublishPlan): readonly UnpublishItem[] {
-    return plan.items.filter((item) => item.action === 'forget' && !isDiscordResourceKind(item.kind));
+    return plan.items.filter((item) => item.action === 'forget' && isSettingKept(item.kind));
+}
+
+/** Whether a forgotten item of this kind leaves a setting behind: a ticket type does. */
+function isSettingKept(kind: ResourceKind): boolean {
+    if (isDiscordResourceKind(kind)) return false;
+
+    const settingKind = nonDiscordResourceKind(kind);
+    switch (settingKind) {
+        case 'ticketType':
+            return true;
+        // A message is forgotten only once it is gone: nothing is left behind.
+        case 'message':
+            return false;
+        default: {
+            const unreachable: never = settingKind;
+            throw new Error(`Unhandled resource kind: ${String(unreachable)}`);
+        }
+    }
 }

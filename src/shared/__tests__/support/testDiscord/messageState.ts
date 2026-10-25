@@ -1,6 +1,7 @@
 import {
     EmbedType,
     GatewayDispatchEvents,
+    MessageFlags,
     MessageType,
     SnowflakeUtil,
     type APIActionRowComponent,
@@ -26,7 +27,7 @@ import { TestDiscordError } from './testDiscordError';
  *
  * ## What is modelled, and what is refused
  *
- *  - **Send, fetch, edit and pin** of messages the bot writes. Discord's replies are
+ *  - **Send, fetch, edit, pin and delete** of messages the bot writes. Discord's replies are
  *    built from what was sent, with the members Discord adds on the way back:
  *    `type: 'rich'` on every embed, the mentioned users, `edited_timestamp` on an edit.
  *  - **Messages from others** — a member, the bot from elsewhere, a webhook, a join notice
@@ -39,27 +40,32 @@ import { TestDiscordError } from './testDiscordError';
  *  - **Embeds and components are stored as sent** otherwise. Discord re-serialises an
  *    embed's timestamp (`+00:00` and microseconds) and gives each component a numeric
  *    `id`; neither is modelled, so nothing may assert on either.
- *  - **Files** arrive with a send, multipart (`payload_json` plus `files[n]`), and are
- *    stored as the message's `attachments`, named as uploaded, with a CDN-shaped `url`.
- *    The payload's `attachments` must list exactly one entry per file, by index, and every
- *    `attachment://<name>` link in an embed must name a file the same send uploads —
- *    anything else faults, because what Discord does with it is not modelled. Discord
+ *  - **Files** arrive with a send or an edit, multipart (`payload_json` plus `files[n]`),
+ *    and are stored as the message's `attachments`, named as uploaded, with a CDN-shaped
+ *    `url`. The payload's `attachments` must list exactly one entry per file, by index, and
+ *    every `attachment://<name>` link in an embed must name a file the same request uploads
+ *    — anything else faults, because what Discord does with it is not modelled. Discord
  *    rewrites such a link to the file's CDN link in what it stores; that is **not**
  *    modelled either, so an embed keeps `attachment://<name>` as sent, and nothing may
- *    assert that it came back as a CDN link. An edit carrying files or `attachment://`
- *    links faults.
+ *    assert that it came back as a CDN link. On an edit the list is the whole of what the
+ *    message keeps: exactly the new files replace every stored attachment, and an empty
+ *    list clears them, as discord.js 14 sends an edit given `files`. A list keeping a stored
+ *    attachment by its id faults; an edit with no list leaves the attachments alone.
+ *  - **Flags**: every message carries `flags`, `0` until a moderator hides its embeds
+ *    (`suppressEmbeds`, SUPPRESS_EMBEDS) or an edit sends `flags`, which replaces them.
  *  - **Pinning** posts the system notice Discord posts (type `ChannelPinnedMessage`,
  *    referencing the pinned message, which the API documents) and announces
  *    CHANNEL_PINS_UPDATE, which the `Guilds` intent delivers.
- *  - **MESSAGE_CREATE and MESSAGE_UPDATE go only to a client holding the `GuildMessages`
- *    intent**, as Discord sends them. The harness's own client does not declare it, so it
- *    hears none; one driven through `TestDiscord.start({ client })` that does, such as
- *    `DISCORD_CLIENT`, hears them all. A send and a pin notice each announce
- *    MESSAGE_CREATE. An edit announces MESSAGE_UPDATE, and so does a pin, which flips the
- *    pinned message's `pinned`. That last one is observed rather than documented — the
- *    pin endpoint's docs name only CHANNEL_PINS_UPDATE — but it is the behaviour pin-log
- *    bots are built on, and leaving it out would leave a pinned message unpinned in the
- *    cache of every client that asked for message events.
+ *  - **MESSAGE_CREATE, MESSAGE_UPDATE and MESSAGE_DELETE go only to a client holding the
+ *    `GuildMessages` intent**, as Discord sends them. The harness's own client does not
+ *    declare it, so it hears none; one driven through `TestDiscord.start({ client })` that
+ *    does, such as `DISCORD_CLIENT`, hears them all. A delete — the bot's, or an
+ *    operator's (`ServerChannel.deleteMessage`) — announces MESSAGE_DELETE. A send and a
+ *    pin notice each announce MESSAGE_CREATE. An edit announces MESSAGE_UPDATE, and so
+ *    does a pin, which flips the pinned message's `pinned`. That last one is observed
+ *    rather than documented — the pin endpoint's docs name only CHANNEL_PINS_UPDATE — but
+ *    it is the behaviour pin-log bots are built on, and leaving it out would leave a pinned
+ *    message unpinned in the cache of every client that asked for message events.
  *  - **A message event carries the whole message as stored**, plus the fields the gateway
  *    adds for a guild message: `guild_id`, and the author's and each mentioned user's
  *    `member` without its `user`. Those are what discord.js reads off one — `guild_id` to
@@ -133,10 +139,18 @@ export interface ServerMessageView {
     readonly edited: boolean;
     /** The message a system notice points at, such as the one a pin notice announces. */
     readonly referencedMessageId: string | null;
+    /** Whether somebody hid its embeds (SUPPRESS_EMBEDS), and no edit has shown them since. */
+    readonly embedsSuppressed: boolean;
 }
 
 /** The slice of `ServerState` messages lean on. */
 type MessageHost = Pick<ServerState, 'botUser' | 'channel' | 'member' | 'noteChannelActivity' | 'messageChannel'>;
+
+/**
+ * What Discord sends for "no flags". discord-api-types declares `MessageFlags` without a zero
+ * member, so `0` is cast once here, as `serverState.ts` does for its flag enums.
+ */
+const NO_MESSAGE_FLAGS = 0 as MessageFlags;
 
 /** Global, for `matchAll`. Never call `.test` on it: a global regex keeps its place between calls. */
 const USER_MENTIONS = /<@!?(\d{17,20})>/g;
@@ -164,6 +178,7 @@ export function toMessageView(message: APIMessage): ServerMessageView {
         pinned: message.pinned,
         edited: message.edited_timestamp !== null,
         referencedMessageId: message.message_reference?.message_id ?? null,
+        embedsSuppressed: ((message.flags ?? 0) & MessageFlags.SuppressEmbeds) !== 0,
     };
 }
 
@@ -273,8 +288,15 @@ export class ServerMessages {
         return structuredClone(selected).reverse();
     }
 
-    /** Refuse an edit the harness cannot model. Reads only; the message must exist. */
-    checkEdit(channelId: string, messageId: string, body: EditMessageBody): void {
+    /**
+     * Refuse an edit the harness cannot model. Reads only; the message must exist.
+     *
+     * Files are modelled one way only, the way discord.js 14 sends them on an edit given
+     * `files`: `attachments` listing exactly the new files' indices, which replaces what the
+     * message held. A listed id naming one of its stored attachments — keeping it — faults, as
+     * does an `attachment://` link naming anything but a file the same edit uploads.
+     */
+    checkEdit(channelId: string, messageId: string, body: EditMessageBody, files: readonly MessageFile[] = []): void {
         const message = this.locate(channelId, messageId);
         if (message.author.id !== this.host.botUser.id) {
             throw new TestDiscordError(
@@ -293,25 +315,78 @@ export class ServerMessages {
                 `TestDiscord received an edit replacing the content of ${messageId}, which mentions somebody. How Discord recomputes mentions on an edit is not modelled.`
             );
         }
-        const attachmentLink = (body.embeds ?? []).flatMap(embedLinks).find(isAttachmentLink);
-        if (attachmentLink) {
+        const kept = (body.attachments ?? []).find((listed) => message.attachments.some((held) => held.id === listed.id));
+        if (kept) {
             throw new TestDiscordError(
-                `TestDiscord received an edit of ${messageId} whose embed points at ${attachmentLink}. How Discord resolves attachment links on an edit is not modelled.`
+                `TestDiscord received an edit of ${messageId} keeping its attachment ${kept.id}. Keeping an attachment through an edit is not modelled.`
             );
         }
+        if (body.attachments === undefined && files.length > 0) {
+            throw new TestDiscordError(
+                `TestDiscord received an edit of ${messageId} uploading files with no attachments list. What Discord does with those is not modelled.`
+            );
+        }
+        checkFiles(body, files);
     }
 
-    edit(channelId: string, messageId: string, body: EditMessageBody): APIMessage {
-        this.checkEdit(channelId, messageId, body);
+    edit(channelId: string, messageId: string, body: EditMessageBody, files: readonly MessageFile[] = []): APIMessage {
+        this.checkEdit(channelId, messageId, body, files);
         const message = this.locate(channelId, messageId);
 
         if (body.content !== undefined) message.content = body.content;
         if (body.embeds !== undefined) message.embeds = body.embeds.map(richEmbed);
         if (body.components !== undefined) message.components = structuredClone(body.components);
+        // The list names only new files (`checkEdit`), so what it leaves out is dropped: the
+        // message holds exactly what this edit uploaded — nothing, for an empty list.
+        if (body.attachments !== undefined) message.attachments = files.map((file) => storedAttachment(channelId, file));
+        if (body.flags !== undefined) message.flags = body.flags === 0 ? NO_MESSAGE_FLAGS : body.flags;
         message.edited_timestamp = new Date().toISOString();
         this.announceUpdate(message);
 
         return structuredClone(message);
+    }
+
+    /**
+     * Refuse a delete the harness cannot model: the bot deleting a message it did not write,
+     * which needs Manage Messages — not modelled. Reads only; the message must exist.
+     */
+    checkDelete(channelId: string, messageId: string): void {
+        if (this.locate(channelId, messageId).author.id !== this.host.botUser.id) {
+            throw new TestDiscordError(
+                `TestDiscord received a delete of message ${messageId}, which the bot did not write. Whether Discord allows it is not modelled.`
+            );
+        }
+    }
+
+    /**
+     * Remove a message — the bot's DELETE, or an operator deleting it in the Discord client —
+     * and announce MESSAGE_DELETE to a client that asked for message events. The channel's
+     * last message id is left as it was: Discord does not move it back.
+     */
+    delete(channelId: string, messageId: string): void {
+        const messages = this.byChannel.get(channelId) ?? [];
+        const index = messages.findIndex((message) => message.id === messageId);
+        if (index === -1) {
+            throw new TestDiscordError(`TestDiscord holds no message ${messageId} in channel ${channelId}.`);
+        }
+        messages.splice(index, 1);
+
+        if (!this.clientReceivesMessageEvents) return;
+        const { guildId } = this.host.messageChannel(channelId);
+        this.publish({ t: GatewayDispatchEvents.MessageDelete, d: { id: messageId, channel_id: channelId, guild_id: guildId } });
+    }
+
+    /**
+     * Somebody with Manage Messages hiding a message's embeds in the Discord client ("Remove
+     * all embeds"): SUPPRESS_EMBEDS is set on it, which a fetch then carries in `flags`, and
+     * MESSAGE_UPDATE is announced to a client that asked for message events. Its `embeds` are
+     * stored as they were: what Discord answers for them while hidden is not modelled, so
+     * nothing may assert on a hidden message's embeds.
+     */
+    suppressEmbeds(channelId: string, messageId: string): void {
+        const message = this.locate(channelId, messageId);
+        message.flags = (message.flags ?? 0) | MessageFlags.SuppressEmbeds;
+        this.announceUpdate(message);
     }
 
     /** Refuse a pin the harness cannot model. Reads only; the message must exist. */
@@ -448,6 +523,8 @@ export class ServerMessages {
             pinned: false,
             type,
             components: [],
+            // Discord sends a message's flags on every read; none until somebody sets one.
+            flags: NO_MESSAGE_FLAGS,
         };
     }
 
@@ -515,9 +592,9 @@ function embedLinks(embed: APIEmbed): string[] {
 /**
  * Refuse files the harness cannot model: a payload whose `attachments` do not list each
  * uploaded file exactly once by its index, and an embed pointing at `attachment://<name>`
- * where no uploaded file has that name.
+ * where no file the same request uploads has that name. A send or an edit alike.
  */
-function checkFiles(draft: MessageDraft, files: readonly MessageFile[]): void {
+function checkFiles(draft: Pick<MessageDraft, 'attachments' | 'embeds'>, files: readonly MessageFile[]): void {
     const listed = (draft.attachments ?? []).map((attachment) => Number(attachment.id)).sort((left, right) => left - right);
     const uploaded = files.map((file) => file.index).sort((left, right) => left - right);
     if (listed.length !== uploaded.length || listed.some((index, position) => index !== uploaded[position])) {

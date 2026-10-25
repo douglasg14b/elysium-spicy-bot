@@ -39,9 +39,9 @@ export interface PublishedResourceLine {
      *
      * A `ResourceKind` where the wire supplied one it recognises, so the row can be
      * drawn from `RESOURCE_KIND_STYLES` and inherit the same violet/blue/orange
-     * vocabulary the resources panel uses. `message` is not a resource kind — button
-     * messages are not provisioned — but it shares the row, so it shares the union.
-     * `unknown` is the fallback for a kind this build has not heard of, which is still
+     * vocabulary the resources panel uses. A flow's posted button message wears
+     * `message` too — the same glyph as a journey's message resource, though it is not
+     * provisioned and is taken down, not deleted, under "Posted messages". `unknown` is the fallback for a kind this build has not heard of, which is still
      * a real thing about to be deleted and must not be dropped.
      */
     readonly glyph: ResourceKind | 'message' | 'unknown';

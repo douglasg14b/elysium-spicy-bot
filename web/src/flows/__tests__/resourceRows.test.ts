@@ -39,6 +39,11 @@ function role(key: string, name = key): ResourceDeclaration {
     return { key, kind: 'role', defaultName: name };
 }
 
+function message(key: string, parentKey?: string, name = key): ResourceDeclaration {
+    const declaration: ResourceDeclaration = { key, kind: 'message', defaultName: name, message: { embeds: [{ title: name }] } };
+    return parentKey ? { ...declaration, parentKey } : declaration;
+}
+
 /** The shape the panel renders: key and depth, which is all the ordering decides. */
 function shape(resources: readonly ResourceDeclaration[]): string[] {
     return orderResourceRows(resources).map((row) => `${'  '.repeat(row.depth)}${row.resource.key}`);
@@ -110,6 +115,75 @@ describe('ordering rows so children follow their category', () => {
         const rows = orderResourceRows(resources);
 
         expect(rows.map((row) => row.index)).toEqual([1, 0]);
+    });
+
+    it('puts a message under the channel it is posted in, one level deeper', () => {
+        const resources = [
+            message('rules-panel', 'rules'),
+            role('verified'),
+            channel('rules', 'arrivals'),
+            message('lobby-sign', 'lobby'),
+            channel('lobby'),
+            category('arrivals'),
+        ];
+
+        expect(shape(resources)).toEqual(['arrivals', '  rules', '    rules-panel', 'lobby', '  lobby-sign', 'verified']);
+    });
+
+    it('groups messages with no channel, or a channel nothing declares, after the channels', () => {
+        const resources = [message('nowhere'), channel('lobby'), message('stranded', 'gone-away'), role('verified')];
+
+        expect(shape(resources)).toEqual(['lobby', 'nowhere', 'stranded', 'verified']);
+    });
+});
+
+describe('filtering a list with messages in it', () => {
+    const resources = [
+        category('arrivals'),
+        channel('rules', 'arrivals'),
+        message('rules-panel', 'rules', 'Rules panel'),
+        channel('lobby'),
+        message('lobby-sign', 'lobby', 'Lobby sign'),
+    ];
+
+    function filtered(query: string): string[] {
+        return filterResourceRows(orderResourceRows(resources), query).map(
+            (row) => `${row.resource.key}${row.isFilterContext ? ' (context)' : ''}`
+        );
+    }
+
+    it('keeps a matched message’s channel and that channel’s category, as context', () => {
+        expect(filtered('panel')).toEqual(['arrivals (context)', 'rules (context)', 'rules-panel']);
+    });
+
+    it('brings a matched channel’s messages with it', () => {
+        expect(filtered('lobby')).toEqual(['lobby', 'lobby-sign']);
+    });
+
+    it('brings everything inside a matched category, messages included', () => {
+        expect(filtered('arrivals')).toEqual(['arrivals', 'rules', 'rules-panel']);
+    });
+});
+
+describe('a channel’s messages through a rename and a removal', () => {
+    it('carries a message to its channel’s new key, leaving nothing dangling', () => {
+        const resources = [channel('rules'), message('rules-panel', 'rules')];
+
+        const renamed = applyResourcePatch(resources, 0, { key: 'house-rules' });
+
+        expect(renamed[1]?.parentKey).toBe('house-rules');
+        expect(danglingParentKeys(renamed)).toEqual([]);
+    });
+
+    it('leaves a message with no channel when its channel is removed', () => {
+        const removed = removeResourceAtIndex([channel('rules'), message('rules-panel', 'rules')], 0);
+
+        expect(removed).toEqual([message('rules-panel')]);
+        expect(danglingParentKeys(removed)).toEqual([]);
+    });
+
+    it('calls a message posted in a category dangling, as the server does', () => {
+        expect(danglingParentKeys([category('arrivals'), message('sign', 'arrivals')])).toEqual(['arrivals']);
     });
 });
 

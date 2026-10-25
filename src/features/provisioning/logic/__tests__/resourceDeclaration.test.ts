@@ -79,7 +79,7 @@ describe('validateJourneyDeclaration', () => {
         ).toThrow(/does not declare/i);
     });
 
-    it('rejects a parent that is not a category', () => {
+    it('rejects a channel whose parent is not a category — a text channel holds messages, not channels', () => {
         expect(() =>
             validateJourneyDeclaration(
                 journey([
@@ -87,7 +87,7 @@ describe('validateJourneyDeclaration', () => {
                     { key: 'chan', kind: 'textChannel', defaultName: 'welcome', parentKey: 'other' },
                 ])
             )
-        ).toThrow(/Only a category can be a parent/i);
+        ).toThrow(/A channel's parent can only be a category/i);
     });
 
     it('rejects a role with a parent', () => {
@@ -434,5 +434,71 @@ describe('validateJourneyDeclaration for a ticket type', () => {
         expect(() =>
             validateJourneyDeclaration(journey([TYPE, { key: 'chan', kind: 'textChannel', defaultName: 'welcome', parentKey: 'verify' }]))
         ).toThrow(ResourceDeclarationError);
+    });
+});
+
+/**
+ * A message's shape and parent. Structural only, like a ticket type's: whether the message is
+ * one Discord would take is checked on save (`messageResourceProblems`), so a bad one cannot
+ * make every read of its journey fail.
+ */
+describe('validateJourneyDeclaration for a message', () => {
+    const CATEGORY: ResourceDeclaration = { key: 'cat', kind: 'category', defaultName: 'Arrivals' };
+    const CHANNEL: ResourceDeclaration = { key: 'rules', kind: 'textChannel', defaultName: 'rules', parentKey: 'cat' };
+    const MESSAGE: ResourceDeclaration = {
+        key: 'rules-panel',
+        kind: 'message',
+        defaultName: 'Rules panel',
+        parentKey: 'rules',
+        message: { embeds: [{ title: 'House rules' }] },
+        buttons: [{ key: 'let-me-in', label: 'Let me in', style: 'Success' }],
+    };
+
+    it('accepts a message posted in a declared text channel', () => {
+        expect(() => validateJourneyDeclaration(journey([CATEGORY, CHANNEL, MESSAGE]))).not.toThrow();
+    });
+
+    it('accepts a message with no channel yet — install asks for one', () => {
+        expect(() => validateJourneyDeclaration(journey([{ ...MESSAGE, parentKey: undefined }]))).not.toThrow();
+    });
+
+    it('refuses a message under a category', () => {
+        expect(() => validateJourneyDeclaration(journey([CATEGORY, { ...MESSAGE, parentKey: 'cat' }]))).toThrow(
+            /only a text channel can be its parent/
+        );
+    });
+
+    it('refuses a message under another message', () => {
+        expect(() =>
+            validateJourneyDeclaration(
+                journey([CATEGORY, CHANNEL, MESSAGE, { ...MESSAGE, key: 'second-panel', parentKey: 'rules-panel' }])
+            )
+        ).toThrow(/only a text channel can be its parent/);
+    });
+
+    it('refuses a role under a text channel — only a message sits in one', () => {
+        expect(() =>
+            validateJourneyDeclaration(journey([CHANNEL, CATEGORY, { key: 'role', kind: 'role', defaultName: 'Verified', parentKey: 'rules' }]))
+        ).toThrow(/Roles do not live under categories/);
+    });
+
+    it('requires the message itself', () => {
+        expect(() => validateJourneyDeclaration(journey([{ ...MESSAGE, parentKey: undefined, message: undefined }]))).toThrow(
+            /nothing in it to post/
+        );
+    });
+
+    it.each([
+        ['channel permissions', { permissions: [{ audience: 'everyone', access: 'hidden' }] }, /channel permissions/],
+        ['something to adopt', { adoptDiscordId: '123456789012345678' }, /only edit a message it posted/],
+    ] as const)('refuses %s', (_label, extra, message) => {
+        expect(() => validateJourneyDeclaration(journey([CATEGORY, CHANNEL, { ...MESSAGE, ...extra }]))).toThrow(message);
+    });
+
+    it.each([
+        ['buttons on a role', { key: 'role', kind: 'role', defaultName: 'Verified', buttons: MESSAGE.buttons }],
+        ['a message on a channel', { key: 'chan', kind: 'textChannel', defaultName: 'chat', message: MESSAGE.message }],
+    ] as const)('refuses %s', (_label, resource) => {
+        expect(() => validateJourneyDeclaration(journey([resource]))).toThrow(/Only a message has those/);
     });
 });

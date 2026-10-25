@@ -40,6 +40,8 @@ function binding(
         state,
         discordId,
         name,
+        messageChannelId: null,
+        messageDigest: null,
         createdAt: new Date(),
         updatedAt: new Date(),
     };
@@ -262,5 +264,17 @@ describe('planJourneyMerge with ticket types', () => {
 
         expect(plan.moving[0]?.live).toEqual({ discordId: 'verification', name: 'verification' });
         expect(plan.orphaned).toEqual([]);
+    });
+});
+
+describe('planJourneyMerge with a message', () => {
+    it('lists a posted message as orphaned when left behind — it stays posted with nothing tracking it', () => {
+        const plan = planJourneyMerge({
+            movingDeclarations: [declaration('rules-panel', 'Rules panel', 'message')],
+            destinationDeclarations: [],
+            movingBindings: [{ ...binding('rules-panel', 'created', '1100000000000000099', 'Rules panel'), kind: 'message' }],
+        });
+
+        expect(plan.orphaned.map((resource) => resource.key)).toEqual(['rules-panel']);
     });
 });

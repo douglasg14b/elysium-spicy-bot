@@ -13,6 +13,7 @@ import { initGuildAllowlist } from './features-system/guild-allowlist';
 import { initLeveling, stopLeveling } from './features/leveling';
 import { initWarnings } from './features/warnings';
 import { initFlows, stopFlowRunScheduler } from './features/flows';
+import { initProvisioning } from './features/provisioning';
 import { startWebServer, stopWebServer } from './web/server';
 
 interactionsRegistry.register(flashChatCommand, handleFlashChatCommand);
@@ -40,6 +41,10 @@ initLeveling();
 
 // Initialize staff warnings
 initWarnings();
+
+// Tell guild-uploads which pictures journeys' message resources show, beside flows'
+// own reader below, so an upload a journey still shows cannot be deleted.
+initProvisioning();
 
 // Initialize flow engine (headless node-graph flows). Awaited before the web
 // server starts: blocks are discovered from the filesystem, and no flow surface

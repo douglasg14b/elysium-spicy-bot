@@ -2,6 +2,7 @@ import { ChannelType, PermissionFlagsBits, SnowflakeUtil } from 'discord.js';
 import { describe, expect, it } from 'vitest';
 import type { ResourceBindingEntity } from '../../data/resourceBindingsSchema';
 import { buildInstallPlan, isPlanApplicable, type PlanItem } from '../installPlan';
+import type { MessagePresence } from '../lookupBoundMessage';
 import type { JourneyDeclaration } from '../resourceDeclaration';
 
 /**
@@ -37,7 +38,14 @@ function makeGuild({
     botRolePosition = 5,
     botCached = true,
 }: FakeGuildOptions = {}) {
-    const channelMap = new Map(channels.map((channel) => [channel.id, channel]));
+    // Each channel grants the bot what the server does: no overwrites. A channel's own
+    // overwrites are exercised against TestDiscord in `provisioningMessage.integration.test.ts`.
+    const channelMap = new Map(
+        channels.map((channel) => [
+            channel.id,
+            { ...channel, permissionsFor: () => ({ has: (flag: bigint) => permissions.includes(flag) }) },
+        ])
+    );
     const roleMap = new Map(roles.map((role) => [role.id, role]));
 
     return {
@@ -805,5 +813,244 @@ describe('buildInstallPlan for a ticket type', () => {
         expect(() =>
             buildInstallPlan({ guild: makeGuild(), journey: TYPE_JOURNEY, existingBindings: [] })
         ).toThrow(/without reading the server's ticket types/);
+    });
+});
+
+/**
+ * A declared message, planned from whether what this journey posted is still there — read
+ * from Discord by the service and handed in — never from the guild's cache.
+ */
+describe('buildInstallPlan for a message', () => {
+    const POSTING = [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.EmbedLinks,
+        PermissionFlagsBits.ReadMessageHistory,
+        PermissionFlagsBits.AttachFiles,
+    ];
+    const UPLOAD = '0f0e0d0c-0b0a-4908-8706-050403020100';
+    const RULES = { id: 'chan-rules', name: 'rules', type: ChannelType.GuildText };
+    const ELSEWHERE = { id: 'chan-elsewhere', name: 'verify', type: ChannelType.GuildText };
+
+    function messageJourney(overrides: Partial<JourneyDeclaration['resources'][number]> = {}): JourneyDeclaration {
+        return {
+            journeyKey: 'onboarding',
+            name: 'Onboarding',
+            resources: [
+                // Named apart from `#rules` in the cache, which would otherwise block on the name.
+                { key: 'rules', kind: 'textChannel', defaultName: 'house-rules' },
+                {
+                    key: 'rules-panel',
+                    kind: 'message',
+                    defaultName: 'Rules panel',
+                    parentKey: 'rules',
+                    message: { embeds: [{ title: 'House rules' }] },
+                    ...overrides,
+                },
+            ],
+        };
+    }
+
+    const channelRow = binding({ resourceKey: 'rules', discordId: RULES.id, name: 'rules' });
+    const postedRow = binding({
+        resourceKey: 'rules-panel',
+        kind: 'message',
+        discordId: 'msg-1',
+        name: 'Rules panel',
+        messageChannelId: RULES.id,
+        messageDigest: 'digest',
+    });
+
+    function plan(input: {
+        readonly journey?: JourneyDeclaration;
+        readonly bindings?: readonly ResourceBindingEntity[];
+        readonly presence?: MessagePresence;
+        readonly permissions?: bigint[];
+        readonly uploadSizes?: ReadonlyMap<string, number>;
+        readonly botCached?: boolean;
+    }) {
+        return buildInstallPlan({
+            guild: makeGuild({
+                channels: [RULES, ELSEWHERE],
+                permissions: input.permissions ?? [PermissionFlagsBits.ManageChannels, ...POSTING],
+                botCached: input.botCached,
+            }),
+            journey: input.journey ?? messageJourney(),
+            existingBindings: input.bindings ?? [],
+            messagePresence: input.presence ? new Map([['rules-panel', input.presence]]) : new Map(),
+            uploadSizes: input.uploadSizes,
+        });
+    }
+
+    it('posts a message never posted, after its channel', () => {
+        const built = plan({});
+
+        expect(built.items.map((item) => item.resourceKey)).toEqual(['rules', 'rules-panel']);
+        expect(itemFor(built.items, 'rules-panel')).toEqual({
+            resourceKey: 'rules-panel',
+            kind: 'message',
+            name: 'Rules panel',
+            parentKey: 'rules',
+            action: 'create',
+        });
+        expect(isPlanApplicable(built)).toBe(true);
+    });
+
+    it('blocks a message with no channel picked', () => {
+        const built = plan({ journey: messageJourney({ parentKey: undefined }) });
+
+        expect(itemFor(built.items, 'rules-panel')).toMatchObject({ action: 'blocked', reason: 'Pick the channel it goes in.' });
+    });
+
+    it('reuses a posted message still in the channel the journey names, and never edits it', () => {
+        const built = plan({ bindings: [channelRow, postedRow], presence: 'found' });
+
+        expect(itemFor(built.items, 'rules')).toMatchObject({ action: 'reuse', discordId: RULES.id });
+        expect(itemFor(built.items, 'rules-panel')).toMatchObject({ action: 'reuse', discordId: 'msg-1' });
+    });
+
+    it('posts again, saying so, when the message it posted is gone', () => {
+        const built = plan({ bindings: [channelRow, postedRow], presence: 'gone' });
+
+        expect(itemFor(built.items, 'rules-panel')).toMatchObject({
+            action: 'create',
+            reason: 'The message this journey posted no longer exists, so it will be posted again.',
+        });
+    });
+
+    it('blocks, naming the channel and why, when the message could not be read', () => {
+        const built = plan({ bindings: [channelRow, postedRow], presence: { unreadable: "the bot can't even see it" } });
+
+        expect(itemFor(built.items, 'rules-panel')).toMatchObject({
+            action: 'blocked',
+            reason: "Couldn't check it in #rules: the bot can't even see it.",
+        });
+    });
+
+    it('blocks a posted message whose channel the journey now names differently, since Discord cannot move it', () => {
+        const moved = binding({ ...postedRow, messageChannelId: ELSEWHERE.id });
+
+        const built = plan({ bindings: [channelRow, moved], presence: 'found' });
+
+        expect(itemFor(built.items, 'rules-panel')).toMatchObject({
+            action: 'blocked',
+            reason: "It's posted in #verify, but this journey now puts it in another channel. Discord can't move a message: delete it there and install again.",
+        });
+    });
+
+    it('blocks a posted message whose channel this install would create, as a move', () => {
+        // The channel's own row is gone, so the plan makes a new one; the message sits in the old.
+        const built = plan({ bindings: [postedRow], presence: 'found' });
+
+        expect(itemFor(built.items, 'rules')).toMatchObject({ action: 'create' });
+        expect(itemFor(built.items, 'rules-panel')).toMatchObject({ action: 'blocked' });
+        expect(itemFor(built.items, 'rules-panel').reason).toMatch(/Discord can't move a message/);
+    });
+
+    it('blocks a message Discord would refuse, naming the part', () => {
+        const built = plan({ journey: messageJourney({ message: { embeds: [{}] } }) });
+
+        expect(itemFor(built.items, 'rules-panel')).toMatchObject({ action: 'blocked' });
+        expect(itemFor(built.items, 'rules-panel').reason).toMatch(/^"Rules panel" embed 1: /);
+    });
+
+    it('blocks a message showing an upload this server does not hold, naming the part', () => {
+        const built = plan({
+            journey: messageJourney({ message: { embeds: [{ title: 'Look', image: `upload:${UPLOAD}` }] } }),
+            uploadSizes: new Map(),
+        });
+
+        expect(itemFor(built.items, 'rules-panel')).toMatchObject({ action: 'blocked' });
+        expect(itemFor(built.items, 'rules-panel').reason).toMatch(
+            /^"Rules panel" embed 1 image: That uploaded picture isn't in this server/
+        );
+    });
+
+    it('posts a message showing an upload this server holds', () => {
+        const built = plan({
+            journey: messageJourney({ message: { embeds: [{ title: 'Look', image: `upload:${UPLOAD}` }] } }),
+            uploadSizes: new Map([[UPLOAD, 1024]]),
+        });
+
+        expect(itemFor(built.items, 'rules-panel')).toMatchObject({ action: 'create' });
+    });
+
+    it('notes on every item for a message with buttons that nothing listens to them yet', () => {
+        const buttons = [{ key: 'agree', label: 'I agree', style: 'Success' as const }];
+
+        const fresh = plan({ journey: messageJourney({ buttons }) });
+        const reused = plan({ journey: messageJourney({ buttons }), bindings: [channelRow, postedRow], presence: 'found' });
+        const bare = plan({});
+
+        for (const built of [fresh, reused]) {
+            expect(itemFor(built.items, 'rules-panel').note).toBe(
+                'Nobody listens to its buttons yet — a press answers "Nothing\'s hooked up to this yet".'
+            );
+        }
+        expect(itemFor(bare.items, 'rules-panel').note).toBeUndefined();
+    });
+
+    it('blocks a message over a row of another kind under its key, rather than forgetting it', () => {
+        const built = plan({ bindings: [binding({ resourceKey: 'rules-panel', kind: 'role', discordId: 'role-1' })] });
+
+        expect(itemFor(built.items, 'rules-panel')).toMatchObject({ action: 'blocked' });
+        expect(itemFor(built.items, 'rules-panel').reason).toMatch(/still holds a role under the key "rules-panel"/);
+    });
+
+    it('blocks a channel declared under a key that still holds a posted message, rather than taking its row', () => {
+        const journey: JourneyDeclaration = {
+            journeyKey: 'onboarding',
+            name: 'Onboarding',
+            resources: [{ key: 'rules-panel', kind: 'textChannel', defaultName: 'panel' }],
+        };
+
+        const built = plan({ journey, bindings: [postedRow] });
+
+        expect(itemFor(built.items, 'rules-panel')).toMatchObject({ action: 'blocked' });
+        expect(itemFor(built.items, 'rules-panel').reason).toMatch(/still holds a message under the key "rules-panel"/);
+    });
+
+    it('blocks the whole install when the bot cannot post, embed or read back', () => {
+        const built = plan({ permissions: [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.SendMessages] });
+
+        expect(built.blockers).toEqual([
+            "The bot lacks **Embed Links** and **Read Message History**, which this journey needs to post its messages and check they're still there.",
+        ]);
+        expect(isPlanApplicable(built)).toBe(false);
+    });
+
+    it('asks for Attach Files only when a message shows an upload', () => {
+        const withoutAttach = [
+            PermissionFlagsBits.ManageChannels,
+            ...POSTING.filter((flag) => flag !== PermissionFlagsBits.AttachFiles),
+        ];
+
+        expect(plan({ permissions: withoutAttach }).blockers).toEqual([]);
+        expect(
+            plan({
+                permissions: withoutAttach,
+                journey: messageJourney({ message: { embeds: [{ title: 'Look', image: `upload:${UPLOAD}` }] } }),
+                uploadSizes: new Map([[UPLOAD, 1024]]),
+            }).blockers
+        ).toEqual(['The bot lacks **Attach Files**, which this journey needs to post the pictures uploaded for its messages.']);
+    });
+
+    it("says it couldn't see the bot itself, rather than naming permissions, when reposting into a channel with no bot member", () => {
+        const built = plan({ bindings: [channelRow, postedRow], presence: 'gone', botCached: false });
+
+        expect(itemFor(built.items, 'rules-panel')).toMatchObject({
+            action: 'blocked',
+            reason: "Couldn't see the bot's own member, so whether it can post in #rules can't be checked. Try again in a moment.",
+        });
+    });
+
+    it('throws when a posted message was planned without checking whether it is still there', () => {
+        expect(() =>
+            buildInstallPlan({
+                guild: makeGuild({ channels: [RULES], permissions: [PermissionFlagsBits.ManageChannels, ...POSTING] }),
+                journey: messageJourney(),
+                existingBindings: [channelRow, postedRow],
+            })
+        ).toThrow(/without checking whether it is still there/);
     });
 });

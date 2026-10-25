@@ -29,16 +29,20 @@
  *    `ticketTypeDefinitionProblem` on a declared ticket type — its label's 45-character
  *    cap and its template. Not mirrored by hand: `validateTicketTypeDraft` asks the SDK's
  *    generated rules for a ticket type, the tickets page's own check.
+ *  - `messageResourceRefusal` in the same file — a message resource's rules spanning parts,
+ *    its pictures, no `{{tokens}}`, and each button its own key. Mirrored in
+ *    `messageResourceProblems.ts`, held by `messageResourceProblemsDrift.test.ts`.
  *
  * ## What is deliberately *not* mirrored
  *
  * `validateJourneyDeclaration` also rejects an empty journey, a parent key naming
- * nothing, a non-category parent, and a role or category declaring a parent. None of
+ * nothing, a parent of the wrong kind, and a role or category declaring a parent. None of
  * those are chips, because none are reachable from this panel — and that claim now
  * rests on three things rather than two:
  *
- *  - a parent cannot be **typed**: the picker offers declared categories only, and is
- *    not rendered for a role (`canHaveParent`);
+ *  - a parent cannot be **typed**: each picker offers only declared resources of the one
+ *    kind that may hold the row — categories for a channel, text channels for a message —
+ *    and none is rendered for a role, a category or a ticket type (`parentKindFor`);
  *  - a parent cannot survive a **deletion**: `removeResource` clears a dangling
  *    `parentKey`, and drops `resource:` references, when the target goes;
  *  - a parent cannot survive a **rename**: `updateResource` routes a key change through
@@ -68,6 +72,7 @@ import {
 import { fieldProblems } from '../api/fieldProblems';
 import { validateTicketTypeDraft } from '../tickets/ticketTypeForm';
 import { parseDeclaredRoleReference } from './declaredRoleReference';
+import { describeMessageResourceProblem, messageResourceProblems } from './messageResourceProblems';
 import type { ResourceChipDetail, ResourceChipId } from './resourceChips';
 import { RESOURCE_CHIP_ORDER, RESOURCE_CHIPS } from './resourceChips';
 import { collidableNamesFor, nameCollidesWithExisting } from './resourceNameSuggestions';
@@ -229,6 +234,12 @@ function chipsForResource(context: ChipContext): ResourceChipInstance[] {
         chips.push({ id: 'invalidTicketType', detail: {} });
     }
 
+    // The first thing the save would refuse the message for, in the server's words.
+    const [messageProblem] = messageResourceProblems(resource);
+    if (messageProblem) {
+        chips.push({ id: 'messageNotSaveable', detail: { problem: describeMessageResourceProblem(messageProblem) } });
+    }
+
     for (const [ruleIndex, intent] of (resource.permissions ?? []).entries()) {
         if (ruleNamesNoRole(intent, context)) {
             chips.push({ id: 'ruleNamesNoRole', detail: { ruleIndex } });
@@ -281,6 +292,13 @@ function chipsForResource(context: ChipContext): ResourceChipInstance[] {
         });
 
         if (collides) chips.push({ id: 'nameTaken', detail: {} });
+    }
+
+    // Saved without a channel, which install refuses before it looks at anything else. A
+    // `parentKey` naming nothing is not this: removing or renaming a channel carries its
+    // messages' references with it (`resourceRows.ts`), so the panel cannot leave one.
+    if (resource.kind === 'message' && resource.parentKey === undefined) {
+        chips.push({ id: 'messageNoChannel', detail: {} });
     }
 
     // --- warnings: this saves, and probably does not mean what you think ---------

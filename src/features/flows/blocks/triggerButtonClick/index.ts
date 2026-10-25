@@ -1,5 +1,5 @@
-import { ButtonStyle } from 'discord.js';
 import { z } from 'zod';
+import { BUTTON_STYLES, DISCORD_BUTTON_LABEL_MAX_LENGTH } from '../../../../shared/discordButtons';
 import {
     eligibilityConfigSchema,
     ELIGIBILITY_CONFIG_KEY,
@@ -31,22 +31,13 @@ export const buttonClickConfigSchema = z.object({
      * `trigger.reactionAdd` does.
      */
     channelId: z.string().min(1),
-    label: z.string().min(1).max(80),
+    label: z.string().min(1).max(DISCORD_BUTTON_LABEL_MAX_LENGTH),
     /** Discord button style; defaults to Primary when omitted. */
-    style: z
-        .enum(['Primary', 'Secondary', 'Success', 'Danger'])
-        .default('Primary'),
+    style: z.enum(BUTTON_STYLES).default('Primary'),
     [ELIGIBILITY_CONFIG_KEY]: eligibilityConfigSchema,
 });
 
 export type ButtonClickConfig = z.infer<typeof buttonClickConfigSchema>;
-
-export const BUTTON_STYLE_MAP: Record<ButtonClickConfig['style'], ButtonStyle> = {
-    Primary: ButtonStyle.Primary,
-    Secondary: ButtonStyle.Secondary,
-    Success: ButtonStyle.Success,
-    Danger: ButtonStyle.Danger,
-};
 
 export const block: BlockManifest<ButtonClickConfig> = {
     type: TRIGGER_BUTTON_CLICK,

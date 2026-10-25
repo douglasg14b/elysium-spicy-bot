@@ -6,11 +6,11 @@ import {
     adoptableRoleOptions,
     canAdopt,
     canAdoptFromChannelList,
-    canHaveParent,
     channelOptionLabel,
     declarationForAdoptedResource,
     declarationForNewResource,
     nameTypedOverAdoption,
+    parentKindFor,
     postableChannels,
     roleOptionLabel,
     shouldSeedNameFromAdopted,
@@ -352,14 +352,16 @@ describe('adoptableChannelOptions', () => {
     });
 });
 
-describe('canHaveParent', () => {
-    it('is true only for a text channel', () => {
+describe('parentKindFor', () => {
+    it('puts a text channel in a category and a message in a text channel, and nothing else in anything', () => {
+        expect(parentKindFor('textChannel')).toBe('category');
+        expect(parentKindFor('message')).toBe('textChannel');
         // Stricter than the server, on purpose: it accepts a category with a parent
         // and then `applyInstallPlan` creates the category with no parent argument,
         // so the value is stored and silently ignored.
-        expect(canHaveParent('textChannel')).toBe(true);
-        expect(canHaveParent('category')).toBe(false);
-        expect(canHaveParent('role')).toBe(false);
+        expect(parentKindFor('category')).toBeUndefined();
+        expect(parentKindFor('role')).toBeUndefined();
+        expect(parentKindFor('ticketType')).toBeUndefined();
     });
 });
 
@@ -587,6 +589,36 @@ describe('declarationForNewResource', () => {
         });
 
         expect(declaration.parentKey).toBe('arrivals');
+    });
+
+    it('starts a message on one embed titled with its name, in the first declared text channel', () => {
+        const existing: ResourceDeclaration[] = [
+            { key: 'arrivals', kind: 'category', defaultName: 'Arrivals' },
+            { key: 'rules', kind: 'textChannel', defaultName: 'rules', parentKey: 'arrivals' },
+            { key: 'lobby', kind: 'textChannel', defaultName: 'lobby' },
+        ];
+
+        const declaration = declarationForNewResource({ name: '', kind: 'message', existing });
+
+        expect(declaration).toEqual({
+            key: 'new-message',
+            kind: 'message',
+            defaultName: 'New message',
+            parentKey: 'rules',
+            message: { embeds: [{ title: 'New message' }] },
+        });
+        // Saveable the moment it exists: the server's own schema takes it.
+        expect(zResourceDeclaration.safeParse(declaration).success).toBe(true);
+    });
+
+    it('leaves a message without a channel when none is declared', () => {
+        const declaration = declarationForNewResource({
+            name: 'Rules panel',
+            kind: 'message',
+            existing: [{ key: 'arrivals', kind: 'category', defaultName: 'Arrivals' }],
+        });
+
+        expect(declaration.parentKey).toBeUndefined();
     });
 });
 

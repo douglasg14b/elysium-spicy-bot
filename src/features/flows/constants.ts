@@ -27,24 +27,10 @@ export const FLOW_CUSTOM_ID_PREFIX = 'flow';
  */
 export const FLOW_CHOICE_CUSTOM_ID_PREFIX = 'flowc';
 
-/**
- * Discord's hard cap on a component `custom_id`, in characters.
- *
- * Load-bearing rather than documentation: a run whose ids would exceed it must
- * fail while building the message, naming the run and the node, rather than
- * having Discord reject the whole post at send time with a validation error that
- * names none of them.
+/*
+ * Discord's button limits — the custom_id and label caps, the styles — live in
+ * `src/shared/discordButtons.ts`, shared with provisioning's message resource.
  */
-export const DISCORD_CUSTOM_ID_MAX_LENGTH = 100;
-
-/**
- * Discord's hard cap on a button's visible label, in characters.
- *
- * Held by the block's schema rather than trusted: Discord rejects the whole
- * message when a label is over, so an author who pastes a sentence would
- * otherwise get a failed run at ask time instead of a save they can fix.
- */
-export const DISCORD_BUTTON_LABEL_MAX_LENGTH = 80;
 
 /**
  * Most choices one question may offer.

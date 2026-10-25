@@ -218,7 +218,7 @@ export const zDiscordMessage = z.object({
 });
 
 /**
- * The resource kinds that are objects in the Discord guild, each with a snowflake. A `ticketType` is not one: it lives in the ticket settings, named by its key.
+ * The resource kinds that are objects in the Discord guild, each with a snowflake. A `ticketType` is not one: it lives in the ticket settings, named by its key. Nor is a `message`: install posts it in a declared text channel, and it is never adopted.
  */
 export const zDiscordResourceKind = z.enum([
     'category',
@@ -232,7 +232,8 @@ export const zDriftDetail = z.object({
         'renamed',
         'reparented',
         'wrongType',
-        'permissions'
+        'permissions',
+        'outOfDate'
     ])
 });
 
@@ -774,6 +775,19 @@ export const zFlowUpdate = z.object({
 });
 
 /**
+ * A picture shown in a flow: the flow (as a draft names it, when the use is in one), the node, its block's label, and the part as the message editor names it (`embed 1 thumbnail`). `draftAuthorId` is set when the use is only in that person's unsaved draft.
+ */
+export const zFlowUploadUse = z.object({
+    blockLabel: z.string(),
+    draftAuthorId: z.string().optional(),
+    flowId: z.string(),
+    flowName: z.string(),
+    kind: z.enum(['flow']),
+    nodeId: z.string(),
+    where: z.string()
+});
+
+/**
  * One problem with a graph. `nodeId` names the node it is on and `field` the dotted path into its config (e.g. `fields.0.name`); a problem with the graph as a whole has neither.
  */
 export const zFlowValidationIssue = z.object({
@@ -944,7 +958,8 @@ export const zInstallPlanItem = z.object({
         'category',
         'textChannel',
         'role',
-        'ticketType'
+        'ticketType',
+        'message'
     ]),
     name: z.string(),
     note: z.string().optional(),
@@ -984,6 +999,18 @@ export const zInstallResult = z.object({
     updatedFlowIds: z.array(z.string()),
     writeBackFailed: z.boolean(),
     writtenCount: z.number()
+});
+
+/**
+ * A picture shown in a message a journey declares as a resource: the journey, the message (its key and its name), and the part as the message editor names it (`embed 1 image`).
+ */
+export const zJourneyMessageUploadUse = z.object({
+    journeyKey: z.string(),
+    journeyName: z.string(),
+    kind: z.enum(['journeyMessage']),
+    messageName: z.string(),
+    resourceKey: z.string(),
+    where: z.string()
 });
 
 /**
@@ -1157,6 +1184,22 @@ export const zLogoutResult = z.object({
     ok: z.literal(true)
 });
 
+export const zMessageButtonStyle = z.enum([
+    'Primary',
+    'Secondary',
+    'Success',
+    'Danger'
+]);
+
+/**
+ * A button under a message resource. `key` is its identity within the message — what a press is routed by — so relabelling it changes nothing that listens to it.
+ */
+export const zMessageButton = z.object({
+    key: z.string().min(1, 'Give the button a key.').max(64, 'Button keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Button keys use lowercase letters, numbers and single hyphens (for example `let-me-in`).'),
+    label: z.string().min(1, 'A button needs a label — something to press.').max(80, 'Button labels stop at 80 characters — Discord\'s rule, not ours.'),
+    style: zMessageButtonStyle
+});
+
 /**
  * Everything the Flow Builder draws a block from: its palette entry, its card, its inspector form and its exits. The block's config schema stays on the server.
  */
@@ -1247,7 +1290,8 @@ export const zPublishedResource = z.object({
         'category-has-survivors',
         'missing-permission',
         'unrecognised-state',
-        'interrupted-create'
+        'interrupted-create',
+        'unreadable'
     ]).optional(),
     refused: z.boolean(),
     resourceKey: z.string(),
@@ -1269,7 +1313,8 @@ export const zResourceKind = z.enum([
     'category',
     'textChannel',
     'role',
-    'ticketType'
+    'ticketType',
+    'message'
 ]);
 
 export const zMovingResource = z.object({
@@ -1295,7 +1340,8 @@ export const zRepairedResource = z.object({
         'renamed',
         'reparented',
         'wrongType',
-        'permissions'
+        'permissions',
+        'outOfDate'
     ])).optional(),
     resourceKey: z.string()
 });
@@ -1475,14 +1521,16 @@ export const zTicketTypeSettings = z.object({
 });
 
 /**
- * A resource a journey needs, named by a key stable across servers. `defaultName` is stored as Discord will hold it: a text channel lowercased, whitespace hyphenated; for a `ticketType` it is the type's label, trimmed. `adoptDiscordId` adopts something that already exists instead of creating it. `ticketType` holds a ticket type's settings, and only a `ticketType` resource carries it.
+ * A resource a journey needs, named by a key stable across servers. `defaultName` is stored as Discord will hold it: a text channel lowercased, whitespace hyphenated; for a `ticketType` it is the type's label, and for a `message` the name the dashboard shows it by, both trimmed. `adoptDiscordId` adopts something that already exists instead of creating it. `ticketType` holds a ticket type's settings, and only a `ticketType` resource carries it. `message` and `buttons` hold what a `message` resource posts, and only a `message` carries them; its `parentKey` names the text channel it is posted in.
  */
 export const zResourceDeclaration = z.object({
     adoptDiscordId: z.string().regex(/^\d{17,20}$/, 'A channel or role id is 17 to 20 digits.').optional(),
+    buttons: z.array(zMessageButton).max(25, 'A message holds 25 buttons, tops — five rows of five.').optional(),
     defaultName: z.string().min(1, 'Give the resource a name.').max(100, 'Resource names cap at 100 characters.'),
     description: z.string().max(500, 'Descriptions cap at 500 characters.').optional(),
     key: z.string().min(1, 'Give the resource a key.').max(64, 'Resource keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).'),
     kind: zResourceKind,
+    message: zDiscordMessage.optional(),
     parentKey: z.string().min(1, 'Give the resource a key.').max(64, 'Resource keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).').optional(),
     permissions: z.array(zPermissionIntent).max(20, 'A resource has at most 20 permission rows.').optional(),
     ticketType: zTicketTypeSettings.optional()
@@ -1659,7 +1707,8 @@ export const zUnpublishedResource = z.object({
         'category',
         'textChannel',
         'role',
-        'ticketType'
+        'ticketType',
+        'message'
     ]),
     name: z.string(),
     outcome: z.enum([
@@ -1676,19 +1725,15 @@ export const zUnpublishResult = z.object({
 });
 
 /**
- * One place a picture is shown: the flow (as a draft names it, when the use is in one), the node, its block's label, and the part as the message editor names it (`embed 1 thumbnail`). `draftAuthorId` is set when the use is only in that person's unsaved draft.
+ * One place a picture is shown: in a flow (`kind: flow`), or in a journey's message resource (`kind: journeyMessage`).
  */
-export const zUploadUse = z.object({
-    blockLabel: z.string(),
-    draftAuthorId: z.string().optional(),
-    flowId: z.string(),
-    flowName: z.string(),
-    nodeId: z.string(),
-    where: z.string()
-});
+export const zUploadUse = z.discriminatedUnion('kind', [
+    zFlowUploadUse.extend({ kind: z.literal('flow') }),
+    zJourneyMessageUploadUse.extend({ kind: z.literal('journeyMessage') })
+]);
 
 /**
- * A picture kept for this server's messages, without its bytes, and every place a saved flow or a draft shows it — empty when nothing does, so it may be deleted.
+ * A picture kept for this server's messages, without its bytes, and every place a saved flow, a draft or a journey's message shows it — empty when nothing does, so it may be deleted.
  */
 export const zGuildUploadListing = zGuildUpload.and(z.object({
     uses: z.array(zUploadUse)

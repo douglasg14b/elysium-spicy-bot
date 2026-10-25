@@ -333,6 +333,8 @@ describe('deleteTicketType', () => {
             state: 'adopted' as const,
             discordId: 'verification',
             name: 'Verification',
+            messageChannelId: null,
+            messageDigest: null,
             createdAt: new Date(),
             updatedAt: new Date(),
         };
@@ -359,6 +361,8 @@ describe('deleteTicketType', () => {
         const base = {
             guildId: 'guild-1',
             state: 'adopted' as const,
+            messageChannelId: null,
+            messageDigest: null,
             createdAt: new Date(),
             updatedAt: new Date(),
         };
@@ -405,6 +409,8 @@ describe('deleteTicketType', () => {
                             state: 'adopted' as const,
                             discordId: 'verification',
                             name: 'Verification',
+                            messageChannelId: null,
+                            messageDigest: null,
                             createdAt: new Date(),
                             updatedAt: new Date(),
                         },

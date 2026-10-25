@@ -82,18 +82,27 @@ const INJECTABLE_REJECTIONS = {
 /** The routes that write to one channel, and so the ones a channel's rejection can scope to. */
 export type ChannelWriteRoute = 'PATCH /channels/:channelId' | 'PUT /channels/:channelId/permissions/:overwriteId';
 
-/** The one channel read a rejection can refuse, and only by naming it. */
-export type ChannelReadRoute = 'GET /channels/:channelId/messages';
+/** The channel reads a rejection can refuse, and only by naming them: a page of history, and one message. */
+export type ChannelReadRoute = 'GET /channels/:channelId/messages' | 'GET /channels/:channelId/messages/:messageId';
 
 export interface InjectedRejection {
     readonly code: keyof typeof INJECTABLE_REJECTIONS;
     /**
-     * Refuse only this route. Absent refuses every write to the channel, and no read.
+     * Refuse only this route, or only these reads. Absent refuses every write to the
+     * channel, and no read.
      *
      * Scoping is what makes a *partial* failure expressible: a rename that lands followed
-     * by a permission write that does not. A read is refused only when named here.
+     * by a permission write that does not. A read is refused only when named here — a list,
+     * so a bot that lost access to a channel can be refused every read of it at once.
      */
-    readonly route?: ChannelWriteRoute | ChannelReadRoute;
+    readonly route?: ChannelWriteRoute | ChannelReadRoute | readonly ChannelReadRoute[];
+}
+
+/** Whether a rejection names this route, by itself or in its list of reads. */
+function namesRoute(rejection: InjectedRejection, routeKey: RouteKey): boolean {
+    const { route } = rejection;
+    if (route === undefined) return false;
+    return typeof route === 'string' ? route === routeKey : route.some((read) => read === routeKey);
 }
 
 /** The guild-scoped creates a test may make Discord rate-limit once. */
@@ -496,15 +505,37 @@ const ROUTES: readonly Route[] = [
     defineRoute({
         key: 'PATCH /channels/:channelId/messages/:messageId',
         schema: editMessageSchema,
-        validate(state, params, body) {
+        // Multipart when the edit carries files, as a send does — see `ServerMessages.checkEdit`.
+        takesFiles: true,
+        validate(state, params, body, _query, files) {
             requireMessageId(params);
-            if (!missingMessage(state, params)) state.messages.checkEdit(params.channelId, params.messageId, body);
+            if (!missingMessage(state, params)) state.messages.checkEdit(params.channelId, params.messageId, body, files);
         },
-        apply(state, params, body) {
+        apply(state, params, body, _query, files) {
             return missingMessage(state, params) ?? {
                 status: 200,
-                body: state.messages.edit(params.channelId, params.messageId, body),
+                body: state.messages.edit(params.channelId, params.messageId, body, files),
             };
+        },
+    }),
+    defineRoute({
+        /*
+         * The bot deleting a message. Discord answers 204 and announces MESSAGE_DELETE —
+         * to a client holding the GuildMessages intent only, as `ServerMessages` decides.
+         * The audit-log reason travels as a header, which the harness does not record.
+         * Deleting somebody else's message needs Manage Messages, which is not modelled.
+         */
+        key: 'DELETE /channels/:channelId/messages/:messageId',
+        schema: z.undefined(),
+        validate(state, params) {
+            requireMessageId(params);
+            if (!missingMessage(state, params)) state.messages.checkDelete(params.channelId, params.messageId);
+        },
+        apply(state, params) {
+            const missing = missingMessage(state, params);
+            if (missing) return missing;
+            state.messages.delete(params.channelId, params.messageId);
+            return { status: 204 };
         },
     }),
     defineRoute({
@@ -640,8 +671,8 @@ function rejectionFor(state: ServerState, route: Route, params: RouteParams): In
     // A rejection refuses writes. A read of a refused channel still answers, as it would
     // for a bot that may view a channel but not manage it — unless the rejection names
     // that read, as for a bot that lost access to the channel altogether.
-    if (route.key.startsWith('GET ')) return rejection.route === route.key ? rejection : undefined;
-    return !rejection.route || rejection.route === route.key ? rejection : undefined;
+    if (route.key.startsWith('GET ')) return namesRoute(rejection, route.key) ? rejection : undefined;
+    return !rejection.route || namesRoute(rejection, route.key) ? rejection : undefined;
 }
 
 function answer(

@@ -34,7 +34,8 @@ import type { ResourceKind } from './resourceDeclaration';
  * server then silently changed.
  *
  * Categories and roles keep their case in Discord, so they pass through untouched. A
- * ticket type's name is its label, which Discord never stores at all, so it does too.
+ * ticket type's name is its label, which Discord never stores at all, so it does too — and
+ * so does a message's, which only the dashboard shows. The save route trims both.
  *
  * **Mirrored** in `web/src/flows/resourceName.ts`, which the browser uses as the operator
  * types. `resourceNameMirrorDrift.test.ts` runs both on the same inputs.
@@ -46,6 +47,7 @@ export function normaliseResourceName(kind: ResourceKind, name: string): string 
         case 'category':
         case 'role':
         case 'ticketType':
+        case 'message':
             return name;
         default: {
             const unreachable: never = kind;

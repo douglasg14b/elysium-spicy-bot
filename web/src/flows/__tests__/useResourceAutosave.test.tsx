@@ -1,9 +1,12 @@
 import { useState } from 'react';
-import { act, waitFor } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import type { ResourceDeclaration } from '@brattybot/web-sdk';
 import { describe, expect, it } from 'vitest';
 import { installFakeApi } from '../../__tests__/support/fakeApi';
+import { NO_UPLOADS } from '../../__tests__/support/noUploads';
 import { renderWithProviders } from '../../__tests__/support/renderWithProviders';
+import { RESOURCE_SAVE_DEBOUNCE_MS } from '../resourceSaveQueue';
+import { ResourcesPanel } from '../ResourcesPanel';
 import { useResourceAutosave } from '../useResourceAutosave';
 
 /**
@@ -70,5 +73,58 @@ describe('useResourceAutosave', () => {
 
         await waitFor(() => expect(puts()).toHaveLength(2));
         expect(puts()[1]?.body).toEqual({ resources: [channel('lobby'), channel('dungeon'), channel('aftercare')] });
+    });
+
+    /**
+     * A message the save would refuse is held rather than sent: the refusal's re-read would
+     * put the stored message back over the window the author is typing in. The red chip is
+     * what tells them nothing is being stored, and the save goes as soon as it is fixed.
+     */
+    it('holds a message the save would refuse, says so on the row, and sends it once fixed', async () => {
+        const api = installFakeApi();
+        api.on('PUT', RESOURCES_PATH, ({ body }) => ({ body }));
+        const puts = () => api.requests.filter((request) => request.method === 'PUT');
+        const panel: ResourceDeclaration = {
+            key: 'rules-panel',
+            kind: 'message',
+            defaultName: 'Rules panel',
+            parentKey: 'rules',
+            message: { embeds: [{ title: 'House rules' }] },
+        };
+
+        function PanelWithAutosave() {
+            const [resources, setResources] = useState<ResourceDeclaration[]>([channel('rules'), panel]);
+            useResourceAutosave({
+                guildId: GUILD_ID,
+                target: { kind: 'flow', flowId: FLOW_ID },
+                journeyKey: undefined,
+                resources,
+                loaded: true,
+                onSaved: () => undefined,
+                onSavingChange: () => undefined,
+                onError: () => undefined,
+            });
+            return <ResourcesPanel resources={resources} onChange={setResources} roles={[]} channels={[]} uploads={NO_UPLOADS} />;
+        }
+
+        const { user } = renderWithProviders(<PanelWithAutosave />);
+        await user.click(screen.getByRole('button', { name: 'Expand Rules panel' }));
+        await user.click(screen.getByRole('button', { name: 'Edit message' }));
+        const window = screen.getByRole('dialog');
+
+        // A fresh embed is empty, and an empty embed is refused.
+        await user.click(within(window).getByRole('button', { name: 'Add embed' }));
+        expect(screen.getByRole('button', { name: /Won’t save/ })).toBeTruthy();
+        await new Promise((resolve) => setTimeout(resolve, RESOURCE_SAVE_DEBOUNCE_MS + 400));
+        expect(puts()).toHaveLength(0);
+
+        await user.click(within(window).getByRole('button', { name: 'Embed 2 title' }));
+        await user.type(within(window).getByRole('textbox', { name: 'Embed 2 title' }), 'Safewords');
+
+        await waitFor(() => expect(puts()).toHaveLength(1));
+        expect(puts()[0]?.body).toEqual({
+            resources: [channel('rules'), { ...panel, message: { embeds: [{ title: 'House rules' }, { title: 'Safewords' }] } }],
+        });
+        expect(screen.queryByRole('button', { name: /Won’t save/ })).toBeNull();
     });
 });

@@ -71,6 +71,7 @@ import {
     IconChevronDown,
     IconChevronRight,
     IconLink,
+    IconLock,
     IconSearch,
     IconTrash,
     IconX,
@@ -78,14 +79,19 @@ import {
 import type {
     GuildChannel,
     GuildRole,
+    MessageButton,
     ResourceDeclaration,
     ResourceKind,
     TicketTypeView,
 } from '@brattybot/web-sdk';
 import { TicketTypeFields } from '../tickets/TicketTypeFields';
 import { emptyTicketTypeDraft, validateTicketTypeDraft } from '../tickets/ticketTypeForm';
+import type { GuildUploads } from './controls/types';
 import { detectResourceProblems, resourceKeyProblem } from './detectResourceProblems';
 import type { ResourceChipInstance } from './detectResourceProblems';
+import { MessageEditor } from './messageEditor/MessageEditor';
+import { MessagePreviewCard } from './messageEditor/MessagePreviewCard';
+import { buttonIssues, messagePartIssues, messageResourceProblems } from './messageResourceProblems';
 import { PermissionIntentEditor } from './PermissionIntentEditor';
 import { ResourceChip } from './ResourceChip';
 import {
@@ -93,7 +99,7 @@ import {
     adoptableRoleOptions,
     heldByLabel,
     canAdopt,
-    canHaveParent,
+    parentKindFor,
     hasChannelPermissions,
     declarationForAdoptedResource,
     declarationForNewResource,
@@ -117,6 +123,8 @@ import {
     orderResourceRows,
     removeResourceAtIndex,
 } from './resourceRows';
+import { problemCount } from './validationIssues';
+import { ALL_REQUIREMENTS_AVAILABLE } from './variables';
 
 /**
  * How far a channel sits in from its category.
@@ -197,6 +205,14 @@ interface ResourcesPanelProps {
      * builder has always meant.
      */
     scope?: 'flow' | 'journey';
+    /** The server's uploaded pictures, for a message resource's window. */
+    uploads: GuildUploads;
+    /**
+     * Told when a message row's window opens and closes, so the dialog holding this panel can
+     * leave Escape to the window: Mantine closes a modal on any Escape in the page, and the
+     * window sits inside this one.
+     */
+    onMessageWindowChange?: (open: boolean) => void;
 }
 
 /**
@@ -232,6 +248,8 @@ export function ResourcesPanel({
     error,
     installedKeys,
     scope = 'flow',
+    uploads,
+    onMessageWindowChange,
 }: ResourcesPanelProps) {
     const [filter, setFilter] = useState('');
     /**
@@ -253,8 +271,15 @@ export function ResourcesPanel({
      */
     const keysHeldThroughBlankName = useRef(new Set<string>());
 
-    const categories = resources.filter((resource) => resource.kind === 'category');
     const declaredRoles = resources.filter((resource) => resource.kind === 'role');
+
+    /** What a row may sit in: the declared resources of its parent kind, never itself. */
+    const parentsFor = (resource: ResourceDeclaration): ResourceDeclaration[] => {
+        const parentKind = parentKindFor(resource.kind);
+        return parentKind
+            ? resources.filter((candidate) => candidate.kind === parentKind && candidate.key !== resource.key)
+            : [];
+    };
 
     // One detection pass per render, keyed by position. Three of the checks are
     // relational — duplicate keys, duplicate adoptions, role references naming a key
@@ -663,9 +688,9 @@ export function ResourcesPanel({
                             onJumpHandled={clearJump}
                             focusNameOnMount={pendingNameFocus === row.index}
                             onNameFocusHandled={clearNameFocus}
-                            categories={categories.filter(
-                                (category) => category.key !== row.resource.key
-                            )}
+                            parents={parentsFor(row.resource)}
+                            uploads={uploads}
+                            onMessageWindowChange={onMessageWindowChange}
                             roles={roles}
                             channels={channels}
                             ticketTypes={ticketTypes}
@@ -725,7 +750,10 @@ interface ResourceRowProps {
     onJumpHandled: () => void;
     focusNameOnMount: boolean;
     onNameFocusHandled: () => void;
-    categories: ResourceDeclaration[];
+    /** What this row may sit in — categories for a channel, text channels for a message. */
+    parents: ResourceDeclaration[];
+    uploads: GuildUploads;
+    onMessageWindowChange: ((open: boolean) => void) | undefined;
     roles: GuildRole[];
     channels: GuildChannel[];
     /** The server's ticket types, for a ticket type row's key suggestions. */
@@ -761,7 +789,9 @@ function ResourceRow({
     onJumpHandled,
     focusNameOnMount,
     onNameFocusHandled,
-    categories,
+    parents,
+    uploads,
+    onMessageWindowChange,
     roles,
     channels,
     ticketTypes,
@@ -774,7 +804,8 @@ function ResourceRow({
     onAdopt,
     onRemove,
 }: ResourceRowProps) {
-    const showParentPicker = canHaveParent(resource.kind) && categories.length > 0;
+    // A message's channel is picked in its own body; this is the channel's category picker.
+    const showParentPicker = parentKindFor(resource.kind) === 'category' && parents.length > 0;
     const adoptingRole = resource.kind === 'role';
     const style = RESOURCE_KIND_STYLES[resource.kind];
     const KindIcon = style.icon;
@@ -787,6 +818,8 @@ function ResourceRow({
     const keyRef = useRef<HTMLInputElement>(null);
     const rulesRef = useRef<HTMLDivElement>(null);
     const ticketTypeFieldsRef = useRef<HTMLDivElement>(null);
+    const messageEditRef = useRef<HTMLButtonElement>(null);
+    const parentPickerRef = useRef<HTMLInputElement>(null);
 
     const hasBlockingChip = chips.some((chip) => RESOURCE_CHIPS[chip.id].tone === 'error');
 
@@ -989,6 +1022,8 @@ function ResourceRow({
         keyRef,
         rulesRef,
         ticketTypeFieldsRef,
+        messageEditRef,
+        parentPickerRef,
     });
 
     useFocusNameOnMount({ focusNameOnMount, expanded, nameRef, onNameFocusHandled });
@@ -1096,7 +1131,21 @@ function ResourceRow({
                         pb="lg"
                         style={{ borderTop: '1px solid var(--mantine-color-dark-6)' }}
                     >
-                        {resource.kind === 'ticketType' ? (
+                        {resource.kind === 'message' ? (
+                            <MessageBody
+                                resource={resource}
+                                channels={parents}
+                                keyIsInstalled={keyIsInstalled}
+                                uploads={uploads}
+                                onUpdate={onUpdate}
+                                onRename={onRename}
+                                onWindowChange={onMessageWindowChange}
+                                nameRef={nameRef}
+                                keyRef={keyRef}
+                                channelRef={parentPickerRef}
+                                editRef={messageEditRef}
+                            />
+                        ) : resource.kind === 'ticketType' ? (
                             <TicketTypeBody
                                 resource={resource}
                                 ticketTypes={ticketTypes}
@@ -1209,7 +1258,7 @@ function ResourceRow({
                                         : 'Leave empty for top level.'
                                 }
                                 placeholder="Top level"
-                                data={categories.map((category) => ({
+                                data={parents.map((category) => ({
                                     value: category.key,
                                     label: category.defaultName,
                                 }))}
@@ -1359,6 +1408,171 @@ function TicketTypeBody({ resource, ticketTypes, keyIsInstalled, onUpdate, label
     );
 }
 
+interface MessageBodyProps {
+    resource: ResourceDeclaration;
+    /** The declared text channels it may be posted in. */
+    channels: ResourceDeclaration[];
+    keyIsInstalled: boolean;
+    uploads: GuildUploads;
+    onUpdate: (patch: Partial<ResourceDeclaration>) => void;
+    onRename: (nextName: string) => void;
+    onWindowChange: ((open: boolean) => void) | undefined;
+    nameRef: RefObject<HTMLInputElement>;
+    keyRef: RefObject<HTMLInputElement>;
+    channelRef: RefObject<HTMLInputElement>;
+    editRef: RefObject<HTMLButtonElement>;
+}
+
+/** No colour presets in a message resource's window: they are Post Embed's field config. */
+const NO_SWATCHES: readonly string[] = [];
+/** One empty list, so a message with no buttons hands the window the same one every render. */
+const NO_BUTTONS: readonly MessageButton[] = [];
+
+/**
+ * The open row of a declared message: its name and key, the channel it is posted in, a preview,
+ * and **Edit message**, which opens the step-1 message window with the buttons under it.
+ *
+ * Nothing an object row has applies — there is nothing to adopt (the bot can only edit what it
+ * posted), no name in Discord, no permissions of its own. Editing changes the declaration only:
+ * Discord sees nothing until install posts it, or repair edits what is posted.
+ *
+ * **The channel is fixed once installed**, as the key is: Discord cannot move a message, and
+ * install refuses one whose channel has changed under it. It stays pickable while there is none
+ * — a channel row removed after install leaves its message with nothing, and a locked empty
+ * picker would be a row nobody can repair.
+ *
+ * **The message and the buttons are written together.** Cancel puts both back at once, in two
+ * calls on the same tick, and each call patches the list as this render saw it — so the second
+ * would undo the first. Each write carries both fields as last written instead.
+ */
+function MessageBody({
+    resource,
+    channels,
+    keyIsInstalled,
+    uploads,
+    onUpdate,
+    onRename,
+    onWindowChange,
+    nameRef,
+    keyRef,
+    channelRef,
+    editRef,
+}: MessageBodyProps) {
+    const [editing, setEditing] = useState(false);
+    const problems = useMemo(() => messageResourceProblems(resource), [resource]);
+    const channelLocked = keyIsInstalled && resource.parentKey !== undefined;
+    const channel = channels.find((candidate) => candidate.key === resource.parentKey);
+
+    const written = useRef({ message: resource.message, buttons: resource.buttons });
+    written.current = { message: resource.message, buttons: resource.buttons };
+    const write = (change: Partial<Pick<ResourceDeclaration, 'message' | 'buttons'>>) => {
+        written.current = { ...written.current, ...change };
+        const { message, buttons } = written.current;
+        // No buttons is left out rather than written `[]`: the same thing to the server.
+        onUpdate({ message, buttons: buttons?.length ? buttons : undefined });
+    };
+
+    // While the window is open, Escape is the window's.
+    useEffect(() => {
+        if (!editing || !onWindowChange) return;
+        onWindowChange(true);
+        return () => onWindowChange(false);
+    }, [editing, onWindowChange]);
+
+    const where = channel ? `posted in #${channel.defaultName}` : 'not in any channel yet';
+
+    return (
+        <Stack gap="md">
+            <Group gap="md" wrap="nowrap" align="flex-start" grow>
+                <TextInput
+                    ref={nameRef}
+                    size="sm"
+                    label="Name"
+                    description="Only you see this name — Discord never does."
+                    placeholder={RESOURCE_KIND_STYLES.message.namePlaceholder}
+                    value={resource.defaultName}
+                    onChange={(event) => onRename(event.currentTarget.value)}
+                />
+                <TextInput
+                    ref={keyRef}
+                    size="sm"
+                    label="Key"
+                    description={
+                        keyIsInstalled ? 'Fixed — installed things point at this.' : 'Follows the name until you edit it.'
+                    }
+                    value={resource.key}
+                    onChange={(event) => onUpdate({ key: event.currentTarget.value })}
+                />
+            </Group>
+
+            {/*
+             * `readOnly` rather than `disabled` when locked: this field can hold focus (a chip
+             * jumps here), and a focused field that stops being focusable throws the cursor
+             * away — see `ResourcesPanelProps.saving`.
+             */}
+            <Select
+                ref={channelRef}
+                size="sm"
+                label="Posted in"
+                description={
+                    channelLocked
+                        ? "Fixed — it's posted there, and Discord can't move a message. Delete it there and install again to post it somewhere else."
+                        : channels.length === 0
+                          ? 'Declare a channel first — a message has to go somewhere.'
+                          : 'One of the channels declared here.'
+                }
+                placeholder="Pick a channel"
+                data={channels.map((candidate) => ({ value: candidate.key, label: `#${candidate.defaultName}` }))}
+                value={resource.parentKey ?? null}
+                onChange={(next) => onUpdate({ parentKey: next ?? undefined })}
+                readOnly={channelLocked}
+                clearable={!channelLocked}
+                // A chevron on a field that never opens promises a choice there isn't.
+                rightSection={channelLocked ? <IconLock size={14} /> : undefined}
+                comboboxProps={{ withinPortal: true }}
+            />
+
+            <div>
+                <MessagePreviewCard
+                    value={resource.message}
+                    buttonCount={resource.buttons?.length ?? 0}
+                    onEdit={() => setEditing(true)}
+                    editRef={editRef}
+                />
+                {problems.length > 0 ? (
+                    <Text size="sm" c="red.4" mt={6}>
+                        {problemCount(problems.length)} in this message — nothing on this list saves until
+                        it&apos;s fixed.
+                    </Text>
+                ) : null}
+            </div>
+
+            {editing ? (
+                <MessageEditor
+                    title="message"
+                    description={`${resource.defaultName}, ${where}. Edits stay here until you install it — or repair it, once it's up.`}
+                    swatches={NO_SWATCHES}
+                    value={resource.message}
+                    onChange={(next) => {
+                        if (next) write({ message: next });
+                    }}
+                    variables={[]}
+                    requirements={ALL_REQUIREMENTS_AVAILABLE}
+                    uploads={uploads}
+                    issues={messagePartIssues(problems)}
+                    tokens={false}
+                    buttons={{
+                        value: resource.buttons ?? NO_BUTTONS,
+                        onChange: (next) => write({ buttons: next }),
+                        issues: buttonIssues(problems),
+                    }}
+                    onClose={() => setEditing(false)}
+                />
+            ) : null}
+        </Stack>
+    );
+}
+
 interface FocusOnRequestInput {
     pendingJump: PendingJump | undefined;
     expanded: boolean;
@@ -1367,6 +1581,8 @@ interface FocusOnRequestInput {
     keyRef: RefObject<HTMLInputElement>;
     rulesRef: RefObject<HTMLDivElement>;
     ticketTypeFieldsRef: RefObject<HTMLDivElement>;
+    messageEditRef: RefObject<HTMLButtonElement>;
+    parentPickerRef: RefObject<HTMLInputElement>;
 }
 
 /**
@@ -1390,6 +1606,8 @@ function useFocusOnRequest({
     keyRef,
     rulesRef,
     ticketTypeFieldsRef,
+    messageEditRef,
+    parentPickerRef,
 }: FocusOnRequestInput): void {
     const target = pendingJump?.target;
 
@@ -1426,6 +1644,14 @@ function useFocusOnRequest({
                     // are brought into view rather than one of them guessed at.
                     ticketTypeFieldsRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
                     break;
+                case 'messageEditor':
+                    // The window is where every part of the message is, each problem marked
+                    // on its part; the button that opens it is the one place to land.
+                    messageEditRef.current?.focus();
+                    break;
+                case 'parentPicker':
+                    parentPickerRef.current?.focus();
+                    break;
                 default: {
                     // Exhaustiveness: a new jump target has to be handled above.
                     const unreachable: never = pendingJump.target;
@@ -1439,7 +1665,7 @@ function useFocusOnRequest({
         // `target` is in the deps so a second click on a *different* chip of the same
         // row re-runs this; `pendingJump` identity alone would do it, but naming the
         // field makes the intent legible.
-    }, [pendingJump, target, expanded, onJumpHandled, nameRef, keyRef, rulesRef, ticketTypeFieldsRef]);
+    }, [pendingJump, target, expanded, onJumpHandled, nameRef, keyRef, rulesRef, ticketTypeFieldsRef, messageEditRef, parentPickerRef]);
 }
 
 interface FocusNameOnMountInput {

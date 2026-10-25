@@ -82,6 +82,10 @@ const discardIntent = vi.fn(async (id: number) => {
     return true;
 });
 
+const upsertPostedMessage = vi.fn(async (input: { resourceKey: string; discordId: string }) => {
+    calls.push(`posted:${input.resourceKey}:${input.discordId}`);
+});
+
 vi.mock('../../data/resourceBindingsRepo', () => ({
     resourceBindingsRepo: {
         recordIntent: (input: Record<string, string>) => recordIntent(input),
@@ -94,6 +98,7 @@ vi.mock('../../data/resourceBindingsRepo', () => ({
             state: string;
         }) => rebind(input),
         discardIntent: (id: number) => discardIntent(id),
+        upsertPostedMessage: (input: { resourceKey: string; discordId: string }) => upsertPostedMessage(input),
         listByJourney: async () => bindings,
         get: async () => null,
     },
@@ -566,5 +571,66 @@ describe('applyInstallPlan with a declared role reference', () => {
         expect(
             overwrites?.some((overwrite) => overwrite.id.startsWith('resource:'))
         ).toBe(false);
+    });
+});
+
+describe('applyInstallPlan with a message', () => {
+    const HOUSE = {
+        journeyKey: 'house',
+        name: 'House',
+        resources: [
+            { key: 'rules', kind: 'textChannel' as const, defaultName: 'rules' },
+            {
+                key: 'panel',
+                kind: 'message' as const,
+                defaultName: 'Rules panel',
+                parentKey: 'rules',
+                message: { content: 'Read these, then kneel.', embeds: [] },
+            },
+        ],
+    };
+
+    /** The plan install would build once #rules exists: reuse it, post the panel in it. */
+    const PLAN = {
+        guildId: 'guild-1',
+        journeyKey: 'house',
+        blockers: [],
+        items: [
+            { resourceKey: 'rules', kind: 'textChannel' as const, action: 'reuse' as const, name: 'rules', discordId: 'chan-rules' },
+            { resourceKey: 'panel', kind: 'message' as const, action: 'create' as const, name: 'Rules panel', parentKey: 'rules' },
+        ],
+    };
+
+    it("says Discord never confirmed the post when the send fails with no answer from Discord, and writes no row", async () => {
+        // A plain Error, not a `DiscordAPIError`: the request may have landed, so this is
+        // not "Discord refused" — and the row must not claim a post nobody saw land.
+        const send = vi.fn(async () => {
+            throw new Error('socket hang up');
+        });
+        const rules = { id: 'chan-rules', name: 'rules', type: ChannelType.GuildText, send };
+        const guild = makeGuild({ existingChannels: [rules] });
+
+        const result = await applyInstallPlan({ guild, journey: HOUSE, plan: PLAN, staffRoleIds: [] });
+
+        expect(result.failure).toBe(
+            "Discord never confirmed whether message \"Rules panel\" was posted in #rules. Check there before installing again — if it landed, delete it, or there'll be two."
+        );
+        expect(send).toHaveBeenCalledTimes(1);
+        expect(upsertPostedMessage).not.toHaveBeenCalled();
+    });
+
+    it('names the message it posted when recording the post fails, so it can be deleted by hand — and posts it once', async () => {
+        const send = vi.fn(async () => ({ id: 'message-1' }));
+        const rules = { id: 'chan-rules', name: 'rules', type: ChannelType.GuildText, send };
+        const guild = makeGuild({ existingChannels: [rules] });
+        upsertPostedMessage.mockRejectedValueOnce(new Error('database is locked'));
+
+        const result = await applyInstallPlan({ guild, journey: HOUSE, plan: PLAN, staffRoleIds: [] });
+
+        expect(result.failure).toBe(
+            "Message \"Rules panel\" was posted (message-1), but recording it failed — delete it by hand before installing again, or there'll be two."
+        );
+        expect(send).toHaveBeenCalledTimes(1);
+        expect(upsertPostedMessage).toHaveBeenCalledTimes(1);
     });
 });

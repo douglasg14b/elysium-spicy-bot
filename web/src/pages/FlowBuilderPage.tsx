@@ -2320,6 +2320,7 @@ function FlowBuilder() {
                     journeyKey={attachment?.journeyKey}
                     loaded={!loading && !attachmentLoading}
                     onSaved={setDeclaredResources}
+                    uploads={guildUploads}
                 />
             )}
 

@@ -9,6 +9,8 @@ import { up as createTicketingConfig } from '../../../../features-system/data-pe
 import { up as createResourceBindings } from '../../../../features-system/data-persistence/migrations/2026-09-18-Create_Resource_Bindings';
 import { up as createJourneys } from '../../../../features-system/data-persistence/migrations/2026-09-19-Create_Journeys';
 import { up as ownerKeyResourceBindings } from '../../../../features-system/data-persistence/migrations/2026-10-10-Owner_Keyed_Resource_Bindings';
+import { up as createGuildUploads } from '../../../../features-system/data-persistence/migrations/2026-10-24-Create_Guild_Uploads';
+import { up as resourceBindingMessagePost } from '../../../../features-system/data-persistence/migrations/2026-10-25-Resource_Binding_Message_Post';
 
 export interface ProvisioningTestDb {
     readonly db: DatabaseClient;
@@ -40,7 +42,8 @@ function assertSqliteDialect(): void {
  * reason `flowRunsTestDb` does it this way. `journeys` is there because every "who holds
  * this?" read (`loadGuildOwnership`) names a journey by its display name;
  * `ticketing_config` is there, empty, only because the owner-keyed migration reads it to
- * move the ticket category slots.
+ * move the ticket category slots; `guild_uploads` is there because installing a message
+ * resource reads the pictures it shows.
  *
  * A test swaps this in for the `database` singleton with `vi.mock`, exactly as the ticket
  * integration tests do, so the repo under test is the production module unmodified.
@@ -58,6 +61,7 @@ export async function createProvisioningTestDb(): Promise<ProvisioningTestDb> {
             new SqlDatePlugin<Database>({
                 resource_bindings: ['createdAt', 'updatedAt'],
                 journeys: ['createdAt', 'updatedAt'],
+                guild_uploads: ['createdAt'],
             }),
         ],
     });
@@ -66,6 +70,8 @@ export async function createProvisioningTestDb(): Promise<ProvisioningTestDb> {
     await createJourneys(db);
     await createTicketingConfig(db);
     await ownerKeyResourceBindings(db);
+    await createGuildUploads(db);
+    await resourceBindingMessagePost(db);
 
     return { db };
 }

@@ -60,6 +60,7 @@ const KIND_NOUNS: Record<ResourceKind, KindNouns> = {
     category: { one: 'category', many: 'categories' },
     role: { one: 'role', many: 'roles' },
     ticketType: { one: 'ticket type', many: 'ticket types' },
+    message: { one: 'message', many: 'messages' },
 };
 
 /**

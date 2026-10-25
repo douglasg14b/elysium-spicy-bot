@@ -1,14 +1,11 @@
 import { z } from 'zod';
-import { guildUploadsRepo, IMAGE_EXTENSIONS } from '../../../../features-system/guild-uploads';
+import { readMessageUploads } from '../../../../features-system/guild-uploads';
 import {
     buildMessagePayload,
     messageConfigSchema,
     messageProblems,
-    messageUploadIds,
-    messageUploadProblems,
     trimMessageText,
     type DiscordMessage,
-    type MessageUploadFile,
 } from '../../../../shared/discordMessage';
 import type { BlockManifest } from '../manifest';
 import { requireChannelInGuild } from '../channelInGuild';
@@ -78,41 +75,6 @@ function renderedMessageProblem(message: DiscordMessage): string | undefined {
     return undefined;
 }
 
-/** What reading the message's uploads for this guild came to: the files, or why there are none to send. */
-type UploadRead = { readonly ok: true; readonly files: readonly MessageUploadFile[] } | { readonly ok: false; readonly error: string };
-
-/**
- * The uploaded pictures the message names, read for **this guild only** — an upload id copied
- * from another server's flow finds nothing here, and fails by name like a deleted one.
- *
- * Sizes first, judged by the same rules a save is judged by (`messageUploadProblems`), and the
- * bytes only for a message that can go: a missing upload fails naming the first part showing
- * it, and too many uploads, or too many bytes, fail giving the number. No query at all when
- * the message names no upload.
- */
-async function readUploads(guildId: string, message: DiscordMessage): Promise<UploadRead> {
-    const uploadIds = messageUploadIds(message);
-    if (uploadIds.length === 0) {
-        return { ok: true, files: [] };
-    }
-
-    const sizes = await guildUploadsRepo.sizesFor(guildId, uploadIds);
-    const [problem] = messageUploadProblems(message, new Map(sizes.map((upload) => [upload.uploadId, upload.byteSize])));
-    if (problem) {
-        return { ok: false, error: problem.where ? `${partLabel(problem.where)}: ${problem.message}` : problem.message };
-    }
-
-    const stored = await guildUploadsRepo.filesFor(guildId, uploadIds);
-    return {
-        ok: true,
-        files: stored.map((file) => ({
-            uploadId: file.uploadId,
-            extension: IMAGE_EXTENSIONS[file.contentType],
-            bytes: file.bytes,
-        })),
-    };
-}
-
 export const block: BlockManifest<PostEmbedConfig> = {
     type: ACTION_POST_EMBED,
     kind: 'action',
@@ -163,9 +125,11 @@ export const block: BlockManifest<PostEmbedConfig> = {
         // see `requireChannelInGuild`.
         const channel = await requireChannelInGuild(context.guild, config.channelId);
 
-        const uploads = await readUploads(context.guild.id, message);
+        // This guild's uploads only; see `readMessageUploads`.
+        const uploads = await readMessageUploads(context.guild.id, message);
         if (!uploads.ok) {
-            return { kind: 'fail', error: uploads.error };
+            const { problem } = uploads;
+            return { kind: 'fail', error: problem.where ? `${partLabel(problem.where)}: ${problem.message}` : problem.message };
         }
 
         // Mentions pinned to users, as Send Message pins them: the plain text is copy, so a
