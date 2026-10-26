@@ -75,7 +75,8 @@ export const block: BlockManifest<WaitForEventConfig> = {
                 // Short enough to read twice: under the "Wait for" label in the
                 // inspector, and inside "Await …" on a 210px card, where the old
                 // full-sentence forms wrapped.
-                { value: 'buttonClick', label: 'a flow button click' },
+                // Any button that can start a run: a journey message's, or an old `flow:` one.
+                { value: 'buttonClick', label: 'a button click' },
                 { value: 'reactionAdd', label: 'a reaction' },
                 { value: 'memberJoin', label: 'a rejoin' },
                 { value: 'message', label: 'a message' },

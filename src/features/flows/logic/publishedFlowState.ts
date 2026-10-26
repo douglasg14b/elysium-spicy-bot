@@ -7,15 +7,14 @@ import {
     resolveFlowJourney,
     type RefusalReason,
 } from '../../provisioning';
-import { flowButtonMessagesRepo, type FlowButtonMessagesRepo } from '../data/flowButtonMessagesRepo';
 
 /**
  * What a flow currently has live in a guild.
  *
  * Answers the one question a delete dialog needs: *if I delete this flow, what is left
- * behind in the server?* Both halves are here because both outlive the flow row —
- * buttons stay posted in their channels, and bindings deliberately survive so the
- * channels they name can still be found.
+ * behind in the server?* Everything its journey installed outlives the flow row —
+ * bindings deliberately survive so the channels, roles and posted messages they name can
+ * still be found.
  *
  * ## Why this lives flows-side
  *
@@ -29,12 +28,6 @@ import { flowButtonMessagesRepo, type FlowButtonMessagesRepo } from '../data/flo
  * It also lives in `logic/` rather than `data/`, because the vocabulary gate covers
  * `flows/data` and this legitimately names a journey.
  */
-export interface PublishedButtonMessage {
-    readonly channelId: string;
-    readonly messageId: string;
-    readonly nodeIds: readonly string[];
-}
-
 export interface PublishedResource {
     readonly resourceKey: string;
     readonly kind: string;
@@ -58,8 +51,6 @@ export interface PublishedResource {
 }
 
 export interface PublishedFlowState {
-    /** Messages carrying this flow's trigger buttons, as far as we recorded them. */
-    readonly buttonMessages: readonly PublishedButtonMessage[];
     /** What unpublishing would delete from the guild. */
     readonly deletableResources: readonly PublishedResource[];
     /** What unpublishing would refuse to touch, and why. */
@@ -70,19 +61,6 @@ export interface PublishedFlowState {
      * the record goes and the setting stays, by rule (Douglas, 2026-10-10).
      */
     readonly keptSettings: readonly PublishedResource[];
-    /**
-     * Whether buttons posted before this was recorded may still be out there.
-     *
-     * Always true, and deliberately not computed: the table was not backfilled, and it
-     * *cannot* be — the message ids of earlier deploys were never written down. A
-     * dialog that said "nothing is published" on the strength of an empty table would
-     * be making a promise this data cannot support. The UI says so plainly instead.
-     */
-    readonly mayHaveUnrecordedButtons: true;
-}
-
-interface PublishedFlowStateDeps {
-    readonly buttonMessagesRepo?: Pick<FlowButtonMessagesRepo, 'listByFlowId'>;
 }
 
 /**
@@ -103,13 +81,7 @@ interface PublishedFlowStateDeps {
  * A flow attached to nothing plans against its own id, which is what the unlinked
  * fallback resolves to anyway, so an unattached flow behaves exactly as before.
  */
-export async function getPublishedFlowState(
-    guild: Guild,
-    flowId: string,
-    deps: PublishedFlowStateDeps = {}
-): Promise<PublishedFlowState> {
-    const repo = deps.buttonMessagesRepo ?? flowButtonMessagesRepo;
-
+export async function getPublishedFlowState(guild: Guild, flowId: string): Promise<PublishedFlowState> {
     const resolved = await resolveFlowJourney(guild.id, flowId);
 
     // No journey resolved means no resources to tear down, so there is no plan to
@@ -117,21 +89,12 @@ export async function getPublishedFlowState(
     // that declares nothing, wrong for one whose link dangles, and the two are
     // indistinguishable from here — the resolver is the only thing that can tell them
     // apart, and it has already answered.
-    const [recorded, plan] = await Promise.all([
-        repo.listByFlowId(guild.id, flowId),
-        resolved ? previewUnpublish(guild, resolved.journey.journeyKey) : undefined,
-    ]);
+    const plan = resolved ? await previewUnpublish(guild, resolved.journey.journeyKey) : undefined;
 
     return {
-        buttonMessages: recorded.map((row) => ({
-            channelId: row.channelId,
-            messageId: row.messageId,
-            nodeIds: row.nodeIds,
-        })),
         deletableResources: plan ? plannedDeletions(plan).map(toPublishedResource) : [],
         refusedResources: plan ? plannedRefusals(plan).map(toPublishedResource) : [],
         keptSettings: plan ? plannedSettingsKept(plan).map(toPublishedResource) : [],
-        mayHaveUnrecordedButtons: true,
     };
 }
 

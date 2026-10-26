@@ -19,6 +19,9 @@ const repo = {
     getByKey: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
+    /** The resource saves' versioned write and delete; what the version decides is `resourceVersionRoutes.test.ts`. */
+    updateAtVersion: vi.fn(),
+    deleteForFlowAtVersion: vi.fn(),
     deleteByKey: vi.fn(),
 };
 
@@ -77,6 +80,9 @@ const RESOURCES = [
     { key: 'qa-channel', kind: 'textChannel', defaultName: 'questions', parentKey: 'qa-category' },
 ];
 
+/** The version every `journeyRow` is at, as the API states it. */
+const ROW_VERSION = '2026-09-19T10:00:00.000Z';
+
 function journeyRow(overrides: Record<string, unknown> = {}) {
     return {
         journeyKey: 'qa',
@@ -85,7 +91,7 @@ function journeyRow(overrides: Record<string, unknown> = {}) {
         description: null,
         resources: RESOURCES,
         createdAt: new Date('2026-09-19T10:00:00Z'),
-        updatedAt: new Date('2026-09-19T10:00:00Z'),
+        updatedAt: new Date(ROW_VERSION),
         ...overrides,
     };
 }
@@ -420,16 +426,18 @@ describe('journey routes', () => {
 describe('flow resource declarations', () => {
     const FLOW_ID = '11111111-2222-3333-4444-555555555555';
 
-    async function putResources(resources: unknown) {
+    /** A save, at `ROW_VERSION` unless told otherwise — `null` for a first save, which sends none. */
+    async function putResources(resources: unknown, baseUpdatedAt: string | null = ROW_VERSION) {
         return app().request(`/${GUILD_ID}/flows/${FLOW_ID}/resources`, {
             method: 'PUT',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ resources }),
+            body: JSON.stringify({ resources, baseUpdatedAt: baseUpdatedAt ?? undefined }),
         });
     }
 
     beforeEach(() => {
         flowsRepoMock.getByFlowId.mockResolvedValue({ flowId: FLOW_ID, guildId: GUILD_ID, name: 'Q&A' });
+        repo.deleteForFlowAtVersion.mockResolvedValue({ kind: 'deleted' });
     });
 
     it('returns an empty list for a flow that has declared nothing', async () => {
@@ -437,9 +445,10 @@ describe('flow resource declarations', () => {
 
         const response = await app().request(`/${GUILD_ID}/flows/${FLOW_ID}/resources`);
 
-        // Not a 404: having declared nothing is the normal state of every flow.
+        // Not a 404: having declared nothing is the normal state of every flow — and with no
+        // journey, no version for the first save to send.
         expect(response.status).toBe(200);
-        expect(await response.json()).toEqual({ resources: [] });
+        expect(await response.json()).toEqual({ resources: [], updatedAt: null });
     });
 
     it("404s for another server's flow, as every flow route does, and reads no journey", async () => {
@@ -470,7 +479,7 @@ describe('flow resource declarations', () => {
         repo.getByKey.mockResolvedValue(null);
         repo.create.mockResolvedValue(journeyRow({ resources: RESOURCES }));
 
-        const response = await putResources(RESOURCES);
+        const response = await putResources(RESOURCES, null);
 
         expect(response.status).toBe(200);
         expect(repo.create).toHaveBeenCalledWith(
@@ -484,12 +493,12 @@ describe('flow resource declarations', () => {
 
     it('updates in place on later saves rather than creating a second journey', async () => {
         repo.getByKey.mockResolvedValue(journeyRow({ journeyKey: FLOW_ID }));
-        repo.update.mockResolvedValue(journeyRow({ resources: RESOURCES }));
+        repo.updateAtVersion.mockResolvedValue({ kind: 'written', journey: journeyRow({ resources: RESOURCES }) });
 
         await putResources(RESOURCES);
 
         expect(repo.create).not.toHaveBeenCalled();
-        expect(repo.update).toHaveBeenCalledWith(GUILD_ID, FLOW_ID, { resources: RESOURCES });
+        expect(repo.updateAtVersion).toHaveBeenCalledWith(GUILD_ID, FLOW_ID, ROW_VERSION, { resources: RESOURCES });
     });
 
     it('deletes the journey when the last resource is removed', async () => {
@@ -500,8 +509,14 @@ describe('flow resource declarations', () => {
         // An empty declaration is *no* journey, not an empty one — the repo rejects a
         // journey with no resources, since installing it would do nothing.
         expect(response.status).toBe(200);
-        expect(repo.deleteByKey).toHaveBeenCalledWith(GUILD_ID, FLOW_ID);
-        expect(repo.update).not.toHaveBeenCalled();
+        expect(await response.json()).toEqual({ resources: [], updatedAt: null });
+        expect(repo.deleteForFlowAtVersion).toHaveBeenCalledWith({
+            guildId: GUILD_ID,
+            journeyKey: FLOW_ID,
+            flowId: FLOW_ID,
+            baseUpdatedAt: ROW_VERSION,
+        });
+        expect(repo.updateAtVersion).not.toHaveBeenCalled();
         expect(repo.create).not.toHaveBeenCalled();
     });
 
@@ -522,18 +537,21 @@ describe('flow resource declarations', () => {
         it('reads the journey resources rather than finding none of its own', async () => {
             const response = await app().request(`/${GUILD_ID}/flows/${FLOW_ID}/resources`);
 
-            expect(await response.json()).toEqual({ resources: RESOURCES });
+            expect(await response.json()).toEqual({ resources: RESOURCES, updatedAt: ROW_VERSION });
             // The bug this whole slice exists for: looking up by the flow's own id.
             expect(repo.getByKey).toHaveBeenCalledWith(GUILD_ID, 'named-journey');
         });
 
         it('saves into that journey rather than creating a second one', async () => {
-            repo.update.mockResolvedValue(journeyRow({ journeyKey: 'named-journey' }));
+            repo.updateAtVersion.mockResolvedValue({
+                kind: 'written',
+                journey: journeyRow({ journeyKey: 'named-journey' }),
+            });
 
             await putResources(RESOURCES);
 
             expect(repo.create).not.toHaveBeenCalled();
-            expect(repo.update).toHaveBeenCalledWith(GUILD_ID, 'named-journey', {
+            expect(repo.updateAtVersion).toHaveBeenCalledWith(GUILD_ID, 'named-journey', ROW_VERSION, {
                 resources: RESOURCES,
             });
         });
@@ -545,11 +563,15 @@ describe('flow resource declarations', () => {
             // strength of `journeyKey !== flowId` would tell a flow alone on a named
             // journey that it "shares" one, which is simply untrue.
             expect(response.status).toBe(200);
-            // Deleted by the **resolved** key. Asserting only that it was called lets
-            // through a delete that matches no row and reports success anyway, leaving
-            // the journey behind attached to nobody.
-            expect(repo.deleteByKey).toHaveBeenCalledWith(GUILD_ID, 'named-journey');
-            expect(linksRepo.detachFlow).toHaveBeenCalledWith(GUILD_ID, FLOW_ID);
+            // Deleted by the **resolved** key, with this flow's link. Asserting only that it
+            // was called lets through a delete that matches no row and reports success
+            // anyway, leaving the journey behind attached to nobody.
+            expect(repo.deleteForFlowAtVersion).toHaveBeenCalledWith({
+                guildId: GUILD_ID,
+                journeyKey: 'named-journey',
+                flowId: FLOW_ID,
+                baseUpdatedAt: ROW_VERSION,
+            });
         });
     });
 
@@ -580,7 +602,7 @@ describe('flow resource declarations', () => {
             const body = (await response.json()) as { error: string };
 
             expect(response.status).toBe(409);
-            expect(repo.deleteByKey).not.toHaveBeenCalled();
+            expect(repo.deleteForFlowAtVersion).not.toHaveBeenCalled();
             expect(linksRepo.detachFlow).not.toHaveBeenCalled();
             expect(body.error).toContain('Welcome wagon');
         });
@@ -593,7 +615,7 @@ describe('flow resource declarations', () => {
             // same damage as clearing them — guarding only the empty case would leave
             // the destructive path a resource shorter than the one it guards.
             expect(response.status).toBe(409);
-            expect(repo.update).not.toHaveBeenCalled();
+            expect(repo.updateAtVersion).not.toHaveBeenCalled();
             expect(body.error).toContain('Welcome wagon');
         });
     });
@@ -602,7 +624,7 @@ describe('flow resource declarations', () => {
         repo.getByKey.mockResolvedValue(null);
         repo.create.mockResolvedValue(journeyRow({ journeyKey: FLOW_ID, resources: RESOURCES }));
 
-        await putResources(RESOURCES);
+        await putResources(RESOURCES, null);
 
         // Implicit from birth, but explicit in the data — so nothing downstream has to
         // fall back on the key convention for a journey created after this shipped.
@@ -618,7 +640,8 @@ describe('flow resource declarations', () => {
 
         await putResources([]);
 
-        expect(linksRepo.detachFlow).toHaveBeenCalledWith(GUILD_ID, FLOW_ID);
+        // With the row, in one transaction: the repo's delete names this flow's link.
+        expect(repo.deleteForFlowAtVersion).toHaveBeenCalledWith(expect.objectContaining({ flowId: FLOW_ID }));
     });
 
     it('refuses to declare resources against another guild\'s flow', async () => {
@@ -655,9 +678,10 @@ describe('flow resource declarations', () => {
             journeyRow({ journeyKey: FLOW_ID, resources: input.resources })
         );
 
-        const response = await putResources([
-            { key: 'welcome', kind: 'textChannel', defaultName: 'Welcome Mat' },
-        ]);
+        const response = await putResources(
+            [{ key: 'welcome', kind: 'textChannel', defaultName: 'Welcome Mat' }],
+            null
+        );
 
         expect(response.status).toBe(200);
         expect(repo.create).toHaveBeenCalledWith(
@@ -667,6 +691,7 @@ describe('flow resource declarations', () => {
         );
         expect(await response.json()).toEqual({
             resources: [{ key: 'welcome', kind: 'textChannel', defaultName: 'welcome-mat' }],
+            updatedAt: ROW_VERSION,
         });
     });
 

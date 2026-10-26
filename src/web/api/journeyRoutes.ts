@@ -1,15 +1,19 @@
 import { createRoute, z, type OpenAPIHono } from '@hono/zod-openapi';
 import { flowsRepo } from '../../features/flows/data/flowsRepo';
+import type { FlowEntity } from '../../features/flows/data/flowsSchema';
+import { buttonClaimConflict, buttonClaimMoveRefusal } from '../../features/flows/logic/buttonClaims';
+import { journeyButtonListeners } from '../../features/flows/logic/journeyButtonListeners';
+import { flowIdsInJourney } from '../../features/flows/logic/journeyMembership';
 import { getPublishedJourneyState } from '../../features/flows/logic/publishedJourneyState';
-import {
-    undeployFlowButtons,
-    type UndeployedButtonMessage,
-} from '../../features/flows/logic/undeployFlowButtons';
 import { flowJourneyLinksRepo } from '../../features/provisioning/data/flowJourneyLinksRepo';
 import { DuplicateJourneyKeyError, journeysRepo } from '../../features/provisioning/data/journeysRepo';
+import type { JourneyEntity } from '../../features/provisioning/data/journeysSchema';
 import { resourceBindingsRepo } from '../../features/provisioning/data/resourceBindingsRepo';
 import { mergeDeclarations, planJourneyMerge } from '../../features/provisioning/logic/journeyMergePlan';
-import { resolveFlowJourney } from '../../features/provisioning/logic/resolveFlowJourney';
+import {
+    resolveFlowJourney,
+    type ResolvedFlowJourney,
+} from '../../features/provisioning/logic/resolveFlowJourney';
 import {
     otherFlowsOnJourney,
     sharedJourneyRefusal,
@@ -29,7 +33,7 @@ import type { AppEnv } from '../types';
 import { driftBody, JourneyDriftSchema } from './driftBody';
 import { FLOW_ERRORS, FLOW_NOT_FOUND, FlowPathSchema } from './flowBody';
 import { flowNameInGuild } from './flowNameInGuild';
-import { UndeployResultSchema, UnpublishResultSchema } from './installBody';
+import { UnpublishResultSchema } from './installBody';
 import {
     AttachResultSchema,
     DetachResultSchema,
@@ -45,7 +49,9 @@ import {
     JOURNEY_ERRORS,
     JOURNEY_MAX_RESOURCES,
     JOURNEY_NOT_FOUND,
+    JourneyButtonListenersSchema,
     journeyDetail,
+    journeyVersion,
     JourneyCreateSchema,
     JourneyPathSchema,
     JourneySchema,
@@ -54,6 +60,8 @@ import {
     JourneyUpdateSchema,
     OrphanPathSchema,
     RepairResultSchema,
+    STALE_RESOURCES_MESSAGE,
+    GROUP_CHANGED_MESSAGE,
     declarationsRefusal,
     messageUploadsRefusal,
     type AttachedFlowBody,
@@ -128,29 +136,12 @@ const getJourneyPublishedStateRoute = createRoute({
     path: '/{guildId}/journeys/{journeyKey}/published',
     operationId: 'getJourneyPublishedState',
     tags: ['journeys'],
-    summary: 'What the journey has live in the guild, across every flow attached to it',
+    summary: 'What the journey has live in the guild, for every flow attached to it',
     request: { params: JourneyPathSchema },
     responses: {
         200: jsonResponse(
-            "Every attached flow's button messages, and the resources the journey put in the guild.",
+            'The resources the journey put in the guild, as an uninstall would treat them.',
             PublishedFlowStateSchema
-        ),
-        ...JOURNEY_ERRORS,
-    },
-});
-
-const undeployJourneyRoute = createRoute({
-    method: 'post',
-    path: '/{guildId}/journeys/{journeyKey}/undeploy',
-    operationId: 'undeployJourney',
-    tags: ['journeys'],
-    summary: "Delete the messages carrying the buttons of every flow on the journey",
-    request: { params: JourneyPathSchema },
-    responses: {
-        200: jsonResponse(
-            'What became of each recorded message, across every flow. A flow whose buttons could not ' +
-                'be read is a `failed` row naming it.',
-            UndeployResultSchema
         ),
         ...JOURNEY_ERRORS,
     },
@@ -245,15 +236,16 @@ const saveFlowResourcesRoute = createRoute({
     request: { params: FlowPathSchema, body: jsonBody(FlowResourcesSaveSchema) },
     responses: {
         200: jsonResponse(
-            'The declarations as stored, text-channel names normalised.',
+            'The declarations as stored, text-channel names normalised, and the version to send next.',
             FlowResourcesSchema
         ),
         ...GUILD_SCOPED_BODY_ERRORS,
         400: RESOURCES_REFUSED,
         404: FLOW_NOT_FOUND,
         409: errorBodyResponse(
-            'Nothing was written: other flows share the journey, or a journey keyed with this flow id ' +
-                'already exists.'
+            'Nothing was written: other flows share the journey; the journey has changed since ' +
+                '`baseUpdatedAt`, or none was sent for a journey that exists, or one was sent for a journey ' +
+                'that is gone (reload); or a journey keyed with this flow id already exists.'
         ),
     },
 });
@@ -285,6 +277,10 @@ const attachFlowToJourneyRoute = createRoute({
         200: jsonResponse('The journey the flow is now on, and the one it left.', AttachResultSchema),
         ...GUILD_SCOPED_BODY_ERRORS,
         404: errorBodyResponse('The bot is not in this server, or the flow or the journey is not in it.'),
+        409: errorBodyResponse(
+            'Nothing was attached: the flow is live on a button a live flow of that journey already ' +
+                'listens to. The sentence names it.'
+        ),
     },
 });
 
@@ -301,6 +297,10 @@ const detachFlowFromJourneyRoute = createRoute({
             DetachResultSchema
         ),
         ...FLOW_ERRORS,
+        409: errorBodyResponse(
+            'Nothing was detached: the flow would fall back to the journey keyed by its own id, and it is ' +
+                'live on a button a live flow of that journey already listens to. The sentence names it.'
+        ),
     },
 });
 
@@ -341,8 +341,10 @@ const groupFlowWithRoute = createRoute({
         ),
         404: errorBodyResponse('The bot is not in this server, or either flow is not in it.'),
         409: errorBodyResponse(
-            "Nothing was grouped: this flow's journey is shared, both journeys declare the same key, or " +
-                'a journey with the new key already exists.'
+            "Nothing was grouped: this flow's journey is shared, both journeys declare the same key, " +
+                'a journey with the new key already exists, the flow is live on a button a live flow ' +
+                'of the destination already listens to (the sentence names it), or the destination\'s ' +
+                'resources changed while the merge was being made (try again).'
         ),
     },
 });
@@ -374,6 +376,26 @@ const updateJourneyRoute = createRoute({
         ...GUILD_SCOPED_BODY_ERRORS,
         400: RESOURCES_REFUSED,
         404: JOURNEY_NOT_FOUND,
+        409: errorBodyResponse(
+            'Nothing was written: `resources` came without `baseUpdatedAt`, or the journey has changed ' +
+                'since it. Reload.'
+        ),
+    },
+});
+
+const getJourneyButtonListenersRoute = createRoute({
+    method: 'get',
+    path: '/{guildId}/journeys/{journeyKey}/button-listeners',
+    operationId: 'getJourneyButtonListeners',
+    tags: ['journeys'],
+    summary: "Which flows' triggers listen to the journey's message buttons",
+    request: { params: JourneyPathSchema },
+    responses: {
+        200: jsonResponse(
+            'Every Button Click trigger of the journey\'s flows naming one of its buttons, live and off.',
+            JourneyButtonListenersSchema
+        ),
+        ...JOURNEY_ERRORS,
     },
 });
 
@@ -477,14 +499,32 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
     });
 
     /**
+     * Who listens to this journey's message buttons: every Button Click of its flows naming
+     * one, live and off, by the one membership rule — the message window's "↳ <flow>" lines
+     * and the listened-key lock read it.
+     *
+     * Database only. `journeysRepo.getByKey` is guild-scoped, so another guild's journey is a
+     * 404 and never confirmed.
+     */
+    router.openapi(getJourneyButtonListenersRoute, async (c) => {
+        const guildId = c.get('guild').id;
+        const { journeyKey } = c.req.valid('param');
+
+        const journey = await journeysRepo.getByKey(guildId, journeyKey);
+        if (!journey) {
+            return c.json({ error: 'Journey not found.' }, 404);
+        }
+
+        return c.json({ listeners: await journeyButtonListeners(guildId, journeyKey) }, 200);
+    });
+
+    /**
      * What this **journey** has live in the guild.
      *
-     * The group header's inventory. Distinct from
-     * `GET /flows/:flowId/published` in the half that matters: the button messages of
-     * every attached flow are here, because unpublishing the journey takes all of them
-     * down. The page used to reach this information through its first member, which
-     * showed one flow's buttons beside an action that would have removed its siblings'
-     * too.
+     * The group header's inventory. Distinct from `GET /flows/:flowId/published` in whose
+     * question it answers: this plans against the journey itself, which is what the
+     * group's uninstall tears down. The page used to reach this information through its
+     * first member, whose uninstall the server refuses while siblings share the journey.
      *
      * `journeysRepo.getByKey` is guild-scoped, so a key belonging to another guild is a
      * 404 and never confirms that guild's journey exists. The check is also what makes
@@ -501,66 +541,6 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
         }
 
         return c.json(publishedBody(await getPublishedJourneyState(guild, journeyKey)), 200);
-    });
-
-    /**
-     * Take every attached flow's trigger buttons back out of the guild.
-     *
-     * Fans out over the journey's attachments and undeploys each, which is the same
-     * scope the inventory above reports — the dialog's "take buttons down" must remove
-     * exactly what it just listed.
-     *
-     * Unlike `POST /flows/:flowId/undeploy`, this **does** require the journey to exist.
-     * That route can run after its flow's row is gone because `flow_button_messages`
-     * outlives the flow and its id is the only way back to those messages; here the
-     * journey row is the only thing that names which flows to fan out to, so a missing
-     * one leaves nothing to act on rather than a cleanup worth attempting.
-     *
-     * Results are flattened across flows and reported as one list. The operator asked
-     * about the journey, and per-flow buckets would make them reassemble the answer.
-     *
-     * **Sequential, and a throw from one flow does not lose the others.**
-     * `undeployFlowButtons` already loops message by message and carries on past a
-     * failure, for the stated reason that buttons in one channel have nothing to do with
-     * buttons in another. Fanning out with `Promise.all` would invert that guarantee one
-     * level up: the first rejection discards every sibling's report, including deletions
-     * that have already happened in Discord — and those rows are the only record of where
-     * the remaining live buttons are. A flow that throws is reported as a failure against
-     * itself and the run continues.
-     */
-    router.openapi(undeployJourneyRoute, async (c) => {
-        const guild = c.get('guild');
-        const guildId = guild.id;
-        const { journeyKey } = c.req.valid('param');
-
-        const journey = await journeysRepo.getByKey(guildId, journeyKey);
-        if (!journey) {
-            return c.json({ error: 'Journey not found.' }, 404);
-        }
-
-        const flowIds = await flowJourneyLinksRepo.listFlowIdsForJourney(guildId, journeyKey);
-
-        const results: UndeployedButtonMessage[] = [];
-        for (const flowId of flowIds) {
-            try {
-                results.push(...(await undeployFlowButtons(guild, flowId)).results);
-            } catch (error) {
-                // No channel or message id to name — the throw came from the lookup that
-                // would have supplied them. The flow id is what the operator can act on,
-                // and reporting nothing at all would make a failed flow look like one
-                // with no buttons. The cause goes to the log, not the response: it is
-                // whatever the database driver said.
-                console.error(`[journeys] Could not read the button messages of flow ${flowId}:`, error);
-                results.push({
-                    channelId: '',
-                    messageId: '',
-                    outcome: 'failed',
-                    explanation: `Could not read the buttons for flow ${flowId}. Try again in a moment.`,
-                });
-            }
-        }
-
-        return c.json({ results }, 200);
     });
 
     /**
@@ -795,7 +775,13 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
         }
 
         const resolved = await resolveFlowJourney(guildId, flowId);
-        return c.json({ resources: resolved?.journey.resources ?? [] }, 200);
+        return c.json(
+            {
+                resources: resolved?.journey.resources ?? [],
+                updatedAt: resolved ? journeyVersion(resolved.journey) : null,
+            },
+            200
+        );
     });
 
     /**
@@ -805,11 +791,20 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
      * update would make "I deleted a row" indistinguishable from "I didn't mention
      * it". The journey is created on the first save with a non-empty list, which is
      * what "journeys are created implicitly with a flow" means in practice.
+     *
+     * **Guarded by the journey's version**, because a full replace from a list read before
+     * somebody else's save deletes what that save added. Once the flow is on a journey the
+     * save must carry `baseUpdatedAt`, the version its list was read at, and is written only
+     * if the journey is still that version — compared and written in one transaction
+     * (`journeysRepo.updateAtVersion`). One sent with none is refused too: that is a tab older
+     * than the guard, and exactly the tab the guard is for. The first save, onto no journey,
+     * has no version to send and creates one; a save that *does* send a version, for a journey
+     * that has gone since, is refused rather than allowed to quietly bring it back.
      */
     router.openapi(saveFlowResourcesRoute, async (c) => {
         const guildId = c.get('guild').id;
         const { flowId } = c.req.valid('param');
-        const { resources } = c.req.valid('json');
+        const { resources, baseUpdatedAt } = c.req.valid('json');
 
         const refusal = declarationsRefusal(resources) ?? (await messageUploadsRefusal(guildId, resources));
         if (refusal) {
@@ -831,14 +826,42 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
         // letting a flow clear its own implicit journey out from under a second one
         // attached to it.
         //
-        // Checked for the save too, not only the clear: `journeysRepo.update` replaces
-        // `resources` wholesale, so dropping four of five resources is the same damage
-        // as clearing them.
+        // Checked for the save too, not only the clear: `journeysRepo.updateAtVersion`
+        // replaces `resources` wholesale, so dropping four of five resources is the same
+        // damage as clearing them.
         const shared = resolved
             ? await otherFlowsOnJourney(guildId, resolved.journey.journeyKey, flowId, {
                   flowName: (id) => flowNameInGuild(guildId, id),
               })
             : [];
+
+        if (shared.length > 0) {
+            return c.json(
+                {
+                    error: sharedJourneyRefusal({
+                        journeyName: resolved?.journey.name ?? flowId,
+                        action:
+                            resources.length === 0
+                                ? 'Clearing the resources on the journey'
+                                : 'Replacing the resources on the journey',
+                        others: shared,
+                    }),
+                },
+                409
+            );
+        }
+
+        // The version, after the refusals that would hold whatever was sent: see the header.
+        // `stored` is the journey being replaced and the version the list was read at.
+        let stored: { readonly journeyKey: string; readonly baseUpdatedAt: string } | null = null;
+        if (resolved) {
+            if (!baseUpdatedAt) {
+                return c.json({ error: STALE_RESOURCES_MESSAGE }, 409);
+            }
+            stored = { journeyKey: resolved.journey.journeyKey, baseUpdatedAt };
+        } else if (baseUpdatedAt) {
+            return c.json({ error: STALE_RESOURCES_MESSAGE }, 409);
+        }
 
         // An empty list means the flow declares nothing, which is not an empty
         // journey but *no* journey — `validateJourneyDeclaration` rejects a journey
@@ -848,71 +871,60 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
         // record channels that exist in the guild and removing them would orphan real
         // Discord objects. Tearing those down is uninstall's job.
         if (resources.length === 0) {
-            if (shared.length > 0) {
-                return c.json(
-                    {
-                        error: sharedJourneyRefusal({
-                            journeyName: resolved?.journey.name ?? flowId,
-                            action: 'Clearing the resources on the journey',
-                            others: shared,
-                        }),
-                    },
-                    409
-                );
+            if (!stored) {
+                // No journey to delete. A link naming one that is gone is cleared, so the
+                // flow stops pointing at nothing.
+                await flowJourneyLinksRepo.detachFlow(guildId, flowId);
+                return c.json({ resources: [], updatedAt: null }, 200);
             }
 
-            // Detached **before** the journey is deleted, and the order is load-bearing:
-            // a link naming a journey that no longer exists resolves to nothing, which
-            // would leave the flow unable to install or unpublish while its channels
-            // stand in the guild. Failing the other way round merely leaves a link to a
-            // journey that still exists, which the next save converges.
-            await flowJourneyLinksRepo.detachFlow(guildId, flowId);
-            // The **resolved** key, not the flow id. A flow alone on a journey keyed
-            // otherwise — the case slice A exists to enable — would otherwise delete
-            // nothing, detach itself, and report success, leaving the journey row
-            // behind attached to nobody.
-            await journeysRepo.deleteByKey(guildId, resolved?.journey.journeyKey ?? flowId);
-            return c.json({ resources: [] }, 200);
-        }
-
-        if (shared.length > 0) {
-            return c.json(
-                {
-                    error: sharedJourneyRefusal({
-                        journeyName: resolved?.journey.name ?? flowId,
-                        action: 'Replacing the resources on the journey',
-                        others: shared,
-                    }),
-                },
-                409
-            );
+            // The link and the row together, in one transaction, at the version read. The
+            // **resolved** key, not the flow id: a flow alone on a journey keyed otherwise
+            // would otherwise delete nothing and leave the row attached to nobody. Both go
+            // or neither does — a link naming a journey that no longer exists would leave
+            // the flow unable to install or unpublish while its channels stand in the guild.
+            const removed = await journeysRepo.deleteForFlowAtVersion({ guildId, flowId, ...stored });
+            if (removed.kind !== 'deleted') {
+                return c.json({ error: STALE_RESOURCES_MESSAGE }, 409);
+            }
+            return c.json({ resources: [], updatedAt: null }, 200);
         }
 
         try {
-            const journey = resolved
-                ? await journeysRepo.update(guildId, resolved.journey.journeyKey, { resources })
-                : await journeysRepo.create({
-                      guildId,
-                      // The flow's id, so the scope is unambiguous and needs no name.
-                      journeyKey: flowId,
-                      // Named after the flow for diagnostics only. The key is identity.
-                      name: flow.name,
-                      resources,
-                      createdForFlowId: flowId,
-                  });
+            let journey: JourneyEntity;
+            if (stored) {
+                const written = await journeysRepo.updateAtVersion(guildId, stored.journeyKey, stored.baseUpdatedAt, {
+                    resources,
+                });
+                if (written.kind !== 'written') {
+                    return c.json({ error: STALE_RESOURCES_MESSAGE }, 409);
+                }
+                journey = written.journey;
+            } else {
+                journey = await journeysRepo.create({
+                    guildId,
+                    // The flow's id, so the scope is unambiguous and needs no name.
+                    journeyKey: flowId,
+                    // Named after the flow for diagnostics only. The key is identity.
+                    name: flow.name,
+                    resources,
+                    createdForFlowId: flowId,
+                });
+            }
 
             // Written on every save, not only on create: an implicit journey is
             // explicit from birth, and a flow whose journey predates the link table
             // gets its row the first time it is saved. The upsert makes the repeat
             // case a no-op, so this costs one idempotent write rather than a branch
-            // that has to know which case it is in.
+            // that has to know which case it is in. After the versioned write has
+            // committed, never inside it: SQLite has one connection.
             await flowJourneyLinksRepo.attach({
                 guildId,
                 flowId,
                 journeyKey: journey.journeyKey,
             });
 
-            return c.json({ resources: journey.resources }, 200);
+            return c.json({ resources: journey.resources, updatedAt: journeyVersion(journey) }, 200);
         } catch (error) {
             const refusal = journeyWriteRefusal(error);
             if (!refusal) {
@@ -959,6 +971,7 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
                     name: resolved.journey.name,
                     resourceCount: resolved.journey.resources.length,
                     sharedWith: others.map((other) => ({ flowId: other.flowId, name: other.label })),
+                    linked: resolved.attached,
                 },
             },
             200
@@ -1016,6 +1029,14 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
                 ? { journeyKey: current.journey.journeyKey, name: current.journey.name }
                 : null;
 
+        // A live flow's buttons start listening in the journey the moment it is linked.
+        if (current?.journey.journeyKey !== journey.journeyKey) {
+            const clash = await moveButtonConflict({ guildId, moving: flow, destination: journey });
+            if (clash) {
+                return c.json({ error: clash }, 409);
+            }
+        }
+
         await flowJourneyLinksRepo.attach({ guildId, flowId, journeyKey: journey.journeyKey });
 
         return c.json(
@@ -1041,6 +1062,11 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
      * The journey row stays too, for the same reason and one more: other flows may still
      * be attached to it, and this route has no business deciding that a journey is
      * finished because one flow left.
+     *
+     * **Detaching can be a move too.** With its link gone, a flow falls back to the journey
+     * keyed by its own id when one exists (`resolveFlowJourney`), and its live triggers start
+     * listening to that journey's buttons — so the one-flow-per-button check runs as it does
+     * for attach and group, and refuses the same way.
      */
     router.openapi(detachFlowFromJourneyRoute, async (c) => {
         const guildId = c.get('guild').id;
@@ -1049,6 +1075,15 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
         const flow = await flowsRepo.getByFlowId(flowId);
         if (!flow || flow.guildId !== guildId) {
             return c.json({ error: 'Flow not found.' }, 404);
+        }
+
+        const linkedKey = await flowJourneyLinksRepo.getJourneyKeyForFlow(guildId, flowId);
+        if (linkedKey && linkedKey !== flowId) {
+            const fallback = await journeysRepo.getByKey(guildId, flowId);
+            const clash = fallback && (await moveButtonConflict({ guildId, moving: flow, destination: fallback }));
+            if (clash) {
+                return c.json({ error: clash }, 409);
+            }
         }
 
         const detached = await flowJourneyLinksRepo.detachFlow(guildId, flowId);
@@ -1131,6 +1166,16 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
             movingBindings: bindings,
         });
 
+        // The group route's refusal, said before the operator confirms anything.
+        const buttonConflict = sameJourney(moving, destination)
+            ? undefined
+            : await moveButtonConflict({
+                  guildId,
+                  moving: flow,
+                  destination: destination?.journey ?? null,
+                  targetFlowId,
+              });
+
         return c.json(
             {
                 destination: destination
@@ -1143,6 +1188,7 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
                 collisions: plan.collisions,
                 sharedTicketTypes: plan.sharedTicketTypes,
                 orphaned: plan.orphaned,
+                buttonConflict: buttonConflict ?? null,
             },
             200
         );
@@ -1213,6 +1259,21 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
             );
         }
 
+        // Re-checked rather than trusted from the preview, like the guard above. Whether the
+        // resources merge or stay, the moving flow's trigger keeps its keys, so the clash is
+        // the same either way — and it is refused before anything below is written.
+        if (!sameJourney(moving, destination)) {
+            const clash = await moveButtonConflict({
+                guildId,
+                moving: flow,
+                destination: destination?.journey ?? null,
+                targetFlowId,
+            });
+            if (clash) {
+                return c.json({ error: clash }, 409);
+            }
+        }
+
         try {
             // The destination journey, created on demand when the target flow has none.
             // Named after the target flow, matching how an implicit journey is named at
@@ -1270,11 +1331,19 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
                     );
                 }
 
-                destinationJourney = await journeysRepo.update(
+                // At the version `merged` was built from, read at the top of this request: a
+                // tab's save landing in between would otherwise be replaced by a list that
+                // never held it — erased with no error anywhere.
+                const written = await journeysRepo.updateAtVersion(
                     guildId,
                     destinationJourney.journeyKey,
+                    journeyVersion(destinationJourney),
                     { resources: merged }
                 );
+                if (written.kind !== 'written') {
+                    return c.json({ error: GROUP_CHANGED_MESSAGE }, 409);
+                }
+                destinationJourney = written.journey;
 
                 /*
                  * A merge is a **move**, so the source is emptied once the copy lands.
@@ -1367,13 +1436,27 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
             return c.json({ error: 'Journey not found.' }, 404);
         }
 
+        const input = { name: body.name, description: body.description, resources: body.resources };
         try {
-            const journey = await journeysRepo.update(guildId, journeyKey, {
-                name: body.name,
-                description: body.description,
-                resources: body.resources,
-            });
-            return c.json(journeyDetail(journey), 200);
+            // A rename or a new description alone is written as it comes. A list of resources
+            // replaces the whole list, so it is guarded by the version it was read at, as
+            // `PUT /flows/{flowId}/resources` is — and one sent with none is a tab older than
+            // the guard, refused like a stale one.
+            if (!body.resources) {
+                return c.json(journeyDetail(await journeysRepo.update(guildId, journeyKey, input)), 200);
+            }
+            if (!body.baseUpdatedAt) {
+                return c.json({ error: STALE_RESOURCES_MESSAGE }, 409);
+            }
+            const written = await journeysRepo.updateAtVersion(guildId, journeyKey, body.baseUpdatedAt, input);
+            switch (written.kind) {
+                case 'written':
+                    return c.json(journeyDetail(written.journey), 200);
+                case 'stale':
+                    return c.json({ error: STALE_RESOURCES_MESSAGE }, 409);
+                case 'missing':
+                    return c.json({ error: 'Journey not found.' }, 404);
+            }
         } catch (error) {
             const refusal = declarationRefusal(error);
             if (refusal === undefined) {
@@ -1427,6 +1510,54 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
     });
 
     return undefined;
+}
+
+/** Whether a grouping moves nothing: both flows already resolve to one journey. */
+function sameJourney(moving: ResolvedFlowJourney | null, destination: ResolvedFlowJourney | null): boolean {
+    return !!moving && !!destination && moving.journey.journeyKey === destination.journey.journeyKey;
+}
+
+/**
+ * Why moving `moving` into `destination` — attaching it, or grouping it with `targetFlowId` —
+ * would leave two live flows on one button, or `undefined` when it would not.
+ *
+ * One flow per button (`buttonClaims.ts`): a trigger's keys mean "in my journey", so the
+ * moment a live flow is linked, its triggers listen to the destination's buttons of the same
+ * keys. Only a live moving flow can clash; an off one is judged when it is switched on.
+ * `destination` is null when the grouping creates the journey, whose one other flow is then
+ * the target. Named by the destination's declarations, which are what the listening flow sees.
+ *
+ * Reads the guild's flows and links, before any write.
+ */
+async function moveButtonConflict(input: {
+    readonly guildId: string;
+    readonly moving: FlowEntity;
+    readonly destination: JourneyEntity | null;
+    readonly targetFlowId?: string;
+}): Promise<string | undefined> {
+    const { guildId, moving, destination, targetFlowId } = input;
+    if (!moving.enabled) return undefined;
+
+    const [flows, links] = await Promise.all([
+        flowsRepo.getByGuildId(guildId),
+        flowJourneyLinksRepo.listLinksForGuild(guildId),
+    ]);
+    const journeyFlowIds = destination
+        ? flowIdsInJourney({
+              journeyKey: destination.journeyKey,
+              links,
+              guildFlowIds: flows.map((flow) => flow.flowId),
+          })
+        : new Set(targetFlowId ? [targetFlowId] : []);
+
+    const conflict = buttonClaimConflict({
+        flowId: moving.flowId,
+        graph: moving.graph,
+        flows,
+        journeyFlowIds,
+        declarations: destination?.resources ?? [],
+    });
+    return conflict && buttonClaimMoveRefusal(conflict, moving.name);
 }
 
 /**

@@ -34,6 +34,7 @@ import {
     type GatewayReadyDispatchData,
     type PermissionsString,
 } from 'discord.js';
+import { ServerInteractions, type ButtonPressPayload } from './interactionState';
 import { ServerMessages } from './messageState';
 import type { InjectedRateLimit, InjectedRejection } from './restRouter';
 import { TestDiscordError } from './testDiscordError';
@@ -83,7 +84,8 @@ export type HarnessEvent =
     | { readonly t: GatewayDispatchEvents.GuildCreate; readonly d: GatewayGuildCreateDispatchData }
     | { readonly t: GatewayDispatchEvents.MessageCreate; readonly d: GatewayMessageCreateDispatchData }
     | { readonly t: GatewayDispatchEvents.MessageUpdate; readonly d: GatewayMessageUpdateDispatchData }
-    | { readonly t: GatewayDispatchEvents.MessageDelete; readonly d: GatewayMessageDeleteDispatchData };
+    | { readonly t: GatewayDispatchEvents.MessageDelete; readonly d: GatewayMessageDeleteDispatchData }
+    | { readonly t: GatewayDispatchEvents.InteractionCreate; readonly d: ButtonPressPayload };
 
 /** Where published events go once a client is connected. Before that, nowhere. */
 export interface EventSink {
@@ -259,6 +261,9 @@ export class ServerState {
 
     /** Every channel's messages. Publishes through this state's sink, so events cannot take a second route. */
     readonly messages = new ServerMessages(this, (event) => this.sink?.publish(event));
+
+    /** Every button press, and what the bot answered each with. Publishes the same way. */
+    readonly interactions = new ServerInteractions(this, (event) => this.sink?.publish(event));
 
     private readonly guilds = new Map<string, GuildRecord>();
     /** Every user ever made here, kept after they leave a guild — Discord still knows them. */
@@ -653,6 +658,47 @@ export class ServerState {
     /** A member of a guild, or undefined when the user is not in it. */
     member(guildId: string, userId: string): Readonly<APIGuildMember> | undefined {
         return this.guild(guildId).members.get(userId);
+    }
+
+    /**
+     * What a member may do server-wide, as a serialised bitfield: everything for the owner,
+     * otherwise `@everyone`'s permissions and every role they hold, and everything once any
+     * of those grants Administrator. Channel overwrites are not applied — see
+     * {@link refuseOverwritesFor}, which an interaction asks first.
+     */
+    guildPermissions(guildId: string, userId: string): string {
+        const guild = this.guild(guildId);
+        const member = guild.members.get(userId);
+        if (!member) {
+            throw new TestDiscordError(`Guild ${guildId} holds no member ${userId} to read permissions for.`);
+        }
+        if (userId === guild.ownerId) return PermissionsBitField.All.toString();
+
+        const held = [guildId, ...member.roles].reduce(
+            (bits, roleId) => bits | BigInt(this.role(guildId, roleId).permissions),
+            0n
+        );
+        return (held & PermissionsBitField.Flags.Administrator) === 0n ? held.toString() : PermissionsBitField.All.toString();
+    }
+
+    /**
+     * Refuse when a channel holds an overwrite that would change what this member may do
+     * there — one for `@everyone`, for them, or for a role they hold. Discord applies those to
+     * the permissions an interaction carries, and that arithmetic is not modelled.
+     */
+    refuseOverwritesFor(channelId: string, userId: string): void {
+        const { guild, channel } = this.locateChannel(channelId);
+        const member = guild.members.get(userId);
+        if (!member) {
+            throw new TestDiscordError(`Guild ${guild.id} holds no member ${userId}.`);
+        }
+        const applies = new Set([guild.id, userId, ...member.roles]);
+        const touching = (channel.permission_overwrites ?? []).filter((overwrite) => applies.has(overwrite.id));
+        if (touching.length > 0) {
+            throw new TestDiscordError(
+                `Channel ${channelId} holds an overwrite for ${userId} or a role they hold. How Discord applies it to an interaction's permissions is not modelled.`
+            );
+        }
     }
 
     /** A user this harness made, whether or not they are in any guild now. */

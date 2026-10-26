@@ -49,10 +49,11 @@ const journeysRepoMock = {
     getByKey: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
+    updateAtVersion: vi.fn(),
     deleteByKey: vi.fn(),
 } satisfies Record<keyof Pick<
     JourneysRepo,
-    'listByGuildId' | 'getByKey' | 'create' | 'update' | 'deleteByKey'
+    'listByGuildId' | 'getByKey' | 'create' | 'update' | 'updateAtVersion' | 'deleteByKey'
 >, unknown>;
 
 const flowsRepoMock = {
@@ -236,6 +237,14 @@ beforeEach(() => {
     journeysRepoMock.update.mockImplementation(
         async (_guildId: string, journeyKey: string, patch: { resources?: ResourceDeclaration[] }) =>
             journeyRow({ journeyKey, resources: patch.resources ?? [] })
+    );
+    // The merge's write to the destination, at the version the route read: nothing moved it
+    // in between unless a test says so.
+    journeysRepoMock.updateAtVersion.mockImplementation(
+        async (_guildId: string, journeyKey: string, _baseUpdatedAt: string, patch: { resources?: ResourceDeclaration[] }) => ({
+            kind: 'written',
+            journey: journeyRow({ journeyKey, resources: patch.resources ?? [] }),
+        })
     );
     journeysRepoMock.create.mockImplementation(
         async (input: { journeyKey: string; name: string; resources: ResourceDeclaration[] }) =>
@@ -626,8 +635,8 @@ describe('committing a group', () => {
 
         expect(response.status).toBe(200);
         // Destination first, then what arrived — the destination's existing declarations
-        // are added to, never replaced.
-        expect(journeysRepoMock.update).toHaveBeenCalledWith(GUILD_ID, 'the-group', {
+        // are added to, never replaced — at the version the route read them at.
+        expect(journeysRepoMock.updateAtVersion).toHaveBeenCalledWith(GUILD_ID, 'the-group', expect.any(String), {
             resources: [destinationResource, movingResource],
         });
         // The flow itself has to follow its declarations. Moving the resources without
@@ -664,6 +673,7 @@ describe('committing a group', () => {
         const body = (await response.json()) as { error: string };
         expect(body.error).toContain(`more than ${JOURNEY_MAX_RESOURCES} resources`);
         expect(journeysRepoMock.update).not.toHaveBeenCalled();
+        expect(journeysRepoMock.updateAtVersion).not.toHaveBeenCalled();
         expect(linksRepo.attach).not.toHaveBeenCalled();
     });
 
@@ -705,7 +715,7 @@ describe('committing a group', () => {
         const response = await group({ targetFlowId: TARGET_FLOW_ID, resolution: 'merge' });
 
         expect(response.status).toBe(200);
-        expect(journeysRepoMock.update).toHaveBeenCalledWith(GUILD_ID, 'the-group', {
+        expect(journeysRepoMock.updateAtVersion).toHaveBeenCalledWith(GUILD_ID, 'the-group', expect.any(String), {
             resources: [destinationType, movingChannel],
         });
     });
@@ -735,6 +745,7 @@ describe('committing a group', () => {
 
         expect(response.status).toBe(200);
         expect(journeysRepoMock.update).not.toHaveBeenCalled();
+        expect(journeysRepoMock.updateAtVersion).not.toHaveBeenCalled();
         expect(linksRepo.attach).toHaveBeenCalledWith({
             guildId: GUILD_ID,
             flowId: MOVING_FLOW_ID,
@@ -816,6 +827,7 @@ describe('committing a group', () => {
         expect(body.error).toContain(collidingKey);
         // Refused before anything is written, so a retry after a rename starts clean.
         expect(journeysRepoMock.update).not.toHaveBeenCalled();
+        expect(journeysRepoMock.updateAtVersion).not.toHaveBeenCalled();
         expect(linksRepo.attach).not.toHaveBeenCalled();
     });
 
@@ -850,9 +862,10 @@ describe('committing a group', () => {
 
         expect(response.status).toBe(200);
         // The destination gained it...
-        expect(journeysRepoMock.update).toHaveBeenCalledWith(
+        expect(journeysRepoMock.updateAtVersion).toHaveBeenCalledWith(
             GUILD_ID,
             'onboarding',
+            expect.any(String),
             expect.objectContaining({
                 resources: expect.arrayContaining([
                     expect.objectContaining({ key: movingKey }),

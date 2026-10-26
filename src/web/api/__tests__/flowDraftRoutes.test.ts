@@ -430,7 +430,7 @@ describe('reading a flow’s declarations', () => {
     });
 });
 
-describe('the autosave of a builder tab older than the Post Embed editor', () => {
+describe('the autosave of a builder tab older than a block it holds', () => {
     it('is refused, and stores no draft — the flat node would be stripped to nothing', async () => {
         const flow = await flowWith(READY);
         const flat: FlowGraph = {
@@ -456,6 +456,34 @@ describe('the autosave of a builder tab older than the Post Embed editor', () =>
         expect(saved.status).toBe(400);
         expect(saved.body.error).toMatch(/Reload the page, then save again/);
         expect(saved.body.issues.map((issue) => issue.nodeId)).toEqual(['post']);
+        expect(await draftsOf(flow.flowId)).toEqual([]);
+    });
+
+    it('refuses a Button Click that still owns its button, older than it listening to a message', async () => {
+        const flow = await flowWith(READY);
+        const ownButton: FlowGraph = {
+            version: FLOW_GRAPH_VERSION,
+            nodes: [
+                {
+                    id: 'press',
+                    type: 'trigger.buttonClick',
+                    position: { x: 0, y: 0 },
+                    data: { channelId: '111111111111111111', label: 'Agree to Rules', style: 'Success' },
+                },
+            ],
+            edges: [],
+        };
+
+        const saved = await send<{ error: string; issues: { nodeId?: string }[] }>(
+            ALICE,
+            'PUT',
+            `/flows/${flow.flowId}/drafts/mine`,
+            { name: 'Greeter', graph: ownButton, baseUpdatedAt: flow.updatedAt }
+        );
+
+        expect(saved.status).toBe(400);
+        expect(saved.body.error).toMatch(/Reload the page, then save again/);
+        expect(saved.body.issues.map((issue) => issue.nodeId)).toEqual(['press']);
         expect(await draftsOf(flow.flowId)).toEqual([]);
     });
 });

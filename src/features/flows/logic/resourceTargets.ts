@@ -104,8 +104,8 @@ function isPickerSidecar(node: FlowNode, targetKey: string): boolean {
 /**
  * The targets of {@link collectResourceTargets} whose field currently applies.
  *
- * For the readers asking whether a field is waiting on a resource — readiness, the
- * switch-on gate, deploy. A picker its `visibleWhen` hides does not apply, so its
+ * For the readers asking whether a field is waiting on a resource — readiness and the
+ * switch-on gate. A picker its `visibleWhen` hides does not apply, so its
  * sidecar must neither hold the flow back nor be blamed for naming an undeclared key;
  * shown again, it is judged again. A node whose block this build does not know is read
  * as it stands. Needs the block registry, so a caller must have awaited discovery.

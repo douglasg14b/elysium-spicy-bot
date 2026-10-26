@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { messageConfigSchema } from '../../../shared/discordMessage';
 import { checkBlockConformance, checkBlockOutcome, checkEmissionTargets } from '../blocks/conformance';
+import { buttonClickConfigSchema } from '../blocks/triggerButtonClick';
 import type { BlockManifest } from '../blocks/manifest';
 import { discoverBlocks, ensureBlocksDiscovered, listBlockDefinitions } from '../blocks/registry';
 import type { FlowRunContext } from '../blocks/types';
@@ -1226,6 +1227,35 @@ describe('a control whose stored shape the control decides', () => {
         expect(issues).toMatch(/the message field "message" stores a message object .* refuses \{"embeds":\[\{"title":"a"\}\]\}/);
         expect(issues).toMatch(/accepts "x"/);
     });
+
+    // A Button Click trigger, the only block a `messageButton` field may sit on.
+    const messageButtonManifest = (schema: z.ZodType) =>
+        manifestWith({
+            kind: 'trigger',
+            group: 'triggers',
+            startedBy: 'buttonClick',
+            configSchema: z.object({ button: schema }),
+            configFields: [{ key: 'button', label: 'Button', control: 'messageButton' }],
+        });
+
+    it("accepts a messageButton over Button Click's own schema", () => {
+        expect(checkBlockConformance(messageButtonManifest(buttonClickConfigSchema.shape.button))).toEqual([]);
+    });
+
+    it('catches a messageButton field over a string schema, which refuses every pick the control makes', () => {
+        const issues = checkBlockConformance(messageButtonManifest(z.string())).join('\n');
+
+        expect(issues).toMatch(/the messageButton field "button" stores .* refuses \{"messageKey":"a","buttonKey":"b"\}/);
+        expect(issues).toMatch(/accepts "x"/);
+    });
+
+    it('catches a messageButton field over a schema that takes an empty object', () => {
+        const issues = checkBlockConformance(
+            messageButtonManifest(z.object({ messageKey: z.string().optional(), buttonKey: z.string().optional() }))
+        ).join('\n');
+
+        expect(issues).toMatch(/accepts \{\}/);
+    });
 });
 
 describe('a card-summary part shown only while a choice holds a value', () => {
@@ -1572,6 +1602,39 @@ describe('driving a block through its entry point', () => {
         );
 
         expect(issues.join()).not.toMatch(/checks one/);
+    });
+
+    describe('a messageButton field outside a Button Click trigger', () => {
+        const withButtonField = (patch: Record<string, unknown>) =>
+            manifestWith({
+                configSchema: z.object({ button: buttonClickConfigSchema.shape.button }),
+                configFields: [{ key: 'button', label: 'Button', control: 'messageButton' }],
+                ...patch,
+            });
+
+        it('passes a trigger started by a button click', () => {
+            // The positive control: without it, a check refusing every messageButton field
+            // would look the same as the one below.
+            expect(
+                checkBlockConformance(withButtonField({ kind: 'trigger', group: 'triggers', startedBy: 'buttonClick' }))
+            ).toEqual([]);
+        });
+
+        it('catches one on an action, which no press ever reaches', () => {
+            // It would claim the button, keep every other flow off it and be listed as its
+            // listener, while the press router answered only Button Click triggers.
+            const issues = checkBlockConformance(withButtonField({})).join('\n');
+
+            expect(issues).toMatch(/declares the messageButton field "button", but is of kind "action"\./);
+        });
+
+        it('catches one on a trigger started by anything else', () => {
+            const issues = checkBlockConformance(
+                withButtonField({ kind: 'trigger', group: 'triggers', startedBy: 'memberJoin' })
+            ).join('\n');
+
+            expect(issues).toMatch(/declares the messageButton field "button", but is started by "memberJoin"\./);
+        });
     });
 
     it('catches a block continuing by a handle it never declared', async () => {

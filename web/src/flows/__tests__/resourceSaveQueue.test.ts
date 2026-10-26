@@ -10,11 +10,13 @@
 import { describe, expect, it } from 'vitest';
 import type { ResourceDeclaration } from '@brattybot/web-sdk';
 import {
+    classifySaveFailure,
     decideAutosaveAction,
     describeSaveFailure,
     isWorthSaving,
     RESOURCE_SAVE_DEBOUNCE_MS,
     shouldAcceptResponse,
+    STALE_RESOURCES_MESSAGE,
 } from '../resourceSaveQueue';
 
 function channel(key: string, name = 'welcome'): ResourceDeclaration {
@@ -45,7 +47,7 @@ describe('describeSaveFailure', () => {
      * operator is looking at exactly what the server rejected.
      */
     it('shows and reverts when the refused list is still the current one', () => {
-        expect(describeSaveFailure(2, 2)).toEqual({ showError: true, revertToStored: true });
+        expect(describeSaveFailure(2, 2, 'other')).toEqual({ showError: true, revertToStored: true, markStale: false });
     });
 
     /**
@@ -55,7 +57,31 @@ describe('describeSaveFailure', () => {
      * a problem that no longer exists.
      */
     it('neither shows nor reverts when editing continued during the request', () => {
-        expect(describeSaveFailure(2, 5)).toEqual({ showError: false, revertToStored: false });
+        expect(describeSaveFailure(2, 5, 'other')).toEqual({ showError: false, revertToStored: false, markStale: false });
+    });
+
+    /**
+     * A stale version says the stored list moved on under this tab, not that the list on screen
+     * is wrong. Reverting would replace the operator's typing with somebody else's list; the
+     * message tells them to reload instead, and nothing more is sent — whether or not newer
+     * edits came after, since every one of them is edited against the same old version.
+     */
+    it('shows a stale version, keeps the list on screen, and stops saving — superseded or not', () => {
+        expect(describeSaveFailure(2, 2, 'staleVersion')).toEqual({ showError: true, revertToStored: false, markStale: true });
+        expect(describeSaveFailure(2, 5, 'staleVersion')).toEqual({ showError: true, revertToStored: false, markStale: true });
+    });
+});
+
+describe('classifySaveFailure', () => {
+    it('reads the stale-version 409 by its sentence', () => {
+        expect(classifySaveFailure(409, STALE_RESOURCES_MESSAGE)).toBe('staleVersion');
+    });
+
+    /** `PUT /flows/{flowId}/resources` also answers 409 for a journey other flows share. */
+    it('reads any other 409, any other status and no answer at all as the other kind', () => {
+        expect(classifySaveFailure(409, 'Other flows share this journey.')).toBe('other');
+        expect(classifySaveFailure(400, STALE_RESOURCES_MESSAGE)).toBe('other');
+        expect(classifySaveFailure(undefined, undefined)).toBe('other');
     });
 });
 
@@ -163,10 +189,11 @@ describe('decideAutosaveAction', () => {
      * without the journey in the identity this returns `send`, and the newly loaded list
      * is written straight back into the journey just attached to.
      *
-     * On a **shared** journey that write is refused with a 409, which the operator meets
-     * as an error banner immediately after a successful attach. On an unshared one it
-     * succeeds silently, which is worse: a write nobody asked for, against declarations
-     * another flow may have authored.
+     * Through the flow, on a **shared** journey, that write is refused with a 409, which the
+     * operator would meet as an error banner immediately after a successful attach. Through
+     * the journey — where a linked builder saves since step 3 — and on an unshared one through
+     * the flow, it succeeds silently, which is worse: a write nobody asked for, against
+     * declarations another flow may have authored.
      */
     it('adopts rather than sends when the flow was attached to another journey', () => {
         expect(

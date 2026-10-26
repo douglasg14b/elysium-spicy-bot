@@ -1,25 +1,22 @@
 /**
- * What a **journey** has in a guild, and the two ways to take it back.
+ * What a **journey** has in a guild, and the way to take it back.
  *
  * The group header's dialog. It exists because the header used to open
- * `InstalledResourcesDialog` through `group.flows[0]`, which was wrong in both
- * directions at once: the inventory showed one member's button messages while the
- * journey's other flows had their own still posted, and the uninstall beside it was
- * refused by the server's shared-journey 409 precisely because a flow may not tear down
- * structure its siblings install. An operator looking at the group could therefore see an
- * incomplete list and then be told they were not allowed to act on it.
+ * `InstalledResourcesDialog` through `group.flows[0]`, whose uninstall was refused by the
+ * server's shared-journey 409 precisely because a flow may not tear down structure its
+ * siblings install. An operator looking at the group could therefore see the list and
+ * then be told they were not allowed to act on it.
  *
- * Acting on the journey answers both. The routes behind this fan out over every attached
- * flow, and they deliberately do **not** carry that 409 — an operator holding the journey
- * is the legitimate case the refusal was steering them towards, not a case it protects
- * against.
+ * Acting on the journey answers that. The routes behind this deliberately do **not** carry
+ * that 409 — an operator holding the journey is the legitimate case the refusal was
+ * steering them towards, not a case it protects against.
  *
  * ## Why this is a sibling rather than a prop on the other dialog
  *
  * The two share their inventory (`publishedInventory.tsx`) and their copy
  * (`summarisePublished`), which is the part that would have hurt to duplicate. What they
- * do not share is the three API calls, the consequences those carry, and the fact that
- * this one has to name the flows it affects. Folding that into one component meant a
+ * do not share is the API calls, the consequences those carry, and the fact that this one
+ * has to name the flows it affects. Folding that into one component meant a
  * `scope` prop threaded through every handler and every label — the parameter tunnelling
  * `.claude/rules/elegance.md` warns about — to save a shell that is mostly a `<Modal>`.
  */
@@ -30,7 +27,6 @@ import { notifications } from '@mantine/notifications';
 import {
     ApiError,
     getJourneyPublishedState,
-    undeployJourney,
     unpublishJourney,
     type PublishedFlowState,
 } from '@brattybot/web-sdk';
@@ -54,14 +50,7 @@ interface JourneyResourcesDialogProps {
      * go and find which; the names *are* the answer, and the page already has them.
      */
     readonly flowNames: readonly string[];
-    /**
-     * Told after a teardown, so the page can re-read its list.
-     *
-     * Takes no argument. The flow dialog's equivalent reports which of the two actions
-     * ran, because the builder listens and only an `unpublish` invalidates node config
-     * on its canvas. The flows list has no canvas and re-reads either way, so a
-     * discriminator here would be a parameter every caller ignores.
-     */
+    /** Told after an uninstall, so the page can re-read its list. */
     readonly onChanged?: () => void;
 }
 
@@ -127,40 +116,6 @@ export function JourneyResourcesDialog({
     }, [opened, refresh]);
 
     const summary = published ? summarisePublished(published, 'journey') : null;
-
-    /** Take every attached flow's buttons out of their channels. */
-    async function handleUndeploy() {
-        setBusy(true);
-        try {
-            const {
-                data: { results },
-            } = await undeployJourney({ path: { guildId, journeyKey } });
-            const failed = results.filter((result) => result.outcome === 'failed');
-            const gone = results.length - failed.length;
-
-            notifications.show({
-                color: failed.length > 0 ? 'orange' : 'brand',
-                title: failed.length > 0 ? 'Mostly gone' : 'Buttons retired',
-                message:
-                    failed.length > 0
-                        ? `${gone} removed, ${failed.length} wouldn't budge: ${failed[0].explanation ?? 'Discord said no.'}`
-                        : `${gone} button message${gone === 1 ? '' : 's'} taken down.`,
-            });
-
-            // A failed re-read leaves the last good inventory on screen rather than
-            // blanking it: the teardown above already reported what it did, and
-            // replacing that with an empty list would contradict the notification.
-            const next = await refresh();
-            if (next) setPublished(next);
-            onChanged?.();
-        } catch (err) {
-            const message =
-                err instanceof ApiError ? err.message : "Couldn't take those buttons down.";
-            notifications.show({ color: 'red', title: 'Still up', message });
-        } finally {
-            setBusy(false);
-        }
-    }
 
     /**
      * Destroy the channels and roles this journey created.
@@ -264,7 +219,6 @@ export function JourneyResourcesDialog({
                     summary={summary}
                     busy={busy}
                     onClose={onClose}
-                    onUndeploy={() => void handleUndeploy()}
                     onUnpublish={() => void handleUnpublish()}
                 />
             </Stack>

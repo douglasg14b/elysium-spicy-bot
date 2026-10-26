@@ -1081,6 +1081,52 @@
                             "control"
                         ],
                         "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "control": {
+                                "enum": [
+                                    "messageButton"
+                                ],
+                                "type": "string"
+                            },
+                            "defaultValue": {
+                                "$ref": "#/components/schemas/MessageButtonRef"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "key": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "visibleWhen": {
+                                "properties": {
+                                    "equals": {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "field": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "field",
+                                    "equals"
+                                ],
+                                "type": "object"
+                            }
+                        },
+                        "required": [
+                            "key",
+                            "label",
+                            "control"
+                        ],
+                        "type": "object"
                     }
                 ]
             },
@@ -1348,6 +1394,38 @@
                 ],
                 "type": "object"
             },
+            "ButtonListener": {
+                "description": "A Button Click trigger naming one of the journey's message buttons by its keys. `enabled` says whether its flow is switched on; an off flow is listed too.",
+                "properties": {
+                    "buttonKey": {
+                        "type": "string"
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "flowId": {
+                        "type": "string"
+                    },
+                    "flowName": {
+                        "type": "string"
+                    },
+                    "messageKey": {
+                        "type": "string"
+                    },
+                    "nodeId": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "messageKey",
+                    "buttonKey",
+                    "flowId",
+                    "flowName",
+                    "nodeId",
+                    "enabled"
+                ],
+                "type": "object"
+            },
             "CohortKey": {
                 "description": "A band of members by XP within this server, least to most active. `topOnePercent` is a spotlight inside `topQuarter`, not a fifth band, so the counts do not sum.",
                 "enum": [
@@ -1357,46 +1435,6 @@
                     "topOnePercent"
                 ],
                 "type": "string"
-            },
-            "DeployResult": {
-                "properties": {
-                    "ok": {
-                        "enum": [
-                            true
-                        ],
-                        "type": "boolean"
-                    },
-                    "posted": {
-                        "items": {
-                            "$ref": "#/components/schemas/DeployedButtonMessage"
-                        },
-                        "type": "array"
-                    }
-                },
-                "required": [
-                    "ok",
-                    "posted"
-                ],
-                "type": "object"
-            },
-            "DeployedButtonMessage": {
-                "properties": {
-                    "buttonCount": {
-                        "type": "number"
-                    },
-                    "channelId": {
-                        "type": "string"
-                    },
-                    "messageId": {
-                        "type": "string"
-                    }
-                },
-                "required": [
-                    "channelId",
-                    "messageId",
-                    "buttonCount"
-                ],
-                "type": "object"
             },
             "DetachResult": {
                 "properties": {
@@ -1839,9 +1877,13 @@
                 "type": "object"
             },
             "FlowAttachment": {
+                "description": "The journey a flow installs. `sharedWith` is every other flow on it. `linked` is false for a flow from before the link table, on the journey keyed by its own id with no link row yet; its next resource save through the flow writes one.",
                 "properties": {
                     "journeyKey": {
                         "type": "string"
+                    },
+                    "linked": {
+                        "type": "boolean"
                     },
                     "name": {
                         "type": "string"
@@ -1860,7 +1902,8 @@
                     "journeyKey",
                     "name",
                     "resourceCount",
-                    "sharedWith"
+                    "sharedWith",
+                    "linked"
                 ],
                 "type": "object"
             },
@@ -2223,24 +2266,8 @@
                     },
                     "trigger.buttonClick": {
                         "properties": {
-                            "channelId": {
-                                "minLength": 1,
-                                "type": "string",
-                                "x-messages": {
-                                    "minLength": "Fill this in."
-                                }
-                            },
-                            "eligibility": {},
-                            "label": {
-                                "maxLength": 80,
-                                "minLength": 1,
-                                "type": "string",
-                                "x-messages": {
-                                    "maxLength": "No more than 80 characters.",
-                                    "minLength": "Fill this in."
-                                }
-                            },
-                            "style": {}
+                            "button": {},
+                            "eligibility": {}
                         },
                         "type": "object"
                     },
@@ -2761,7 +2788,12 @@
                 ]
             },
             "FlowResourcesSave": {
+                "description": "`baseUpdatedAt` is the `updatedAt` the list was edited from, as the resource read or the last save answered it. Required once the flow is on a journey; left out by the first save, which creates one.",
                 "properties": {
+                    "baseUpdatedAt": {
+                        "format": "date-time",
+                        "type": "string"
+                    },
                     "resources": {
                         "items": {
                             "$ref": "#/components/schemas/ResourceDeclaration"
@@ -3005,8 +3037,18 @@
                 "type": "object"
             },
             "GroupPreview": {
-                "description": "What grouping would do. `destination` is null when the target flow is on no journey yet, so one would be created. `orphaned` are the live resources \"leave\" would strand. `sharedTicketTypes` are ticket types both sides declare, which a merge folds into the destination's.",
+                "description": "What grouping would do. `destination` is null when the target flow is on no journey yet, so one would be created. `orphaned` are the live resources \"leave\" would strand. `sharedTicketTypes` are ticket types both sides declare, which a merge folds into the destination's. `buttonConflict`, when set, is why the grouping would be refused: the moving flow is live on a button a live flow of the destination already listens to.",
                 "properties": {
+                    "buttonConflict": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
                     "canMerge": {
                         "type": "boolean"
                     },
@@ -3067,7 +3109,8 @@
                     "orphaned",
                     "destination",
                     "destinationName",
-                    "movingFlowName"
+                    "movingFlowName",
+                    "buttonConflict"
                 ],
                 "type": "object"
             },
@@ -3596,6 +3639,20 @@
                 ],
                 "type": "object"
             },
+            "JourneyButtonListeners": {
+                "properties": {
+                    "listeners": {
+                        "items": {
+                            "$ref": "#/components/schemas/ButtonListener"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "listeners"
+                ],
+                "type": "object"
+            },
             "JourneyCreate": {
                 "properties": {
                     "description": {
@@ -3761,8 +3818,12 @@
                 "type": "object"
             },
             "JourneyUpdate": {
-                "description": "A partial update: send only what changed. `description: null` clears it. `resources` replaces the whole list.",
+                "description": "A partial update: send only what changed. `description: null` clears it. `resources` replaces the whole list, and must come with `baseUpdatedAt`, the journey's `updatedAt` the list was edited from; a rename alone needs none.",
                 "properties": {
+                    "baseUpdatedAt": {
+                        "format": "date-time",
+                        "type": "string"
+                    },
                     "description": {
                         "maxLength": 500,
                         "type": [
@@ -4393,6 +4454,22 @@
                 ],
                 "type": "object"
             },
+            "MessageButtonRef": {
+                "description": "One button on one of the flow's journey's messages: the message resource's key and the button's key.",
+                "properties": {
+                    "buttonKey": {
+                        "type": "string"
+                    },
+                    "messageKey": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "messageKey",
+                    "buttonKey"
+                ],
+                "type": "object"
+            },
             "MessageButtonStyle": {
                 "enum": [
                     "Primary",
@@ -4632,37 +4709,9 @@
                 ],
                 "type": "object"
             },
-            "PublishedButtonMessage": {
-                "properties": {
-                    "channelId": {
-                        "type": "string"
-                    },
-                    "messageId": {
-                        "type": "string"
-                    },
-                    "nodeIds": {
-                        "items": {
-                            "type": "string"
-                        },
-                        "type": "array"
-                    }
-                },
-                "required": [
-                    "channelId",
-                    "messageId",
-                    "nodeIds"
-                ],
-                "type": "object"
-            },
             "PublishedFlowState": {
-                "description": "What a flow or a journey has live in the guild. An empty `buttonMessages` does not mean nothing is posted while `mayHaveUnrecordedButtons` is true: buttons posted before they were recorded cannot be found. `keptSettings` are settings (ticket types) that uninstalling forgets and leaves standing.",
+                "description": "What a flow or a journey has live in the guild, as the uninstall would treat it. `keptSettings` are settings (ticket types) that uninstalling forgets and leaves standing.",
                 "properties": {
-                    "buttonMessages": {
-                        "items": {
-                            "$ref": "#/components/schemas/PublishedButtonMessage"
-                        },
-                        "type": "array"
-                    },
                     "deletableResources": {
                         "items": {
                             "$ref": "#/components/schemas/PublishedResource"
@@ -4675,9 +4724,6 @@
                         },
                         "type": "array"
                     },
-                    "mayHaveUnrecordedButtons": {
-                        "type": "boolean"
-                    },
                     "refusedResources": {
                         "items": {
                             "$ref": "#/components/schemas/PublishedResource"
@@ -4686,11 +4732,9 @@
                     }
                 },
                 "required": [
-                    "buttonMessages",
                     "deletableResources",
                     "refusedResources",
-                    "keptSettings",
-                    "mayHaveUnrecordedButtons"
+                    "keptSettings"
                 ],
                 "type": "object"
             },
@@ -5752,47 +5796,6 @@
                     "resourceKey",
                     "name",
                     "reason"
-                ],
-                "type": "object"
-            },
-            "UndeployResult": {
-                "properties": {
-                    "results": {
-                        "items": {
-                            "$ref": "#/components/schemas/UndeployedButtonMessage"
-                        },
-                        "type": "array"
-                    }
-                },
-                "required": [
-                    "results"
-                ],
-                "type": "object"
-            },
-            "UndeployedButtonMessage": {
-                "properties": {
-                    "channelId": {
-                        "type": "string"
-                    },
-                    "explanation": {
-                        "type": "string"
-                    },
-                    "messageId": {
-                        "type": "string"
-                    },
-                    "outcome": {
-                        "enum": [
-                            "removed",
-                            "alreadyGone",
-                            "failed"
-                        ],
-                        "type": "string"
-                    }
-                },
-                "required": [
-                    "channelId",
-                    "messageId",
-                    "outcome"
                 ],
                 "type": "object"
             },
@@ -7537,7 +7540,7 @@
                                 }
                             }
                         },
-                        "description": "The body was refused; the graph is too broken to store; the flow cannot be switched on because its graph is incomplete (`issues` lists why) or waits on its install (`issues` empty); going live — switched on, or a graph saved while on — would make a loop with the guild's other live flows (a sentence naming every step of the loop, `issues` empty); the save would go live only because another request switched the flow on or off meanwhile (\"save again\", `issues` empty); or the server id is missing."
+                        "description": "The body was refused; the graph is too broken to store; the flow cannot be switched on because its graph is incomplete (`issues` lists why) or waits on its install (`issues` empty); going live — switched on, or a graph saved while on — would make a loop with the guild's other live flows (a sentence naming every step of the loop, `issues` empty), or onto a button another live flow of its journey already listens to (a sentence naming that flow, `issues` empty); the save would go live only because another request switched the flow on or off meanwhile (\"save again\", `issues` empty); or the server id is missing."
                     },
                     "401": {
                         "content": {
@@ -7697,6 +7700,16 @@
                             }
                         },
                         "description": "The bot is not in this server, or the flow or the journey is not in it."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Nothing was attached: the flow is live on a button a live flow of that journey already listens to. The sentence names it."
                     },
                     "413": {
                         "content": {
@@ -7999,105 +8012,6 @@
                 ]
             }
         },
-        "/api/guilds/{guildId}/flows/{flowId}/deploy": {
-            "post": {
-                "operationId": "deployFlow",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "guildId",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "in": "path",
-                        "name": "flowId",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/DeployResult"
-                                }
-                            }
-                        },
-                        "description": "Posted: one message per destination channel."
-                    },
-                    "400": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "Nothing was posted, and the sentence says why — or the server id is missing."
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "No valid session."
-                    },
-                    "403": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "The signed-in user may not manage this server."
-                    },
-                    "404": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "The bot is not in this server, or the flow is not in it."
-                    },
-                    "429": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
-                    },
-                    "500": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "Something failed that the route did not expect. The server logged it."
-                    }
-                },
-                "summary": "Post the flow's trigger buttons into the channels their nodes name",
-                "tags": [
-                    "flows"
-                ]
-            }
-        },
         "/api/guilds/{guildId}/flows/{flowId}/detach": {
             "post": {
                 "operationId": "detachFlowFromJourney",
@@ -8169,6 +8083,16 @@
                             }
                         },
                         "description": "The bot is not in this server, or the flow is not in it."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Nothing was detached: the flow would fall back to the journey keyed by its own id, and it is live on a button a live flow of that journey already listens to. The sentence names it."
                     },
                     "429": {
                         "content": {
@@ -8626,7 +8550,7 @@
                                 }
                             }
                         },
-                        "description": "Nothing was grouped: this flow's journey is shared, both journeys declare the same key, or a journey with the new key already exists."
+                        "description": "Nothing was grouped: this flow's journey is shared, both journeys declare the same key, a journey with the new key already exists, the flow is live on a button a live flow of the destination already listens to (the sentence names it), or the destination's resources changed while the merge was being made (try again)."
                     },
                     "413": {
                         "content": {
@@ -9149,7 +9073,7 @@
                                 }
                             }
                         },
-                        "description": "Its button messages and the resources its journey put in the guild."
+                        "description": "The resources its journey put in the guild, as an uninstall would treat them."
                     },
                     "400": {
                         "content": {
@@ -9250,10 +9174,21 @@
                                                 "$ref": "#/components/schemas/ResourceDeclaration"
                                             },
                                             "type": "array"
+                                        },
+                                        "updatedAt": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
                                         }
                                     },
                                     "required": [
-                                        "resources"
+                                        "resources",
+                                        "updatedAt"
                                     ],
                                     "type": "object"
                                 }
@@ -9368,16 +9303,27 @@
                                                 "$ref": "#/components/schemas/ResourceDeclaration"
                                             },
                                             "type": "array"
+                                        },
+                                        "updatedAt": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
                                         }
                                     },
                                     "required": [
-                                        "resources"
+                                        "resources",
+                                        "updatedAt"
                                     ],
                                     "type": "object"
                                 }
                             }
                         },
-                        "description": "The declarations as stored, text-channel names normalised."
+                        "description": "The declarations as stored, text-channel names normalised, and the version to send next."
                     },
                     "400": {
                         "content": {
@@ -9427,7 +9373,7 @@
                                 }
                             }
                         },
-                        "description": "Nothing was written: other flows share the journey, or a journey keyed with this flow id already exists."
+                        "description": "Nothing was written: other flows share the journey; the journey has changed since `baseUpdatedAt`, or none was sent for a journey that exists, or one was sent for a journey that is gone (reload); or a journey keyed with this flow id already exists."
                     },
                     "413": {
                         "content": {
@@ -9473,105 +9419,6 @@
                 "summary": "Replace what a flow declares, creating its journey on first use. An empty list removes it.",
                 "tags": [
                     "journeys"
-                ]
-            }
-        },
-        "/api/guilds/{guildId}/flows/{flowId}/undeploy": {
-            "post": {
-                "operationId": "undeployFlow",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "guildId",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "in": "path",
-                        "name": "flowId",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/UndeployResult"
-                                }
-                            }
-                        },
-                        "description": "What became of each recorded message."
-                    },
-                    "400": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "The server id is missing."
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "No valid session."
-                    },
-                    "403": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "The signed-in user may not manage this server."
-                    },
-                    "404": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "The bot is not in this server."
-                    },
-                    "429": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
-                    },
-                    "500": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "Something failed that the route did not expect. The server logged it."
-                    }
-                },
-                "summary": "Delete the messages carrying the flow's buttons. Works after the flow is gone.",
-                "tags": [
-                    "flows"
                 ]
             }
         },
@@ -10194,6 +10041,16 @@
                         },
                         "description": "The bot is not in this server, or the journey is not in it."
                     },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Nothing was written: `resources` came without `baseUpdatedAt`, or the journey has changed since it. Reload."
+                    },
                     "413": {
                         "content": {
                             "application/json": {
@@ -10236,6 +10093,105 @@
                     }
                 },
                 "summary": "Update a journey's name, description or declarations",
+                "tags": [
+                    "journeys"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/journeys/{journeyKey}/button-listeners": {
+            "get": {
+                "operationId": "getJourneyButtonListeners",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "journeyKey",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/JourneyButtonListeners"
+                                }
+                            }
+                        },
+                        "description": "Every Button Click trigger of the journey's flows naming one of its buttons, live and off."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, or the journey is not in it."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
+                    }
+                },
+                "summary": "Which flows' triggers listen to the journey's message buttons",
                 "tags": [
                     "journeys"
                 ]
@@ -10477,7 +10433,7 @@
                                 }
                             }
                         },
-                        "description": "Every attached flow's button messages, and the resources the journey put in the guild."
+                        "description": "The resources the journey put in the guild, as an uninstall would treat them."
                     },
                     "400": {
                         "content": {
@@ -10540,7 +10496,7 @@
                         "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
-                "summary": "What the journey has live in the guild, across every flow attached to it",
+                "summary": "What the journey has live in the guild, for every flow attached to it",
                 "tags": [
                     "journeys"
                 ]
@@ -10680,105 +10636,6 @@
                     }
                 },
                 "summary": "Put the chosen resources back to what the journey declares",
-                "tags": [
-                    "journeys"
-                ]
-            }
-        },
-        "/api/guilds/{guildId}/journeys/{journeyKey}/undeploy": {
-            "post": {
-                "operationId": "undeployJourney",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "guildId",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "in": "path",
-                        "name": "journeyKey",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/UndeployResult"
-                                }
-                            }
-                        },
-                        "description": "What became of each recorded message, across every flow. A flow whose buttons could not be read is a `failed` row naming it."
-                    },
-                    "400": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "The server id is missing."
-                    },
-                    "401": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "No valid session."
-                    },
-                    "403": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "The signed-in user may not manage this server."
-                    },
-                    "404": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "The bot is not in this server, or the journey is not in it."
-                    },
-                    "429": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
-                    },
-                    "500": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ErrorBody"
-                                }
-                            }
-                        },
-                        "description": "Something failed that the route did not expect. The server logged it."
-                    }
-                },
-                "summary": "Delete the messages carrying the buttons of every flow on the journey",
                 "tags": [
                     "journeys"
                 ]

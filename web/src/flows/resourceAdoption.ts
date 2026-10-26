@@ -279,8 +279,18 @@ function withOwnership(
     owner: GuildObjectOwner | null,
     ownJourneyKey: string | undefined
 ): ExistingChannelOption {
+    const holder = otherHolder(owner, ownJourneyKey);
+    return holder ? { ...option, disabled: true, heldBy: holder.label } : option;
+}
+
+/**
+ * The owner holding an object, unless it is the journey being edited — what makes an object
+ * unpickable here. The adopt pickers and the Button Click trigger's "+ New message" ask it, so
+ * "another owner" means the same thing in each.
+ */
+export function otherHolder(owner: GuildObjectOwner | null, ownJourneyKey: string | undefined): GuildObjectOwner | undefined {
     const ownedHere = owner?.kind === 'journey' && owner.key === ownJourneyKey;
-    return owner && !ownedHere ? { ...option, disabled: true, heldBy: owner.label } : option;
+    return owner && !ownedHere ? owner : undefined;
 }
 
 /**

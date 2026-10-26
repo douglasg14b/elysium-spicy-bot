@@ -78,12 +78,14 @@ import {
     createFlowMutation,
     deleteFlowMutation,
     detachFlowFromJourney,
+    getJourneyButtonListenersOptions,
     groupFlowWith,
     listFlowsOptions,
     listFlowsQueryKey,
     previewFlowGrouping,
     updateFlow,
     updateJourney,
+    type ButtonListener,
     type FlowJourneyMembership,
     type FlowSummary,
     type FlowValidationIssue,
@@ -913,6 +915,9 @@ function UngroupedZoneRow({
 /** The list before it has loaded: one value, so it is the same array on every render. */
 const NO_FLOWS: readonly FlowSummary[] = [];
 
+/** No listeners before the journey's answer, or after a failed one — one value, as above. */
+const NO_LISTENERS: readonly ButtonListener[] = [];
+
 /**
  * The re-read the switches owe once the last of them settles: none, or one as loud as the
  * loudest list read a switch cancelled.
@@ -1060,6 +1065,15 @@ export function FlowsListPage() {
     // resources are open: the list itself shows no picture, so loading it costs a request
     // for nothing.
     const guildUploads = useGuildUploads(editingJourneyKey ? selected?.id : undefined);
+    /*
+     * Who listens to the journey's buttons, as the server answers — its message windows name
+     * the flow under each button, lock a listened key and ask before a listened message goes.
+     * Read only while a journey's resources are open, for the same reason as the pictures.
+     */
+    const editingListeners = useQuery({
+        ...getJourneyButtonListenersOptions({ path: { guildId: selected?.id ?? '', journeyKey: editingJourneyKey ?? '' } }),
+        enabled: !!selected && !!editingJourneyKey,
+    });
 
     /**
      * Re-read the whole list.
@@ -2034,8 +2048,7 @@ export function FlowsListPage() {
                     journeyName={managingGroup.name}
                     flowNames={managingGroup.flows.map((flow) => flow.name)}
                     // Re-read rather than patched: an unpublish changes what the header's
-                    // resource count means, and an undeploy changes nothing on the row but
-                    // costs one quiet request to stay honest either way.
+                    // resource count means.
                     onChanged={() => void refreshFlows({ quiet: true })}
                 />
             )}
@@ -2090,11 +2103,13 @@ export function FlowsListPage() {
                     installedKeys={editingInstalledKeys}
                     resources={journeyResources.resources}
                     onChange={journeyResources.setResources}
+                    updatedAt={journeyResources.updatedAt}
                     journeyKey={editingGroup.journeyKey}
                     loaded={journeyResources.loaded}
                     loadError={journeyResources.loadError}
-                    onSaved={journeyResources.setResources}
+                    onSaved={journeyResources.adoptSaved}
                     uploads={guildUploads}
+                    listeners={editingListeners.data?.listeners ?? NO_LISTENERS}
                 />
             )}
 

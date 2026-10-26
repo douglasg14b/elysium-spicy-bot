@@ -51,17 +51,28 @@ function makeSeed(): { context: FlowRunSeed; sentTo: Map<string, string[]> } {
     };
 }
 
-/** `trigger -> Has Open Ticket? -(yes)-> post in {{var.ticketChannelId}}`, plus whatever No does. */
+/**
+ * `trigger -> Has Open Ticket? -(yes)-> post in {{var.ticketChannelId}}`, plus whatever No does.
+ * The trigger is a button press, or a reaction in `triggerChannel` — a trigger with a channel
+ * picker of its own — when that is given.
+ */
 function graph(options: { noBranchChannel?: string; triggerChannel?: string } = {}): FlowGraph {
     return {
         version: FLOW_GRAPH_VERSION,
         nodes: [
-            {
-                id: 'trigger',
-                type: 'trigger.buttonClick',
-                position: { x: 0, y: 0 },
-                data: { channelId: options.triggerChannel ?? 'lobby', label: 'Go' },
-            },
+            options.triggerChannel
+                ? {
+                      id: 'trigger',
+                      type: 'trigger.reactionAdd',
+                      position: { x: 0, y: 0 },
+                      data: { channelId: options.triggerChannel, messageId: '123456789012345678', emoji: '🌶️' },
+                  }
+                : {
+                      id: 'trigger',
+                      type: 'trigger.buttonClick',
+                      position: { x: 0, y: 0 },
+                      data: { button: { messageKey: 'panel', buttonKey: 'go' } },
+                  },
             // A type the guild declared itself: the seeded two are never special.
             { id: 'check', type: 'condition.hasOpenTicket', position: { x: 1, y: 0 }, data: { ticketType: 'punishment-review' } },
             {

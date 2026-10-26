@@ -18,16 +18,16 @@ export async function seedFlows({ guild, clientGuild, discord, api }: SeedContex
     const createFlow = (name: string, graph?: unknown) => api.send<CreatedFlow>('POST', `${guildPath}/flows`, { name, graph });
 
     // Installed, then an operator renamed its channel and stripped its permissions in Discord.
-    const onboarding = await createFlow(
-        'Onboarding: Agree to Rules',
-        buildOnboardingFlowGraph({
-            memberRoleId: guild.roles.member.id,
-            channelId: guild.channels.rules.id,
-            welcomeMessage: 'Welcome, you filthy little rule-follower. You have your role now — go enjoy the server. 😈',
-        }).graph
-    );
+    const template = buildOnboardingFlowGraph({
+        memberRoleId: guild.roles.member.id,
+        channelId: guild.channels.rules.id,
+        welcomeMessage: 'Welcome, you filthy little rule-follower. You have your role now — go enjoy the server. 😈',
+    });
+    const onboarding = await createFlow('Onboarding: Agree to Rules', template.graph);
     await api.send('PUT', `${guildPath}/flows/${onboarding.flowId}/resources`, {
         resources: [
+            // The rules channel, adopted, and the panel whose button the trigger listens to.
+            ...template.resources,
             {
                 key: 'lobby-category',
                 kind: 'category',
@@ -89,8 +89,11 @@ export async function seedFlows({ guild, clientGuild, discord, api }: SeedContex
         newJourneyKey: 'events-and-munches',
         newJourneyName: 'Events & Munches (monthly, plus the big summer one)',
     });
+    // A list replaces the journey's whole list, so it goes at the version it was read at.
+    const munches = await api.send<{ updatedAt: string }>('GET', `${guildPath}/journeys/events-and-munches`);
     await api.send('PUT', `${guildPath}/journeys/events-and-munches`, {
         resources: [{ key: 'munch-channel', kind: 'textChannel', defaultName: 'munch-announcements' }],
+        baseUpdatedAt: munches.updatedAt,
     });
 
     // Empty flows, so the list scrolls.

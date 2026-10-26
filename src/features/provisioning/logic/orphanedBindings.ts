@@ -1,3 +1,4 @@
+import type { ButtonListener } from '../buttonListeners';
 import type { ResourceBindingEntity } from '../data/resourceBindingsSchema';
 import { isPostedMessageRow, requireMessagePresence, type MessagePresence } from './lookupBoundMessage';
 import {
@@ -67,6 +68,12 @@ export interface OrphanedBinding {
      * describe that state wrongly either way.
      */
     readonly neverSettled: boolean;
+    /**
+     * A message only: the flows whose triggers still listen to its buttons, by name. Its
+     * presses still reach them — the post is there and its record says it is this journey's —
+     * and forgetting the record is what cuts them off. Absent means none.
+     */
+    readonly listenedBy?: readonly string[];
 }
 
 export interface FindOrphanedBindingsInput {
@@ -91,6 +98,12 @@ export interface FindOrphanedBindingsInput {
      * so `existsInGuild` cannot answer for it. Required when a posted message's row is met.
      */
     readonly messagePresence?: ReadonlyMap<string, MessagePresence>;
+    /**
+     * Every trigger of this journey's flows naming one of its messages' buttons
+     * (`requireButtonListenerReader`). Required when a posted message's row is met, so the
+     * leftover can name who still answers its buttons; such a row without it throws.
+     */
+    readonly buttonListeners?: readonly ButtonListener[];
 }
 
 /**
@@ -140,6 +153,7 @@ export function findOrphanedBindings(
                         const presence = posted
                             ? requireMessagePresence(input.messagePresence, binding, 'its leftovers were listed')
                             : undefined;
+                        const listenedBy = posted ? flowsListeningTo(binding.resourceKey, input) : [];
                         return {
                             bindingId: binding.id,
                             resourceKey: binding.resourceKey,
@@ -149,6 +163,7 @@ export function findOrphanedBindings(
                             stillInGuild: posted && presence !== 'gone',
                             mayDelete: binding.state === 'created',
                             neverSettled: binding.state === 'intended',
+                            ...(listenedBy.length > 0 ? { listenedBy } : {}),
                         };
                     }
                     default: {
@@ -188,6 +203,20 @@ export function findOrphanedBindings(
         });
 }
 
+/** The names of the flows listening to a posted message's buttons, each once, or throw when nobody asked. */
+function flowsListeningTo(messageKey: string, input: FindOrphanedBindingsInput): string[] {
+    if (!input.buttonListeners) {
+        throw new Error(
+            `Journey "${input.journey.journeyKey}" posted the message "${messageKey}", but its leftovers were listed without reading who listens to its buttons.`
+        );
+    }
+    return [
+        ...new Set(
+            input.buttonListeners.filter((listener) => listener.messageKey === messageKey).map((listener) => listener.flowName)
+        ),
+    ];
+}
+
 /**
  * What to tell an operator about one orphan, in words they can act on.
  *
@@ -210,7 +239,12 @@ export function describeOrphan(orphan: OrphanedBinding): string {
 
     // A message is posted rather than "in your server", and is only ever created here.
     if (orphan.kind === 'message') {
-        return `**${orphan.name}** is no longer declared by this journey, but the message is still posted. Nothing installs or updates it any more.`;
+        const listening = orphan.listenedBy ?? [];
+        const heard =
+            listening.length === 0
+                ? ''
+                : ` Its buttons still reach ${listening.map((name) => `**${name}**`).join(', ')} — forget this record and ${listening.length === 1 ? 'that flow goes' : 'those flows go'} deaf.`;
+        return `**${orphan.name}** is no longer declared by this journey, but the message is still posted. Nothing installs or updates it any more.${heard}`;
     }
 
     // A live object behind a never-settled row: the install crashed partway. Neither

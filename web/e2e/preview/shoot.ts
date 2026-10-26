@@ -111,7 +111,9 @@ async function main(): Promise<void> {
                     const clicked =
                         'clickButton' in step
                             ? page.getByRole('button', { name: step.clickButton, exact: true })
-                            : page.getByText(step.clickText);
+                            : 'clickTextbox' in step
+                              ? page.getByRole('textbox', { name: step.clickTextbox, exact: true })
+                              : page.getByText(step.clickText);
                     await clicked.first().click();
                     await page.waitForLoadState('networkidle');
                 }

@@ -1,16 +1,11 @@
 /*
- * The vocabularies (`UNDEPLOY_OUTCOMES`, `UNPUBLISH_OUTCOMES`, `PLAN_ACTIONS`,
- * `RESOURCE_KINDS`) come from the modules that define them rather than through the
- * provisioning barrel: they are read while this module loads, and route tests that mock
- * the barrel with only the functions they exercise would otherwise hand `z.enum` nothing.
- * A test that mocks one of these modules has to keep its real exports (`importOriginal`).
+ * The vocabularies (`UNPUBLISH_OUTCOMES`, `PLAN_ACTIONS`, `RESOURCE_KINDS`) come from the
+ * modules that define them rather than through the provisioning barrel: they are read while
+ * this module loads, and route tests that mock the barrel with only the functions they
+ * exercise would otherwise hand `z.enum` nothing. A test that mocks one of these modules has
+ * to keep its real exports (`importOriginal`).
  */
 import { z } from '@hono/zod-openapi';
-import {
-    UNDEPLOY_OUTCOMES,
-    type UndeployedButtonMessage,
-} from '../../features/flows/logic/undeployFlowButtons';
-import type { DeployedButtonMessage } from '../../features/flows/logic/deployFlowButtons';
 import type { AppliedResource } from '../../features/provisioning/logic/applyInstallPlan';
 import {
     UNPUBLISH_OUTCOMES,
@@ -23,48 +18,13 @@ import { ErrorBodySchema, type ChecksHold, type MismatchedChecks, type SchemaMat
 
 /**
  * What putting a flow into the guild, and taking it back out, says on the wire: its
- * buttons (deploy, undeploy) and its declared channels and roles (install plan, install,
- * unpublish).
+ * declared resources (install plan, install, unpublish).
  *
  * Schemas, as in `flowBody.ts`: each is what its route declares and what the dashboard
  * SDK's types are generated from. Domain types sent as they are stay where they live and
  * are held to their schema both ways by {@link SchemaMatches}; bodies built here are
- * typed by `z.infer`. The undeploy and unpublish results are the journey routes' shapes
- * too, for when those convert.
+ * typed by `z.infer`. The unpublish result is the journey route's shape too.
  */
-
-/** One message `deploy` posted: where it went and how many buttons it carries. */
-const DeployedButtonMessageSchema = z
-    .object({
-        channelId: z.string(),
-        messageId: z.string(),
-        buttonCount: z.number(),
-    })
-    .openapi('DeployedButtonMessage');
-
-/** A deploy that posted: one message per destination channel. A refusal is a 400. */
-export const DeployResultSchema = z
-    .object({
-        ok: z.literal(true),
-        posted: z.array(DeployedButtonMessageSchema).readonly(),
-    })
-    .openapi('DeployResult');
-
-/** What became of one recorded button message. `explanation` is set for `failed`. */
-const UndeployedButtonMessageSchema = z
-    .object({
-        channelId: z.string(),
-        messageId: z.string(),
-        outcome: z.enum(UNDEPLOY_OUTCOMES),
-        explanation: z.string().optional(),
-    })
-    .openapi('UndeployedButtonMessage');
-
-export const UndeployResultSchema = z
-    .object({
-        results: z.array(UndeployedButtonMessageSchema).readonly(),
-    })
-    .openapi('UndeployResult');
 
 /** What became of one resource a teardown reached. `explanation` is set for `refused` and `failed`. */
 const UnpublishedResourceSchema = z
@@ -149,8 +109,6 @@ const InstalledResourceSchema = z
  * Gathered here so `__tests__/installBody.test-d.ts` can assert them; see {@link SchemaMatches}.
  */
 type InstallBodyChecks = ChecksHold<{
-    DeployedButtonMessage: SchemaMatches<typeof DeployedButtonMessageSchema, DeployedButtonMessage>;
-    UndeployedButtonMessage: SchemaMatches<typeof UndeployedButtonMessageSchema, UndeployedButtonMessage>;
     UnpublishedResource: SchemaMatches<typeof UnpublishedResourceSchema, UnpublishedResource>;
     InstalledResource: SchemaMatches<typeof InstalledResourceSchema, AppliedResource>;
 }>;

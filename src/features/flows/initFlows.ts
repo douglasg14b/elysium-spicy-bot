@@ -4,16 +4,16 @@ import { DISCORD_CLIENT } from '../../discordClient';
 import { registerActivitySubscriber } from '../../features-system/activity';
 import { registerUploadUsageReader } from '../../features-system/guild-uploads';
 import { registerLevelUpSubscriber } from '../leveling';
-import { MESSAGE_BUTTON_CUSTOM_ID_PREFIX, registerResourceWriteBack } from '../provisioning';
+import { MESSAGE_BUTTON_CUSTOM_ID_PREFIX, registerButtonListenerReader, registerResourceWriteBack } from '../provisioning';
 import { registerTicketSubscriber } from '../tickets';
 import { applyResourcesToFlows } from './logic/applyResourcesToFlows';
 import { fireDueSchedules } from './logic/fireDueSchedules';
 import { flowUploadUses } from './logic/flowUploadUses';
+import { journeyButtonListeners } from './logic/journeyButtonListeners';
 import { handleMessageButtonPress } from './logic/messageButtonPress';
 import { reconcileGuildSchedules, registerScheduleReconcile } from './logic/reconcileGuildSchedules';
 import { ticketChangeSubscriber } from './logic/ticketEventDispatch';
 import { ensureBlocksDiscovered } from './blocks/registry';
-import { flowDeployCommand, handleFlowDeployCommand } from './commands/flowDeployCommand';
 import { FLOW_CHOICE_CUSTOM_ID_PREFIX, FLOW_CUSTOM_ID_PREFIX } from './constants';
 import { flowsRepo } from './data/flowsRepo';
 import { handleFlowChoiceInteraction } from './engine/flowChoiceDispatch';
@@ -32,7 +32,7 @@ let initialization: Promise<void> | undefined;
  * Wire the flow engine up.
  *
  * Awaited, and awaited early, because blocks are discovered from the filesystem:
- * nothing that can start or resume a run — the deploy command, the `flow:` button
+ * nothing that can start or resume a run — the `flow:` button
  * dispatcher, the gateway listeners, the durable-run scheduler — is
  * registered until the registry is populated. The in-process web server starts
  * after this returns, so the builder's palette and graph validation cannot race
@@ -105,12 +105,19 @@ async function initializeFlows(): Promise<void> {
     // the new times. Drafts never get here: only the saved flow schedules anything.
     registerScheduleReconcile(flowsRepo);
 
-    // Admin slash command to post a flow's trigger button(s) to a channel.
-    interactionsRegistry.register(flowDeployCommand, handleFlowDeployCommand);
+    // Tell provisioning who listens to a journey's message buttons, so install notes the ones
+    // nobody does and drift's repair names the flows an edit would cut off. Registered from
+    // this side because provisioning must not know flows exist; without it, installing or
+    // checking a journey whose messages have buttons throws rather than guess.
+    registerButtonListenerReader(journeyButtonListeners);
 
-    // Single `flow:` catch-all dispatcher for dynamic `flow:<flowId>:<nodeId>`
-    // button ids. Additive prefix registration — exact-match handlers are
-    // untouched and always take precedence.
+    // **A bridge, not a surface.** `flow:<flowId>:<nodeId>` is what the retired Deploy put on
+    // its buttons; step 3's migration converts each such trigger to a message resource's
+    // button, and this keeps the old messages working until each journey is installed and
+    // repaired. The bridge-removal deploy replaces it with a one-line retirement answer
+    // (`docs/plans/message-resource-step-3.md`, "After this step"). Every press logs a line.
+    // Additive prefix registration — exact-match handlers are untouched and always take
+    // precedence.
     interactionsRegistry.registerDynamic(`${FLOW_CUSTOM_ID_PREFIX}:`, (interaction) => {
         if (!interaction.isButton()) {
             return Promise.resolve({
@@ -139,7 +146,7 @@ async function initializeFlows(): Promise<void> {
     // Presses on the buttons under a journey's message resource: `mbtn:<buttonKey>`.
     // Provisioning owns the prefix and renders the buttons; this is its one handler, and
     // the registry refuses a second. Disjoint from `flow:` and `flowc:` under the
-    // longest-prefix match. Step 3 routes a press from here to the flow listening to it.
+    // longest-prefix match. A press routes from here to the one flow listening to it.
     interactionsRegistry.registerDynamic(`${MESSAGE_BUTTON_CUSTOM_ID_PREFIX}:`, handleMessageButtonPress);
 
     // Gateway trigger: member joins (requires the GuildMembers intent, present).

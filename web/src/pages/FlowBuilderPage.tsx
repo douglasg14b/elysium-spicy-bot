@@ -55,7 +55,6 @@ import {
     IconEye,
     IconPackageExport,
     IconPackageImport,
-    IconRocket,
     IconStack2,
 } from '@tabler/icons-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -63,7 +62,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
     ApiError,
     attachFlowToJourney,
-    deployFlow,
     detachFlowFromJourney,
     discardFlowDraft,
     getFlow,
@@ -73,6 +71,7 @@ import {
     getGuildRolesOptions,
     getGuildSettingsOptions,
     getInstallPlan,
+    getJourneyButtonListenersOptions,
     getNodeTypesOptions,
     getPublishedStateOptions,
     getPublishedStateQueryKey,
@@ -82,6 +81,7 @@ import {
     listJourneys,
     saveMyFlowDraft,
     updateFlow,
+    type ButtonListener,
     type FlowAttachment,
     type FlowDraft,
     type FlowEdge,
@@ -155,6 +155,8 @@ import { useGuildUploads } from '../flows/useGuildUploads';
 import { JourneyAttachmentControl } from '../flows/JourneyAttachmentControl';
 import { INSTALL_QUERY_PARAM } from '../flows/installStateChip';
 import { ResourcesDialog } from '../flows/ResourcesDialog';
+import { builderResourcesTarget, type ResourceSaveTarget, type StoredResources } from '../flows/resourceSaveTarget';
+import { overlayCanvasListeners } from '../flows/buttonListeners';
 import {
     defaultDataFor,
     EDGE_STROKE_WIDTH,
@@ -185,6 +187,9 @@ const NO_EXITS: readonly string[] = [];
 
 /** A card's declarations before the effect that carries them has run. */
 const NO_DECLARED_RESOURCES: ResourceDeclaration[] = [];
+
+/** No listeners from the server: before its answer, after a failed one, or with no journey to ask about. */
+const NO_LISTENERS: readonly ButtonListener[] = [];
 
 /** The status line's colour per tone — yellow for unsaved, orange for "look at this". */
 const STATUS_TONE_COLOUR: Record<BuilderStatus['tone'], string> = {
@@ -382,6 +387,16 @@ function FlowBuilder() {
      * graph silently discarded the resource edits too.
      */
     const [declaredResources, setDeclaredResources] = useState<ResourceDeclaration[]>([]);
+    /**
+     * The journey version `declaredResources` was read or last saved at, which the
+     * resource autosave sends back so a list loaded before somebody else's save is refused
+     * rather than written over theirs. Set wherever the list is (`adoptStoredResources`).
+     */
+    const [resourcesVersion, setResourcesVersion] = useState<string | null>(null);
+    const adoptStoredResources = useCallback((stored: StoredResources) => {
+        setDeclaredResources(stored.resources);
+        setResourcesVersion(stored.updatedAt);
+    }, []);
     // The saving flag and the save error moved into `ResourcesDialog` with the autosave
     // they describe. Nothing outside that modal ever read them, and keeping them here
     // would have been two pieces of state the page held on another component's behalf.
@@ -490,9 +505,6 @@ function FlowBuilder() {
      */
     const guildUploads = useGuildUploads(selected?.id);
 
-    const [deployOpen, setDeployOpen] = useState(false);
-    const [deploying, setDeploying] = useState(false);
-
     /**
      * The install review step.
      *
@@ -567,7 +579,11 @@ function FlowBuilder() {
      * but keeps the keys of the last answer — `installedFromPublished` says why each.
      */
     const { data: publishedData, isError: publishedFailed } = publishedQuery;
-    const { count: installedCount, keys: installedResourceKeys } = useMemo(
+    const {
+        count: installedCount,
+        keys: installedResourceKeys,
+        keysByDiscordId: installedKeysByDiscordId,
+    } = useMemo(
         () => installedFromPublished({ data: publishedData, failed: publishedFailed }),
         [publishedData, publishedFailed]
     );
@@ -792,9 +808,7 @@ function FlowBuilder() {
                     { channels: guildChannels },
                     // A guild that never set tickets up answers with no types, not an error.
                     { types: guildTicketTypes },
-                    {
-                        data: { resources: flowResources },
-                    },
+                    { data: flowResources },
                 ] = await Promise.all([
                     getFlow({ path: { guildId: selected.id, flowId } }),
                     queryClient.fetchQuery({ ...getNodeTypesOptions(), staleTime: 0 }),
@@ -809,7 +823,7 @@ function FlowBuilder() {
                 setRoles(guildRoles);
                 setChannels(guildChannels);
                 setTicketTypes(guildTicketTypes);
-                setDeclaredResources(flowResources);
+                adoptStoredResources(flowResources);
                 setName(flow.name);
                 setEnabled(flow.enabled);
                 setGraphIssues(flow.issues);
@@ -884,7 +898,16 @@ function FlowBuilder() {
         return () => {
             cancelled = true;
         };
-    }, [selected, flowId, queryClient, rebaseDraft, putGraphOnCanvas, setGraphIssues, refreshNextRuns]);
+    }, [
+        selected,
+        flowId,
+        queryClient,
+        rebaseDraft,
+        putGraphOnCanvas,
+        setGraphIssues,
+        refreshNextRuns,
+        adoptStoredResources,
+    ]);
 
     /**
      * Load a draft from the picker: onto the canvas the way the flow loads, with the
@@ -1051,17 +1074,44 @@ function FlowBuilder() {
     }, []);
 
     /**
-     * Where the declarations are saved: this flow, journey resolved server-side.
-     *
-     * Memoised because it is the autosave's identity by way of `ResourcesDialog`, and a new
-     * object every render would restart the debounce on each one — see the `targetRef` note
-     * in `useResourceAutosave`. `flowId` is the route parameter, so it is stable across a
-     * render and changes exactly when the builder moves to another flow.
+     * The same list, changed from the inspector: the Button Click trigger's "+ New message" and
+     * "+ New button" write into Resources with the dialog shut. The autosave it mounts saves
+     * them all the same — it is called outside the dialog's `Modal`.
      */
-    const resourcesTarget = useMemo(
-        () => (flowId ? ({ kind: 'flow', flowId } as const) : undefined),
+    const declareResources = useCallback(
+        (update: (current: readonly ResourceDeclaration[]) => ResourceDeclaration[]) => setDeclaredResources(update),
+        []
+    );
+
+    /**
+     * Whose list the Resources dialog edits — this flow's, whichever door it saves through —
+     * for the autosave's identity. Memoised on the route parameter, which changes exactly when
+     * the builder moves to another flow.
+     */
+    const resourcesSubject = useMemo<ResourceSaveTarget | undefined>(
+        () => (flowId ? { kind: 'flow', flowId } : undefined),
         [flowId]
     );
+
+    /**
+     * Where the declarations are saved: through the journey once the flow is linked to one,
+     * through the flow before (`builderResourcesTarget`, step 3 pick 7). The journey route is
+     * what lets a grouped flow declare anything from here; the flow route is what creates a
+     * flow's first journey and writes a pre-link flow's link.
+     */
+    const resourcesTarget = useMemo(
+        () => (flowId ? builderResourcesTarget(flowId, attachment) : undefined),
+        [flowId, attachment]
+    );
+
+    /**
+     * The journey the list is, for the autosave's identity — or, for a flow on none yet, the one
+     * its first save creates, which is keyed by the flow's id. So that first save, and the
+     * re-read of the attachment after it, move nothing in the identity: the next save leaves
+     * through the journey carrying the version the first one answered with, rather than a
+     * baseline recorded before it landed.
+     */
+    const resourcesJourneyKey = attachment?.journeyKey ?? flowId;
 
     /**
      * Re-read which journey this flow installs, and what else it could.
@@ -1104,6 +1154,20 @@ function FlowBuilder() {
     }, [refreshAttachment]);
 
     /**
+     * Take a resource save's answer — and, after one through the flow, ask again which journey
+     * this is. That save may have created the journey or written the flow's link, and once
+     * linked the next save goes through the journey (`builderResourcesTarget`) and the
+     * listeners can be asked for.
+     */
+    const onResourcesSaved = useCallback(
+        (stored: StoredResources) => {
+            adoptStoredResources(stored);
+            if (!attachment?.linked && (stored.updatedAt !== null || attachment)) void refreshAttachment();
+        },
+        [adoptStoredResources, attachment, refreshAttachment]
+    );
+
+    /**
      * Attach this flow to a journey, then reload what it declares.
      *
      * The resource list is re-read rather than kept, because it belongs to the journey
@@ -1118,7 +1182,7 @@ function FlowBuilder() {
             try {
                 const path = { guildId: selected.id, flowId };
                 const { data: result } = await attachFlowToJourney({ path, body: { journeyKey } });
-                setDeclaredResources((await getFlowResources({ path })).data.resources);
+                adoptStoredResources((await getFlowResources({ path })).data);
                 await refreshAttachment();
                 notifications.show({
                     color: 'brand',
@@ -1133,7 +1197,7 @@ function FlowBuilder() {
                 notifications.show({ color: 'red', title: "Couldn't attach", message });
             }
         },
-        [selected, flowId, refreshAttachment]
+        [selected, flowId, refreshAttachment, adoptStoredResources]
     );
 
     const handleDetach = useCallback(async () => {
@@ -1141,7 +1205,7 @@ function FlowBuilder() {
         try {
             const path = { guildId: selected.id, flowId };
             await detachFlowFromJourney({ path });
-            setDeclaredResources((await getFlowResources({ path })).data.resources);
+            adoptStoredResources((await getFlowResources({ path })).data);
             await refreshAttachment();
             notifications.show({
                 color: 'brand',
@@ -1153,7 +1217,7 @@ function FlowBuilder() {
             const message = err instanceof ApiError ? err.message : "Couldn't detach.";
             notifications.show({ color: 'red', title: "Couldn't detach", message });
         }
-    }, [selected, flowId, refreshAttachment]);
+    }, [selected, flowId, refreshAttachment, adoptStoredResources]);
 
     /**
      * Fetch what installing would do, server-side.
@@ -1591,31 +1655,6 @@ function FlowBuilder() {
         }
     }
 
-    async function handleDeploy() {
-        if (!selected || !flowId) return;
-        setDeploying(true);
-        try {
-            const {
-                data: { posted },
-            } = await deployFlow({ path: { guildId: selected.id, flowId } });
-            setDeployOpen(false);
-            const buttons = posted.reduce((total, entry) => total + entry.buttonCount, 0);
-            notifications.show({
-                color: 'brand',
-                title: 'Deployed',
-                message:
-                    posted.length === 1
-                        ? `${buttons} button(s) live in that channel. Go press one.`
-                        : `${buttons} buttons live across ${posted.length} channels. Go press one.`,
-            });
-        } catch (err) {
-            const message = err instanceof ApiError ? err.message : "Couldn't deploy that flow.";
-            notifications.show({ color: 'red', title: 'Deploy failed', message });
-        } finally {
-            setDeploying(false);
-        }
-    }
-
     /* ---------------------------- derived ---------------------------- */
 
     const selectedNode = useMemo(
@@ -1624,6 +1663,41 @@ function FlowBuilder() {
     );
 
     const issuesForNode = useMemo(() => issuesByNode(graphIssues), [graphIssues]);
+
+    /*
+     * Who listens to the journey's buttons. Asked only once the flow is on a journey — before
+     * that nobody else can listen to its messages — and the server's answer describes the
+     * *saved* graphs, so this flow's own entries are replaced by the triggers on the canvas: a
+     * pick shows as this flow's the moment it is made (step 3, pick 12). A failed read leaves
+     * the other flows out, and the server's go-live refusal is still there behind it.
+     */
+    const listenersQuery = useQuery({
+        ...getJourneyButtonListenersOptions({
+            path: { guildId: selected?.id ?? '', journeyKey: attachment?.journeyKey ?? '' },
+        }),
+        enabled: !!selected && !!attachment?.journeyKey,
+    });
+    const serverListeners = listenersQuery.data?.listeners ?? NO_LISTENERS;
+    const buttonListeners = useMemo(
+        () =>
+            flowId
+                ? overlayCanvasListeners(serverListeners, {
+                      flowId,
+                      flowName: canvasPayload.name,
+                      enabled,
+                      nodes: nodes.map((node) => ({
+                          id: node.id,
+                          fields: node.data.descriptor?.configFields,
+                          config: node.data.config,
+                      })),
+                  })
+                : [...serverListeners],
+        [serverListeners, flowId, canvasPayload.name, enabled, nodes]
+    );
+    const journeyHoldings = useMemo(
+        () => ({ key: resourcesJourneyKey, boundKeys: installedKeysByDiscordId }),
+        [resourcesJourneyKey, installedKeysByDiscordId]
+    );
 
     /** Whether the switch may not be turned on: the stored graph is not ready to go live. */
     const enableLocked = !enabled && storedIssueCount > 0;
@@ -1767,17 +1841,6 @@ function FlowBuilder() {
     /** Whether every run this flow can start is about nobody, for the palette to grey by. */
     const runsAboutNobody = useMemo(
         () => flowRunsAboutNobody(nodes.map((node) => node.data.descriptor)),
-        [nodes]
-    );
-
-    /**
-     * Deploy only makes sense when there's a button to post — that is, when some
-     * node's block declares it is started by a button click. Asked of the descriptor
-     * rather than of a type string, so a second button-shaped trigger would enable
-     * Deploy without editing this page.
-     */
-    const hasButtonTrigger = useMemo(
-        () => nodes.some((node) => node.data.descriptor?.startedBy === 'buttonClick'),
         [nodes]
     );
 
@@ -2034,26 +2097,6 @@ function FlowBuilder() {
                         )
                     )}
 
-                    <Tooltip
-                        label={
-                            hasButtonTrigger
-                                ? 'Post this flow’s button to a channel'
-                                : 'Add a Button Click trigger first'
-                        }
-                    >
-                        <Button
-                            variant="light"
-                            color="brand"
-                            size="xs"
-                            leftSection={<IconRocket size={15} />}
-                            onClick={() => setDeployOpen(true)}
-                            disabled={!hasButtonTrigger}
-                            data-disabled={!hasButtonTrigger || undefined}
-                        >
-                            Deploy
-                        </Button>
-                    </Tooltip>
-
                     {/*
                      * Locked only in the direction the server would refuse: an
                      * incomplete flow cannot be switched on, but a live one can always
@@ -2255,6 +2298,9 @@ function FlowBuilder() {
                                 declaredResources={declaredResources}
                                 serverTimeZone={serverTimeZone}
                                 uploads={guildUploads}
+                                declareResources={declareResources}
+                                listeners={{ all: buttonListeners, flowId: flowId ?? '', nodeId: selectedNode.id }}
+                                journey={journeyHoldings}
                                 issues={issuesForNode.get(selectedNode.id) ?? []}
                                 unconnectedExits={selectedNode.data.unconnectedExits}
                                 onChange={updateNodeConfig}
@@ -2299,6 +2345,7 @@ function FlowBuilder() {
                     onClose={() => setShowResources(false)}
                     guildId={selected.id}
                     target={resourcesTarget}
+                    subject={resourcesSubject}
                     title="Resources this flow needs"
                     /*
                      * Above the list, not beside it: the control answers "whose resources
@@ -2317,10 +2364,12 @@ function FlowBuilder() {
                     installedKeys={installedResourceKeys}
                     resources={declaredResources}
                     onChange={saveResources}
-                    journeyKey={attachment?.journeyKey}
+                    updatedAt={resourcesVersion}
+                    journeyKey={resourcesJourneyKey}
                     loaded={!loading && !attachmentLoading}
-                    onSaved={setDeclaredResources}
+                    onSaved={onResourcesSaved}
                     uploads={guildUploads}
+                    listeners={buttonListeners}
                 />
             )}
 
@@ -2460,14 +2509,10 @@ function FlowBuilder() {
                     guildId={selected.id}
                     flowId={flowId}
                     flowName={name || 'this flow'}
-                    onChanged={(action) => {
+                    onChanged={() => {
                         // The toolbar button's face needs no refresh here: the dialog
                         // re-reads the published query it shares with this page before
                         // it calls back, so the count has already moved.
-
-                        // Only an unpublish invalidates the canvas. An undeploy retires
-                        // messages and leaves every bound id exactly as it was.
-                        if (action !== 'unpublish') return;
                         notifications.show({
                             color: 'brand',
                             title: 'Your blocks still name what was deleted',
@@ -2570,45 +2615,6 @@ function FlowBuilder() {
                 onChoose={(action) => void handleLeave(action)}
                 onStay={leaveGuard.stay}
             />
-
-            <Modal
-                opened={deployOpen}
-                onClose={() => setDeployOpen(false)}
-                title="Deploy flow"
-                size="sm"
-            >
-                <Stack gap="md">
-                    <Text size="13px" c="dimmed">
-                        Posts each button trigger into the channel it names, one message per
-                        channel. Members click, the flow runs. Deploying again replaces whatever
-                        this flow already has out there.
-                    </Text>
-                    {dirty && (
-                        <Alert color="yellow" variant="light" p="xs">
-                            <Text size="12px">
-                                You have unsaved changes — deploy posts the last saved version.
-                            </Text>
-                        </Alert>
-                    )}
-                    <Group justify="flex-end" gap="sm">
-                        <Button
-                            variant="subtle"
-                            color="gray"
-                            onClick={() => setDeployOpen(false)}
-                            disabled={deploying}
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            color="brand"
-                            loading={deploying}
-                            onClick={() => void handleDeploy()}
-                        >
-                            Deploy
-                        </Button>
-                    </Group>
-                </Stack>
-            </Modal>
         </Stack>
     );
 }

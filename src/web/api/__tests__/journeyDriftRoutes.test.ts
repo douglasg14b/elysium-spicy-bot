@@ -97,13 +97,6 @@ vi.mock('../../../features/provisioning', async (importOriginal) => {
     };
 });
 
-// The real exports stay: `installBody.ts`, which the routes import, reads
-// `UNDEPLOY_OUTCOMES` from this module while it loads.
-vi.mock('../../../features/flows/logic/undeployFlowButtons', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('../../../features/flows/logic/undeployFlowButtons')>()),
-    undeployFlowButtons: vi.fn(),
-}));
-
 const { journeyRoutes } = await import('../journeyRoutes');
 const { DriftRepairSchema } = await import('../journeyBody');
 

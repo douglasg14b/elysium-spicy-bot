@@ -60,6 +60,7 @@ import {
     Collapse,
     Divider,
     Group,
+    Popover,
     Select,
     Stack,
     Text,
@@ -77,6 +78,7 @@ import {
     IconX,
 } from '@tabler/icons-react';
 import type {
+    ButtonListener,
     GuildChannel,
     GuildRole,
     MessageButton,
@@ -86,6 +88,7 @@ import type {
 } from '@brattybot/web-sdk';
 import { TicketTypeFields } from '../tickets/TicketTypeFields';
 import { emptyTicketTypeDraft, validateTicketTypeDraft } from '../tickets/ticketTypeForm';
+import { cutOffQuestion, listenedMessageKeys, listenersCutOffBy, listenersOn } from './buttonListeners';
 import type { GuildUploads } from './controls/types';
 import { detectResourceProblems, resourceKeyProblem } from './detectResourceProblems';
 import type { ResourceChipInstance } from './detectResourceProblems';
@@ -213,7 +216,19 @@ interface ResourcesPanelProps {
      * window sits inside this one.
      */
     onMessageWindowChange?: (open: boolean) => void;
+    /**
+     * The Button Click triggers listening to this list's messages. A listened message's key
+     * stops following its name, its window names the flow under each button and locks the
+     * button's key, and removing the message — or its channel — asks first.
+     *
+     * Absent from a caller that cannot know, which leaves all of that to the readiness issue
+     * the trigger then shows.
+     */
+    listeners?: readonly ButtonListener[];
 }
+
+/** No listeners, one instance, so the memos below see no change per render. */
+const NO_LISTENERS: readonly ButtonListener[] = [];
 
 /**
  * Which field a jump should land on, once the row holding it has opened.
@@ -250,8 +265,10 @@ export function ResourcesPanel({
     scope = 'flow',
     uploads,
     onMessageWindowChange,
+    listeners = NO_LISTENERS,
 }: ResourcesPanelProps) {
     const [filter, setFilter] = useState('');
+    const listenedKeys = useMemo(() => listenedMessageKeys(listeners), [listeners]);
     /**
      * Which rows are open, by list position.
      *
@@ -381,6 +398,7 @@ export function ResourcesPanel({
             nextName: name,
             resources,
             installedKeys,
+            listenedKeys,
             keyHeldThroughBlankName: heldThroughBlank,
         });
 
@@ -706,6 +724,8 @@ export function ResourcesPanel({
                                 renameResource(row.index, nextName, options)
                             }
                             keyIsInstalled={installedKeys?.has(row.resource.key) ?? false}
+                            listeners={listeners}
+                            removalCutsOff={listenersCutOffBy(row.resource, resources, listeners)}
                             onAdopt={(channelId) => setAdoption(row.index, channelId)}
                             onRemove={() => removeResource(row.index)}
                         />
@@ -772,6 +792,10 @@ interface ResourceRowProps {
     onRename: (nextName: string, options?: { readonly clearAdoption?: boolean }) => void;
     /** Whether this row's key is frozen by something live in the guild. */
     keyIsInstalled: boolean;
+    /** Every trigger listening to the list's messages, for a message row's window. */
+    listeners: readonly ButtonListener[];
+    /** The triggers removing this row would leave pointing at nothing; removal asks first when any. */
+    removalCutsOff: readonly ButtonListener[];
     /** Adoption is its own callback because it may re-seed the name and key too. */
     onAdopt: (channelId: string | undefined) => void;
     onRemove: () => void;
@@ -801,6 +825,8 @@ function ResourceRow({
     onUpdate,
     onRename,
     keyIsInstalled,
+    listeners,
+    removalCutsOff,
     onAdopt,
     onRemove,
 }: ResourceRowProps) {
@@ -1110,17 +1136,11 @@ function ResourceRow({
                         </Group>
                     </UnstyledButton>
 
-                    <Tooltip label="Remove" withArrow>
-                        <ActionIcon
-                            size="md"
-                            variant="subtle"
-                            color="red"
-                            onClick={onRemove}
-                            aria-label={`Remove ${resource.defaultName}`}
-                        >
-                            <IconTrash size={16} />
-                        </ActionIcon>
-                    </Tooltip>
+                    <RemoveResourceButton
+                        resource={resource}
+                        cutsOff={removalCutsOff}
+                        onRemove={onRemove}
+                    />
                 </Group>
 
                 <Collapse in={expanded}>
@@ -1136,6 +1156,7 @@ function ResourceRow({
                                 resource={resource}
                                 channels={parents}
                                 keyIsInstalled={keyIsInstalled}
+                                listeners={listeners}
                                 uploads={uploads}
                                 onUpdate={onUpdate}
                                 onRename={onRename}
@@ -1322,6 +1343,70 @@ function ResourceRow({
     );
 }
 
+interface RemoveResourceButtonProps {
+    resource: ResourceDeclaration;
+    /** The triggers the removal would leave pointing at nothing. */
+    cutsOff: readonly ButtonListener[];
+    onRemove: () => void;
+}
+
+/**
+ * The row's trash can. It removes at once, unless a Button Click trigger listens to the
+ * message going — or to a message in the channel going — when it asks first, naming the flow:
+ * the trigger would be left listening to nothing, and a press would answer that nothing's
+ * hooked up.
+ */
+function RemoveResourceButton({ resource, cutsOff, onRemove }: RemoveResourceButtonProps) {
+    const [asking, setAsking] = useState(false);
+    const trash = (
+        <ActionIcon
+            size="md"
+            variant="subtle"
+            color="red"
+            onClick={() => (cutsOff.length > 0 ? setAsking((open) => !open) : onRemove())}
+            aria-label={`Remove ${resource.defaultName}`}
+        >
+            <IconTrash size={16} />
+        </ActionIcon>
+    );
+
+    if (cutsOff.length === 0) {
+        return (
+            <Tooltip label="Remove" withArrow>
+                {trash}
+            </Tooltip>
+        );
+    }
+
+    return (
+        <Popover opened={asking} onChange={setAsking} width={300} position="bottom-end" withArrow shadow="md">
+            <Popover.Target>{trash}</Popover.Target>
+            <Popover.Dropdown p={12}>
+                <Stack gap={10}>
+                    <Text size="sm">
+                        {cutOffQuestion(cutsOff, resource.kind === 'message' ? 'message' : 'channel')}
+                    </Text>
+                    <Group justify="flex-end" gap={8}>
+                        <Button variant="subtle" color="gray" size="xs" onClick={() => setAsking(false)}>
+                            Keep it
+                        </Button>
+                        <Button
+                            color="red"
+                            size="xs"
+                            onClick={() => {
+                                setAsking(false);
+                                onRemove();
+                            }}
+                        >
+                            Remove anyway
+                        </Button>
+                    </Group>
+                </Stack>
+            </Popover.Dropdown>
+        </Popover>
+    );
+}
+
 interface TicketTypeBodyProps {
     resource: ResourceDeclaration;
     ticketTypes: readonly TicketTypeView[] | undefined;
@@ -1413,6 +1498,8 @@ interface MessageBodyProps {
     /** The declared text channels it may be posted in. */
     channels: ResourceDeclaration[];
     keyIsInstalled: boolean;
+    /** Every trigger listening to the list's messages; this row reads its own message's. */
+    listeners: readonly ButtonListener[];
     uploads: GuildUploads;
     onUpdate: (patch: Partial<ResourceDeclaration>) => void;
     onRename: (nextName: string) => void;
@@ -1449,6 +1536,7 @@ function MessageBody({
     resource,
     channels,
     keyIsInstalled,
+    listeners,
     uploads,
     onUpdate,
     onRename,
@@ -1462,6 +1550,7 @@ function MessageBody({
     const problems = useMemo(() => messageResourceProblems(resource), [resource]);
     const channelLocked = keyIsInstalled && resource.parentKey !== undefined;
     const channel = channels.find((candidate) => candidate.key === resource.parentKey);
+    const ownListeners = useMemo(() => listenersOn(listeners, resource.key), [listeners, resource.key]);
 
     const written = useRef({ message: resource.message, buttons: resource.buttons });
     written.current = { message: resource.message, buttons: resource.buttons };
@@ -1498,7 +1587,11 @@ function MessageBody({
                     size="sm"
                     label="Key"
                     description={
-                        keyIsInstalled ? 'Fixed — installed things point at this.' : 'Follows the name until you edit it.'
+                        keyIsInstalled
+                            ? 'Fixed — installed things point at this.'
+                            : ownListeners.length > 0
+                              ? 'Fixed — a flow listens to its buttons by it.'
+                              : 'Follows the name until you edit it.'
                     }
                     value={resource.key}
                     onChange={(event) => onUpdate({ key: event.currentTarget.value })}
@@ -1565,6 +1658,7 @@ function MessageBody({
                         value: resource.buttons ?? NO_BUTTONS,
                         onChange: (next) => write({ buttons: next }),
                         issues: buttonIssues(problems),
+                        listeners: ownListeners,
                     }}
                     onClose={() => setEditing(false)}
                 />

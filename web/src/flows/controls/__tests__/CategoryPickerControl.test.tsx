@@ -1,6 +1,7 @@
 import { screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { BlockConfigField, ResourceDeclaration } from '@brattybot/web-sdk';
+import { NO_JOURNEY } from '../../../__tests__/support/noJourney';
 import { NO_UPLOADS } from '../../../__tests__/support/noUploads';
 import { renderWithProviders } from '../../../__tests__/support/renderWithProviders';
 import { ALL_REQUIREMENTS_AVAILABLE } from '../../variables';
@@ -37,6 +38,7 @@ function renderPicker(options: { declaredResources?: ResourceDeclaration[]; conf
         declaredResources: options.declaredResources ?? [],
         setConfigKey,
         uploads: NO_UPLOADS,
+        ...NO_JOURNEY,
     };
 
     const rendered = renderWithProviders(

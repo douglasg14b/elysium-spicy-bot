@@ -39,12 +39,11 @@ export interface PublishedResourceLine {
      *
      * A `ResourceKind` where the wire supplied one it recognises, so the row can be
      * drawn from `RESOURCE_KIND_STYLES` and inherit the same violet/blue/orange
-     * vocabulary the resources panel uses. A flow's posted button message wears
-     * `message` too — the same glyph as a journey's message resource, though it is not
-     * provisioned and is taken down, not deleted, under "Posted messages". `unknown` is the fallback for a kind this build has not heard of, which is still
-     * a real thing about to be deleted and must not be dropped.
+     * vocabulary the resources panel uses. `unknown` is the fallback for a kind this
+     * build has not heard of, which is still a real thing about to be deleted and must
+     * not be dropped.
      */
-    readonly glyph: ResourceKind | 'message' | 'unknown';
+    readonly glyph: ResourceKind | 'unknown';
     /** `channel`, `category`, `role` — the noun, not the wire kind. */
     readonly kindLabel: string;
     /** What it is called in the server, with `#` or `@` already applied. */
@@ -62,7 +61,7 @@ export interface PublishedResourceLine {
  * down a column and tally themselves.
  */
 export interface PublishedGroup {
-    readonly id: 'created' | 'blocked' | 'adopted' | 'settings' | 'messages';
+    readonly id: 'created' | 'blocked' | 'adopted' | 'settings';
     readonly title: string;
     /** The aside beside the title — what this group means for the teardown. */
     readonly caption: string;
@@ -86,12 +85,8 @@ export interface PublishedSummary {
      * not *which* — and the names were on the wire the whole time.
      */
     readonly groups: readonly PublishedGroup[];
-    /** Whether to offer the "delete the buttons too" action. */
-    readonly canUndeploy: boolean;
     /** Whether to offer the "delete the channels and roles too" action. */
     readonly canUnpublish: boolean;
-    /** How many button messages are still posted. Zero when none are. */
-    readonly buttonCount: number;
     /** How many resources an uninstall would actually delete. */
     readonly deletableCount: number;
     /**
@@ -209,21 +204,15 @@ export function summarisePublished(
     state: PublishedFlowState,
     scope: PublishedScope = 'flow'
 ): PublishedSummary {
-    const buttonCount = state.buttonMessages.length;
     const deletable = state.deletableResources;
 
-    const parts: string[] = [];
-    if (buttonCount > 0) {
-        parts.push(`${plural(buttonCount, 'button message', 'button messages')} still posted`);
-    }
-    if (deletable.length > 0) {
-        // "it created" names the flow; on a journey the creator is the group, so the
-        // pronoun has to change with it or the sentence attributes shared channels to a
-        // single flow the operator may not even have open.
-        parts.push(
-            `${describeResources(deletable)} ${scope === 'journey' ? 'they created' : 'it created'}`
-        );
-    }
+    // "it created" names the flow; on a journey the creator is the group, so the pronoun
+    // has to change with it or the sentence attributes shared channels to a single flow
+    // the operator may not even have open.
+    const leftBehind =
+        deletable.length > 0
+            ? `${describeResources(deletable)} ${scope === 'journey' ? 'they created' : 'it created'}`
+            : null;
 
     /*
      * Refusals are split by *why*, because the reasons say opposite things about
@@ -283,19 +272,6 @@ export function summarisePublished(
             destructive: false,
             lines: state.keptSettings.map((resource) => toLine(resource, 'kept')),
         },
-        {
-            id: 'messages',
-            title: 'Posted messages',
-            caption: 'taking these down leaves the channels',
-            destructive: false,
-            lines: state.buttonMessages.map((message) => ({
-                resourceKey: `${message.channelId}:${message.messageId}`,
-                glyph: 'message' as const,
-                kindLabel: 'message',
-                displayName: `${plural(message.nodeIds.length, 'button', 'buttons')} posted`,
-                fate: 'kept' as const,
-            })),
-        },
     ] satisfies readonly PublishedGroup[]).filter((group) => group.lines.length > 0);
 
     const deletableCount = deletable.length;
@@ -304,13 +280,11 @@ export function summarisePublished(
 
     return {
         hasAnything: groups.length > 0,
-        leftBehind: parts.length > 0 ? joinWithAnd(parts) : null,
+        leftBehind,
         groups,
-        canUndeploy: buttonCount > 0,
         // An uninstall that deletes nothing is still worth offering when it forgets a
         // setting: it is how the journey lets go of a ticket type.
         canUnpublish: deletableCount > 0 || keptSettingsCount > 0,
-        buttonCount,
         deletableCount,
         // Never "Delete 0 resources": when nothing is deleted, the button says what it does.
         unpublishLabel:
@@ -331,6 +305,12 @@ export interface InstalledView {
     readonly count: number | null;
     /** The keys of every live resource, so a bound key stops following its name. */
     readonly keys: ReadonlySet<string>;
+    /**
+     * Discord id → key of every live resource that names one, kept like `keys`: so the Button
+     * Click trigger's "+ New message in…" puts a message in a channel the journey created
+     * under that channel's own key, rather than adopting it a second time.
+     */
+    readonly keysByDiscordId: ReadonlyMap<string, string>;
 }
 
 /** The answer of the published-state read, as a query holds it. */
@@ -365,6 +345,9 @@ export function installedFromPublished({ data, failed }: PublishedRead): Install
     return {
         count: data && !failed ? live.length : null,
         keys: new Set(live.map((resource) => resource.resourceKey)),
+        keysByDiscordId: new Map(
+            live.flatMap((resource) => (resource.discordId ? [[resource.discordId, resource.resourceKey] as const] : []))
+        ),
     };
 }
 

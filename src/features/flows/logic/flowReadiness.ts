@@ -1,9 +1,11 @@
 import type { Guild } from 'discord.js';
+import type { ResourceDeclaration } from '../../provisioning/logic/resourceDeclaration';
 import type { FlowGraph } from '../data/flowGraph';
 import { authoredGraphIssues } from '../engine/graphValidation';
 import { validateNodeData, type FlowValidationIssue } from '../engine/nodeDataValidation';
 import { fieldRuleIssueMessage } from './blockFieldRules';
 import { guildReferenceIssues } from './guildReferences';
+import { messageButtonIssues } from './messageButtonReferences';
 import { pendingResourceFields } from './pendingResourceFields';
 import { collectApplicableResourceTargets } from './resourceTargets';
 import { uploadReferenceIssues, type UploadIndex } from './uploadReferences';
@@ -21,20 +23,22 @@ import { uploadReferenceIssues, type UploadIndex } from './uploadReferences';
  *  - **Incomplete** — sound, but this returns issues: a node whose config its block
  *    refuses, a sidecar naming a resource the flow does not declare, or an authoring
  *    rule broken (fan-out on a handle, a question with nothing wired after it, a token
- *    no run can fill in). Storable, because refusing it is how operators lost work —
- *    but never live: it cannot be switched on or deployed, and a save of one onto a flow
+ *    no run can fill in, a button the journey's messages no longer have). Storable,
+ *    because refusing it is how operators lost work —
+ *    but never live: it cannot be switched on, and a save of one onto a flow
  *    that is on is kept as the saver's draft instead.
  *  - **Ready** — returns nothing. Authored completely; may go live once installed.
  *
  * **"Ready" does not mean "installed".** A picker field left empty because it names a
  * resource the flow declares but has not installed yet is ready by this definition —
- * that is what `declaredKeys` is for — so it is not counted here, and does not raise the
+ * that is what `declarations` is for — so it is not counted here, and does not raise the
  * flows list's "Needs fixes" chip: the install chip beside it already says so, and one
  * fact shown twice on a row is a chip that has not earned its place. It is refused
  * separately, and later: switching on needs {@link uninstalledResourceKeys} to be empty
- * too, and deploy names what to install (`planButtonDeployment`). Without that, a
- * member-join or reaction flow switched on before its install would start runs that
- * fail on the empty snowflake.
+ * too. Without that, a member-join or reaction flow switched on before its install would
+ * start runs that fail on the empty snowflake. A Button Click naming a message that is not
+ * posted yet waits on nothing: nobody can press a button that is not there (Douglas,
+ * 2026-10-25).
  *
  * ## What is checked, and in what order
  *
@@ -49,11 +53,13 @@ import { uploadReferenceIssues, type UploadIndex } from './uploadReferences';
  * (unknown copy tokens) type-checks each value before touching it and skips unknown
  * block types.
  *
- * `declaredKeys` is what lets a picker field be empty: a node that picked a resource
- * this flow declares but has not installed holds an empty snowflake and a sidecar
+ * The declarations' keys are what let a picker field be empty: a node that picked a
+ * resource this flow declares but has not installed holds an empty snowflake and a sidecar
  * naming the declaration. {@link pendingResourceFields} translates the declaration into
  * the engine's own vocabulary — "these fields are filled in later" — so the validator
- * stays a general check that has never heard of provisioning.
+ * stays a general check that has never heard of provisioning. The declarations themselves
+ * are what a Button Click is judged against ({@link messageButtonIssues}): whether its
+ * message is declared, and still has its button.
  *
  * Issues, not a joined string, and every one names its node — which is what the builder
  * marks the card with, and the only place an operator can find a problem on a canvas.
@@ -61,14 +67,14 @@ import { uploadReferenceIssues, type UploadIndex } from './uploadReferences';
  * Needs the block registry, so a caller must have awaited discovery.
  *
  * @param graph - A graph that has already passed `validateFlowGraph`.
- * @param declaredKeys - Resource keys this flow declares. Empty for a flow with no
- * journey — or one that does not exist yet, which can have declared nothing.
+ * @param declarations - The resources this flow's journey declares. Empty for a flow with
+ * no journey — or one that does not exist yet, which can have declared nothing.
  */
 export function flowReadinessIssues(
     graph: FlowGraph,
-    declaredKeys: ReadonlySet<string>
+    declarations: readonly ResourceDeclaration[]
 ): readonly FlowValidationIssue[] {
-    const pending = pendingResourceFields(graph, declaredKeys);
+    const pending = pendingResourceFields(graph, declaredKeysOf(declarations));
     const nodeData = validateNodeData(graph, {
         pendingFields: pending.pendingFields,
         // Worded as the builder words the same rule while the author types.
@@ -82,8 +88,14 @@ export function flowReadinessIssues(
         // about them would have been suppressed with nothing in its place.
         ...pending.issues,
         ...(nodeData.valid ? [] : nodeData.issues),
+        ...messageButtonIssues(graph, declarations),
         ...authoredGraphIssues(graph),
     ];
+}
+
+/** The keys the declarations go by — what a picker's sidecar names. */
+function declaredKeysOf(declarations: readonly ResourceDeclaration[]): ReadonlySet<string> {
+    return new Set(declarations.map((declaration) => declaration.key));
 }
 
 /**
@@ -91,11 +103,11 @@ export function flowReadinessIssues(
  * ({@link guildReferenceIssues}) and its uploaded pictures ({@link uploadReferenceIssues}) in
  * the server the flow belongs to.
  *
- * What every caller holding the flow's guild asks — the routes, the flows list, deploy —
- * so the builder's marks, the list's count, the switch-on refusal and deploy cannot
- * disagree about a picked channel or an upload that is not in the server. An issue here is
- * an ordinary readiness issue: a switched-off flow stores the graph as unfinished, a live
- * flow's save goes to the saver's draft, and switching on and deploying are refused.
+ * What every caller holding the flow's guild asks — the routes and the flows list — so the
+ * builder's marks, the list's count and the switch-on refusal cannot disagree about a
+ * picked channel or an upload that is not in the server. An issue here is an ordinary
+ * readiness issue: a switched-off flow stores the graph as unfinished, a live flow's save
+ * goes to the saver's draft, and switching on is refused.
  *
  * Synchronous, because it is asked inside `flowsRepo.mutate`'s transaction. So the uploads
  * arrive as an index the caller awaited first (`loadUploadIndex`), outside any transaction.
@@ -104,12 +116,12 @@ export function flowReadinessIssues(
  */
 export function flowReadinessIssuesInGuild(
     graph: FlowGraph,
-    declaredKeys: ReadonlySet<string>,
+    declarations: readonly ResourceDeclaration[],
     guild: Guild,
     uploads: UploadIndex
 ): readonly FlowValidationIssue[] {
     return [
-        ...flowReadinessIssues(graph, declaredKeys),
+        ...flowReadinessIssues(graph, declarations),
         ...guildReferenceIssues(graph, guild),
         ...uploadReferenceIssues(graph, uploads),
     ];
@@ -135,8 +147,9 @@ export function flowReadinessIssuesInGuild(
  */
 export function uninstalledResourceKeys(
     graph: FlowGraph,
-    declaredKeys: ReadonlySet<string>
+    declarations: readonly ResourceDeclaration[]
 ): readonly string[] {
+    const declaredKeys = declaredKeysOf(declarations);
     const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
     const waiting = new Set<string>();
 
@@ -167,7 +180,7 @@ export function installBeforeEnablingMessage(keys: readonly string[]): string {
 
 /**
  * "1 problem", "3 problems" — the count every server-side readiness refusal leads with,
- * so the route, the deploy refusal and the enable gate cannot come to count differently.
+ * so every refusal of it words the count the same way.
  */
 export function problemCount(count: number): string {
     return `${count} ${count === 1 ? 'problem' : 'problems'}`;

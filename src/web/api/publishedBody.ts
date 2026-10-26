@@ -1,29 +1,8 @@
 import { z } from '@hono/zod-openapi';
-import type {
-    PublishedButtonMessage,
-    PublishedFlowState,
-    PublishedResource,
-} from '../../features/flows/logic/publishedFlowState';
+import type { PublishedFlowState, PublishedResource } from '../../features/flows/logic/publishedFlowState';
 import type { PublishedJourneyState } from '../../features/flows/logic/publishedJourneyState';
 import { REFUSAL_REASONS } from '../../features/provisioning/logic/unpublishPlan';
 import type { ChecksHold, MismatchedChecks, SchemaMatches } from './openApi';
-
-/**
- * A message carrying trigger buttons, as the flow and journey inventories report it.
- *
- * Deliberately `PublishedButtonMessage` and not the journey's `flowId`-carrying variant:
- * the extra field has no consumer, and widening the wire to whatever the richer internal
- * shape happens to hold is how fields reach clients without anyone deciding they should.
- * Narrowing here means the journey route sends exactly what the flow route sends, which
- * is what lets the browser hold one type for both.
- */
-const PublishedButtonMessageSchema = z
-    .object({
-        channelId: z.string(),
-        messageId: z.string(),
-        nodeIds: z.array(z.string()).readonly(),
-    })
-    .openapi('PublishedButtonMessage');
 
 /**
  * A channel or role the journey put in the guild. `refused` means unpublishing leaves it
@@ -49,7 +28,6 @@ const PublishedResourceSchema = z
  * Gathered here so `__tests__/publishedBody.test-d.ts` can assert them; see {@link SchemaMatches}.
  */
 type PublishedBodyChecks = ChecksHold<{
-    PublishedButtonMessage: SchemaMatches<typeof PublishedButtonMessageSchema, PublishedButtonMessage>;
     PublishedResource: SchemaMatches<typeof PublishedResourceSchema, PublishedResource>;
 }>;
 
@@ -61,13 +39,10 @@ export type PublishedBodyMismatch = MismatchedChecks<PublishedBodyChecks>;
  *
  * Shared by `flowRoutes` and `journeyRoutes` rather than duplicated, so the browser holds
  * **one** `PublishedFlowState` type and points both dialogs at it. Two copies would be two
- * chances for a field to be added on one side only — and the field most likely to be
- * forgotten is `mayHaveUnrecordedButtons`, whose whole job is to stop a dialog claiming
- * nothing is published when the data cannot support that claim.
+ * chances for a field to be added on one side only.
  */
 export const PublishedFlowStateSchema = z
     .object({
-        buttonMessages: z.array(PublishedButtonMessageSchema).readonly(),
         deletableResources: z.array(PublishedResourceSchema).readonly(),
         refusedResources: z.array(PublishedResourceSchema).readonly(),
         /**
@@ -76,14 +51,11 @@ export const PublishedFlowStateSchema = z
          * refused: kept by rule.
          */
         keptSettings: z.array(PublishedResourceSchema).readonly(),
-        mayHaveUnrecordedButtons: z.boolean(),
     })
     .openapi('PublishedFlowState', {
         description:
-            'What a flow or a journey has live in the guild. An empty `buttonMessages` does not mean ' +
-            'nothing is posted while `mayHaveUnrecordedButtons` is true: buttons posted before they ' +
-            'were recorded cannot be found. `keptSettings` are settings (ticket types) that uninstalling ' +
-            'forgets and leaves standing.',
+            'What a flow or a journey has live in the guild, as the uninstall would treat it. ' +
+            '`keptSettings` are settings (ticket types) that uninstalling forgets and leaves standing.',
     });
 
 /** The response body: `z.infer` of the schema, so the builder below cannot send a member the spec does not describe. */
@@ -98,14 +70,8 @@ export type PublishedBody = z.infer<typeof PublishedFlowStateSchema>;
  */
 export function publishedBody(state: PublishedFlowState | PublishedJourneyState): PublishedBody {
     return {
-        buttonMessages: state.buttonMessages.map((message) => ({
-            channelId: message.channelId,
-            messageId: message.messageId,
-            nodeIds: message.nodeIds,
-        })),
         deletableResources: state.deletableResources,
         refusedResources: state.refusedResources,
         keptSettings: state.keptSettings,
-        mayHaveUnrecordedButtons: state.mayHaveUnrecordedButtons,
     };
 }

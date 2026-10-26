@@ -1,7 +1,6 @@
 import { screen } from '@testing-library/react';
 import type { Client, PermissionsString } from 'discord.js';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { migrateTestDatabase } from '../../src/features-system/data-persistence/__tests__/support/migrateTestDatabase';
 import { guildSettingsRepo } from '../../src/features-system/guild-settings';
 import { journeysRepo } from '../../src/features/provisioning/data/journeysRepo';
 import type { JourneyDeclaration } from '../../src/features/provisioning/logic/resourceDeclaration';
@@ -14,6 +13,7 @@ import {
 } from '../../src/shared/__tests__/support/testDiscord';
 import { renderWithProviders } from '../src/__tests__/support/renderWithProviders';
 import { JourneyDriftDialog } from '../src/flows/JourneyDriftDialog';
+import { bootBotForDashboard } from './support/bootBot';
 import { installDashboardApi } from './support/dashboardApi';
 
 /**
@@ -71,7 +71,9 @@ interface InstalledLobby {
 const running: TestDiscord[] = [];
 
 beforeAll(async () => {
-    await migrateTestDatabase();
+    // The boot root, not just the schema: install of a message with buttons, and drift on one
+    // whose repair would take a button away, ask who listens through the reader flows registers.
+    await bootBotForDashboard();
 });
 
 afterEach(async () => {

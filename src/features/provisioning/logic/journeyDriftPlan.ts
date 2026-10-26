@@ -1,9 +1,10 @@
 import { ChannelType, type Guild, type GuildBasedChannel } from 'discord.js';
+import type { ButtonListener } from '../buttonListeners';
 import { journeyOwner, type ResourceBindingEntity } from '../data/resourceBindingsSchema';
 import { describeOtherHolder, type GuildOwnership } from './bindingOwner';
 import { parseDeclaredRoleReference } from './declaredRoleReference';
 import { describeChannel } from './installPlan';
-import { isPostedMessageRow, requireMessagePresence, type MessagePresence } from './lookupBoundMessage';
+import { isPostedMessageRow, requireMessagePresence, type MessagePresence, type PostedButton } from './lookupBoundMessage';
 import { messageDigest } from './messageDrift';
 import {
     compilePermissionIntents,
@@ -22,6 +23,7 @@ import { normaliseResourceName } from './resourceName';
 import {
     detectResourceDrift,
     hasDrift,
+    type ButtonDisconnect,
     type CompiledOverwrite,
     type LiveOverwrite,
     type LiveResourceSnapshot,
@@ -113,6 +115,19 @@ export interface BuildJourneyDriftPlanInput {
      */
     readonly embedsSuppressed?: ReadonlySet<string>;
     /**
+     * The `mbtn:` buttons each found message carries now, by resource key, from the same read
+     * as {@link messagePresence}. Required when a found message's declaration has moved on:
+     * what a repair takes away is what is posted and no longer declared.
+     */
+    readonly postedButtons?: ReadonlyMap<string, readonly PostedButton[]>;
+    /**
+     * Every trigger of this journey's flows naming one of its messages' buttons, through the
+     * hook flows registers (`requireButtonListenerReader`), so an out-of-date message's report
+     * can name the flows its repair would cut off. Required when a repair would take a posted
+     * button away: the check throws rather than guess nobody listens.
+     */
+    readonly buttonListeners?: readonly ButtonListener[];
+    /**
      * The same permission inputs the install preview takes.
      *
      * Required for the comparison to compile the declaration's intents into the
@@ -175,6 +190,8 @@ export function buildJourneyDriftPlan(input: BuildJourneyDriftPlanInput): Journe
                             : undefined,
                         messagePresence: input.messagePresence,
                         embedsSuppressed: input.embedsSuppressed?.has(declaration.key) ?? false,
+                        postedButtons: input.postedButtons,
+                        buttonListeners: input.buttonListeners,
                     });
                     switch (outcome.status) {
                         case 'drifted':
@@ -277,6 +294,8 @@ interface CheckMessageInput {
     readonly messagePresence: ReadonlyMap<string, MessagePresence> | undefined;
     /** Whether somebody hid its embeds (SUPPRESS_EMBEDS), as the presence read found it. */
     readonly embedsSuppressed: boolean;
+    readonly postedButtons: ReadonlyMap<string, readonly PostedButton[]> | undefined;
+    readonly buttonListeners: readonly ButtonListener[] | undefined;
 }
 
 /** Where one declared message lands in the report — or `install`, when it is install's subject and none of drift's. */
@@ -346,6 +365,9 @@ function checkMessage(input: CheckMessageInput): MessageCheck {
     const declarationMoved = row.messageDigest !== messageDigest(declaration.message, declaration.buttons);
     if (!declarationMoved && !input.embedsSuppressed) return { status: 'clean' };
 
+    // Only an edit toward a declaration that moved can take a button away: one that has not
+    // moved is what is posted already.
+    const disconnects = declarationMoved ? disconnectsOf(input, requirePostedButtons(input, row)) : [];
     return {
         status: 'drifted',
         report: {
@@ -354,10 +376,55 @@ function checkMessage(input: CheckMessageInput): MessageCheck {
             name,
             kind: 'message',
             discordId: row.discordId,
-            drift: [{ kind: 'outOfDate', declarationMoved, embedsHidden: input.embedsSuppressed }],
+            drift: [
+                {
+                    kind: 'outOfDate',
+                    declarationMoved,
+                    embedsHidden: input.embedsSuppressed,
+                    ...(disconnects.length > 0 ? { disconnects } : {}),
+                },
+            ],
             repairable: true,
         },
     };
+}
+
+/** The buttons a found message carries, as the presence read fetched them, or throw rather than guess it has none. */
+function requirePostedButtons(input: CheckMessageInput, row: ResourceBindingEntity): readonly PostedButton[] {
+    const posted = input.postedButtons?.get(row.resourceKey);
+    if (!posted) {
+        throw new Error(
+            `Journey "${row.ownerKey}" posted the message "${row.resourceKey}", but its drift check was built without the buttons it carries.`
+        );
+    }
+    return posted;
+}
+
+/**
+ * The triggers listening to a button the post carries now and its declaration no longer has —
+ * the ones a repair, which edits the post to the declaration, would leave with nothing to
+ * press, named by the label the post shows. Judged against the post as fetched: a listener
+ * naming a button already gone from it (cut off by an earlier repair, or never posted) is
+ * deaf already, and its flow's readiness says so rather than every later repair again.
+ *
+ * Listeners are asked for only when the post carries such a button, and throw when they were
+ * not read: a report that named nobody because nobody asked would be a guess.
+ */
+function disconnectsOf(input: CheckMessageInput, posted: readonly PostedButton[]): ButtonDisconnect[] {
+    const declaredButtons = new Set((input.declaration.buttons ?? []).map((button) => button.key));
+    const leaving = posted.filter((button) => !declaredButtons.has(button.key));
+    if (leaving.length === 0) return [];
+    const listeners = input.buttonListeners;
+    if (!listeners) {
+        throw new Error(
+            `Message resource "${input.declaration.key}" would lose buttons to a repair, but its drift check was built without reading who listens to them.`
+        );
+    }
+    return leaving.flatMap((button) =>
+        listeners
+            .filter((listener) => listener.messageKey === input.declaration.key && listener.buttonKey === button.key)
+            .map((listener) => ({ flowName: listener.flowName, buttonLabel: button.label }))
+    );
 }
 
 /**

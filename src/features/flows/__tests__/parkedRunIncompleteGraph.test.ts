@@ -163,7 +163,7 @@ describe('a parked run resuming into an incomplete graph', () => {
         ]);
         // The premise, asserted rather than assumed: this graph is one the enable
         // gate would refuse, so it is the state the new save path can produce.
-        expect(flowReadinessIssues(flow.graph, new Set()).map((issue) => issue.nodeId)).toEqual([AFTER_TIMEOUT]);
+        expect(flowReadinessIssues(flow.graph, []).map((issue) => issue.nodeId)).toEqual([AFTER_TIMEOUT]);
 
         const { outcome, stored, userSend, edit } = await resumeInto(flow);
 

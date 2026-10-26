@@ -107,11 +107,11 @@ describe('createUserRateLimiter', () => {
         vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         const { limiter } = limiterAt(0);
         const app = appWith(limiter);
-        const deploy = `${GUILD}/flows/flow-1/deploy`;
+        const install = `${GUILD}/flows/flow-1/install`;
 
-        expect((await send(app, 'alice', deploy, 'POST')).status).toBe(200);
-        expect((await send(app, 'alice', deploy, 'POST')).status).toBe(200);
-        expect((await send(app, 'alice', deploy, 'POST')).status).toBe(429);
+        expect((await send(app, 'alice', install, 'POST')).status).toBe(200);
+        expect((await send(app, 'alice', install, 'POST')).status).toBe(200);
+        expect((await send(app, 'alice', install, 'POST')).status).toBe(429);
         // The general budget still has room: two counted, the refusal not at all.
         expect((await send(app, 'alice', `${GUILD}/flows`)).status).toBe(200);
     });
@@ -120,19 +120,19 @@ describe('createUserRateLimiter', () => {
         vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         const { limiter, clock } = limiterAt(0);
         const app = appWith(limiter);
-        const deploy = `${GUILD}/flows/flow-1/deploy`;
+        const install = `${GUILD}/flows/flow-1/install`;
         // The general window opens at 0 s, the Discord one at 30 s.
         await send(app, 'alice');
         clock.now = 30_000;
-        await send(app, 'alice', deploy, 'POST');
-        await send(app, 'alice', deploy, 'POST');
+        await send(app, 'alice', install, 'POST');
+        await send(app, 'alice', install, 'POST');
         await send(app, 'alice');
         await send(app, 'alice');
 
         clock.now = 40_000;
-        const refused = await send(app, 'alice', deploy, 'POST');
+        const refused = await send(app, 'alice', install, 'POST');
 
-        // General reopens in 20 s, Discord in 50 s; a deploy sent after 20 s would be refused.
+        // General reopens in 20 s, Discord in 50 s; an install sent after 20 s would be refused.
         expect(refused.status).toBe(429);
         expect(refused.headers.get('Retry-After')).toBe('50');
     });
@@ -190,7 +190,6 @@ describe('createUserRateLimiter', () => {
 
 describe('callsDiscord', () => {
     it.each([
-        ['POST', `${GUILD}/flows/flow-1/deploy`],
         ['POST', `${GUILD}/flows/flow-1/install`],
         ['POST', `${GUILD}/journeys/onboarding/repair`],
         ['POST', `${GUILD}/tickets/12/close`],

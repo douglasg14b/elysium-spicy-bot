@@ -6,16 +6,17 @@ import type { AppEnv } from '../../types';
  * The "offer, never assume" decision, guarded.
  *
  * Deleting a flow removes the record and **nothing else**. It does not delete the
- * buttons it posted, and it does not delete the channels and roles its journey
- * created. Cleanup is a separate, separately confirmed action.
+ * channels, roles and messages its journey installed. Cleanup is a separate, separately
+ * confirmed action.
  *
  * The decision is easy to erode: somebody reasonably concludes that a deleted flow's
- * buttons are litter and wires the cleanup into the delete handler, and now a click
+ * resources are litter and wires the cleanup into the delete handler, and now a click
  * meant to remove a row silently destroys part of a live server. This test is what
  * makes that a failure rather than a helpful-looking commit.
  *
- * Sabotage-verified: calling `undeployFlowButtons` from the delete handler fails
- * *"deleting a flow > removes the row and nothing else"* below.
+ * Sabotage-verified when button undeploy still existed: calling it from the delete
+ * handler failed *"deleting a flow > removes the row and nothing else"* below. Unpublish,
+ * the one teardown left, is watched by the same assertion.
  */
 
 const flowsRepoMock = {
@@ -27,29 +28,13 @@ const flowsRepoMock = {
 };
 
 /** Every destructive path this handler could reach, all of them watched. */
-const undeployMock = vi.fn();
 const unpublishMock = vi.fn();
 const previewUnpublishMock = vi.fn();
-const buttonMessagesRepoMock = {
-    listByFlowId: vi.fn(),
-    persist: vi.fn(),
-    forget: vi.fn(),
-};
 
 vi.mock('../../../features/flows/data/flowsRepo', () => ({ flowsRepo: flowsRepoMock }));
 const journeysRepoMock = { getByKey: vi.fn() };
 vi.mock('../../../features/provisioning/data/journeysRepo', () => ({
     journeysRepo: journeysRepoMock,
-}));
-vi.mock('../../../features/flows/data/flowButtonMessagesRepo', () => ({
-    flowButtonMessagesRepo: buttonMessagesRepoMock,
-    FlowButtonMessagesRepo: class {},
-}));
-// The real module's other exports survive: the undeploy route's response schema reads its
-// outcome vocabulary while the routes load. The function that acts is still the watched mock.
-vi.mock('../../../features/flows/logic/undeployFlowButtons', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('../../../features/flows/logic/undeployFlowButtons')>()),
-    undeployFlowButtons: undeployMock,
 }));
 vi.mock('../../../features/provisioning', () => ({
     previewUnpublish: previewUnpublishMock,
@@ -117,47 +102,12 @@ describe('deleting a flow', () => {
         expect(flowsRepoMock.deleteByFlowId).toHaveBeenCalledWith(FLOW_ID);
 
         // The whole point. Nothing in the guild may be touched by a delete.
-        expect(undeployMock).not.toHaveBeenCalled();
         expect(unpublishMock).not.toHaveBeenCalled();
-        expect(buttonMessagesRepoMock.forget).not.toHaveBeenCalled();
-    });
-
-    it('leaves the record of where its buttons are posted intact', async () => {
-        // Those rows are the only way to find the orphaned buttons afterwards. A delete
-        // that tidied them away would make the buttons unretirable forever — strictly
-        // worse than leaving them, because at least a row can still be acted on.
-        await app().request(`/${GUILD_ID}/flows/${FLOW_ID}`, { method: 'DELETE' });
-
-        expect(buttonMessagesRepoMock.forget).not.toHaveBeenCalled();
+        expect(previewUnpublishMock).not.toHaveBeenCalled();
     });
 });
 
 describe('cleanup is reachable on its own', () => {
-    it('undeploys only when asked directly', async () => {
-        undeployMock.mockResolvedValue({ results: [] });
-
-        const response = await app().request(`/${GUILD_ID}/flows/${FLOW_ID}/undeploy`, {
-            method: 'POST',
-        });
-
-        expect(response.status).toBe(200);
-        expect(undeployMock).toHaveBeenCalledWith(expect.objectContaining({ id: GUILD_ID }), FLOW_ID);
-    });
-
-    it('undeploys a flow whose row is already gone', async () => {
-        // The commonest cleanup: the flow was deleted, and its buttons are still live.
-        // Requiring the flow to exist would make exactly that case unreachable.
-        flowsRepoMock.getByFlowId.mockResolvedValue(null);
-        undeployMock.mockResolvedValue({ results: [] });
-
-        const response = await app().request(`/${GUILD_ID}/flows/${FLOW_ID}/undeploy`, {
-            method: 'POST',
-        });
-
-        expect(response.status).toBe(200);
-        expect(undeployMock).toHaveBeenCalled();
-    });
-
     it('unpublishes only when asked directly', async () => {
         journeysRepoMock.getByKey.mockResolvedValue({
             journeyKey: FLOW_ID,

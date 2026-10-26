@@ -6,8 +6,8 @@
  * module exports `block`, so twelve re-exports would collide on one name — and
  * the collision is telling the truth: nothing outside a block's own directory
  * should reach for it by name. Consumers go through the registry; the handful of
- * modules that genuinely need a single block's constants (the button deployer,
- * the journey template, tests) import that directory directly.
+ * modules that genuinely need a single block's constants (the journey
+ * template, tests) import that directory directly.
  */
 export * from './manifest';
 export * from './conformance';

@@ -1,3 +1,4 @@
+import { DB_TYPE } from '../../../environment';
 import { database, type DatabaseClient } from '../../../features-system/data-persistence/database';
 import {
     validateJourneyDeclaration,
@@ -20,6 +21,27 @@ export interface UpdateJourneyInput {
     name?: string;
     description?: string | null;
     resources?: readonly ResourceDeclaration[];
+}
+
+/** What {@link JourneysRepo.updateAtVersion} did. */
+export type VersionedJourneyWrite =
+    | { readonly kind: 'written'; readonly journey: JourneyEntity }
+    /** The row has moved on since the caller read it. Nothing was written. */
+    | { readonly kind: 'stale' }
+    | { readonly kind: 'missing' };
+
+/** What {@link JourneysRepo.deleteForFlowAtVersion} did. */
+export type VersionedJourneyDelete =
+    | { readonly kind: 'deleted' }
+    | { readonly kind: 'stale' }
+    | { readonly kind: 'missing' };
+
+/**
+ * Whether `journey` is still the version a caller read: its `updatedAt`, which every write
+ * through this repo moves forward. Compared as instants, not strings.
+ */
+function isVersion(journey: JourneyEntity, baseUpdatedAt: string): boolean {
+    return new Date(journey.updatedAt).getTime() === new Date(baseUpdatedAt).getTime();
 }
 
 /**
@@ -173,17 +195,145 @@ export class JourneysRepo {
         return saved;
     }
 
+    /**
+     * Write `input` over the journey as it stands, whatever version that is — a rename, or the
+     * group route emptying a journey it has just merged away.
+     *
+     * Read and written under the lock {@link updateAtVersion} takes, in one transaction: the
+     * next version is stamped from the row as it is at the write, so it can never equal or
+     * trail one a concurrent versioned save has just committed. Read outside the lock, it
+     * could — and a tab holding that save's version would then pass the check over this write.
+     */
     async update(
         guildId: string,
         journeyKey: string,
         input: UpdateJourneyInput
     ): Promise<JourneyEntity> {
-        const existing = await this.getByKey(guildId, journeyKey);
-        if (!existing) {
-            throw new Error(`No journey ${journeyKey} in guild ${guildId}.`);
+        return this.db.transaction().execute(async (transaction): Promise<JourneyEntity> => {
+            const existing = await this.lockedRow(transaction, guildId, journeyKey);
+            if (!existing) {
+                throw new Error(`No journey ${journeyKey} in guild ${guildId}.`);
+            }
+
+            await this.writeUpdate(transaction, existing, input);
+
+            const saved = await this.lockedRow(transaction, guildId, journeyKey);
+            if (!saved) {
+                throw new Error(
+                    `Journey update succeeded but row was not found for ${guildId}/${journeyKey}.`
+                );
+            }
+
+            return saved;
+        });
+    }
+
+    /**
+     * {@link update}, but only if the journey is still the version the caller read —
+     * `baseUpdatedAt` is the `updatedAt` it was sent. The resource autosave's guard: both
+     * resource PUTs replace the whole list, so a tab writing over a list it never saw would
+     * delete whatever another tab, or a migration, put there since.
+     *
+     * Read, compared and written in one transaction, so a write landing in between cannot
+     * slip past the comparison. The row is locked on Postgres only, for the reason
+     * `flowsRepo.mutate` gives: READ COMMITTED does not stop a read-then-write losing an
+     * update, and SQLite rejects `FOR UPDATE` while its one connection already serialises
+     * every transaction. Only the transaction's own handle is used inside it — a singleton
+     * repo there would wait on the connection the transaction holds.
+     *
+     * `stale` when the row has moved on, `missing` when it is gone. Throws what `update`
+     * throws for declarations that disagree with each other, and `MalformedJourneyError`
+     * for a stored row that cannot be read.
+     */
+    async updateAtVersion(
+        guildId: string,
+        journeyKey: string,
+        baseUpdatedAt: string,
+        input: UpdateJourneyInput
+    ): Promise<VersionedJourneyWrite> {
+        return this.db.transaction().execute(async (transaction): Promise<VersionedJourneyWrite> => {
+            const current = await this.lockedRow(transaction, guildId, journeyKey);
+            if (!current) return { kind: 'missing' };
+            if (!isVersion(current, baseUpdatedAt)) return { kind: 'stale' };
+
+            await this.writeUpdate(transaction, current, input);
+
+            const saved = await this.lockedRow(transaction, guildId, journeyKey);
+            if (!saved) {
+                throw new Error(`Journey update succeeded but row was not found for ${guildId}/${journeyKey}.`);
+            }
+            return { kind: 'written', journey: saved };
+        });
+    }
+
+    /**
+     * Delete the journey one flow alone holds, with that flow's link, if the journey is still
+     * the version the caller read — the empty-list save of `PUT /flows/{flowId}/resources`,
+     * which is a stale tab's worst case: everything the journey declares, gone.
+     *
+     * The link and the row go in one transaction, under the lock {@link updateAtVersion}
+     * takes. Deleting the row leaves `resource_bindings` alone, as {@link deleteByKey} does.
+     */
+    async deleteForFlowAtVersion(input: {
+        readonly guildId: string;
+        readonly journeyKey: string;
+        readonly flowId: string;
+        readonly baseUpdatedAt: string;
+    }): Promise<VersionedJourneyDelete> {
+        const { guildId, journeyKey, flowId, baseUpdatedAt } = input;
+
+        return this.db.transaction().execute(async (transaction): Promise<VersionedJourneyDelete> => {
+            const current = await this.lockedRow(transaction, guildId, journeyKey);
+            if (!current) return { kind: 'missing' };
+            if (!isVersion(current, baseUpdatedAt)) return { kind: 'stale' };
+
+            await transaction
+                .deleteFrom('flow_journey_links')
+                .where('guildId', '=', guildId)
+                .where('flowId', '=', flowId)
+                .execute();
+            await transaction
+                .deleteFrom('journeys')
+                .where('guildId', '=', guildId)
+                .where('journeyKey', '=', journeyKey)
+                .execute();
+            return { kind: 'deleted' };
+        });
+    }
+
+    /** The row, validated, locked on Postgres for the rest of `executor`'s transaction. */
+    private async lockedRow(
+        executor: DatabaseClient,
+        guildId: string,
+        journeyKey: string
+    ): Promise<JourneyEntity | null> {
+        let query = executor
+            .selectFrom('journeys')
+            .selectAll()
+            .where('guildId', '=', guildId)
+            .where('journeyKey', '=', journeyKey);
+        if (DB_TYPE === 'postgres') {
+            query = query.forUpdate();
         }
 
-        const updateData: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+        const row = await query.executeTakeFirst();
+        return row ? this.assertValidDeclaration(row) : null;
+    }
+
+    /**
+     * Write `input` over `existing` on `executor`, stamping the next version.
+     *
+     * The version only ever moves forward, by a millisecond at least: two writes in one
+     * millisecond would otherwise share an `updatedAt`, and a tab holding the first would pass
+     * {@link updateAtVersion}'s check over the second.
+     */
+    private async writeUpdate(
+        executor: DatabaseClient,
+        existing: JourneyEntity,
+        input: UpdateJourneyInput
+    ): Promise<void> {
+        const nextVersion = Math.max(Date.now(), new Date(existing.updatedAt).getTime() + 1);
+        const updateData: Record<string, unknown> = { updatedAt: new Date(nextVersion).toISOString() };
 
         if (input.name !== undefined) {
             updateData.name = input.name;
@@ -195,7 +345,7 @@ export class JourneysRepo {
             // Validated against the *merged* result, not the patch alone, so a rename
             // combined with a resource edit is checked as the journey it will become.
             validateJourneyDeclaration({
-                journeyKey,
+                journeyKey: existing.journeyKey,
                 name: input.name ?? existing.name,
                 description: input.description ?? existing.description ?? undefined,
                 resources: input.resources,
@@ -203,21 +353,12 @@ export class JourneysRepo {
             updateData.resources = JSON.stringify(input.resources);
         }
 
-        await this.db
+        await executor
             .updateTable('journeys')
             .set(updateData)
-            .where('guildId', '=', guildId)
-            .where('journeyKey', '=', journeyKey)
+            .where('guildId', '=', existing.guildId)
+            .where('journeyKey', '=', existing.journeyKey)
             .execute();
-
-        const saved = await this.getByKey(guildId, journeyKey);
-        if (!saved) {
-            throw new Error(
-                `Journey update succeeded but row was not found for ${guildId}/${journeyKey}.`
-            );
-        }
-
-        return saved;
     }
 
     /**

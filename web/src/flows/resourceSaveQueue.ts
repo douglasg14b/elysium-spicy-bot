@@ -97,17 +97,65 @@ export function shouldAcceptResponse(issued: number, latest: number): boolean {
  * saved by the follow-up save, and *that* response is the one that gets to speak. If it
  * is also refused, the operator sees the message then, describing what they currently
  * have.
+ *
+ * **A stale version is neither.** It says somebody else saved since this tab loaded — not that
+ * the list on screen is wrong — and every later save from this tab will be refused the same
+ * way, whatever it holds. Re-reading the server's copy over the screen would throw away the
+ * operator's typing for a list they have not seen, so the work stays where it is; the hook
+ * stops sending, keeps the message up (reload), and says on the way out that nothing was kept.
+ * Any other refusal — the shared-journey 409 included — reverts as it always did.
  */
 export interface SaveFailureResponse {
     /** Show the server's message on the panel. */
     readonly showError: boolean;
     /** Re-read the stored list, discarding what is on screen. */
     readonly revertToStored: boolean;
+    /** Stop saving this list: the journey has moved on, and only a reload can catch up. */
+    readonly markStale: boolean;
 }
 
-export function describeSaveFailure(issued: number, latest: number): SaveFailureResponse {
-    const current = shouldAcceptResponse(issued, latest);
-    return { showError: current, revertToStored: current };
+/**
+ * Why a save failed: its journey moved on under this tab, or anything else — a refused list,
+ * another refusal, or no answer at all.
+ */
+export type SaveRefusal = 'staleVersion' | 'other';
+
+/**
+ * The 409 both resource saves answer when the version a list was edited from is not the
+ * journey's any more — the server's `STALE_RESOURCES_MESSAGE` (`src/web/api/journeyBody.ts`),
+ * mirrored because nothing under `web/src` may import the bot's tree, and held to it by
+ * `src/web/api/__tests__/staleResourcesMessageDrift.test.ts`.
+ *
+ * Told apart by its sentence because it shares its status with refusals that mean something
+ * else: `PUT /flows/{flowId}/resources` also answers 409 for a journey other flows share.
+ */
+export const STALE_RESOURCES_MESSAGE =
+    'Somebody else got their hands on these resources since you loaded them, so saving would ' +
+    'trample their changes. Reload the page, then make yours again.';
+
+/**
+ * @param status - The refusal's HTTP status, or `undefined` when the request never got an answer.
+ * @param message - The server's sentence, when there was one.
+ */
+export function classifySaveFailure(status: number | undefined, message: string | undefined): SaveRefusal {
+    return status === 409 && message === STALE_RESOURCES_MESSAGE ? 'staleVersion' : 'other';
+}
+
+export function describeSaveFailure(issued: number, latest: number, refusal: SaveRefusal): SaveFailureResponse {
+    switch (refusal) {
+        case 'staleVersion':
+            // Shown even when superseded: it describes the journey, which every newer list
+            // from this tab is edited against too, not the list that was sent.
+            return { showError: true, revertToStored: false, markStale: true };
+        case 'other': {
+            const current = shouldAcceptResponse(issued, latest);
+            return { showError: current, revertToStored: current, markStale: false };
+        }
+        default: {
+            const unhandled: never = refusal;
+            throw new Error(`Unhandled save refusal: ${String(unhandled)}`);
+        }
+    }
 }
 
 /**

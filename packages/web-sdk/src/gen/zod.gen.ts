@@ -164,6 +164,18 @@ export const zBotIdentity = z.object({
 });
 
 /**
+ * A Button Click trigger naming one of the journey's message buttons by its keys. `enabled` says whether its flow is switched on; an off flow is listed too.
+ */
+export const zButtonListener = z.object({
+    buttonKey: z.string(),
+    enabled: z.boolean(),
+    flowId: z.string(),
+    flowName: z.string(),
+    messageKey: z.string(),
+    nodeId: z.string()
+});
+
+/**
  * A band of members by XP within this server, least to most active. `topOnePercent` is a spotlight inside `topQuarter`, not a fifth band, so the counts do not sum.
  */
 export const zCohortKey = z.enum([
@@ -172,17 +184,6 @@ export const zCohortKey = z.enum([
     'topQuarter',
     'topOnePercent'
 ]);
-
-export const zDeployedButtonMessage = z.object({
-    buttonCount: z.number(),
-    channelId: z.string(),
-    messageId: z.string()
-});
-
-export const zDeployResult = z.object({
-    ok: z.literal(true),
-    posted: z.array(zDeployedButtonMessage)
-});
 
 export const zDetachResult = z.object({
     detached: z.boolean()
@@ -296,8 +297,12 @@ export const zFlowAttach = z.object({
     journeyKey: z.string().min(1, 'Give the resource a key.').max(64, 'Resource keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).')
 });
 
+/**
+ * The journey a flow installs. `sharedWith` is every other flow on it. `linked` is false for a flow from before the link table, on the journey keyed by its own id with no link row yet; its next resource save through the flow writes one.
+ */
 export const zFlowAttachment = z.object({
     journeyKey: z.string(),
+    linked: z.boolean(),
     name: z.string(),
     resourceCount: z.number(),
     sharedWith: z.array(zAttachedFlow)
@@ -395,10 +400,8 @@ export const zFlowBlockFieldRules = z.object({
         timeVariable: z.string().max(64, 'No more than 64 characters.').regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'A name must start with a letter and use only letters, numbers and underscores — that is what {{var.name}} can address.').optional()
     }),
     'trigger.buttonClick': z.object({
-        channelId: z.string().min(1, 'Fill this in.').optional(),
-        eligibility: z.unknown().optional(),
-        label: z.string().min(1, 'Fill this in.').max(80, 'No more than 80 characters.').optional(),
-        style: z.unknown().optional()
+        button: z.unknown().optional(),
+        eligibility: z.unknown().optional()
     }),
     'trigger.levelReached': z.object({
         level: z.unknown().optional()
@@ -443,224 +446,6 @@ export const zBlockConfigOption = z.object({
     requires: z.array(zFlowContextRequirement).optional(),
     value: z.string()
 });
-
-/**
- * One editable config field, in the order the inspector renders it, discriminated on `control`.
- */
-export const zBlockConfigField = z.union([
-    z.object({
-        control: z.enum(['rolePicker']),
-        defaultValue: z.string().optional(),
-        description: z.string().optional(),
-        key: z.string(),
-        label: z.string(),
-        visibleWhen: z.object({
-            equals: z.array(z.string()),
-            field: z.string()
-        }).optional()
-    }),
-    z.object({
-        control: z.enum(['channelPicker']),
-        defaultValue: z.string().optional(),
-        description: z.string().optional(),
-        key: z.string(),
-        label: z.string(),
-        optional: z.boolean().optional(),
-        visibleWhen: z.object({
-            equals: z.array(z.string()),
-            field: z.string()
-        }).optional()
-    }),
-    z.object({
-        control: z.enum(['categoryPicker']),
-        defaultValue: z.string().optional(),
-        description: z.string().optional(),
-        key: z.string(),
-        label: z.string(),
-        visibleWhen: z.object({
-            equals: z.array(z.string()),
-            field: z.string()
-        }).optional()
-    }),
-    z.object({
-        control: z.enum(['ticketTypePicker']),
-        defaultValue: z.string().optional(),
-        description: z.string().optional(),
-        key: z.string(),
-        label: z.string(),
-        optional: z.boolean().optional(),
-        visibleWhen: z.object({
-            equals: z.array(z.string()),
-            field: z.string()
-        }).optional()
-    }),
-    z.object({
-        control: z.enum(['text']),
-        defaultValue: z.string().optional(),
-        description: z.string().optional(),
-        key: z.string(),
-        label: z.string(),
-        maxLength: z.number().optional(),
-        optional: z.boolean().optional(),
-        placeholder: z.string().optional(),
-        rendersTokens: z.boolean().optional(),
-        visibleWhen: z.object({
-            equals: z.array(z.string()),
-            field: z.string()
-        }).optional()
-    }),
-    z.object({
-        control: z.enum(['longText']),
-        defaultValue: z.string().optional(),
-        description: z.string().optional(),
-        key: z.string(),
-        label: z.string(),
-        maxLength: z.number().optional(),
-        placeholder: z.string().optional(),
-        rendersTokens: z.boolean().optional(),
-        visibleWhen: z.object({
-            equals: z.array(z.string()),
-            field: z.string()
-        }).optional()
-    }),
-    z.object({
-        control: z.enum(['duration']),
-        defaultValue: z.number().optional(),
-        description: z.string().optional(),
-        key: z.string(),
-        label: z.string(),
-        optional: z.boolean().optional(),
-        placeholder: z.string().optional(),
-        visibleWhen: z.object({
-            equals: z.array(z.string()),
-            field: z.string()
-        }).optional()
-    }),
-    z.object({
-        control: z.enum(['segmented']),
-        defaultValue: z.string().optional(),
-        description: z.string().optional(),
-        key: z.string(),
-        label: z.string(),
-        options: z.array(zBlockConfigOption),
-        visibleWhen: z.object({
-            equals: z.array(z.string()),
-            field: z.string()
-        }).optional()
-    }),
-    z.object({
-        control: z.enum(['select']),
-        defaultValue: z.string().optional(),
-        description: z.string().optional(),
-        key: z.string(),
-        label: z.string(),
-        options: z.array(zBlockConfigOption),
-        visibleWhen: z.object({
-            equals: z.array(z.string()),
-            field: z.string()
-        }).optional()
-    }),
-    z.object({
-        control: z.enum(['colour']),
-        defaultValue: z.string().optional(),
-        description: z.string().optional(),
-        key: z.string(),
-        label: z.string(),
-        swatches: z.array(z.string()).optional(),
-        visibleWhen: z.object({
-            equals: z.array(z.string()),
-            field: z.string()
-        }).optional()
-    }),
-    z.object({
-        addLabel: z.string().optional(),
-        control: z.enum(['textList']),
-        defaultValue: z.array(z.string()).optional(),
-        description: z.string().optional(),
-        key: z.string(),
-        label: z.string(),
-        maxEntries: z.number().optional(),
-        maxLength: z.number().optional(),
-        minEntries: z.number().optional(),
-        placeholder: z.string().optional(),
-        visibleWhen: z.object({
-            equals: z.array(z.string()),
-            field: z.string()
-        }).optional()
-    }),
-    z.object({
-        addLabel: z.string().optional(),
-        columns: z.array(zBlockConfigColumn),
-        control: z.enum(['objectList']),
-        defaultValue: z.array(z.record(z.string(), z.unknown())).optional(),
-        description: z.string().optional(),
-        key: z.string(),
-        label: z.string(),
-        maxEntries: z.number().optional(),
-        minEntries: z.number().optional(),
-        visibleWhen: z.object({
-            equals: z.array(z.string()),
-            field: z.string()
-        }).optional()
-    }),
-    z.object({
-        control: z.enum(['eligibility']),
-        defaultValue: zEligibility.optional(),
-        description: z.string().optional(),
-        key: z.string(),
-        label: z.string(),
-        visibleWhen: z.object({
-            equals: z.array(z.string()),
-            field: z.string()
-        }).optional()
-    }),
-    z.object({
-        control: z.enum(['variableSelect']),
-        defaultValue: z.string().optional(),
-        description: z.string().optional(),
-        key: z.string(),
-        label: z.string(),
-        valueKind: zBlockOutputValueKind.optional(),
-        visibleWhen: z.object({
-            equals: z.array(z.string()),
-            field: z.string()
-        }).optional()
-    }),
-    z.object({
-        control: z.enum(['timeOfDay']),
-        defaultValue: z.string().optional(),
-        description: z.string().optional(),
-        key: z.string(),
-        label: z.string(),
-        visibleWhen: z.object({
-            equals: z.array(z.string()),
-            field: z.string()
-        }).optional()
-    }),
-    z.object({
-        control: z.enum(['daysOfWeek']),
-        defaultValue: z.array(zBlockDayKey).optional(),
-        description: z.string().optional(),
-        key: z.string(),
-        label: z.string(),
-        visibleWhen: z.object({
-            equals: z.array(z.string()),
-            field: z.string()
-        }).optional()
-    }),
-    z.object({
-        control: z.enum(['message']),
-        defaultValue: zDiscordMessage.optional(),
-        description: z.string().optional(),
-        key: z.string(),
-        label: z.string(),
-        swatches: z.array(z.string()).optional(),
-        visibleWhen: z.object({
-            equals: z.array(z.string()),
-            field: z.string()
-        }).optional()
-    })
-]);
 
 /**
  * One operator's draft of a flow, without its graph. `mine` is the caller's own; `flowSavedSince` means the flow was saved after the draft was started.
@@ -1001,6 +786,10 @@ export const zInstallResult = z.object({
     writtenCount: z.number()
 });
 
+export const zJourneyButtonListeners = z.object({
+    listeners: z.array(zButtonListener)
+});
+
 /**
  * A picture shown in a message a journey declares as a resource: the journey, the message (its key and its name), and the part as the message editor names it (`embed 1 image`).
  */
@@ -1184,6 +973,243 @@ export const zLogoutResult = z.object({
     ok: z.literal(true)
 });
 
+/**
+ * One button on one of the flow's journey's messages: the message resource's key and the button's key.
+ */
+export const zMessageButtonRef = z.object({
+    buttonKey: z.string(),
+    messageKey: z.string()
+});
+
+/**
+ * One editable config field, in the order the inspector renders it, discriminated on `control`.
+ */
+export const zBlockConfigField = z.union([
+    z.object({
+        control: z.enum(['rolePicker']),
+        defaultValue: z.string().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['channelPicker']),
+        defaultValue: z.string().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        optional: z.boolean().optional(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['categoryPicker']),
+        defaultValue: z.string().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['ticketTypePicker']),
+        defaultValue: z.string().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        optional: z.boolean().optional(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['text']),
+        defaultValue: z.string().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        maxLength: z.number().optional(),
+        optional: z.boolean().optional(),
+        placeholder: z.string().optional(),
+        rendersTokens: z.boolean().optional(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['longText']),
+        defaultValue: z.string().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        maxLength: z.number().optional(),
+        placeholder: z.string().optional(),
+        rendersTokens: z.boolean().optional(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['duration']),
+        defaultValue: z.number().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        optional: z.boolean().optional(),
+        placeholder: z.string().optional(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['segmented']),
+        defaultValue: z.string().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        options: z.array(zBlockConfigOption),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['select']),
+        defaultValue: z.string().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        options: z.array(zBlockConfigOption),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['colour']),
+        defaultValue: z.string().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        swatches: z.array(z.string()).optional(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        addLabel: z.string().optional(),
+        control: z.enum(['textList']),
+        defaultValue: z.array(z.string()).optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        maxEntries: z.number().optional(),
+        maxLength: z.number().optional(),
+        minEntries: z.number().optional(),
+        placeholder: z.string().optional(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        addLabel: z.string().optional(),
+        columns: z.array(zBlockConfigColumn),
+        control: z.enum(['objectList']),
+        defaultValue: z.array(z.record(z.string(), z.unknown())).optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        maxEntries: z.number().optional(),
+        minEntries: z.number().optional(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['eligibility']),
+        defaultValue: zEligibility.optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['variableSelect']),
+        defaultValue: z.string().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        valueKind: zBlockOutputValueKind.optional(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['timeOfDay']),
+        defaultValue: z.string().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['daysOfWeek']),
+        defaultValue: z.array(zBlockDayKey).optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['message']),
+        defaultValue: zDiscordMessage.optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        swatches: z.array(z.string()).optional(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['messageButton']),
+        defaultValue: zMessageButtonRef.optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    })
+]);
+
 export const zMessageButtonStyle = z.enum([
     'Primary',
     'Secondary',
@@ -1274,12 +1300,6 @@ export const zPermissionIntent = z.object({
     roleIds: z.array(z.string().min(1).regex(/^(?:(?!resource:)[\s\S]*|resource:[a-z0-9]+(-[a-z0-9]+)*)$/, 'A declared role reference must name a valid resource key (lowercase letters, numbers and single hyphens).')).max(50, 'A permission names at most 50 roles.').optional()
 });
 
-export const zPublishedButtonMessage = z.object({
-    channelId: z.string(),
-    messageId: z.string(),
-    nodeIds: z.array(z.string())
-});
-
 export const zPublishedResource = z.object({
     discordId: z.string().optional(),
     explanation: z.string().optional(),
@@ -1299,13 +1319,11 @@ export const zPublishedResource = z.object({
 });
 
 /**
- * What a flow or a journey has live in the guild. An empty `buttonMessages` does not mean nothing is posted while `mayHaveUnrecordedButtons` is true: buttons posted before they were recorded cannot be found. `keptSettings` are settings (ticket types) that uninstalling forgets and leaves standing.
+ * What a flow or a journey has live in the guild, as the uninstall would treat it. `keptSettings` are settings (ticket types) that uninstalling forgets and leaves standing.
  */
 export const zPublishedFlowState = z.object({
-    buttonMessages: z.array(zPublishedButtonMessage),
     deletableResources: z.array(zPublishedResource),
     keptSettings: z.array(zPublishedResource),
-    mayHaveUnrecordedButtons: z.boolean(),
     refusedResources: z.array(zPublishedResource)
 });
 
@@ -1367,9 +1385,10 @@ export const zSharedTicketType = z.object({
 });
 
 /**
- * What grouping would do. `destination` is null when the target flow is on no journey yet, so one would be created. `orphaned` are the live resources "leave" would strand. `sharedTicketTypes` are ticket types both sides declare, which a merge folds into the destination's.
+ * What grouping would do. `destination` is null when the target flow is on no journey yet, so one would be created. `orphaned` are the live resources "leave" would strand. `sharedTicketTypes` are ticket types both sides declare, which a merge folds into the destination's. `buttonConflict`, when set, is why the grouping would be refused: the moving flow is live on a button a live flow of the destination already listens to.
  */
 export const zGroupPreview = z.object({
+    buttonConflict: z.string().nullable(),
     canMerge: z.boolean(),
     collisions: z.array(zKeyCollision),
     destination: z.object({
@@ -1536,7 +1555,11 @@ export const zResourceDeclaration = z.object({
     ticketType: zTicketTypeSettings.optional()
 });
 
+/**
+ * `baseUpdatedAt` is the `updatedAt` the list was edited from, as the resource read or the last save answered it. Required once the flow is on a journey; left out by the first save, which creates one.
+ */
 export const zFlowResourcesSave = z.object({
+    baseUpdatedAt: z.iso.datetime().optional(),
     resources: z.array(zResourceDeclaration).max(100, 'A journey declares at most 100 resources.')
 });
 
@@ -1557,9 +1580,10 @@ export const zJourneyCreate = z.object({
 });
 
 /**
- * A partial update: send only what changed. `description: null` clears it. `resources` replaces the whole list.
+ * A partial update: send only what changed. `description: null` clears it. `resources` replaces the whole list, and must come with `baseUpdatedAt`, the journey's `updatedAt` the list was edited from; a rename alone needs none.
  */
 export const zJourneyUpdate = z.object({
+    baseUpdatedAt: z.iso.datetime().optional(),
     description: z.string().max(500, 'Descriptions cap at 500 characters.').nullish(),
     name: z.string().min(1, 'Give the journey a name.').max(100, 'Journey names cap at 100 characters.').optional(),
     resources: z.array(zResourceDeclaration).max(100, 'A journey declares at most 100 resources.').optional()
@@ -1684,21 +1708,6 @@ export const zJourneyDrift = z.object({
     journeyKey: z.string(),
     orphans: z.array(zOrphanedResource),
     unchecked: z.array(zUncheckedResource)
-});
-
-export const zUndeployedButtonMessage = z.object({
-    channelId: z.string(),
-    explanation: z.string().optional(),
-    messageId: z.string(),
-    outcome: z.enum([
-        'removed',
-        'alreadyGone',
-        'failed'
-    ])
-});
-
-export const zUndeployResult = z.object({
-    results: z.array(zUndeployedButtonMessage)
 });
 
 export const zUnpublishedResource = z.object({
@@ -1956,16 +1965,6 @@ export const zCheckFlowResponse = z.object({
     issues: z.array(zFlowValidationIssue)
 });
 
-export const zDeployFlowPath = z.object({
-    guildId: z.string(),
-    flowId: z.string()
-});
-
-/**
- * Posted: one message per destination channel.
- */
-export const zDeployFlowResponse = zDeployResult;
-
 export const zDetachFlowFromJourneyPath = z.object({
     guildId: z.string(),
     flowId: z.string()
@@ -2073,7 +2072,7 @@ export const zGetPublishedStatePath = z.object({
 });
 
 /**
- * Its button messages and the resources its journey put in the guild.
+ * The resources its journey put in the guild, as an uninstall would treat them.
  */
 export const zGetPublishedStateResponse = zPublishedFlowState;
 
@@ -2086,7 +2085,8 @@ export const zGetFlowResourcesPath = z.object({
  * The flow's declarations. Empty when it declares nothing, which is the normal state of a flow.
  */
 export const zGetFlowResourcesResponse = z.object({
-    resources: z.array(zResourceDeclaration)
+    resources: z.array(zResourceDeclaration),
+    updatedAt: z.string().nullable()
 });
 
 export const zSaveFlowResourcesBody = zFlowResourcesSave;
@@ -2097,21 +2097,12 @@ export const zSaveFlowResourcesPath = z.object({
 });
 
 /**
- * The declarations as stored, text-channel names normalised.
+ * The declarations as stored, text-channel names normalised, and the version to send next.
  */
 export const zSaveFlowResourcesResponse = z.object({
-    resources: z.array(zResourceDeclaration)
+    resources: z.array(zResourceDeclaration),
+    updatedAt: z.string().nullable()
 });
-
-export const zUndeployFlowPath = z.object({
-    guildId: z.string(),
-    flowId: z.string()
-});
-
-/**
- * What became of each recorded message.
- */
-export const zUndeployFlowResponse = zUndeployResult;
 
 export const zUnpublishFlowPath = z.object({
     guildId: z.string(),
@@ -2177,6 +2168,16 @@ export const zUpdateJourneyPath = z.object({
  */
 export const zUpdateJourneyResponse = zJourney;
 
+export const zGetJourneyButtonListenersPath = z.object({
+    guildId: z.string(),
+    journeyKey: z.string()
+});
+
+/**
+ * Every Button Click trigger of the journey's flows naming one of its buttons, live and off.
+ */
+export const zGetJourneyButtonListenersResponse = zJourneyButtonListeners;
+
 export const zGetJourneyDriftPath = z.object({
     guildId: z.string(),
     journeyKey: z.string()
@@ -2204,7 +2205,7 @@ export const zGetJourneyPublishedStatePath = z.object({
 });
 
 /**
- * Every attached flow's button messages, and the resources the journey put in the guild.
+ * The resources the journey put in the guild, as an uninstall would treat them.
  */
 export const zGetJourneyPublishedStateResponse = zPublishedFlowState;
 
@@ -2219,16 +2220,6 @@ export const zRepairJourneyDriftPath = z.object({
  * What became of each chosen resource. A partial repair is a 200; a `failed` row with `repaired` set was changed before the step that failed.
  */
 export const zRepairJourneyDriftResponse = zRepairResult;
-
-export const zUndeployJourneyPath = z.object({
-    guildId: z.string(),
-    journeyKey: z.string()
-});
-
-/**
- * What became of each recorded message, across every flow. A flow whose buttons could not be read is a `failed` row naming it.
- */
-export const zUndeployJourneyResponse = zUndeployResult;
 
 export const zUnpublishJourneyPath = z.object({
     guildId: z.string(),

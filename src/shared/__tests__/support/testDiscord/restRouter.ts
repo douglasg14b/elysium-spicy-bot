@@ -1,4 +1,11 @@
-import { ChannelType, OverwriteType, RESTJSONErrorCodes, type RESTOptions } from 'discord.js';
+import {
+    ChannelType,
+    InteractionResponseType,
+    MessageFlags,
+    OverwriteType,
+    RESTJSONErrorCodes,
+    type RESTOptions,
+} from 'discord.js';
 import { z } from 'zod';
 import { createMessageSchema, editMessageSchema } from './messageSchemas';
 import type { MessageFile } from './messageState';
@@ -12,7 +19,7 @@ import { TestDiscordError } from './testDiscordError';
  * touches no global dispatcher — so suites run in parallel without sharing an intercept,
  * and nothing here can reach the network.
  *
- * **Only the routes provisioning, the ticket lifecycle and activity's backfill actually call are modelled**, and
+ * **Only the routes provisioning, the ticket lifecycle, activity's backfill and a button press's answer actually call are modelled**, and
  * every request body and query string is parsed strictly. An unmatched route, or a body carrying a field no handler models,
  * throws a {@link TestDiscordError} naming it. The alternative — a quiet 404 or an empty
  * success — would turn a new API call in product code into a passing test, which is the
@@ -292,7 +299,53 @@ const messageHistoryQuerySchema = z
     })
     .transform(({ after, limit }) => ({ ...(after === undefined ? {} : { after }), limit: limit ?? 50 }));
 
+/**
+ * The two answers to a press the harness models, as discord.js 14 sends them: a deferred
+ * update (6), and an ephemeral reply (4, flags 64). See `ServerInteractions` for what else is
+ * refused, and why.
+ */
+const interactionCallbackSchema = z.discriminatedUnion('type', [
+    z.strictObject({ type: z.literal(InteractionResponseType.DeferredMessageUpdate) }),
+    z.strictObject({
+        type: z.literal(InteractionResponseType.ChannelMessageWithSource),
+        data: z.strictObject({
+            content: z.string().min(1),
+            // Always sent, and always false, as on a channel message (`messageSchemas.ts`).
+            tts: z.literal(false),
+            enforce_nonce: z.literal(false),
+            flags: z.literal(MessageFlags.Ephemeral),
+            allowed_mentions: z.strictObject({ parse: z.array(z.literal('users')), replied_user: z.boolean() }).optional(),
+        }),
+    }),
+]);
+
+/** discord.js 14.23 asks for no callback body on every answer; one asking for it is not modelled. */
+const interactionCallbackQuerySchema = z.strictObject({ with_response: z.literal('false') });
+
 const ROUTES: readonly Route[] = [
+    defineRoute({
+        /*
+         * The bot answering a press. Discord answers 204 when no response body is asked
+         * for, which discord.js never asks for here (`with_response=false`). The answer is
+         * kept on the press for a test to read; an ephemeral reply lands in no channel.
+         */
+        key: 'POST /interactions/:interactionId/:token/callback',
+        schema: interactionCallbackSchema,
+        query: interactionCallbackQuerySchema,
+        validate(state, params) {
+            state.interactions.checkRespond(params.interactionId ?? '', params.token ?? '');
+        },
+        apply(state, params, body) {
+            state.interactions.respond(
+                params.interactionId ?? '',
+                params.token ?? '',
+                body.type === InteractionResponseType.DeferredMessageUpdate
+                    ? { kind: 'deferUpdate' }
+                    : { kind: 'ephemeralReply', content: body.data.content }
+            );
+            return { status: 204 };
+        },
+    }),
     defineRoute({
         /*
          * A read, and the one way to learn what Discord holds without waiting for the

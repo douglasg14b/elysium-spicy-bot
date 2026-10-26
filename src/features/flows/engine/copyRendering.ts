@@ -472,6 +472,7 @@ function fieldCopyOf(field: BlockConfigField): FieldCopy {
         case 'variableSelect':
         case 'timeOfDay':
         case 'daysOfWeek':
+        case 'messageButton':
             return { kind: 'none' };
         default: {
             const illegal: never = field;

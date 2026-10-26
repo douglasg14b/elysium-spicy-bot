@@ -1,6 +1,6 @@
 import SqliteDatabase from 'better-sqlite3';
 import { CamelCasePlugin, Kysely, SqliteDialect } from 'kysely';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DatabaseClient } from '../../../../features-system/data-persistence/database';
 import { up as createFlows } from '../../../../features-system/data-persistence/migrations/2026-09-11-Create_Flows';
 import { up as createResourceBindings } from '../../../../features-system/data-persistence/migrations/2026-09-18-Create_Resource_Bindings';
@@ -165,6 +165,30 @@ describe('JourneysRepo', () => {
 
         const unchanged = await repo.getByKey(GUILD, 'qa');
         expect(unchanged?.resources).toEqual(RESOURCES);
+    });
+
+    /**
+     * Versions only move forward. `update` stamps the next version from the row it read, so a
+     * read taken before another write commits would stamp a version equal to that write's —
+     * and a tab holding it would pass `updateAtVersion`'s check over this one. Two updates at
+     * once, with the clock held still so only the row can move the version on.
+     */
+    it('stamps every update past the one before it, even two at once', async () => {
+        const created = await repo.create({ guildId: GUILD, journeyKey: 'qa', name: 'Q&A', resources: RESOURCES });
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(new Date(created.updatedAt).getTime());
+
+        try {
+            const [first, second] = await Promise.all([
+                repo.update(GUILD, 'qa', { name: 'Questions' }),
+                repo.update(GUILD, 'qa', { description: 'Ask away.' }),
+            ]);
+
+            const versions = [created, first, second].map((journey) => new Date(journey.updatedAt).getTime());
+            expect(versions[1]).toBeGreaterThan(versions[0] as number);
+            expect(versions[2]).toBeGreaterThan(versions[1] as number);
+        } finally {
+            clock.mockRestore();
+        }
     });
 
     it('fails loudly when reading a row whose stored declaration is invalid', async () => {

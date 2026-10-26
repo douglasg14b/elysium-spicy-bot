@@ -1,6 +1,6 @@
 # A posted message is a journey resource
 
-> **Status**: Design agreed 2026-10-23. Step 1 built 2026-10-24, live run pending ([message-editor-step-1.md](message-editor-step-1.md)). Step 2 built 2026-10-25, live run pending ([message-resource-step-2.md](message-resource-step-2.md)). Step 3 not started
+> **Status**: Design agreed 2026-10-23. Step 1 built 2026-10-24, live run pending ([message-editor-step-1.md](message-editor-step-1.md)). Step 2 built 2026-10-25, live run pending ([message-resource-step-2.md](message-resource-step-2.md)). Step 3 built 2026-10-25, uncommitted, live run pending ([message-resource-step-3.md](message-resource-step-3.md)).
 > **Owner**: Douglas
 > **PRD**: `docs/prds/flow-engine-v2-journeys-and-provisioning.md` §5.7 (resources a journey declares). Also serves its open follow-up *a journey can set up the ticket system*, whose panel is a posted message
 > **Reverses**: [shared-binding-table.md](shared-binding-table.md):29, for designed messages only (below)
@@ -101,7 +101,7 @@ One at a time. Each is planned against the code as it stands when it starts.
 
 1. **The editor, on Post Embed.** Post Embed gains plain text above, several embeds, the header and footer icons, and uploaded images, all edited in the MEE6-style window. Existing Post Embed nodes keep working; the step's plan decides whether by a data migration or by the schema reading the old shape. Useful on its own. **Built 2026-10-24, live run pending** ([message-editor-step-1.md](message-editor-step-1.md)): by a data migration, since the schema could not read the old shape (see that plan). Where the build departs from this design is under "Step 1 as built" below.
 2. **The message resource.** Declare it in Resources with the editor, and give it buttons. Install posts it, install reposts it if deleted, repair edits it, uninstall deletes it. A button press answers "Nothing's hooked up to this yet" until step 3. **Built 2026-10-25, live run pending** ([message-resource-step-2.md](message-resource-step-2.md)). Where the build departs from this design is under "Step 2 as built" below.
-3. **Button Click listens to a message's button.** Covers the trigger's message and button picker, the inline "+ New button" / "+ New message", the one-flow-per-button refusal, and the new click routing. Today's triggers and their deployed messages are converted. Deploy, `/flow-deploy` and `flow_button_messages` are retired. The step's plan decides how a message posted under the old ids changes over without its buttons going dead.
+3. **Button Click listens to a message's button.** Covers the trigger's message and button picker, the inline "+ New button" / "+ New message", the one-flow-per-button refusal, and the new click routing. Today's triggers and their deployed messages are converted. Deploy, `/flow-deploy` and `flow_button_messages` are retired. The step's plan decides how a message posted under the old ids changes over without its buttons going dead. **Built 2026-10-25, live run pending** ([message-resource-step-3.md](message-resource-step-3.md)): posted messages are adopted by a data migration, and their old buttons answer through a `flow:` bridge until each is repaired. `flow_button_messages` goes in the bridge-removal deploy that follows. Where the build departs from this design is under "Step 3 as built" below.
 
 ## Step 1 as built
 
@@ -139,6 +139,17 @@ Built 2026-10-25; the live run is pending (the checklist is in [message-resource
 - **The button prefix is `mbtn:<buttonKey>`**, owned by provisioning; flows registers the one handler, which in step 2 only answers the sentence. Discord's button constants moved to `src/shared/discordButtons.ts` so both can use them.
 - **The dashboard holds the autosave on a browser copy of the save rules**, so a message refusable mid-edit (a fresh empty embed, a half-typed link) is not sent and reverted. This holds the whole Resources list while it lasts, and a red chip says why.
 - **The window has no colour presets** in a resource message: the swatches are Post Embed's field config.
+
+## Step 3 as built
+
+Built 2026-10-25, uncommitted; the live run is pending (the checklist is in [message-resource-step-3.md](message-resource-step-3.md), "The live run", and includes steps 1 and 2's). Where it departs from, or settles, what this design said:
+
+- **Saving isn't refused.** Every graph save is stored, so one flow per button is checked at go-live and when a flow is grouped, naming the flow that has the button. The picker greys a taken button, so an author rarely meets the refusal.
+- **A trigger listens only to a message its own journey declares**, by bare keys (`button: { messageKey, buttonKey }`). A flow moved to another journey loses its button, and readiness says so.
+- **Posted messages are adopted, not reposted.** The migration records each as the bot's own (`created`, so uninstall deletes it) and merges flows that posted into one channel into one journey. Each converted journey then goes Install, Drift, Repair, and keeps its message's id and place. Until the repair, its `flow:` buttons answer through a bridge that logs every press. A trigger no `flow_button_messages` row names (never posted, or posted before the table existed on 2026-09-20) is emptied; a press on such an old button answers "This button's been retired — ask a mod to repost it."
+- **Resource saves carry a version.** The builder now saves Resources through the journey, which another flow may share, so both resource PUTs carry the version the browser loaded and answer 409 "reload" once it has moved on.
+- **A listened button's key is locked** in the message window, and removing a listened button, message or channel asks first. The server doesn't refuse such an edit; the repair preview names the flows it would cut off.
+- **Who listens** is shown under each button in the window and in a note at install naming the buttons nobody listens to.
 
 ## Not in this
 

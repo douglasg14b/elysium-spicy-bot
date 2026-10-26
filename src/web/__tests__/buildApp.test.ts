@@ -324,19 +324,19 @@ describe('buildApp rate limit', () => {
     it('refuses a Discord-calling route past its budget, before the access check runs', async () => {
         vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         const app = buildApp();
-        const deploy = (): Promise<Response> =>
-            Promise.resolve(app.request(`${GUILD_PATH}/flows/flow-1/deploy`, as('alice', 'POST')));
+        const install = (): Promise<Response> =>
+            Promise.resolve(app.request(`${GUILD_PATH}/flows/flow-1/install`, as('alice', 'POST')));
 
         for (let request = 0; request < discord; request += 1) {
-            expect((await deploy()).status).toBe(403);
+            expect((await install()).status).toBe(403);
         }
-        const refused = await deploy();
+        const refused = await install();
 
         expect(refused.status).toBe(429);
         expect(Number(refused.headers.get('Retry-After'))).toBeGreaterThan(0);
         expect(await refused.json()).toEqual({ error: RATE_LIMITED_SENTENCE });
         // Bob has his own budget.
-        expect((await app.request(`${GUILD_PATH}/flows/flow-1/deploy`, as('bob', 'POST'))).status).toBe(403);
+        expect((await app.request(`${GUILD_PATH}/flows/flow-1/install`, as('bob', 'POST'))).status).toBe(403);
     });
 
     it('still signs a user out after their general budget has run out', async () => {

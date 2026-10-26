@@ -1,5 +1,6 @@
 import { ChannelType, PermissionFlagsBits, SnowflakeUtil, type Guild } from 'discord.js';
 import { messageUploadIds, messageUploadProblems } from '../../../shared/discordMessage';
+import type { ButtonListener } from '../buttonListeners';
 import { journeyOwner, type ResourceBindingEntity } from '../data/resourceBindingsSchema';
 import type { TicketTypeReading } from '../ticketTypeProvider';
 import { describeOtherHolder, type GuildOwnership } from './bindingOwner';
@@ -158,6 +159,14 @@ export interface BuildInstallPlanInput {
      * guild, and a message showing it is blocked. Required when a message names an upload.
      */
     readonly uploadSizes?: ReadonlyMap<string, number>;
+    /**
+     * Every trigger of this journey's flows naming one of its messages' buttons, live and off,
+     * read through the hook flows registers (`requireButtonListenerReader`). Required when a
+     * declared message has buttons — `previewInstall` reads it then and only then — and such
+     * a message with no list throws, as a ticket type without `ticketTypes` does: saying
+     * nobody listens when nobody asked would be a guess.
+     */
+    readonly buttonListeners?: readonly ButtonListener[];
 }
 
 /**
@@ -200,11 +209,24 @@ const KIND_LABEL: Record<ResourceKind, string> = {
 const TICKET_TYPE_USED_AS_IT_IS = 'Already here, so it is used as it is — install never changes an existing ticket type.';
 
 /**
- * The note on every message with buttons, because in step 2 nothing can listen to one.
- * Step 3 swaps it for the name of the flow that does.
+ * The note on a message whose buttons include some no flow listens to, naming them by label —
+ * or undefined when every button has a listener. A switched-off flow counts: a press on its
+ * button answers that the flow is disabled, not that nothing is hooked up.
  */
-export const MESSAGE_BUTTONS_UNHEARD_NOTE =
-    'Nobody listens to its buttons yet — a press answers "Nothing\'s hooked up to this yet".';
+function unheardButtonsNote(
+    declaration: Pick<ResourceDeclaration, 'key' | 'buttons'>,
+    listeners: readonly ButtonListener[]
+): string | undefined {
+    const unheard = (declaration.buttons ?? []).filter(
+        (button) =>
+            !listeners.some((listener) => listener.messageKey === declaration.key && listener.buttonKey === button.key)
+    );
+    if (unheard.length === 0) return undefined;
+
+    const labels = unheard.map((button) => `"${button.label}"`);
+    const named = labels.length === 1 ? labels.join('') : `${labels.slice(0, -1).join(', ')} or ${labels.at(-1)}`;
+    return `Nobody listens to ${named} yet — a press answers "Nothing's hooked up to this yet".`;
+}
 
 /** Why a message posted before is posted again. */
 const MESSAGE_POSTED_AGAIN = 'The message this journey posted no longer exists, so it will be posted again.';
@@ -461,6 +483,14 @@ export function buildInstallPlan(input: BuildInstallPlanInput): InstallPlan {
         }
         return input.uploadSizes;
     };
+    const requireButtonListeners = (): readonly ButtonListener[] => {
+        if (!input.buttonListeners) {
+            throw new Error(
+                `Journey "${journey.journeyKey}" declares a message with buttons, but its plan was built without reading who listens to them.`
+            );
+        }
+        return input.buttonListeners;
+    };
     const items: PlanItem[] = [];
 
     for (const resource of orderResourcesForApply(journey.resources)) {
@@ -499,6 +529,7 @@ export function buildInstallPlan(input: BuildInstallPlanInput): InstallPlan {
                             planned: items,
                             presence: requirePresence,
                             uploadSizes: requireUploadSizes,
+                            buttonListeners: requireButtonListeners,
                         })
                     );
                     continue;
@@ -750,6 +781,7 @@ interface PlanMessageInput {
     readonly planned: readonly PlanItem[];
     readonly presence: (row: ResourceBindingEntity) => MessagePresence;
     readonly uploadSizes: () => ReadonlyMap<string, number>;
+    readonly buttonListeners: () => readonly ButtonListener[];
 }
 
 /**
@@ -768,8 +800,8 @@ interface PlanMessageInput {
  *
  * A `create` whose message Discord would refuse, or whose uploads this server does not
  * hold, is `blocked` naming the part, so a failing post is found before the install rather
- * than halfway through it. Any item for a message with buttons carries the note that
- * nothing listens to them yet.
+ * than halfway through it. Any item for a message with buttons no flow listens to carries a
+ * note naming them ({@link unheardButtonsNote}).
  *
  * A row under this key of another kind is a resource whose kind changed after install, and
  * is blocked as `planTicketType` blocks one: writing the message's row over it would forget
@@ -777,7 +809,8 @@ interface PlanMessageInput {
  */
 function planMessage(input: PlanMessageInput): PlanItem {
     const { base, guild, declaration, existing } = input;
-    const note = declaration.buttons?.length ? { note: MESSAGE_BUTTONS_UNHEARD_NOTE } : {};
+    const unheard = declaration.buttons?.length ? unheardButtonsNote(declaration, input.buttonListeners()) : undefined;
+    const note = unheard ? { note: unheard } : {};
 
     if (existing && existing.kind !== 'message') {
         return {

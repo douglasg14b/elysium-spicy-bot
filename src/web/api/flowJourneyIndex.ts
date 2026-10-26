@@ -6,6 +6,7 @@ import {
     summariseJourneyInstall,
     type JourneyInstallState,
 } from '../../features/provisioning/logic/journeyInstallState';
+import type { ResourceDeclaration } from '../../features/provisioning/logic/resourceDeclaration';
 
 /**
  * Which journey each flow in a guild belongs to, resolved once for a whole list.
@@ -72,15 +73,15 @@ export interface FlowJourneyMembership {
  * One flow's entry in the index: what its row shows, and what its readiness is judged
  * against.
  *
- * Two members rather than `declaredKeys` folded into the membership, because the
- * membership goes on the wire verbatim and the full key list is not something the row
+ * Two members rather than `declarations` folded into the membership, because the
+ * membership goes on the wire verbatim and the full list is not something the row
  * needs — the page shows a count. Kept here rather than re-resolved per flow so the
  * list's `issueCount` costs no query beyond the three this index already makes.
  */
 export interface FlowJourneyIndexEntry {
     readonly membership: FlowJourneyMembership;
-    /** Every key the journey declares — the `declaredKeys` `flowReadinessIssues` takes. */
-    readonly declaredKeys: ReadonlySet<string>;
+    /** Everything the journey declares — the `declarations` `flowReadinessIssues` takes. */
+    readonly declarations: readonly ResourceDeclaration[];
 }
 
 /**
@@ -163,7 +164,7 @@ export async function loadFlowJourneyIndex(
                 installedCount: install.installedCount,
                 installedKeys: install.installedKeys,
             },
-            declaredKeys: new Set(declaredKeys),
+            declarations: journey.resources,
         });
     }
 

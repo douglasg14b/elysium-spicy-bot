@@ -1,7 +1,8 @@
 import type { Guild } from 'discord.js';
-import { flowJourneyLinksRepo, resolveJourneyResources } from '../../provisioning';
+import { resolveJourneyResources } from '../../provisioning';
 import { flowsRepo } from '../data/flowsRepo';
 import { bindResourcesToGraph, type ResourceBindingTarget } from './bindResourcesToGraph';
+import { flowsInJourney } from './journeyMembership';
 import { collectResourceTargets } from './resourceTargets';
 
 export interface ApplyResourcesResult {
@@ -48,10 +49,12 @@ export interface UnresolvedTarget extends ResourceBindingTarget {
  * written into working flows, silently, on install. Grouping made it reachable in
  * earnest, so the filter below is now real rather than described.
  *
- * The flow set comes from the link table **plus** the pre-link convention (a journey
- * keyed on a flow's own id), mirroring `resolveFlowJourney`. Filtering on links alone
- * would skip a flow that predates the table and quietly stop filling in its ids — the
- * opposite failure, equally silent. That second branch goes when the fallback does.
+ * The flow set is `flowsInJourney`'s: a flow is in the journey only when
+ * `resolveFlowJourney` would say so — its link row, or, with no link row at all, the
+ * pre-link convention of a journey keyed on its own id. Filtering on links alone would skip
+ * a flow that predates the table and quietly stop filling in its ids; admitting a flow by
+ * its id while it is linked elsewhere — the rule here until step 3 — wrote this journey's
+ * ids into a flow that had been grouped away from it.
  *
  * Note the dependency direction: this lives in flows and consumes the provisioning
  * barrel. Provisioning never imports flows.
@@ -111,59 +114,4 @@ export async function applyResourcesToFlows(
     }
 
     return { updatedFlowIds, writtenCount, unresolved };
-}
-
-/**
- * The flows a journey actually owns.
- *
- * Reads the guild's flows once and filters, rather than fetching per id: the link table
- * returns ids, and `flowsRepo` has no batch-by-id read. The guild's flow count is the
- * same order as the list this used to iterate blindly, so nothing is lost by it.
- *
- * `selectFlowIdsForJourney` holds the decision and is tested on its own.
- */
-async function flowsInJourney(guildId: string, journeyKey: string) {
-    const [flows, linkedFlowIds] = await Promise.all([
-        flowsRepo.getByGuildId(guildId),
-        flowJourneyLinksRepo.listFlowIdsForJourney(guildId, journeyKey),
-    ]);
-
-    const inScope = selectFlowIdsForJourney({
-        journeyKey,
-        linkedFlowIds,
-        guildFlowIds: flows.map((flow) => flow.flowId),
-    });
-
-    return flows.filter((flow) => inScope.has(flow.flowId));
-}
-
-/**
- * Which flow ids a journey's install should write into.
- *
- * Pure, so the two branches can be pinned without a database — and they are worth
- * pinning separately, because they fail in opposite directions. Too wide writes another
- * journey's ids into working flows; too narrow leaves a flow's nodes holding empty
- * snowflakes after an install that reported success.
- */
-export function selectFlowIdsForJourney(input: {
-    readonly journeyKey: string;
-    /** Flow ids with a link row naming this journey. Authoritative. */
-    readonly linkedFlowIds: readonly string[];
-    /** Every flow in the guild, for the pre-link fallback below. */
-    readonly guildFlowIds: readonly string[];
-}): ReadonlySet<string> {
-    const selected = new Set(input.linkedFlowIds);
-
-    /*
-     * The pre-link convention: before `flow_journey_links` existed, a flow's journey was
-     * keyed on the flow's own id. Such a flow has no link row, so it is admitted here by
-     * the same rule `resolveFlowJourney` uses — but only when it is genuinely a flow in
-     * this guild, never on the key alone. An operator may name a journey anything; a key
-     * that happens to look like a flow id must not pull in a flow that never declared it.
-     */
-    if (input.guildFlowIds.includes(input.journeyKey)) {
-        selected.add(input.journeyKey);
-    }
-
-    return selected;
 }

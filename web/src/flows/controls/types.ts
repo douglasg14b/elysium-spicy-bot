@@ -15,9 +15,11 @@ import type {
     GuildRole,
     GuildSettings,
     GuildUpload,
+    MessageButtonRef,
     ResourceDeclaration,
     TicketTypeView,
 } from '@brattybot/web-sdk';
+import type { ButtonListenersView } from '../buttonListeners';
 import type { AvailableVariable, RequirementAvailability } from '../variables';
 
 /**
@@ -89,6 +91,38 @@ export interface ControlContext {
      * parts (`message`). The page reads and sends; the control fetches nothing.
      */
     uploads: GuildUploads;
+    /**
+     * Change the journey's declarations — the same list the Resources dialog edits, saved by
+     * the same autosave whether the dialog is open or not.
+     *
+     * Only `messageButton` writes through this, for "+ New message in…" and "+ New button on
+     * this message": a button exists only on a message resource, so making one from the
+     * trigger makes it in Resources. An updater rather than a list, so it applies to the list
+     * as it stands when React runs it, not as this render saw it.
+     */
+    declareResources: (update: (current: readonly ResourceDeclaration[]) => ResourceDeclaration[]) => void;
+    /**
+     * Who listens to the journey's buttons — the server's answer with this flow's own picks
+     * replaced by what is on the canvas — and which flow and node this control is drawn for,
+     * so a button another flow holds can be told from this one's own.
+     */
+    listeners: ButtonListenersView;
+    /**
+     * Which journey the declarations are, and what it has installed — so "+ New message in…"
+     * tells a channel this journey holds from one another owner does.
+     */
+    journey: JourneyHoldings;
+}
+
+/** A journey as "+ New message in…" needs it. */
+export interface JourneyHoldings {
+    /** Its key, or `undefined` for a flow on no journey yet: then every holder is somebody else. */
+    readonly key: string | undefined;
+    /**
+     * Discord id → resource key, for what it has installed: a message goes in a channel the
+     * journey already holds under that channel's own key, rather than adopting it a second time.
+     */
+    readonly boundKeys: ReadonlyMap<string, string>;
 }
 
 /** A server's uploaded pictures, as the page hands them to a control. */
@@ -125,9 +159,9 @@ export function resourceKeyFieldFor(fieldKey: string): string {
  * in `FlowBuilderPage` for why the difference is load-bearing.
  *
  * `string[]` is `textList`'s value, `Record<string, unknown>[]` is `objectList`'s,
- * `Eligibility` is `eligibility`'s and `DiscordMessage` is `message`'s — the generated
- * type, so no hand-written message shape lives in the builder. All four are a **new
- * value every time** rather than a mutated one: the patch lands in React state, so a
+ * `Eligibility` is `eligibility`'s, `DiscordMessage` is `message`'s and `MessageButtonRef`
+ * is `messageButton`'s — the generated types, so no hand-written shape lives in the
+ * builder. All five are a **new value every time** rather than a mutated one: the patch lands in React state, so a
  * control that edited its current value in place would write a value the renderer
  * cannot tell apart from the old one. `objectList` is the first where that rule has to hold at
  * two levels — a new array of the *same* entry objects is just as invisible.
@@ -143,7 +177,15 @@ export function resourceKeyFieldFor(fieldKey: string): string {
  * authority, exactly as it is for every other control.
  */
 export type ControlChange = (
-    value: string | number | string[] | Record<string, unknown>[] | Eligibility | DiscordMessage | undefined
+    value:
+        | string
+        | number
+        | string[]
+        | Record<string, unknown>[]
+        | Eligibility
+        | DiscordMessage
+        | MessageButtonRef
+        | undefined
 ) => void;
 
 /**

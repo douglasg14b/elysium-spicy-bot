@@ -19,6 +19,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
+import type { ResourceDeclaration } from '../../provisioning/logic/resourceDeclaration';
 import { executeFlow } from '../engine/executor';
 import { validateFlowGraph } from '../engine/graphValidation';
 import { describeIssue } from '../engine/nodeDataValidation';
@@ -48,7 +49,7 @@ function builderShapedGraph(): FlowGraph {
                 id: '11111111-1111-4111-8111-111111111111',
                 type: 'trigger.buttonClick',
                 position: { x: 120, y: 80 },
-                data: { channelId: '999999999999999999', label: 'Get your roles', style: 'Primary' },
+                data: { button: { messageKey: 'roles-panel', buttonKey: 'get-roles' } },
             },
             {
                 id: '22222222-2222-4222-8222-222222222222',
@@ -98,14 +99,27 @@ function builderShapedGraph(): FlowGraph {
  * structural check that refuses a save outright, then {@link flowReadinessIssues},
  * which decides whether the stored flow may be enabled.
  *
- * Nothing declared, as for a flow with no journey — this graph picks real ids.
+ * Declared: only the message whose button opens the flow — the rest picks real ids.
  */
 function readinessAsApiJudges(graph: FlowGraph): readonly string[] {
     const structural = validateFlowGraph(graph);
     if (!structural.valid) return structural.errors;
 
-    return flowReadinessIssues(structural.graph, new Set()).map(describeIssue);
+    return flowReadinessIssues(structural.graph, ROLES_PANEL).map(describeIssue);
 }
+
+/** The journey's message the trigger listens to, with its one button. */
+const ROLES_PANEL: readonly ResourceDeclaration[] = [
+    { key: 'roles', kind: 'textChannel', defaultName: 'roles' },
+    {
+        key: 'roles-panel',
+        kind: 'message',
+        defaultName: 'Roles panel',
+        parentKey: 'roles',
+        message: { embeds: [{ title: 'Pick your poison' }] },
+        buttons: [{ key: 'get-roles', label: 'Get your roles', style: 'Primary' }],
+    },
+];
 
 function makeContext(options: { boosting: boolean }): {
     context: FlowRunSeed;

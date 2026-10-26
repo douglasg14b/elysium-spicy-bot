@@ -1,36 +1,34 @@
 /**
  * Which endpoint a declaration list is read from and written to.
  *
- * Two surfaces edit the same declarations and neither one can use the other's endpoint:
+ * Two endpoints write the same declarations:
  *
- *  - the **builder** edits a flow's resources and reaches them through the flow
- *    (`/flows/:flowId/resources`), which resolves the journey server-side. It genuinely
- *    does not know the journey key up front — a flow that has never declared anything has
- *    no journey row at all, and the PUT is what creates one.
- *  - the **group header** on the flows page edits a *journey's* resources. Routing that
- *    through a member flow would be wrong rather than merely indirect: the header is a
- *    journey, and picking `flows[0]` to speak for it is the exact mistake
- *    `JourneyResourcesDialog` was written to undo on the teardown side, where one member's
- *    inventory was shown beside an action that reached all of them. It would also be
- *    fragile in a way the operator would feel — the flow it happened to pick can leave the
- *    group mid-edit.
+ *  - **through the flow** (`/flows/:flowId/resources`), which resolves the journey
+ *    server-side. It is the only way in for a flow that has never declared anything — it has
+ *    no journey row at all, and this PUT is what creates one — and for a flow from before the
+ *    link table, whose save here writes its link.
+ *  - **through the journey** (`PUT /journeys/:journeyKey`), which accepts `{ resources }` and
+ *    validates them identically — both routes parse with the same `ResourceDeclaration`
+ *    schema and both write through `journeysRepo.updateAtVersion`, so there is no validation
+ *    gap between them.
  *
- * So the journey-scoped dialog saves with `PUT /journeys/:journeyKey`, which already accepts
- * `{ resources }` and validates them identically — both routes parse with the same
- * `ResourceDeclaration` schema and both land in `journeysRepo.update`, so there is no
- * validation gap between them.
+ * The **group header** on the flows page always saves through the journey: it *is* a
+ * journey, and routing its edits through `flows[0]` would pick an arbitrary member to speak
+ * for the whole group — the mistake `JourneyResourcesDialog` was written to undo on the
+ * teardown side.
  *
- * **It is also the only one of the two that would work at all.** `PUT /flows/:flowId/resources`
- * refuses *every* write to a journey another flow also holds — a 409 carrying
- * `sharedJourneyRefusal`, on the clear path and the replace path alike
- * (`journeyRoutes.ts`) — and a group header is shared by definition, since a journey of one
- * is not drawn as a group. Routing the header's edits through a member flow would therefore
- * be rejected on the first keystroke that reached the server.
- *
- * That refusal is right, and it is what this route is for: it protects flows an operator
- * cannot see from a write started on one of their siblings. Acting on the journey itself is
- * the case it steers them towards, which is the same argument `JourneyResourcesDialog` makes
- * for the teardown routes.
+ * The **builder** saves through its journey too, once the flow is linked to one
+ * ({@link builderResourcesTarget}; step 3, pick 7). That reverses what this module used to
+ * record: the flow route refuses, with a 409 carrying `sharedJourneyRefusal`, every write to
+ * a journey another flow also holds, which was kept as protecting flows an operator cannot
+ * see from a write started on a sibling. It also meant no grouped flow could declare
+ * anything from its own builder — so the Button Click trigger's "+ New button" would have been
+ * refused in every grouped flow. Douglas took the reversal on one condition, now built: both
+ * routes refuse, with a 409 telling the operator to reload, a list edited from a version of
+ * the journey that has since moved on (see {@link StoredResources}). A sibling's save is
+ * never overwritten unseen; the refusal sends the operator to reload and see it. The flow
+ * route still answers its shared-journey 409, now only to a flow still on its pre-link
+ * fallback, which saves through the flow until its link exists.
  *
  * A discriminated union rather than two optional ids, so a caller cannot supply both or
  * neither, and so `loadResources`/`storeResources` below can be exhaustive.
@@ -41,14 +39,30 @@ import {
     getJourney,
     saveFlowResources,
     updateJourney,
+    type FlowAttachment,
     type ResourceDeclaration,
 } from '@brattybot/web-sdk';
 
 export type ResourceSaveTarget =
-    /** The builder: keyed on the flow, journey resolved server-side. */
+    /** Keyed on the flow, journey resolved server-side: a builder whose flow has no link yet. */
     | { readonly kind: 'flow'; readonly flowId: string }
-    /** The flows page's group header: keyed on the journey itself. */
+    /** Keyed on the journey itself: the group header, and a builder whose flow is linked. */
     | { readonly kind: 'journey'; readonly journeyKey: string };
+
+/**
+ * Where the builder saves a flow's declarations: through its journey once a link row names
+ * it, through the flow before.
+ *
+ * Through the flow while there is no journey — its first save creates one, keyed by the
+ * flow's id — and while the journey is only the pre-link fallback (`linked: false`): the
+ * flow's save writes the link, and the journey's would not (review item 33). The builder
+ * re-reads the attachment after a save through the flow, and the next save goes through the
+ * journey under the same autosave identity (`useResourceAutosave`'s `subject`), so the
+ * version the first answered with carries over.
+ */
+export function builderResourcesTarget(flowId: string, attachment: FlowAttachment | null): ResourceSaveTarget {
+    return attachment?.linked ? { kind: 'journey', journeyKey: attachment.journeyKey } : { kind: 'flow', flowId };
+}
 
 /**
  * The target as one string, for the autosave's bookkeeping identity.
@@ -64,27 +78,40 @@ export function resourceTargetIdentity(target: ResourceSaveTarget): string {
 }
 
 /**
+ * A target's declarations as the server holds them, and the version they were read at.
+ *
+ * `updatedAt` is the journey's, and every save sends back the one its list was edited from
+ * (`baseUpdatedAt`): both routes replace the whole list, so a save from a tab that loaded
+ * before somebody else's would delete what that one added, and the server refuses it with a
+ * 409 instead. `null` for a flow on no journey yet — the first save creates one, and has no
+ * version to send.
+ */
+export interface StoredResources {
+    readonly resources: ResourceDeclaration[];
+    readonly updatedAt: string | null;
+}
+
+/**
  * Read what the target currently declares.
  *
  * Direct SDK calls rather than queries: the autosave owns the ordering of its reads and
  * writes (`resourceSaveQueue.ts`), and a cache would be a second owner of the same list.
  */
-export function loadResources(
-    guildId: string,
-    target: ResourceSaveTarget
-): Promise<ResourceDeclaration[]> {
+export function loadResources(guildId: string, target: ResourceSaveTarget): Promise<StoredResources> {
     switch (target.kind) {
         case 'flow':
-            return getFlowResources({ path: { guildId, flowId: target.flowId } }).then(
-                ({ data }) => data.resources
-            );
+            return getFlowResources({ path: { guildId, flowId: target.flowId } }).then(({ data }) => ({
+                resources: data.resources,
+                updatedAt: data.updatedAt,
+            }));
         case 'journey':
             // The journey itself, not a member flow — see the header. A 404 means no such
             // journey in this guild, including one belonging to another guild, which is
             // deliberately indistinguishable.
-            return getJourney({ path: { guildId, journeyKey: target.journeyKey } }).then(
-                ({ data }) => data.resources
-            );
+            return getJourney({ path: { guildId, journeyKey: target.journeyKey } }).then(({ data }) => ({
+                resources: data.resources,
+                updatedAt: data.updatedAt,
+            }));
         default: {
             const unhandled: never = target;
             throw new Error(`Unhandled resource save target: ${JSON.stringify(unhandled)}`);
@@ -92,27 +119,36 @@ export function loadResources(
     }
 }
 
-/** Replace what the target declares, returning the server's normalised copy. */
+/**
+ * Replace what the target declares, returning the server's normalised copy and the version
+ * the next save sends.
+ *
+ * @param baseUpdatedAt - The version `resources` was edited from: the last load's or the last
+ * save's `updatedAt`. `null` only for a flow on no journey yet.
+ */
 export function storeResources(
     guildId: string,
     target: ResourceSaveTarget,
-    resources: ResourceDeclaration[]
-): Promise<ResourceDeclaration[]> {
+    resources: ResourceDeclaration[],
+    baseUpdatedAt: string | null
+): Promise<StoredResources> {
+    const body = { resources, baseUpdatedAt: baseUpdatedAt ?? undefined };
+
     switch (target.kind) {
         case 'flow':
             // An empty list removes the flow's journey entirely.
-            return saveFlowResources({
-                path: { guildId, flowId: target.flowId },
-                body: { resources },
-            }).then(({ data }) => data.resources);
+            return saveFlowResources({ path: { guildId, flowId: target.flowId }, body }).then(({ data }) => ({
+                resources: data.resources,
+                updatedAt: data.updatedAt,
+            }));
         case 'journey':
             // `PUT /journeys/:key` answers with the whole journey; only the declarations
-            // are of interest, and unwrapping here keeps both arms returning the same
-            // shape so the autosave never has to know which endpoint it used.
-            return updateJourney({
-                path: { guildId, journeyKey: target.journeyKey },
-                body: { resources },
-            }).then(({ data }) => data.resources);
+            // and the version are of interest, and unwrapping here keeps both arms returning
+            // the same shape so the autosave never has to know which endpoint it used.
+            return updateJourney({ path: { guildId, journeyKey: target.journeyKey }, body }).then(({ data }) => ({
+                resources: data.resources,
+                updatedAt: data.updatedAt,
+            }));
         default: {
             const unhandled: never = target;
             throw new Error(`Unhandled resource save target: ${JSON.stringify(unhandled)}`);

@@ -1,29 +1,23 @@
 import { Hono } from 'hono';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FlowButtonMessagesRepo } from '../../../features/flows/data/flowButtonMessagesRepo';
-import type { FlowButtonMessageEntity } from '../../../features/flows/data/flowButtonMessagesSchema';
 import type { FlowJourneyLinksRepo } from '../../../features/provisioning/data/flowJourneyLinksRepo';
 import type { JourneysRepo } from '../../../features/provisioning/data/journeysRepo';
 import type { JourneyEntity } from '../../../features/provisioning/data/journeysSchema';
 import type { AppEnv } from '../../types';
 
 /**
- * The journey-scoped teardown routes: `GET /journeys/:journeyKey/published`,
- * `POST .../undeploy` and `POST .../unpublish`.
+ * The journey-scoped teardown routes: `GET /journeys/:journeyKey/published` and
+ * `POST .../unpublish`.
  *
  * These exist because the flows page's group header was answering a question about a
- * **journey** by asking it of one member flow. The two differ in ways an operator can
- * see, and each difference is a case below:
+ * **journey** by asking it of one member flow. The difference an operator can see is
+ * **the absent 409**, which is the entire point of the slice. A flow may not tear down a
+ * journey its siblings still install — that refusal protects flows the operator cannot
+ * see. Acting on the journey itself is the case that refusal points them *towards*, so
+ * reproducing it here would make a shared journey impossible to uninstall from the one
+ * screen scoped to the decision.
  *
- *  - **the button fan-out**, where a journey's inventory covers every attached flow's
- *    posted messages and the flow-scoped route covers one flow's, and
- *  - **the absent 409**, which is the entire point of the slice. A flow may not tear
- *    down a journey its siblings still install — that refusal protects flows the
- *    operator cannot see. Acting on the journey itself is the case that refusal points
- *    them *towards*, so reproducing it here would make a shared journey impossible to
- *    uninstall from the one screen scoped to the decision.
- *
- * Guild scoping is the third: a key belonging to another guild must be a 404 and must
+ * Guild scoping is the other: a key belonging to another guild must be a 404 and must
  * never confirm that guild's journey exists.
  *
  * The teardown *engine* is not retested here. Which resources a plan deletes and which
@@ -75,20 +69,6 @@ const flowsRepoMock = {
 vi.mock('../../../features/flows/data/flowsRepo', () => ({ flowsRepo: flowsRepoMock }));
 
 /**
- * The button-message table, mocked because the published route reads it per attached
- * flow — that per-flow read *is* the fan-out these tests are here to pin down.
- */
-const buttonMessagesRepo = {
-    listByFlowId: vi.fn(),
-    persist: vi.fn(),
-    forget: vi.fn(),
-} satisfies Record<keyof Pick<FlowButtonMessagesRepo, 'listByFlowId' | 'persist' | 'forget'>, unknown>;
-
-vi.mock('../../../features/flows/data/flowButtonMessagesRepo', () => ({
-    flowButtonMessagesRepo: buttonMessagesRepo,
-}));
-
-/**
  * The provisioning engine, stubbed at the service boundary.
  *
  * `previewUnpublish` and `unpublishJourney` are already journey-keyed and settled
@@ -107,16 +87,6 @@ vi.mock('../../../features/provisioning', async (importOriginal) => {
         unpublishJourney: unpublishJourneyMock,
     };
 });
-
-/** The button teardown, stubbed so the fan-out is observable without a Discord guild. */
-const undeployFlowButtonsMock = vi.fn();
-
-// The real exports stay: `installBody.ts`, which the routes import, reads
-// `UNDEPLOY_OUTCOMES` from this module while it loads.
-vi.mock('../../../features/flows/logic/undeployFlowButtons', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('../../../features/flows/logic/undeployFlowButtons')>()),
-    undeployFlowButtons: undeployFlowButtonsMock,
-}));
 
 const { journeyRoutes } = await import('../journeyRoutes');
 
@@ -140,20 +110,6 @@ function journeyRow(overrides: Partial<JourneyEntity> = {}): JourneyEntity {
     };
 }
 
-function buttonRow(overrides: Partial<FlowButtonMessageEntity> = {}): FlowButtonMessageEntity {
-    return {
-        id: 1,
-        guildId: GUILD_ID,
-        flowId: FLOW_A,
-        channelId: '111111111111111111',
-        messageId: '222222222222222222',
-        nodeIds: ['node-1'],
-        createdAt: new Date('2026-09-19T10:00:00Z'),
-        updatedAt: new Date('2026-09-19T10:00:00Z'),
-        ...overrides,
-    };
-}
-
 function app() {
     const outer = new Hono<AppEnv>();
     outer.use('*', async (c, next) => {
@@ -168,8 +124,8 @@ function getPublished(journeyKey: string = JOURNEY_KEY) {
     return app().request(`/${GUILD_ID}/journeys/${journeyKey}/published`);
 }
 
-function post(action: 'undeploy' | 'unpublish', journeyKey: string = JOURNEY_KEY) {
-    return app().request(`/${GUILD_ID}/journeys/${journeyKey}/${action}`, {
+function postUnpublish(journeyKey: string = JOURNEY_KEY) {
+    return app().request(`/${GUILD_ID}/journeys/${journeyKey}/unpublish`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: '{}',
@@ -194,10 +150,8 @@ beforeEach(() => {
     vi.clearAllMocks();
     journeyExists([journeyRow()]);
     linksRepo.listFlowIdsForJourney.mockResolvedValue([]);
-    buttonMessagesRepo.listByFlowId.mockResolvedValue([]);
     previewUnpublishMock.mockResolvedValue({ journeyKey: JOURNEY_KEY, items: [] });
     unpublishJourneyMock.mockResolvedValue({ results: [] });
-    undeployFlowButtonsMock.mockResolvedValue({ results: [] });
 });
 
 describe('GET /journeys/:journeyKey/published', () => {
@@ -227,119 +181,14 @@ describe('GET /journeys/:journeyKey/published', () => {
 
         expect(response.status).toBe(200);
         expect(await response.json()).toEqual({
-            buttonMessages: [],
             deletableResources: [],
             refusedResources: [],
             keptSettings: [],
-            mayHaveUnrecordedButtons: true,
         });
         expect(previewUnpublishMock).toHaveBeenCalledWith(
             expect.objectContaining({ id: GUILD_ID }),
             JOURNEY_KEY
         );
-    });
-
-    /**
-     * The fan-out, and the defect that motivated the whole slice.
-     *
-     * Opening this inventory through `flows[0]` showed flow A's message and not flow
-     * B's, beside an uninstall that would have taken both down. The route must read
-     * every attached flow.
-     */
-    it('includes the button messages of every attached flow', async () => {
-        linksRepo.listFlowIdsForJourney.mockResolvedValue([FLOW_A, FLOW_B]);
-        buttonMessagesRepo.listByFlowId.mockImplementation(async (_guildId: string, flowId: string) =>
-            flowId === FLOW_A
-                ? [buttonRow()]
-                : [buttonRow({ id: 2, flowId: FLOW_B, messageId: '333333333333333333' })]
-        );
-
-        const response = await getPublished();
-        const body = (await response.json()) as { buttonMessages: { messageId: string }[] };
-
-        expect(body.buttonMessages.map((message) => message.messageId)).toEqual([
-            '222222222222222222',
-            '333333333333333333',
-        ]);
-    });
-});
-
-describe('POST /journeys/:journeyKey/undeploy', () => {
-    it('404s for an unknown journey and retires nothing', async () => {
-        journeyExists([]);
-
-        const response = await post('undeploy', 'no-such-journey');
-
-        expect(response.status).toBe(404);
-        expect(undeployFlowButtonsMock).not.toHaveBeenCalled();
-    });
-
-    it('404s for another guild’s journey', async () => {
-        journeyExists([journeyRow({ guildId: 'someone-elses-guild', journeyKey: 'their-journey' })]);
-
-        const response = await post('undeploy', 'their-journey');
-
-        expect(response.status).toBe(404);
-        expect(undeployFlowButtonsMock).not.toHaveBeenCalled();
-    });
-
-    it('retires the buttons of every attached flow and reports them as one list', async () => {
-        linksRepo.listFlowIdsForJourney.mockResolvedValue([FLOW_A, FLOW_B]);
-        undeployFlowButtonsMock.mockImplementation(async (_guild: unknown, flowId: string) => ({
-            results: [
-                {
-                    channelId: '111111111111111111',
-                    messageId: flowId === FLOW_A ? 'msg-a' : 'msg-b',
-                    outcome: 'removed' as const,
-                },
-            ],
-        }));
-
-        const response = await post('undeploy');
-
-        expect(response.status).toBe(200);
-        expect(undeployFlowButtonsMock).toHaveBeenCalledWith(expect.objectContaining({ id: GUILD_ID }), FLOW_A);
-        expect(undeployFlowButtonsMock).toHaveBeenCalledWith(expect.objectContaining({ id: GUILD_ID }), FLOW_B);
-        const body = (await response.json()) as { results: { messageId: string }[] };
-        expect(body.results.map((result) => result.messageId)).toEqual(['msg-a', 'msg-b']);
-    });
-
-    /**
-     * One flow throwing must not discard what the others already did.
-     *
-     * `undeployFlowButtons` loops message by message and carries on past a failure, on
-     * the stated grounds that buttons in one channel have nothing to do with buttons in
-     * another. Fanning out with `Promise.all` would invert that a level up: the first
-     * rejection throws away every sibling's report, including deletions that already
-     * happened in Discord — and those rows are the only record of where the remaining
-     * live buttons are.
-     */
-    it('reports a flow that throws as a failure and still retires the rest', async () => {
-        linksRepo.listFlowIdsForJourney.mockResolvedValue([FLOW_A, FLOW_B]);
-        undeployFlowButtonsMock.mockImplementation(async (_guild: unknown, flowId: string) => {
-            if (flowId === FLOW_A) throw new Error('database went away');
-            return {
-                results: [
-                    { channelId: '111111111111111111', messageId: 'msg-b', outcome: 'removed' as const },
-                ],
-            };
-        });
-
-        const response = await post('undeploy');
-
-        expect(response.status).toBe(200);
-        const body = (await response.json()) as {
-            results: { messageId: string; outcome: string; explanation?: string }[];
-        };
-        expect(body.results).toHaveLength(2);
-        expect(body.results[0].outcome).toBe('failed');
-        // The failure names the flow, which is the only thing an operator can act on
-        // when there is no channel or message id to report.
-        expect(body.results[0].explanation).toContain(FLOW_A);
-        // What was thrown stays in the log: it is whatever the driver said.
-        expect(body.results[0].explanation).not.toContain('database went away');
-        // The sibling's deletion survived the throw.
-        expect(body.results[1]).toMatchObject({ messageId: 'msg-b', outcome: 'removed' });
     });
 });
 
@@ -347,7 +196,7 @@ describe('POST /journeys/:journeyKey/unpublish', () => {
     it('404s for an unknown journey and destroys nothing', async () => {
         journeyExists([]);
 
-        const response = await post('unpublish', 'no-such-journey');
+        const response = await postUnpublish('no-such-journey');
 
         expect(response.status).toBe(404);
         expect(unpublishJourneyMock).not.toHaveBeenCalled();
@@ -356,7 +205,7 @@ describe('POST /journeys/:journeyKey/unpublish', () => {
     it('404s for another guild’s journey and destroys nothing', async () => {
         journeyExists([journeyRow({ guildId: 'someone-elses-guild', journeyKey: 'their-journey' })]);
 
-        const response = await post('unpublish', 'their-journey');
+        const response = await postUnpublish('their-journey');
 
         expect(response.status).toBe(404);
         expect(await response.json()).toEqual({ error: 'Journey not found.' });
@@ -372,7 +221,7 @@ describe('POST /journeys/:journeyKey/unpublish', () => {
             ],
         });
 
-        const response = await post('unpublish');
+        const response = await postUnpublish();
 
         expect(response.status).toBe(200);
         expect(await response.json()).toEqual({
@@ -404,7 +253,7 @@ describe('POST /journeys/:journeyKey/unpublish', () => {
             name: flowId === FLOW_A ? 'Welcome wagon' : 'Age check',
         }));
 
-        const response = await post('unpublish');
+        const response = await postUnpublish();
 
         expect(response.status).toBe(200);
         expect(unpublishJourneyMock).toHaveBeenCalledTimes(1);
@@ -417,7 +266,7 @@ describe('POST /journeys/:journeyKey/unpublish', () => {
             results: [],
         });
 
-        const response = await post('unpublish');
+        const response = await postUnpublish();
 
         expect(response.status).toBe(409);
         expect(await response.json()).toEqual({

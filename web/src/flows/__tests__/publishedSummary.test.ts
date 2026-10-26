@@ -22,11 +22,9 @@ function allLines(summary: PublishedSummary): readonly PublishedResourceLine[] {
 
 function state(overrides: Partial<PublishedFlowState> = {}): PublishedFlowState {
     return {
-        buttonMessages: [],
         deletableResources: [],
         refusedResources: [],
         keptSettings: [],
-        mayHaveUnrecordedButtons: true,
         ...overrides,
     };
 }
@@ -47,14 +45,12 @@ describe('summarising what is published', () => {
 
         expect(summary.hasAnything).toBe(false);
         expect(summary.leftBehind).toBeNull();
-        expect(summary.canUndeploy).toBe(false);
         expect(summary.canUnpublish).toBe(false);
     });
 
-    it('names button messages and resources by kind rather than as a count of things', () => {
+    it('names resources by kind rather than as a count of things', () => {
         const summary = summarisePublished(
             state({
-                buttonMessages: [{ channelId: 'c1', messageId: 'm1', nodeIds: ['n1'] }],
                 deletableResources: [
                     resource({ resourceKey: 'a', kind: 'textChannel' }),
                     resource({ resourceKey: 'b', kind: 'textChannel' }),
@@ -67,8 +63,6 @@ describe('summarising what is published', () => {
         // "2 channels and 1 role", not "3 resources" — an operator can picture one.
         expect(summary.leftBehind).toContain('2 channels');
         expect(summary.leftBehind).toContain('1 role');
-        expect(summary.leftBehind).toContain('1 button message');
-        expect(summary.canUndeploy).toBe(true);
         expect(summary.canUnpublish).toBe(true);
     });
 
@@ -170,19 +164,24 @@ describe('summarising what is published', () => {
                         explanation: 'Adopted, not created.',
                     }),
                 ],
-                buttonMessages: [{ channelId: 'c1', messageId: 'm1', nodeIds: ['n1', 'n2'] }],
             })
         );
 
         // The group order is the reading order: what dies, then what survives.
-        expect(summary.groups.map((group) => group.id)).toEqual([
-            'created',
-            'adopted',
-            'messages',
-        ]);
+        expect(summary.groups.map((group) => group.id)).toEqual(['created', 'adopted']);
         expect(summary.groups[0].destructive).toBe(true);
         expect(summary.groups[1].destructive).toBe(false);
-        expect(summary.groups[2].lines[0].displayName).toBe('2 buttons posted');
+    });
+
+    it('draws a posted message resource from the shared kind table, as the rows beside it are', () => {
+        // A journey's message is deleted by an uninstall like any other resource, so it
+        // sits under "Created by this flow" wearing the kind's own glyph.
+        const summary = summarisePublished(
+            state({ deletableResources: [resource({ resourceKey: 'rules-panel', kind: 'message', name: 'Rules panel' })] })
+        );
+
+        expect(summary.groups.map((group) => group.id)).toEqual(['created']);
+        expect(allLines(summary)[0]).toMatchObject({ glyph: 'message', kindLabel: 'message', fate: 'deleted' });
     });
 
     it('does not call a created-but-blocked category "adopted"', () => {
@@ -266,18 +265,6 @@ describe('summarising what is published', () => {
         expect(summary.canUnpublish).toBe(false);
         expect(summary.groups.map((group) => group.id)).toEqual(['adopted']);
         expect(allLines(summary)[0].fate).toBe('kept');
-    });
-
-    it('reports the button count so the dialog can mention buttons only when there are some', () => {
-        // The standing "older buttons may be invisible" caveat was removed: it was
-        // hardcoded on for every flow, including flows with no buttons at all, and so
-        // read as boilerplate rather than as a warning.
-        expect(summarisePublished(state()).buttonCount).toBe(0);
-        expect(
-            summarisePublished(
-                state({ buttonMessages: [{ channelId: 'c1', messageId: 'm1', nodeIds: ['n1'] }] })
-            ).buttonCount
-        ).toBe(1);
     });
 });
 
@@ -363,6 +350,21 @@ describe('what the builder takes from a published read', () => {
         const view = installedFromPublished({ data: live, failed: false });
         expect(view.count).toBe(2);
         expect([...view.keys].sort()).toEqual(['adopted-rules', 'lounge']);
+    });
+
+    it('maps each live resource that names a Discord id to its key', () => {
+        const view = installedFromPublished({
+            data: state({
+                deletableResources: [resource({ resourceKey: 'lounge', discordId: '700' })],
+                refusedResources: [resource({ resourceKey: 'adopted-rules', refused: true, refusalReason: 'adopted', discordId: '701' })],
+                keptSettings: [resource({ resourceKey: 'front-desk', kind: 'ticketType' })],
+            }),
+            failed: false,
+        });
+        expect([...view.keysByDiscordId]).toEqual([
+            ['700', 'lounge'],
+            ['701', 'adopted-rules'],
+        ]);
     });
 
     it('counts a ticket type uninstall would only forget as installed', () => {

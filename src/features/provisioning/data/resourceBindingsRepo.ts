@@ -423,6 +423,32 @@ export class ResourceBindingsRepo {
     }
 
     /**
+     * The journey row recording that this message was posted, by the message's own id — how a
+     * press on one of its buttons finds its journey and its key. Settled rows only: an
+     * `intended` row has no id to match.
+     *
+     * One row at most in practice: a message is posted by one journey, and Discord never
+     * reuses an id. Ordered by id so the answer is the same on every read regardless.
+     *
+     * Not indexed on `discord_id` (the table's indexes lead with the owner), so this scans the
+     * guild's rows — a few dozen, on one deliberate press.
+     */
+    async findPostedMessage(guildId: string, messageId: string): Promise<ResourceBindingEntity | null> {
+        const row = await database
+            .selectFrom('resource_bindings')
+            .selectAll()
+            .where('guildId', '=', guildId)
+            .where('ownerKind', '=', 'journey')
+            .where('kind', '=', 'message')
+            .where('state', '!=', 'intended')
+            .where('discordId', '=', messageId)
+            .orderBy('id')
+            .executeTakeFirst();
+
+        return row ?? null;
+    }
+
+    /**
      * Store the fingerprint of the declaration a posted message now shows, after a repair
      * edited it in place.
      *

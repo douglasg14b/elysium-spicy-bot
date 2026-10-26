@@ -74,7 +74,7 @@ const resourceBindingsRepoMock = {
 };
 
 vi.mock('../../../features/flows/data/flowsRepo', () => ({ flowsRepo: flowsRepoMock }));
-// The real error class survives the mock: `readDeclaredKeys` names only a malformed
+// The real error class survives the mock: `readDeclarations` names only a malformed
 // row, so a stand-in for one has to be the type the repo actually throws.
 vi.mock('../../../features/provisioning/data/journeysRepo', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../../../features/provisioning/data/journeysRepo')>()),
@@ -506,7 +506,8 @@ describe('reading a flow', () => {
             ['flow-declared', 0],
         ]);
         // The declarations stay off the wire; the row carries a count, not the keys.
-        expect(body.flows[1]?.journey).not.toHaveProperty('declaredKeys');
+        expect(body.flows[1]?.journey).not.toHaveProperty('declarations');
+        expect(body.flows[1]?.journey).not.toHaveProperty('resources');
         // One index for the page, not a journey lookup per row.
         expect(journeysRepoMock.getByKey).not.toHaveBeenCalled();
     });
@@ -888,6 +889,74 @@ describe('a save from a builder tab older than the Post Embed editor', () => {
 
         expect(response.status).toBe(200);
         expect(flowsRepoMock.update).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('a save from a builder tab older than Button Click listening to a message', () => {
+    /** Button Click as the old builder wrote it: a button of its own, no `button`. */
+    const OWN_BUTTON_GRAPH: FlowGraph = {
+        version: FLOW_GRAPH_VERSION,
+        nodes: [
+            {
+                id: 'press',
+                type: 'trigger.buttonClick',
+                position: { x: 0, y: 0 },
+                data: { channelId: INSTALLED_CHANNEL_ID, label: 'Agree to Rules', style: 'Success', eligibility: { principal: 'anyone' } },
+            },
+        ],
+        edges: [],
+    };
+    const REFUSAL = { error: STALE_BUILDER_MESSAGE, issues: [{ nodeId: 'press', message: STALE_BUILDER_MESSAGE }] };
+
+    it('is refused by the save, create and the check, writing nothing', async () => {
+        const saved = await put({ graph: OWN_BUTTON_GRAPH });
+        const created = await app().request(`/${GUILD_ID}/flows`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ name: 'Old tab', graph: OWN_BUTTON_GRAPH }),
+        });
+        const checked = await app().request(`/${GUILD_ID}/flows/${FLOW_ID}/check`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ graph: OWN_BUTTON_GRAPH }),
+        });
+
+        expect(saved.status).toBe(400);
+        expect(await saved.json()).toEqual(REFUSAL);
+        expect(created.status).toBe(400);
+        expect(await created.json()).toEqual(REFUSAL);
+        expect(checked.status).toBe(400);
+        expect(await checked.json()).toEqual(REFUSAL);
+        expect(flowsRepoMock.mutate).not.toHaveBeenCalled();
+        expect(flowsRepoMock.create).not.toHaveBeenCalled();
+    });
+
+    it('stores a node that names a button, dropping only the stale keys beside it', async () => {
+        const graph: FlowGraph = {
+            version: FLOW_GRAPH_VERSION,
+            nodes: [
+                {
+                    id: 'press',
+                    type: 'trigger.buttonClick',
+                    position: { x: 0, y: 0 },
+                    data: {
+                        button: { messageKey: 'rules-panel', buttonKey: 'agree' },
+                        label: 'An old tab’s edit',
+                        eligibility: { principal: 'anyone' },
+                    },
+                },
+            ],
+            edges: [],
+        };
+
+        const response = await put({ graph });
+
+        expect(response.status).toBe(200);
+        const stored = flowsRepoMock.update.mock.calls[0]?.[1] as { graph: FlowGraph };
+        expect(stored.graph.nodes[0]?.data).toEqual({
+            button: { messageKey: 'rules-panel', buttonKey: 'agree' },
+            eligibility: { principal: 'anyone' },
+        });
     });
 });
 

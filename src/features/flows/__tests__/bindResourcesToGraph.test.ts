@@ -16,7 +16,7 @@ function graph(): FlowGraph {
     return {
         version: FLOW_GRAPH_VERSION,
         nodes: [
-            { id: 'n-trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Agree' } },
+            { id: 'n-trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { button: { messageKey: 'rules-panel', buttonKey: 'agree' } } },
             { id: 'n-role', type: 'action.assignRole', position: { x: 1, y: 0 }, data: { roleId: '' } },
             { id: 'n-dm', type: 'action.sendDM', position: { x: 2, y: 0 }, data: { message: 'hi' } },
         ],
@@ -47,8 +47,7 @@ describe('bindResourcesToGraph', () => {
 
         expect(result.graph.nodes.find((node) => node.id === 'n-dm')?.data).toEqual({ message: 'hi' });
         expect(result.graph.nodes.find((node) => node.id === 'n-trigger')?.data).toEqual({
-            channelId: 'channel-1',
-            label: 'Agree',
+            button: { messageKey: 'rules-panel', buttonKey: 'agree' },
         });
         // The input graph is not mutated in place.
         expect(before.nodes.find((node) => node.id === 'n-role')?.data.roleId).toBe('');
@@ -56,7 +55,7 @@ describe('bindResourcesToGraph', () => {
 
     it('reports a target whose resource has no live binding', () => {
         // Silently leaving the node empty is the failure this guards: the flow would
-        // save, deploy, and then fail on the first press.
+        // save, go live, and then fail on the first run.
         const target = { nodeId: 'n-role', configKey: 'roleId', resourceKey: 'member-role' };
         const result = bindResourcesToGraph(graph(), [target], new Map());
 

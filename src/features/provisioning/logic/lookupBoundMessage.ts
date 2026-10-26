@@ -1,14 +1,17 @@
 import {
     ChannelType,
+    ComponentType,
     MessageFlags,
     PermissionFlagsBits,
     type Guild,
     type GuildBasedChannel,
+    type Message,
     type NewsChannel,
     type TextChannel,
 } from 'discord.js';
 import type { ResourceBindingEntity } from '../data/resourceBindingsSchema';
 import { DISCORD_UNKNOWN_CHANNEL, DISCORD_UNKNOWN_MESSAGE, describeDiscordError, discordErrorCode } from './discordErrors';
+import { parseMessageButtonCustomId } from './messageButtons';
 
 /**
  * Whether a message a journey posted is still there, as every planner is handed it.
@@ -136,7 +139,11 @@ export async function lookupBoundMessage(guild: Guild, channelId: string, messag
 
     try {
         const message = await channel.channel.messages.fetch({ message: messageId, force: true });
-        return { presence: 'found', embedsSuppressed: message.flags.has(MessageFlags.SuppressEmbeds) };
+        return {
+            presence: 'found',
+            embedsSuppressed: message.flags.has(MessageFlags.SuppressEmbeds),
+            buttons: postedButtonsOf(message),
+        };
     } catch (error) {
         const code = discordErrorCode(error);
         if (code === DISCORD_UNKNOWN_MESSAGE || code === DISCORD_UNKNOWN_CHANNEL) {
@@ -144,6 +151,25 @@ export async function lookupBoundMessage(guild: Guild, channelId: string, messag
         }
         throw error;
     }
+}
+
+/** A button a posted message carries that a journey's message resource put there (`mbtn:<key>`). */
+export interface PostedButton {
+    readonly key: string;
+    readonly label: string;
+}
+
+/** The `mbtn:` buttons a fetched message carries, in row order. Any other component is not ours to name. */
+function postedButtonsOf(message: Message): readonly PostedButton[] {
+    return message.components.flatMap((row) =>
+        row.type === ComponentType.ActionRow
+            ? row.components.flatMap((component) => {
+                  if (component.type !== ComponentType.Button || !component.customId) return [];
+                  const key = parseMessageButtonCustomId(component.customId);
+                  return key ? [{ key, label: component.label ?? key }] : [];
+              })
+            : []
+    );
 }
 
 /** One posted message as {@link lookupBoundMessage} read it. */
@@ -155,6 +181,8 @@ export interface MessageLookup {
      * make. Only ever true for a `found` message.
      */
     readonly embedsSuppressed: boolean;
+    /** The `mbtn:` buttons it carries now. Present only for a `found` message. */
+    readonly buttons?: readonly PostedButton[];
 }
 
 /** {@link readMessageState}'s answer: each posted message's presence, and which of them have their embeds hidden. */
@@ -162,6 +190,8 @@ export interface MessageState {
     readonly presence: ReadonlyMap<string, MessagePresence>;
     /** The resource keys of found messages whose embeds somebody suppressed. */
     readonly embedsSuppressed: ReadonlySet<string>;
+    /** The `mbtn:` buttons each found message carries now, by resource key — what a repair could take away. */
+    readonly postedButtons: ReadonlyMap<string, readonly PostedButton[]>;
 }
 
 /**
@@ -189,6 +219,7 @@ export async function readMessagePresence(
 export async function readMessageState(guild: Guild, rows: readonly ResourceBindingEntity[]): Promise<MessageState> {
     const presence = new Map<string, MessagePresence>();
     const embedsSuppressed = new Set<string>();
+    const postedButtons = new Map<string, readonly PostedButton[]>();
 
     for (const row of rows) {
         if (!isPostedMessageRow(row)) continue;
@@ -201,10 +232,11 @@ export async function readMessageState(guild: Guild, rows: readonly ResourceBind
             const lookup = await lookupBoundMessage(guild, row.messageChannelId, row.discordId);
             presence.set(row.resourceKey, lookup.presence);
             if (lookup.embedsSuppressed) embedsSuppressed.add(row.resourceKey);
+            if (lookup.buttons) postedButtons.set(row.resourceKey, lookup.buttons);
         } catch (error) {
             presence.set(row.resourceKey, { unreadable: describeDiscordError(error) });
         }
     }
 
-    return { presence, embedsSuppressed };
+    return { presence, embedsSuppressed, postedButtons };
 }

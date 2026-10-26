@@ -3,7 +3,7 @@ import { flowDraftsRepo } from '../../features/flows/data/flowDraftsRepo';
 import { flowsRepo } from '../../features/flows/data/flowsRepo';
 import { validateFlowGraph } from '../../features/flows/engine/graphValidation';
 import { withDeclaredNodeData } from '../../features/flows/logic/declaredNodeData';
-import { readDeclaredKeys } from '../../features/flows/logic/declaredResourceKeys';
+import { readDeclarations } from '../../features/flows/logic/flowDeclarations';
 import { flowReadinessIssuesInGuild } from '../../features/flows/logic/flowReadiness';
 import { loadUploadIndex } from '../../features/flows/logic/uploadReferences';
 import {
@@ -128,7 +128,7 @@ export function defineFlowDraftRoutes(router: ApiRouteRegistrar): undefined {
             return c.json({ drafts: [] }, 200);
         }
 
-        const declared = await readDeclaredKeys(guildId, flow.flowId);
+        const declared = await readDeclarations(guildId, flow.flowId);
         if (!declared.ok) {
             return c.json({ error: declared.error }, 500);
         }
@@ -145,7 +145,7 @@ export function defineFlowDraftRoutes(router: ApiRouteRegistrar): undefined {
                         draft,
                         viewerId,
                         flow.updatedAt,
-                        flowReadinessIssuesInGuild(draft.graph, declared.keys, guild, uploads)
+                        flowReadinessIssuesInGuild(draft.graph, declared.declarations, guild, uploads)
                     )
                 ),
             },

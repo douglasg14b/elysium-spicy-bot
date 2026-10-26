@@ -12,8 +12,12 @@ import { up as createFlowButtonMessages } from '../../../../features-system/data
  * `resourceBindings.integration.test.ts`, which this follows.
  *
  * What is actually worth asserting here is the *absence* of a unique constraint: one
- * flow legitimately has its buttons in several channels, and that is the whole reason
+ * flow legitimately had its buttons in several channels, and that is the whole reason
  * this is a table rather than a column on `flows`.
+ *
+ * Nothing reads the table at run time any more: step 3's migration reads it once, and the
+ * bridge-removal deploy drops it. Until then its migration still runs on every fresh
+ * database, so the table it creates stays under test.
  */
 
 interface TestDatabase {
@@ -85,7 +89,7 @@ describe('the flow button message table', () => {
 
     it('lets one flow have buttons in several channels', async () => {
         // The reason this is a table and not a column. A unique constraint on the flow
-        // would silently keep only the last deploy and orphan every earlier one.
+        // would have kept only the last message posted and orphaned every earlier one.
         await insertMessage({ channelId: 'channel-1', messageId: 'message-1' });
         await insertMessage({ channelId: 'channel-2', messageId: 'message-2' });
 
@@ -99,8 +103,8 @@ describe('the flow button message table', () => {
     });
 
     it('keeps rows for a flow that no longer exists', async () => {
-        // There is no foreign key on purpose: a row outliving its flow is the useful
-        // state, and it is what lets an orphaned button still be found and retired.
+        // There is no foreign key on purpose: a row outliving its flow is what lets
+        // step 3's migration name an orphaned button message for deleting by hand.
         await insertMessage({ flowId: 'flow-deleted-long-ago' });
 
         const rows = await db

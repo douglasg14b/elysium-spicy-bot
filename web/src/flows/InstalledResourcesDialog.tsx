@@ -1,5 +1,5 @@
 /**
- * What a flow has live in a guild, and the two ways to take it back.
+ * What a flow has live in a guild, and the way to take it back.
  *
  * Shared by the flows list and the builder, which is the point: teardown used to live
  * only on the list page, so an operator editing a flow could install resources and had
@@ -7,7 +7,7 @@
  * uninstall and the list's cannot drift into two behaviours — or two sets of copy for
  * the same irreversible action.
  *
- * It owns the fetch and both actions rather than taking them as props. The alternative
+ * It owns the fetch and the uninstall rather than taking them as props. The alternative
  * was handing each page a fistful of callbacks and having both reimplement "refetch
  * after the teardown so the list reflects what just happened", which is exactly the
  * duplication this extraction exists to remove.
@@ -27,7 +27,6 @@ import {
     ApiError,
     getPublishedStateOptions,
     getPublishedStateQueryKey,
-    undeployFlowMutation,
     unpublishFlowMutation,
     type PublishedFlowState,
 } from '@brattybot/web-sdk';
@@ -56,13 +55,10 @@ interface InstalledResourcesDialogProps {
      */
     readonly extraActions?: React.ReactNode;
     /**
-     * Told after a teardown, so a caller showing flow state can react.
-     *
-     * Carries which one happened because the two have different consequences: an
-     * `unpublish` destroys channels and roles that blocks may still name, while an
-     * `undeploy` only retires messages and invalidates nothing on the canvas.
+     * Told after an uninstall, so a caller showing flow state can react: it destroys
+     * channels and roles that blocks may still name.
      */
-    readonly onChanged?: (action: 'undeploy' | 'unpublish') => void;
+    readonly onChanged?: () => void;
 }
 
 /*
@@ -76,17 +72,14 @@ interface InstalledResourcesDialogProps {
 /**
  * What the dialog shows when it could not ask.
  *
- * A failed lookup must not block the caller's delete, but it must not silently claim
- * there is nothing published either. An empty state is the honest answer: the actions it
- * gates stay hidden rather than offering a teardown we cannot describe, and
- * `mayHaveUnrecordedButtons` keeps the "there may be more" note up.
+ * A failed lookup must not block the caller's delete, and an empty state is the answer
+ * that does not: the uninstall it gates stays hidden rather than offering a teardown we
+ * cannot describe.
  */
 const UNKNOWN_PUBLISHED_STATE: PublishedFlowState = {
-    buttonMessages: [],
     deletableResources: [],
     refusedResources: [],
     keptSettings: [],
-    mayHaveUnrecordedButtons: true,
 };
 
 export function InstalledResourcesDialog({
@@ -112,44 +105,13 @@ export function InstalledResourcesDialog({
     const publishedQuery = useQuery({ ...getPublishedStateOptions({ path }), enabled: opened, staleTime: 0 });
 
     /*
-     * Each teardown re-reads the inventory before it settles, so `busy` covers the refresh
+     * The uninstall re-reads the inventory before it settles, so `busy` covers the refresh
      * as well and the bar does not offer a second teardown over the first one's answer.
      * The refresh cannot fail the teardown: a failed re-read shows the unknown state.
      */
     async function refreshPublished(): Promise<void> {
         await queryClient.invalidateQueries({ queryKey: publishedKey });
     }
-
-    /**
-     * Take the flow's buttons out of their channels.
-     *
-     * Its own action, not a step inside delete. The flow row survives it, so an
-     * operator can retire a live button without throwing the flow away.
-     */
-    const undeploy = useMutation({
-        ...undeployFlowMutation(),
-        onSuccess: async ({ results }) => {
-            const failed = results.filter((result) => result.outcome === 'failed');
-            const gone = results.length - failed.length;
-
-            notifications.show({
-                color: failed.length > 0 ? 'orange' : 'brand',
-                title: failed.length > 0 ? 'Mostly gone' : 'Buttons retired',
-                message:
-                    failed.length > 0
-                        ? `${gone} removed, ${failed.length} wouldn't budge: ${failed[0].explanation ?? 'Discord said no.'}`
-                        : `${gone} button message${gone === 1 ? '' : 's'} taken down.`,
-            });
-
-            await refreshPublished();
-            onChanged?.('undeploy');
-        },
-        onError: (err) => {
-            const message =
-                err instanceof ApiError ? err.message : "Couldn't take those buttons down.";
-            notifications.show({ color: 'red', title: 'Still up', message });
-        },
-    });
 
     /**
      * Destroy the channels and roles the flow's journey created.
@@ -167,7 +129,7 @@ export function InstalledResourcesDialog({
             notifications.show({ ...uninstallNotice(results, shownAsKept) });
 
             await refreshPublished();
-            onChanged?.('unpublish');
+            onChanged?.();
         },
         onError: (err) => {
             const message =
@@ -176,7 +138,7 @@ export function InstalledResourcesDialog({
         },
     });
 
-    const busy = undeploy.isPending || unpublish.isPending;
+    const busy = unpublish.isPending;
 
     /**
      * `null` while asking — distinct from a loaded-but-empty state, because the dialog must
@@ -243,7 +205,6 @@ export function InstalledResourcesDialog({
                     summary={summary}
                     busy={busy}
                     onClose={onClose}
-                    onUndeploy={() => undeploy.mutate({ path })}
                     onUnpublish={() => unpublish.mutate({ path })}
                     extraActions={extraActions}
                 />

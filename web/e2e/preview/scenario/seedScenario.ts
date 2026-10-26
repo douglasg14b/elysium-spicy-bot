@@ -2,6 +2,7 @@ import type { Guild } from 'discord.js';
 import type { TestDiscord } from '../../../../src/shared/__tests__/support/testDiscord';
 import type { PreviewPage } from '../previewPages';
 import type { SeedApi } from './seedApi';
+import { seedButtonClickTrigger } from './seedButtonClickTrigger';
 import { seedDiscord, type ScenarioGuild } from './seedDiscord';
 import { seedFlows } from './seedFlows';
 import { seedMessageEditor } from './seedMessageEditor';
@@ -37,6 +38,7 @@ export const seedScenario = {
         pages.push(...(await seedFlows(context)));
         pages.push(...(await seedMessageEditor(context)));
         pages.push(...(await seedMessageResource(context)));
+        pages.push(...(await seedButtonClickTrigger(context)));
         pages.push(...(await seedUploads(context)));
         pages.push(...(await seedTickets(context)));
         return pages;

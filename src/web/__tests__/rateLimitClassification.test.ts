@@ -23,12 +23,10 @@ const EXPECTED_BUDGET: Readonly<Record<string, RateBudget>> = {
     createFlow: 'discord',
     updateFlow: 'discord',
     deleteFlow: 'discord',
-    deployFlow: 'discord',
     // The plan and the inventory fetch each message resource the journey posted.
     getInstallPlan: 'discord',
     installFlow: 'discord',
     getPublishedState: 'discord',
-    undeployFlow: 'discord',
     unpublishFlow: 'discord',
     // Drafts. The autosave is the one write here typing sends.
     listFlowDrafts: 'general',
@@ -46,8 +44,9 @@ const EXPECTED_BUDGET: Readonly<Record<string, RateBudget>> = {
     // resource autosave targets are typing.
     listJourneys: 'general',
     getJourney: 'general',
+    // Database only: the journey's flows and their graphs.
+    getJourneyButtonListeners: 'general',
     getJourneyPublishedState: 'discord',
-    undeployJourney: 'discord',
     unpublishJourney: 'discord',
     getJourneyDrift: 'discord',
     repairJourneyDrift: 'discord',

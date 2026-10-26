@@ -20,6 +20,7 @@ import {
     type BlockControlType,
     type BlockManifest,
     type BlockOutputHandle,
+    type BlockTriggerSource,
 } from './manifest';
 import type { FlowResumeKind, FlowResumeReason, FlowRunContext } from './types';
 
@@ -114,6 +115,7 @@ export function checkBlockConformance(candidate: unknown): readonly string[] {
     issues.push(...checkVisibleWhen(label, block.configFields, block.configSchema));
     issues.push(...checkCardSummary(label, block.cardSummary, block.configFields, block.configSchema));
     issues.push(...checkEligibilityEnforced(label, block));
+    issues.push(...checkMessageButtonSource(label, block));
     issues.push(...checkEmits(label, block));
 
     return issues;
@@ -334,6 +336,37 @@ function checkEligibilityEnforced(
             `"${startedBy}" trigger (only ${enforced.join(', ')}). An authored rule would save, show on ` +
             "the card, and admit everybody. Wire that source's dispatcher and add it to " +
             'ELIGIBILITY_ENFORCED_SOURCES, or drop the field.',
+    ];
+}
+
+/**
+ * Only a trigger started by a button click may name a message's button.
+ *
+ * A `messageButton` field is a claim on a button: the one-flow-per-button check
+ * (`buttonClaims.ts`), the listener list behind install's note and drift's repair
+ * (`journeyButtonListeners.ts`) and readiness all walk every such field, by control. The
+ * press router answers only `buttonClick` triggers. A field on any other block would
+ * claim a button, block another flow from it and be named as its listener — while no
+ * press ever reached it. Stated once here, so every one of those readers can trust the
+ * walk to mean "listens".
+ */
+function checkMessageButtonSource(label: string, block: Partial<Record<string, unknown>>): readonly string[] {
+    // Typed against their vocabularies, so renaming either fails here rather than leaving
+    // this check looking for a name nothing uses.
+    const buttonControl: BlockControlType = 'messageButton';
+    const buttonSource: BlockTriggerSource = 'buttonClick';
+
+    const field = asArray(block.configFields).find((candidate) => readProperty(candidate, 'control') === buttonControl);
+    if (!field || (block.kind === 'trigger' && block.startedBy === buttonSource)) {
+        return [];
+    }
+
+    const detail =
+        block.kind === 'trigger' ? `is started by "${String(block.startedBy)}"` : `is of kind "${String(block.kind)}"`;
+    return [
+        `${label}: declares the messageButton field "${String(readProperty(field, 'key'))}", but ${detail}. ` +
+            'Only a trigger started by "buttonClick" is run by a press on that button; anywhere else the field ' +
+            'would claim the button and be listed as its listener while nothing ever answered it. Drop the field.',
     ];
 }
 
@@ -867,7 +900,8 @@ function checkVisibleWhenSource(
  * — for the controls whose stored shape is fixed by the control rather than by the block.
  *
  * A time-of-day control writes `HH:MM`, a days-of-week control writes `'mon'` … `'sun'`,
- * and a message control writes a message object, whatever block asks for one. A schema
+ * a message control writes a message object, and a message-button control writes two keys,
+ * whatever block asks for one. A schema
  * looser than that would save a value the control can never draw (and the reader of the
  * value would have to guess at it); a stricter one — a message field over a string schema —
  * would refuse a value the control offers. Probed, like every other schema check here, so
@@ -899,6 +933,12 @@ function controlShapeProbes(control: unknown): ControlShapeProbes | undefined {
                 accepts: [{ embeds: [{ title: 'a' }] }],
                 refuses: [{}, 'x'],
                 description: 'a message object holding an `embeds` list',
+            };
+        case 'messageButton':
+            return {
+                accepts: [{ messageKey: 'a', buttonKey: 'b' }],
+                refuses: [{}, 'x'],
+                description: 'a `{ messageKey, buttonKey }` object naming a message resource and one of its buttons',
             };
         default:
             return undefined;

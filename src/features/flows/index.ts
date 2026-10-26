@@ -1,13 +1,10 @@
 export { initFlows } from './initFlows';
-export { flowDeployCommand, handleFlowDeployCommand } from './commands/flowDeployCommand';
 export * from './data/flowGraph';
 export * from './data/flowsSchema';
 export * from './data/flowRunsSchema';
 export * from './data/flowRunLifecycle';
 export { flowsRepo, FlowsRepo } from './data/flowsRepo';
 export { flowRunsRepo, FlowRunsRepo } from './data/flowRunsRepo';
-export { deployFlowButtons } from './logic/deployFlowButtons';
-export { planButtonDeployment } from './logic/planButtonDeployment';
 export * from './engine';
 export * from './blocks';
 export * from './constants';

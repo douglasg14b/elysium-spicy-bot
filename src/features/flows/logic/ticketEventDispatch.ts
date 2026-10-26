@@ -20,7 +20,7 @@ import { startTriggeredRun } from '../engine/triggeredRun';
  * would then import a block, which `__tests__/blockTypeBranching.test.ts` rightly treats
  * as a cross-block dependency. So it sits in `logic/`, ungated, as a declared residual
  * dependent of `triggerTicketEvent` — the shape `engine/levelUpDispatch.ts` and
- * `logic/planButtonDeployment.ts` already have: generic selection through the registry,
+ * `engine/reactionAddDispatch.ts` already have: generic selection through the registry,
  * then the one block's schema to decide whether this change matches.
  */
 

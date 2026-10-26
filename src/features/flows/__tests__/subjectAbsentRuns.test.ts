@@ -84,7 +84,7 @@ function graphFrom(trigger: FlowNode, ...chain: FlowNode[]): FlowGraph {
 
 const nobody = (): FlowNode => node('trigger', FIXTURE_TRIGGER_SUPPLIES_NOBODY);
 const joined = (): FlowNode => node('trigger', 'trigger.memberJoin');
-const button = (): FlowNode => node('trigger', 'trigger.buttonClick', { channelId: CHANNEL_ID, label: 'Go' });
+const button = (): FlowNode => node('trigger', 'trigger.buttonClick', { button: { messageKey: 'panel', buttonKey: 'go' } });
 
 /** Every issue on one node. */
 function issuesOn(graph: FlowGraph, nodeId: string): FlowValidationIssue[] {

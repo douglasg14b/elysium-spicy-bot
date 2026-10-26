@@ -120,6 +120,29 @@ describe('summarizeFromDescriptor', () => {
         expect(summarize(descriptor, { message: 'not a message' })).toBe('nothing to say');
     });
 
+    it("names a message's button by the message and the label, and a key that is gone as the key", () => {
+        const descriptor = descriptorWith(
+            [{ key: 'button', label: 'Button', control: 'messageButton' }],
+            [{ key: 'button', emptyText: 'no button picked', stopIfEmpty: true }]
+        );
+        const declared: ResourceDeclaration[] = [
+            {
+                key: 'rules-panel',
+                kind: 'message',
+                defaultName: 'Rules panel',
+                message: { embeds: [{ title: 'House Rules' }] },
+                buttons: [{ key: 'verify', label: 'Verify', style: 'Success' }],
+            },
+        ];
+        const card = (config: Record<string, unknown>): string =>
+            summarizeFromDescriptor(descriptor, config, ROLES, CHANNELS, TICKET_TYPES, declared);
+
+        expect(card({ button: { messageKey: 'rules-panel', buttonKey: 'verify' } })).toBe('Rules panel · Verify');
+        expect(card({ button: { messageKey: 'rules-panel', buttonKey: 'gone' } })).toBe('Rules panel · gone');
+        expect(card({ button: { messageKey: 'old-panel', buttonKey: 'verify' } })).toBe('old-panel · verify');
+        expect(card({})).toBe('no button picked');
+    });
+
     it('names a ticket type by its label, shows a key the guild dropped as the key, and empty as empty', () => {
         const descriptor = descriptorWith(
             [{ key: 'ticketType', label: 'Ticket type', control: 'ticketTypePicker', optional: true }],

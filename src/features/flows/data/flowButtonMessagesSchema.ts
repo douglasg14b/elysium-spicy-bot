@@ -1,16 +1,15 @@
 import type { ColumnType, Generated, Insertable, JSONColumnType, Selectable, Updateable } from 'kysely';
 
 /**
- * One row per message carrying a flow's trigger buttons.
+ * One row per message the retired Deploy posted carrying a flow's trigger buttons.
  *
- * Nothing recorded where those buttons went until this table existed. `deployFlowButtons`
- * posted a message, returned its id, and both callers dropped it — so deleting a flow
- * left live buttons in a channel pointing at a flow that no longer existed, with nothing
- * able to find them. That is the gap this closes.
+ * **Kept, unread, until the bridge-removal deploy** (`docs/plans/message-resource-step-3.md`,
+ * "After this step"). Nothing writes it any more and no code path reads it: step 3's
+ * migration reads it once, to adopt each posted message as a journey's message resource,
+ * and the bridge-removal deploy drops the table with this file and its `Database` entry.
  *
- * **A list, not a column on `flows`.** One flow may have its buttons posted in several
- * channels, and a column would silently keep only the last one — which is the same
- * shape of bug as not recording it at all, just harder to notice.
+ * **A list, not a column on `flows`.** One flow may have had its buttons posted in several
+ * channels, which is why the migration finds one message per channel here.
  *
  * ## The name
  *
@@ -27,13 +26,13 @@ import type { ColumnType, Generated, Insertable, JSONColumnType, Selectable, Upd
 export interface FlowButtonMessageTable {
     id: Generated<number>;
 
-    // Index: (guildId, flowId) is how both undeploy and the published lookup read this.
+    // Index: (guildId, flowId), from when undeploy and the published lookup read this.
     guildId: string;
     flowId: string;
 
     channelId: string;
 
-    /** The posted message carrying the buttons. Deleting it is what retires them. */
+    /** The posted message carrying the buttons. */
     messageId: string;
 
     /**
@@ -41,8 +40,8 @@ export interface FlowButtonMessageTable {
      *
      * Recorded rather than re-derived from the graph, because the graph changes: a
      * node deleted after the message was posted would make the live button
-     * unexplainable, and this is what lets a listing say honestly which buttons a
-     * given message still carries.
+     * unexplainable. The migration reads it to match each posted message to the
+     * Button Click nodes it carried.
      */
     nodeIds: JSONColumnType<string[]>;
 

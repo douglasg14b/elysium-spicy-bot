@@ -19,7 +19,7 @@ import type { AppEnv } from './types';
  * writes with `Origin: null`, which would defeat any Origin check put in front of them.
  *
  * Framing is refused outright, twice over (`X-Frame-Options` and `frame-ancestors`), so no
- * other site can lay the dashboard under a decoy and have a signed-in operator click Deploy.
+ * other site can lay the dashboard under a decoy and have a signed-in operator click Uninstall.
  * That directive is the whole Content-Security-Policy on purpose: Mantine writes inline
  * styles, and a fuller policy that got them wrong would break the dashboard.
  *

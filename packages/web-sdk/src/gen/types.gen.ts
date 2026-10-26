@@ -264,6 +264,16 @@ export type BlockConfigField = {
         equals: Array<string>;
         field: string;
     };
+} | {
+    control: 'messageButton';
+    defaultValue?: MessageButtonRef;
+    description?: string;
+    key: string;
+    label: string;
+    visibleWhen?: {
+        equals: Array<string>;
+        field: string;
+    };
 };
 
 /**
@@ -345,20 +355,21 @@ export type BotIdentity = {
 };
 
 /**
+ * A Button Click trigger naming one of the journey's message buttons by its keys. `enabled` says whether its flow is switched on; an off flow is listed too.
+ */
+export type ButtonListener = {
+    buttonKey: string;
+    enabled: boolean;
+    flowId: string;
+    flowName: string;
+    messageKey: string;
+    nodeId: string;
+};
+
+/**
  * A band of members by XP within this server, least to most active. `topOnePercent` is a spotlight inside `topQuarter`, not a fifth band, so the counts do not sum.
  */
 export type CohortKey = 'bottomHalf' | 'middle' | 'topQuarter' | 'topOnePercent';
-
-export type DeployResult = {
-    ok: true;
-    posted: Array<DeployedButtonMessage>;
-};
-
-export type DeployedButtonMessage = {
-    buttonCount: number;
-    channelId: string;
-    messageId: string;
-};
 
 export type DetachResult = {
     detached: boolean;
@@ -459,8 +470,12 @@ export type FlowAttach = {
     journeyKey: string;
 };
 
+/**
+ * The journey a flow installs. `sharedWith` is every other flow on it. `linked` is false for a flow from before the link table, on the journey keyed by its own id with no link row yet; its next resource save through the flow writes one.
+ */
 export type FlowAttachment = {
     journeyKey: string;
+    linked: boolean;
     name: string;
     resourceCount: number;
     sharedWith: Array<AttachedFlow>;
@@ -560,10 +575,8 @@ export type FlowBlockFieldRules = {
         timeVariable?: string;
     };
     'trigger.buttonClick': {
-        channelId?: string;
+        button?: unknown;
         eligibility?: unknown;
-        label?: string;
-        style?: unknown;
     };
     'trigger.levelReached': {
         level?: unknown;
@@ -709,7 +722,11 @@ export type FlowRefusal = ErrorBody & {
     issues?: Array<FlowValidationIssue>;
 };
 
+/**
+ * `baseUpdatedAt` is the `updatedAt` the list was edited from, as the resource read or the last save answered it. Required once the flow is on a journey; left out by the first save, which creates one.
+ */
 export type FlowResourcesSave = {
+    baseUpdatedAt?: string;
     resources: Array<ResourceDeclaration>;
 };
 
@@ -789,9 +806,10 @@ export type ForgottenOrphan = {
 };
 
 /**
- * What grouping would do. `destination` is null when the target flow is on no journey yet, so one would be created. `orphaned` are the live resources "leave" would strand. `sharedTicketTypes` are ticket types both sides declare, which a merge folds into the destination's.
+ * What grouping would do. `destination` is null when the target flow is on no journey yet, so one would be created. `orphaned` are the live resources "leave" would strand. `sharedTicketTypes` are ticket types both sides declare, which a merge folds into the destination's. `buttonConflict`, when set, is why the grouping would be refused: the moving flow is live on a button a live flow of the destination already listens to.
  */
 export type GroupPreview = {
+    buttonConflict: string | null;
     canMerge: boolean;
     collisions: Array<KeyCollision>;
     destination: {
@@ -947,6 +965,10 @@ export type Journey = {
     updatedAt: string;
 };
 
+export type JourneyButtonListeners = {
+    listeners: Array<ButtonListener>;
+};
+
 export type JourneyCreate = {
     description?: string;
     journeyKey: string;
@@ -991,9 +1013,10 @@ export type JourneySummary = {
 };
 
 /**
- * A partial update: send only what changed. `description: null` clears it. `resources` replaces the whole list.
+ * A partial update: send only what changed. `description: null` clears it. `resources` replaces the whole list, and must come with `baseUpdatedAt`, the journey's `updatedAt` the list was edited from; a rename alone needs none.
  */
 export type JourneyUpdate = {
+    baseUpdatedAt?: string;
     description?: string | null;
     name?: string;
     resources?: Array<ResourceDeclaration>;
@@ -1188,6 +1211,14 @@ export type MessageButton = {
     style: MessageButtonStyle;
 };
 
+/**
+ * One button on one of the flow's journey's messages: the message resource's key and the button's key.
+ */
+export type MessageButtonRef = {
+    buttonKey: string;
+    messageKey: string;
+};
+
 export type MessageButtonStyle = 'Primary' | 'Secondary' | 'Success' | 'Danger';
 
 export type MovingResource = {
@@ -1245,20 +1276,12 @@ export type PermissionIntent = {
     roleIds?: Array<string>;
 };
 
-export type PublishedButtonMessage = {
-    channelId: string;
-    messageId: string;
-    nodeIds: Array<string>;
-};
-
 /**
- * What a flow or a journey has live in the guild. An empty `buttonMessages` does not mean nothing is posted while `mayHaveUnrecordedButtons` is true: buttons posted before they were recorded cannot be found. `keptSettings` are settings (ticket types) that uninstalling forgets and leaves standing.
+ * What a flow or a journey has live in the guild, as the uninstall would treat it. `keptSettings` are settings (ticket types) that uninstalling forgets and leaves standing.
  */
 export type PublishedFlowState = {
-    buttonMessages: Array<PublishedButtonMessage>;
     deletableResources: Array<PublishedResource>;
     keptSettings: Array<PublishedResource>;
-    mayHaveUnrecordedButtons: boolean;
     refusedResources: Array<PublishedResource>;
 };
 
@@ -1512,17 +1535,6 @@ export type UncheckedResource = {
     name: string;
     reason: string;
     resourceKey: string;
-};
-
-export type UndeployResult = {
-    results: Array<UndeployedButtonMessage>;
-};
-
-export type UndeployedButtonMessage = {
-    channelId: string;
-    explanation?: string;
-    messageId: string;
-    outcome: 'removed' | 'alreadyGone' | 'failed';
 };
 
 export type UnpublishResult = {
@@ -2342,7 +2354,7 @@ export type UpdateFlowData = {
 
 export type UpdateFlowErrors = {
     /**
-     * The body was refused; the graph is too broken to store; the flow cannot be switched on because its graph is incomplete (`issues` lists why) or waits on its install (`issues` empty); going live — switched on, or a graph saved while on — would make a loop with the guild's other live flows (a sentence naming every step of the loop, `issues` empty); the save would go live only because another request switched the flow on or off meanwhile ("save again", `issues` empty); or the server id is missing.
+     * The body was refused; the graph is too broken to store; the flow cannot be switched on because its graph is incomplete (`issues` lists why) or waits on its install (`issues` empty); going live — switched on, or a graph saved while on — would make a loop with the guild's other live flows (a sentence naming every step of the loop, `issues` empty), or onto a button another live flow of its journey already listens to (a sentence naming that flow, `issues` empty); the save would go live only because another request switched the flow on or off meanwhile ("save again", `issues` empty); or the server id is missing.
      */
     400: FlowRefusal;
     /**
@@ -2413,6 +2425,10 @@ export type AttachFlowToJourneyErrors = {
      * The bot is not in this server, or the flow or the journey is not in it.
      */
     404: ErrorBody;
+    /**
+     * Nothing was attached: the flow is live on a button a live flow of that journey already listens to. The sentence names it.
+     */
+    409: ErrorBody;
     /**
      * The body was over the size limit.
      */
@@ -2550,54 +2566,6 @@ export type CheckFlowResponses = {
 
 export type CheckFlowResponse = CheckFlowResponses[keyof CheckFlowResponses];
 
-export type DeployFlowData = {
-    body?: never;
-    path: {
-        guildId: string;
-        flowId: string;
-    };
-    query?: never;
-    url: '/api/guilds/{guildId}/flows/{flowId}/deploy';
-};
-
-export type DeployFlowErrors = {
-    /**
-     * Nothing was posted, and the sentence says why — or the server id is missing.
-     */
-    400: ErrorBody;
-    /**
-     * No valid session.
-     */
-    401: ErrorBody;
-    /**
-     * The signed-in user may not manage this server.
-     */
-    403: ErrorBody;
-    /**
-     * The bot is not in this server, or the flow is not in it.
-     */
-    404: ErrorBody;
-    /**
-     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
-     */
-    429: ErrorBody;
-    /**
-     * Something failed that the route did not expect. The server logged it.
-     */
-    500: ErrorBody;
-};
-
-export type DeployFlowError = DeployFlowErrors[keyof DeployFlowErrors];
-
-export type DeployFlowResponses = {
-    /**
-     * Posted: one message per destination channel.
-     */
-    200: DeployResult;
-};
-
-export type DeployFlowResponse = DeployFlowResponses[keyof DeployFlowResponses];
-
 export type DetachFlowFromJourneyData = {
     body?: never;
     path: {
@@ -2625,6 +2593,10 @@ export type DetachFlowFromJourneyErrors = {
      * The bot is not in this server, or the flow is not in it.
      */
     404: ErrorBody;
+    /**
+     * Nothing was detached: the flow would fall back to the journey keyed by its own id, and it is live on a button a live flow of that journey already listens to. The sentence names it.
+     */
+    409: ErrorBody;
     /**
      * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
      */
@@ -2829,7 +2801,7 @@ export type GroupFlowWithErrors = {
      */
     404: ErrorBody;
     /**
-     * Nothing was grouped: this flow's journey is shared, both journeys declare the same key, or a journey with the new key already exists.
+     * Nothing was grouped: this flow's journey is shared, both journeys declare the same key, a journey with the new key already exists, the flow is live on a button a live flow of the destination already listens to (the sentence names it), or the destination's resources changed while the merge was being made (try again).
      */
     409: ErrorBody;
     /**
@@ -3112,7 +3084,7 @@ export type GetPublishedStateError = GetPublishedStateErrors[keyof GetPublishedS
 
 export type GetPublishedStateResponses = {
     /**
-     * Its button messages and the resources its journey put in the guild.
+     * The resources its journey put in the guild, as an uninstall would treat them.
      */
     200: PublishedFlowState;
 };
@@ -3164,6 +3136,7 @@ export type GetFlowResourcesResponses = {
      */
     200: {
         resources: Array<ResourceDeclaration>;
+        updatedAt: string | null;
     };
 };
 
@@ -3197,7 +3170,7 @@ export type SaveFlowResourcesErrors = {
      */
     404: ErrorBody;
     /**
-     * Nothing was written: other flows share the journey, or a journey keyed with this flow id already exists.
+     * Nothing was written: other flows share the journey; the journey has changed since `baseUpdatedAt`, or none was sent for a journey that exists, or one was sent for a journey that is gone (reload); or a journey keyed with this flow id already exists.
      */
     409: ErrorBody;
     /**
@@ -3222,62 +3195,15 @@ export type SaveFlowResourcesError = SaveFlowResourcesErrors[keyof SaveFlowResou
 
 export type SaveFlowResourcesResponses = {
     /**
-     * The declarations as stored, text-channel names normalised.
+     * The declarations as stored, text-channel names normalised, and the version to send next.
      */
     200: {
         resources: Array<ResourceDeclaration>;
+        updatedAt: string | null;
     };
 };
 
 export type SaveFlowResourcesResponse = SaveFlowResourcesResponses[keyof SaveFlowResourcesResponses];
-
-export type UndeployFlowData = {
-    body?: never;
-    path: {
-        guildId: string;
-        flowId: string;
-    };
-    query?: never;
-    url: '/api/guilds/{guildId}/flows/{flowId}/undeploy';
-};
-
-export type UndeployFlowErrors = {
-    /**
-     * The server id is missing.
-     */
-    400: ErrorBody;
-    /**
-     * No valid session.
-     */
-    401: ErrorBody;
-    /**
-     * The signed-in user may not manage this server.
-     */
-    403: ErrorBody;
-    /**
-     * The bot is not in this server.
-     */
-    404: ErrorBody;
-    /**
-     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
-     */
-    429: ErrorBody;
-    /**
-     * Something failed that the route did not expect. The server logged it.
-     */
-    500: ErrorBody;
-};
-
-export type UndeployFlowError = UndeployFlowErrors[keyof UndeployFlowErrors];
-
-export type UndeployFlowResponses = {
-    /**
-     * What became of each recorded message.
-     */
-    200: UndeployResult;
-};
-
-export type UndeployFlowResponse = UndeployFlowResponses[keyof UndeployFlowResponses];
 
 export type UnpublishFlowData = {
     body?: never;
@@ -3567,6 +3493,10 @@ export type UpdateJourneyErrors = {
      */
     404: ErrorBody;
     /**
+     * Nothing was written: `resources` came without `baseUpdatedAt`, or the journey has changed since it. Reload.
+     */
+    409: ErrorBody;
+    /**
      * The body was over the size limit.
      */
     413: ErrorBody;
@@ -3594,6 +3524,54 @@ export type UpdateJourneyResponses = {
 };
 
 export type UpdateJourneyResponse = UpdateJourneyResponses[keyof UpdateJourneyResponses];
+
+export type GetJourneyButtonListenersData = {
+    body?: never;
+    path: {
+        guildId: string;
+        journeyKey: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/journeys/{journeyKey}/button-listeners';
+};
+
+export type GetJourneyButtonListenersErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the journey is not in it.
+     */
+    404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type GetJourneyButtonListenersError = GetJourneyButtonListenersErrors[keyof GetJourneyButtonListenersErrors];
+
+export type GetJourneyButtonListenersResponses = {
+    /**
+     * Every Button Click trigger of the journey's flows naming one of its buttons, live and off.
+     */
+    200: JourneyButtonListeners;
+};
+
+export type GetJourneyButtonListenersResponse = GetJourneyButtonListenersResponses[keyof GetJourneyButtonListenersResponses];
 
 export type GetJourneyDriftData = {
     body?: never;
@@ -3733,7 +3711,7 @@ export type GetJourneyPublishedStateError = GetJourneyPublishedStateErrors[keyof
 
 export type GetJourneyPublishedStateResponses = {
     /**
-     * Every attached flow's button messages, and the resources the journey put in the guild.
+     * The resources the journey put in the guild, as an uninstall would treat them.
      */
     200: PublishedFlowState;
 };
@@ -3799,54 +3777,6 @@ export type RepairJourneyDriftResponses = {
 };
 
 export type RepairJourneyDriftResponse = RepairJourneyDriftResponses[keyof RepairJourneyDriftResponses];
-
-export type UndeployJourneyData = {
-    body?: never;
-    path: {
-        guildId: string;
-        journeyKey: string;
-    };
-    query?: never;
-    url: '/api/guilds/{guildId}/journeys/{journeyKey}/undeploy';
-};
-
-export type UndeployJourneyErrors = {
-    /**
-     * The server id is missing.
-     */
-    400: ErrorBody;
-    /**
-     * No valid session.
-     */
-    401: ErrorBody;
-    /**
-     * The signed-in user may not manage this server.
-     */
-    403: ErrorBody;
-    /**
-     * The bot is not in this server, or the journey is not in it.
-     */
-    404: ErrorBody;
-    /**
-     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
-     */
-    429: ErrorBody;
-    /**
-     * Something failed that the route did not expect. The server logged it.
-     */
-    500: ErrorBody;
-};
-
-export type UndeployJourneyError = UndeployJourneyErrors[keyof UndeployJourneyErrors];
-
-export type UndeployJourneyResponses = {
-    /**
-     * What became of each recorded message, across every flow. A flow whose buttons could not be read is a `failed` row naming it.
-     */
-    200: UndeployResult;
-};
-
-export type UndeployJourneyResponse = UndeployJourneyResponses[keyof UndeployJourneyResponses];
 
 export type UnpublishJourneyData = {
     body?: never;

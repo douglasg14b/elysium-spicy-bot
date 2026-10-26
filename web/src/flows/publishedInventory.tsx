@@ -4,7 +4,7 @@
  *
  * Extracted when the journey-scoped dialog arrived. Both dialogs answer the same question
  * — *what is live in the server, and what happens to it?* — and differ only in **scope**
- * and in the two actions underneath. Leaving the row rendering inside
+ * and in the action underneath. Leaving the row rendering inside
  * `InstalledResourcesDialog` would have meant the second dialog either imported from a
  * component whose export is a modal, or carried a second copy of it; the copy is the worse
  * of the two, because the red left edge and the "deletes" marker are how an operator reads
@@ -17,26 +17,24 @@
 
 import { useState } from 'react';
 import { Button, Center, Divider, Group, Stack, Text } from '@mantine/core';
-import { IconHelpCircle, IconMessage, type Icon as TablerIcon } from '@tabler/icons-react';
+import { IconHelpCircle, type Icon as TablerIcon } from '@tabler/icons-react';
 import type { PublishedGroup, PublishedResourceLine, PublishedSummary } from './publishedSummary';
 import { RESOURCE_KIND_STYLES } from './resourceMeta';
 
 /**
  * The icon and colour a row wears.
  *
- * The three real kinds come from `RESOURCE_KIND_STYLES`, which is the same table the
+ * Every real kind comes from `RESOURCE_KIND_STYLES`, which is the same table the
  * resources panel and the pickers draw from — so a channel is the same blue `#` here
- * as it is where it was declared. Only the two cases that table has no opinion about
- * are supplied locally: a posted message is not a resource, and `unknown` is a kind
- * this build does not recognise but must still show rather than drop.
+ * as it is where it was declared. Only the case that table has no opinion about is
+ * supplied locally: `unknown`, a kind this build does not recognise but must still show
+ * rather than drop.
  */
 export function rowIcon(glyph: PublishedResourceLine['glyph']): {
     readonly Icon: TablerIcon;
     readonly color: string;
 } {
     switch (glyph) {
-        case 'message':
-            return { Icon: IconMessage, color: 'gray' };
         case 'unknown':
             return { Icon: IconHelpCircle, color: 'gray' };
         default: {
@@ -189,7 +187,6 @@ interface TeardownActionsProps {
     readonly summary: PublishedSummary | null;
     readonly busy: boolean;
     readonly onClose: () => void;
-    readonly onUndeploy: () => void;
     readonly onUnpublish: () => void;
     /** Appended after the destructive button. The flows list puts "Delete flow" here. */
     readonly extraActions?: React.ReactNode;
@@ -209,26 +206,14 @@ interface TeardownActionsProps {
  * guarantee structural. A caller cannot forget to reset it, and cannot render the armed
  * button without having rendered the unarmed one first.
  *
- * The layout is the same argument as the state: reversible on the left, destructive on
- * the right, "Done" between them so the two are never adjacent under a moving cursor.
+ * The layout: "Done" pushed right, the destructive button after it. A slip from one to the
+ * other only arms the confirm, which is the same argument as the state.
  */
-export function TeardownActions({
-    summary,
-    busy,
-    onClose,
-    onUndeploy,
-    onUnpublish,
-    extraActions,
-}: TeardownActionsProps) {
+export function TeardownActions({ summary, busy, onClose, onUnpublish, extraActions }: TeardownActionsProps) {
     const [confirmUnpublish, setConfirmUnpublish] = useState(false);
 
     return (
         <Group gap="sm" mt={4}>
-            {summary?.canUndeploy && (
-                <Button size="xs" variant="light" color="orange" loading={busy} onClick={onUndeploy}>
-                    Take buttons down
-                </Button>
-            )}
             <Button
                 size="xs"
                 variant="subtle"

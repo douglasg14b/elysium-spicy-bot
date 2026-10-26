@@ -7,10 +7,12 @@ export type {
     OverwriteView,
     ServerChannel,
     ServerGuild,
+    ServerInteraction,
     ServerMember,
     ServerRole,
     ServerThread,
 } from './handles';
+export type { InteractionResponseView } from './interactionState';
 export type { MessageFile, ServerAttachmentView, ServerMessageView } from './messageState';
 export type {
     ChannelReadRoute,

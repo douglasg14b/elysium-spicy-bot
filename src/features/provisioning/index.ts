@@ -11,7 +11,11 @@ export { initProvisioning } from './initProvisioning';
 
 // A message resource's buttons are pressed by `mbtn:<buttonKey>`. Provisioning owns the
 // prefix because it renders the buttons; flows registers the one handler for it.
-export { MESSAGE_BUTTON_CUSTOM_ID_PREFIX } from './logic/messageButtons';
+export { MESSAGE_BUTTON_CUSTOM_ID_PREFIX, parseMessageButtonCustomId } from './logic/messageButtons';
+// Who listens to those buttons, in the shape flows answers with. Flows registers the reader at
+// wiring time; install and drift ask it, so provisioning imports nothing of flows at run time.
+export { registerButtonListenerReader, clearButtonListenerReaderForTests } from './buttonListeners';
+export type { ButtonListener, ButtonListenerReader } from './buttonListeners';
 
 // Journeys are rows, scoped to a guild. The engine ships none of its own: what is
 // installable is whatever an operator has authored for that server.

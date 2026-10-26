@@ -1,10 +1,12 @@
 import {
+    Events,
     GatewayDispatchEvents,
     GatewayOpcodes,
     GuildChannel,
     Status,
     type Client,
     type GatewayDispatchPayload,
+    type Interaction,
 } from 'discord.js';
 import type { EventDeferral } from './restRouter';
 import type { EventSink, HarnessEvent, ServerChannelPayload, ServerState } from './serverState';
@@ -172,11 +174,38 @@ function describeMismatch(client: Client, event: HarnessEvent): string | undefin
             return channel.messages.cache.has(event.d.id) ? `the client still holds message ${event.d.id}` : undefined;
         }
 
+        // discord.js caches no interaction, only the presser as a member; whether it emitted
+        // the press at all is checked in `deliver`, which listened for it.
+        case GatewayDispatchEvents.InteractionCreate: {
+            const userId = event.d.member.user.id;
+            return client.guilds.cache.get(event.d.guild_id)?.members.cache.has(userId)
+                ? undefined
+                : `the client holds no member ${userId} for the press`;
+        }
+
         default: {
             const unverified: never = event;
             throw new TestDiscordError(`No self-check exists for ${JSON.stringify(unverified)}.`);
         }
     }
+}
+
+/**
+ * Listen, for the length of one dispatch, for discord.js emitting the interaction `id`.
+ * Emission is synchronous inside `handlePacket`, so by the time it returns the answer is in.
+ */
+function listenForInteraction(client: Client, id: string): { emitted(): boolean; stop(): void } {
+    let emitted = false;
+    const listener = (interaction: Interaction): void => {
+        if (interaction.id === id) emitted = true;
+    };
+    client.on(Events.InteractionCreate, listener);
+    return {
+        emitted: () => emitted,
+        stop: () => {
+            client.off(Events.InteractionCreate, listener);
+        },
+    };
 }
 
 /**
@@ -256,13 +285,24 @@ export class GatewayLink implements EventSink, EventDeferral {
 
     private deliver(event: HarnessEvent): void {
         const client = this.connectedClient();
-        const applied = this.send({ op: GatewayOpcodes.Dispatch, s: this.nextSequence(), ...event });
+        const heard = event.t === GatewayDispatchEvents.InteractionCreate ? listenForInteraction(client, event.d.id) : undefined;
+        let applied: boolean;
+        try {
+            applied = this.send({ op: GatewayOpcodes.Dispatch, s: this.nextSequence(), ...event });
+        } finally {
+            heard?.stop();
+        }
 
         // `handlePacket` says outright when it queued a dispatch instead of applying it,
         // which the cache alone cannot always show — a dropped MESSAGE_UPDATE and a
         // queued one leave it looking the same. The cache check still runs on everything
-        // discord.js did apply.
-        const mismatch = applied ? describeMismatch(client, event) : 'discord.js queued the dispatch instead of applying it';
+        // discord.js did apply. A press leaves nothing in the cache to check, and discord.js
+        // drops one it cannot classify without a word, so it must also have been emitted.
+        const mismatch = !applied
+            ? 'discord.js queued the dispatch instead of applying it'
+            : heard && !heard.emitted()
+              ? 'discord.js emitted no interactionCreate for it'
+              : describeMismatch(client, event);
         if (mismatch) {
             throw new TestDiscordError(
                 `TestDiscord dispatched ${event.t} but the client's cache does not reflect it: ${mismatch}. ` +

@@ -7,6 +7,7 @@ import {
     type ServerChannel,
     type ServerGuild,
 } from '../../../shared/__tests__/support/testDiscord';
+import type { ButtonListener, ButtonListenerReader } from '../buttonListeners';
 import type { ResourceBindingEntity } from '../data/resourceBindingsSchema';
 import type { ApplyDriftRepairResult } from '../logic/applyDriftRepair';
 import type { ApplyInstallPlanResult } from '../logic/applyInstallPlan';
@@ -57,6 +58,8 @@ vi.mock('../logic/prepareMessageEdit', async (importOriginal) => {
 const { installJourney, previewDrift, previewInstall, previewUnpublish, repairDrift, unpublishJourney } = await import(
     '../provisioningService'
 );
+const { clearButtonListenerReaderForTests, registerButtonListenerReader } = await import('../buttonListeners');
+const { describeDrift } = await import('../logic/resourceDrift');
 const { resourceBindingsRepo } = await import('../data/resourceBindingsRepo');
 const { journeysRepo } = await import('../data/journeysRepo');
 const { guildUploadsRepo } = await import('../../../features-system/guild-uploads');
@@ -125,7 +128,23 @@ function houseJourney(scenario: Scenario, panel: Partial<ResourceDeclaration> = 
 
 const running: TestDiscord[] = [];
 
+/**
+ * Who listens to the house journey's buttons, as flows' reader would answer — nobody unless a
+ * test says. A stand-in rather than the real reader, which needs the block registry and the
+ * flows tables: what is under test here is what provisioning does with the answer.
+ */
+let listeners: ButtonListener[] = [];
+const standInReader: ButtonListenerReader = (_guildId, journeyKey) =>
+    Promise.resolve(journeyKey === JOURNEY_KEY ? listeners : []);
+registerButtonListenerReader(standInReader);
+
+/** A trigger of flow `flowName` listening to `buttonKey` of the panel. */
+function listening(flowName: string, buttonKey: string): ButtonListener {
+    return { messageKey: PANEL_KEY, buttonKey, flowId: `flow-${flowName}`, flowName, nodeId: 'trigger', enabled: true };
+}
+
 beforeEach(async () => {
+    listeners = [];
     await testDb.db.deleteFrom('resource_bindings').execute();
     await testDb.db.deleteFrom('journeys').execute();
 });
@@ -259,6 +278,29 @@ describe('installing a message resource', () => {
             messageDigest: messageDigest(panel!.message!, panel!.buttons),
             name: 'Rules panel',
         });
+    });
+
+    it('notes, by label, only the buttons no flow listens to', async () => {
+        const scenario = await startScenario();
+        listeners = BUTTONS.filter((button) => button.key !== 'kinks' && button.key !== 'staff').map((button) =>
+            listening('Welcome', button.key)
+        );
+
+        const installPlan = await plan(scenario, houseJourney(scenario));
+
+        expect(itemFor(installPlan, PANEL_KEY).note).toBe(
+            'Nobody listens to "Kinks" or "Ask staff" yet — a press answers "Nothing\'s hooked up to this yet".'
+        );
+    });
+
+    it('refuses to plan a message with buttons when no boot root registered who listens to them', async () => {
+        const scenario = await startScenario();
+        clearButtonListenerReaderForTests();
+        try {
+            await expect(plan(scenario, houseJourney(scenario))).rejects.toThrow(/no button listener reader is registered/);
+        } finally {
+            registerButtonListenerReader(standInReader);
+        }
     });
 
     it('reuses it on a second install, and sends nothing', async () => {
@@ -582,6 +624,81 @@ describe('drift and repair of a message resource', () => {
         const after = await check(scenario, changed);
         expect(after.drifted).toEqual([]);
         expect(after.cleanKeys).toContain(PANEL_KEY);
+    });
+
+    it('names the flows whose button a repair would take away, and only those', async () => {
+        const scenario = await startScenario();
+        await installHouse(scenario);
+        // `agree` stays declared; `safeword` and `staff` go, and a flow listens to each.
+        listeners = [listening('Welcome', 'agree'), listening('Safety net', 'safeword'), listening('Concierge', 'staff')];
+
+        const trimmed = houseJourney(scenario, {
+            buttons: BUTTONS.filter((button) => button.key !== 'safeword' && button.key !== 'staff'),
+        });
+        const drift = await check(scenario, trimmed);
+
+        const [report] = drift.drifted;
+        expect(report?.drift).toEqual([
+            {
+                kind: 'outOfDate',
+                declarationMoved: true,
+                embedsHidden: false,
+                disconnects: [
+                    { flowName: 'Safety net', buttonLabel: 'Safeword' },
+                    { flowName: 'Concierge', buttonLabel: 'Ask staff' },
+                ],
+            },
+        ]);
+        expect(describeDrift(report!.drift[0]!, 'message')).toBe(
+            "What's posted is older than this journey's message. Repair edits it in place, so it keeps its spot in the channel. " +
+                'Repairing it also takes away buttons flows listen to: **Safety net**\'s "Safeword" and **Concierge**\'s "Ask staff". ' +
+                'Point those triggers at other buttons first, or they go deaf.'
+        );
+    });
+
+    it('names one cut-off flow in a sentence of its own', async () => {
+        const scenario = await startScenario();
+        await installHouse(scenario);
+        listeners = [listening('Safety net', 'safeword')];
+
+        const trimmed = houseJourney(scenario, { buttons: BUTTONS.filter((button) => button.key !== 'safeword') });
+        const [report] = (await check(scenario, trimmed)).drifted;
+
+        expect(describeDrift(report!.drift[0]!, 'message')).toBe(
+            "What's posted is older than this journey's message. Repair edits it in place, so it keeps its spot in the channel. " +
+                'Repairing it also takes away the "Safeword" button **Safety net** listens to — point that trigger at another button first, or it goes deaf.'
+        );
+    });
+
+    it('names nobody already cut off by an earlier repair when a later edit is repaired', async () => {
+        const scenario = await startScenario();
+        await installHouse(scenario);
+        listeners = [listening('Safety net', 'safeword')];
+
+        // An operator repaired the safeword button away despite the warning...
+        const trimmed = houseJourney(scenario, { buttons: BUTTONS.filter((button) => button.key !== 'safeword') });
+        const repaired = await repair(scenario, trimmed, await check(scenario, trimmed));
+        expect(repaired.results.map((result) => result.outcome)).toEqual(['repaired']);
+
+        // ...so the next edit takes nothing more away, and saying so again would be noise.
+        const retitled = houseJourney(scenario, {
+            message: { content: 'Read these, then pick. Now.', embeds: [] },
+            buttons: BUTTONS.filter((button) => button.key !== 'safeword'),
+        });
+        const drift = await check(scenario, retitled);
+
+        expect(drift.drifted[0]?.drift).toEqual([{ kind: 'outOfDate', declarationMoved: true, embedsHidden: false }]);
+    });
+
+    it('names nobody when the repair takes away no listened button', async () => {
+        const scenario = await startScenario();
+        await installHouse(scenario);
+        listeners = [listening('Welcome', 'agree')];
+
+        const retitled = houseJourney(scenario, { message: { content: 'Read these, then pick. Now.', embeds: [] } });
+        const drift = await check(scenario, retitled);
+
+        expect(drift.drifted[0]?.drift).toEqual([{ kind: 'outOfDate', declarationMoved: true, embedsHidden: false }]);
     });
 
     it('refuses a repair whose declaration Discord would now refuse, naming the part, and sends nothing', async () => {

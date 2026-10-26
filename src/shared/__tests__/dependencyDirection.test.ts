@@ -23,6 +23,7 @@ const SRC_DIR = join(dirname(THIS_FILE), '..', '..');
 const GUARDED_PATHS = [
     join(SRC_DIR, 'shared', 'discordMessage'),
     join(SRC_DIR, 'shared', 'discordButtons.ts'),
+    join(SRC_DIR, 'shared', 'resourceKey.ts'),
     join(SRC_DIR, 'features-system', 'guild-uploads'),
 ] as const;
 

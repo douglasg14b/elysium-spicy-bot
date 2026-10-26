@@ -7,42 +7,24 @@
  * is what a press is routed by, so it is shown and editable rather than hidden; relabelling a
  * button leaves it alone. Nothing here is ever `disabled` (see `PictureSlot`).
  *
- * "↳ Nothing listening yet" is the truth in step 2: no flow can listen to one of these buttons
- * until step 3 gives Button Click a way to, and the line becomes the listening flow's name then.
+ * Under each button, the flow whose Button Click trigger listens to it, or "Nothing listening
+ * yet". A listened button's key is locked — `readOnly`, never `disabled`, since the field can
+ * hold focus — because renaming it would leave its trigger naming a button that is gone; and
+ * Remove asks first, naming who it cuts off.
  */
 
-import { useRef, useState, type CSSProperties } from 'react';
-import { Button, Group, Popover, SegmentedControl, Stack, Text, TextInput, UnstyledButton } from '@mantine/core';
-import { IconPlus } from '@tabler/icons-react';
-import type { MessageButton, MessageButtonStyle } from '@brattybot/web-sdk';
-import { DISCORD, TOOL_COLUMN } from './discordLook';
+import { useRef, useState } from 'react';
+import { Button, Group, Popover, Stack, Text, TextInput, UnstyledButton } from '@mantine/core';
+import { IconLock, IconPlus } from '@tabler/icons-react';
+import type { ButtonListener, MessageButton } from '@brattybot/web-sdk';
+import { cutOffQuestion, flowNamesOf } from '../buttonListeners';
+import { joinWithAnd } from '../nameLists';
+import { ButtonLabelField, ButtonStyleField } from './ButtonFields';
+import { BUTTON_FACE, BUTTON_STYLES, DISCORD, TOOL_COLUMN } from './discordLook';
 import { useEditorScope, type EditorButtons } from './editorScope';
 import { addButton, BUTTONS_PER_ROW, buttonRows, removeButton, updateButton } from './messageButtons';
 import { PartProblems } from './PartProblems';
-import { BUTTON_LABEL_RULE, MAX_BUTTONS } from './partRules';
-
-/** Discord's own colour for each style, and what the box calls it. */
-const STYLES: Readonly<Record<MessageButtonStyle, { readonly colour: string; readonly name: string }>> = {
-    Primary: { colour: '#5865f2', name: 'Blurple' },
-    Secondary: { colour: '#4e5058', name: 'Grey' },
-    Success: { colour: '#248046', name: 'Green' },
-    Danger: { colour: '#da373c', name: 'Red' },
-};
-
-const STYLE_ORDER: readonly MessageButtonStyle[] = ['Primary', 'Secondary', 'Success', 'Danger'];
-
-const FACE: CSSProperties = {
-    fontSize: 14,
-    fontWeight: 500,
-    lineHeight: '18px',
-    padding: '7px 16px',
-    borderRadius: 4,
-    color: '#fff',
-    maxWidth: 240,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-};
+import { MAX_BUTTONS } from './partRules';
 
 export function ButtonRow() {
     const scope = useEditorScope();
@@ -66,7 +48,7 @@ export function ButtonRow() {
                         editing ? (
                             <ButtonSlot key={index} buttons={buttons} index={index} button={button} />
                         ) : (
-                            <div key={index} style={{ ...FACE, background: STYLES[button.style].colour }}>
+                            <div key={index} style={{ ...BUTTON_FACE, background: BUTTON_STYLES[button.style].colour }}>
                                 {button.label}
                             </div>
                         )
@@ -95,7 +77,7 @@ function AddButton({ buttons }: { readonly buttons: EditorButtons }) {
         <UnstyledButton
             onClick={() => buttons.onChange(addButton(buttons.value))}
             style={{
-                ...FACE,
+                ...BUTTON_FACE,
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 6,
@@ -121,6 +103,7 @@ function ButtonSlot({ buttons, index, button }: ButtonSlotProps) {
     const [opened, setOpened] = useState(false);
     const target = useRef<HTMLButtonElement>(null);
     const problems = buttons.issues?.get(index) ?? [];
+    const listeners = buttons.listeners.filter((listener) => listener.buttonKey === button.key);
     const update = (patch: Partial<MessageButton>) => buttons.onChange(updateButton(buttons.value, index, patch));
 
     // Closed from inside — Done, Remove — focus goes back to the button, as a picture's does.
@@ -140,18 +123,20 @@ function ButtonSlot({ buttons, index, button }: ButtonSlotProps) {
                         data-problem={problems.length > 0 || undefined}
                         onClick={() => setOpened((open) => !open)}
                         style={{
-                            ...FACE,
-                            background: STYLES[button.style].colour,
+                            ...BUTTON_FACE,
+                            background: BUTTON_STYLES[button.style].colour,
                             outline: problems.length > 0 ? '1px dashed var(--mantine-color-red-5)' : undefined,
                             outlineOffset: 2,
                         }}
                     >
-                        {button.label || ' '}
+                        {button.label || ' '}
                     </UnstyledButton>
                 </Popover.Target>
                 <Popover.Dropdown className="nokey" p={12}>
+                    {/* Unmounted while shut, so a box reopened never carries a pending question. */}
                     <ButtonBox
                         button={button}
+                        listeners={listeners}
                         problems={problems}
                         onChange={update}
                         onDone={close}
@@ -162,15 +147,23 @@ function ButtonSlot({ buttons, index, button }: ButtonSlotProps) {
                     />
                 </Popover.Dropdown>
             </Popover>
-            <Text size="11.5px" c="yellow.5" lh={1.2}>
-                ↳ Nothing listening yet
-            </Text>
+            {listeners.length > 0 ? (
+                <Text size="11.5px" c="teal.4" lh={1.2}>
+                    ↳ {joinWithAnd(flowNamesOf(listeners))}
+                </Text>
+            ) : (
+                <Text size="11.5px" c="yellow.5" lh={1.2}>
+                    ↳ Nothing listening yet
+                </Text>
+            )}
         </Stack>
     );
 }
 
 interface ButtonBoxProps {
     readonly button: MessageButton;
+    /** The triggers listening to this button; none leaves its key free and its removal unasked. */
+    readonly listeners: readonly ButtonListener[];
     readonly problems: readonly string[];
     readonly onChange: (patch: Partial<MessageButton>) => void;
     readonly onDone: () => void;
@@ -178,56 +171,54 @@ interface ButtonBoxProps {
 }
 
 /** The box a button opens: its label, its style and its key. */
-function ButtonBox({ button, problems, onChange, onDone, onRemove }: ButtonBoxProps) {
-    const maxLength = BUTTON_LABEL_RULE.maxLength ?? Number.POSITIVE_INFINITY;
-    const over = button.label.length > maxLength;
+function ButtonBox({ button, listeners, problems, onChange, onDone, onRemove }: ButtonBoxProps) {
+    // Removing a button a flow listens to asks first, in the box, before anything goes.
+    const [askingToRemove, setAskingToRemove] = useState(false);
+    const listened = listeners.length > 0;
+    const listening = flowNamesOf(listeners);
+
+    if (askingToRemove) {
+        return (
+            <Stack gap={10}>
+                <Text size="13px">{cutOffQuestion(listeners, 'button')}</Text>
+                <Group justify="flex-end" gap={8}>
+                    <Button variant="subtle" color="gray" size="xs" onClick={() => setAskingToRemove(false)}>
+                        Keep it
+                    </Button>
+                    <Button color="red" size="xs" onClick={onRemove}>
+                        Remove anyway
+                    </Button>
+                </Group>
+            </Stack>
+        );
+    }
 
     return (
         <Stack gap={10}>
-            <TextInput
-                label="Label"
-                value={button.label}
-                onChange={(event) => onChange({ label: event.currentTarget.value })}
-                rightSectionWidth={64}
-                rightSection={
-                    <Text size="11px" c={over ? 'red.4' : 'dark.2'}>
-                        {button.label.length} / {BUTTON_LABEL_RULE.maxLength}
-                    </Text>
-                }
-            />
-            <div>
-                <Text size="sm" fw={500} mb={4}>
-                    Style
-                </Text>
-                <SegmentedControl
-                    fullWidth
-                    size="xs"
-                    aria-label="Style"
-                    value={button.style}
-                    onChange={(next) => onChange({ style: next as MessageButtonStyle })}
-                    data={STYLE_ORDER.map((style) => ({
-                        value: style,
-                        label: (
-                            <Group gap={5} wrap="nowrap" justify="center">
-                                <span
-                                    aria-hidden
-                                    style={{ width: 9, height: 9, borderRadius: 2, background: STYLES[style].colour, flex: 'none' }}
-                                />
-                                {STYLES[style].name}
-                            </Group>
-                        ),
-                    }))}
-                />
-            </div>
+            <ButtonLabelField value={button.label} onChange={(label) => onChange({ label })} />
+            <ButtonStyleField value={button.style} onChange={(style) => onChange({ style })} />
             <TextInput
                 label="Key"
-                description="What a press is known by. Settle on it before a flow listens to this button."
+                description={
+                    listened
+                        ? `Fixed — ${joinWithAnd(listening)} ${listening.length === 1 ? 'listens' : 'listen'} for it.`
+                        :'What a press is known by. Settle on it before a flow listens to this button.'
+                }
                 value={button.key}
+                // `readOnly`, never `disabled`: a field that stops being focusable while it has
+                // focus throws the cursor away (see `ResourcesPanelProps.saving`).
+                readOnly={listened}
+                rightSection={listened ? <IconLock size={14} aria-label="Locked" /> : undefined}
                 onChange={(event) => onChange({ key: event.currentTarget.value })}
             />
             <PartProblems problems={problems} mt={0} />
             <Group justify="flex-end" gap={8}>
-                <Button variant="subtle" color="gray" size="xs" onClick={onRemove}>
+                <Button
+                    variant="subtle"
+                    color="gray"
+                    size="xs"
+                    onClick={() => (listened ? setAskingToRemove(true) : onRemove())}
+                >
                     Remove button
                 </Button>
                 <Button size="xs" onClick={onDone}>

@@ -79,6 +79,24 @@ function messageHeadline(raw: unknown): string {
 }
 
 /**
+ * A message's button as "Rules panel · Verify": the message's name and the button's label,
+ * read from what the journey declares. A key the declarations no longer hold shows as the
+ * key itself — like a ticket type's, a key is readable, and "no button picked" would be a
+ * lie about a node that names one.
+ */
+function messageButtonName(raw: unknown, context: SummaryContext): string {
+    if (!raw || typeof raw !== 'object') return '';
+    const { messageKey, buttonKey } = raw as { messageKey?: unknown; buttonKey?: unknown };
+    if (typeof messageKey !== 'string' || typeof buttonKey !== 'string') return '';
+
+    const message = context.declaredResources.find(
+        (resource) => resource.kind === 'message' && resource.key === messageKey
+    );
+    const button = message?.buttons?.find((candidate) => candidate.key === buttonKey);
+    return `${message?.defaultName ?? messageKey} · ${button?.label ?? buttonKey}`;
+}
+
+/**
  * Resolve one field's current value the way that field's own `control` implies.
  *
  * Returns an empty string when the field is unset, which is what drives
@@ -268,6 +286,8 @@ function resolveValue(
             return formatDaysOfWeek(raw);
         case 'message':
             return messageHeadline(raw);
+        case 'messageButton':
+            return messageButtonName(raw, context);
         default: {
             const unhandled: never = field;
             void unhandled;

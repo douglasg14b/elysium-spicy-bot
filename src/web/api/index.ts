@@ -133,7 +133,7 @@ export function registerApiRoutes(app: OpenAPIHono<AppEnv>): void {
     // filters rather than rejects.
     app.use('/api/guilds/:guildId/*', requireGuildAccess);
     app.route('/api/guilds', guildRoutes());
-    // Flow CRUD + deploy share the /api/guilds/:guildId prefix (and its auth).
+    // Flow CRUD, install and uninstall share the /api/guilds/:guildId prefix (and its auth).
     app.route('/api/guilds', flowRoutes());
     // Journey CRUD shares the same prefix — a journey is guild-scoped structure, and
     // authorizing it separately would be a second answer to the same question.

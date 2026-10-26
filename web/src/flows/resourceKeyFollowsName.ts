@@ -35,6 +35,9 @@
  *   channel, and `pendingResourceFields` refuses the graph save because the sidecar names a
  *   key nothing declares. So the freeze is not conservatism; unfreezing it corrupts.
  *
+ * A **listened message** freezes the same way: a Button Click trigger names it by its key, so
+ * the frozen keys are the installed ones and the listened ones together (step 3, pick 6).
+ *
  * A **ticket type** is the exception to all of this: its key never follows, because the
  * key decides whether install reuses an existing type or makes one (`keyForRenamedResource`).
  *
@@ -146,6 +149,14 @@ export interface KeyFollowInput {
      */
     readonly installedKeys?: ReadonlySet<string>;
     /**
+     * Keys of messages a Button Click trigger listens to.
+     *
+     * Frozen like an installed key, and for the same reason: a trigger names the message by
+     * its key (`{ messageKey, buttonKey }`), so a rename carrying the key along would leave the
+     * trigger naming a message that is gone. Omitted by a caller that cannot know.
+     */
+    readonly listenedKeys?: ReadonlySet<string>;
+    /**
      * Whether the key was still following when this resource's name went blank.
      *
      * Only read while the name *is* blank — see `keyIsFollowing`. Omitted means no,
@@ -163,7 +174,7 @@ export interface KeyFollowInput {
  * and remount every row on each keystroke of the name field.
  */
 export function keyForRenamedResource(input: KeyFollowInput): string | undefined {
-    const { resource, nextName, resources, installedKeys } = input;
+    const { resource, nextName, resources, installedKeys, listenedKeys } = input;
 
     /*
      * A ticket type's key never follows its label. The key *is* the type: install reuses a
@@ -173,8 +184,8 @@ export function keyForRenamedResource(input: KeyFollowInput): string | undefined
      */
     if (resource.kind === 'ticketType') return undefined;
 
-    // Identity, not a label, the moment anything in the guild points at it.
-    if (installedKeys?.has(resource.key)) return undefined;
+    // Identity, not a label, the moment anything in the guild — or any trigger — points at it.
+    if (installedKeys?.has(resource.key) || listenedKeys?.has(resource.key)) return undefined;
 
     // Still a generated key means nobody has claimed it. Asked against the *current* name
     // rather than any stored original, so a row renamed twice without touching the key

@@ -3,6 +3,7 @@ import { uploadSizesFor } from '../../features-system/guild-uploads';
 import { journeysRepo } from './data/journeysRepo';
 import { resourceBindingsRepo } from './data/resourceBindingsRepo';
 import type { ResourceBindingEntity } from './data/resourceBindingsSchema';
+import { requireButtonListenerReader } from './buttonListeners';
 import { requireTicketTypeProvider } from './ticketTypeProvider';
 import { isJourneyBinding, type GuildOwnership } from './logic/bindingOwner';
 import { applyInstallPlan, type ApplyInstallPlanResult } from './logic/applyInstallPlan';
@@ -32,7 +33,7 @@ import {
 } from './logic/applyDriftRepair';
 import { buildUnpublishPlan, type UnpublishPlan } from './logic/unpublishPlan';
 import { journeyBusyMessage, withJourneyLock } from './logic/journeyOperationLock';
-import { readMessagePresence, readMessageState, type MessageState } from './logic/lookupBoundMessage';
+import { isPostedMessageRow, readMessagePresence, readMessageState, type MessageState } from './logic/lookupBoundMessage';
 import { prepareMessageEdit, type MessageEditPreparation } from './logic/prepareMessageEdit';
 import {
     isDiscordResource,
@@ -83,6 +84,11 @@ export async function previewInstall(input: PreviewInstallInput): Promise<Instal
         input.guild.id,
         input.journey.resources.flatMap((resource) => (resource.kind === 'message' && resource.message ? [resource.message] : []))
     );
+    // Who listens to its messages' buttons, for the note naming the ones nobody does — read
+    // only when a message has buttons, so a journey without any installs with no reader wired.
+    const buttonListeners = input.journey.resources.some((resource) => resource.kind === 'message' && resource.buttons?.length)
+        ? await requireButtonListenerReader()(input.guild.id, input.journey.journeyKey)
+        : undefined;
 
     return buildInstallPlan({
         guild: input.guild,
@@ -93,6 +99,7 @@ export async function previewInstall(input: PreviewInstallInput): Promise<Instal
         ticketTypes,
         messagePresence,
         uploadSizes,
+        buttonListeners,
         choices: input.choices,
         permissionContext: {
             subjectId: input.subjectId,
@@ -250,6 +257,11 @@ export async function previewDrift(input: PreviewDriftInput): Promise<JourneyDri
     // One fetch per message this journey has posted and still declares, which also says
     // whether somebody hid its embeds.
     const messageState = await readDeclaredMessageState(input.guild, input.journey, bindings);
+    // Who listens to its messages' buttons, so a repair that would take one away names them.
+    // Read only when a posted message carries a button its declaration no longer has.
+    const buttonListeners = postsButtonsNoLongerDeclared(input.journey, messageState)
+        ? await requireButtonListenerReader()(input.guild.id, input.journey.journeyKey)
+        : undefined;
 
     return buildJourneyDriftPlan({
         guild: input.guild,
@@ -258,10 +270,20 @@ export async function previewDrift(input: PreviewDriftInput): Promise<JourneyDri
         ownership,
         messagePresence: messageState.presence,
         embedsSuppressed: messageState.embedsSuppressed,
+        postedButtons: messageState.postedButtons,
+        buttonListeners,
         permissionContext: {
             subjectId: input.subjectId,
             staffRoleIds: input.staffRoleIds,
         },
+    });
+}
+
+/** Whether any posted message of this journey carries a button its declaration no longer has — one a repair would take away. */
+function postsButtonsNoLongerDeclared(journey: JourneyDeclaration, messageState: MessageState): boolean {
+    return journey.resources.some((resource) => {
+        const declared = new Set((resource.buttons ?? []).map((button) => button.key));
+        return (messageState.postedButtons.get(resource.key) ?? []).some((button) => !declared.has(button.key));
     });
 }
 
@@ -303,10 +325,12 @@ export async function previewOrphans(input: {
 
     // Only the rows no longer declared: a message the journey still declares is drift's.
     const declaredKeys = new Set(input.journey.resources.map((resource) => resource.key));
-    const messagePresence = await readMessagePresence(
-        input.guild,
-        bindings.filter((binding) => !declaredKeys.has(binding.resourceKey))
-    );
+    const leftovers = bindings.filter((binding) => !declaredKeys.has(binding.resourceKey));
+    const messagePresence = await readMessagePresence(input.guild, leftovers);
+    // Who still answers a leftover message's buttons — read only when one was posted.
+    const buttonListeners = leftovers.some((binding) => isPostedMessageRow(binding))
+        ? await requireButtonListenerReader()(input.guild.id, input.journey.journeyKey)
+        : undefined;
 
     return findOrphanedBindings({
         journey: input.journey,
@@ -314,6 +338,7 @@ export async function previewOrphans(input: {
         // Discord objects only; `findOrphanedBindings` branches a ticket type and a message off first.
         existsInGuild: (kind, discordId) => existsInGuildAs(input.guild, kind, discordId),
         messagePresence,
+        buttonListeners,
     });
 }
 

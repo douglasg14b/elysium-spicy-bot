@@ -1,6 +1,7 @@
 import { screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { BlockConfigField } from '@brattybot/web-sdk';
+import { NO_JOURNEY } from '../../../__tests__/support/noJourney';
 import { NO_UPLOADS } from '../../../__tests__/support/noUploads';
 import { renderWithProviders } from '../../../__tests__/support/renderWithProviders';
 import { ALL_REQUIREMENTS_AVAILABLE, type AvailableVariable } from '../../variables';
@@ -49,6 +50,7 @@ function renderSelect(options: { variables: AvailableVariable[]; value?: string;
         declaredResources: [],
         setConfigKey: vi.fn(),
         uploads: NO_UPLOADS,
+        ...NO_JOURNEY,
     };
 
     const rendered = renderWithProviders(

@@ -29,3 +29,20 @@ export const DiscordMessageSchema = z
             '(`upload:<uuid>`), an http(s) link, or text holding a token; the server judges its form, and the ' +
             'rules spanning parts, when it re-checks the node.',
     });
+
+/**
+ * What a `messageButton` config field holds: one button on one of the journey's messages, by
+ * the message resource's key and the button's. Named `MessageButtonRef` in the spec.
+ *
+ * The `defaultValue` of a `messageButton` config field (`nodeBody.ts`), which is how it reaches
+ * the spec, so the builder takes the control's value type from the SDK rather than writing its
+ * own. Plain strings: the picker writes only
+ * keys the journey declares, and the server judges them when it re-checks the node — the key
+ * rule in the block's schema, the declarations in `messageButtonIssues`.
+ */
+export const MessageButtonRefSchema = z
+    .object({ messageKey: z.string(), buttonKey: z.string() })
+    .openapi('MessageButtonRef', {
+        description:
+            "One button on one of the flow's journey's messages: the message resource's key and the button's key.",
+    });

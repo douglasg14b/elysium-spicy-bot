@@ -13,8 +13,14 @@ export interface PreviewPage {
     readonly steps?: readonly PreviewStep[];
 }
 
-/** One click: on a button by its accessible name, or on the first element showing some text. */
-export type PreviewStep = { readonly clickButton: string } | { readonly clickText: string };
+/**
+ * One click: on a button by its accessible name, on the first element showing some text, or on
+ * a text box by its accessible name — which is how a select opens its options.
+ */
+export type PreviewStep =
+    | { readonly clickButton: string }
+    | { readonly clickText: string }
+    | { readonly clickTextbox: string };
 
 /**
  * Where the preview server lists its seeded pages. Under `/api` so Vite's proxy forwards

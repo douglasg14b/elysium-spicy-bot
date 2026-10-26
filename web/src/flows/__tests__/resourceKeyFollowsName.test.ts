@@ -107,6 +107,22 @@ describe('keyForRenamedResource', () => {
         ).toBeUndefined();
     });
 
+    it('freezes the key once a flow listens to it, installed or not', () => {
+        // A Button Click trigger names the message by this key; renaming it would leave the
+        // trigger listening to a message that is gone before anything was ever posted.
+        const resource: ResourceDeclaration = { key: 'welcome', kind: 'message', defaultName: 'Welcome' };
+
+        expect(
+            keyForRenamedResource({
+                resource,
+                nextName: 'Front door',
+                resources: [resource],
+                installedKeys: new Set(),
+                listenedKeys: new Set(['welcome']),
+            })
+        ).toBeUndefined();
+    });
+
     it('still follows when some *other* resource is installed', () => {
         // The freeze is per resource, not per journey. A group where one channel is live
         // must not stop every sibling's key from tracking its name.

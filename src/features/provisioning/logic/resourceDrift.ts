@@ -53,8 +53,23 @@ export type ResourceDriftKind =
      * moved on since it was posted or last repaired (`messageDrift.ts`), or somebody hid its
      * embeds (SUPPRESS_EMBEDS), or both. What to write is the declaration, which repair already
      * holds; the two flags only say which, for the sentence.
+     *
+     * `disconnects` names the flows whose button the edit would take away — one a trigger
+     * listens to that the post carries and the declaration no longer has. Absent means none.
      */
-    | { readonly kind: 'outOfDate'; readonly declarationMoved: boolean; readonly embedsHidden: boolean };
+    | {
+          readonly kind: 'outOfDate';
+          readonly declarationMoved: boolean;
+          readonly embedsHidden: boolean;
+          readonly disconnects?: readonly ButtonDisconnect[];
+      };
+
+/** A trigger that listens to a button a repair would take off its message. */
+export interface ButtonDisconnect {
+    readonly flowName: string;
+    /** The label the posted button shows — what an operator sees on the message. */
+    readonly buttonLabel: string;
+}
 
 /**
  * Every {@link ResourceDriftKind}'s `kind`, as a value — what a repair reports it put back.
@@ -504,18 +519,31 @@ export function describeDrift(drift: ResourceDriftKind, kind: ResourceKind): str
             const count = drift.differences.length;
             return `Permission overwrites no longer match for ${count === 1 ? '1 role or member' : `${count} roles or members`}.`;
         }
-        case 'outOfDate':
+        case 'outOfDate': {
+            const cutOff = describeDisconnects(drift.disconnects ?? []);
             if (!drift.embedsHidden) {
-                return "What's posted is older than this journey's message. Repair edits it in place, so it keeps its spot in the channel.";
+                return `What's posted is older than this journey's message. Repair edits it in place, so it keeps its spot in the channel.${cutOff}`;
             }
             return drift.declarationMoved
-                ? "What's posted is older than this journey's message, and somebody hid its embeds. Repair edits it in place, so it keeps its spot and shows them again."
+                ? `What's posted is older than this journey's message, and somebody hid its embeds. Repair edits it in place, so it keeps its spot and shows them again.${cutOff}`
                 : 'Somebody hid its embeds in Discord ("Remove all embeds"). Repair edits it in place and puts them back on show.';
+        }
         default: {
             const unreachable: never = drift;
             throw new Error(`Unhandled drift kind: ${String(unreachable)}`);
         }
     }
+}
+
+/** The sentence naming who a repair would cut off, with its leading space — or nothing when nobody. */
+function describeDisconnects(disconnects: readonly ButtonDisconnect[]): string {
+    const [only, ...more] = disconnects;
+    if (!only) return '';
+    if (more.length === 0) {
+        return ` Repairing it also takes away the "${only.buttonLabel}" button **${only.flowName}** listens to — point that trigger at another button first, or it goes deaf.`;
+    }
+    const named = disconnects.map((entry) => `**${entry.flowName}**'s "${entry.buttonLabel}"`);
+    return ` Repairing it also takes away buttons flows listen to: ${named.slice(0, -1).join(', ')} and ${named.at(-1)}. Point those triggers at other buttons first, or they go deaf.`;
 }
 
 /** Whether a report found anything. Reads better than `.drift.length > 0` at call sites. */

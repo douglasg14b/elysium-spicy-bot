@@ -1,7 +1,7 @@
 import { StrictMode, useState } from 'react';
 import { screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import type { DiscordMessage, MessageButton } from '@brattybot/web-sdk';
+import type { ButtonListener, DiscordMessage, MessageButton } from '@brattybot/web-sdk';
 import { NO_UPLOADS } from '../../../__tests__/support/noUploads';
 import { renderWithProviders } from '../../../__tests__/support/renderWithProviders';
 import { ALL_REQUIREMENTS_AVAILABLE } from '../../variables';
@@ -21,7 +21,13 @@ interface Emitted {
     readonly buttons: MessageButton[][];
 }
 
-function Harness({ emitted, initialButtons }: { readonly emitted: Emitted; readonly initialButtons: readonly MessageButton[] }) {
+interface HarnessProps {
+    readonly emitted: Emitted;
+    readonly initialButtons: readonly MessageButton[];
+    readonly listeners: readonly ButtonListener[];
+}
+
+function Harness({ emitted, initialButtons, listeners }: HarnessProps) {
     const [message, setMessage] = useState<unknown>(RULES);
     const [buttons, setButtons] = useState<readonly MessageButton[]>(initialButtons);
     const [open, setOpen] = useState(true);
@@ -46,17 +52,18 @@ function Harness({ emitted, initialButtons }: { readonly emitted: Emitted; reado
                     emitted.buttons.push(next);
                     setButtons(next);
                 },
+                listeners,
             }}
             onClose={() => setOpen(false)}
         />
     );
 }
 
-function openWindow(initialButtons: readonly MessageButton[] = [LET_ME_IN]) {
+function openWindow(initialButtons: readonly MessageButton[] = [LET_ME_IN], listeners: readonly ButtonListener[] = []) {
     const emitted: Emitted = { messages: [], buttons: [] };
     const rendered = renderWithProviders(
         <StrictMode>
-            <Harness emitted={emitted} initialButtons={initialButtons} />
+            <Harness emitted={emitted} initialButtons={initialButtons} listeners={listeners} />
         </StrictMode>
     );
     return { ...rendered, emitted, window: screen.getByRole('dialog') };
@@ -132,6 +139,63 @@ describe('the buttons under the embeds', () => {
         await user.click(screen.getByRole('button', { name: 'Remove button' }));
 
         expect(emitted.buttons.at(-1)).toEqual([LET_ME_IN]);
+    });
+});
+
+describe('a button a flow listens to', () => {
+    const WELCOME: ButtonListener = {
+        messageKey: 'rules-panel',
+        buttonKey: 'let-me-in',
+        flowId: 'welcome',
+        flowName: 'Welcome',
+        nodeId: 'trigger-1',
+        enabled: true,
+    };
+    const NOPE: MessageButton = { key: 'nope', label: 'Nope', style: 'Danger' };
+
+    it('names the flow under it, and nothing under the one nobody listens to', () => {
+        const { window } = openWindow([LET_ME_IN, NOPE], [WELCOME]);
+
+        expect(within(window).getByText('↳ Welcome')).toBeTruthy();
+        expect(within(window).getAllByText('↳ Nothing listening yet')).toHaveLength(1);
+    });
+
+    /**
+     * A press is routed by the key, so renaming it would leave Welcome naming a button that is
+     * gone. `readOnly` rather than `disabled`: a focused field that stops being focusable throws
+     * the cursor away.
+     */
+    it('locks its key, readOnly and never disabled, and leaves a free button’s key editable', async () => {
+        const { user, window } = openWindow([LET_ME_IN, NOPE], [WELCOME]);
+
+        await user.click(within(window).getByRole('button', { name: 'Let me in' }));
+        const locked = screen.getByRole('textbox', { name: 'Key' }) as HTMLInputElement;
+        expect(locked.readOnly).toBe(true);
+        expect(locked.disabled).toBe(false);
+        expect(screen.getByText('Fixed — Welcome listens for it.')).toBeTruthy();
+
+        // A click on another button shuts this box and opens that one's.
+        await user.click(within(window).getByRole('button', { name: 'Nope' }));
+        expect((screen.getByRole('textbox', { name: 'Key' }) as HTMLInputElement).readOnly).toBe(false);
+    });
+
+    it('asks before Remove takes it, and keeps it when told to', async () => {
+        const { user, emitted, window } = openWindow([LET_ME_IN, NOPE], [WELCOME]);
+
+        await user.click(within(window).getByRole('button', { name: 'Let me in' }));
+        await user.click(screen.getByRole('button', { name: 'Remove button' }));
+
+        expect(
+            screen.getByText('Welcome listens to this button. Remove it anyway? That trigger will need another button.')
+        ).toBeTruthy();
+        expect(emitted.buttons).toEqual([]);
+
+        await user.click(screen.getByRole('button', { name: 'Keep it' }));
+        expect(emitted.buttons).toEqual([]);
+
+        await user.click(screen.getByRole('button', { name: 'Remove button' }));
+        await user.click(screen.getByRole('button', { name: 'Remove anyway' }));
+        expect(emitted.buttons.at(-1)).toEqual([NOPE]);
     });
 });
 

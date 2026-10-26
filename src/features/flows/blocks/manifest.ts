@@ -198,6 +198,15 @@ export const BLOCK_CONTROL_TYPES = [
      * field's schema to the stored shape (`controlShapeProbes` in `conformance.ts`).
      */
     'message',
+    /**
+     * One button on one of the flow's journey's messages, as one object-valued key holding
+     * two bare keys: `{ messageKey, buttonKey }`. Picked from what the journey declares, so
+     * it writes no `<field>Key` sidecar and install writes nothing back — it is not a
+     * resource picker. Conformance holds the field's schema to the stored shape
+     * (`controlShapeProbes` in `conformance.ts`), and readiness judges the keys against the
+     * declarations (`messageButtonIssues` in `logic/messageButtonReferences.ts`).
+     */
+    'messageButton',
 ] as const;
 
 export type BlockControlType = (typeof BLOCK_CONTROL_TYPES)[number];
@@ -587,6 +596,15 @@ export type BlockConfigField =
            * default declares none and lets the editor start from one fresh embed.
            */
           readonly defaultValue?: DiscordMessageInput;
+      })
+    | (BlockConfigFieldBase & {
+          /** A message's button, by its two keys. */
+          readonly control: 'messageButton';
+          /**
+           * Declared for the arm's shape like every other; no block has one to give, since
+           * which message and which button are the journey's, never the block's.
+           */
+          readonly defaultValue?: { readonly messageKey: string; readonly buttonKey: string };
       });
 
 /**

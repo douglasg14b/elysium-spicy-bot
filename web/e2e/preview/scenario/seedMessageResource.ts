@@ -28,12 +28,16 @@ export async function seedMessageResource({ guild, api }: SeedContext): Promise<
 
     const flow = await api.send<CreatedFlow>('POST', `${guildPath}/flows`, { name: FLOW_NAME });
     const flowPath = `${guildPath}/flows/${flow.flowId}`;
-    const declare = (title: string) =>
-        api.send('PUT', `${flowPath}/resources`, { resources: rulesPanel(title, banner.uploadId) });
+    // Each save sends the version the one before it answered with; the first has none.
+    const declare = (title: string, baseUpdatedAt?: string) =>
+        api.send<{ updatedAt: string }>('PUT', `${flowPath}/resources`, {
+            resources: rulesPanel(title, banner.uploadId),
+            baseUpdatedAt,
+        });
 
-    await declare('House rules');
+    const declared = await declare('House rules');
     await api.send('POST', `${flowPath}/install`, {});
-    await declare('House rules — read them, then pick');
+    await declare('House rules — read them, then pick', declared.updatedAt);
 
     const builder = `/flows/${flow.flowId}`;
     const openRow: readonly PreviewStep[] = [{ clickButton: 'Resources 2' }, { clickButton: 'Expand Rules panel' }];

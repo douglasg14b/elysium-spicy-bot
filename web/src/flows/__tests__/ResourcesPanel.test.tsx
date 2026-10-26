@@ -1,7 +1,13 @@
 import { useState } from 'react';
 import { screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import type { GuildChannel, GuildRole, ResourceDeclaration, TicketTypeView } from '@brattybot/web-sdk';
+import type {
+    ButtonListener,
+    GuildChannel,
+    GuildRole,
+    ResourceDeclaration,
+    TicketTypeView,
+} from '@brattybot/web-sdk';
 import { NO_UPLOADS } from '../../__tests__/support/noUploads';
 import { renderWithProviders } from '../../__tests__/support/renderWithProviders';
 import { ResourcesPanel } from '../ResourcesPanel';
@@ -22,6 +28,7 @@ interface PanelSetup {
     readonly roles?: GuildRole[];
     readonly installedKeys?: ReadonlySet<string>;
     readonly ticketTypes?: TicketTypeView[];
+    readonly listeners?: readonly ButtonListener[];
 }
 
 /**
@@ -45,6 +52,7 @@ function renderPanel(setup: PanelSetup) {
                 roles={setup.roles ?? []}
                 installedKeys={setup.installedKeys}
                 ticketTypes={setup.ticketTypes}
+                listeners={setup.listeners}
                 uploads={NO_UPLOADS}
             />
         );
@@ -417,6 +425,59 @@ describe('ResourcesPanel', () => {
 
             // Both put back, in two writes on one tick — neither may undo the other.
             expect(current().at(-1)).toEqual(PANEL);
+        });
+
+        describe('that a flow listens to', () => {
+            const WELCOME: ButtonListener = {
+                messageKey: 'rules-panel',
+                buttonKey: 'let-me-in',
+                flowId: 'welcome',
+                flowName: 'Welcome',
+                nodeId: 'trigger-1',
+                enabled: true,
+            };
+
+            it('keeps its key when renamed, and says why', async () => {
+                const { user, current } = renderPanel({ resources: [...DECLARED, PANEL], listeners: [WELCOME] });
+
+                const name = await openRow(user, 'Rules panel');
+                await user.type(name, ' for sluts');
+
+                expect(current().at(-1)).toMatchObject({ key: 'rules-panel', defaultName: 'Rules panel for sluts' });
+                expect(screen.getByText('Fixed — a flow listens to its buttons by it.')).toBeTruthy();
+            });
+
+            it('asks before removing the message, and keeps it when told to', async () => {
+                const { user, current } = renderPanel({ resources: [...DECLARED, PANEL], listeners: [WELCOME] });
+
+                await user.click(screen.getByRole('button', { name: 'Remove Rules panel' }));
+                expect(
+                    screen.getByText(
+                        'Welcome listens to a button on this message. Remove it anyway? That trigger will need another button.'
+                    )
+                ).toBeTruthy();
+                await user.click(screen.getByRole('button', { name: 'Keep it' }));
+                expect(current().some((resource) => resource.key === 'rules-panel')).toBe(true);
+
+                await user.click(screen.getByRole('button', { name: 'Remove Rules panel' }));
+                await user.click(screen.getByRole('button', { name: 'Remove anyway' }));
+                expect(current().some((resource) => resource.key === 'rules-panel')).toBe(false);
+            });
+
+            it('asks before removing the channel it is posted in, and not before one it is not', async () => {
+                const { user, current } = renderPanel({ resources: [...DECLARED, PANEL], listeners: [WELCOME] });
+
+                await user.click(screen.getByRole('button', { name: 'Remove lobby' }));
+                expect(current().some((resource) => resource.key === 'lobby')).toBe(false);
+
+                await user.click(screen.getByRole('button', { name: 'Remove rules' }));
+                expect(
+                    screen.getByText(
+                        'Welcome listens to a button on a message in this channel. Remove it anyway? That trigger will need another button.'
+                    )
+                ).toBeTruthy();
+                expect(current().some((resource) => resource.key === 'rules')).toBe(true);
+            });
         });
 
         it('wears a red chip saying why, and an orange one with no channel', async () => {

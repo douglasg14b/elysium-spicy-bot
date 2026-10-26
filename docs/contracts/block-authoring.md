@@ -79,9 +79,9 @@ marks it optional; arrays are declared empty rather than omitted, so a reader ca
 | `handles` | Every way a run can leave your block. See [Output handles](#output-handles). |
 | `outputs` | Values your block writes for later blocks to read, via `context.setOutput`. Read by the builder to offer an author the variables in scope. Discriminated on `naming` — `fixed` carries the name, `authored` names the config field holding it. See [Run variables](#run-variables). |
 | `requires` | Run context you cannot work without. See [Context requirements](#context-requirements). |
-| `capabilities` | Discord permissions the bot needs for your block to work. Not yet checked against what the bot holds — but `manageRoles` is read as "this block changes a member's roles": a `rolePicker` on such a block naming `@everyone`, a managed role, or one carrying any of `PRIVILEGED_ROLE_PERMISSIONS` (`logic/roleSafety.ts`) is a readiness issue (`logic/guildReferences.ts`) — stored, but never switched on or deployed — and the block asks `changeableRole` (`logic/roleSafety.ts`) again in its own `run`. |
+| `capabilities` | Discord permissions the bot needs for your block to work. Not yet checked against what the bot holds — but `manageRoles` is read as "this block changes a member's roles": a `rolePicker` on such a block naming `@everyone`, a managed role, or one carrying any of `PRIVILEGED_ROLE_PERMISSIONS` (`logic/roleSafety.ts`) is a readiness issue (`logic/guildReferences.ts`) — stored, but never switched on — and the block asks `changeableRole` (`logic/roleSafety.ts`) again in its own `run`. |
 | `emits` | What your action causes that can start a trigger — usually `[]`, and always `[]` on a trigger. Server-only. See [What a block causes](#what-a-block-causes--emits). |
-| `startedBy` | **Optional. Triggers only.** What fires you: `buttonClick`, `levelUp`, `memberJoin`, `memberLeave`, `messageSent`, `reactionAdd`, `scheduleDue`, or `ticketChanged`. `scheduleDue` is a schedule coming due: nothing on the gateway announces it, so `logic/reconcileGuildSchedules.ts` keeps a `flow_schedules` row per node with its next time and `logic/fireDueSchedules.ts` starts the due ones from the shared run tick, through an `onTick` hook `initFlows` hands the scheduler — the engine never names schedules. Its runs are about nobody, carry no channel, and are never limited. The gateway dispatchers select on this, so a new trigger for an existing source needs no dispatcher edit. Every dispatcher but the button's starts each run through one function, `startTriggeredRun` in `engine/triggeredRun.ts`, which isolates and logs a failure per run and is the only place a run start can be limited — only `messageSent` passes the flood limit. `ticketChanged` is a committed ticket change the ticket service announces through its subscriber seam; its dispatcher lives in `logic/ticketEventDispatch.ts` rather than `engine/`, because `ticket` is a word the engine vocabulary gate rejects, and it is the one source whose runs can be started by another run — see [How deep in a chain](#how-deep-in-a-chain--contextchaindepth). Leave it off any condition or action. |
+| `startedBy` | **Optional. Triggers only.** What fires you: `buttonClick`, `levelUp`, `memberJoin`, `memberLeave`, `messageSent`, `reactionAdd`, `scheduleDue`, or `ticketChanged`. `scheduleDue` is a schedule coming due: nothing on the gateway announces it, so `logic/reconcileGuildSchedules.ts` keeps a `flow_schedules` row per node with its next time and `logic/fireDueSchedules.ts` starts the due ones from the shared run tick, through an `onTick` hook `initFlows` hands the scheduler — the engine never names schedules. Its runs are about nobody, carry no channel, and are never limited. The gateway dispatchers select on this, so a new trigger for an existing source needs no dispatcher edit. Every dispatcher but the button's starts each run through one function, `startTriggeredRun` in `engine/triggeredRun.ts`, which isolates and logs a failure per run and is the only place a run start can be limited — only `messageSent` passes the flood limit. The button's (`logic/messageButtonPress.ts`, a press on a journey message's `mbtn:` button) starts its run through `startButtonRun` in `engine/flowTriggerDispatch.ts`, which asks the trigger's gate before waking parked button-click waits, and only on a node whose `startedBy` is `buttonClick` that names the pressed button in a `messageButton` field — see [Conformance](#conformance). `ticketChanged` is a committed ticket change the ticket service announces through its subscriber seam; its dispatcher lives in `logic/ticketEventDispatch.ts` rather than `engine/`, because `ticket` is a word the engine vocabulary gate rejects, and it is the one source whose runs can be started by another run — see [How deep in a chain](#how-deep-in-a-chain--contextchaindepth). Leave it off any condition or action. |
 | `canSuspend` | Whether `run` may park the run. State it truthfully; conformance holds you to it. |
 | `run` | The entry point. See [The entry point](#the-entry-point). |
 
@@ -243,8 +243,8 @@ style names and their discord.js map (`BUTTON_STYLES`, `BUTTON_STYLE_MAP`), the 
 label lengths (`DISCORD_CUSTOM_ID_MAX_LENGTH`, `DISCORD_BUTTON_LABEL_MAX_LENGTH`) and the row
 sizes. A journey's message resource posts buttons too, and provisioning may not import flows, so
 the constants moved there; a block that posts buttons imports them from there rather than
-declaring its own. Its customIds keep flows' prefixes (`flow:`, `flowc:`); `mbtn:` belongs to the
-message resource.
+declaring its own. Its customIds keep flows' prefix (`flowc:`); `mbtn:` belongs to the message resource, and
+`flow:` only to the retired trigger buttons' bridge (`engine/flowTriggerDispatch.ts`).
 
 ### Waking up
 
@@ -296,7 +296,7 @@ only renders** — never the other way round.
 | `longText` | string | a message body. `maxLength`, `placeholder`, `rendersTokens`. |
 | `duration` | milliseconds | any span. Shows a number plus a unit, so nobody hand-computes `604800000`. Set `optional: true` when absence is meaningful — clearing it removes the key rather than writing a zero. `placeholder` hints the empty number box — worth having chiefly on an `optional` field (e.g. `'No limit'`), where an empty box is a real setting rather than a blank. A field with a `defaultValue` is never empty, so a hint for it could never render. |
 | `segmented` | string | a few short choices, all visible at once. Needs `options`. Roughly two to four, but **label width decides**: segments split the inspector's width evenly, so one-word labels fit and full clauses do not. |
-| `select` | string | a dropdown. Needs `options`. Use it once the labels are long enough to be unreadable side by side, or there are more of them than segments can hold — `action.waitForEvent` has only three choices but picks this, because "They click a flow button" cannot be squeezed into a third of the panel. |
+| `select` | string | a dropdown. Needs `options`. Use it once the labels are long enough to be unreadable side by side, or there are more of them than segments can hold — `action.waitForEvent` picks this for its four event kinds, which would not read as four segments in the inspector's width. |
 | `colour` | `#RRGGBB` | a colour. `swatches` to suggest some. |
 | `textList` | `string[]` | an ordered list of short strings an author types. `placeholder`, `maxLength` (of **one entry**), `minEntries`, `maxEntries`, `addLabel`. |
 | `objectList` | `Record<string, unknown>[]` | an ordered list of **records** — `textList` one dimension up. Needs `columns`; also takes `minEntries`, `maxEntries`, `addLabel`. See below. |
@@ -305,6 +305,7 @@ only renders** — never the other way round.
 | `timeOfDay` | `HH:MM`, 24-hour | a time of day on the server's clock. Drawn as hour, minute (any minute, searchable) and AM/PM, with the server's zone under it — or the ask to pick one, linking to Server Settings, while none is picked. Conformance holds the schema to the stored shape: it must take `00:00` and `23:59` and refuse `24:00` and `9:00` — `z.string().regex(/^([01]\d\|2[0-3]):[0-5]\d$/, '…')`. |
 | `daysOfWeek` | `BlockDayKey[]` (`'mon'` … `'sun'`) | any of the seven days, offered Monday first as chips and written in week order. The keys are declared once, as `BLOCK_DAY_KEYS` in `blocks/manifest.ts` (mirrored in the browser under the vocabulary drift gate) — build your enum from them. Conformance holds the schema to exactly those seven keys. Its own `defaultValue: readonly string[]`, like `textList`'s. Refuse repeats with `.refine()`, not `uniqueItems`, and sort with a `.transform()` inside the field if order must not matter to you (`trigger.schedule`). |
 | `message` | a message object: `{ content?, embeds }`, up to 10 embeds | a whole Discord message — plain text above, embeds with header and footer icons, fields, thumbnail and image — edited in its own window, since the inspector is too narrow to draw an embed. Build the schema from `messageConfigSchema` in `src/shared/discordMessage/`, never by hand: its picture parts take `upload:<id>`, an http(s) link or a token, and its `superRefine` holds the rules that span parts (an empty message or embed, an icon with no text beside it, Discord's 6000 characters counted outside tokens). `swatches`: the embed colours offered, the first one colouring a new embed. `defaultValue` is schema input and must parse, and an empty message does not — so declare none, as Post Embed does: the window opens on one fresh embed and writes it on the first edit, and an untouched node gets "Fill this in." on Save. Always copy — there is no `rendersTokens` to forget (see [Copy and `{{tokens}}`](#copy-and-tokens)). Complaints under it (`message.embeds.0.title`) reach the control as `issues`, paths relative to the field: the inspector counts them, and the window marks the part each names. Conformance probes the schema for the stored shape: it must take `{ embeds: [{ title: 'a' }] }` and refuse `{}` and `'x'`. The field exports to the browser as `unchecked`; the window checks each part live against the SDK's `zDiscordMessage`, built from the same `messageShape`. |
+| `messageButton` | `{ messageKey, buttonKey }`, two resource keys in the flow's own journey | one button on one of the journey's message resources: pick a message, then a button, or make either on the spot ("+ New button on this message", "+ New message in…"), which writes into the journey's Resources. **Only a trigger with `startedBy: 'buttonClick'` may declare one** — see [Conformance](#conformance). Not a resource picker: no `<field>Key` sidecar, nothing written back at install, since a press finds its message through the message's binding. Readiness judges it against the journey's declarations (`messageButtonIssues`, `logic/messageButtonReferences.ts`): a message the journey doesn't declare, a button the message no longer has, two triggers of one flow on one button. One flow per button: the picker greys a button another flow names, and going live on one is refused naming that flow (`logic/buttonClaims.ts`). Conformance probes the schema for the stored shape: it must take `{ messageKey: 'a', buttonKey: 'b' }` and refuse `{}` and `'x'`. Exports to the browser as `unchecked`, as `eligibility` does. |
 
 ### Fields that only sometimes apply — `visibleWhen`
 
@@ -459,7 +460,7 @@ way that field's own `control` already implies:
 | `categoryPicker` | the category's bare name — no `#`, since nobody posts in one |
 | `ticketTypePicker` | the type's label; a key the guild no longer declares shows as the key itself, since "no type picked" would misstate a node that names one; a declared type still waiting on install shows as "‹label› (after install)" rather than the part's empty copy |
 | `duration` | `5m` (via the same formatter the inspector uses) |
-| `segmented` / `select` | the matching option's `label`, not the raw stored value — `action.waitForEvent`'s `eventKind: 'buttonClick'` renders as "They click a flow button", never `buttonClick` |
+| `segmented` / `select` | the matching option's `label`, not the raw stored value — `action.waitForEvent`'s `eventKind: 'buttonClick'` renders as "a button click", never `buttonClick` |
 | `text` / `longText` / `colour` | the raw string value |
 | `textList` | the entries joined on ` · `, blanks dropped |
 | `objectList` | a count plus the field's own label, e.g. `3 fields` — a record has no one string to show |
@@ -468,6 +469,7 @@ way that field's own `control` already implies:
 | `timeOfDay` | the 12-hour clock: `9:00 AM` |
 | `daysOfWeek` | the days in week order, `Mon, Wed, Fri` — or `Every day` when all seven are picked |
 | `message` | its headline: the first embed's title, else its body, else the plain text, else `2 embeds`. A message with nothing in it reads as unset. Post Embed: `[{ key: 'channelId', emptyText: 'no channel picked' }, { key: 'message', prefix: ' · ', quote: true, truncate: 20, hideWhenEmpty: true }]` → `#rules · "House rules"` |
+| `messageButton` | the message's name and the button's label, `Rules panel · Verify`, read from the journey's declarations; a key they no longer hold shows as the key itself, since "no button picked" would misstate a node that names one. Button Click: `[{ key: 'button', emptyText: 'no button picked', stopIfEmpty: true }, …]` |
 
 A part whose field is currently hidden by its `visibleWhen` renders **nothing** — not its
 value, not its `emptyText`, and its `stopIfEmpty` does not cut the line short.
@@ -488,7 +490,7 @@ and what to show in its place when it's unset:
 | `truncate` | Maximum characters of the resolved value before an ellipsis. Card-summary truncation, not the field's own `maxLength` — a card line is shorter than an inspector field. |
 | `emptyText` | Rendered **in place of the value**, still inside this part's `prefix`/`suffix`, when the field is unset — so `prefix: 'Assign '` with `emptyText: 'no role picked'` reads "Assign no role picked". `quote` and `truncate` are skipped, since empty copy is not the author's own text. Omit it and an unset field renders as nothing, which is rarely what you want — declare it. (Under `stopIfEmpty` it *is* the whole line, decorations and all discarded.) |
 | `hideWhenEmpty` | Drop this part (and its `prefix`/`suffix`) entirely when the field is unset, rather than showing `emptyText`. For a trailing, genuinely optional detail (`action.sendMessage`'s message preview) where "channel, nothing else" reads better than "channel, no message yet". |
-| `stopIfEmpty` | When the field is unset, render only this part's `emptyText` as the **entire** summary and discard every part after it. For when later parts stop making sense without this one — an unlabelled button (`trigger.buttonClick`) has no style worth showing either. Requires `emptyText` — conformance rejects `stopIfEmpty` without it, since otherwise the empty case renders nothing. |
+| `stopIfEmpty` | When the field is unset, render only this part's `emptyText` as the **entire** summary and discard every part after it. For when later parts stop making sense without this one — a `trigger.buttonClick` with no button picked has no gate worth showing either. Requires `emptyText` — conformance rejects `stopIfEmpty` without it, since otherwise the empty case renders nothing. |
 
 `hideWhenEmpty` and `stopIfEmpty` are mutually exclusive on one part: the first drops just that
 part, the second discards the whole line, and a part cannot mean both.
@@ -886,7 +888,7 @@ outage:
 - **`validateAuthoredGraph`** — everything that makes a flow *wrong* rather than unreadable:
   fan-out, handles a block does not declare, unsatisfiable context requirements. It decides
   whether a flow may go **live**, not whether it may be stored: a graph failing it saves as an
-  incomplete flow that cannot be enabled or deployed, reached through `flowReadinessIssues` in
+  incomplete flow that cannot be enabled, reached through `flowReadinessIssues` in
   `logic/flowReadiness.ts`. Never on read, so no stored graph is retroactively stranded.
 
 New rule? It is almost always the second one.
@@ -895,7 +897,7 @@ A rule that needs the flow's **server** rather than its graph sits beside the se
 `guildReferenceIssues` (`logic/guildReferences.ts`) refuses a picked channel, category or role
 that is not one of the server's own, read from its cache, and a role a `manageRoles` block may not
 change. Its issues are ordinary readiness issues, asked through `flowReadinessIssuesInGuild` by
-every caller holding the guild — the routes, the flows list, deploy — so the builder's marks and
+every caller holding the guild — the routes and the flows list — so the builder's marks and
 the switch-on refusal agree. The seed script, which has no Discord client, asks only the graph.
 A block that posts resolves its channel the same way at run time, from `context.guild`'s cache
 (`blocks/channelInGuild.ts`) — never `context.client.channels`, which reaches every server the
@@ -952,6 +954,9 @@ that has not caught up fails by name. It checks, from your declaration alone, th
   one at all
 - your `cardSummary`, if you declared one, only references fields that exist and is otherwise
   well formed — see [Card summary](#card-summary)
+- a `messageButton` field sits only on a trigger with `startedBy: 'buttonClick'`
+  (`checkMessageButtonSource`): that is the only block a press runs, and anywhere else the field
+  would claim the button and be listed as its listener while nothing ever answered it
 - your `emits` is `[]` on a trigger; each emission names a source in the vocabulary; each
   carried value is exactly `{ value }` or `{ fromField }`; and a `fromField` names one of your
   own fields that cannot hold a `{{var}}` — not `rendersTokens`, not a `message`, not a picker in

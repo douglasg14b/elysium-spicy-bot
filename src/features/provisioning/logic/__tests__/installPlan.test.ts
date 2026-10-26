@@ -1,5 +1,6 @@
 import { ChannelType, PermissionFlagsBits, SnowflakeUtil } from 'discord.js';
 import { describe, expect, it } from 'vitest';
+import type { ButtonListener } from '../../buttonListeners';
 import type { ResourceBindingEntity } from '../../data/resourceBindingsSchema';
 import { buildInstallPlan, isPlanApplicable, type PlanItem } from '../installPlan';
 import type { MessagePresence } from '../lookupBoundMessage';
@@ -868,6 +869,7 @@ describe('buildInstallPlan for a message', () => {
         readonly permissions?: bigint[];
         readonly uploadSizes?: ReadonlyMap<string, number>;
         readonly botCached?: boolean;
+        readonly buttonListeners?: readonly ButtonListener[];
     }) {
         return buildInstallPlan({
             guild: makeGuild({
@@ -879,7 +881,13 @@ describe('buildInstallPlan for a message', () => {
             existingBindings: input.bindings ?? [],
             messagePresence: input.presence ? new Map([['rules-panel', input.presence]]) : new Map(),
             uploadSizes: input.uploadSizes,
+            buttonListeners: input.buttonListeners ?? [],
         });
+    }
+
+    /** A trigger of flow `flowName` listening to `buttonKey` of the rules panel. */
+    function listener(flowName: string, buttonKey: string, messageKey = 'rules-panel'): ButtonListener {
+        return { messageKey, buttonKey, flowId: `flow-${flowName}`, flowName, nodeId: 'trigger', enabled: false };
     }
 
     it('posts a message never posted, after its channel', () => {
@@ -975,19 +983,68 @@ describe('buildInstallPlan for a message', () => {
         expect(itemFor(built.items, 'rules-panel')).toMatchObject({ action: 'create' });
     });
 
-    it('notes on every item for a message with buttons that nothing listens to them yet', () => {
-        const buttons = [{ key: 'agree', label: 'I agree', style: 'Success' as const }];
+    it('notes, by label, only the buttons no flow listens to — a switched-off flow counts as listening', () => {
+        const buttons = [
+            { key: 'agree', label: 'I agree', style: 'Success' as const },
+            { key: 'nope', label: 'Nope', style: 'Danger' as const },
+            { key: 'kinks', label: 'Kinks', style: 'Primary' as const },
+        ];
+        // `agree` is heard (by an off flow); `kinks` is named only on another message.
+        const listeners = [listener('Welcome', 'agree'), listener('Elsewhere', 'kinks', 'other-panel')];
 
-        const fresh = plan({ journey: messageJourney({ buttons }) });
-        const reused = plan({ journey: messageJourney({ buttons }), bindings: [channelRow, postedRow], presence: 'found' });
-        const bare = plan({});
+        const fresh = plan({ journey: messageJourney({ buttons }), buttonListeners: listeners });
+        const reused = plan({
+            journey: messageJourney({ buttons }),
+            bindings: [channelRow, postedRow],
+            presence: 'found',
+            buttonListeners: listeners,
+        });
 
         for (const built of [fresh, reused]) {
             expect(itemFor(built.items, 'rules-panel').note).toBe(
-                'Nobody listens to its buttons yet — a press answers "Nothing\'s hooked up to this yet".'
+                'Nobody listens to "Nope" or "Kinks" yet — a press answers "Nothing\'s hooked up to this yet".'
             );
         }
-        expect(itemFor(bare.items, 'rules-panel').note).toBeUndefined();
+    });
+
+    it('notes nothing when every button is heard, or there are none', () => {
+        const buttons = [{ key: 'agree', label: 'I agree', style: 'Success' as const }];
+
+        expect(itemFor(plan({ journey: messageJourney({ buttons }), buttonListeners: [listener('Welcome', 'agree')] }).items, 'rules-panel').note).toBeUndefined();
+        expect(itemFor(plan({}).items, 'rules-panel').note).toBeUndefined();
+    });
+
+    it('names one unheard button alone', () => {
+        const buttons = [{ key: 'agree', label: 'Verify', style: 'Success' as const }];
+
+        expect(itemFor(plan({ journey: messageJourney({ buttons }) }).items, 'rules-panel').note).toBe(
+            'Nobody listens to "Verify" yet — a press answers "Nothing\'s hooked up to this yet".'
+        );
+    });
+
+    it('names three or more unheard buttons as a list ending in "or"', () => {
+        const buttons = [
+            { key: 'agree', label: 'Verify', style: 'Success' as const },
+            { key: 'kinks', label: 'Kinks', style: 'Primary' as const },
+            { key: 'limits', label: 'Limits', style: 'Secondary' as const },
+        ];
+
+        expect(itemFor(plan({ journey: messageJourney({ buttons }) }).items, 'rules-panel').note).toBe(
+            'Nobody listens to "Verify", "Kinks" or "Limits" yet — a press answers "Nothing\'s hooked up to this yet".'
+        );
+    });
+
+    it('refuses to plan a message with buttons without being told who listens to them', () => {
+        const buttons = [{ key: 'agree', label: 'Verify', style: 'Success' as const }];
+
+        expect(() =>
+            buildInstallPlan({
+                guild: makeGuild({ channels: [RULES], permissions: [PermissionFlagsBits.ManageChannels, ...POSTING] }),
+                journey: messageJourney({ buttons }),
+                existingBindings: [],
+                messagePresence: new Map(),
+            })
+        ).toThrow(/without reading who listens to them/);
     });
 
     it('blocks a message over a row of another kind under its key, rather than forgetting it', () => {

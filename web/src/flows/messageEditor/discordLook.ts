@@ -5,6 +5,7 @@
  */
 
 import type { CSSProperties } from 'react';
+import type { MessageButtonStyle } from '@brattybot/web-sdk';
 import type { TextPart } from './messageDraft';
 
 export const DISCORD = {
@@ -38,6 +39,34 @@ export const PART_TYPE = {
 
 /** The width of each tool column beside an embed. */
 export const TOOL_COLUMN = 34;
+
+/**
+ * Discord's own colour for each button style, and what the dashboard calls it — for the message
+ * window's button row and the Button Click trigger's picker, which draw the same buttons.
+ */
+export const BUTTON_STYLES: Readonly<Record<MessageButtonStyle, { readonly colour: string; readonly name: string }>> = {
+    Primary: { colour: '#5865f2', name: 'Blurple' },
+    Secondary: { colour: '#4e5058', name: 'Grey' },
+    Success: { colour: '#248046', name: 'Green' },
+    Danger: { colour: '#da373c', name: 'Red' },
+};
+
+/** The styles in the order a style picker offers them. */
+export const BUTTON_STYLE_ORDER: readonly MessageButtonStyle[] = ['Primary', 'Secondary', 'Success', 'Danger'];
+
+/** A button's face as Discord draws it, less its colour. */
+export const BUTTON_FACE: CSSProperties = {
+    fontSize: 14,
+    fontWeight: 500,
+    lineHeight: '18px',
+    padding: '7px 16px',
+    borderRadius: 4,
+    color: '#fff',
+    maxWidth: 240,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+};
 
 /** Discord's own clock, for the message's header and a footer showing when it went out. */
 export function postedAtLabel(now: Date): string {

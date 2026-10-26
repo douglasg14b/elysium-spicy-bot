@@ -15,6 +15,7 @@ import { EligibilityControl } from './EligibilityControl';
 import { CategoryPickerControl, ChannelPickerControl, RolePickerControl } from './PickerControls';
 import { ColourControl } from './ColourControl';
 import { DurationControl } from './DurationControl';
+import { MessageButtonControl } from './MessageButtonControl';
 import { MessageControl } from './MessageControl';
 import { SegmentedChoiceControl, SelectChoiceControl } from './ChoiceControls';
 import { LongTextControl, TextControl } from './TextControls';
@@ -84,6 +85,8 @@ export function renderControl(
             return <DaysOfWeekControl field={field} {...props} />;
         case 'message':
             return <MessageControl field={field} {...props} />;
+        case 'messageButton':
+            return <MessageButtonControl field={field} {...props} />;
         default: {
             // Adding a member to `BLOCK_CONTROL_TYPES` without implementing it here
             // is a compile error, by design.

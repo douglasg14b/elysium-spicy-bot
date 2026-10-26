@@ -38,11 +38,9 @@ const WAX = summary('22222222-2222-2222-2222-222222222222', 'Wax play waiver');
 
 /** A flow with nothing live in the guild, as `GET …/published` answers it. */
 const NOTHING_PUBLISHED: PublishedFlowState = {
-    buttonMessages: [],
     deletableResources: [],
     refusedResources: [],
     keptSettings: [],
-    mayHaveUnrecordedButtons: false,
 };
 
 /** The answer to a switch's PUT: the flow as stored, now with `enabled` as asked. */

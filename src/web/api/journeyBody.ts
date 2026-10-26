@@ -5,6 +5,7 @@
  * route tests mock the barrel down to the functions they exercise.
  */
 import { z } from '@hono/zod-openapi';
+import type { ButtonListener } from '../../features/provisioning/buttonListeners';
 import type { JourneyEntity } from '../../features/provisioning/data/journeysSchema';
 import { REPAIR_OUTCOMES, type RepairedResource } from '../../features/provisioning/logic/applyDriftRepair';
 import { DECLARED_ROLE_PREFIX } from '../../features/provisioning/logic/declaredRoleReference';
@@ -39,6 +40,7 @@ import { ticketTypeDefinitionProblem } from '../../features/tickets/logic/setTic
 import { uploadSizesFor } from '../../features-system/guild-uploads/logic/readMessageUploads';
 import { DISCORD_BUTTON_LABEL_MAX_LENGTH } from '../../shared/discordButtons';
 import { messageUploadProblems } from '../../shared/discordMessage';
+import { RESOURCE_KEY_MAX_LENGTH, RESOURCE_KEY_PATTERN } from '../../shared/resourceKey';
 import { DiscordMessageSchema } from './messageBody';
 import { TicketTypeSettingsSchema } from './ticketBody';
 import {
@@ -81,9 +83,6 @@ export const JOURNEY_MAX_PERMISSIONS_PER_RESOURCE = 20;
 /** The most roles one permission row may name. */
 export const JOURNEY_MAX_ROLES_PER_PERMISSION = 50;
 
-/** The key pattern's body, shared by the key rule and the declared-role reference rule. */
-const RESOURCE_KEY_PATTERN = '[a-z0-9]+(-[a-z0-9]+)*';
-
 /**
  * A resource key, constrained to what is safe to embed in a Discord custom_id and
  * readable in a diagnostic: lowercase, digits, hyphens.
@@ -96,7 +95,7 @@ const RESOURCE_KEY_PATTERN = '[a-z0-9]+(-[a-z0-9]+)*';
 const resourceKeySchema = z
     .string()
     .min(1, 'Give the resource a key.')
-    .max(64, 'Resource keys cap at 64 characters.')
+    .max(RESOURCE_KEY_MAX_LENGTH, `Resource keys cap at ${RESOURCE_KEY_MAX_LENGTH} characters.`)
     .regex(
         new RegExp(`^${RESOURCE_KEY_PATTERN}$`),
         'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).'
@@ -218,7 +217,7 @@ const MessageButtonSchema = z
         key: z
             .string()
             .min(1, 'Give the button a key.')
-            .max(64, 'Button keys cap at 64 characters.')
+            .max(RESOURCE_KEY_MAX_LENGTH, `Button keys cap at ${RESOURCE_KEY_MAX_LENGTH} characters.`)
             .regex(
                 new RegExp(`^${RESOURCE_KEY_PATTERN}$`),
                 'Button keys use lowercase letters, numbers and single hyphens (for example `let-me-in`).'
@@ -316,8 +315,38 @@ export const ResourceDeclarationSchema = z
 
 const ResourceDeclarationsSchema = z.array(ResourceDeclarationSchema).readonly();
 
-/** What a flow declares, as both its resource routes answer: the read and the save. */
-export const FlowResourcesSchema = z.object({ resources: ResourceDeclarationsSchema });
+/**
+ * What a flow declares, as both its resource routes answer: the read and the save. `updatedAt`
+ * is its journey's version — the one a save sends back as `baseUpdatedAt` — and `null` while
+ * the flow is on no journey, so the first save, which creates one, knowingly sends none.
+ */
+export const FlowResourcesSchema = z.object({
+    resources: ResourceDeclarationsSchema,
+    updatedAt: z.union([z.string(), z.null()]),
+});
+
+/**
+ * The version a resource save was edited from: the journey's `updatedAt` as the browser last
+ * read it — off `GET /journeys/{journeyKey}`, `GET /flows/{flowId}/resources`, or the answer to
+ * its own last save. Both resource PUTs replace the whole list, so one carrying a list read
+ * before somebody else's save would delete what that save added; the version is how they tell.
+ */
+const resourcesBaseSchema = z.iso.datetime();
+
+/**
+ * The 409 of a resource save whose `baseUpdatedAt` is not the journey's version any more —
+ * or that sent none, to a journey that exists. Nothing was written.
+ */
+export const STALE_RESOURCES_MESSAGE =
+    'Somebody else got their hands on these resources since you loaded them, so saving would ' +
+    'trample their changes. Reload the page, then make yours again.';
+
+/**
+ * The 409 of a grouping whose merge found the destination's resources moved on between the
+ * route reading them and writing the merged list — a tab's save landing mid-drag. Nothing was
+ * merged, and the flow was not moved.
+ */
+export const GROUP_CHANGED_MESSAGE = 'This group changed while you were dragging — try again.';
 
 /**
  * Why a list of declarations is refused for a `roles` permission naming no role, or
@@ -473,19 +502,27 @@ export const JourneyUpdateSchema = z
         name: journeyNameSchema.optional(),
         description: journeyDescriptionSchema.nullable().optional(),
         resources: journeyResourcesSchema.optional(),
+        baseUpdatedAt: resourcesBaseSchema.optional(),
     })
     .openapi('JourneyUpdate', {
         description:
             'A partial update: send only what changed. `description: null` clears it. `resources` ' +
-            'replaces the whole list.',
+            'replaces the whole list, and must come with `baseUpdatedAt`, the journey\'s `updatedAt` ' +
+            'the list was edited from; a rename alone needs none.',
     });
 
 /** The body of `PUT /flows/{flowId}/resources`: the whole list, an empty one removing the flow's journey. */
 export const FlowResourcesSaveSchema = z
     .object({
         resources: journeyResourcesSchema,
+        baseUpdatedAt: resourcesBaseSchema.optional(),
     })
-    .openapi('FlowResourcesSave');
+    .openapi('FlowResourcesSave', {
+        description:
+            '`baseUpdatedAt` is the `updatedAt` the list was edited from, as the resource read or the ' +
+            'last save answered it. Required once the flow is on a journey; left out by the first ' +
+            'save, which creates one.',
+    });
 
 /** The body of `POST /flows/{flowId}/attach`. */
 export const FlowAttachSchema = z
@@ -592,6 +629,11 @@ export type AttachedFlowBody = z.infer<typeof AttachedFlowSchema>;
 /**
  * The journey one flow installs. `sharedWith` is every **other** flow on it, which is what
  * makes "detach" read differently from "detach, and two others still install it".
+ *
+ * `linked` is whether a link row names it. A flow from before the link table is on the
+ * journey keyed by its own id with no row, and its first resource save through the flow
+ * writes one — so the builder saves through the flow until this is true, and through the
+ * journey after.
  */
 export const FlowAttachmentSchema = z
     .object({
@@ -599,8 +641,12 @@ export const FlowAttachmentSchema = z
         name: z.string(),
         resourceCount: z.number(),
         sharedWith: z.array(AttachedFlowSchema),
+        linked: z.boolean(),
     })
-    .openapi('FlowAttachment');
+    .openapi('FlowAttachment', {
+        description:
+            'The journey a flow installs. `sharedWith` is every other flow on it. `linked` is false for a flow from before the link table, on the journey keyed by its own id with no link row yet; its next resource save through the flow writes one.',
+    });
 
 /**
  * What a detach did. `detached` is false when the flow was on no journey — the state asked
@@ -696,14 +742,40 @@ export const GroupPreviewSchema = journeyMergePlanSchema
         /** What to call the destination in copy, whether or not it exists yet. */
         destinationName: z.string(),
         movingFlowName: z.string(),
+        /** The group route's refusal, said first: a button both flows would listen to live. */
+        buttonConflict: z.union([z.string(), z.null()]),
     })
     .openapi('GroupPreview', {
         description:
             'What grouping would do. `destination` is null when the target flow is on no journey ' +
             'yet, so one would be created. `orphaned` are the live resources "leave" would strand. ' +
             '`sharedTicketTypes` are ticket types both sides declare, which a merge folds into the ' +
-            "destination's.",
+            "destination's. `buttonConflict`, when set, is why the grouping would be refused: the " +
+            'moving flow is live on a button a live flow of the destination already listens to.',
     });
+
+/** One trigger listening to one of a journey's message buttons. */
+const ButtonListenerSchema = z
+    .object({
+        messageKey: z.string(),
+        buttonKey: z.string(),
+        flowId: z.string(),
+        flowName: z.string(),
+        nodeId: z.string(),
+        enabled: z.boolean(),
+    })
+    .openapi('ButtonListener', {
+        description:
+            'A Button Click trigger naming one of the journey\'s message buttons by its keys. ' +
+            '`enabled` says whether its flow is switched on; an off flow is listed too.',
+    });
+
+/** Every trigger listening to the journey's message buttons, live and off. */
+export const JourneyButtonListenersSchema = z
+    .object({
+        listeners: z.array(ButtonListenerSchema).readonly(),
+    })
+    .openapi('JourneyButtonListeners');
 
 /**
  * What became of one approved repair. A partial repair is `failed` carrying a populated
@@ -734,6 +806,7 @@ type JourneyBodyChecks = ChecksHold<{
     SharedTicketType: SchemaMatches<typeof SharedTicketTypeSchema, SharedTicketType>;
     JourneyMergePlan: SchemaMatches<typeof journeyMergePlanSchema, JourneyMergePlan>;
     RepairedResource: SchemaMatches<typeof RepairedResourceSchema, RepairedResource>;
+    ButtonListener: SchemaMatches<typeof ButtonListenerSchema, ButtonListener>;
 }>;
 
 /** The checks in {@link JourneyBodyChecks} that fail, or `never`. Asserted `never` in `__tests__/journeyBody.test-d.ts`. */
@@ -768,6 +841,15 @@ export const JOURNEY_ERRORS = {
     404: JOURNEY_NOT_FOUND,
 };
 
+/**
+ * A journey's version as the API states it: its `updatedAt`, as an ISO string — what a
+ * resource save sends back as `baseUpdatedAt`. Every write goes through `journeysRepo`, which
+ * moves it forward, so it changes exactly when the journey does.
+ */
+export function journeyVersion(journey: Pick<JourneyEntity, 'updatedAt'>): string {
+    return new Date(journey.updatedAt).toISOString();
+}
+
 /** A stored journey as the routes send it. */
 export function journeyDetail(journey: JourneyEntity): z.infer<typeof JourneySchema> {
     return {
@@ -776,7 +858,7 @@ export function journeyDetail(journey: JourneyEntity): z.infer<typeof JourneySch
         description: journey.description,
         resources: journey.resources,
         createdAt: new Date(journey.createdAt).toISOString(),
-        updatedAt: new Date(journey.updatedAt).toISOString(),
+        updatedAt: journeyVersion(journey),
     };
 }
 

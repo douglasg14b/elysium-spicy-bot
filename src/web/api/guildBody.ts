@@ -57,7 +57,7 @@ import { BINDING_OWNER_KINDS } from '../../features/provisioning/data/resourceBi
  *
  *  - `actionSendMessage` / `actionPostEmbed` ask `isTextBased() && 'send' in channel`,
  *    a capability check an announcement channel passes.
- *  - `deployFlowButtons` refuses anything but `ChannelType.GuildText`.
+ *  - `deployFlowButtons` (retired since) refused anything but `ChannelType.GuildText`.
  *  - `existsInGuildAs`, which gates adoption, does the same.
  *
  * Listing `announcement` here added a *fourth* opinion and matched none of them: the
@@ -67,7 +67,7 @@ import { BINDING_OWNER_KINDS } from '../../features/provisioning/data/resourceBi
  *
  * The directory now reports what the strictest consumer accepts. Widening it again
  * means first giving the product one answer to "may a flow use this channel?" and making
- * all three sites ask it; until then, a type this endpoint does not send is a type no
+ * both remaining sites ask it; until then, a type this endpoint does not send is a type no
  * picker can offer, which is the honest failure.
  */
 export const GUILD_CHANNEL_TYPES = ['text', 'category'] as const;
@@ -209,9 +209,9 @@ export type GuildSettingsBody = z.infer<typeof GuildSettingsSchema>;
  *
  * Announcement channels fall through to `undefined` along with voice, stage and forum.
  * That is deliberate and is **not** a claim that a flow could not post in one — see the
- * note on `GUILD_CHANNEL_TYPES`. It is that provisioning and button deployment both
- * refuse anything but `GuildText`, and a directory that offers what those two reject
- * produces a declaration that fails after the apply has already started.
+ * note on `GUILD_CHANNEL_TYPES`. It is that provisioning refuses anything but `GuildText`,
+ * and a directory that offers what it rejects produces a declaration that fails after the
+ * apply has already started.
  */
 function channelTypeOf(channel: GuildBasedChannel): GuildChannelType | undefined {
     switch (channel.type) {

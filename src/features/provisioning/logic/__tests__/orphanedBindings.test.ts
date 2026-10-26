@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { ButtonListener } from '../../buttonListeners';
 import type { ResourceBindingEntity } from '../../data/resourceBindingsSchema';
 import type { MessagePresence } from '../lookupBoundMessage';
 import { describeOrphan, findOrphanedBindings } from '../orphanedBindings';
@@ -201,7 +202,7 @@ describe('a message no longer declared', () => {
     const posted = () =>
         binding({ resourceKey: 'rules-panel', kind: 'message', discordId: 'msg-1', name: 'Rules panel', messageChannelId: 'chan-1' });
 
-    function orphanWith(presence: MessagePresence) {
+    function orphanWith(presence: MessagePresence, buttonListeners: readonly ButtonListener[] = []) {
         const asked: string[] = [];
         const [orphan] = findOrphanedBindings({
             journey: journey([]),
@@ -211,6 +212,7 @@ describe('a message no longer declared', () => {
                 return false;
             },
             messagePresence: new Map([['rules-panel', presence]]),
+            buttonListeners,
         });
         // A message's id is in no guild cache; only what Discord said decides.
         expect(asked).toEqual([]);
@@ -235,5 +237,38 @@ describe('a message no longer declared', () => {
 
     it('counts as still posted when it could not be read, so its record is not forgotten on a guess', () => {
         expect(orphanWith({ unreadable: 'Discord is having a moment' }).stillInGuild).toBe(true);
+    });
+
+    it('names the flows still answering its buttons, once each, since forgetting the record cuts them off', () => {
+        const listener = (flowName: string, messageKey: string, buttonKey: string): ButtonListener => ({
+            messageKey,
+            buttonKey,
+            flowId: `flow-${flowName}`,
+            flowName,
+            nodeId: 'trigger',
+            enabled: true,
+        });
+
+        const orphan = orphanWith('found', [
+            listener('Welcome', 'rules-panel', 'agree'),
+            listener('Welcome', 'rules-panel', 'disagree'),
+            listener('Elsewhere', 'other-panel', 'agree'),
+        ]);
+
+        expect(orphan.listenedBy).toEqual(['Welcome']);
+        expect(describeOrphan(orphan)).toBe(
+            '**Rules panel** is no longer declared by this journey, but the message is still posted. Nothing installs or updates it any more. Its buttons still reach **Welcome** — forget this record and that flow goes deaf.'
+        );
+    });
+
+    it('refuses to list a posted message without being told who listens to it', () => {
+        expect(() =>
+            findOrphanedBindings({
+                journey: journey([]),
+                bindings: [posted()],
+                existsInGuild: () => false,
+                messagePresence: new Map([['rules-panel', 'found']]),
+            })
+        ).toThrow(/without reading who listens to its buttons/);
     });
 });

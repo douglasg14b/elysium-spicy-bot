@@ -97,7 +97,7 @@ describe('the pick reaches a later block through the real executor', () => {
     const graph: FlowGraph = {
         version: FLOW_GRAPH_VERSION,
         nodes: [
-            { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
+            { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { button: { messageKey: 'panel', buttonKey: 'go' } } },
             {
                 id: 'roll',
                 type: 'action.pickRandom',

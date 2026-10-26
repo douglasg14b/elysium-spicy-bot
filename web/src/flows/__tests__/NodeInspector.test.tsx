@@ -1,6 +1,7 @@
 import { screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { FlowValidationIssue, NodeDescriptor } from '@brattybot/web-sdk';
+import { NO_JOURNEY } from '../../__tests__/support/noJourney';
 import { NO_UPLOADS } from '../../__tests__/support/noUploads';
 import { renderWithProviders } from '../../__tests__/support/renderWithProviders';
 import { NodeInspector } from '../NodeInspector';
@@ -60,6 +61,7 @@ function renderInspector(options: {
             requirements={ALL_REQUIREMENTS_AVAILABLE}
             declaredResources={[]}
             uploads={NO_UPLOADS}
+            {...NO_JOURNEY}
             issues={options.issues ?? []}
             unconnectedExits={options.unconnectedExits ?? []}
             onChange={vi.fn()}

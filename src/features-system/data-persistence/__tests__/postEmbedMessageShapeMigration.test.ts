@@ -104,7 +104,7 @@ const ALREADY_MIGRATED = {
 const SEND_MESSAGE = { channelId: CHANNEL, message: 'Hello' };
 
 const FLOW_GRAPH = graphOf([
-    node('trigger', 'trigger.buttonClick', { channelId: CHANNEL, label: 'Go' }),
+    node('trigger', 'trigger.buttonClick', { button: { messageKey: 'panel', buttonKey: 'go' } }),
     node('complete', POST_EMBED, OLD.complete),
     node('incomplete', POST_EMBED, OLD.incomplete),
     node('sidecar', POST_EMBED, OLD.sidecar),
@@ -192,7 +192,7 @@ const UP = {
 } as const;
 
 const FLOW_GRAPH_UP = graphOf([
-    node('trigger', 'trigger.buttonClick', { channelId: CHANNEL, label: 'Go' }),
+    node('trigger', 'trigger.buttonClick', { button: { messageKey: 'panel', buttonKey: 'go' } }),
     node('complete', POST_EMBED, UP.complete),
     node('incomplete', POST_EMBED, UP.incomplete),
     node('sidecar', POST_EMBED, UP.sidecar),

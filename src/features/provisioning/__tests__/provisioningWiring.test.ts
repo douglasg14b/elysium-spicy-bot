@@ -126,6 +126,23 @@ describe('the upload usage reader is reachable', () => {
     });
 });
 
+/*
+ * `requireButtonListenerReader` throws when nothing is registered, so a boot root that skips
+ * the registration fails loudly at the first install or drift check of a journey whose
+ * messages have buttons — but only then, which a suite of journeys without buttons never
+ * reaches. Each boot root that serves the dashboard is read for it instead.
+ */
+describe('the button listener reader is reachable', () => {
+    it('is registered by initFlows, which bot.ts awaits', () => {
+        expect(BOT_CODE).toMatch(/\bawait initFlows\(\)/);
+        expect(codeOf(INIT_FLOWS_SOURCE)).toMatch(/registerButtonListenerReader\(journeyButtonListeners\)/);
+    });
+
+    it('is registered by the dashboard harness (web/e2e/support/bootBot.ts)', () => {
+        expect(codeOf(BOOT_BOT_SOURCE)).toMatch(/registerButtonListenerReader\(journeyButtonListeners\)/);
+    });
+});
+
 describe('journey authoring is reachable', () => {
     it('mounts the journey routes under the guild-scoped API group', () => {
         // The routes are the only way an operator can create a journey. Written and

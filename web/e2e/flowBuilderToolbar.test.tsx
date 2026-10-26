@@ -19,10 +19,6 @@ import { renderDashboard } from './support/renderDashboard';
  * offering an install. The toolbar reads the same published-state query as the inventory
  * dialog, and nothing in the builder asks again after a teardown — so the button changes
  * only because the dialog's own re-read moved the answer the two share.
- *
- * Its Deploy button: the flow's trigger button lands in the channel its node names.
- * Redeploying, which retires the first message, is not driven here: TestDiscord does not
- * model deleting a message.
  */
 
 const BOT_PERMISSIONS: readonly PermissionsString[] = ['ManageChannels', 'ManageRoles'];
@@ -154,31 +150,6 @@ describe('the builder toolbar', () => {
         expect(reads(`${installed.guildPath}/roles`)).toBe(2);
     });
 
-    it('deploys the flow’s button into the channel its trigger names', async () => {
-        const live = await guildWithLiveButtonFlow();
-        installDashboardApi(live.client, OPERATOR);
-        const { user } = renderDashboard(`/flows/${live.flowId}`);
-
-        await user.click(await screen.findByRole('button', { name: 'Deploy' }));
-        const dialog = await screen.findByRole('dialog', { name: 'Deploy flow' });
-        await user.click(within(dialog).getByRole('button', { name: 'Deploy' }));
-
-        expect(await screen.findByText('1 button(s) live in that channel. Go press one.')).toBeTruthy();
-        expect(live.signals.messages).toEqual([
-            expect.objectContaining({
-                content: `**${BUTTON_FLOW_NAME}**`,
-                components: [
-                    expect.objectContaining({
-                        components: [
-                            expect.objectContaining({ label: BUTTON_LABEL, custom_id: `flow:${live.flowId}:${BUTTON_NODE_ID}` }),
-                        ],
-                    }),
-                ],
-            }),
-        ]);
-        expect(live.faults).toEqual([]);
-    });
-
     it('keeps a selected card when Backspace is pressed inside a dialog over the canvas', async () => {
         // Every modal carries React Flow's `nokey` (the theme's default), so a key pressed
         // in a dialog never reaches the canvas's delete underneath it.
@@ -196,13 +167,16 @@ describe('the builder toolbar', () => {
         await user.keyboard('{Enter}');
         await waitFor(() => expect(card.classList.contains('selected')).toBe(true));
 
-        await user.click(screen.getByRole('button', { name: 'Deploy' }));
-        const dialog = await screen.findByRole('dialog', { name: 'Deploy flow' });
-        within(dialog).getByRole('button', { name: 'Deploy' }).focus();
+        await user.click(screen.getByRole('button', { name: 'Install 2' }));
+        const dialog = await screen.findByRole('dialog', { name: 'Install what this flow needs' });
+        const [inDialog] = await within(dialog).findAllByRole('button');
+        if (!inDialog) throw new Error('The install dialog has no button to focus.');
+        inDialog.focus();
         await user.keyboard('{Backspace}');
 
         expect(cardsOnCanvas()).toHaveLength(2);
         expect(screen.queryByText(/^Unsaved changes/)).toBeNull();
+        expect(live.faults).toEqual([]);
     });
 });
 
@@ -211,18 +185,18 @@ const cardsOnCanvas = (): HTMLElement[] => [...document.querySelectorAll<HTMLEle
 
 const BUTTON_FLOW_NAME = 'Safeword check-in';
 const BUTTON_NODE_ID = 'check-in';
-const BUTTON_LABEL = 'Still green?';
 
 interface LiveButtonFlow {
     readonly client: Client<true>;
     readonly flowId: string;
-    /** The channel the button trigger names. */
-    readonly signals: ServerChannel;
     /** What the dashboard app reported as faults, read after the page has run. */
     readonly faults: readonly string[];
 }
 
-/** A guild with one switched-on flow started by a button in `#signals`, never deployed. */
+/**
+ * A guild with one switched-on flow started by a button on a message its journey declares
+ * in `#signals` — two resources, neither installed yet.
+ */
 async function guildWithLiveButtonFlow(): Promise<LiveButtonFlow> {
     const discord = new TestDiscord();
     running.push(discord);
@@ -242,7 +216,10 @@ async function guildWithLiveButtonFlow(): Promise<LiveButtonFlow> {
                 id: BUTTON_NODE_ID,
                 type: TRIGGER_BUTTON_CLICK,
                 position: { x: 0, y: 0 },
-                data: { channelId: signals.id, label: BUTTON_LABEL, style: 'Primary', [ELIGIBILITY_CONFIG_KEY]: OPEN_GATE },
+                data: {
+                    button: { messageKey: 'check-in-panel', buttonKey: 'still-green' },
+                    [ELIGIBILITY_CONFIG_KEY]: OPEN_GATE,
+                },
             },
             { id: 'reassure', type: ACTION_SEND_DM, position: { x: 0, y: 160 }, data: { message: 'Noted. Carry on, you menace.' } },
         ],
@@ -250,8 +227,21 @@ async function guildWithLiveButtonFlow(): Promise<LiveButtonFlow> {
     };
     const guildPath = `/api/guilds/${guild.id}`;
     const flow = await api.send<{ flowId: string }>('POST', `${guildPath}/flows`, { name: BUTTON_FLOW_NAME, graph });
+    await api.send('PUT', `${guildPath}/flows/${flow.flowId}/resources`, {
+        resources: [
+            { key: 'signals', kind: 'textChannel', defaultName: 'signals', adoptDiscordId: signals.id },
+            {
+                key: 'check-in-panel',
+                kind: 'message',
+                defaultName: 'Check-in panel',
+                parentKey: 'signals',
+                message: { embeds: [{ title: 'Still with us?' }] },
+                buttons: [{ key: 'still-green', label: 'Still green?', style: 'Primary' }],
+            },
+        ],
+    });
     await api.send('PUT', `${guildPath}/flows/${flow.flowId}`, { enabled: true });
     expect(faults).toEqual([]);
 
-    return { client, flowId: flow.flowId, signals, faults };
+    return { client, flowId: flow.flowId, faults };
 }

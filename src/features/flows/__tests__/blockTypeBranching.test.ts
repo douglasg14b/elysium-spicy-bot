@@ -173,8 +173,6 @@ const DECLARED_BLOCK_DEPENDENTS: Readonly<Record<string, string>> = {
         'Residual: reads triggerMessageSent\'s schema to index each trigger by where it listens and what text it wants.',
     'src/features/flows/engine/messageTriggerDispatch.ts':
         'Residual: fills in triggerMessageSent\'s output keys, the Level Reached precedent — only the dispatcher sees the message.',
-    'src/features/flows/logic/planButtonDeployment.ts':
-        'Residual: reads triggerButtonClick\'s schema to render its button and read its destination.',
     'src/features/flows/logic/ticketEventDispatch.ts':
         'Residual: reads triggerTicketEvent\'s schema to match a ticket change by event and type — in logic/ rather than engine/ because `ticket` is a proven rejection of the engine vocabulary gate.',
     'src/features/flows/logic/reconcileGuildSchedules.ts':
@@ -182,7 +180,7 @@ const DECLARED_BLOCK_DEPENDENTS: Readonly<Record<string, string>> = {
     'src/features/flows/logic/scheduleTimes.ts':
         'Residual: takes triggerSchedule\'s config type and its table of interval lengths — the time math is the block\'s own rules, kept in logic/ so the block-dependents check can see the import.',
     'src/web/api/staleBuilderGraph.ts':
-        'Temporary: a one-deploy bridge refusing saves from builder tabs older than actionPostEmbed\'s reshape to one `message` (2026-10-24 migration). Remove both together once no tab can predate it.',
+        'Temporary: a one-deploy bridge refusing saves from builder tabs older than actionPostEmbed\'s reshape to one `message` (2026-10-24 migration) or triggerButtonClick\'s to one `button` (step 3). Remove both together once no tab can predate them.',
 };
 
 /**

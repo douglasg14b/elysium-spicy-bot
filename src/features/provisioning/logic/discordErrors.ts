@@ -6,8 +6,7 @@ import { HTTPError, RESTJSONErrorCodes } from 'discord.js';
  * Matched numerically so a reworded message cannot turn "it is gone" into a failure, and
  * so a permission error is never mistaken for a tidy-up. Shared because two features now
  * need the same answer: teardown treats "already gone" as success, and ticket category
- * lookup treats it as the one signal that a category may be recreated. Mirrors
- * `isUnknownMessage` in `undeployFlowButtons.ts`, which does the same job for 10008.
+ * lookup treats it as the one signal that a category may be recreated.
  */
 
 /** 10003 `Unknown Channel`. */

@@ -10,10 +10,11 @@
  * See `resourceSaveQueue.ts` for the bug and the rule; this file is its wiring.
  */
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { notifications } from '@mantine/notifications';
 import { ApiError, type ResourceDeclaration } from '@brattybot/web-sdk';
 import {
+    classifySaveFailure,
     decideAutosaveAction,
     describeSaveFailure,
     isWorthSaving,
@@ -25,6 +26,7 @@ import {
     resourceTargetIdentity,
     storeResources,
     type ResourceSaveTarget,
+    type StoredResources,
 } from './resourceSaveTarget';
 
 interface ResourceAutosaveInput {
@@ -40,8 +42,22 @@ interface ResourceAutosaveInput {
      * one concept: the first said where to write and the second was only ever part of the
      * bookkeeping identity. See `resourceSaveTarget.ts` for why the two surfaces cannot
      * share one endpoint.
+     *
+     * **May change under one {@link subject}**: the builder saves through the flow until the
+     * flow is linked to its journey, then through the journey (`builderResourcesTarget`). That
+     * is a different door into the same list, not a different list, so it moves nothing the
+     * bookkeeping holds — see `targetsRef`.
      */
     target: ResourceSaveTarget | undefined;
+    /**
+     * Whose list this is, for the bookkeeping identity: the builder's flow, or the group
+     * header's journey. Defaults to {@link target}, which is right wherever the two never part.
+     *
+     * The builder's list is *its flow's* through every door it saves by — and two builder tabs'
+     * worth of flows on one journey are two lists on screen, which a journey target alone would
+     * name the same.
+     */
+    subject?: ResourceSaveTarget;
     /**
      * The journey the current list belongs to, or `undefined` while it is unknown or the
      * flow is attached to nothing.
@@ -58,13 +74,20 @@ interface ResourceAutosaveInput {
     journeyKey: string | undefined;
     resources: ResourceDeclaration[];
     /**
+     * The version `resources` was loaded at (`StoredResources.updatedAt`), read when the list
+     * is first seen for this identity. After that the hook keeps its own copy, moved on by
+     * each save's answer — see `versionsRef`.
+     */
+    updatedAt: string | null;
+    /**
      * Whether the initial fetch has finished.
      *
      * Without this the empty list held before the first load would be saved over the
      * stored one — an autosave that deletes what it was meant to protect, on open.
      */
     loaded: boolean;
-    onSaved: (resources: ResourceDeclaration[]) => void;
+    /** The list as the server stored it, and the version it is now at. */
+    onSaved: (stored: StoredResources) => void;
     onSavingChange: (saving: boolean) => void;
     onError: (message: string | null) => void;
 }
@@ -72,8 +95,10 @@ interface ResourceAutosaveInput {
 export function useResourceAutosave({
     guildId,
     target,
+    subject = target,
     journeyKey,
     resources,
+    updatedAt,
     loaded,
     onSaved,
     onSavingChange,
@@ -90,12 +115,15 @@ export function useResourceAutosave({
      * A flow attached to nothing contributes an empty segment rather than being omitted,
      * so `guild/flow:abc/` and `guild/flow:abc/onboarding` are distinguishable.
      *
-     * The target segment carries its **kind** as well as its id — see
+     * The subject segment carries its **kind** as well as its id — see
      * `resourceTargetIdentity`. A flow id and the key of its implicit journey are the same
-     * string, so without the prefix the builder's target and the group header's would
+     * string, so without the prefix the builder's subject and the group header's would
      * collide and one surface's stored list would be read as an edit of the other's.
+     *
+     * Built from the **subject**, not the target, so the builder moving from the flow's door to
+     * the journey's keeps one identity — and with it the version its last save answered with.
      */
-    const identity = `${guildId}/${target ? resourceTargetIdentity(target) : ''}/${journeyKey ?? ''}`;
+    const identity = `${guildId}/${subject ? resourceTargetIdentity(subject) : ''}/${journeyKey ?? ''}`;
     /**
      * The list as the server last confirmed it, or `undefined` for "send the next edit
      * whatever it looks like".
@@ -115,6 +143,34 @@ export function useResourceAutosave({
 
     /** Monotonic request number. See `shouldAcceptResponse` for why this is not a diff. */
     const issuedRef = useRef(0);
+
+    /**
+     * Each identity's journey version as the server last answered it, sent with that
+     * identity's saves as `baseUpdatedAt`.
+     *
+     * Read when the queued request actually leaves rather than when it was queued: a second
+     * save waits behind the first, and must carry the version the *first* one moved the
+     * journey to, or the server would refuse it as stale. Moved on by **every** answer for an
+     * identity, superseded ones included — the server stored that list, so its version is the
+     * journey's now whether or not the screen adopts the list.
+     *
+     * **Keyed by identity, because requests outlive the screen.** Leaving flow A mid-save
+     * queues A's flush behind A's save while the screen loads flow B; one shared version would
+     * hold B's by the time A's flush left — a 409 for a save that was never stale, and the
+     * edit dropped. So a request writes its own identity's version on success whether or not
+     * the screen still shows it, and reads its own identity's when it leaves.
+     */
+    const versionsRef = useRef(new Map<string, string | null>());
+    const latestVersionRef = useRef(updatedAt);
+    latestVersionRef.current = updatedAt;
+
+    /**
+     * Identities whose journey moved on under this tab: a save of theirs got the stale-version
+     * 409. Nothing more is sent for them — every save would be refused the same way — the
+     * message telling the operator to reload stays up, and leaving with the edits unsaved says
+     * so. Cleared only when the identity's stored list is loaded afresh (`adoptBaseline`).
+     */
+    const staleRef = useRef(new Set<string>());
 
     /**
      * The last write queued, until it settles. Writes go one at a time, behind it, as the
@@ -144,43 +200,34 @@ export function useResourceAutosave({
     callbacksRef.current = { onSaved, onSavingChange, onError };
 
     /**
-     * The target, pinned to one object per distinct target.
+     * The endpoint each identity saves through, as last rendered, read when a request leaves.
      *
-     * **This is load-bearing, not tidiness.** `target` is an object and both callers build
-     * it inline, so it is a fresh reference every render. Used directly as a `useCallback`
-     * dependency it would rebuild `send` on each render, which rebuilds the effect below,
-     * whose cleanup clears the pending `setTimeout` — the debounce would be reset by every
-     * render and the save would never fire at all. That is a silent, total loss of
-     * persistence, and no typecheck or existing test would notice it: the sequencing suite
-     * drives the pure decisions in `resourceSaveQueue.ts` rather than this effect.
+     * **Not a dependency of anything, and that is load-bearing.** `target` is an object both
+     * callers build inline, so a fresh reference every render; as a `useCallback` dependency it
+     * would rebuild `send` on each render, which rebuilds the effect below, whose cleanup clears
+     * the pending `setTimeout` — the debounce would be reset by every render and the save would
+     * never fire at all. A silent, total loss of persistence no typecheck would notice.
      *
-     * Keying the memo on `identity` rather than on the object is what fixes it, and it is
-     * exact rather than approximate: `identity` is built by `resourceTargetIdentity`, which
-     * *is* the canonical serialisation of this object, so two targets share a reference here
-     * precisely when they name the same endpoint.
+     * **Keyed by identity, never one shared slot.** The unmount flush runs during *cleanup*,
+     * after the render that moved on, so a single "current target" would hand the flush
+     * watching the old identity the *new* identity's endpoint while it carries the old list —
+     * one surface's declarations written to another, the failure `baselineFlowRef` exists to
+     * prevent. Keyed by identity, a flush can only ever find its own identity's door.
      *
-     * **It also has to be a value and not a ref.** A ref is written during render and read
-     * by the unmount flush during *cleanup*, which runs afterwards — so on the commit that
-     * changes the target, the flush watching the old identity would resolve its endpoint
-     * from the *new* target while carrying the old target's list. That writes one surface's
-     * declarations to another: the failure `baselineFlowRef` exists to prevent, arriving by
-     * a different door. A memo is captured by the closure that `identity` also built, so the
-     * two cannot disagree by construction.
+     * **Read as the request leaves**, as the version is: the builder moves from the flow's door
+     * to the journey's under one identity once the flow is linked (`target`), and a save queued
+     * behind the one that linked it goes through the journey with the version that one answered.
      */
-    const stableTarget = useMemo(
-        () => target,
-        // Deliberately keyed on the identity string rather than on the object. `identity`
-        // *is* the canonical serialisation of `target` (`resourceTargetIdentity`), so this
-        // holds one object per distinct target and re-renders that merely rebuild an equal
-        // one get the same reference back.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [identity]
-    );
+    const targetsRef = useRef(new Map<string, ResourceSaveTarget>());
+    if (target) targetsRef.current.set(identity, target);
+    const hasTarget = target !== undefined;
 
     const send = useCallback(
         (next: ResourceDeclaration[]) => {
-            if (!guildId || !stableTarget) return;
-            const target = stableTarget;
+            const queuedTarget = targetsRef.current.get(identity);
+            if (!guildId || !queuedTarget) return;
+            // This identity's door when the request leaves, which may have moved since it was queued.
+            const endpoint = () => targetsRef.current.get(identity) ?? queuedTarget;
 
             const serialised = JSON.stringify(next);
             savedRef.current = serialised;
@@ -212,7 +259,11 @@ export function useResourceAutosave({
             savingChange(true);
             error(null);
 
-            const request = queueRef.current.then(() => storeResources(guildId, target, next));
+            // The version is read as the request leaves, behind the one before it, and it is
+            // this request's identity's: see `versionsRef`.
+            const request = queueRef.current.then(() =>
+                storeResources(guildId, endpoint(), next, versionsRef.current.get(identity) ?? null)
+            );
             queueRef.current = request.then(
                 () => undefined,
                 () => undefined
@@ -220,20 +271,27 @@ export function useResourceAutosave({
 
             void request
                 .then((stored) => {
+                    // Before both checks: the journey is at this version now whether or not
+                    // the screen still shows it, or takes the list — and a flush of this
+                    // identity may already be queued behind this request.
+                    versionsRef.current.set(identity, stored.updatedAt);
+                    if (!stillOnThisFlow()) return;
                     // A response that a later edit has already superseded is dropped
                     // rather than applied. Applying it is the revert.
-                    if (!stillOnThisFlow()) return;
                     if (!shouldAcceptResponse(issued, issuedRef.current)) return;
-                    savedRef.current = JSON.stringify(stored);
+                    savedRef.current = JSON.stringify(stored.resources);
                     saved(stored);
                 })
                 .catch((cause: unknown) => {
-                    if (!stillOnThisFlow()) return;
-
-                    const { showError, revertToStored } = describeSaveFailure(
+                    const { showError, revertToStored, markStale } = describeSaveFailure(
                         issued,
-                        issuedRef.current
+                        issuedRef.current,
+                        cause instanceof ApiError ? classifySaveFailure(cause.status, cause.message) : 'other'
                     );
+                    // Whichever screen is up: the journey has moved on under this identity.
+                    if (markStale) staleRef.current.add(identity);
+
+                    if (!stillOnThisFlow()) return;
 
                     // Superseded: the refusal describes a list that no longer exists, and
                     // the save of the newer one is already queued. Let that one speak.
@@ -247,10 +305,18 @@ export function useResourceAutosave({
                     // the flow rather than on this being set.
                     savedRef.current = undefined;
 
-                    void loadResources(guildId, target).then((stored) => {
+                    // A stale version keeps the list on screen: the operator's typing is not
+                    // what is wrong, and the message tells them to reload. See
+                    // `describeSaveFailure`.
+                    if (!revertToStored) return;
+
+                    void loadResources(guildId, endpoint()).then((stored) => {
                         if (!stillOnThisFlow()) return;
+                        // A newer save of this list may have answered first; its version is
+                        // the later one, and a read that left before it must not undo it.
                         if (!shouldAcceptResponse(issued, issuedRef.current)) return;
-                        savedRef.current = JSON.stringify(stored);
+                        versionsRef.current.set(identity, stored.updatedAt);
+                        savedRef.current = JSON.stringify(stored.resources);
                         saved(stored);
                     });
                 })
@@ -261,14 +327,14 @@ export function useResourceAutosave({
                     if (stillOnThisFlow() && issued === issuedRef.current) savingChange(false);
                 });
         },
-        // `stableTarget` is pinned to `identity`, so naming the identity names both.
-        [guildId, identity, stableTarget]
+        // The endpoint is looked up per identity (`targetsRef`), so the identity names it.
+        [guildId, identity]
     );
 
     useEffect(() => {
-        // The pinned target, not the raw prop: this effect's cleanup clears the debounce
+        // Whether there is a target, not the object: this effect's cleanup clears the debounce
         // timer, so a dependency that changed every render would reset it every render.
-        if (!loaded || !guildId || !stableTarget) return;
+        if (!loaded || !guildId || !hasTarget) return;
 
         const serialised = JSON.stringify(resources);
 
@@ -284,11 +350,19 @@ export function useResourceAutosave({
         if (action === 'adoptBaseline') {
             // This flow-and-journey's stored list arriving, not an edit of it. Also the
             // path an attach takes: the list belongs to a journey this bookkeeping has
-            // not seen, so it is recorded rather than sent back.
+            // not seen, so it is recorded rather than sent back — with the version it was
+            // read at, which the first save of it sends.
             baselineFlowRef.current = identity;
             savedRef.current = serialised;
+            versionsRef.current.set(identity, latestVersionRef.current);
+            // Loaded afresh, at the journey's version now: as good as the reload it asked for.
+            staleRef.current.delete(identity);
             return;
         }
+
+        // The journey moved on under this list. Every save would be refused again, so none is
+        // sent; the message to reload is already up, and stays up.
+        if (staleRef.current.has(identity)) return;
 
         // Mid-edit invalidity is normal and the chips already report it in place. Holding
         // means the save happens as soon as the row is sendable again, without a server
@@ -297,7 +371,7 @@ export function useResourceAutosave({
 
         const handle = window.setTimeout(() => send(resources), RESOURCE_SAVE_DEBOUNCE_MS);
         return () => window.clearTimeout(handle);
-    }, [resources, loaded, guildId, identity, stableTarget, send]);
+    }, [resources, loaded, guildId, identity, hasTarget, send]);
 
     /**
      * Flush on unmount, so closing the builder mid-pause does not drop the last edit.
@@ -316,10 +390,27 @@ export function useResourceAutosave({
 
         return () => {
             const pending = latestRef.current;
-            if (savedRef.current === undefined) return;
             // A baseline belonging to another flow — or to the journey this one was
             // attached to before — means nothing here was edited.
             if (baselineFlowRef.current !== watching) return;
+
+            /**
+             * Leaving a list whose journey moved on under it. Its last save was refused, so
+             * what is on screen was never stored, and sending it again would only be refused
+             * the same way. A toast, for the reason the unsaveable case below gives: the
+             * panel's message unmounts with the page.
+             */
+            if (staleRef.current.has(watching)) {
+                notifications.show({
+                    color: 'orange',
+                    title: 'Some resources were not saved',
+                    message:
+                        'Somebody else saved these resources after you loaded them, so your last changes went nowhere. Reload, then make them again.',
+                });
+                return;
+            }
+
+            if (savedRef.current === undefined) return;
             if (JSON.stringify(pending) === savedRef.current) return;
 
             /**

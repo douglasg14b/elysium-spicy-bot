@@ -2,6 +2,7 @@ import { screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import type { BlockConfigField } from '@brattybot/web-sdk';
+import { NO_JOURNEY } from '../../__tests__/support/noJourney';
 import { NO_UPLOADS } from '../../__tests__/support/noUploads';
 import { renderWithProviders } from '../../__tests__/support/renderWithProviders';
 import { renderControl } from '../controls/renderControl';
@@ -28,6 +29,7 @@ function contextWith(serverTimeZone?: ServerTimeZone): ControlContext {
         declaredResources: [],
         setConfigKey: () => undefined,
         uploads: NO_UPLOADS,
+        ...NO_JOURNEY,
         ...(serverTimeZone ? { serverTimeZone } : {}),
     };
 }

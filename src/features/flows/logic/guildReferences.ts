@@ -28,7 +28,7 @@ function isGuildObjectControl(control: BlockConfigField['control']): control is 
  * `flowReadinessIssues` rather than inside it — that one is a pure question about the graph,
  * asked too by the seed script, which has no Discord client. Every caller holding a guild
  * asks both through {@link flowReadinessIssuesInGuild}, so the builder's marks, the list's
- * count, the switch-on refusal and deploy all agree.
+ * count and the switch-on refusal all agree.
  *
  * Two rules:
  *

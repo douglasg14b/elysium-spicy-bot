@@ -583,6 +583,7 @@ describe('the "No channel" chip agrees with the install planner', () => {
             existingBindings: [],
             messagePresence: new Map(),
             uploadSizes: new Map(),
+            buttonListeners: [],
         });
     const chipped = (resources: BrowserResourceDeclaration[]) =>
         detectResourceProblems(resources).some((entry) => entry.chips.some((chip) => chip.id === 'messageNoChannel'));

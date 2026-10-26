@@ -4,13 +4,16 @@ import { fileURLToPath } from 'url';
 import { InteractionType, type Interaction } from 'discord.js';
 import { describe, expect, it, vi } from 'vitest';
 import { InteractionsRegistry } from '../../../../features-system/commands/interactionsRegistry';
+import type { MessageComponentInteraction } from '../../../../features-system/commands/types';
 import { MESSAGE_BUTTON_CUSTOM_ID_PREFIX } from '../../../provisioning';
 import { FLOW_CHOICE_CUSTOM_ID_PREFIX, FLOW_CUSTOM_ID_PREFIX } from '../../constants';
-import { handleMessageButtonPress, NOTHING_HOOKED_UP } from '../messageButtonPress';
+import { handleMessageButtonPress } from '../messageButtonPress';
 
 /**
- * A press on a journey message's button — `mbtn:<buttonKey>` — through a real registry: it
- * answers the presser alone, and does nothing else. Step 3 gives it something to do.
+ * The `mbtn:` handler's routing and its refusals before it reads anything. What a press on a
+ * real message does — the binding, the listeners, the gate, the wake and the run — is the
+ * integration test's (`messageButtonPress.integration.test.ts`), against real discord.js and
+ * a real database.
  *
  * The registry here is a fresh one holding the three prefixes flows registers, so the
  * longest-prefix routing between them is the real code; that `initFlows` registers this
@@ -18,63 +21,50 @@ import { handleMessageButtonPress, NOTHING_HOOKED_UP } from '../messageButtonPre
  * attach every gateway listener the engine has.
  */
 
-/** What the registry itself reads off an interaction to route and answer it. */
-const REGISTRY_READS = new Set<PropertyKey>(['type', 'customId', 'isRepliable', 'replied', 'deferred', 'reply']);
-
-/** A button press whose every member read is recorded, so "touches nothing" can be asserted. */
-function fakeButtonPress(customId: string) {
-    const read = new Set<PropertyKey>();
-    const reply = vi.fn().mockResolvedValue(undefined);
-    const target = {
+/** A press that is not a guild member's: what the handler must refuse before any read. */
+function strayPress(customId: string, overrides: Record<string, unknown> = {}): MessageComponentInteraction {
+    return {
         type: InteractionType.MessageComponent,
         customId,
         isButton: () => true,
-        isRepliable: () => true,
-        replied: false,
-        deferred: false,
-        reply,
-    };
-    const interaction = new Proxy(target, {
-        get(object, property, receiver) {
-            read.add(property);
-            return Reflect.get(object, property, receiver);
-        },
-    });
-    return { interaction: interaction as unknown as Interaction, read, reply };
-}
-
-function registryWithFlowPrefixes() {
-    const registry = new InteractionsRegistry();
-    const flowPress = vi.fn().mockResolvedValue({ status: 'success' });
-    const choicePress = vi.fn().mockResolvedValue({ status: 'success' });
-    registry.registerDynamic(`${FLOW_CUSTOM_ID_PREFIX}:`, flowPress);
-    registry.registerDynamic(`${FLOW_CHOICE_CUSTOM_ID_PREFIX}:`, choicePress);
-    registry.registerDynamic(`${MESSAGE_BUTTON_CUSTOM_ID_PREFIX}:`, handleMessageButtonPress);
-    return { registry, flowPress, choicePress };
+        guild: null,
+        member: null,
+        ...overrides,
+    } as unknown as MessageComponentInteraction;
 }
 
 describe('pressing a message resource’s button', () => {
-    it('answers the presser alone that nothing is hooked up, and touches nothing else', async () => {
-        const { registry, flowPress, choicePress } = registryWithFlowPrefixes();
-        const press = fakeButtonPress('mbtn:agree');
-
-        await registry.handleInteraction(press.interaction);
-
-        expect(press.reply).toHaveBeenCalledOnce();
-        expect(press.reply).toHaveBeenCalledWith({ content: NOTHING_HOOKED_UP, ephemeral: true });
-        expect(NOTHING_HOOKED_UP).toBe("Nothing's hooked up to this yet. Poke it all you like, babe — it isn't going to put out.");
-        // The handler read whether it was a button, and nothing else: no message, no member, no reply of its own.
-        expect([...press.read].filter((property) => !REGISTRY_READS.has(property))).toEqual(['isButton']);
-        expect(flowPress).not.toHaveBeenCalled();
-        expect(choicePress).not.toHaveBeenCalled();
+    it('refuses what it cannot route, before reading anything', async () => {
+        await expect(handleMessageButtonPress(strayPress('mbtn:agree', { isButton: () => false }))).resolves.toEqual({
+            status: 'skipped',
+            message: 'Message resources only carry buttons.',
+        });
+        await expect(handleMessageButtonPress(strayPress('mbtn:agree:extra'))).resolves.toMatchObject({
+            status: 'error',
+            message: 'Malformed message button id.',
+        });
+        await expect(handleMessageButtonPress(strayPress('mbtn:agree'))).resolves.toMatchObject({
+            status: 'error',
+            message: '❌ This button can only be used in a server.',
+        });
     });
 
-    it('still routes a flowc: answer to choices, and a flow: press to its trigger', async () => {
-        const { registry, flowPress, choicePress } = registryWithFlowPrefixes();
+    it('routes mbtn: here, a flowc: answer to choices, and a flow: press to its trigger', async () => {
+        const registry = new InteractionsRegistry();
+        const flowPress = vi.fn().mockResolvedValue({ status: 'success' });
+        const choicePress = vi.fn().mockResolvedValue({ status: 'success' });
+        const messagePress = vi.fn().mockResolvedValue({ status: 'success' });
+        registry.registerDynamic(`${FLOW_CUSTOM_ID_PREFIX}:`, flowPress);
+        registry.registerDynamic(`${FLOW_CHOICE_CUSTOM_ID_PREFIX}:`, choicePress);
+        registry.registerDynamic(`${MESSAGE_BUTTON_CUSTOM_ID_PREFIX}:`, messagePress);
+        const routed = (customId: string) =>
+            ({ ...strayPress(customId), isRepliable: () => false, replied: false, deferred: false }) as unknown as Interaction;
 
-        await registry.handleInteraction(fakeButtonPress('flowc:run-1:node-1:0').interaction);
-        await registry.handleInteraction(fakeButtonPress('flow:flow-1:node-1').interaction);
+        await registry.handleInteraction(routed('mbtn:agree'));
+        await registry.handleInteraction(routed('flowc:run-1:node-1:0'));
+        await registry.handleInteraction(routed('flow:flow-1:node-1'));
 
+        expect(messagePress).toHaveBeenCalledOnce();
         expect(choicePress).toHaveBeenCalledOnce();
         expect(flowPress).toHaveBeenCalledOnce();
     });

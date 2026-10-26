@@ -36,10 +36,12 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Modal, Stack, Text } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import { IconAlertTriangle } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import {
     ApiError,
+    type ButtonListener,
     getGuildChannelsOptions,
     getGuildRolesOptions,
     getTicketsConfigOptions,
@@ -50,7 +52,12 @@ import {
 } from '@brattybot/web-sdk';
 import type { GuildUploads } from './controls/types';
 import { ResourcesPanel } from './ResourcesPanel';
-import { loadResources, resourceTargetIdentity, type ResourceSaveTarget } from './resourceSaveTarget';
+import {
+    loadResources,
+    resourceTargetIdentity,
+    type ResourceSaveTarget,
+    type StoredResources,
+} from './resourceSaveTarget';
 import { useResourceAutosave } from './useResourceAutosave';
 
 interface ResourcesDialogProps {
@@ -59,6 +66,12 @@ interface ResourcesDialogProps {
     readonly guildId: string;
     /** Where the declarations are read from and written to. */
     readonly target: ResourceSaveTarget;
+    /**
+     * Whose declarations these are, when that is not simply the target: the builder's flow,
+     * which saves through its journey once linked (`builderResourcesTarget`) and is still one
+     * flow's list on screen. See `useResourceAutosave`'s `subject`.
+     */
+    readonly subject?: ResourceSaveTarget;
     /** The modal's heading — "Resources this flow needs", "Resources Onboarding needs". */
     readonly title: string;
     /**
@@ -91,6 +104,12 @@ interface ResourcesDialogProps {
     readonly resources: ResourceDeclaration[];
     readonly onChange: (next: ResourceDeclaration[]) => void;
     /**
+     * The version `resources` was loaded at, owned with the list for the same reason: the
+     * first save sends it, so a list loaded before somebody else's save is refused rather than
+     * written over theirs. See `StoredResources`.
+     */
+    readonly updatedAt: string | null;
+    /**
      * The journey the list belongs to, for the autosave's bookkeeping identity.
      *
      * The builder supplies its attachment's key, because attaching swaps the list without
@@ -117,13 +136,19 @@ interface ResourcesDialogProps {
      * the inventory beside this.
      */
     readonly loadError?: string | null;
-    /** Told when the server confirms a save, so the caller can adopt the normalised list. */
-    readonly onSaved: (resources: ResourceDeclaration[]) => void;
+    /** Told when the server confirms a save, so the caller can adopt the normalised list and its version. */
+    readonly onSaved: (stored: StoredResources) => void;
     /**
      * The server's uploaded pictures, for a message's window: the page's, read through
      * `useGuildUploads`, so every picture box on the page shows the same list.
      */
     readonly uploads: GuildUploads;
+    /**
+     * The Button Click triggers listening to the journey's messages — the builder's with its own
+     * canvas laid over them, the group header's as the server answers. They name the flow under
+     * each button, lock listened keys and make removing a listened message ask first.
+     */
+    readonly listeners: readonly ButtonListener[];
 }
 
 export function ResourcesDialog({
@@ -131,16 +156,19 @@ export function ResourcesDialog({
     onClose,
     guildId,
     target,
+    subject = target,
     title,
     header,
     installedKeys,
     resources,
     onChange,
+    updatedAt,
     journeyKey,
     loaded,
     loadError,
     onSaved,
     uploads,
+    listeners,
 }: ResourcesDialogProps) {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -157,15 +185,31 @@ export function ResourcesDialog({
         []
     );
 
+    /*
+     * Called here, outside the `Modal`, so it saves while the dialog is shut: the builder's
+     * Button Click picker writes the declarations from the inspector with this closed.
+     *
+     * A refusal of a save made while it is shut is a toast as well, in the server's words, as a
+     * refused graph save is: the panel that would show it is not on screen, and the operator is
+     * still looking at a trigger whose pick names a button the server never stored. Open, the
+     * panel says it in place.
+     */
     useResourceAutosave({
         guildId,
         target,
+        subject,
         journeyKey,
         resources,
+        updatedAt,
         loaded,
         onSaved,
         onSavingChange: setSaving,
-        onError: setError,
+        onError: (message) => {
+            setError(message);
+            if (message && !opened) {
+                notifications.show({ color: 'red', title: "Your resources didn't stick", message });
+            }
+        },
     });
 
     return (
@@ -212,15 +256,16 @@ export function ResourcesDialog({
                         ticketTypes={ticketTypes}
                         journeyKey={journeyKey}
                         installedKeys={installedKeys}
-                        // Derived from the target rather than taken as a prop: the scope of
-                        // the copy and the scope of the endpoint are the same fact, and
-                        // letting a caller set them independently is how a journey's editor
-                        // ends up describing a shared list as one flow's.
-                        scope={target.kind}
+                        // Derived from the subject rather than taken as a prop: whose list this
+                        // is decides the copy, and letting a caller set the two independently
+                        // is how a journey's editor ends up describing a shared list as one
+                        // flow's. The builder's subject stays its flow through either door.
+                        scope={subject.kind}
                         saving={saving}
                         error={error ?? undefined}
                         uploads={uploads}
                         onMessageWindowChange={onMessageWindowChange}
+                        listeners={listeners}
                     />
                 )}
             </Stack>
@@ -287,10 +332,15 @@ export function useLoadedResources(
 ): {
     resources: ResourceDeclaration[];
     setResources: (next: ResourceDeclaration[]) => void;
+    /** The version `resources` was read or last saved at. */
+    updatedAt: string | null;
+    /** Take a save's answer: the stored list and the version it moved the journey to. */
+    adoptSaved: (stored: StoredResources) => void;
     loaded: boolean;
     loadError: string | null;
 } {
     const [resources, setResources] = useState<ResourceDeclaration[]>([]);
+    const [updatedAt, setUpdatedAt] = useState<string | null>(null);
     /**
      * *Which* target the list in hand was read for, rather than a `loaded` boolean.
      *
@@ -323,7 +373,8 @@ export function useLoadedResources(
             try {
                 const stored = await loadResources(guildId, target);
                 if (cancelled) return;
-                setResources(stored);
+                setResources(stored.resources);
+                setUpdatedAt(stored.updatedAt);
                 setLoadedIdentity(resourceTargetIdentity(target));
             } catch (err) {
                 if (cancelled) return;
@@ -345,10 +396,16 @@ export function useLoadedResources(
     }, [guildId, identity]);
 
     const replace = useCallback((next: ResourceDeclaration[]) => setResources(next), []);
+    const adoptSaved = useCallback((stored: StoredResources) => {
+        setResources(stored.resources);
+        setUpdatedAt(stored.updatedAt);
+    }, []);
 
     return {
         resources,
         setResources: replace,
+        updatedAt,
+        adoptSaved,
         // Derived, so it cannot lag the target it describes. See `loadedIdentity`.
         loaded: identity !== undefined && loadedIdentity === identity,
         loadError,

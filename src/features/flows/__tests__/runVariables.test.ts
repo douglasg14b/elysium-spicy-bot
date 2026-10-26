@@ -134,7 +134,7 @@ function producerThenDm(options: { outputKey: string; value: string; message: st
     return {
         version: FLOW_GRAPH_VERSION,
         nodes: [
-            { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
+            { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { button: { messageKey: 'panel', buttonKey: 'go' } } },
             {
                 id: 'producer',
                 type: ACTION_RECORD_VALUE,
@@ -220,7 +220,7 @@ describe('a block consumes a value another block produced', () => {
         const graph: FlowGraph = {
             version: FLOW_GRAPH_VERSION,
             nodes: [
-                { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
+                { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { button: { messageKey: 'panel', buttonKey: 'go' } } },
                 { id: 'p1', type: ACTION_RECORD_VALUE, position: { x: 1, y: 0 }, data: { outputKey: 'first', value: 'alpha' } },
                 { id: 'p2', type: ACTION_RECORD_VALUE, position: { x: 2, y: 0 }, data: { outputKey: 'second', value: 'beta' } },
                 { id: 'dm', type: 'action.sendDM', position: { x: 3, y: 0 }, data: { message: '{{var.first}}/{{var.second}}' } },
@@ -311,7 +311,7 @@ describe('a block consumes a value another block produced', () => {
         const graph: FlowGraph = {
             version: FLOW_GRAPH_VERSION,
             nodes: [
-                { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
+                { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { button: { messageKey: 'panel', buttonKey: 'go' } } },
                 {
                     id: 'rows',
                     type: FIXTURE_ACTION_POSTS_ROWS,
@@ -351,7 +351,7 @@ describe('a block consumes a value another block produced', () => {
             return {
                 version: FLOW_GRAPH_VERSION,
                 nodes: [
-                    { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
+                    { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { button: { messageKey: 'panel', buttonKey: 'go' } } },
                     { id: 'p', type: ACTION_RECORD_VALUE, position: { x: 1, y: 0 }, data: { outputKey: 'pic', value: 'banana' } },
                     {
                         id: 'embed',
@@ -433,7 +433,7 @@ describe('a member’s own name cannot ping the guild', () => {
         return {
             version: FLOW_GRAPH_VERSION,
             nodes: [
-                { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
+                { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { button: { messageKey: 'panel', buttonKey: 'go' } } },
                 {
                     id: 'post',
                     type: 'action.sendMessage',
@@ -521,7 +521,7 @@ describe('save-time validation of authored copy', () => {
         const graph: FlowGraph = {
             version: FLOW_GRAPH_VERSION,
             nodes: [
-                { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
+                { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { button: { messageKey: 'panel', buttonKey: 'go' } } },
                 {
                     id: 'rows',
                     type: FIXTURE_ACTION_POSTS_ROWS,
@@ -586,7 +586,7 @@ describe('a recorded value survives a park and resume', () => {
     const graph: FlowGraph = {
         version: FLOW_GRAPH_VERSION,
         nodes: [
-            { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
+            { id: 'trigger', type: 'trigger.buttonClick', position: { x: 0, y: 0 }, data: { button: { messageKey: 'panel', buttonKey: 'go' } } },
             {
                 id: 'producer',
                 type: ACTION_RECORD_VALUE,

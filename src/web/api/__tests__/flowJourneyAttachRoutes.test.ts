@@ -311,6 +311,22 @@ describe('reading a flow\'s attachment', () => {
         expect(body.attachment.sharedWith).toEqual([{ flowId: 'flow-b', name: 'Age check' }]);
     });
 
+    /**
+     * The builder saves a linked flow's resources through its journey, and a flow from before
+     * the link table through the flow, whose save writes the link. Both are on a journey; only
+     * the link row tells them apart.
+     */
+    it('says whether a link row names the journey, or only the pre-link fallback does', async () => {
+        linksRepo.getJourneyKeyForFlow.mockResolvedValue('onboarding');
+        const linked = (await (await get()).json()) as { attachment: { linked: boolean } };
+        expect(linked.attachment.linked).toBe(true);
+
+        linksRepo.getJourneyKeyForFlow.mockResolvedValue(null);
+        journeysRepoMock.getByKey.mockResolvedValue(journeyRow({ journeyKey: FLOW_ID }));
+        const fallback = (await (await get()).json()) as { attachment: { journeyKey: string; linked: boolean } };
+        expect(fallback.attachment).toMatchObject({ journeyKey: FLOW_ID, linked: false });
+    });
+
     it('reports null for a flow attached to nothing', async () => {
         journeysRepoMock.getByKey.mockResolvedValue(null);
 

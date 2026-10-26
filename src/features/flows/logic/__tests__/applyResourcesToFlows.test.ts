@@ -15,13 +15,16 @@ import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../data/flowGraph';
 const resolveJourneyResources = vi.fn();
 const getByGuildId = vi.fn();
 const update = vi.fn();
-const listFlowIdsForJourney = vi.fn();
+const listLinksForGuild = vi.fn();
+const getJourneyByKey = vi.fn();
 
 vi.mock('../../../provisioning', () => ({
     resolveJourneyResources: (guild: unknown, key: string) => resolveJourneyResources(guild, key),
     flowJourneyLinksRepo: {
-        listFlowIdsForJourney: (guildId: string, journeyKey: string) =>
-            listFlowIdsForJourney(guildId, journeyKey),
+        listLinksForGuild: (guildId: string) => listLinksForGuild(guildId),
+    },
+    journeysRepo: {
+        getByKey: (guildId: string, journeyKey: string) => getJourneyByKey(guildId, journeyKey),
     },
 }));
 
@@ -32,9 +35,7 @@ vi.mock('../../data/flowsRepo', () => ({
     },
 }));
 
-const { applyResourcesToFlows, selectFlowIdsForJourney } = await import(
-    '../applyResourcesToFlows'
-);
+const { applyResourcesToFlows } = await import('../applyResourcesToFlows');
 
 // The sidecar scan asks each node's block which fields are pickers.
 const { ensureBlocksDiscovered } = await import('../../blocks/registry');
@@ -61,18 +62,21 @@ beforeEach(() => {
     resolveJourneyResources.mockResolvedValue({ live: new Map(), stale: [] });
     getByGuildId.mockResolvedValue([]);
 
+    // The journey being installed exists; the scoping tests that need it gone say so.
+    getJourneyByKey.mockImplementation(async (_guildId: string, journeyKey: string) => ({ journeyKey }));
+
     /*
-     * Default: every flow the guild has is attached to whichever journey is being
-     * installed. That keeps the tests below about *writing ids*, which is what they are
-     * for, while the scoping tests at the bottom set this explicitly.
+     * Default: every flow the guild has is linked to `journey-1`, the journey the tests
+     * above the scoping suite install. That keeps them about *writing ids*, which is what
+     * they are for, while the scoping tests at the bottom set the links explicitly.
      *
      * Note these tests all passed before scoping existed, including the one asserting
      * several flows share a journey — the function ignored journeys entirely, so they
      * could not tell correct from broken. The suite at the bottom is the one that can.
      */
-    listFlowIdsForJourney.mockImplementation(async () => {
+    listLinksForGuild.mockImplementation(async () => {
         const flows = (await getByGuildId(GUILD_ID)) as { flowId: string }[];
-        return flows.map((eachFlow) => eachFlow.flowId);
+        return flows.map((eachFlow) => ({ flowId: eachFlow.flowId, journeyKey: 'journey-1' }));
     });
 });
 
@@ -220,7 +224,10 @@ describe('applyResourcesToFlows journey scoping', () => {
             flow('flow-onboarding', { channelId: '', channelIdKey: 'welcome-channel' }),
             flow('flow-tickets', { channelId: '', channelIdKey: 'welcome-channel' }),
         ]);
-        listFlowIdsForJourney.mockResolvedValue(['flow-onboarding']);
+        listLinksForGuild.mockResolvedValue([
+            { flowId: 'flow-onboarding', journeyKey: 'onboarding' },
+            { flowId: 'flow-tickets', journeyKey: 'tickets' },
+        ]);
 
         const result = await applyResourcesToFlows(GUILD, 'onboarding');
 
@@ -239,7 +246,10 @@ describe('applyResourcesToFlows journey scoping', () => {
             flow('flow-outsider', { channelId: '', channelIdKey: 'shared-channel' }),
             flow('flow-2', { channelId: '', channelIdKey: 'shared-channel' }),
         ]);
-        listFlowIdsForJourney.mockResolvedValue(['flow-1', 'flow-2']);
+        listLinksForGuild.mockResolvedValue([
+            { flowId: 'flow-1', journeyKey: 'onboarding' },
+            { flowId: 'flow-2', journeyKey: 'onboarding' },
+        ]);
 
         const result = await applyResourcesToFlows(GUILD, 'onboarding');
 
@@ -254,7 +264,7 @@ describe('applyResourcesToFlows journey scoping', () => {
         getByGuildId.mockResolvedValue([
             flow('flow-other', { channelId: '', channelIdKey: 'welcome-channel' }),
         ]);
-        listFlowIdsForJourney.mockResolvedValue([]);
+        listLinksForGuild.mockResolvedValue([]);
 
         const result = await applyResourcesToFlows(GUILD, 'orphaned-journey');
 
@@ -271,57 +281,29 @@ describe('applyResourcesToFlows journey scoping', () => {
         getByGuildId.mockResolvedValue([
             flow('flow-legacy', { roleId: '', roleIdKey: 'member-role' }),
         ]);
-        listFlowIdsForJourney.mockResolvedValue([]);
+        listLinksForGuild.mockResolvedValue([]);
 
         const result = await applyResourcesToFlows(GUILD, 'flow-legacy');
 
         expect(result.updatedFlowIds).toEqual(['flow-legacy']);
     });
-});
-
-describe('selectFlowIdsForJourney', () => {
-    it('takes the linked flows', () => {
-        const selected = selectFlowIdsForJourney({
-            journeyKey: 'onboarding',
-            linkedFlowIds: ['flow-1', 'flow-2'],
-            guildFlowIds: ['flow-1', 'flow-2', 'flow-3'],
-        });
-
-        expect([...selected]).toEqual(['flow-1', 'flow-2']);
-    });
-
-    it('admits a pre-link flow whose id is the journey key', () => {
-        const selected = selectFlowIdsForJourney({
-            journeyKey: 'flow-legacy',
-            linkedFlowIds: [],
-            guildFlowIds: ['flow-legacy', 'flow-other'],
-        });
-
-        expect([...selected]).toEqual(['flow-legacy']);
-    });
 
     /**
-     * The fallback is keyed on a flow id, but an operator names journeys freely. A key
-     * that merely *looks* like one must not drag in a flow that never declared it —
-     * which is why the check is against the guild's real flow ids, not the string alone.
+     * A flow grouped away keeps its id, and the journey keyed on that id keeps its row (a
+     * merge empties it, a "leave" keeps it whole). Installing that old journey must not
+     * write its ids into the flow: its sidecar keys now name the new journey's resources.
      */
-    it('does not invent a flow from a key that matches nothing in the guild', () => {
-        const selected = selectFlowIdsForJourney({
-            journeyKey: 'flow-deleted',
-            linkedFlowIds: [],
-            guildFlowIds: ['flow-1'],
+    it('does not write into a flow grouped away from the journey keyed on its id', async () => {
+        resolveJourneyResources.mockResolvedValue({
+            live: new Map([['member-role', 'role-old']]),
+            stale: [],
         });
+        getByGuildId.mockResolvedValue([flow('flow-legacy', { roleId: '', roleIdKey: 'member-role' })]);
+        listLinksForGuild.mockResolvedValue([{ flowId: 'flow-legacy', journeyKey: 'the-group' }]);
 
-        expect([...selected]).toEqual([]);
-    });
+        const result = await applyResourcesToFlows(GUILD, 'flow-legacy');
 
-    it('does not duplicate a flow that is both linked and key-matched', () => {
-        const selected = selectFlowIdsForJourney({
-            journeyKey: 'flow-1',
-            linkedFlowIds: ['flow-1'],
-            guildFlowIds: ['flow-1'],
-        });
-
-        expect([...selected]).toEqual(['flow-1']);
+        expect(result.updatedFlowIds).toEqual([]);
+        expect(update).not.toHaveBeenCalled();
     });
 });

@@ -210,6 +210,18 @@ export function GroupConflictDialog({
     return (
         <Modal opened={opened} onClose={onClose} title={title} size="lg">
             <Stack gap="md">
+                {/*
+                 * The group route's refusal, said before anything is chosen: both flows are
+                 * live on one button, and neither choice below changes the trigger's keys.
+                 */}
+                {preview.buttonConflict && (
+                    <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />}>
+                        <Text size="12.5px" style={{ lineHeight: 1.6 }}>
+                            {preview.buttonConflict}
+                        </Text>
+                    </Alert>
+                )}
+
                 {canMerge ? (
                     <Text size="13.5px" style={{ lineHeight: 1.6 }}>
                         Moving it into{' '}
@@ -465,6 +477,8 @@ export function GroupConflictDialog({
                     <Button
                         color={orphaning ? 'red' : 'brand'}
                         loading={busy}
+                        // The server would refuse it: see the warning at the top.
+                        disabled={!!preview.buttonConflict}
                         onClick={() => void onConfirm(resolution)}
                     >
                         {orphaning ? `Move it & orphan ${orphanCount}` : 'Move it'}

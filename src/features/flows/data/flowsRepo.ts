@@ -86,8 +86,8 @@ export interface AfterFlowWriteContext {
  * — a node still missing config, an authoring rule still broken — is storable, because
  * refusing it here is how an operator lost an afternoon's canvas to one empty field.
  * Whether an incomplete graph may be *live* is a separate question, answered by
- * `flowReadinessIssues` in `logic/flowReadiness.ts` wherever a flow is switched on or
- * deployed. It is not asked here because it needs the flow's declared resources, and a
+ * `flowReadinessIssues` in `logic/flowReadiness.ts` wherever a flow is switched on. It is
+ * not asked here because it needs the flow's declared resources, and a
  * repo reaching for provisioning would invert the dependency between the two.
  */
 export class FlowsRepo {
@@ -298,14 +298,11 @@ export class FlowsRepo {
      * loaded, listed or saved, so keeping it would only be keeping litter. That is a
      * different category from what follows, which is about the guild.
      *
-     * Deployed buttons **do** outlive their flow — the message stays in the channel —
-     * and the dispatcher answers a click on one with "This flow no longer exists."
-     * rather than no-opping. That is a decent dead end but it is not cleanup, so
-     * `flow_button_messages` rows are deliberately left behind: they are the only
-     * record of where those live buttons are, and dropping them here would make the
-     * buttons unretirable forever.
+     * What its journey installed **does** outlive the flow — channels, roles and posted
+     * messages — and its bindings are deliberately left behind as the record of where
+     * those are.
      *
-     * Retiring them is `undeployFlowButtons`, offered beside this rather than folded
+     * Removing them is the journey's uninstall, offered beside this rather than folded
      * into it — deleting a record must not silently destroy part of a live server.
      */
     async deleteByFlowId(flowId: string): Promise<void> {

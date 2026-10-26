@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { messageConfigSchema } from '../../../../shared/discordMessage';
+import type { ResourceDeclaration } from '../../../provisioning/logic/resourceDeclaration';
 import type { BlockManifest } from '../../blocks/manifest';
 import { ensureBlocksDiscovered, getBlockDefinition, listBlockDefinitions } from '../../blocks/registry';
 import { VARIABLE_NAME_MESSAGE } from '../../blocks/variableName';
@@ -40,11 +41,11 @@ function serverMessages(
     type: string,
     data: Record<string, unknown>,
     field: string,
-    declaredKeys: ReadonlySet<string> = new Set()
+    declarations: readonly ResourceDeclaration[] = []
 ): string[] {
     const issues = flowReadinessIssues(
         { version: FLOW_GRAPH_VERSION, nodes: [{ id: 'probe', type, position: { x: 0, y: 0 }, data }], edges: [] },
-        declaredKeys
+        declarations
     );
     return issues.filter((issue) => issue.nodeId === 'probe' && issue.field === field).map((issue) => issue.message);
 }
@@ -211,7 +212,9 @@ describe('field rules derived from every block', () => {
                     if (value !== undefined) data[field.key] = value;
 
                     const said = browserSays(descriptor, field, data);
-                    const server = serverMessages(definition.type, data, field.key, new Set(['declared-thing']));
+                    const server = serverMessages(definition.type, data, field.key, [
+                        { key: 'declared-thing', kind: 'textChannel', defaultName: 'thing' },
+                    ]);
                     const probe = `${definition.type} › ${field.key} = ${JSON.stringify(value)}`;
 
                     if (RESOURCE_PICKER_CONTROLS.has(field.control)) {
@@ -270,8 +273,9 @@ describe('deriving one block’s rules', () => {
 
     it('leaves a structured value, and one with no rule but its type, to the server', () => {
         expect(rulesOf('trigger.buttonClick').get('eligibility')).toEqual({ kind: 'unchecked' });
+        expect(rulesOf('trigger.buttonClick').get('button')).toEqual({ kind: 'unchecked' });
         // An enum: zod's sentence for a wrong type is not the one the server sends.
-        expect(rulesOf('trigger.buttonClick').get('style')).toEqual({ kind: 'unchecked' });
+        expect(rulesOf('action.waitForEvent').get('eventKind')).toEqual({ kind: 'unchecked' });
     });
 
     it('leaves a message to the server, refinements and all, without failing the emit', () => {

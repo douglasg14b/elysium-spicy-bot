@@ -154,7 +154,7 @@ describe('a node whose config is still waiting on a provisioned id', () => {
         const graph: FlowGraph = {
             version: FLOW_GRAPH_VERSION,
             nodes: [
-                { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
+                { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { button: { messageKey: 'panel', buttonKey: 'go' } } },
                 {
                     id: 'assign',
                     type: ACTION_ASSIGN_ROLE,
@@ -181,7 +181,7 @@ describe('a node whose config is still waiting on a provisioned id', () => {
         const graph: FlowGraph = {
             version: FLOW_GRAPH_VERSION,
             nodes: [
-                { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
+                { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { button: { messageKey: 'panel', buttonKey: 'go' } } },
                 {
                     id: 'assign',
                     type: ACTION_ASSIGN_ROLE,
@@ -235,7 +235,7 @@ describe('a handle with more than one outgoing edge', () => {
         const graph: FlowGraph = {
             version: FLOW_GRAPH_VERSION,
             nodes: [
-                { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
+                { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { button: { messageKey: 'panel', buttonKey: 'go' } } },
                 {
                     id: 'wait',
                     type: ACTION_WAIT_FOR_EVENT,
@@ -336,7 +336,7 @@ describe('a block that needs something the run cannot supply', () => {
             id: 'trigger',
             type: TRIGGER_BUTTON_CLICK,
             position: { x: 0, y: 0 },
-            data: { channelId: 'channel-1', label: 'Go' },
+            data: { button: { messageKey: 'panel', buttonKey: 'go' } },
         };
 
         expect(validateAuthoredGraph(graph).valid).toBe(true);
@@ -359,7 +359,7 @@ describe('a block that needs something the run cannot supply', () => {
             id: 'trigger',
             type: TRIGGER_BUTTON_CLICK,
             position: { x: 0, y: 0 },
-            data: { channelId: 'channel-1', label: 'Go' },
+            data: { button: { messageKey: 'panel', buttonKey: 'go' } },
         };
         graph.nodes.push({
             id: 'wait',
@@ -383,7 +383,7 @@ describe('a block that needs something the run cannot supply', () => {
         const graph: FlowGraph = {
             version: FLOW_GRAPH_VERSION,
             nodes: [
-                { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
+                { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { button: { messageKey: 'panel', buttonKey: 'go' } } },
                 { id: 'joined', type: TRIGGER_MEMBER_JOIN, position: { x: 0, y: 100 }, data: {} },
                 {
                     id: 'where',
@@ -413,7 +413,7 @@ describe('a block that needs something the run cannot supply', () => {
             id: 'trigger',
             type: TRIGGER_BUTTON_CLICK,
             position: { x: 0, y: 0 },
-            data: { channelId: 'channel-1', label: 'Go' },
+            data: { button: { messageKey: 'panel', buttonKey: 'go' } },
         };
         graph.edges.push({ id: 'e2', source: 'where', sourceHandle: 'true', target: 'where' });
 
@@ -428,7 +428,7 @@ function buildCyclicGraph(): FlowGraph {
     return {
         version: FLOW_GRAPH_VERSION,
         nodes: [
-            { id: a, type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Go' } },
+            { id: a, type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { button: { messageKey: 'panel', buttonKey: 'go' } } },
             { id: b, type: ACTION_ASSIGN_ROLE, position: { x: 100, y: 0 }, data: { roleId: MEMBER_ROLE_ID } },
         ],
         edges: [
@@ -447,7 +447,7 @@ function buildConditionGraph(): FlowGraph {
     return {
         version: FLOW_GRAPH_VERSION,
         nodes: [
-            { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { channelId: 'channel-1', label: 'Check' } },
+            { id: 'trigger', type: TRIGGER_BUTTON_CLICK, position: { x: 0, y: 0 }, data: { button: { messageKey: 'panel', buttonKey: 'check' } } },
             { id: 'cond', type: CONDITION_HAS_ROLE, position: { x: 200, y: 0 }, data: { roleId: MEMBER_ROLE_ID } },
             { id: 'dm', type: ACTION_SEND_DM, position: { x: 400, y: -60 }, data: { message: 'you already have it' } },
             {

@@ -3,6 +3,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { BlockConfigField, DiscordMessage, GuildUpload, ListGuildUploadsResponse } from '@brattybot/web-sdk';
 import { heldReply, installFakeApi } from '../../../__tests__/support/fakeApi';
+import { NO_JOURNEY } from '../../../__tests__/support/noJourney';
 import { NO_UPLOADS } from '../../../__tests__/support/noUploads';
 import { renderWithProviders } from '../../../__tests__/support/renderWithProviders';
 import { MessageControl } from '../../controls/MessageControl';
@@ -45,6 +46,7 @@ function contextWith(uploads: GuildUploads): ControlContext {
         declaredResources: [],
         setConfigKey: () => undefined,
         uploads,
+        ...NO_JOURNEY,
     };
 }
 

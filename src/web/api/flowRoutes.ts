@@ -8,8 +8,9 @@ import { describeFlowCycle, findFlowCycleThrough } from '../../features/flows/en
 import { validateFlowGraph } from '../../features/flows/engine/graphValidation';
 import type { FlowValidationIssue } from '../../features/flows/engine/nodeDataValidation';
 import { withDeclaredNodeData } from '../../features/flows/logic/declaredNodeData';
-import { readDeclaredKeys } from '../../features/flows/logic/declaredResourceKeys';
-import { deployFlowButtons } from '../../features/flows/logic/deployFlowButtons';
+import { buttonClaimConflict, buttonClaimRefusal } from '../../features/flows/logic/buttonClaims';
+import { readDeclarations } from '../../features/flows/logic/flowDeclarations';
+import { flowIdsInJourney } from '../../features/flows/logic/journeyMembership';
 import {
     flowReadinessIssuesInGuild,
     installBeforeEnablingMessage,
@@ -17,7 +18,6 @@ import {
     uninstalledResourceKeys,
 } from '../../features/flows/logic/flowReadiness';
 import { getPublishedFlowState } from '../../features/flows/logic/publishedFlowState';
-import { undeployFlowButtons } from '../../features/flows/logic/undeployFlowButtons';
 import { loadUploadIndex, uploadIndexCovers, type UploadIndex } from '../../features/flows/logic/uploadReferences';
 import { guildSettingsRepo } from '../../features-system/guild-settings';
 import {
@@ -44,6 +44,7 @@ import {
 import { defineFlowDraftRoutes } from './flowDraftRoutes';
 import { loadFlowJourneyIndex } from './flowJourneyIndex';
 import { staleBuilderRefusal } from './staleBuilderGraph';
+import { flowJourneyLinksRepo } from '../../features/provisioning/data/flowJourneyLinksRepo';
 import { toDeclarationFromRow } from '../../features/provisioning/data/journeysRepo';
 import { resolveFlowJourney } from '../../features/provisioning/logic/resolveFlowJourney';
 import {
@@ -59,17 +60,16 @@ import {
     runInstall,
     unpublishJourney,
     type JourneyDeclaration,
+    type ResourceDeclaration,
 } from '../../features/provisioning';
 import type { AppEnv } from '../types';
 import { flowNameInGuild } from './flowNameInGuild';
 import {
-    DeployResultSchema,
     installPlanBody,
     InstallPlanSchema,
     InstallRefusalSchema,
     installResultBody,
     InstallResultSchema,
-    UndeployResultSchema,
     UnpublishResultSchema,
 } from './installBody';
 import {
@@ -85,7 +85,7 @@ import {
 import { publishedBody, PublishedFlowStateSchema } from './publishedBody';
 
 /**
- * Flow CRUD + deploy for the Phase 4 builder. Mounted under the `/api/guilds` route
+ * Flow CRUD + install for the Phase 4 builder. Mounted under the `/api/guilds` route
  * group, which applies `requireAuth` and then `requireGuildAccess` — so by the time a
  * handler runs, the caller is authorized for the guild and `c.get('guild')` is the
  * resolved, bot-present guild. See design doc §5.3 / §5.5.
@@ -225,7 +225,9 @@ const updateFlowRoute = createRoute({
             'The body was refused; the graph is too broken to store; the flow cannot be switched on ' +
                 'because its graph is incomplete (`issues` lists why) or waits on its install (`issues` ' +
                 'empty); going live — switched on, or a graph saved while on — would make a loop with the ' +
-                "guild's other live flows (a sentence naming every step of the loop, `issues` empty); the " +
+                "guild's other live flows (a sentence naming every step of the loop, `issues` empty), or " +
+                'onto a button another live flow of its journey already listens to (a sentence naming that ' +
+                'flow, `issues` empty); the ' +
                 'save would go live only because another request switched the flow on or off meanwhile ' +
                 '("save again", `issues` empty); or the server id is missing.',
             FlowRefusalSchema
@@ -248,20 +250,6 @@ const deleteFlowRoute = createRoute({
     responses: {
         204: { description: 'Deleted.' },
         ...FLOW_ERRORS,
-    },
-});
-
-const deployFlowRoute = createRoute({
-    method: 'post',
-    path: '/{guildId}/flows/{flowId}/deploy',
-    operationId: 'deployFlow',
-    tags: ['flows'],
-    summary: "Post the flow's trigger buttons into the channels their nodes name",
-    request: { params: FlowPathSchema },
-    responses: {
-        200: jsonResponse('Posted: one message per destination channel.', DeployResultSchema),
-        ...FLOW_ERRORS,
-        400: errorBodyResponse('Nothing was posted, and the sentence says why — or the server id is missing.'),
     },
 });
 
@@ -317,21 +305,8 @@ const getPublishedStateRoute = createRoute({
     summary: 'What the flow has live in the guild',
     request: { params: FlowPathSchema },
     responses: {
-        200: jsonResponse('Its button messages and the resources its journey put in the guild.', PublishedFlowStateSchema),
+        200: jsonResponse('The resources its journey put in the guild, as an uninstall would treat them.', PublishedFlowStateSchema),
         ...FLOW_ERRORS,
-    },
-});
-
-const undeployFlowRoute = createRoute({
-    method: 'post',
-    path: '/{guildId}/flows/{flowId}/undeploy',
-    operationId: 'undeployFlow',
-    tags: ['flows'],
-    summary: "Delete the messages carrying the flow's buttons. Works after the flow is gone.",
-    request: { params: FlowPathSchema },
-    responses: {
-        200: jsonResponse('What became of each recorded message.', UndeployResultSchema),
-        ...GUILD_SCOPED_ERRORS,
     },
 });
 
@@ -357,9 +332,10 @@ const unpublishFlowRoute = createRoute({
 interface ReadinessRefusal {
     readonly error: string;
     /**
-     * Empty for the install refusal and the loop refusal, where nothing on this canvas is
-     * wrong — issues would lock the builder's switch and mark cards by node ids, and a
-     * loop's nodes are partly in other flows.
+     * Empty for the install refusal, the loop refusal and the button-claim refusal, where
+     * nothing on this canvas is wrong on its own — issues would lock the builder's switch and
+     * mark cards by node ids, and a loop's nodes and a button's other listener are in other
+     * flows.
      */
     readonly issues: readonly FlowValidationIssue[];
 }
@@ -422,7 +398,7 @@ interface FlowSaver {
  *
  * Only a request that **can** be refused is judged at all — one carrying a graph, or
  * `enabled: true`. A switch-off or a rename is written as it is, whatever the stored graph
- * holds, so nothing below can refuse one. `declaredKeys` is `null` when the caller could
+ * holds, so nothing below can refuse one. `declarations` is `null` when the caller could
  * not read the declarations; the caller has already answered a refusable request with a
  * 500 then, so only an unrefusable one arrives without them.
  *
@@ -432,6 +408,14 @@ interface FlowSaver {
  * row. If it goes live as the row stands now — another request switched the flow on or
  * off in between — the check is owed and cannot be made, so the write is refused with a
  * "save again" rather than let through unchecked.
+ *
+ * **A flow cannot go live on a button another live flow of its journey listens to** (400, a
+ * sentence naming that flow, no `issues`) — one flow per button, asked beside the loop check
+ * on the same writes, against the same `otherLiveFlows`, narrowed to `journeyFlowIds`: the
+ * flows of this flow's journey by the one membership rule (`flowIdsInJourney`). `null` when
+ * the flow is on no journey — its keys name nothing anybody can press — or when the caller
+ * read no other flows. An off flow's save is stored whatever it names; switching it on is
+ * what is refused.
  *
  * `guild` is the flow's own, for readiness's question about picked ids — a channel that
  * is not in this server is an ordinary readiness issue here. Read from its caches only,
@@ -447,12 +431,13 @@ function decidePut(
     current: FlowEntity,
     request: FlowPutRequest,
     saver: FlowSaver,
-    declaredKeys: ReadonlySet<string> | null,
+    declarations: readonly ResourceDeclaration[] | null,
     otherLiveFlows: readonly FlowEntity[] | null,
+    journeyFlowIds: ReadonlySet<string> | null,
     guild: Guild,
     uploads: UploadIndex
 ): FlowWriteDecision<ReadinessRefusal> {
-    if (declaredKeys && isRefusable(request)) {
+    if (declarations && isRefusable(request)) {
         const runs = request.graph ?? current.graph;
         if (!uploadIndexCovers(uploads, runs)) {
             return {
@@ -460,13 +445,13 @@ function decidePut(
                 refusal: { error: 'This flow changed while you were saving. Save again.', issues: [] },
             };
         }
-        const issues = flowReadinessIssuesInGuild(runs, declaredKeys, guild, uploads);
+        const issues = flowReadinessIssuesInGuild(runs, declarations, guild, uploads);
         const staysLive = current.enabled && request.enabled !== false;
 
         if (
             request.graph !== undefined &&
             staysLive &&
-            (issues.length > 0 || uninstalledResourceKeys(request.graph, declaredKeys).length > 0)
+            (issues.length > 0 || uninstalledResourceKeys(request.graph, declarations).length > 0)
         ) {
             return {
                 kind: 'draft',
@@ -486,7 +471,7 @@ function decidePut(
             };
         }
         if (request.enabled === true && !current.enabled) {
-            const waiting = uninstalledResourceKeys(runs, declaredKeys);
+            const waiting = uninstalledResourceKeys(runs, declarations);
             if (waiting.length > 0) {
                 return { kind: 'refuse', refusal: { error: installBeforeEnablingMessage(waiting), issues: [] } };
             }
@@ -516,6 +501,19 @@ function decidePut(
         );
         if (cycle) {
             return { kind: 'refuse', refusal: { error: describeFlowCycle(cycle), issues: [] } };
+        }
+
+        if (journeyFlowIds && declarations) {
+            const claimed = buttonClaimConflict({
+                flowId: current.flowId,
+                graph: request.graph ?? current.graph,
+                flows: otherLiveFlows,
+                journeyFlowIds,
+                declarations,
+            });
+            if (claimed) {
+                return { kind: 'refuse', refusal: { error: buttonClaimRefusal(claimed), issues: [] } };
+            }
         }
     }
 
@@ -749,13 +747,13 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
         // Named 500 rather than `issues: []`, which would claim a flow is ready when the
         // server cannot say. Not a new dead end: the builder also reads the flow's
         // resources on open, which fails on the same malformed journey row.
-        const declared = await readDeclaredKeys(guildId, flow.flowId);
+        const declared = await readDeclarations(guildId, flow.flowId);
         if (!declared.ok) {
             return c.json({ error: declared.error }, 500);
         }
         const uploads = await loadUploadIndex(guildId, [flow.graph]);
 
-        return c.json(flowDetail(flow, flowReadinessIssuesInGuild(flow.graph, declared.keys, guild, uploads)), 200);
+        return c.json(flowDetail(flow, flowReadinessIssuesInGuild(flow.graph, declared.declarations, guild, uploads)), 200);
     });
 
     /*
@@ -809,13 +807,13 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
             return c.json(stale, 400);
         }
 
-        const declared = await readDeclaredKeys(guildId, flow.flowId);
+        const declared = await readDeclarations(guildId, flow.flowId);
         if (!declared.ok) {
             return c.json({ error: declared.error }, 500);
         }
         const uploads = await loadUploadIndex(guildId, [structural.graph]);
 
-        return c.json({ issues: flowReadinessIssuesInGuild(structural.graph, declared.keys, guild, uploads) }, 200);
+        return c.json({ issues: flowReadinessIssuesInGuild(structural.graph, declared.declarations, guild, uploads) }, 200);
     });
 
     // Create a flow. Starts empty + disabled unless a graph is supplied.
@@ -850,7 +848,7 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
         // shortcut: a flow cannot reference a declaration it has not saved. An
         // incomplete graph is stored all the same — a new flow starts switched off.
         const uploads = await loadUploadIndex(guildId, [graph]);
-        const issues = flowReadinessIssuesInGuild(graph, new Set<string>(), guild, uploads);
+        const issues = flowReadinessIssuesInGuild(graph, [], guild, uploads);
 
         const flow = await flowsRepo.create({
             guildId,
@@ -914,7 +912,7 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
          * with its cause and writes nothing. A switch-off or a rename is written
          * regardless, so a malformed journey row can never hold a live flow on.
          */
-        const declared = await readDeclaredKeys(guildId, flowId);
+        const declared = await readDeclarations(guildId, flowId);
         if (isRefusable(request) && !declared.ok) {
             return c.json({ error: declared.error }, 500);
         }
@@ -930,11 +928,26 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
          * other's old row and could both pass. Accepted rather than locked: it takes two
          * operators closing one loop from both ends within milliseconds, and what gets
          * through is still bounded at run time — a ticket chain stops at
-         * `FLOW_MAX_CHAIN_DEPTH`, and a loop through a kick removes one member per lap.
+         * `FLOW_MAX_CHAIN_DEPTH`, and a loop through a kick removes one member per lap. Two
+         * flows taking one button that way are bounded too: a press on it starts neither.
          */
-        const otherLiveFlows = goesLive(existing.enabled, request)
-            ? (await flowsRepo.getByGuildId(guildId)).filter((flow) => flow.enabled && flow.flowId !== flowId)
-            : null;
+        const guildFlows = goesLive(existing.enabled, request) ? await flowsRepo.getByGuildId(guildId) : null;
+        const otherLiveFlows = guildFlows?.filter((flow) => flow.enabled && flow.flowId !== flowId) ?? null;
+
+        /*
+         * Which of them share this flow's journey, for one flow per button — read with them,
+         * and only when the flow is on a journey: with none, its keys name nothing anybody
+         * can press. Every flow of the guild goes in, off ones too, because membership is
+         * about links and keys, not about being live.
+         */
+        const journeyFlowIds =
+            guildFlows && declared.ok && declared.journeyKey
+                ? flowIdsInJourney({
+                      journeyKey: declared.journeyKey,
+                      links: await flowJourneyLinksRepo.listLinksForGuild(guildId),
+                      guildFlowIds: guildFlows.map((flow) => flow.flowId),
+                  })
+                : null;
 
         /*
          * The uploads named by the graph `decidePut` judges — the one arriving, else the
@@ -946,7 +959,16 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
         const uploads = await loadUploadIndex(guildId, [graph ?? existing.graph]);
 
         const outcome = await flowsRepo.mutate(flowId, (current) =>
-            decidePut(current, request, saver, declared.ok ? declared.keys : null, otherLiveFlows, guild, uploads)
+            decidePut(
+                current,
+                request,
+                saver,
+                declared.ok ? declared.declarations : null,
+                otherLiveFlows,
+                journeyFlowIds,
+                guild,
+                uploads
+            )
         );
 
         if (outcome.kind === 'missing') {
@@ -977,7 +999,7 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
         const written = writtenGraphs.every((writtenGraph) => uploadIndexCovers(uploads, writtenGraph))
             ? uploads
             : await loadUploadIndex(guildId, writtenGraphs);
-        const flow = flowDetail(outcome.flow, flowReadinessIssuesInGuild(outcome.flow.graph, declared.keys, guild, written));
+        const flow = flowDetail(outcome.flow, flowReadinessIssuesInGuild(outcome.flow.graph, declared.declarations, guild, written));
         switch (outcome.kind) {
             case 'written':
                 return c.json({ ...flow, savedAs: 'flow' } satisfies FlowSaveBody, 200);
@@ -990,9 +1012,9 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
                             outcome.draft,
                             saver.id,
                             outcome.flow.updatedAt,
-                            flowReadinessIssuesInGuild(outcome.draft.graph, declared.keys, guild, written)
+                            flowReadinessIssuesInGuild(outcome.draft.graph, declared.declarations, guild, written)
                         ),
-                        uninstalled: uninstalledResourceKeys(outcome.draft.graph, declared.keys),
+                        uninstalled: uninstalledResourceKeys(outcome.draft.graph, declared.declarations),
                     } satisfies FlowSaveBody,
                     200
                 );
@@ -1011,31 +1033,6 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
 
         await flowsRepo.deleteByFlowId(flowId);
         return c.body(null, 204);
-    });
-
-    /*
-     * Post the flow's trigger buttons — the same shared path the /flow-deploy slash
-     * command uses.
-     *
-     * No body: each `trigger.buttonClick` node carries its own destination, so there
-     * is nothing for the caller to choose. A flow-level channel here would be unable
-     * to express the case this route exists to serve — several buttons on one canvas
-     * going to several channels.
-     */
-    router.openapi(deployFlowRoute, async (c) => {
-        const guild = c.get('guild');
-        const { flowId } = c.req.valid('param');
-        const existing = await flowsRepo.getByFlowId(flowId);
-        if (!existing || existing.guildId !== guild.id) {
-            return c.json({ error: 'Flow not found.' }, 404);
-        }
-
-        const result = await deployFlowButtons(guild, flowId);
-        if (!result.ok) {
-            return c.json({ error: result.message }, 400);
-        }
-
-        return c.json({ ok: true, posted: result.posted } satisfies z.infer<typeof DeployResultSchema>, 200);
     });
 
     /*
@@ -1170,20 +1167,6 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
     });
 
     /*
-     * Take this flow's trigger buttons back out of the guild.
-     *
-     * Deliberately usable after the flow row is gone: `flow_button_messages` outlives
-     * the flow precisely so orphaned buttons can still be retired, and requiring the
-     * flow to exist would make the commonest cleanup impossible. So there is no
-     * `flowsRepo` lookup here — the guild-scoped row lookup inside `undeployFlowButtons`
-     * is the authorization boundary, and `requireGuildAccess` has already run.
-     */
-    router.openapi(undeployFlowRoute, async (c) => {
-        const result = await undeployFlowButtons(c.get('guild'), c.req.valid('param').flowId);
-        return c.json({ results: result.results }, 200);
-    });
-
-    /*
      * Destroy the channels and roles this flow's journey created.
      *
      * The plan is rebuilt here and applied, rather than accepted from the browser: a
@@ -1200,9 +1183,7 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
      * convention, but journey keys are operator-supplied and a standalone journey can
      * have any key at all — including one that happens to match a flow id. Without this
      * check a URL shaped like a flow would tear down a journey that has nothing to do
-     * with it, which a stale bookmark or a mistyped id is enough to reach. The
-     * `/undeploy` route's argument for skipping the lookup does not transfer: button
-     * rows are keyed on the flow id we wrote ourselves, not on an operator's key.
+     * with it, which a stale bookmark or a mistyped id is enough to reach.
      *
      * **This check stays deliberately weaker than install's**, for the reason already
      * recorded above: a null-owner journey is let through because the operator is shown

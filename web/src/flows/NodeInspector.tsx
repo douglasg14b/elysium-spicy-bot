@@ -16,8 +16,9 @@ import type {
     ResourceDeclaration,
     TicketTypeView,
 } from '@brattybot/web-sdk';
+import type { ButtonListenersView } from './buttonListeners';
 import { renderControl } from './controls/renderControl';
-import type { ControlContext, GuildUploads, ServerTimeZone } from './controls/types';
+import type { ControlContext, GuildUploads, JourneyHoldings, ServerTimeZone } from './controls/types';
 import { KIND_STYLES } from './nodeMeta';
 import { ticketChannelNameFor } from './ticketChannelName';
 import { describeUnconnectedExit } from './unconnectedExits';
@@ -64,6 +65,12 @@ interface NodeInspectorProps {
     serverTimeZone?: ServerTimeZone;
     /** The server's uploaded pictures and the way to add one, for a control with pictures. */
     uploads: GuildUploads;
+    /** Change the journey's declarations, for a control that makes one (`messageButton`). */
+    declareResources: ControlContext['declareResources'];
+    /** Who listens to the journey's buttons, seen from this node. */
+    listeners: ButtonListenersView;
+    /** The journey's key and what it has installed. */
+    journey: JourneyHoldings;
     /**
      * What the server last found wrong with this node — at the last save, or the last
      * re-check as focus left a field.
@@ -95,6 +102,9 @@ export function NodeInspector({
     declaredResources,
     serverTimeZone,
     uploads,
+    declareResources,
+    listeners,
+    journey,
     issues,
     unconnectedExits,
     onChange,
@@ -124,6 +134,9 @@ export function NodeInspector({
         setConfigKey: (key, value) => onChange({ [key]: value }),
         ...(serverTimeZone ? { serverTimeZone } : {}),
         uploads,
+        declareResources,
+        listeners,
+        journey,
     };
 
     return (

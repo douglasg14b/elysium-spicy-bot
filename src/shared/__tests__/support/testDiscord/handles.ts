@@ -7,6 +7,7 @@ import {
     type APIOverwrite,
     type PermissionsString,
 } from 'discord.js';
+import type { InteractionResponseView } from './interactionState';
 import { toMessageView, type IncomingMessage, type ServerMessageView } from './messageState';
 import type { GuildCreateRoute, InjectedRejection } from './restRouter';
 import type { ModelledChannelType, ServerState } from './serverState';
@@ -243,6 +244,33 @@ export class ServerChannel {
     /** Somebody sending a message here — see {@link IncomingMessageOptions}. Returns its id. */
     receiveMessage(options: IncomingMessageOptions): string {
         return this.state.messages.receive(this.id, toIncoming(options)).id;
+    }
+
+    /**
+     * A member pressing the button `customId` under one of this channel's messages: Discord
+     * sends the bot an INTERACTION_CREATE. See `ServerInteractions` for what is modelled.
+     */
+    pressButton(options: { readonly by: ServerMember; readonly messageId: string; readonly customId: string }): ServerInteraction {
+        const interactionId = this.state.interactions.pressButton({
+            channelId: this.id,
+            messageId: options.messageId,
+            customId: options.customId,
+            userId: options.by.id,
+        });
+        return new ServerInteraction(this.state, interactionId);
+    }
+}
+
+/** One press Discord sent the bot, and what the bot has answered it with. */
+export class ServerInteraction {
+    constructor(
+        private readonly state: ServerState,
+        readonly id: string
+    ) {}
+
+    /** Every answer so far, oldest first. A press answers once, so more than one has faulted. */
+    get responses(): readonly InteractionResponseView[] {
+        return this.state.interactions.responses(this.id);
     }
 }
 

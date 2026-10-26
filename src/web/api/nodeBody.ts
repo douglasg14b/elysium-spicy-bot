@@ -21,7 +21,7 @@ import {
 } from '../../features/flows/blocks/manifest';
 import { ELIGIBILITY_PERMISSIONS, eligibilitySchema, type Eligibility } from '../../features/flows/engine/eligibility';
 import { RESOURCE_PICKER_CONTROL_TYPES } from '../../features/flows/logic/resourceTargets';
-import { DiscordMessageSchema } from './messageBody';
+import { DiscordMessageSchema, MessageButtonRefSchema } from './messageBody';
 import type { NodeDescriptor } from './nodeRoutes';
 import type { ChecksHold, MismatchedChecks, SchemaMatches } from './openApi';
 
@@ -250,6 +250,11 @@ const CONFIG_FIELD_ARMS = {
         swatches: z.array(z.string()).readonly().optional(),
         defaultValue: DiscordMessageSchema.optional(),
     }),
+    messageButton: z.object({
+        ...fieldBase,
+        control: z.literal('messageButton'),
+        defaultValue: MessageButtonRefSchema.optional(),
+    }),
 } satisfies { [Control in BlockControlType]: z.ZodObject };
 
 const BlockConfigFieldSchema = z
@@ -271,6 +276,7 @@ const BlockConfigFieldSchema = z
         CONFIG_FIELD_ARMS.timeOfDay,
         CONFIG_FIELD_ARMS.daysOfWeek,
         CONFIG_FIELD_ARMS.message,
+        CONFIG_FIELD_ARMS.messageButton,
     ])
     .openapi('BlockConfigField', {
         description: 'One editable config field, in the order the inspector renders it, discriminated on `control`.',

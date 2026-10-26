@@ -460,9 +460,8 @@ export function flowSummary(
         name: flow.name,
         enabled: flow.enabled,
         nodeCount: flow.graph.nodes.length,
-        // A flow in no journey declares nothing, exactly as `declaredResourceKeys` answers.
-        issueCount: flowReadinessIssuesInGuild(flow.graph, entry?.declaredKeys ?? new Set<string>(), guild, uploads)
-            .length,
+        // A flow in no journey declares nothing, exactly as `flowDeclarations` answers.
+        issueCount: flowReadinessIssuesInGuild(flow.graph, entry?.declarations ?? [], guild, uploads).length,
         journey: entry?.membership ?? null,
         createdAt: new Date(flow.createdAt).toISOString(),
         updatedAt: new Date(flow.updatedAt).toISOString(),
