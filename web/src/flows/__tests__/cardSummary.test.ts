@@ -176,6 +176,39 @@ describe('summarizeFromDescriptor', () => {
         expect(summarize(descriptor, { ticketTypeKey: 'never-declared' })).toBe('Ticket · any type');
     });
 
+    it('names a declared role, channel or category still waiting on install, rather than "no … picked"', () => {
+        const declared: ResourceDeclaration[] = [
+            { key: 'approvers', kind: 'role', defaultName: 'Approvers' },
+            { key: 'rules', kind: 'textChannel', defaultName: 'rules' },
+            { key: 'arrivals', kind: 'category', defaultName: 'Arrivals' },
+        ];
+        const card = (descriptor: NodeDescriptor, config: Record<string, unknown>): string =>
+            summarizeFromDescriptor(descriptor, config, ROLES, CHANNELS, TICKET_TYPES, declared);
+
+        const assign = descriptorWith(
+            [{ key: 'roleId', label: 'Role', control: 'rolePicker' }],
+            [{ key: 'roleId', prefix: 'Assign ', emptyText: 'no role picked' }]
+        );
+        expect(card(assign, { roleIdKey: 'approvers' })).toBe('Assign @Approvers (after install)');
+        // Installed: the id is filled in, and the guild's own name wins.
+        expect(card(assign, { roleId: 'r1', roleIdKey: 'approvers' })).toBe('Assign @Moderator');
+        // A sidecar naming nothing declared — or declaring another kind — is not a waiting role.
+        expect(card(assign, { roleIdKey: 'never-declared' })).toBe('Assign no role picked');
+        expect(card(assign, { roleIdKey: 'rules' })).toBe('Assign no role picked');
+
+        const post = descriptorWith(
+            [{ key: 'channelId', label: 'Channel', control: 'channelPicker' }],
+            [{ key: 'channelId', prefix: 'Post in ', emptyText: 'no channel picked' }]
+        );
+        expect(card(post, { channelIdKey: 'rules' })).toBe('Post in #rules (after install)');
+
+        const within = descriptorWith(
+            [{ key: 'categoryId', label: 'Category', control: 'categoryPicker' }],
+            [{ key: 'categoryId', prefix: 'In ', emptyText: 'no category picked' }]
+        );
+        expect(card(within, { categoryIdKey: 'arrivals' })).toBe('In Arrivals (after install)');
+    });
+
     it('keeps prefix and suffix around emptyText when a field is unset', () => {
         // `action.assignRole` pairs `prefix: 'Assign '` with a lowercase
         // `'no role picked'`, which only reads as a sentence when the prefix

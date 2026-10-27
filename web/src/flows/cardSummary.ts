@@ -12,6 +12,7 @@ import type {
     GuildRole,
     NodeDescriptor,
     ResourceDeclaration,
+    ResourceKind,
     TicketTypeView,
 } from '@brattybot/web-sdk';
 import { buttonFaceText } from './buttonEmoji';
@@ -33,19 +34,26 @@ interface SummaryContext {
 }
 
 /**
- * A ticket type picker left empty because it waits on a type the journey declares: the
- * declared label, saying it arrives at install.
+ * A resource picker left empty because it waits on a resource the journey declares: the
+ * declared name, saying it arrives at install.
  *
- * Without this the card shows the field's empty copy — "any type" on a Ticket Event — for
- * a node that names one specific type, which is the opposite of what it will do. (It does
- * not run as "any type" meanwhile: a flow waiting on an uninstalled resource cannot go live.)
+ * Without this the card shows the field's empty copy — "any type" on a Ticket Event, "no
+ * role picked" on Assign Role — for a node that names one specific resource, which is the
+ * opposite of what it will do. (It does not run as unset meanwhile: a flow waiting on an
+ * uninstalled resource cannot go live.)
+ *
+ * A role and a channel read as their installed twins do (`@Verified`, `#rules`); a category
+ * and a ticket type are bare names, as theirs are.
  */
-function waitingTicketType(sidecar: unknown, context: SummaryContext): string {
+function waitingResource(sidecar: unknown, kind: ResourceKind, context: SummaryContext): string {
     if (typeof sidecar !== 'string' || !sidecar) return '';
     const declared = context.declaredResources.find(
-        (resource) => resource.kind === 'ticketType' && resource.key === sidecar
+        (resource) => resource.kind === kind && resource.key === sidecar
     );
-    return declared ? `${declared.defaultName} (after install)` : '';
+    if (!declared) return '';
+
+    const sigil = kind === 'role' ? '@' : kind === 'textChannel' ? '#' : '';
+    return `${sigil}${declared.defaultName} (after install)`;
 }
 
 /** Truncate to `max` characters, the last of which becomes an ellipsis. */
@@ -120,12 +128,13 @@ function resolveValue(
          * made, and this line is two lines long.
          */
         case 'rolePicker': {
-            if (typeof raw !== 'string' || !raw) return '';
+            // Empty beside a sidecar: a role the journey declares and install has not made.
+            if (typeof raw !== 'string' || !raw) return waitingResource(sidecar, 'role', context);
             const role = context.roles.find((candidate) => candidate.id === raw);
             return role ? `@${role.name}` : '';
         }
         case 'channelPicker': {
-            if (typeof raw !== 'string' || !raw) return '';
+            if (typeof raw !== 'string' || !raw) return waitingResource(sidecar, 'textChannel', context);
             // A channel an earlier block finds at run time. Shown as written, the
             // way a copy field's template is: there is no name to look up yet.
             if (pickerVariableOf(raw)) return raw;
@@ -145,7 +154,7 @@ function resolveValue(
         }
         // The category's bare name — a category is not somewhere to post, so no `#`.
         case 'categoryPicker': {
-            if (typeof raw !== 'string' || !raw) return '';
+            if (typeof raw !== 'string' || !raw) return waitingResource(sidecar, 'category', context);
             return context.channels.find((candidate) => candidate.id === raw)?.name ?? '';
         }
         /*
@@ -155,7 +164,7 @@ function resolveValue(
          * node that names one.
          */
         case 'ticketTypePicker': {
-            if (typeof raw !== 'string' || !raw) return waitingTicketType(sidecar, context);
+            if (typeof raw !== 'string' || !raw) return waitingResource(sidecar, 'ticketType', context);
             return context.ticketTypes.find((candidate) => candidate.type === raw)?.label ?? raw;
         }
         case 'duration': {
