@@ -122,6 +122,44 @@ describe('ResourcesPanel', () => {
         expect(screen.queryByRole('button', { name: /Name required/ })).toBeNull();
     });
 
+    it('names a row after what it adopts, not after the search that found it', async () => {
+        // The name box is the picker, so `in` typed on the way to `Approvers` was kept as
+        // the row's name — `@in` everywhere but the combobox, and a key of `in` that
+        // re-picking, renaming or retyping could not shake.
+        const { user, current } = renderPanel({
+            resources: [{ key: 'new-role', kind: 'role', defaultName: 'new-role' }],
+            roles: [role('r1', 'Approvers'), role('r2', 'Admins')],
+        });
+
+        const name = await openRow(user, 'new-role');
+        await user.clear(name);
+        await user.type(name, 'in');
+        expect(current()[0]).toMatchObject({ key: 'in', defaultName: 'in' });
+
+        await user.click(screen.getByRole('option', { name: '@Admins' }));
+
+        expect(current()[0]).toMatchObject({
+            adoptDiscordId: 'r2',
+            defaultName: 'Admins',
+            key: 'admins',
+        });
+    });
+
+    it('keeps the key of an installed row when the name is re-seeded by a pick', async () => {
+        const { user, current } = renderPanel({
+            resources: [{ key: 'in', kind: 'role', defaultName: 'in' }],
+            roles: [role('r1', 'Admins')],
+            installedKeys: new Set(['in']),
+        });
+
+        const name = await openRow(user, 'in');
+        await user.clear(name);
+        await user.type(name, 'Adm');
+        await user.click(screen.getByRole('option', { name: '@Admins' }));
+
+        expect(current()[0]).toMatchObject({ key: 'in', defaultName: 'Admins' });
+    });
+
     it('drops the adoption when a different name is typed over it, in the same save', async () => {
         const { user, current } = renderPanel({
             resources: [

@@ -108,7 +108,6 @@ import {
     declarationForAdoptedResource,
     declarationForNewResource,
     nameTypedOverAdoption,
-    shouldSeedNameFromAdopted,
     slugifyResourceName,
 } from './resourceAdoption';
 import { RESOURCE_CHIPS } from './resourceChips';
@@ -499,44 +498,37 @@ export function ResourcesPanel({
             parentKey: target.parentKey,
         });
 
-        // Each field is asked separately, because an operator can have edited either
-        // one alone. Seeding a field they have already written would be the panel
-        // arguing with them — and the key especially, which the row calls the flow's
-        // permanent handle on the resource and which node configs may already name.
-        //
-        // The key's "untouched" test goes through `keyIsStillDerived` against the
-        // *generated* name, rather than comparing to `generated.key`: that value is
-        // de-duplicated against the rest of the list, so a second unnamed channel holds
-        // `new-channel-2` and a bare equality would never call it untouched. The same
-        // predicate decides whether a rename may carry the key, so adoption and renaming
-        // cannot disagree about which keys are still ours.
-        const patch: Partial<ResourceDeclaration> = { adoptDiscordId: discordId };
-
-        // The rule lives in `resourceAdoption.ts` where the suite can drive it — inline
-        // here is what let it be wrong about an emptied name for a whole release.
-        if (
-            shouldSeedNameFromAdopted({
-                currentName: target.defaultName,
-                generatedName: generated.defaultName,
-            })
-        ) {
-            patch.defaultName = adopted.defaultName;
-        }
         /*
-         * The key follows only while it is still derived — asked against the *generated*
-         * name rather than `generated.key`, because that value is de-duplicated against
-         * the rest of the list, so a second unnamed channel holds `new-channel-2` and a
-         * bare equality would never call it untouched. The same predicate decides whether
-         * a rename may carry the key, so adoption and renaming cannot disagree about
-         * which keys are still ours.
-         *
-         * Note this deliberately does **not** get the empty-name exemption above. A key
-         * is identity — node configs may already name it — so `games` surviving onto a
-         * row now called `welcome` is untidy but harmless, while silently renaming a key
-         * something else points at is not. The key stays editable and visible.
+         * The name is always the adopted object's. The name box *is* the picker, so what
+         * the operator typed before picking was a search — `in` on the way to `Approvers`
+         * — and keeping it as "a name they chose" left the row calling the role `@in`
+         * everywhere but the combobox, which shows the adopted label whatever the name
+         * holds. Typing over an adopted row starts the name over (`nameTypedOverAdoption`)
+         * and clears the adoption, so there is no way to name an adopted row apart from
+         * its object.
          */
-        if (keyIsStillDerived({ ...target, defaultName: generated.defaultName })) {
+        const patch: Partial<ResourceDeclaration> = {
+            adoptDiscordId: discordId,
+            defaultName: adopted.defaultName,
+        };
+
+        /*
+         * The key follows the name only while it is still derived from one — the name it
+         * holds now (a search term the panel slugged), the blank one it was held through,
+         * or the generated one. The generated name is asked by `keyIsStillDerived` rather
+         * than by comparing to `generated.key`: that value is de-duplicated against the
+         * rest of the list, so a second unnamed channel holds `new-channel-2` and a bare
+         * equality would never call it untouched. A hand-edited key stays put, and an
+         * installed or listened one is frozen exactly as a rename freezes it.
+         */
+        const heldThroughBlank = keysHeldThroughBlankName.current.has(target.key);
+        const keyIsOurs =
+            keyIsFollowing(target, heldThroughBlank) ||
+            keyIsStillDerived({ ...target, defaultName: generated.defaultName });
+        const keyIsFrozen = installedKeys?.has(target.key) || listenedKeys.has(target.key);
+        if (keyIsOurs && !keyIsFrozen) {
             patch.key = adopted.key;
+            keysHeldThroughBlankName.current.delete(target.key);
         }
 
         updateResource(index, patch);
