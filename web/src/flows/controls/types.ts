@@ -12,6 +12,7 @@ import type {
     DiscordMessage,
     Eligibility,
     GuildChannel,
+    GuildEmoji,
     GuildRole,
     GuildSettings,
     GuildUpload,
@@ -91,6 +92,15 @@ export interface ControlContext {
      * parts (`message`). The page reads and sends; the control fetches nothing.
      */
     uploads: GuildUploads;
+    /**
+     * The server's own emoji, for a control drawing or making a message's buttons
+     * (`messageButton`): each button's face, and "+ New button"'s emoji grid.
+     *
+     * Read by the page, as the time zone is, and only there once that read has answered:
+     * absent while it is on its way or after it failed, when the grid offers only the standard
+     * emoji and no button's emoji is called gone.
+     */
+    serverEmojis?: readonly GuildEmoji[];
     /**
      * Change the journey's declarations — the same list the Resources dialog edits, saved by
      * the same autosave whether the dialog is open or not.

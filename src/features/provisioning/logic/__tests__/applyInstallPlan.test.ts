@@ -1,4 +1,4 @@
-import { ChannelType, DiscordAPIError, RESTJSONErrorCodes } from 'discord.js';
+import { ChannelType, Collection, DiscordAPIError, RESTJSONErrorCodes } from 'discord.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ResourceBindingEntity } from '../../data/resourceBindingsSchema';
 import { declaredRoleReference } from '../declaredRoleReference';
@@ -151,6 +151,8 @@ function makeGuild(
     return {
         id: 'guild-1',
         name: 'Test Guild',
+        // No emoji of its own: a message here posts only standard ones.
+        emojis: { cache: new Collection<string, { readonly available: boolean }>() },
         channels: {
             cache: {
                 has: (id: string) => channels.has(id),

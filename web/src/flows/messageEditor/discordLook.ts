@@ -54,8 +54,14 @@ export const BUTTON_STYLES: Readonly<Record<MessageButtonStyle, { readonly colou
 /** The styles in the order a style picker offers them. */
 export const BUTTON_STYLE_ORDER: readonly MessageButtonStyle[] = ['Primary', 'Secondary', 'Success', 'Danger'];
 
-/** A button's face as Discord draws it, less its colour. */
+/**
+ * A button's face as Discord draws it, less its colour: its emoji and label side by side
+ * (`ButtonFaceContent`, which cuts a long label short), so an emoji-only one is near square.
+ */
 export const BUTTON_FACE: CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
     fontSize: 14,
     fontWeight: 500,
     lineHeight: '18px',
@@ -64,7 +70,6 @@ export const BUTTON_FACE: CSSProperties = {
     color: '#fff',
     maxWidth: 240,
     overflow: 'hidden',
-    textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
 };
 

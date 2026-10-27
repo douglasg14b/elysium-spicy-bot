@@ -161,6 +161,21 @@ export const GuildRoleSchema = z
 
 export type GuildRoleBody = z.infer<typeof GuildRoleSchema>;
 
+/** One of the server's own emoji, as a message button's emoji picker offers it. */
+export const GuildEmojiSchema = z
+    .object({
+        id: z.string(),
+        name: z.string(),
+        animated: z.boolean(),
+    })
+    .openapi('GuildEmoji', {
+        description:
+            "One of the server's own emoji a button may show. Drawn from `cdn.discordapp.com/emojis/<id>`, " +
+            'a GIF when `animated`.',
+    });
+
+export type GuildEmojiBody = z.infer<typeof GuildEmojiSchema>;
+
 /** The warnings mod-log channel, with its name resolved for display. */
 export const WarningsConfigSchema = z
     .object({

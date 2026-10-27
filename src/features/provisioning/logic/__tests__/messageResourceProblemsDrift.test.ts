@@ -27,6 +27,7 @@ import { messageResourceProblems } from '../messageResourceProblems';
  */
 
 const UPLOAD = 'upload:7d4f3b52-9a51-4a7b-8f53-0f6c5b0d2c11';
+const SERVER_EMOJI_ID = '112233445566778899';
 
 type Message = NonNullable<BrowserResourceDeclaration['message']>;
 type Buttons = NonNullable<BrowserResourceDeclaration['buttons']>;
@@ -74,8 +75,37 @@ const TABLE: readonly (readonly [string, BrowserResourceDeclaration])[] = [
     ['a colour that is not a hex value', panel(withSecond({ ...SAFEWORDS, color: 'pink' }))],
     ['26 buttons', panel(withSecond(SAFEWORDS), Array.from({ length: 26 }, (_unused, index) => ({ key: `b${index}`, label: `B${index}`, style: 'Primary' as const })))],
     ['a button key with an underscore', panel(withSecond(SAFEWORDS), [{ key: 'let_me_in', label: 'Let me in', style: 'Success' }])],
-    ['a button with no label', panel(withSecond(SAFEWORDS), [{ key: 'blank', label: '', style: 'Secondary' }])],
+    ['a button with a blank label', panel(withSecond(SAFEWORDS), [{ key: 'blank', label: '', style: 'Secondary' }])],
     ['a button label of 81', panel(withSecond(SAFEWORDS), [{ key: 'long', label: 'x'.repeat(81), style: 'Primary' }])],
+    ['a server emoji id that is not one', panel(withSecond(SAFEWORDS), [{ key: 'love', style: 'Primary', emoji: { id: '12', name: 'blobheart' } }])],
+    ['an emoji name of 33', panel(withSecond(SAFEWORDS), [{ key: 'love', style: 'Primary', emoji: { name: 'x'.repeat(33) } }])],
+    [
+        'a blank label and a bad emoji on one button, in the order the server meets them',
+        panel(withSecond(SAFEWORDS), [{ key: 'love', label: '', style: 'Primary', emoji: { id: '12', name: '' } }]),
+    ],
+
+    // --- each button has something to press ---
+    ['an emoji-only button', panel(withSecond(SAFEWORDS), [{ key: 'spicy', style: 'Danger', emoji: { name: '🌶️' } }])],
+    [
+        'a server emoji, animated, beside a label',
+        panel(withSecond(SAFEWORDS), [
+            { key: 'love', label: 'Love', style: 'Primary', emoji: { id: SERVER_EMOJI_ID, name: 'blob_heart', animated: true } },
+        ]),
+    ],
+    ['a flag, a keycap and a ZWJ sequence', panel(withSecond(SAFEWORDS), [
+        { key: 'flag', style: 'Primary', emoji: { name: '🇬🇧' } },
+        { key: 'one', style: 'Primary', emoji: { name: '1️⃣' } },
+        { key: 'pride', style: 'Primary', emoji: { name: '🏳️‍🌈' } },
+    ])],
+    ['a button with neither a label nor an emoji', panel(withSecond(SAFEWORDS), [BUTTONS[0], { key: 'blank', style: 'Secondary' }] as Buttons)],
+    ['a letter in a keycap and a lone regional indicator', panel(withSecond(SAFEWORDS), [
+        { key: 'kx', style: 'Primary', emoji: { name: 'x⃣' } },
+        { key: 'ra', style: 'Primary', emoji: { name: '🇦' } },
+    ])],
+    ['two emoji where one goes',panel(withSecond(SAFEWORDS), [{ key: 'spicy', style: 'Danger', emoji: { name: '🌶️🌶️' } }])],
+    ['a word where a standard emoji goes', panel(withSecond(SAFEWORDS), [{ key: 'fire', label: 'Fire', style: 'Danger', emoji: { name: 'fire' } }])],
+    ['a server emoji named with a hyphen', panel(withSecond(SAFEWORDS), [{ key: 'love', style: 'Primary', emoji: { id: SERVER_EMOJI_ID, name: 'blob-heart' } }])],
+    ['an animated standard emoji', panel(withSecond(SAFEWORDS), [{ key: 'spicy', style: 'Danger', emoji: { name: '🌶️', animated: true } }])],
 
     // --- the message as Post Embed takes it ---
     ['a half-typed picture link', panel(withSecond({ ...SAFEWORDS, thumbnail: 'ht' }))],
@@ -109,6 +139,16 @@ const TABLE: readonly (readonly [string, BrowserResourceDeclaration])[] = [
         panel(
             { content: 'Hi {{subject.mention}}', embeds: [{}, { title: 'Ok', thumbnail: 'nah' }] },
             [{ key: 'same', label: '{{x}}', style: 'Primary' }, { key: 'same', label: 'Two', style: 'Danger' }]
+        ),
+    ],
+    [
+        'every later stage at once, with nothing to press and a bad emoji',
+        panel(
+            { content: 'Hi {{subject.mention}}', embeds: [{}] },
+            [
+                { key: 'same', label: '{{x}}', style: 'Primary', emoji: { name: 'nope' } },
+                { key: 'same', style: 'Danger' },
+            ]
         ),
     ],
 ];

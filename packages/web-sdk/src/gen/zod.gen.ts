@@ -658,6 +658,15 @@ export const zGuild = z.object({
 });
 
 /**
+ * One of the server's own emoji a button may show. Drawn from `cdn.discordapp.com/emojis/<id>`, a GIF when `animated`.
+ */
+export const zGuildEmoji = z.object({
+    animated: z.boolean(),
+    id: z.string(),
+    name: z.string()
+});
+
+/**
  * Who already holds a channel, category or role: a journey (by key) or the ticket system. `label` names the owner for the operator.
  */
 export const zGuildObjectOwner = z.object({
@@ -974,6 +983,15 @@ export const zLogoutResult = z.object({
 });
 
 /**
+ * The emoji beside a button's label: `{ name }` with the glyph for a standard emoji, or `{ id, name, animated }` for one of the server's own. A server emoji gone from the server when the message is posted is left off the button.
+ */
+export const zMessageButtonEmoji = z.object({
+    animated: z.boolean().optional(),
+    id: z.string().regex(/^\d{17,20}$/, 'A server emoji\'s id is 17 to 20 digits.').optional(),
+    name: z.string().min(1, 'An emoji needs a name.').max(32, 'Emoji names stop at 32 characters.')
+});
+
+/**
  * One button on one of the flow's journey's messages: the message resource's key and the button's key.
  */
 export const zMessageButtonRef = z.object({
@@ -1218,11 +1236,12 @@ export const zMessageButtonStyle = z.enum([
 ]);
 
 /**
- * A button under a message resource. `key` is its identity within the message — what a press is routed by — so relabelling it changes nothing that listens to it.
+ * A button under a message resource. `key` is its identity within the message — what a press is routed by — so relabelling it changes nothing that listens to it. It has a `label`, an `emoji`, or both.
  */
 export const zMessageButton = z.object({
+    emoji: zMessageButtonEmoji.optional(),
     key: z.string().min(1, 'Give the button a key.').max(64, 'Button keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Button keys use lowercase letters, numbers and single hyphens (for example `let-me-in`).'),
-    label: z.string().min(1, 'A button needs a label — something to press.').max(80, 'Button labels stop at 80 characters — Discord\'s rule, not ours.'),
+    label: z.string().min(1, 'A button\'s label can\'t be blank — write one, or leave it off and let the emoji talk.').max(80, 'Button labels stop at 80 characters — Discord\'s rule, not ours.').optional(),
     style: zMessageButtonStyle
 });
 
@@ -1872,6 +1891,17 @@ export const zUpdateWarningsConfigPath = z.object({
  * The warnings config as saved.
  */
 export const zUpdateWarningsConfigResponse = zWarningsConfig;
+
+export const zGetGuildEmojisPath = z.object({
+    guildId: z.string()
+});
+
+/**
+ * The emoji, by name. One Discord marks unavailable is left out, as a button would post without it.
+ */
+export const zGetGuildEmojisResponse = z.object({
+    emojis: z.array(zGuildEmoji)
+});
 
 export const zListFlowsPath = z.object({
     guildId: z.string()

@@ -12,6 +12,9 @@ export { initProvisioning } from './initProvisioning';
 // A message resource's buttons are pressed by `mbtn:<buttonKey>`. Provisioning owns the
 // prefix because it renders the buttons; flows registers the one handler for it.
 export { MESSAGE_BUTTON_CUSTOM_ID_PREFIX, parseMessageButtonCustomId } from './logic/messageButtons';
+// Which of a server's emoji a button may show, so the dashboard's emoji list calls gone what
+// install drops.
+export { serverEmojiIds } from './logic/messageButtons';
 // Who listens to those buttons, in the shape flows answers with. Flows registers the reader at
 // wiring time; install and drift ask it, so provisioning imports nothing of flows at run time.
 export { registerButtonListenerReader, clearButtonListenerReaderForTests } from './buttonListeners';

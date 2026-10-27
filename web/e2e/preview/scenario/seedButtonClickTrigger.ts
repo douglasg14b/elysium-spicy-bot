@@ -17,8 +17,8 @@ const PANEL_KEY = 'rules-panel';
  * another flow already holds, the "+ New button" popover, and a pick whose button is gone.
  *
  * Three flows, each with one trigger on its canvas: "Rules gate" and "Welcome" share a journey
- * whose rules panel has three buttons, Welcome holding "Verify"; "Velvet rope" declares only a
- * channel; "Old door" picks a button its panel no longer has.
+ * whose rules panel has three buttons ("Let me in" wearing an emoji), Welcome holding "Verify";
+ * "Velvet rope" declares only a channel; "Old door" picks a button its panel no longer has.
  */
 export async function seedButtonClickTrigger({ guild, api }: SeedContext): Promise<PreviewPage[]> {
     const guildPath = `/api/guilds/${guild.guild.id}`;
@@ -55,7 +55,7 @@ export async function seedButtonClickTrigger({ guild, api }: SeedContext): Promi
     });
     await saveGraph(oldDoor.flowId, { messageKey: PANEL_KEY, buttonKey: 'verify' });
 
-    const selectRulesGate = { clickText: 'Rules panel · Let me in' } as const;
+    const selectRulesGate = { clickText: 'Rules panel · \u{1F608} Let me in' } as const;
     return [
         {
             name: 'button-trigger-no-messages',
@@ -72,8 +72,14 @@ export async function seedButtonClickTrigger({ guild, api }: SeedContext): Promi
         {
             name: 'button-trigger-new-button',
             path: `/flows/${rulesGate.flowId}`,
-            note: 'state 3: the "+ New button on this message" popover — Label with its counter, Style, Add',
+            note: 'state 3: the "+ New button on this message" popover — Emoji, Label with its counter, Style, Add',
             steps: [selectRulesGate, { clickButton: 'New button on this message' }],
+        },
+        {
+            name: 'button-trigger-new-button-emoji',
+            path: `/flows/${rulesGate.flowId}`,
+            note: 'state 3 with the emoji grid open inside the popover — then click the smiley square',
+            steps: [selectRulesGate, { clickButton: 'New button on this message' }, { clickButton: 'Pick an emoji' }],
         },
         {
             name: 'button-trigger-gone',
@@ -98,7 +104,7 @@ function rulesChannel(): ResourceDeclaration {
 }
 
 const BUTTONS = {
-    'let-me-in': { key: 'let-me-in', label: 'Let me in', style: 'Success' },
+    'let-me-in': { key: 'let-me-in', label: 'Let me in', style: 'Success', emoji: { name: '\u{1F608}' } },
     verify: { key: 'verify', label: 'Verify', style: 'Primary' },
     'read-the-rules': { key: 'read-the-rules', label: 'Read the rules', style: 'Secondary' },
 } as const;

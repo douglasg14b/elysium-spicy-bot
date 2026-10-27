@@ -1,4 +1,6 @@
 import type { ResourceDeclaration } from '../../provisioning';
+// From its module, not the barrel: the barrel loads the provisioning service and its database.
+import { buttonDisplayName } from '../../provisioning/logic/messageButtons';
 import type { FlowGraph } from '../data/flowGraph';
 import { buttonPicksIn } from './messageButtonReferences';
 
@@ -30,7 +32,7 @@ export interface ButtonClaimConflict {
     readonly buttonKey: string;
     /** The message's name, or its key when the journey no longer declares it. */
     readonly messageName: string;
-    /** The button's label, or its key when the message no longer has it. */
+    /** What the button is called (`buttonDisplayName`), or its key when the message no longer has it. */
     readonly buttonLabel: string;
 }
 
@@ -84,7 +86,7 @@ export function buttonClaimConflict(input: ButtonClaimInput): ButtonClaimConflic
             messageKey: pick.messageKey,
             buttonKey: pick.buttonKey,
             messageName: message?.defaultName ?? pick.messageKey,
-            buttonLabel: button?.label ?? pick.buttonKey,
+            buttonLabel: button ? buttonDisplayName(button) : pick.buttonKey,
         };
     }
 

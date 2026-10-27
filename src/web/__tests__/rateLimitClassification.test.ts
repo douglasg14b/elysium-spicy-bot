@@ -35,6 +35,7 @@ const EXPECTED_BUDGET: Readonly<Record<string, RateBudget>> = {
     // Guild directory and settings.
     getGuildChannels: 'general',
     getGuildRoles: 'general',
+    getGuildEmojis: 'general',
     getWarningsConfig: 'general',
     updateWarningsConfig: 'discord',
     getGuildSettings: 'general',

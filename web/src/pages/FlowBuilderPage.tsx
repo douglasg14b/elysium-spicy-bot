@@ -68,6 +68,7 @@ import {
     getFlowAttachment,
     getFlowResources,
     getGuildChannelsOptions,
+    getGuildEmojisOptions,
     getGuildRolesOptions,
     getGuildSettingsOptions,
     getInstallPlan,
@@ -504,6 +505,15 @@ function FlowBuilder() {
      * is, with nothing listed under "Already uploaded".
      */
     const guildUploads = useGuildUploads(selected?.id);
+    /**
+     * The server's own emoji, for the Button Click trigger's button faces and its "+ New
+     * button" grid. Read beside the flow, never instead of it, and never into the canvas: a
+     * failed read offers the standard emoji alone and calls nothing gone.
+     */
+    const guildEmojisQuery = useQuery({
+        ...getGuildEmojisOptions({ path: { guildId: selected?.id ?? '' } }),
+        enabled: !!selected,
+    });
 
     /**
      * The install review step.
@@ -2298,6 +2308,7 @@ function FlowBuilder() {
                                 declaredResources={declaredResources}
                                 serverTimeZone={serverTimeZone}
                                 uploads={guildUploads}
+                                serverEmojis={guildEmojisQuery.data?.emojis}
                                 declareResources={declareResources}
                                 listeners={{ all: buttonListeners, flowId: flowId ?? '', nodeId: selectedNode.id }}
                                 journey={journeyHoldings}

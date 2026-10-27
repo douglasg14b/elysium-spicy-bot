@@ -22,18 +22,23 @@ import { Button, Group, Input, Menu, Popover, Select, Stack, Text } from '@manti
 import { IconPlus } from '@tabler/icons-react';
 import type {
     BlockConfigField,
+    GuildEmoji,
     MessageButton,
+    MessageButtonEmoji,
     MessageButtonStyle,
     ResourceDeclaration,
 } from '@brattybot/web-sdk';
+import { buttonDisplayName } from '../buttonEmoji';
 import { buttonHolder, readButtonPick, type ButtonHolder } from '../buttonListeners';
-import { ButtonLabelField, ButtonStyleField } from '../messageEditor/ButtonFields';
+import { ButtonFaceContent } from '../messageEditor/ButtonFace';
+import { ButtonEmojiField, ButtonLabelField, ButtonStyleField } from '../messageEditor/ButtonFields';
 import { BUTTON_FACE, BUTTON_STYLES } from '../messageEditor/discordLook';
 import { BUTTON_LABEL_RULE, MAX_BUTTONS } from '../messageEditor/partRules';
 import {
     addButtonToMessage,
     declareMessageIn,
     newMessageChannels,
+    type NewButton,
     type NewMessageChannel,
 } from '../messageButtonDeclarations';
 import { channelOptionLabel } from '../resourceAdoption';
@@ -103,7 +108,7 @@ export function MessageButtonControl({ field, value, onChange, context, error }:
         const holder = holders.get(button.key);
         // Somebody else's, or another trigger's in this flow: one press starts one run.
         const taken = holder?.kind === 'otherFlows' || holder?.kind === 'thisFlow';
-        return { value: button.key, label: button.label, disabled: taken };
+        return { value: button.key, label: buttonDisplayName(button), disabled: taken };
     });
     if (pick && message && !buttons.some((button) => button.key === pick.buttonKey)) {
         buttonOptions.push({ value: pick.buttonKey, label: `${pick.buttonKey} — not on this message any more`, disabled: false });
@@ -193,6 +198,7 @@ export function MessageButtonControl({ field, value, onChange, context, error }:
                         <NewButtonPopover
                             opened={addingButton}
                             onOpenedChange={setAddingButton}
+                            serverEmojis={context.serverEmojis}
                             onAdd={(requested) => {
                                 const target = message.key;
                                 const added = addButtonToMessage(declared, target, requested);
@@ -224,8 +230,16 @@ export function MessageButtonControl({ field, value, onChange, context, error }:
 function ButtonOption({ button, line }: { readonly button: MessageButton; readonly line: string | null }) {
     return (
         <Group gap={10} wrap="nowrap">
-            <span style={{ ...BUTTON_FACE, fontSize: 12.5, padding: '4px 11px', background: BUTTON_STYLES[button.style].colour }}>
-                {button.label}
+            <span
+                style={{
+                    ...BUTTON_FACE,
+                    gap: 5,
+                    fontSize: 12.5,
+                    padding: '4px 11px',
+                    background: BUTTON_STYLES[button.style].colour,
+                }}
+            >
+                <ButtonFaceContent button={button} emojiSize={16} />
             </span>
             {line ? (
                 <Text size="11px" c="dimmed" truncate>
@@ -239,20 +253,33 @@ function ButtonOption({ button, line }: { readonly button: MessageButton; readon
 interface NewButtonPopoverProps {
     readonly opened: boolean;
     readonly onOpenedChange: (opened: boolean) => void;
-    readonly onAdd: (button: { readonly label: string; readonly style: MessageButtonStyle }) => void;
+    /** The server's own emoji, for the grid; `undefined` until the page has read them. */
+    readonly serverEmojis: readonly GuildEmoji[] | undefined;
+    readonly onAdd: (button: NewButton) => void;
 }
 
-/** "+ New button on this message": a label and a style, then Add. */
-function NewButtonPopover({ opened, onOpenedChange, onAdd }: NewButtonPopoverProps) {
+/**
+ * "+ New button on this message": an emoji, a label and a style, then Add — once it has a
+ * label or an emoji, which is all a button needs to have something to press.
+ *
+ * Escape is handled on the way up, not by Mantine's capturing close, so one in the emoji grid
+ * shuts the grid and leaves the label typed so far (see `ButtonEmojiField`).
+ */
+function NewButtonPopover({ opened, onOpenedChange, serverEmojis, onAdd }: NewButtonPopoverProps) {
     const [label, setLabel] = useState('');
+    const [emoji, setEmoji] = useState<MessageButtonEmoji | undefined>(undefined);
     const [style, setStyle] = useState<MessageButtonStyle>('Primary');
     const trimmed = label.trim();
     const problem = trimmed ? BUTTON_LABEL_RULE.problem(trimmed) : undefined;
 
+    const reset = () => {
+        setLabel('');
+        setEmoji(undefined);
+        setStyle('Primary');
+    };
     const close = () => {
         onOpenedChange(false);
-        setLabel('');
-        setStyle('Primary');
+        reset();
     };
 
     return (
@@ -264,6 +291,7 @@ function NewButtonPopover({ opened, onOpenedChange, onAdd }: NewButtonPopoverPro
             withArrow
             shadow="xl"
             trapFocus
+            closeOnEscape={false}
         >
             <Popover.Target>
                 <Button
@@ -275,8 +303,9 @@ function NewButtonPopover({ opened, onOpenedChange, onAdd }: NewButtonPopoverPro
                     New button on this message
                 </Button>
             </Popover.Target>
-            <Popover.Dropdown p={12}>
+            <Popover.Dropdown p={12} onKeyDown={(event) => event.key === 'Escape' && close()}>
                 <Stack gap={10}>
+                    <ButtonEmojiField value={emoji} onChange={setEmoji} serverEmojis={serverEmojis} />
                     <ButtonLabelField value={label} onChange={setLabel} autoFocus />
                     <ButtonStyleField value={style} onChange={setStyle} />
                     {problem ? (
@@ -290,11 +319,10 @@ function NewButtonPopover({ opened, onOpenedChange, onAdd }: NewButtonPopoverPro
                         </Button>
                         <Button
                             size="xs"
-                            disabled={!trimmed || !!problem}
+                            disabled={(!trimmed && !emoji) || !!problem}
                             onClick={() => {
-                                onAdd({ label: trimmed, style });
-                                setLabel('');
-                                setStyle('Primary');
+                                onAdd({ ...(trimmed ? { label: trimmed } : {}), style, ...(emoji ? { emoji } : {}) });
+                                reset();
                             }}
                         >
                             Add

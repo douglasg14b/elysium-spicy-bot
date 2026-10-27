@@ -22,6 +22,7 @@ const DECLARATIONS: readonly ResourceDeclaration[] = [
         buttons: [
             { key: 'verify', label: 'Verify', style: 'Success' },
             { key: 'nope', label: 'Nope', style: 'Danger' },
+            { key: 'spicy', style: 'Danger', emoji: { name: '🌶️' } },
         ],
     },
 ];
@@ -118,6 +119,20 @@ describe('buttonClaimConflict', () => {
                 declarations: DECLARATIONS,
             })
         ).toBeUndefined();
+    });
+
+    it('names an emoji-only button by its emoji, never as ""', () => {
+        const conflict = buttonClaimConflict({
+            flowId: 'gatekeeper',
+            graph: pressing('spicy'),
+            flows: [flow('welcome', 'Welcome', true, pressing('spicy'))],
+            journeyFlowIds: new Set(['gatekeeper', 'welcome']),
+            declarations: DECLARATIONS,
+        });
+
+        expect(conflict && buttonClaimRefusal(conflict)).toBe(
+            '"Welcome" already listens to "🌶️" on "Rules panel". One flow per button — point this trigger at another.'
+        );
     });
 
     it('names the keys when the journey no longer declares the button', () => {

@@ -100,6 +100,42 @@ describe('messageResourceProblems', () => {
         expect(refusal(declaration)).toMatch(sentence);
     });
 
+    it('takes an emoji-only button, standard or the server’s own', () => {
+        expect(
+            messageResourceProblems(
+                panel(CLEAN, [
+                    { key: 'spicy', style: 'Danger', emoji: { name: '🌶️' } },
+                    { key: 'love', style: 'Primary', emoji: { id: '112233445566778899', name: 'blob_heart', animated: true } },
+                ])
+            )
+        ).toEqual([]);
+    });
+
+    it.each([
+        [
+            'a button with neither a label nor an emoji',
+            panel(CLEAN, [LET_ME_IN, { key: 'blank', style: 'Secondary' }]),
+            '"Rules panel" button 2: A button needs a label or an emoji — something to press.',
+        ],
+        [
+            'two emoji where one goes',
+            panel(CLEAN, [{ key: 'spicy', style: 'Danger', emoji: { name: '🌶️🌶️' } }]),
+            '"Rules panel" button 1: That\'s not an emoji.',
+        ],
+        [
+            'a server emoji named as Discord never would',
+            panel(CLEAN, [{ key: 'love', label: 'Love', style: 'Primary', emoji: { id: '112233445566778899', name: 'blob heart' } }]),
+            '"Rules panel" button 1: That\'s not an emoji.',
+        ],
+        [
+            'an animated standard emoji',
+            panel(CLEAN, [{ key: 'spicy', style: 'Danger', emoji: { name: '🌶️', animated: true } }]),
+            '"Rules panel" button 1: That\'s not an emoji.',
+        ],
+    ])('refuses %s', (_label, declaration, sentence) => {
+        expect(refusal(declaration)).toBe(sentence);
+    });
+
     it('leaves a declaration with no message to the structural check', () => {
         expect(messageResourceProblems({ key: 'rules-panel', kind: 'message', defaultName: 'Rules panel' })).toEqual([]);
     });

@@ -5,7 +5,7 @@
  */
 
 import { createContext, useContext } from 'react';
-import type { ButtonListener, MessageButton } from '@brattybot/web-sdk';
+import type { ButtonListener, GuildEmoji, MessageButton } from '@brattybot/web-sdk';
 import type { GuildUploads } from '../controls/types';
 import type { AvailableVariable, RequirementAvailability } from '../variables';
 import type { MessageDraft } from './messageDraft';
@@ -61,6 +61,12 @@ export interface EditorButtons {
      * its flow under it, its key is locked — a press is routed by it — and removing it asks.
      */
     readonly listeners: readonly ButtonListener[];
+    /**
+     * The server's own emoji, for a button's emoji grid and its "gone from the server" note.
+     * `undefined` until the read answers, and after one that failed: the grid then offers the
+     * standard emoji alone, and no emoji is called gone on the strength of nothing.
+     */
+    readonly serverEmojis: readonly GuildEmoji[] | undefined;
 }
 
 export const EditorScopeContext = createContext<EditorScope | null>(null);

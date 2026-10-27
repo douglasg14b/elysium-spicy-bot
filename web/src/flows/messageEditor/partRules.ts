@@ -72,4 +72,4 @@ export const MAX_FIELDS = maximumOf(embedRules.fields.unwrap()._zod.bag.maximum,
 export const MAX_BUTTONS = maximumOf(zResourceDeclaration.shape.buttons.unwrap()._zod.bag.maximum, 'ResourceDeclaration.buttons');
 
 /** A button label's rule, read off the generated `MessageButton` as a text part's is. */
-export const BUTTON_LABEL_RULE: PartRule = ruleOf(zMessageButton.shape.label);
+export const BUTTON_LABEL_RULE: PartRule = ruleOf(zMessageButton.shape.label.unwrap());

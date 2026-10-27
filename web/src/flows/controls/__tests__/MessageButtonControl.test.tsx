@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type {
     BlockConfigField,
     ButtonListener,
     GuildChannel,
+    GuildEmoji,
     MessageButton,
     ResourceDeclaration,
 } from '@brattybot/web-sdk';
@@ -21,7 +22,17 @@ import type { ControlContext, JourneyHoldings } from '../types';
  * The declarations and the stored pick are held in real state, as the builder holds them, so
  * what is asserted is what the page would save: the button in the message's declaration and
  * the pick in the node, from one click.
+ *
+ * The emoji grid is stood in for at its package (`stubEmojiPicker`), as the message window's
+ * tests do.
  */
+
+vi.mock('emoji-picker-react', async (importOriginal) => {
+    const { stubEmojiPickerModule } = await import('../../../__tests__/support/stubEmojiPicker');
+    return stubEmojiPickerModule(await importOriginal<typeof import('emoji-picker-react')>());
+});
+
+const BLOBHEART: GuildEmoji = { id: '112233445566778899', name: 'blobheart', animated: false };
 
 const FIELD: Extract<BlockConfigField, { control: 'messageButton' }> = {
     key: 'button',
@@ -73,10 +84,11 @@ interface HarnessProps {
     readonly listeners: readonly ButtonListener[];
     readonly channels: GuildChannel[];
     readonly journey: JourneyHoldings;
+    readonly serverEmojis?: readonly GuildEmoji[];
     readonly error?: string;
 }
 
-function Harness({ record, initialDeclared, initialValue, listeners, channels, journey, error }: HarnessProps) {
+function Harness({ record, initialDeclared, initialValue, listeners, channels, journey, serverEmojis, error }: HarnessProps) {
     const [declared, setDeclared] = useState<ResourceDeclaration[]>([...initialDeclared]);
     const [value, setValue] = useState<unknown>(initialValue);
 
@@ -96,6 +108,7 @@ function Harness({ record, initialDeclared, initialValue, listeners, channels, j
             throw new Error('The button picker writes no resource sidecar.');
         },
         uploads: NO_UPLOADS,
+        ...(serverEmojis ? { serverEmojis } : {}),
         declareResources: (update) => setDeclared((current) => update(current)),
         listeners: { all: listeners, flowId: THIS_FLOW, nodeId: THIS_NODE },
         journey,
@@ -121,6 +134,7 @@ interface RenderOptions {
     readonly listeners?: readonly ButtonListener[];
     readonly channels?: GuildChannel[];
     readonly journey?: JourneyHoldings;
+    readonly serverEmojis?: readonly GuildEmoji[];
     readonly error?: string;
 }
 
@@ -134,6 +148,7 @@ function renderPicker(options: RenderOptions = {}) {
             listeners={options.listeners ?? []}
             channels={options.channels ?? []}
             journey={options.journey ?? { key: JOURNEY_KEY, boundKeys: new Map() }}
+            serverEmojis={options.serverEmojis}
             error={options.error}
         />
     );
@@ -231,6 +246,71 @@ describe('"New button on this message"', () => {
         await user.click(screen.getByRole('button', { name: 'Add' }));
 
         expect(record.changes.at(-1)).toEqual({ messageKey: 'rules-panel', buttonKey: 'let-me-in-2' });
+    });
+
+    it("adds a button with an emoji and no label, keyed by the server emoji's name", async () => {
+        const { user, record } = renderPicker({ value: { messageKey: 'rules-panel', buttonKey: 'nope' }, serverEmojis: [BLOBHEART] });
+
+        await user.click(screen.getByRole('button', { name: 'New button on this message' }));
+        const add = screen.getByRole('button', { name: 'Add' }) as HTMLButtonElement;
+        expect(add.disabled).toBe(true);
+        await user.click(screen.getByRole('button', { name: 'Pick an emoji' }));
+        await user.click(await screen.findByRole('button', { name: 'blobheart' }));
+        expect(add.disabled).toBe(false);
+        await user.click(add);
+
+        const message = record.declared.find((resource) => resource.key === 'rules-panel');
+        expect(message?.buttons?.at(-1)).toStrictEqual({
+            key: 'blobheart',
+            style: 'Primary',
+            emoji: { id: BLOBHEART.id, name: 'blobheart', animated: false },
+        });
+        expect(record.changes.at(-1)).toEqual({ messageKey: 'rules-panel', buttonKey: 'blobheart' });
+        expect(buttonSelect().value).toBe(':blobheart:');
+    });
+
+    it('keys a standard emoji with no label "button", its glyph alone', async () => {
+        const { user, record } = renderPicker({ value: { messageKey: 'rules-panel', buttonKey: 'nope' } });
+
+        await user.click(screen.getByRole('button', { name: 'New button on this message' }));
+        await user.click(screen.getByRole('button', { name: 'Pick an emoji' }));
+        await user.click(await screen.findByRole('button', { name: 'smiling face with horns' }));
+        await user.click(screen.getByRole('button', { name: 'Add' }));
+
+        const message = record.declared.find((resource) => resource.key === 'rules-panel');
+        expect(message?.buttons?.at(-1)).toStrictEqual({ key: 'button', style: 'Primary', emoji: { name: '\u{1F608}' } });
+    });
+
+    it('shuts only the grid on Escape, keeping the label typed so far', async () => {
+        const { user } = renderPicker({ value: { messageKey: 'rules-panel', buttonKey: 'nope' } });
+
+        await user.click(screen.getByRole('button', { name: 'New button on this message' }));
+        await user.type(screen.getByRole('textbox', { name: 'Label' }), 'Brat');
+        await user.click(screen.getByRole('button', { name: 'Pick an emoji' }));
+        await user.click(await screen.findByRole('textbox', { name: 'Type to search for an emoji' }));
+        await user.keyboard('{Escape}');
+
+        expect(screen.queryByRole('grid', { name: 'Emoji grid' })).toBeNull();
+        expect((screen.getByRole('textbox', { name: 'Label' }) as HTMLInputElement).value).toBe('Brat');
+
+        await user.keyboard('{Escape}');
+        expect(screen.queryByRole('textbox', { name: 'Label' })).toBeNull();
+    });
+});
+
+describe('a button with an emoji', () => {
+    it('names an emoji-only button by its emoji, and draws the emoji on its face', async () => {
+        const hearted: MessageButton = { key: 'love', style: 'Primary', emoji: { id: BLOBHEART.id, name: 'blobheart', animated: false } };
+        const { user } = renderPicker({
+            declared: [RULES_CHANNEL, { ...RULES_PANEL, buttons: [LET_ME_IN, hearted] }],
+            value: { messageKey: 'rules-panel', buttonKey: 'love' },
+            serverEmojis: [BLOBHEART],
+        });
+
+        expect(buttonSelect().value).toBe(':blobheart:');
+        await user.click(buttonSelect());
+        const option = screen.getByRole('option', { name: /^:blobheart:/ });
+        expect(option.querySelector('img')?.getAttribute('alt')).toBe(':blobheart:');
     });
 });
 

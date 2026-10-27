@@ -6,7 +6,7 @@ import {
     storableTimeZone,
 } from '../../features-system/guild-settings';
 import { reconcileGuildSchedules } from '../../features/flows/logic/reconcileGuildSchedules';
-import { loadGuildOwnership } from '../../features/provisioning';
+import { loadGuildOwnership, serverEmojiIds } from '../../features/provisioning';
 import { warningsConfigRepo } from '../../features/warnings/data/warningsConfigRepo';
 import { setWarningsModChannel } from '../../features/warnings/logic/setWarningsModChannel';
 import { describeRefusedRoles, isAssignableRole } from '../../utils/isAssignableRole';
@@ -15,6 +15,7 @@ import { accessibleGuilds } from './guildAccess';
 import {
     GuildChannelSchema,
     guildChannelBodies,
+    GuildEmojiSchema,
     guildObjectOwner,
     GuildRoleSchema,
     GuildSchema,
@@ -22,6 +23,7 @@ import {
     ROLE_ID_MAX_LENGTH,
     ROLE_LIST_MAX,
     WarningsConfigSchema,
+    type GuildEmojiBody,
     type GuildRoleBody,
     type GuildSettingsBody,
     type WarningsConfigBody,
@@ -135,6 +137,22 @@ const getGuildRolesRoute = createRoute({
         200: jsonResponse(
             'Assignable roles, highest first, each with the owner already holding it, if any.',
             z.object({ roles: z.array(GuildRoleSchema) })
+        ),
+        ...GUILD_SCOPED_ERRORS,
+    },
+});
+
+const getGuildEmojisRoute = createRoute({
+    method: 'get',
+    path: '/{guildId}/emojis',
+    operationId: 'getGuildEmojis',
+    tags: ['guilds'],
+    summary: "The guild's own emoji a message button may show",
+    request: { params: GuildPathSchema },
+    responses: {
+        200: jsonResponse(
+            'The emoji, by name. One Discord marks unavailable is left out, as a button would post without it.',
+            z.object({ emojis: z.array(GuildEmojiSchema) })
         ),
         ...GUILD_SCOPED_ERRORS,
     },
@@ -275,6 +293,23 @@ export function guildRoutes(): OpenAPIHono<AppEnv> {
                 );
 
             return c.json({ roles }, 200);
+        });
+
+        // The server's own emoji, for a message button's emoji picker. From the cache alone,
+        // which the GuildExpressions intent keeps current, and from the same set a post draws
+        // on (`serverEmojiIds`), so the picker calls gone exactly what install will drop.
+        router.openapi(getGuildEmojisRoute, (c) => {
+            const guild = c.get('guild');
+            const postable = serverEmojiIds(guild);
+            const emojis = [...guild.emojis.cache.values()]
+                .flatMap((emoji): GuildEmojiBody[] =>
+                    emoji.name && postable.has(emoji.id)
+                        ? [{ id: emoji.id, name: emoji.name, animated: emoji.animated ?? false }]
+                        : []
+                )
+                .sort((left, right) => left.name.localeCompare(right.name));
+
+            return c.json({ emojis }, 200);
         });
 
         // Read-only warnings config, with the mod-log channel name resolved for display.

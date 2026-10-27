@@ -14,6 +14,7 @@ import type {
     ResourceDeclaration,
     TicketTypeView,
 } from '@brattybot/web-sdk';
+import { buttonFaceText } from './buttonEmoji';
 import { formatDaysOfWeek, formatTimeOfDay } from './clockValues';
 import { ELIGIBILITY_PRINCIPALS, type EligibilityPrincipal } from './contractValues';
 import { resourceKeyFieldFor } from './controls/types';
@@ -79,10 +80,11 @@ function messageHeadline(raw: unknown): string {
 }
 
 /**
- * A message's button as "Rules panel · Verify": the message's name and the button's label,
- * read from what the journey declares. A key the declarations no longer hold shows as the
- * key itself — like a ticket type's, a key is readable, and "no button picked" would be a
- * lie about a node that names one.
+ * A message's button as "Rules panel · Verify": the message's name and the button's face as
+ * text — its emoji before its label (`🌶️ Verify`, or `:blobheart: Verify` for one of the
+ * server's), or whichever it has — read from what the journey declares. A key the declarations
+ * no longer hold shows as the key itself — like a ticket type's, a key is readable, and "no
+ * button picked" would be a lie about a node that names one.
  */
 function messageButtonName(raw: unknown, context: SummaryContext): string {
     if (!raw || typeof raw !== 'object') return '';
@@ -93,7 +95,7 @@ function messageButtonName(raw: unknown, context: SummaryContext): string {
         (resource) => resource.kind === 'message' && resource.key === messageKey
     );
     const button = message?.buttons?.find((candidate) => candidate.key === buttonKey);
-    return `${message?.defaultName ?? messageKey} · ${button?.label ?? buttonKey}`;
+    return `${message?.defaultName ?? messageKey} · ${button ? buttonFaceText(button) : buttonKey}`;
 }
 
 /**

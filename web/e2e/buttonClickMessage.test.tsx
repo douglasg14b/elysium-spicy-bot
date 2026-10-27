@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Events, type Interaction, type PermissionsString } from 'discord.js';
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { interactionsRegistry } from '../../src/features-system/commands';
 import { ACTION_SEND_MESSAGE } from '../../src/features/flows/blocks/actionSendMessage';
 import { TRIGGER_BUTTON_CLICK } from '../../src/features/flows/blocks/triggerButtonClick';
@@ -17,8 +17,13 @@ import { renderDashboard } from './support/renderDashboard';
 /**
  * A Button Click trigger listening to a message's button, end to end (step 3): from a flow on
  * no journey, the trigger's own "+ New message in #rules" and "+ New button" declare the
- * message and pick its button; Save and the builder's install wizard post it; TestDiscord then
- * holds one message with one `mbtn:` button, and a member pressing it runs the flow.
+ * message and pick its button — with one of the server's own emoji beside its label; Save and
+ * the builder's install wizard post it; TestDiscord then holds one message with one `mbtn:`
+ * button wearing that emoji, and a member pressing it runs the flow.
+ *
+ * The emoji grid is stood in for at its package (`stubEmojiPicker`): jsdom lays nothing out, so
+ * the real, virtualised grid would draw no emoji to click. The emoji list it offers is the real
+ * route's, read from TestDiscord's guild.
  *
  * The graph — the trigger with nothing picked and a line into #lounge — is written through the
  * API, as `builderResourceSaves.test.tsx` writes its trigger: dragging blocks onto the canvas is
@@ -36,6 +41,11 @@ const BOT_PERMISSIONS: readonly PermissionsString[] = [
 ];
 const OPERATOR = { id: '100000000000000005', username: 'e2e-operator' };
 const SAID = 'Welcome in, you gorgeous rule-reader.';
+
+vi.mock('emoji-picker-react', async (importOriginal) => {
+    const { stubEmojiPickerModule } = await import('../src/__tests__/support/stubEmojiPicker');
+    return stubEmojiPickerModule(await importOriginal<typeof import('emoji-picker-react')>());
+});
 
 const running: TestDiscord[] = [];
 
@@ -56,6 +66,7 @@ describe('a Button Click trigger on a message it made', () => {
         const rules = guild.createTextChannel({ name: 'rules' });
         const lounge = guild.createTextChannel({ name: 'lounge' });
         const member = guild.createMember({ username: 'fresh_meat' });
+        const blobheart = guild.createEmoji({ name: 'blobheart' });
         const client = await discord.start();
         const handling: Promise<unknown>[] = [];
         // What `bot.ts` does with every interaction.
@@ -90,17 +101,20 @@ describe('a Button Click trigger on a message it made', () => {
         fireEvent.click(await screen.findByText(/no button picked/));
         await user.click(await screen.findByRole('button', { name: 'New message in…' }));
         await user.click(await screen.findByRole('menuitem', { name: /^#rules/ }));
+        await user.click(await screen.findByRole('button', { name: 'Pick an emoji' }));
+        await user.click(await screen.findByRole('button', { name: 'blobheart' }));
         await user.type(await screen.findByRole('textbox', { name: 'Label' }), 'Let me in');
         await user.click(screen.getByRole('button', { name: 'Add' }));
 
         // Stored before the graph is saved, so the save is judged against a journey holding the button.
+        const heart = { id: blobheart.id, name: 'blobheart', animated: false };
         await waitFor(async () => {
             const stored = await api.send<{ resources: { kind: string; buttons?: { label: string }[] }[] }>(
                 'GET',
                 `${flowPath}/resources`
             );
             expect(stored.resources.find((resource) => resource.kind === 'message')?.buttons).toEqual([
-                expect.objectContaining({ label: 'Let me in' }),
+                { key: 'let-me-in', label: 'Let me in', style: 'Primary', emoji: heart },
             ]);
         });
 
@@ -131,6 +145,7 @@ describe('a Button Click trigger on a message it made', () => {
         const buttons = posted.components.flatMap((row) => row.components);
         const customIds = buttons.map((button) => ('custom_id' in button ? button.custom_id : undefined));
         expect(customIds).toEqual([expect.stringMatching(/^mbtn:/)]);
+        expect(buttons.map((button) => ('emoji' in button ? button.emoji : undefined))).toEqual([heart]);
         const [customId] = customIds;
         if (!customId) throw new Error('The posted button has no custom id.');
 

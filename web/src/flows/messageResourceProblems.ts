@@ -17,16 +17,20 @@
  * the same stages, in the same order, with the same sentences:
  *
  *  1. **The wire's schema**: the SDK's `zDiscordMessage` and `MessageButton` rules (each part's
- *     length, the title link's form, a button's key, label and style, at most 25 buttons). The
- *     server refuses on these before asking anything else, so only these are reported when any
- *     fails. Sorted into the server's own field order, which the generated schema does not keep.
+ *     length, the title link's form, a button's key, label, style and emoji, at most 25
+ *     buttons). The server refuses on these before asking anything else, so only these are
+ *     reported when any fails. Sorted into the server's own field order, which the generated
+ *     schema does not keep.
  *  2. **The message as Post Embed takes it** (`messageConfigSchema`): each picture an upload, a
  *     link or a token, and the rules spanning parts (`messageProblems`: an empty message, an empty
  *     embed, a lone header or footer icon, more than 6000 characters).
- *  3. **No `{{tokens}}`** in the copy, a picture, or a button's label.
- *  4. **Each button its own key.**
+ *  3. **Each button has something to press**: a label or an emoji, and an emoji that is one — a
+ *     server emoji's name Discord's `[A-Za-z0-9_]{2,32}`, a standard one's a single emoji, and
+ *     only a server emoji animated.
+ *  4. **No `{{tokens}}`** in the copy, a picture, or a button's label.
+ *  5. **Each button its own key.**
  *
- * The browser cannot import the bot's tree, so stages 2–4 are written out here, and
+ * The browser cannot import the bot's tree, so stages 2–5 are written out here, and
  * `src/features/provisioning/logic/__tests__/messageResourceProblemsDrift.test.ts` runs the
  * server's rules and this over one table.
  *
@@ -35,7 +39,13 @@
  * wrong until fixed, so the server's refusal names them in the error banner.
  */
 
-import { zDiscordMessage, zResourceDeclaration, type DiscordMessage, type ResourceDeclaration } from '@brattybot/web-sdk';
+import {
+    zDiscordMessage,
+    zResourceDeclaration,
+    type DiscordMessage,
+    type MessageButtonEmoji,
+    type ResourceDeclaration,
+} from '@brattybot/web-sdk';
 import type { NestedIssue } from './controls/types';
 import { messageCharacterCount, MESSAGE_TOTAL_CHARACTERS } from './messageEditor/messageCharacters';
 import { partLabel, type PicturePart, type TextPart } from './messageEditor/messageDraft';
@@ -45,7 +55,8 @@ import { TOKEN_PATTERN } from './variables';
 export interface MessageResourceProblem {
     /**
      * Where it sits, dotted: inside the message (`message.embeds.1.title`, or `message` for the
-     * message as a whole), or on a button (`buttons.2.label`, `buttons.2`).
+     * message as a whole), or on a button (`buttons.2.label`, `buttons.2.emoji`, `buttons.2.emoji.id`,
+     * `buttons.2`).
      */
     readonly path: string;
     /**
@@ -65,6 +76,15 @@ const TOKEN_IN_TEXT =
 const TOKEN_IN_PICTURE =
     "No tokens here — this message sits in its channel for everyone, so there's nobody to fill {{…}} in for. " +
     'Pick an upload or paste a link.';
+
+/** A button with nothing on its face. The server's sentence. */
+const NOTHING_TO_PRESS = 'A button needs a label or an emoji — something to press.';
+
+/** A button emoji that is not one, or a standard one claiming to be animated. The server's sentence. */
+const NOT_AN_EMOJI = "That's not an emoji.";
+
+/** A server emoji's name, as Discord allows one — the server's `SERVER_EMOJI_NAME_PATTERN`. */
+const SERVER_EMOJI_NAME = /^[A-Za-z0-9_]{2,32}$/;
 
 /** `pictureRefSchema`'s sentence: a picture that is none of an upload, a link or a token. */
 const NOT_A_PICTURE =
@@ -86,6 +106,20 @@ type Path = readonly (string | number)[];
 
 function holdsToken(text: string): boolean {
     return ONE_TOKEN.test(text);
+}
+
+/** Unicode's recommended emoji, one and whole — the server's `RGI_EMOJI`. */
+const RGI_EMOJI = new RegExp('^\\p{RGI_Emoji}$', 'v');
+
+/** Whether `name` is one standard emoji — the server's `isOneEmoji`, line for line. */
+function isOneEmoji(name: string): boolean {
+    return RGI_EMOJI.test(name) || RGI_EMOJI.test(`${name}\u{FE0F}`);
+}
+
+/** What is wrong with a button's emoji, or nothing — the server's `emojiProblem`. */
+function emojiProblem(emoji: MessageButtonEmoji): string | undefined {
+    if (emoji.id) return SERVER_EMOJI_NAME.test(emoji.name) ? undefined : NOT_AN_EMOJI;
+    return isOneEmoji(emoji.name) && emoji.animated !== true ? undefined : NOT_AN_EMOJI;
 }
 
 /**
@@ -114,11 +148,22 @@ function isPicture(value: string): boolean {
 const EMBED_FIELD_ORDER = ['color', 'author', 'title', 'url', 'description', 'fields', 'thumbnail', 'image', 'footer', 'timestamp'];
 const PAIR_ORDER: Readonly<Record<string, number>> = { name: 0, text: 0, iconUrl: 1 };
 const FIELD_ORDER: Readonly<Record<string, number>> = { name: 0, value: 1, inline: 2 };
+/** `MessageButtonSchema`'s field order, and its emoji's. */
+const BUTTON_FIELD_ORDER: Readonly<Record<string, number>> = { key: 0, label: 1, style: 2, emoji: 3 };
+const EMOJI_FIELD_ORDER: Readonly<Record<string, number>> = { name: 0, id: 1, animated: 2 };
 
 /** A sort key for an issue's path, in the server's walking order. */
 function rankOf(path: Path): number[] {
     const [root, ...rest] = path;
-    if (root === 'buttons') return [2, ...rest.map((step) => (typeof step === 'number' ? step : 0))];
+    if (root === 'buttons') {
+        const [index, field, inner] = rest;
+        return [
+            2,
+            typeof index === 'number' ? index : -1,
+            typeof field === 'string' ? (BUTTON_FIELD_ORDER[field] ?? 4) : -1,
+            typeof inner === 'string' ? (EMOJI_FIELD_ORDER[inner] ?? 3) : -1,
+        ];
+    }
     const [first, embed, field, inner, leaf] = rest;
     if (first === 'content') return [1, 0];
     if (first !== 'embeds' || typeof embed !== 'number') return [1, 1];
@@ -347,13 +392,19 @@ export function messageResourceProblems(resource: ResourceDeclaration): readonly
     }
     problems.push(...spanningProblems(message));
 
+    const buttons = resource.buttons ?? [];
+    buttons.forEach((button, index) => {
+        if (!button.label && !button.emoji) problems.push(onButton(index, [], NOTHING_TO_PRESS));
+        const emojiIssue = button.emoji && emojiProblem(button.emoji);
+        if (emojiIssue) problems.push(onButton(index, ['emoji'], emojiIssue));
+    });
+
     for (const part of copyOf(message)) {
         if (holdsToken(part.value)) problems.push(inMessage(part.path, part.picture ? TOKEN_IN_PICTURE : TOKEN_IN_TEXT));
     }
 
-    const buttons = resource.buttons ?? [];
     buttons.forEach((button, index) => {
-        if (holdsToken(button.label)) problems.push(onButton(index, [], TOKEN_IN_TEXT));
+        if (button.label && holdsToken(button.label)) problems.push(onButton(index, [], TOKEN_IN_TEXT));
     });
 
     const seenKeys = new Set<string>();

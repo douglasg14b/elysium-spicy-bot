@@ -47,22 +47,30 @@ const embedSchema = z.strictObject({
         .optional(),
 });
 
-/** Link and premium buttons carry a url or a sku instead of a custom id, and are not modelled. */
-const buttonSchema = z.strictObject({
-    type: z.literal(ComponentType.Button),
-    style: z.union([
-        z.literal(ButtonStyle.Primary),
-        z.literal(ButtonStyle.Secondary),
-        z.literal(ButtonStyle.Success),
-        z.literal(ButtonStyle.Danger),
-    ]),
-    custom_id: z.string().min(1).max(100),
-    label: z.string().max(80).optional(),
-    emoji: z
-        .strictObject({ name: z.string().min(1), id: snowflake.optional(), animated: z.boolean().optional() })
-        .optional(),
-    disabled: z.boolean().optional(),
-});
+/**
+ * Link and premium buttons carry a url or a sku instead of a custom id, and are not modelled.
+ * A button with neither a label nor an emoji is refused, as Discord refuses it — and the whole
+ * message with it.
+ */
+const buttonSchema = z
+    .strictObject({
+        type: z.literal(ComponentType.Button),
+        style: z.union([
+            z.literal(ButtonStyle.Primary),
+            z.literal(ButtonStyle.Secondary),
+            z.literal(ButtonStyle.Success),
+            z.literal(ButtonStyle.Danger),
+        ]),
+        custom_id: z.string().min(1).max(100),
+        label: z.string().max(80).optional(),
+        emoji: z
+            .strictObject({ name: z.string().min(1), id: snowflake.optional(), animated: z.boolean().optional() })
+            .optional(),
+        disabled: z.boolean().optional(),
+    })
+    .refine((button) => button.label !== undefined || button.emoji !== undefined, {
+        message: 'A button needs a label or an emoji.',
+    });
 
 const actionRowSchema = z.strictObject({
     type: z.literal(ComponentType.ActionRow),

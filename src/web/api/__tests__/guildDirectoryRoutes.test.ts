@@ -1,6 +1,7 @@
-import { ChannelType } from 'discord.js';
+import { ChannelType, type Guild } from 'discord.js';
 import { Hono } from 'hono';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { TestDiscord } from '../../../shared/__tests__/support/testDiscord';
 import type { AppEnv } from '../../types';
 
 /**
@@ -270,5 +271,74 @@ describe('GET /:guildId/channels — who holds each channel', () => {
         resourceBindingsRepoMock.listByGuild.mockResolvedValue([bindingRow({ state: 'intended', discordId: null })]);
 
         expect(byId(await listChannels(), '3').owner).toBeNull();
+    });
+});
+
+/**
+ * `GET /:guildId/emojis` — the server's own emoji, for a message button's picker. Against a
+ * real discord.js guild, so what is listed is what GUILD_CREATE put in its cache, and a
+ * second server the bot is in proves the list is this server's alone: install drops an emoji
+ * from any other (`buildButtonRows`), so the picker must not offer one.
+ */
+describe('GET /:guildId/emojis', () => {
+    const running: TestDiscord[] = [];
+
+    afterEach(async () => {
+        for (const discord of running.splice(0)) await discord.destroy();
+    });
+
+    function appFor(guild: Guild) {
+        const outer = new Hono<AppEnv>();
+        outer.use('*', async (c, next) => {
+            c.set('guild', guild);
+            await next();
+        });
+        outer.route('/', guildRoutes());
+        return outer;
+    }
+
+    it("lists this server's emoji by name, animated or not, and none of another server's", async () => {
+        const discord = new TestDiscord();
+        running.push(discord);
+        const house = discord.createGuild();
+        const wave = house.createEmoji({ name: 'wave', animated: false });
+        const blobheart = house.createEmoji({ name: 'blobheart', animated: true });
+        const elsewhere = discord.createGuild();
+        elsewhere.createEmoji({ name: 'someone_elses' });
+        await discord.start();
+
+        const response = await appFor(discord.clientGuild(house)).request(`/${house.id}/emojis`);
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({
+            emojis: [
+                { id: blobheart.id, name: 'blobheart', animated: true },
+                { id: wave.id, name: 'wave', animated: false },
+            ],
+        });
+    });
+
+    it('leaves out an emoji Discord marks unavailable, as install leaves it off a button', async () => {
+        const discord = new TestDiscord();
+        running.push(discord);
+        const house = discord.createGuild();
+        const wave = house.createEmoji({ name: 'wave' });
+        house.createEmoji({ name: 'boosted_blob', animated: true, available: false });
+        await discord.start();
+
+        const response = await appFor(discord.clientGuild(house)).request(`/${house.id}/emojis`);
+
+        expect(await response.json()).toEqual({ emojis: [{ id: wave.id, name: 'wave', animated: false }] });
+    });
+
+    it('answers a server with no emoji of its own with an empty list', async () => {
+        const discord = new TestDiscord();
+        running.push(discord);
+        const house = discord.createGuild();
+        await discord.start();
+
+        const response = await appFor(discord.clientGuild(house)).request(`/${house.id}/emojis`);
+
+        expect(await response.json()).toEqual({ emojis: [] });
     });
 });

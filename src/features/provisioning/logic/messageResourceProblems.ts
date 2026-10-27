@@ -1,5 +1,6 @@
 import { holdsCopyToken } from '../../../shared/copyTokens';
 import { messageConfigSchema, messageCopyLocations, messagePictures } from '../../../shared/discordMessage';
+import { isOneEmoji, SERVER_EMOJI_NAME_PATTERN, type MessageButtonEmoji } from './messageButtons';
 import type { ResourceDeclaration } from './resourceDeclaration';
 
 /** One reason a message resource cannot be posted as declared, and the part to fix. */
@@ -22,6 +23,25 @@ const TOKEN_IN_TEXT =
 const TOKEN_IN_PICTURE =
     "No tokens here — this message sits in its channel for everyone, so there's nobody to fill {{…}} in for. " +
     'Pick an upload or paste a link.';
+
+/** A button with nothing on its face: Discord refuses one, and with it the whole message. */
+const NOTHING_TO_PRESS = 'A button needs a label or an emoji — something to press.';
+
+/**
+ * A button emoji that is not one: more than one glyph, a word, a server emoji's name Discord
+ * would never give, or a standard emoji claiming to be animated.
+ */
+const NOT_AN_EMOJI = "That's not an emoji.";
+
+/**
+ * What is wrong with a button's emoji, or nothing: a server emoji's name is Discord's
+ * `[A-Za-z0-9_]{2,32}`, a standard one's is one emoji (`isOneEmoji`), and only a server
+ * emoji is animated. All keyed on whether it has an id, so the schema cannot say them.
+ */
+function emojiProblem(emoji: MessageButtonEmoji): string | undefined {
+    if (emoji.id) return SERVER_EMOJI_NAME_PATTERN.test(emoji.name) ? undefined : NOT_AN_EMOJI;
+    return isOneEmoji(emoji.name) && emoji.animated !== true ? undefined : NOT_AN_EMOJI;
+}
 
 /**
  * Where a problem at `path` sits, as the editor names it: the part itself when the path is
@@ -50,11 +70,14 @@ function whereIn(message: unknown, path: readonly PropertyKey[]): string | undef
  *  1. **The message is one Discord takes**: `messageConfigSchema`, which holds every part's
  *     own rule, the rules spanning parts (`messageProblems`) and the picture and title-link
  *     forms — the rules a Post Embed node is saved under.
- *  2. **No `{{tokens}}`, anywhere**: not in its copy, not in a picture, not in a button's
+ *  2. **Each button has something to press**: a label or an emoji, at least one, and an emoji
+ *     that is one ({@link emojiProblem}) — the rules spanning a button's fields, which the
+ *     route's schema cannot carry.
+ *  3. **No `{{tokens}}`, anywhere**: not in its copy, not in a picture, not in a button's
  *     label. A posted message has no member and no run, so nothing can fill one in — not
  *     even `{{guild.name}}`, which would need a second renderer outside flows and make every
  *     message drift when the server is renamed. Literal `{{…}}` text is refused with them.
- *  3. **Each button's key is its own**, since the key is what a press is routed by.
+ *  4. **Each button's key is its own**, since the key is what a press is routed by.
  *
  * A declaration with no `message` has nothing to judge: that it must carry one is the
  * structural rule `validateJourneyDeclaration` asks.
@@ -73,15 +96,25 @@ export function messageResourceProblems(declaration: ResourceDeclaration): reado
         }
     }
 
+    const buttons = declaration.buttons ?? [];
+    for (const [index, button] of buttons.entries()) {
+        if (!button.label && !button.emoji) {
+            problems.push({ where: `button ${index + 1}`, message: NOTHING_TO_PRESS });
+        }
+        const emojiIssue = button.emoji && emojiProblem(button.emoji);
+        if (emojiIssue) {
+            problems.push({ where: `button ${index + 1}`, message: emojiIssue });
+        }
+    }
+
     for (const location of messageCopyLocations(message)) {
         if (holdsCopyToken(location.value)) {
             problems.push({ where: location.where, message: location.checkRendered ? TOKEN_IN_PICTURE : TOKEN_IN_TEXT });
         }
     }
 
-    const buttons = declaration.buttons ?? [];
     for (const [index, button] of buttons.entries()) {
-        if (holdsCopyToken(button.label)) {
+        if (button.label && holdsCopyToken(button.label)) {
             problems.push({ where: `button ${index + 1}`, message: TOKEN_IN_TEXT });
         }
     }

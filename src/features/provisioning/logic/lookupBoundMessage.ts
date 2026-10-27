@@ -11,7 +11,7 @@ import {
 } from 'discord.js';
 import type { ResourceBindingEntity } from '../data/resourceBindingsSchema';
 import { DISCORD_UNKNOWN_CHANNEL, DISCORD_UNKNOWN_MESSAGE, describeDiscordError, discordErrorCode } from './discordErrors';
-import { parseMessageButtonCustomId } from './messageButtons';
+import { buttonDisplayName, parseMessageButtonCustomId } from './messageButtons';
 
 /**
  * Whether a message a journey posted is still there, as every planner is handed it.
@@ -156,6 +156,7 @@ export async function lookupBoundMessage(guild: Guild, channelId: string, messag
 /** A button a posted message carries that a journey's message resource put there (`mbtn:<key>`). */
 export interface PostedButton {
     readonly key: string;
+    /** What it is called, as it is posted: its label, else its emoji, else its key (`buttonDisplayName`). */
     readonly label: string;
 }
 
@@ -166,7 +167,11 @@ function postedButtonsOf(message: Message): readonly PostedButton[] {
             ? row.components.flatMap((component) => {
                   if (component.type !== ComponentType.Button || !component.customId) return [];
                   const key = parseMessageButtonCustomId(component.customId);
-                  return key ? [{ key, label: component.label ?? key }] : [];
+                  if (!key) return [];
+                  const emoji = component.emoji?.name
+                      ? { name: component.emoji.name, ...(component.emoji.id ? { id: component.emoji.id } : {}) }
+                      : undefined;
+                  return [{ key, label: buttonDisplayName({ key, label: component.label ?? undefined, emoji }) }];
               })
             : []
     );

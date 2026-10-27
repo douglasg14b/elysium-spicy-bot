@@ -5,6 +5,7 @@ import {
     TestDiscord,
     type RecordedRequest,
     type ServerChannel,
+    type ServerEmoji,
     type ServerGuild,
 } from '../../../shared/__tests__/support/testDiscord';
 import type { ButtonListener, ButtonListenerReader } from '../buttonListeners';
@@ -97,6 +98,8 @@ interface Scenario {
     readonly liveGuild: Guild;
     readonly thumbnailId: string;
     readonly thumbnailBytes: Buffer;
+    /** One of the guild's own emoji, uploaded before the bot connected. */
+    readonly blobheart: ServerEmoji;
 }
 
 /** Two channels, and a message in the first: plain text, two embeds, an uploaded thumbnail, seven buttons. */
@@ -164,10 +167,18 @@ async function startScenario(): Promise<Scenario> {
     running.push(discord);
 
     const guild = discord.createGuild({ bot: { permissions: BOT_PERMISSIONS } });
+    const blobheart = guild.createEmoji({ name: 'blobheart', animated: true });
     await discord.start();
 
     const thumbnail = await storeUpload(guild.id, 'collar.png');
-    return { discord, guild, liveGuild: discord.clientGuild(guild), thumbnailId: thumbnail.uploadId, thumbnailBytes: thumbnail.bytes };
+    return {
+        discord,
+        guild,
+        liveGuild: discord.clientGuild(guild),
+        thumbnailId: thumbnail.uploadId,
+        thumbnailBytes: thumbnail.bytes,
+        blobheart,
+    };
 }
 
 /** A PNG uploaded to this guild, as the dashboard stores one. */
@@ -838,5 +849,147 @@ describe('drift and repair of a message resource', () => {
                 reason: expect.stringMatching(/^Couldn't check it in #rules: the bot can't even see it \(Missing Access\)/),
             },
         ]);
+    });
+});
+
+describe('emoji on a message resource’s buttons', () => {
+    /** A server emoji's id this server has never held — one deleted since it was picked, say. */
+    const GONE_EMOJI_ID = '998877665544332211';
+
+    /** The panel's buttons as Discord holds them now, exactly as posted. */
+    function heldButtons(rules: ServerChannel, messageId: string): readonly unknown[] {
+        return rules.message(messageId).components.flatMap((row) => row.components);
+    }
+
+    it('posts a standard emoji and a server one beside their labels, and an emoji-only button with no label at all', async () => {
+        const scenario = await startScenario();
+        const buttons: readonly MessageButton[] = [
+            { key: 'spicy', label: 'Spicy', style: 'Danger', emoji: { name: '🌶️' } },
+            { key: 'love', label: 'Love', style: 'Primary', emoji: { id: scenario.blobheart.id, name: 'blobheart', animated: true } },
+            { key: 'agree', style: 'Success', emoji: { name: '👍' } },
+        ];
+
+        const result = await install(scenario, houseJourney(scenario, { buttons }));
+        const rules = scenario.guild.channel(appliedId(result, RULES_KEY));
+
+        // Strict: `toEqual` would let a `label: undefined` stand in for no label at all.
+        expect(heldButtons(rules, appliedId(result, PANEL_KEY))).toStrictEqual([
+            { type: ComponentType.Button, custom_id: 'mbtn:spicy', style: ButtonStyle.Danger, label: 'Spicy', emoji: { name: '🌶️' } },
+            {
+                type: ComponentType.Button,
+                custom_id: 'mbtn:love',
+                style: ButtonStyle.Primary,
+                label: 'Love',
+                emoji: { id: scenario.blobheart.id, name: 'blobheart', animated: true },
+            },
+            { type: ComponentType.Button, custom_id: 'mbtn:agree', style: ButtonStyle.Success, emoji: { name: '👍' } },
+        ]);
+    });
+
+    it('posts a button whose server emoji is gone without it — its label alone, or :name: when it had none — and logs each', async () => {
+        const scenario = await startScenario();
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const buttons: readonly MessageButton[] = [
+            { key: 'love', label: 'Love', style: 'Primary', emoji: { id: GONE_EMOJI_ID, name: 'oldheart' } },
+            { key: 'wave', style: 'Secondary', emoji: { id: GONE_EMOJI_ID, name: 'oldwave' } },
+        ];
+
+        const result = await install(scenario, houseJourney(scenario, { buttons }));
+        const rules = scenario.guild.channel(appliedId(result, RULES_KEY));
+
+        expect(heldButtons(rules, appliedId(result, PANEL_KEY))).toStrictEqual([
+            { type: ComponentType.Button, custom_id: 'mbtn:love', style: ButtonStyle.Primary, label: 'Love' },
+            { type: ComponentType.Button, custom_id: 'mbtn:wave', style: ButtonStyle.Secondary, label: ':oldwave:' },
+        ]);
+        expect(warn.mock.calls.map(([line]) => line)).toEqual([
+            `[provisioning] posted button love without its emoji ${GONE_EMOJI_ID} — gone from the server`,
+            `[provisioning] posted button wave without its emoji ${GONE_EMOJI_ID} — gone from the server`,
+        ]);
+    });
+
+    it('does not call a post out of date because its server emoji is gone: the declaration did not move', async () => {
+        const scenario = await startScenario();
+        vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const journey = houseJourney(scenario, {
+            buttons: [{ key: 'love', label: 'Love', style: 'Primary', emoji: { id: GONE_EMOJI_ID, name: 'oldheart' } }],
+        });
+        await install(scenario, journey);
+
+        const drift = await check(scenario, journey);
+
+        expect(drift.drifted).toEqual([]);
+        expect(drift.cleanKeys).toContain(PANEL_KEY);
+    });
+
+    it('reports a changed emoji as out of date, and repair edits it in place', async () => {
+        const scenario = await startScenario();
+        const before: readonly MessageButton[] = [{ key: 'spicy', label: 'Spicy', style: 'Danger', emoji: { name: '🌶️' } }];
+        const result = await install(scenario, houseJourney(scenario, { buttons: before }));
+        const rules = scenario.guild.channel(appliedId(result, RULES_KEY));
+        const messageId = appliedId(result, PANEL_KEY);
+
+        const swapped = houseJourney(scenario, {
+            buttons: [{ key: 'spicy', label: 'Spicy', style: 'Danger', emoji: { id: scenario.blobheart.id, name: 'blobheart', animated: true } }],
+        });
+        const drift = await check(scenario, swapped);
+        expect(drift.drifted).toEqual([
+            expect.objectContaining({ resourceKey: PANEL_KEY, drift: [{ kind: 'outOfDate', declarationMoved: true, embedsHidden: false }] }),
+        ]);
+
+        const repaired = await repair(scenario, swapped, drift);
+
+        expect(repaired.results).toEqual([expect.objectContaining({ resourceKey: PANEL_KEY, outcome: 'repaired' })]);
+        expect(messagePosts(scenario)).toHaveLength(1);
+        expect(heldButtons(rules, messageId)).toEqual([
+            {
+                type: ComponentType.Button,
+                custom_id: 'mbtn:spicy',
+                style: ButtonStyle.Danger,
+                label: 'Spicy',
+                emoji: { id: scenario.blobheart.id, name: 'blobheart', animated: true },
+            },
+        ]);
+        expect((await check(scenario, swapped)).drifted).toEqual([]);
+    });
+
+    it('repairs onto a server emoji gone since, posting the emoji-only button as :name:', async () => {
+        const scenario = await startScenario();
+        const result = await install(scenario, houseJourney(scenario, { buttons: [{ key: 'wave', style: 'Secondary', emoji: { name: '👋' } }] }));
+        const rules = scenario.guild.channel(appliedId(result, RULES_KEY));
+        const messageId = appliedId(result, PANEL_KEY);
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+        const gone = houseJourney(scenario, { buttons: [{ key: 'wave', style: 'Secondary', emoji: { id: GONE_EMOJI_ID, name: 'oldwave' } }] });
+        const repaired = await repair(scenario, gone, await check(scenario, gone));
+
+        expect(repaired.results).toEqual([expect.objectContaining({ resourceKey: PANEL_KEY, outcome: 'repaired' })]);
+        expect(heldButtons(rules, messageId)).toEqual([
+            { type: ComponentType.Button, custom_id: 'mbtn:wave', style: ButtonStyle.Secondary, label: ':oldwave:' },
+        ]);
+        expect(warn).toHaveBeenCalledWith(`[provisioning] posted button wave without its emoji ${GONE_EMOJI_ID} — gone from the server`);
+    });
+
+    it('names an emoji-only button by its emoji, in the install note and in a repair that would cut off its flow', async () => {
+        const scenario = await startScenario();
+        const buttons: readonly MessageButton[] = [
+            { key: 'spicy', style: 'Danger', emoji: { name: '🌶️' } },
+            { key: 'love', style: 'Primary', emoji: { id: scenario.blobheart.id, name: 'blobheart', animated: true } },
+        ];
+        const journey = houseJourney(scenario, { buttons });
+
+        expect(itemFor(await plan(scenario, journey), PANEL_KEY).note).toBe(
+            'Nobody listens to "🌶️" or ":blobheart:" yet — a press answers "Nothing\'s hooked up to this yet".'
+        );
+
+        await install(scenario, journey);
+        listeners = [listening('Spice rack', 'spicy'), listening('Heartthrob', 'love')];
+        const [report] = (await check(scenario, houseJourney(scenario, { buttons: [] }))).drifted;
+
+        expect(report?.drift[0]).toMatchObject({
+            disconnects: [
+                { flowName: 'Spice rack', buttonLabel: '🌶️' },
+                { flowName: 'Heartthrob', buttonLabel: ':blobheart:' },
+            ],
+        });
     });
 });

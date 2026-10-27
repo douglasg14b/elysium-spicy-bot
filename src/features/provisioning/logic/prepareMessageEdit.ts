@@ -59,11 +59,15 @@ export type MessageEditPreparation = PreparedMessageEdit | { readonly status: 'r
  * Where the edit goes comes from the row — the message id and the channel it was posted in —
  * never from a report that travelled. Reads this guild's uploads, so it must not run inside a
  * transaction (SQLite's one connection).
+ *
+ * @param emojiIds this server's emoji (`serverEmojiIds`): a button's server emoji not among
+ * them is left off, as install leaves it off (`buildButtonRows`).
  */
 export async function prepareMessageEdit(
     guildId: string,
     declaration: ResourceDeclaration,
-    row: ResourceBindingEntity
+    row: ResourceBindingEntity,
+    emojiIds: ReadonlySet<string>
 ): Promise<MessageEditPreparation> {
     const name = normaliseResourceName('message', declaration.defaultName);
 
@@ -106,7 +110,7 @@ export async function prepareMessageEdit(
         edit: {
             content: payload.content ?? '',
             embeds: payload.embeds,
-            components: buildButtonRows(declaration.buttons ?? []),
+            components: buildButtonRows(declaration.buttons ?? [], emojiIds),
             files: payload.files,
             allowedMentions: { parse: [] },
             flags: [],

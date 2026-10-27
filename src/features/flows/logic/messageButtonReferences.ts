@@ -1,3 +1,4 @@
+import { buttonDisplayName } from '../../provisioning/logic/messageButtons';
 import type { ResourceDeclaration } from '../../provisioning/logic/resourceDeclaration';
 import { isFieldVisible } from '../blocks/manifest';
 import { getBlockDefinition } from '../blocks/registry';
@@ -105,7 +106,7 @@ export function messageButtonIssues(
             continue;
         }
 
-        resolved.push({ pick: entry, label: button.label });
+        resolved.push({ pick: entry, label: buttonDisplayName(button) });
     }
 
     const pickCounts = new Map<string, number>();

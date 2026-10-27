@@ -1,5 +1,6 @@
 import type {
     ServerChannel,
+    ServerEmoji,
     ServerGuild,
     ServerMember,
     ServerRole,
@@ -23,6 +24,11 @@ export interface ScenarioGuild {
         readonly general: ServerChannel;
         readonly modLog: ServerChannel;
         readonly staffCategory: ServerChannel;
+    };
+    /** The guild's own emoji, for buttons and the emoji grid's "This server" section. */
+    readonly emojis: {
+        readonly blobheart: ServerEmoji;
+        readonly partyParrot: ServerEmoji;
     };
     readonly members: readonly ServerMember[];
 }
@@ -90,6 +96,11 @@ export function seedDiscord(discord: TestDiscord): ScenarioGuild {
     guild.createTextChannel({ name: 'staff-chat', parent: staffCategory });
     guild.createTextChannel({ name: 'uncategorised-channel' });
 
+    // One still, one that moves: the grid and a face draw them from Discord's CDN, which has
+    // neither of these made-up ids, so they show as broken pictures in the preview.
+    const blobheart = guild.createEmoji({ name: 'blobheart' });
+    const partyParrot = guild.createEmoji({ name: 'party_parrot', animated: true });
+
     const operator = guild.createMember({ username: 'velvet_admin', roles: [staff] });
     const members = [
         guild.createMember({ username: 'brattiest_brat_in_the_whole_server', roles: [member, verified] }),
@@ -102,6 +113,7 @@ export function seedDiscord(discord: TestDiscord): ScenarioGuild {
         operator: { id: operator.id, username: 'velvet_admin' },
         roles: { staff, moderators, verified, member },
         channels: { rules, introductions, general, modLog, staffCategory },
+        emojis: { blobheart, partyParrot },
         members,
     };
 }

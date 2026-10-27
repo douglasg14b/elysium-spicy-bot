@@ -16,9 +16,11 @@ import type {
     SharedTicketType,
 } from '../../features/provisioning/logic/journeyMergePlan';
 import {
+    MESSAGE_BUTTON_EMOJI_NAME_MAX_LENGTH,
     MESSAGE_BUTTON_STYLES,
     MESSAGE_MAX_BUTTONS,
     type MessageButton,
+    type MessageButtonEmoji,
 } from '../../features/provisioning/logic/messageButtons';
 import {
     describeMessageResourceProblem,
@@ -206,11 +208,38 @@ const discordIdSchema = z.string().regex(/^\d{17,20}$/, 'A channel or role id is
 const MessageButtonStyleSchema = z.enum(MESSAGE_BUTTON_STYLES).openapi('MessageButtonStyle');
 
 /**
+ * The emoji on a message's button: Discord's partial emoji, `{ name }` for a standard one and
+ * `{ id, name, animated }` for one of the server's own.
+ *
+ * One object for both, so `name` here can only be what both share. The rules keyed on whether
+ * an `id` is present — a standard emoji's name is one emoji, a server emoji's name is
+ * Discord's `[A-Za-z0-9_]{2,32}`, and only a server emoji is animated — span its fields, and
+ * `messageResourceRefusal` asks them. Whether the id is one of this server's is install's
+ * question, not the save's: an emoji can be deleted after it is picked.
+ */
+const MessageButtonEmojiSchema = z
+    .object({
+        name: z
+            .string()
+            .min(1, 'An emoji needs a name.')
+            .max(MESSAGE_BUTTON_EMOJI_NAME_MAX_LENGTH, `Emoji names stop at ${MESSAGE_BUTTON_EMOJI_NAME_MAX_LENGTH} characters.`),
+        id: z.string().regex(/^\d{17,20}$/, "A server emoji's id is 17 to 20 digits.").optional(),
+        animated: z.boolean().optional(),
+    })
+    .openapi('MessageButtonEmoji', {
+        description:
+            "The emoji beside a button's label: `{ name }` with the glyph for a standard emoji, or " +
+            "`{ id, name, animated }` for one of the server's own. A server emoji gone from the server " +
+            'when the message is posted is left off the button.',
+    });
+
+/**
  * One button under a message resource.
  *
  * The key follows the resource key rule, for the same reason: it travels in the button's
  * custom_id (`mbtn:<key>`), which Discord caps at 100 characters. That keys are unique within
  * their message spans the list, so the spec cannot carry it; `messageResourceRefusal` asks.
+ * So does the rule that a button has a label or an emoji, at least one.
  */
 const MessageButtonSchema = z
     .object({
@@ -224,17 +253,20 @@ const MessageButtonSchema = z
             ),
         label: z
             .string()
-            .min(1, 'A button needs a label — something to press.')
+            .min(1, "A button's label can't be blank — write one, or leave it off and let the emoji talk.")
             .max(
                 DISCORD_BUTTON_LABEL_MAX_LENGTH,
                 `Button labels stop at ${DISCORD_BUTTON_LABEL_MAX_LENGTH} characters — Discord's rule, not ours.`
-            ),
+            )
+            .optional(),
         style: MessageButtonStyleSchema,
+        emoji: MessageButtonEmojiSchema.optional(),
     })
     .openapi('MessageButton', {
         description:
             'A button under a message resource. `key` is its identity within the message — what a press is ' +
-            'routed by — so relabelling it changes nothing that listens to it.',
+            'routed by — so relabelling it changes nothing that listens to it. It has a `label`, an `emoji`, ' +
+            'or both.',
     });
 
 /**
@@ -800,6 +832,7 @@ const RepairedResourceSchema = z
 type JourneyBodyChecks = ChecksHold<{
     PermissionIntent: SchemaMatches<typeof PermissionIntentSchema, PermissionIntent>;
     MessageButton: SchemaMatches<typeof MessageButtonSchema, MessageButton>;
+    MessageButtonEmoji: SchemaMatches<typeof MessageButtonEmojiSchema, MessageButtonEmoji>;
     ResourceDeclaration: SchemaMatches<typeof ResourceDeclarationSchema, ResourceDeclaration>;
     MovingResource: SchemaMatches<typeof MovingResourceSchema, MovingResource>;
     KeyCollision: SchemaMatches<typeof KeyCollisionSchema, KeyCollision>;

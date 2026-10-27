@@ -11,6 +11,7 @@ import { IconAlertTriangle, IconTrash } from '@tabler/icons-react';
 import type {
     FlowValidationIssue,
     GuildChannel,
+    GuildEmoji,
     GuildRole,
     NodeDescriptor,
     ResourceDeclaration,
@@ -65,6 +66,11 @@ interface NodeInspectorProps {
     serverTimeZone?: ServerTimeZone;
     /** The server's uploaded pictures and the way to add one, for a control with pictures. */
     uploads: GuildUploads;
+    /**
+     * The server's own emoji, for a control drawing a message's buttons. Absent until the
+     * page's read answers, or after it failed.
+     */
+    serverEmojis?: readonly GuildEmoji[];
     /** Change the journey's declarations, for a control that makes one (`messageButton`). */
     declareResources: ControlContext['declareResources'];
     /** Who listens to the journey's buttons, seen from this node. */
@@ -102,6 +108,7 @@ export function NodeInspector({
     declaredResources,
     serverTimeZone,
     uploads,
+    serverEmojis,
     declareResources,
     listeners,
     journey,
@@ -134,6 +141,7 @@ export function NodeInspector({
         setConfigKey: (key, value) => onChange({ [key]: value }),
         ...(serverTimeZone ? { serverTimeZone } : {}),
         uploads,
+        ...(serverEmojis ? { serverEmojis } : {}),
         declareResources,
         listeners,
         journey,

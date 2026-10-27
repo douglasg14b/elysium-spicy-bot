@@ -47,7 +47,10 @@ export function canonicalJson(value: unknown): string {
 /**
  * The fingerprint of a message resource's declaration: a SHA-256, in hex, of the
  * {@link canonicalJson} of `{ message, buttons }`, with the message's defaults filled first.
- * No buttons and an empty list are the same.
+ * No buttons and an empty list are the same. A button's absent label or emoji is left out, so
+ * a message whose buttons carry no emoji fingerprints as it did before buttons could carry one; a
+ * changed emoji makes the post out of date, like a changed label. A server emoji deleted
+ * since is not: the declaration did not move.
  *
  * Stored on the binding when the message is posted (`upsertPostedMessage`) and after each
  * repair (`recordMessageDigest`).
@@ -57,6 +60,6 @@ export function canonicalJson(value: unknown): string {
  */
 export function messageDigest(message: DiscordMessageInput, buttons: readonly MessageButton[] = []): string {
     const filled = digestShape.parse(message);
-    const buttonParts = buttons.map(({ key, label, style }) => ({ key, label, style }));
+    const buttonParts = buttons.map(({ key, label, style, emoji }) => ({ key, label, style, emoji }));
     return createHash('sha256').update(canonicalJson({ message: filled, buttons: buttonParts })).digest('hex');
 }

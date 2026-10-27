@@ -3,7 +3,8 @@
  * in its style — with, in Edit, what listens to each and **+ Add button** after the last
  * (mockup `message-editor.mockup.html`, section 3).
  *
- * A click on a button opens its box: the label (with its count), the style and the key. The key
+ * A click on a button opens its box: the emoji, the label (with its count), the style and the
+ * key. Either the emoji or the label may go, not both — the save says so if both do. The key
  * is what a press is routed by, so it is shown and editable rather than hidden; relabelling a
  * button leaves it alone. Nothing here is ever `disabled` (see `PictureSlot`).
  *
@@ -16,15 +17,20 @@
 import { useRef, useState } from 'react';
 import { Button, Group, Popover, Stack, Text, TextInput, UnstyledButton } from '@mantine/core';
 import { IconLock, IconPlus } from '@tabler/icons-react';
-import type { ButtonListener, MessageButton } from '@brattybot/web-sdk';
+import type { ButtonListener, GuildEmoji, MessageButton } from '@brattybot/web-sdk';
+import { buttonDisplayName } from '../buttonEmoji';
 import { cutOffQuestion, flowNamesOf } from '../buttonListeners';
 import { joinWithAnd } from '../nameLists';
-import { ButtonLabelField, ButtonStyleField } from './ButtonFields';
+import { ButtonFaceContent } from './ButtonFace';
+import { ButtonEmojiField, ButtonLabelField, ButtonStyleField } from './ButtonFields';
 import { BUTTON_FACE, BUTTON_STYLES, DISCORD, TOOL_COLUMN } from './discordLook';
 import { useEditorScope, type EditorButtons } from './editorScope';
 import { addButton, BUTTONS_PER_ROW, buttonRows, removeButton, updateButton } from './messageButtons';
 import { PartProblems } from './PartProblems';
 import { MAX_BUTTONS } from './partRules';
+
+/** An emoji on a face, as Discord sets it beside 14px text. */
+const FACE_EMOJI_SIZE = 18;
 
 export function ButtonRow() {
     const scope = useEditorScope();
@@ -49,7 +55,7 @@ export function ButtonRow() {
                             <ButtonSlot key={index} buttons={buttons} index={index} button={button} />
                         ) : (
                             <div key={index} style={{ ...BUTTON_FACE, background: BUTTON_STYLES[button.style].colour }}>
-                                {button.label}
+                                <ButtonFaceContent button={button} emojiSize={FACE_EMOJI_SIZE} />
                             </div>
                         )
                     )}
@@ -78,9 +84,6 @@ function AddButton({ buttons }: { readonly buttons: EditorButtons }) {
             onClick={() => buttons.onChange(addButton(buttons.value))}
             style={{
                 ...BUTTON_FACE,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
                 color: DISCORD.muted,
                 border: `1px dashed ${DISCORD.placeholderEdge}`,
                 padding: '6px 15px',
@@ -106,7 +109,7 @@ function ButtonSlot({ buttons, index, button }: ButtonSlotProps) {
     const listeners = buttons.listeners.filter((listener) => listener.buttonKey === button.key);
     const update = (patch: Partial<MessageButton>) => buttons.onChange(updateButton(buttons.value, index, patch));
 
-    // Closed from inside — Done, Remove — focus goes back to the button, as a picture's does.
+    // Closed from inside — Escape, Done, Remove — focus goes back to the button, as a picture's does.
     const close = () => {
         setOpened(false);
         target.current?.focus();
@@ -114,12 +117,23 @@ function ButtonSlot({ buttons, index, button }: ButtonSlotProps) {
 
     return (
         <Stack gap={5} align="flex-start">
-            <Popover opened={opened} onChange={setOpened} width={320} position="bottom-start" withArrow shadow="xl">
+            {/* Escape on the way up, not Mantine's capturing close: the emoji grid inside takes the first one. */}
+            <Popover
+                opened={opened}
+                onChange={setOpened}
+                width={320}
+                position="bottom-start"
+                withArrow
+                shadow="xl"
+                closeOnEscape={false}
+            >
                 <Popover.Target>
                     <UnstyledButton
                         ref={target}
                         className="mx-picture"
                         aria-haspopup="dialog"
+                        // Its label, else its emoji, else its key — never nameless, whatever is on it.
+                        aria-label={buttonDisplayName(button)}
                         data-problem={problems.length > 0 || undefined}
                         onClick={() => setOpened((open) => !open)}
                         style={{
@@ -129,15 +143,16 @@ function ButtonSlot({ buttons, index, button }: ButtonSlotProps) {
                             outlineOffset: 2,
                         }}
                     >
-                        {button.label || ' '}
+                        <ButtonFaceContent button={button} emojiSize={FACE_EMOJI_SIZE} />
                     </UnstyledButton>
                 </Popover.Target>
-                <Popover.Dropdown className="nokey" p={12}>
+                <Popover.Dropdown className="nokey" p={12} onKeyDown={(event) => event.key === 'Escape' && close()}>
                     {/* Unmounted while shut, so a box reopened never carries a pending question. */}
                     <ButtonBox
                         button={button}
                         listeners={listeners}
                         problems={problems}
+                        serverEmojis={buttons.serverEmojis}
                         onChange={update}
                         onDone={close}
                         onRemove={() => {
@@ -165,13 +180,16 @@ interface ButtonBoxProps {
     /** The triggers listening to this button; none leaves its key free and its removal unasked. */
     readonly listeners: readonly ButtonListener[];
     readonly problems: readonly string[];
+    /** The server's own emoji, for the grid and the "gone" note; `undefined` until read. */
+    readonly serverEmojis: readonly GuildEmoji[] | undefined;
+    /** A change to the button; `label` or `emoji` as `undefined` takes it off (`updateButton`). */
     readonly onChange: (patch: Partial<MessageButton>) => void;
     readonly onDone: () => void;
     readonly onRemove: () => void;
 }
 
-/** The box a button opens: its label, its style and its key. */
-function ButtonBox({ button, listeners, problems, onChange, onDone, onRemove }: ButtonBoxProps) {
+/** The box a button opens: its emoji, its label, its style and its key. */
+function ButtonBox({ button, listeners, problems, serverEmojis, onChange, onDone, onRemove }: ButtonBoxProps) {
     // Removing a button a flow listens to asks first, in the box, before anything goes.
     const [askingToRemove, setAskingToRemove] = useState(false);
     const listened = listeners.length > 0;
@@ -195,7 +213,9 @@ function ButtonBox({ button, listeners, problems, onChange, onDone, onRemove }: 
 
     return (
         <Stack gap={10}>
-            <ButtonLabelField value={button.label} onChange={(label) => onChange({ label })} />
+            <ButtonEmojiField value={button.emoji} onChange={(emoji) => onChange({ emoji })} serverEmojis={serverEmojis} />
+            {/* Emptied, the label goes: an emoji-only button has none, and the server refuses an empty one. */}
+            <ButtonLabelField value={button.label ?? ''} onChange={(label) => onChange({ label: label || undefined })} />
             <ButtonStyleField value={button.style} onChange={(style) => onChange({ style })} />
             <TextInput
                 label="Key"

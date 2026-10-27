@@ -34,6 +34,7 @@ import {
 import { buildUnpublishPlan, type UnpublishPlan } from './logic/unpublishPlan';
 import { journeyBusyMessage, withJourneyLock } from './logic/journeyOperationLock';
 import { isPostedMessageRow, readMessagePresence, readMessageState, type MessageState } from './logic/lookupBoundMessage';
+import { serverEmojiIds } from './logic/messageButtons';
 import { prepareMessageEdit, type MessageEditPreparation } from './logic/prepareMessageEdit';
 import {
     isDiscordResource,
@@ -487,7 +488,10 @@ async function prepareMessageEdits(
         }
 
         try {
-            edits.set(report.resourceKey, await prepareMessageEdit(input.guild.id, declaration, row));
+            edits.set(
+                report.resourceKey,
+                await prepareMessageEdit(input.guild.id, declaration, row, serverEmojiIds(input.guild))
+            );
         } catch (error) {            // One message that cannot be prepared refuses that message alone: every other
             // approved repair in the run still goes ahead. The cause stays in the log.
             console.error(`[provisioning] Preparing the repair of message "${report.resourceKey}" failed:`, error);

@@ -1,6 +1,8 @@
-import type { ResourceDeclaration } from '@brattybot/web-sdk';
+import type { MessageButtonEmoji, ResourceDeclaration } from '@brattybot/web-sdk';
+import type { ServerEmoji } from '../../../../src/shared/__tests__/support/testDiscord';
 import type { PreviewPage, PreviewStep } from '../previewPages';
 import { gradientPng } from './gradientPng';
+import type { ScenarioGuild } from './seedDiscord';
 import type { SeedContext } from './seedScenario';
 
 interface CreatedFlow {
@@ -12,10 +14,13 @@ interface KeptUpload {
 }
 
 const FLOW_NAME = 'Front door';
+/** A server emoji's id this server never held — one deleted since it was picked. */
+const GONE_EMOJI_ID = '100000000000000999';
 
 /**
  * A flow's journey declaring a message: a channel, and a rules panel in it with a banner
- * from an upload and three buttons. Installed through the route, so Discord holds it, then
+ * from an upload and four buttons — a standard emoji, a server one, one the server no longer
+ * has, and an emoji-only one that moves. Installed through the route, so Discord holds it, then
  * its title changed in the declaration — so the resources dialog shows the newer message and
  * the drift check reads what is posted as out of date.
  */
@@ -31,7 +36,7 @@ export async function seedMessageResource({ guild, api }: SeedContext): Promise<
     // Each save sends the version the one before it answered with; the first has none.
     const declare = (title: string, baseUpdatedAt?: string) =>
         api.send<{ updatedAt: string }>('PUT', `${flowPath}/resources`, {
-            resources: rulesPanel(title, banner.uploadId),
+            resources: rulesPanel(title, banner.uploadId, guild.emojis),
             baseUpdatedAt,
         });
 
@@ -51,8 +56,25 @@ export async function seedMessageResource({ guild, api }: SeedContext): Promise<
         {
             name: 'message-resource-window',
             path: builder,
-            note: 'the message window with its three buttons, no {x} and no Token tab — then Edit message',
+            note: 'the message window with its four buttons, each emoji before its label, no {x} and no Token tab — then Edit message',
             steps: [...openRow, { clickButton: 'Edit message' }],
+        },
+        {
+            name: 'message-resource-button-gone-emoji',
+            path: builder,
+            note: 'the "Not for me" button\'s box: its emoji square, ✕, and "This emoji\'s gone from the server" — then click the button',
+            steps: [...openRow, { clickButton: 'Edit message' }, { clickButton: 'Not for me' }],
+        },
+        {
+            name: 'message-resource-emoji-grid',
+            path: builder,
+            note: 'the emoji grid open inside "I agree, let me in"\'s box, "This server" first — then click the button, then its emoji square',
+            steps: [
+                ...openRow,
+                { clickButton: 'Edit message' },
+                { clickButton: 'I agree, let me in' },
+                { clickButton: 'Emoji \u{1F608} — pick another' },
+            ],
         },
         {
             name: 'message-resource-drift',
@@ -68,7 +90,7 @@ export async function seedMessageResource({ guild, api }: SeedContext): Promise<
     ];
 }
 
-function rulesPanel(title: string, uploadId: string): ResourceDeclaration[] {
+function rulesPanel(title: string, uploadId: string, emojis: ScenarioGuild['emojis']): ResourceDeclaration[] {
     return [
         { key: 'house-rules', kind: 'textChannel', defaultName: 'house-rules' },
         {
@@ -91,10 +113,16 @@ function rulesPanel(title: string, uploadId: string): ResourceDeclaration[] {
                 ],
             },
             buttons: [
-                { key: 'i-agree', label: 'I agree, let me in', style: 'Success' },
-                { key: 'safewords', label: 'Remind me of the safewords', style: 'Secondary' },
-                { key: 'nope', label: 'Not for me', style: 'Danger' },
+                { key: 'i-agree', label: 'I agree, let me in', style: 'Success', emoji: { name: '\u{1F608}' } },
+                { key: 'safewords', label: 'Remind me of the safewords', style: 'Secondary', emoji: serverEmoji(emojis.blobheart) },
+                { key: 'nope', label: 'Not for me', style: 'Danger', emoji: { id: GONE_EMOJI_ID, name: 'oldheart', animated: false } },
+                { key: 'party', style: 'Primary', emoji: serverEmoji(emojis.partyParrot) },
             ],
         },
     ];
+}
+
+/** A server emoji as a button holds it: `animated` always present. */
+function serverEmoji(emoji: ServerEmoji): MessageButtonEmoji {
+    return { id: emoji.id, name: emoji.name, animated: emoji.animated };
 }

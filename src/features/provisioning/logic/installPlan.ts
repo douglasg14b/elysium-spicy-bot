@@ -6,6 +6,7 @@ import type { TicketTypeReading } from '../ticketTypeProvider';
 import { describeOtherHolder, type GuildOwnership } from './bindingOwner';
 import { parseDeclaredRoleReference } from './declaredRoleReference';
 import { isPostedMessageRow, requireMessagePresence, type MessagePresence } from './lookupBoundMessage';
+import { buttonDisplayName } from './messageButtons';
 import { describeMessageResourceProblem, messageResourceProblems } from './messageResourceProblems';
 import { compilePermissionIntents, type PermissionIntentContext } from './permissionIntent';
 import { normaliseResourceName } from './resourceName';
@@ -209,7 +210,8 @@ const KIND_LABEL: Record<ResourceKind, string> = {
 const TICKET_TYPE_USED_AS_IT_IS = 'Already here, so it is used as it is — install never changes an existing ticket type.';
 
 /**
- * The note on a message whose buttons include some no flow listens to, naming them by label —
+ * The note on a message whose buttons include some no flow listens to, naming them by label
+ * (else emoji, else key: `buttonDisplayName`) —
  * or undefined when every button has a listener. A switched-off flow counts: a press on its
  * button answers that the flow is disabled, not that nothing is hooked up.
  */
@@ -223,7 +225,7 @@ function unheardButtonsNote(
     );
     if (unheard.length === 0) return undefined;
 
-    const labels = unheard.map((button) => `"${button.label}"`);
+    const labels = unheard.map((button) => `"${buttonDisplayName(button)}"`);
     const named = labels.length === 1 ? labels.join('') : `${labels.slice(0, -1).join(', ')} or ${labels.at(-1)}`;
     return `Nobody listens to ${named} yet — a press answers "Nothing's hooked up to this yet".`;
 }

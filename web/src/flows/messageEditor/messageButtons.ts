@@ -22,13 +22,21 @@ export function addButton(buttons: readonly MessageButton[]): MessageButton[] {
     return [...buttons, { key, label: NEW_BUTTON_LABEL, style: 'Primary' }];
 }
 
-/** `buttons` with button `index` changed by `patch`. */
+/**
+ * `buttons` with button `index` changed by `patch`. A `label` or `emoji` patched to `undefined`
+ * is taken off the button rather than left on it holding `undefined`, so the list in state is
+ * the list that is saved: a button with no label or no emoji, as the server expects one.
+ */
 export function updateButton(
     buttons: readonly MessageButton[],
     index: number,
     patch: Partial<MessageButton>
 ): MessageButton[] {
-    return buttons.map((button, at) => (at === index ? { ...button, ...patch } : button));
+    return buttons.map((button, at) => {
+        if (at !== index) return button;
+        const { label, emoji, ...rest } = { ...button, ...patch };
+        return { ...rest, ...(label === undefined ? {} : { label }), ...(emoji === undefined ? {} : { emoji }) };
+    });
 }
 
 /** `buttons` without button `index`. */

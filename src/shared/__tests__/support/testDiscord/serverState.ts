@@ -15,6 +15,7 @@ import {
     RoleFlags,
     SnowflakeUtil,
     ThreadAutoArchiveDuration,
+    type APIEmoji,
     type APIGuildCategoryChannel,
     type APIGuildMember,
     type APINewsChannel,
@@ -119,6 +120,20 @@ export interface NewRole {
     readonly permissions: string;
 }
 
+/** One of a guild's own emoji to create. */
+export interface NewEmoji {
+    readonly name: string;
+    readonly animated: boolean;
+    /** False for an emoji the server lost the boosts paying for: Discord keeps it, unusable. */
+    readonly available: boolean;
+}
+
+/**
+ * A guild's own emoji, as GUILD_CREATE carries it. `id` and `name` are always set for a
+ * guild's emoji; the API type leaves them nullable because a reaction's emoji may lack both.
+ */
+export type ServerEmojiPayload = APIEmoji & { readonly id: string; readonly name: string };
+
 interface GuildRecord {
     readonly id: string;
     readonly name: string;
@@ -128,6 +143,7 @@ interface GuildRecord {
     readonly members: Map<string, APIGuildMember>;
     readonly channels: Map<string, ServerChannelPayload>;
     readonly threads: Map<string, ServerThreadPayload>;
+    readonly emojis: Map<string, ServerEmojiPayload>;
 }
 
 /*
@@ -343,6 +359,7 @@ export class ServerState {
             ]),
             channels: new Map(),
             threads: new Map(),
+            emojis: new Map(),
         };
         this.guilds.set(id, record);
 
@@ -577,6 +594,35 @@ export class ServerState {
         return structuredClone(role);
     }
 
+    /**
+     * Upload one of the guild's own emoji, before the client connects.
+     *
+     * Only before: GUILD_CREATE then carries it in `emojis`. One added or deleted while
+     * connected would be a GUILD_EMOJIS_UPDATE, which the harness does not dispatch, so it is
+     * refused rather than left out of the client's cache unannounced. An emoji gone from the
+     * server is modelled by never adding it: to the bot, a deleted emoji's id is one its
+     * guild does not hold.
+     */
+    addEmoji(guildId: string, input: NewEmoji): ServerEmojiPayload {
+        if (this.sink) {
+            throw new TestDiscordError(
+                'TestDiscord cannot add an emoji after the client connected: GUILD_EMOJIS_UPDATE is not modelled. Create emoji before start().'
+            );
+        }
+        const guild = this.guild(guildId);
+        const emoji: ServerEmojiPayload = {
+            id: newSnowflake(),
+            name: input.name,
+            roles: [],
+            require_colons: true,
+            managed: false,
+            animated: input.animated,
+            available: input.available,
+        };
+        guild.emojis.set(emoji.id, emoji);
+        return structuredClone(emoji);
+    }
+
     addMember(guildId: string, input: { readonly username: string; readonly roleIds: readonly string[] }): APIGuildMember {
         const guild = this.guild(guildId);
         for (const roleId of input.roleIds) this.role(guildId, roleId);
@@ -772,7 +818,7 @@ export class ServerState {
             default_message_notifications: GuildDefaultMessageNotifications.AllMessages,
             explicit_content_filter: GuildExplicitContentFilter.Disabled,
             roles: [...guild.roles.values()],
-            emojis: [],
+            emojis: [...guild.emojis.values()],
             features: [],
             mfa_level: GuildMFALevel.None,
             application_id: null,

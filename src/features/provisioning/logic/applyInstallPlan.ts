@@ -14,7 +14,7 @@ import {
     type PlanItem,
 } from './installPlan';
 import { isMessageChannel } from './lookupBoundMessage';
-import { buildButtonRows } from './messageButtons';
+import { buildButtonRows, serverEmojiIds } from './messageButtons';
 import { messageDigest } from './messageDrift';
 import { describeMessageResourceProblem } from './messageResourceProblems';
 import {
@@ -541,14 +541,17 @@ async function applyMessage(
     }
     // Before the post, so nothing between the post and its record can throw but the write.
     const digest = messageDigest(declaration.message, declaration.buttons);
+    // The whole message is built before the send: inside its `try`, a throw building it would
+    // be reported as Discord never answering.
+    const payload = {
+        ...buildMessagePayload(parsed.data, uploads.files),
+        components: buildButtonRows(declaration.buttons ?? [], serverEmojiIds(guild)),
+        allowedMentions: { parse: [] },
+    };
 
     let posted: Message;
     try {
-        posted = await channel.send({
-            ...buildMessagePayload(parsed.data, uploads.files),
-            components: buildButtonRows(declaration.buttons ?? []),
-            allowedMentions: { parse: [] },
-        });
+        posted = await channel.send(payload);
     } catch (error) {
         if (error instanceof DiscordAPIError) {
             return { failure: `Failed to post message "${item.name}" in #${channel.name}: ${describeDiscordError(error)}` };

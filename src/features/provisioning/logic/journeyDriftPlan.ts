@@ -403,7 +403,7 @@ function requirePostedButtons(input: CheckMessageInput, row: ResourceBindingEnti
 /**
  * The triggers listening to a button the post carries now and its declaration no longer has —
  * the ones a repair, which edits the post to the declaration, would leave with nothing to
- * press, named by the label the post shows. Judged against the post as fetched: a listener
+ * press, named as the post shows them (`PostedButton.label`). Judged against the post as fetched: a listener
  * naming a button already gone from it (cut off by an earlier repair, or never posted) is
  * deaf already, and its flow's readiness says so rather than every later repair again.
  *

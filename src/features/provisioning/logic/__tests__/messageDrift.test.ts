@@ -63,6 +63,21 @@ describe('messageDigest', () => {
         expect(messageDigest(MESSAGE, [{ ...BUTTONS[0]!, label: 'Fine, whatever' }])).not.toBe(base);
     });
 
+    it('changes when a button’s emoji is added, swapped or taken off', () => {
+        const withChilli = [{ ...BUTTONS[0]!, emoji: { name: '🌶️' } }];
+        const withBlobheart = [{ ...BUTTONS[0]!, emoji: { id: '112233445566778899', name: 'blobheart', animated: false } }];
+
+        const digests = [BUTTONS, withChilli, withBlobheart].map((buttons) => messageDigest(MESSAGE, buttons));
+
+        expect(new Set(digests).size).toBe(3);
+    });
+
+    it('tells two emoji-only buttons apart by their emoji', () => {
+        const emojiOnly = (name: string) => [{ key: 'agree', style: 'Success' as const, emoji: { name } }];
+
+        expect(messageDigest(MESSAGE, emojiOnly('🌶️'))).not.toBe(messageDigest(MESSAGE, emojiOnly('👍')));
+    });
+
     it('is a SHA-256 in hex', () => {
         expect(messageDigest(MESSAGE)).toMatch(/^[0-9a-f]{64}$/);
     });
@@ -72,7 +87,8 @@ describe('messageDigest', () => {
      * this value has to change — `canonicalJson`, the parse's defaults, the button mapping or
      * the hash — every stored digest reads as out of date, and every installed message is
      * offered for repair at once. Recompute them alongside the change: a migration, or one
-     * repair pass over every journey. Never just update the expected value.
+     * repair pass over every journey. Never just update the expected value. A button with no
+     * emoji must keep hashing to this: emoji arrived after these digests were stored.
      */
     it('hashes this fixture to exactly what is already stored', () => {
         expect(messageDigest(MESSAGE, BUTTONS)).toBe('68c9e164b42eebe856c63c6857044ebbdc79a33423d1cc93cead997c584c17e5');

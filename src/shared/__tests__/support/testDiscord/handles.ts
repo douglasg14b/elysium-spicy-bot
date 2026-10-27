@@ -30,6 +30,13 @@ export interface OverwriteGrant {
 
 export type OverwriteTarget = ServerRole | ServerMember;
 
+/** One of a guild's own emoji, as Discord holds it — what a button's server emoji names. */
+export interface ServerEmoji {
+    readonly id: string;
+    readonly name: string;
+    readonly animated: boolean;
+}
+
 /**
  * A message somebody sends in Discord, for a test to build history with.
  *
@@ -378,6 +385,18 @@ export class ServerGuild {
             permissions: PermissionsBitField.resolve([...(options.permissions ?? [])]).toString(),
         });
         return new ServerRole(this.id, role.id);
+    }
+
+    /** One of the guild's own emoji. Before `TestDiscord.start()` only — see `ServerState.addEmoji`. */
+    createEmoji(
+        options: { readonly name?: string; readonly animated?: boolean; readonly available?: boolean } = {}
+    ): ServerEmoji {
+        const emoji = this.state.addEmoji(this.id, {
+            name: options.name ?? this.state.nextName('emoji').replaceAll('-', '_'),
+            animated: options.animated ?? false,
+            available: options.available ?? true,
+        });
+        return { id: emoji.id, name: emoji.name, animated: emoji.animated ?? false };
     }
 
     createMember(options: { readonly username?: string; readonly roles?: readonly ServerRole[] } = {}): ServerMember {

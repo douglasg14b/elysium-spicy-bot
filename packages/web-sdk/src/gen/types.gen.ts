@@ -842,6 +842,15 @@ export type GuildChannel = {
 };
 
 /**
+ * One of the server's own emoji a button may show. Drawn from `cdn.discordapp.com/emojis/<id>`, a GIF when `animated`.
+ */
+export type GuildEmoji = {
+    animated: boolean;
+    id: string;
+    name: string;
+};
+
+/**
  * Who already holds a channel, category or role: a journey (by key) or the ticket system. `label` names the owner for the operator.
  */
 export type GuildObjectOwner = {
@@ -1203,12 +1212,22 @@ export type LogoutResult = {
 };
 
 /**
- * A button under a message resource. `key` is its identity within the message — what a press is routed by — so relabelling it changes nothing that listens to it.
+ * A button under a message resource. `key` is its identity within the message — what a press is routed by — so relabelling it changes nothing that listens to it. It has a `label`, an `emoji`, or both.
  */
 export type MessageButton = {
+    emoji?: MessageButtonEmoji;
     key: string;
-    label: string;
+    label?: string;
     style: MessageButtonStyle;
+};
+
+/**
+ * The emoji beside a button's label: `{ name }` with the glyph for a standard emoji, or `{ id, name, animated }` for one of the server's own. A server emoji gone from the server when the message is posted is left off the button.
+ */
+export type MessageButtonEmoji = {
+    animated?: boolean;
+    id?: string;
+    name: string;
 };
 
 /**
@@ -2141,6 +2160,55 @@ export type UpdateWarningsConfigResponses = {
 };
 
 export type UpdateWarningsConfigResponse = UpdateWarningsConfigResponses[keyof UpdateWarningsConfigResponses];
+
+export type GetGuildEmojisData = {
+    body?: never;
+    path: {
+        guildId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/emojis';
+};
+
+export type GetGuildEmojisErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type GetGuildEmojisError = GetGuildEmojisErrors[keyof GetGuildEmojisErrors];
+
+export type GetGuildEmojisResponses = {
+    /**
+     * The emoji, by name. One Discord marks unavailable is left out, as a button would post without it.
+     */
+    200: {
+        emojis: Array<GuildEmoji>;
+    };
+};
+
+export type GetGuildEmojisResponse = GetGuildEmojisResponses[keyof GetGuildEmojisResponses];
 
 export type ListFlowsData = {
     body?: never;

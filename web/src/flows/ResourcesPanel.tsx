@@ -80,6 +80,7 @@ import {
 import type {
     ButtonListener,
     GuildChannel,
+    GuildEmoji,
     GuildRole,
     MessageButton,
     ResourceDeclaration,
@@ -211,6 +212,11 @@ interface ResourcesPanelProps {
     /** The server's uploaded pictures, for a message resource's window. */
     uploads: GuildUploads;
     /**
+     * The server's own emoji, for a message's buttons. Absent until known — or when the read
+     * failed — when the emoji grid offers only the standard ones and nothing is called gone.
+     */
+    serverEmojis?: readonly GuildEmoji[];
+    /**
      * Told when a message row's window opens and closes, so the dialog holding this panel can
      * leave Escape to the window: Mantine closes a modal on any Escape in the page, and the
      * window sits inside this one.
@@ -264,6 +270,7 @@ export function ResourcesPanel({
     installedKeys,
     scope = 'flow',
     uploads,
+    serverEmojis,
     onMessageWindowChange,
     listeners = NO_LISTENERS,
 }: ResourcesPanelProps) {
@@ -708,6 +715,7 @@ export function ResourcesPanel({
                             onNameFocusHandled={clearNameFocus}
                             parents={parentsFor(row.resource)}
                             uploads={uploads}
+                            serverEmojis={serverEmojis}
                             onMessageWindowChange={onMessageWindowChange}
                             roles={roles}
                             channels={channels}
@@ -773,6 +781,8 @@ interface ResourceRowProps {
     /** What this row may sit in — categories for a channel, text channels for a message. */
     parents: ResourceDeclaration[];
     uploads: GuildUploads;
+    /** The server's own emoji, for a message row's buttons; `undefined` until known. */
+    serverEmojis: readonly GuildEmoji[] | undefined;
     onMessageWindowChange: ((open: boolean) => void) | undefined;
     roles: GuildRole[];
     channels: GuildChannel[];
@@ -815,6 +825,7 @@ function ResourceRow({
     onNameFocusHandled,
     parents,
     uploads,
+    serverEmojis,
     onMessageWindowChange,
     roles,
     channels,
@@ -1158,6 +1169,7 @@ function ResourceRow({
                                 keyIsInstalled={keyIsInstalled}
                                 listeners={listeners}
                                 uploads={uploads}
+                                serverEmojis={serverEmojis}
                                 onUpdate={onUpdate}
                                 onRename={onRename}
                                 onWindowChange={onMessageWindowChange}
@@ -1501,6 +1513,8 @@ interface MessageBodyProps {
     /** Every trigger listening to the list's messages; this row reads its own message's. */
     listeners: readonly ButtonListener[];
     uploads: GuildUploads;
+    /** The server's own emoji, for the buttons' emoji grid; `undefined` until known. */
+    serverEmojis: readonly GuildEmoji[] | undefined;
     onUpdate: (patch: Partial<ResourceDeclaration>) => void;
     onRename: (nextName: string) => void;
     onWindowChange: ((open: boolean) => void) | undefined;
@@ -1538,6 +1552,7 @@ function MessageBody({
     keyIsInstalled,
     listeners,
     uploads,
+    serverEmojis,
     onUpdate,
     onRename,
     onWindowChange,
@@ -1659,6 +1674,7 @@ function MessageBody({
                         onChange: (next) => write({ buttons: next }),
                         issues: buttonIssues(problems),
                         listeners: ownListeners,
+                        serverEmojis,
                     }}
                     onClose={() => setEditing(false)}
                 />

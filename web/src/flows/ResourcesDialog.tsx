@@ -43,9 +43,11 @@ import {
     ApiError,
     type ButtonListener,
     getGuildChannelsOptions,
+    getGuildEmojisOptions,
     getGuildRolesOptions,
     getTicketsConfigOptions,
     type GuildChannel,
+    type GuildEmoji,
     type GuildRole,
     type ResourceDeclaration,
     type TicketTypeView,
@@ -172,7 +174,7 @@ export function ResourcesDialog({
 }: ResourcesDialogProps) {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const { roles, channels, ticketTypes } = useGuildDirectory(guildId, opened);
+    const { roles, channels, ticketTypes, serverEmojis } = useGuildDirectory(guildId, opened);
     /*
      * How many message windows are open over this dialog. Mantine closes a modal on any
      * Escape in the page — a window-level listener, not one on the modal — so without this an
@@ -264,6 +266,7 @@ export function ResourcesDialog({
                         saving={saving}
                         error={error ?? undefined}
                         uploads={uploads}
+                        serverEmojis={serverEmojis}
                         onMessageWindowChange={onMessageWindowChange}
                         listeners={listeners}
                     />
@@ -274,8 +277,8 @@ export function ResourcesDialog({
 }
 
 /**
- * The guild's real roles and channels, for the adopt and permission pickers, and its
- * ticket types, for a declared ticket type.
+ * The guild's real roles and channels, for the adopt and permission pickers, its ticket
+ * types, for a declared ticket type, and its own emoji, for a message's buttons.
  *
  * Fetched here rather than passed in because both callers would otherwise have to fetch
  * them for this dialog alone — the flows page has no other use for either list, and making
@@ -295,10 +298,21 @@ export function ResourcesDialog({
 function useGuildDirectory(
     guildId: string,
     active: boolean
-): { roles: GuildRole[]; channels: GuildChannel[]; ticketTypes: TicketTypeView[] | undefined } {
+): {
+    roles: GuildRole[];
+    channels: GuildChannel[];
+    ticketTypes: TicketTypeView[] | undefined;
+    serverEmojis: GuildEmoji[] | undefined;
+} {
     const path = { guildId };
     const roles = useQuery({ ...getGuildRolesOptions({ path }), enabled: active });
     const channels = useQuery({ ...getGuildChannelsOptions({ path }), enabled: active });
+    /*
+     * The server's own emoji, for a message's buttons. `undefined` until read, and left so
+     * when the read fails, for the same reason as the ticket types: a button's emoji is never
+     * called gone, nor the grid's server section filled, on the strength of nothing.
+     */
+    const emojis = useQuery({ ...getGuildEmojisOptions({ path }), enabled: active });
     /*
      * The server's ticket types, for a declared ticket type's key suggestions and its
      * "already here" chip. Its own query, so a ticket config that will not load costs the
@@ -311,6 +325,7 @@ function useGuildDirectory(
         roles: roles.data?.roles ?? NO_ROLES,
         channels: channels.data?.channels ?? NO_CHANNELS,
         ticketTypes: ticketsConfig.data?.types,
+        serverEmojis: emojis.data?.emojis,
     };
 }
 

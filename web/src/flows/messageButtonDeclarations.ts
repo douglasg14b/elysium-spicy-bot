@@ -7,7 +7,13 @@
  * of the list before, each returning a new list, so the page can apply them as one update.
  */
 
-import type { GuildChannel, MessageButton, MessageButtonStyle, ResourceDeclaration } from '@brattybot/web-sdk';
+import type {
+    GuildChannel,
+    MessageButton,
+    MessageButtonEmoji,
+    MessageButtonStyle,
+    ResourceDeclaration,
+} from '@brattybot/web-sdk';
 import {
     declarationForAdoptedResource,
     declarationForNewResource,
@@ -132,10 +138,11 @@ function declareServerChannel(resources: ResourceDeclaration[], where: ServerCha
     return declaration.key;
 }
 
-/** What "+ New button" was asked for. */
+/** What "+ New button" was asked for: a label, an emoji, or both. */
 export interface NewButton {
-    readonly label: string;
+    readonly label?: string;
     readonly style: MessageButtonStyle;
+    readonly emoji?: MessageButtonEmoji;
 }
 
 /** A list with a new button on one of its messages, and that button's key. */
@@ -146,7 +153,9 @@ export interface DeclaredButton {
 
 /**
  * `current` with a button added to message `messageKey`, keyed by its label and kept unique
- * among the message's other buttons — the rule the message window keys a new button by.
+ * among the message's other buttons — the rule the message window keys a new button by. An
+ * emoji-only button is keyed by its server emoji's name; a standard glyph makes no key, so it
+ * is `button`. A blank label is left off rather than stored empty, which the save refuses.
  */
 export function addButtonToMessage(
     current: readonly ResourceDeclaration[],
@@ -155,14 +164,20 @@ export function addButtonToMessage(
 ): DeclaredButton {
     const message = current.find((resource) => resource.kind === 'message' && resource.key === messageKey);
     const existing: readonly MessageButton[] = message?.buttons ?? [];
-    const label = button.label.trim();
-    const buttonKey = uniqueResourceKey(slugifyResourceName(label) || 'button', existing);
+    const label = button.label?.trim();
+    const { emoji } = button;
+    const keyedBy = label || (emoji?.id ? emoji.name : '');
+    const buttonKey = uniqueResourceKey(slugifyResourceName(keyedBy) || 'button', existing);
+    const added: MessageButton = {
+        key: buttonKey,
+        ...(label ? { label } : {}),
+        style: button.style,
+        ...(emoji ? { emoji } : {}),
+    };
 
     return {
         resources: current.map((resource) =>
-            resource === message
-                ? { ...resource, buttons: [...existing, { key: buttonKey, label, style: button.style }] }
-                : resource
+            resource === message ? { ...resource, buttons: [...existing, added] } : resource
         ),
         buttonKey,
     };

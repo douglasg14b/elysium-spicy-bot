@@ -3195,6 +3195,26 @@
                 ],
                 "type": "object"
             },
+            "GuildEmoji": {
+                "description": "One of the server's own emoji a button may show. Drawn from `cdn.discordapp.com/emojis/<id>`, a GIF when `animated`.",
+                "properties": {
+                    "animated": {
+                        "type": "boolean"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name",
+                    "animated"
+                ],
+                "type": "object"
+            },
             "GuildObjectOwner": {
                 "description": "Who already holds a channel, category or role: a journey (by key) or the ticket system. `label` names the owner for the operator.",
                 "properties": {
@@ -4421,8 +4441,11 @@
                 "type": "object"
             },
             "MessageButton": {
-                "description": "A button under a message resource. `key` is its identity within the message — what a press is routed by — so relabelling it changes nothing that listens to it.",
+                "description": "A button under a message resource. `key` is its identity within the message — what a press is routed by — so relabelling it changes nothing that listens to it. It has a `label`, an `emoji`, or both.",
                 "properties": {
+                    "emoji": {
+                        "$ref": "#/components/schemas/MessageButtonEmoji"
+                    },
                     "key": {
                         "maxLength": 64,
                         "minLength": 1,
@@ -4440,7 +4463,7 @@
                         "type": "string",
                         "x-messages": {
                             "maxLength": "Button labels stop at 80 characters — Discord's rule, not ours.",
-                            "minLength": "A button needs a label — something to press."
+                            "minLength": "A button's label can't be blank — write one, or leave it off and let the emoji talk."
                         }
                     },
                     "style": {
@@ -4449,8 +4472,35 @@
                 },
                 "required": [
                     "key",
-                    "label",
                     "style"
+                ],
+                "type": "object"
+            },
+            "MessageButtonEmoji": {
+                "description": "The emoji beside a button's label: `{ name }` with the glyph for a standard emoji, or `{ id, name, animated }` for one of the server's own. A server emoji gone from the server when the message is posted is left off the button.",
+                "properties": {
+                    "animated": {
+                        "type": "boolean"
+                    },
+                    "id": {
+                        "pattern": "^\\d{17,20}$",
+                        "type": "string",
+                        "x-messages": {
+                            "pattern": "A server emoji's id is 17 to 20 digits."
+                        }
+                    },
+                    "name": {
+                        "maxLength": 32,
+                        "minLength": 1,
+                        "type": "string",
+                        "x-messages": {
+                            "maxLength": "Emoji names stop at 32 characters.",
+                            "minLength": "An emoji needs a name."
+                        }
+                    }
+                },
+                "required": [
+                    "name"
                 ],
                 "type": "object"
             },
@@ -7077,6 +7127,108 @@
                     }
                 },
                 "summary": "Set the warnings mod-log channel",
+                "tags": [
+                    "guilds"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/emojis": {
+            "get": {
+                "operationId": "getGuildEmojis",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "emojis": {
+                                            "items": {
+                                                "$ref": "#/components/schemas/GuildEmoji"
+                                            },
+                                            "type": "array"
+                                        }
+                                    },
+                                    "required": [
+                                        "emojis"
+                                    ],
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "The emoji, by name. One Discord marks unavailable is left out, as a button would post without it."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
+                    }
+                },
+                "summary": "The guild's own emoji a message button may show",
                 "tags": [
                     "guilds"
                 ]

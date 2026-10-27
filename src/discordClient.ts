@@ -9,6 +9,10 @@ const DISCORD_CLIENT = new Client({
         GatewayIntentBits.GuildVoiceStates,
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildMessageReactions,
+        // Not privileged. Keeps `guild.emojis` current, so an emoji added after startup is in
+        // the dashboard's button emoji picker without a restart, and one deleted is dropped
+        // from a post rather than refused by Discord.
+        GatewayIntentBits.GuildExpressions,
     ],
     /*
      * `GuildMember` so GuildMemberRemove fires for a member who was not cached, which on

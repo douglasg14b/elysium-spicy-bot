@@ -6,6 +6,7 @@ export type {
     OverwriteTarget,
     OverwriteView,
     ServerChannel,
+    ServerEmoji,
     ServerGuild,
     ServerInteraction,
     ServerMember,
