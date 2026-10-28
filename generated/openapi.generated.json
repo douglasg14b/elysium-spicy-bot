@@ -2013,6 +2013,7 @@
                 "properties": {
                     "action.assignRole": {
                         "properties": {
+                            "member": {},
                             "roleId": {
                                 "minLength": 1,
                                 "type": "string",
@@ -2025,7 +2026,8 @@
                     },
                     "action.awardXp": {
                         "properties": {
-                            "amount": {}
+                            "amount": {},
+                            "member": {}
                         },
                         "type": "object"
                     },
@@ -2060,6 +2062,7 @@
                     },
                     "action.kickMember": {
                         "properties": {
+                            "member": {},
                             "reason": {
                                 "maxLength": 512,
                                 "minLength": 1,
@@ -2179,6 +2182,7 @@
                     },
                     "action.removeRole": {
                         "properties": {
+                            "member": {},
                             "roleId": {
                                 "minLength": 1,
                                 "type": "string",
@@ -2191,6 +2195,7 @@
                     },
                     "action.sendDM": {
                         "properties": {
+                            "member": {},
                             "message": {
                                 "maxLength": 2000,
                                 "minLength": 1,
@@ -2295,6 +2300,7 @@
                     },
                     "condition.hasOpenTicket": {
                         "properties": {
+                            "member": {},
                             "ticketType": {
                                 "minLength": 1,
                                 "type": "string",
@@ -2307,6 +2313,7 @@
                     },
                     "condition.hasRole": {
                         "properties": {
+                            "member": {},
                             "roleId": {
                                 "minLength": 1,
                                 "type": "string",
@@ -2330,12 +2337,15 @@
                         "type": "object"
                     },
                     "condition.isBooster": {
-                        "properties": {},
+                        "properties": {
+                            "member": {}
+                        },
                         "type": "object"
                     },
                     "condition.levelAtLeast": {
                         "properties": {
-                            "level": {}
+                            "level": {},
+                            "member": {}
                         },
                         "type": "object"
                     },
@@ -2353,6 +2363,7 @@
                                     "maximum": "No more than 31536000000."
                                 }
                             },
+                            "member": {},
                             "source": {},
                             "timeVariable": {
                                 "maxLength": 64,

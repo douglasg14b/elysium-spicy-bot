@@ -838,13 +838,19 @@ function checkVisibleWhen(label: string, configFields: unknown, configSchema: un
  * and a card-summary part's — one set of rules, so the two cannot come to disagree about
  * what may show or hide something.
  *
- * `where` names what carries the declaration, for the messages.
+ * `where` names what carries the declaration, for the messages. `ownKey` is the field a
+ * card-summary part renders: a part shown by **its own** field may be shown by one that is
+ * itself conditional, because the card drops a part whose field is hidden before it reads
+ * the part's `visibleWhen` — there is no chain, only "this choice, while it applies, holds
+ * one of these" (the member choice, shown on Time Since's member sources alone, names
+ * itself on the card only while it is not the default).
  */
 function checkVisibleWhenSource(
     where: string,
     when: unknown,
     configFields: readonly unknown[],
-    shape: Record<string, ZodType> | null
+    shape: Record<string, ZodType> | null,
+    ownKey?: string
 ): readonly string[] {
     const sourceKey = readProperty(when, 'field');
     const equals = readProperty(when, 'equals');
@@ -867,7 +873,7 @@ function checkVisibleWhenSource(
     }
 
     const issues: string[] = [];
-    if (readProperty(source, 'visibleWhen') !== undefined) {
+    if (readProperty(source, 'visibleWhen') !== undefined && sourceKey !== ownKey) {
         issues.push(
             `${where} is shown by "${sourceKey}", which is itself conditional. One level only — a chain ` +
                 'would hide something for a reason the form never shows.'
@@ -1296,10 +1302,11 @@ function checkCardSummary(
         }
 
         // Held to a field's own `visibleWhen` rules, so a part can only be shown by a
-        // choice every reader resolves the same way.
+        // choice every reader resolves the same way — except that a part may be shown by
+        // its own field even where that field is conditional (see `checkVisibleWhenSource`).
         const when = readProperty(part, 'visibleWhen');
         if (when !== undefined) {
-            issues.push(...checkVisibleWhenSource(`${label}: ${where}`, when, asArray(configFields), shape));
+            issues.push(...checkVisibleWhenSource(`${label}: ${where}`, when, asArray(configFields), shape, key));
         }
     }
 

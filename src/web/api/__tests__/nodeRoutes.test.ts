@@ -102,7 +102,9 @@ describe('GET /api/nodes', () => {
         expect(descriptor.configFields).toEqual(manifest.configFields);
         expect(descriptor.configFields[0]?.control).toBe('rolePicker');
         expect(descriptor.handles.map((handle) => handle.id)).toEqual(['true', 'false']);
-        expect(descriptor.requires).toEqual(['subject']);
+        // Its member choice says who it needs, so the block itself needs nothing.
+        expect(descriptor.requires).toEqual([]);
+        expect(descriptor.configFields[1]?.key).toBe('member');
         expect(descriptor.canSuspend).toBe(false);
     });
 

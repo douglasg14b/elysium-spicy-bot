@@ -1,13 +1,14 @@
 import { z } from 'zod';
 import { loadUserLevelProfile } from '../../../leveling';
 import type { BlockManifest } from '../manifest';
-import { requireSubject } from '../types';
+import { MEMBER_CHOICE_CARD_PART, MEMBER_CHOICE_FIELD, memberChoiceSchema, memberFor } from '../memberChoice';
 
 export const CONDITION_LEVEL_AT_LEAST = 'condition.levelAtLeast';
 
 /** See `triggerLevelReached` for why `z.coerce`: a `text` control yields a string. */
 export const levelAtLeastConfigSchema = z.object({
     level: z.coerce.number().int().min(1),
+    member: memberChoiceSchema,
 });
 
 export type LevelAtLeastConfig = z.infer<typeof levelAtLeastConfigSchema>;
@@ -29,15 +30,20 @@ export const block: BlockManifest<LevelAtLeastConfig> = {
             placeholder: '5',
             defaultValue: '5',
         },
+        MEMBER_CHOICE_FIELD,
     ],
     // `stopIfEmpty` so an unset level reads "no level set", not "Level ≥ no level set".
-    cardSummary: [{ key: 'level', prefix: 'Level ≥ ', emptyText: 'no level set', stopIfEmpty: true }],
+    cardSummary: [
+        { key: 'level', prefix: 'Level ≥ ', emptyText: 'no level set', stopIfEmpty: true },
+        MEMBER_CHOICE_CARD_PART,
+    ],
     handles: [
         { id: 'true', label: 'Yes', tone: 'positive' },
         { id: 'false', label: 'No', tone: 'negative' },
     ],
     outputs: [],
-    requires: ['subject'],
+    // The member choice says who it needs: the member, or whoever set this off.
+    requires: [],
     capabilities: [],
     emits: [],
     canSuspend: false,
@@ -48,7 +54,7 @@ export const block: BlockManifest<LevelAtLeastConfig> = {
          * than absent, and a second opinion on that here would diverge the moment the
          * curve changed.
          */
-        const profile = await loadUserLevelProfile(context.guild.id, requireSubject(context).id);
+        const profile = await loadUserLevelProfile(context.guild.id, memberFor(context, config.member).id);
 
         return {
             kind: 'continue',

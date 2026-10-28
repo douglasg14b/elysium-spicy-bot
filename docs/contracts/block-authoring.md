@@ -575,6 +575,8 @@ is only taken on waking cannot be read off a declaration, so that half is yours 
   block may decide that "already gone" is success, as Kick Member does — and reading their
   roles or boost answers from what the bot last knew, not from the guild. A park keeps the
   subject: resume fetches the member again, and fails the run if they have left.
+  **A block that acts on or asks about one member offers the Who choice instead** — see
+  "Acting on whoever set this off" below.
 - `actor` — the member who caused the **current step**, which is not always the subject and is
   not always anybody. **Absent on a resumed run**: the clock woke it, so nobody acted. **Absent
   on a run from a trigger that does not say who acted** — Member Leaves, since Discord does not
@@ -594,16 +596,37 @@ the same comparison before your `run`, and fails the step by name on a miss — 
 nowhere on purpose (In Channel? answers No).
 
 **A choice can need something your block does not.** A `select` or `segmented` option may
-declare its own `requires`: Time Since needs a member only for "The member's last message" and
-"When the member joined", so the block declares `requires: []` and those two options declare
-`['subject']`. While the field is shown and holds that option — stored, or its default — the
+declare its own `requires`: Delay counts its quiet window from the member's own messages only
+under "The member's last message", so that option declares `['subject']` and the block nothing;
+the Who choice below is the same mechanism. While the field is shown and holds that option — stored, or its default — the
 node needs it, exactly as if the block had declared it; the builder disables the option where
 the run cannot carry it. A **built-in token** in your copy counts the same way: `{{subject.*}}`
 needs `subject`, `{{actor.mention}}` needs `actor`, `{{guild.name}}` nothing
 (`TOKEN_REQUIREMENTS` in `engine/copyRendering.ts`). A node's *effective requirements* are the
 three together, worked out once in `engine/nodeRequirements.ts` for the validator and the
-executor alike. Read the member only where your config says you need one — Time Since calls
-`requireSubject` on its member sources alone.
+executor alike. Read the member only where your config says you need one — Time Since reads
+one on its member sources alone.
+
+**Acting on whoever set this off.** A block that acts on or asks about one member — gives a
+role, awards XP, kicks, DMs, checks a role, a boost, a level or an open ticket — lets the author
+pick which of the run's two people it means, through one shared definition in
+`blocks/memberChoice.ts`: put `member: memberChoiceSchema` in your schema, `MEMBER_CHOICE_FIELD`
+in `configFields` (the "Who" select: "The member this run is about", the default, or "Whoever
+set this off"), `MEMBER_CHOICE_CARD_PART` in `cardSummary` (it names the choice only when it is
+not the default), and read the person with `memberFor(context, config.member)`. Declare
+`requires: []` — each option carries its own (`['subject']` / `['actor']`), so an untouched node
+needs the member as it always did, and picking the actor needs an actor instead: refused at save
+below a trigger that names nobody acting (Schedule, Member Leaves) and after a block that parks,
+and greyed in the builder there. `memberFor` throws a named error, as `requireSubject` does,
+only if the executor's check regressed. Either person may have left (a partial member), and the
+actor may be the bot itself when a flow's own ticket change set the run off — no special case.
+A choice your block can hide (Time Since's channel sources) takes a `visibleWhen` spread over the
+shared field. A block whose member is the run's by its own rule (Open Ticket, Ask a Question,
+Wait for Event) keeps `requires: ['subject']`, and reads the member — if it reads one at all —
+through `requireSubject` (Open Ticket does; the other two leave it to the engine, which keys
+their waits by the run's member). `blocks/__tests__/memberChoice.test.ts` holds every block
+reading a member to one way or the other, and refuses a block reading `context.subject` or
+`context.actor` directly.
 
 **On a trigger, `requires` reads the other way round.** A trigger is never reached by an edge,
 so nothing upstream could fail to satisfy it — what it declares is what its own event

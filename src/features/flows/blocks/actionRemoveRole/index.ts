@@ -1,12 +1,13 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
 import { changeableRole } from '../../logic/roleSafety';
-import { requireSubject } from '../types';
+import { MEMBER_CHOICE_CARD_PART, MEMBER_CHOICE_FIELD, memberChoiceSchema, memberFor } from '../memberChoice';
 
 export const ACTION_REMOVE_ROLE = 'action.removeRole';
 
 export const removeRoleConfigSchema = z.object({
     roleId: z.string().min(1),
+    member: memberChoiceSchema,
 });
 
 export type RemoveRoleConfig = z.infer<typeof removeRoleConfigSchema>;
@@ -23,14 +24,16 @@ export const block: BlockManifest<RemoveRoleConfig> = {
         {
             key: 'roleId',
             label: 'Role to remove',
-            description: 'The role to take back. Taken from the member this run is about.',
+            description: 'The role to take back, from whoever you pick below.',
             control: 'rolePicker',
         },
+        MEMBER_CHOICE_FIELD,
     ],
-    cardSummary: [{ key: 'roleId', prefix: 'Remove ', emptyText: 'no role picked' }],
+    cardSummary: [{ key: 'roleId', prefix: 'Remove ', emptyText: 'no role picked' }, MEMBER_CHOICE_CARD_PART],
     handles: [{ label: 'Then', tone: 'neutral' }],
     outputs: [],
-    requires: ['subject'],
+    // The member choice says who it needs: the member, or whoever set this off.
+    requires: [],
     capabilities: ['manageRoles'],
     emits: [],
     canSuspend: false,
@@ -41,7 +44,7 @@ export const block: BlockManifest<RemoveRoleConfig> = {
         if (!role.ok) {
             return { kind: 'fail', error: role.error };
         }
-        await requireSubject(context).roles.remove(role.role.id);
+        await memberFor(context, config.member).roles.remove(role.role.id);
         return { kind: 'continue' };
     },
 };

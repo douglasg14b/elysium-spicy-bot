@@ -521,10 +521,12 @@ export type FlowAttachment = {
  */
 export type FlowBlockFieldRules = {
     'action.assignRole': {
+        member?: unknown;
         roleId?: string;
     };
     'action.awardXp': {
         amount?: unknown;
+        member?: unknown;
     };
     'action.closeTicket': {
         ticketId?: string;
@@ -535,6 +537,7 @@ export type FlowBlockFieldRules = {
         timeoutCountsFrom?: unknown;
     };
     'action.kickMember': {
+        member?: unknown;
         reason?: string;
     };
     'action.openTicket': {
@@ -560,9 +563,11 @@ export type FlowBlockFieldRules = {
         timeoutMs?: number;
     };
     'action.removeRole': {
+        member?: unknown;
         roleId?: string;
     };
     'action.sendDM': {
+        member?: unknown;
         message?: string;
     };
     'action.sendMessage': {
@@ -589,24 +594,28 @@ export type FlowBlockFieldRules = {
         variableName?: string;
     };
     'condition.hasOpenTicket': {
+        member?: unknown;
         ticketType?: string;
     };
     'condition.hasRole': {
+        member?: unknown;
         roleId?: string;
     };
     'condition.inChannel': {
         channelId?: string;
     };
     'condition.isBooster': {
-        [key: string]: unknown;
+        member?: unknown;
     };
     'condition.levelAtLeast': {
         level?: unknown;
+        member?: unknown;
     };
     'condition.timeSince': {
         channelId?: unknown;
         comparison?: unknown;
         durationMs?: number;
+        member?: unknown;
         source?: unknown;
         timeVariable?: string;
     };

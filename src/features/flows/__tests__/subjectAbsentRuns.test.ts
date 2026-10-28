@@ -97,7 +97,11 @@ function subjectIssuesOn(graph: FlowGraph, nodeId: string): FlowValidationIssue[
 
 /** The nodes, each with the config its path needs, that a run about nobody cannot reach. */
 const NEEDS_A_MEMBER: readonly { readonly name: string; readonly node: () => FlowNode; readonly cause?: RegExp }[] = [
-    { name: 'a block that acts on the member', node: () => node('target', 'action.assignRole', { roleId: 'role-1' }) },
+    {
+        name: 'a block that acts on the member',
+        node: () => node('target', 'action.assignRole', { roleId: 'role-1' }),
+        cause: /for "Who" set to "The member this run is about"/,
+    },
     {
         name: '{{subject.mention}} in a copy field',
         node: () => node('target', 'action.sendMessage', { channelId: CHANNEL_ID, message: 'Hey {{subject.mention}}' }),
@@ -120,17 +124,17 @@ const NEEDS_A_MEMBER: readonly { readonly name: string; readonly node: () => Flo
     {
         name: "Time Since from the member's last message",
         node: () => node('target', 'condition.timeSince', { source: 'memberMessage', durationMs: 60_000 }),
-        cause: /for "Since" set to "The member's last message"/,
+        cause: /for "Who" set to "The member this run is about"/,
     },
     {
         name: 'Time Since from when the member joined',
         node: () => node('target', 'condition.timeSince', { source: 'memberJoined', durationMs: 60_000 }),
-        cause: /for "Since" set to "When the member joined"/,
+        cause: /for "Who" set to "The member this run is about"/,
     },
     {
         name: 'Time Since left on its default source',
         node: () => node('target', 'condition.timeSince', { durationMs: 60_000 }),
-        cause: /for "Since" set to "The member's last message"/,
+        cause: /for "Who" set to "The member this run is about"/,
     },
     { name: 'Wait for Event', node: () => node('target', 'action.waitForEvent', { eventKind: 'reactionAdd' }) },
     { name: 'Ask a Question', node: () => node('target', 'action.prompt', { question: 'Well?', choices: ['Yes'] }) },
@@ -160,12 +164,24 @@ describe('save refuses what needs a member where a run about nobody reaches', ()
     });
 
     it("places an option's finding under its field, and leaves a token's at node level", () => {
-        const option = subjectIssuesOn(graphFrom(nobody(), NEEDS_A_MEMBER[4]?.node() ?? nobody()), 'target');
-        const token = subjectIssuesOn(graphFrom(nobody(), NEEDS_A_MEMBER[1]?.node() ?? nobody()), 'target');
-        const column = subjectIssuesOn(graphFrom(nobody(), NEEDS_A_MEMBER[2]?.node() ?? nobody()), 'target');
-        const block = subjectIssuesOn(graphFrom(nobody(), NEEDS_A_MEMBER[0]?.node() ?? nobody()), 'target');
+        const issuesFor = (name: string): FlowValidationIssue[] => {
+            const row = NEEDS_A_MEMBER.find((candidate) => candidate.name === name);
+            if (!row) throw new Error(`No NEEDS_A_MEMBER row named "${name}"`);
+            return subjectIssuesOn(graphFrom(nobody(), row.node()), 'target');
+        };
+        const option = issuesFor("a quiet window counting the member's messages");
+        const memberChoice = issuesFor('a block that acts on the member');
+        const shownChoice = issuesFor("Time Since from the member's last message");
+        const token = issuesFor('{{subject.mention}} in a copy field');
+        const column = issuesFor('{{subject.username}} in an objectList column');
+        // Wait for Event, whose block declares `subject` itself.
+        const block = issuesFor('Wait for Event');
 
-        expect(option[0]?.field).toBe('source');
+        expect(option[0]?.field).toBe('timeoutCountsFrom');
+        // An untouched member choice counts as its default, an option like any other —
+        // and on Time Since it is the member choice its source shows that asks, not the source.
+        expect(memberChoice[0]?.field).toBe('member');
+        expect(shownChoice[0]?.field).toBe('member');
         // A token's finding is not placed under its copy field: the builder drops a field's
         // server issue on the first keystroke, and its live checks cannot see requirements.
         expect(token[0]?.field).toBeUndefined();
@@ -253,6 +269,20 @@ describe('the Schedule trigger, the first shipped trigger about nobody', () => {
         expect(subjectIssuesOn(graph, 'target')).toHaveLength(1);
     });
 
+    it('refuses a block pointed at whoever set this off, by that choice — the clock is nobody', () => {
+        const graph = graphFrom(schedule(), node('target', 'action.assignRole', { roleId: 'role-1', member: 'actor' }));
+
+        const issues = issuesOn(graph, 'target');
+
+        expect(issues).toHaveLength(1);
+        expect(issues[0]?.field).toBe('member');
+        expect(issues[0]?.message).toMatch(
+            /needs "actor" from the run for "Who" set to "Whoever set this off", but it can be reached from a trigger that doesn't say who caused it/
+        );
+        // Picking the actor is what stops it needing the member.
+        expect(subjectIssuesOn(graph, 'target')).toEqual([]);
+    });
+
     it('refuses {{subject.mention}} in copy below it', () => {
         const graph = graphFrom(
             schedule(),
@@ -282,6 +312,22 @@ describe('{{actor.mention}} is held to the same rule', () => {
         const issues = issuesOn(graph, 'target');
 
         expect(issues.map((issue) => issue.message).join('\n')).toMatch(ACTOR_ISSUE);
+    });
+
+    it('refuses a block pointed at whoever set this off after a park, under its Who field', () => {
+        const graph = graphFrom(
+            joined(),
+            node('wait', 'action.delay', { durationMs: 60_000 }),
+            node('target', 'action.assignRole', { roleId: 'role-1', member: 'actor' })
+        );
+
+        const issues = issuesOn(graph, 'target');
+
+        expect(issues).toHaveLength(1);
+        expect(issues[0]?.field).toBe('member');
+        expect(issues[0]?.message).toMatch(
+            /needs "actor" from the run for "Who" set to "Whoever set this off", but it can be reached after a block that parks the run/
+        );
     });
 
     it("is refused in a parking block's own copy, which is rendered again on every wake", () => {
@@ -390,7 +436,11 @@ describe('the executor refuses a step that needs what the run does not carry', (
 
         const result = await executeFlow('flow-1', graph, 'trigger', seedAboutNobody(world()));
 
-        expect(result.error).toBe('Node role (action.assignRole) needs a member, and this run is about nobody.');
+        // Its member choice, untouched, counts as its default — so that is the cause named.
+        expect(result.error).toBe(
+            'Node role (action.assignRole) needs a member for "Who" set to "The member this run is about", ' +
+                'and this run is about nobody.'
+        );
     });
 
     it('names the option that needed the member', async () => {
@@ -399,8 +449,19 @@ describe('the executor refuses a step that needs what the run does not carry', (
         const result = await executeFlow('flow-1', graph, 'trigger', seedAboutNobody(world()));
 
         expect(result.error).toBe(
-            'Node since (condition.timeSince) needs a member for "Since" set to "When the member joined", ' +
+            'Node since (condition.timeSince) needs a member for "Who" set to "The member this run is about", ' +
                 'and this run is about nobody.'
+        );
+    });
+
+    it('fails a block pointed at whoever set this off, on a run where nobody did, by that cause', async () => {
+        const graph = graphFrom(nobody(), node('role', 'action.assignRole', { roleId: 'role-1', member: 'actor' }));
+
+        const result = await executeFlow('flow-1', graph, 'trigger', seedAboutNobody(world()));
+
+        expect(result.error).toBe(
+            'Node role (action.assignRole) needs whoever caused this step for "Who" set to "Whoever set this off", ' +
+                "and nobody did — this run's trigger doesn't say who caused it."
         );
     });
 

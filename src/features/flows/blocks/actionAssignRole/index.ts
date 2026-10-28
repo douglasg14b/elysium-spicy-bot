@@ -1,12 +1,13 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
 import { changeableRole } from '../../logic/roleSafety';
-import { requireSubject } from '../types';
+import { MEMBER_CHOICE_CARD_PART, MEMBER_CHOICE_FIELD, memberChoiceSchema, memberFor } from '../memberChoice';
 
 export const ACTION_ASSIGN_ROLE = 'action.assignRole';
 
 export const assignRoleConfigSchema = z.object({
     roleId: z.string().min(1),
+    member: memberChoiceSchema,
 });
 
 export type AssignRoleConfig = z.infer<typeof assignRoleConfigSchema>;
@@ -23,14 +24,16 @@ export const block: BlockManifest<AssignRoleConfig> = {
         {
             key: 'roleId',
             label: 'Role to assign',
-            description: 'The role to hand out. Given to the member this run is about.',
+            description: 'The role to hand out, to whoever you pick below.',
             control: 'rolePicker',
         },
+        MEMBER_CHOICE_FIELD,
     ],
-    cardSummary: [{ key: 'roleId', prefix: 'Assign ', emptyText: 'no role picked' }],
+    cardSummary: [{ key: 'roleId', prefix: 'Assign ', emptyText: 'no role picked' }, MEMBER_CHOICE_CARD_PART],
     handles: [{ label: 'Then', tone: 'neutral' }],
     outputs: [],
-    requires: ['subject'],
+    // The member choice says who it needs: the member, or whoever set this off.
+    requires: [],
     capabilities: ['manageRoles'],
     emits: [],
     canSuspend: false,
@@ -41,7 +44,7 @@ export const block: BlockManifest<AssignRoleConfig> = {
         if (!role.ok) {
             return { kind: 'fail', error: role.error };
         }
-        await requireSubject(context).roles.add(role.role.id);
+        await memberFor(context, config.member).roles.add(role.role.id);
         return { kind: 'continue' };
     },
 };

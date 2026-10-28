@@ -94,8 +94,8 @@ const BlockConfigOptionSchema = z
         value: z.string(),
         label: z.string(),
         /**
-         * Run context this choice needs on top of the block's own `requires` — Time Since's
-         * "the member's last message" needs a member, its channel source does not.
+         * Run context this choice needs on top of the block's own `requires` — the member
+         * choice's "Whoever set this off" needs an actor, "The member this run is about" a member.
          */
         requires: z.array(FlowContextRequirementSchema).readonly().optional(),
     })

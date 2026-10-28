@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { activityEventsRepo } from '../../../../features-system/activity';
 import type { BlockManifest } from '../manifest';
+import { MEMBER_CHOICE_CARD_PART, MEMBER_CHOICE_FIELD, memberChoiceSchema, memberFor } from '../memberChoice';
 import { checkChannelUsable } from '../quietTimeout';
-import { requireSubject, type FlowRunContext } from '../types';
+import type { FlowRunContext } from '../types';
 import { VARIABLE_NAME_MAX_LENGTH, VARIABLE_NAME_MESSAGE, VARIABLE_NAME_SHAPE } from '../variableName';
 
 export const CONDITION_TIME_SINCE = 'condition.timeSince';
@@ -28,14 +29,15 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const TIME_SINCE_MAX_MS = 365 * DAY_MS;
 
 /**
- * `channelId` and `timeVariable` are each shown by `source` (`visibleWhen`), so both
- * are optional and only judged while they apply — see {@link checkSourceInputs}.
+ * `member`, `channelId` and `timeVariable` are each shown by `source` (`visibleWhen`), so
+ * all three are optional and only judged while they apply — see {@link checkSourceInputs}.
  * `timeVariable` keeps the shared name spelling and length, per-key limits that only
- * ever judge it while shown.
+ * ever judge it while shown. `member` is read only on the member's own sources.
  */
 export const timeSinceConfigSchema = z
     .object({
         source: z.enum(TIME_SINCE_SOURCES).default('memberMessage'),
+        member: memberChoiceSchema,
         channelId: z.string().optional(),
         timeVariable: z
             .string()
@@ -136,7 +138,7 @@ async function referenceTime(config: TimeSinceConfig, context: FlowRunContext): 
             return found(
                 await activityEventsRepo.findLastMessageAt({
                     guildId: context.guild.id,
-                    userId: requireSubject(context).id,
+                    userId: memberFor(context, config.member).id,
                     ...(channelId ? { channelId } : {}),
                 })
             );
@@ -150,7 +152,7 @@ async function referenceTime(config: TimeSinceConfig, context: FlowRunContext): 
             return found(await activityEventsRepo.findLastMessageAt({ guildId: context.guild.id, channelId }));
         case 'memberJoined':
             // Null on a partial member — a leaver the bot never cached.
-            return found(requireSubject(context).joinedAt);
+            return found(memberFor(context, config.member).joinedAt);
         case 'runStarted':
             // Absent on a run parked before runs recorded their start. Never the row's
             // creation time, which is the first park, not the start.
@@ -225,16 +227,22 @@ export const block: BlockManifest<TimeSinceConfig> = {
             label: 'Since',
             control: 'select',
             defaultValue: 'memberMessage',
-            // Only the member's own sources need a member, so they say so here rather than
-            // the block saying it for every source: a run about nobody can still measure
-            // from a channel, its own start, or a saved time.
             options: [
-                { value: 'memberMessage', label: "The member's last message", requires: ['subject'] },
+                // "Their", not "the member's": whose is the Who choice below, which may
+                // name whoever set this off.
+                { value: 'memberMessage', label: 'Their last message' },
                 { value: 'channelMessage', label: "Anyone's last message in a channel" },
-                { value: 'memberJoined', label: 'When the member joined', requires: ['subject'] },
+                { value: 'memberJoined', label: 'When they joined' },
                 { value: 'runStarted', label: 'When this run started' },
                 { value: 'variable', label: 'A saved time' },
             ],
+        },
+        // Only the member's own sources need a member, so only they show whose: the
+        // choice's options say what each needs, and a run about nobody can still measure
+        // from a channel, its own start, or a saved time.
+        {
+            ...MEMBER_CHOICE_FIELD,
+            visibleWhen: { field: 'source', equals: ['memberMessage', 'memberJoined'] satisfies readonly TimeSinceSource[] },
         },
         {
             key: 'channelId',
@@ -271,10 +279,12 @@ export const block: BlockManifest<TimeSinceConfig> = {
             defaultValue: DAY_MS,
         },
     ],
-    // e.g. "The member's last message · #general · At least · 2d". A hidden part renders
-    // nothing, so only the input the source uses ever shows.
+    // e.g. "Their last message · #general · At least · 2d", or "Their last message ·
+    // Whoever set this off · …" once the Who choice leaves its default. A hidden part
+    // renders nothing, so only the input the source uses ever shows.
     cardSummary: [
         { key: 'source' },
+        MEMBER_CHOICE_CARD_PART,
         { key: 'channelId', prefix: ' · ', hideWhenEmpty: true },
         { key: 'timeVariable', prefix: ' · ', emptyText: 'no time picked' },
         { key: 'comparison', prefix: ' · ' },
@@ -287,7 +297,7 @@ export const block: BlockManifest<TimeSinceConfig> = {
          * Easy to forget it exists, and a run landing here would otherwise just stop —
          * but warned about only for the sources where an ordinary run can land here. "When
          * this run started" has no record only on a run parked before runs recorded their
-         * start, and "When the member joined" only on a leaver the bot never cached;
+         * start, and "When they joined" only on a leaver the bot never cached;
          * warning on every such node would mark normal cards amber for a rare edge.
          */
         {
@@ -301,7 +311,8 @@ export const block: BlockManifest<TimeSinceConfig> = {
         },
     ],
     outputs: [],
-    // Nothing for every source; the member's sources declare `subject` on their options.
+    // Nothing for every source; the member's sources show the member choice, whose
+    // options say who each needs.
     requires: [],
     capabilities: [],
     emits: [],

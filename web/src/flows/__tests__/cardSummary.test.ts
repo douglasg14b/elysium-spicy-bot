@@ -525,3 +525,57 @@ describe('the clock-shaped controls, and a part shown only under some choices', 
         expect(summarize(descriptor, { repeat: 'days', days: [] })).toBe('no days picked at no time picked');
     });
 });
+
+describe('the member choice, named on the card only when it is not the default', () => {
+    // The shared field and card part every block acting on one member declares
+    // (`blocks/memberChoice.ts`): the part is shown by its own field.
+    const MEMBER_FIELD: NodeDescriptor['configFields'][number] = {
+        key: 'member',
+        label: 'Who',
+        control: 'select',
+        defaultValue: 'subject',
+        options: [
+            { value: 'subject', label: 'The member this run is about', requires: ['subject'] },
+            { value: 'actor', label: 'Whoever set this off', requires: ['actor'] },
+        ],
+    };
+    const MEMBER_PART = { key: 'member', prefix: ' · ', visibleWhen: { field: 'member', equals: ['actor'] } };
+
+    const assign = descriptorWith(
+        [{ key: 'roleId', label: 'Role', control: 'rolePicker' }, MEMBER_FIELD],
+        [{ key: 'roleId', prefix: 'Assign ', emptyText: 'no role picked' }, MEMBER_PART]
+    );
+
+    it('adds nothing for the member the run is about, picked or left unset', () => {
+        expect(summarize(assign, { roleId: 'r1' })).toBe('Assign @Moderator');
+        expect(summarize(assign, { roleId: 'r1', member: 'subject' })).toBe('Assign @Moderator');
+    });
+
+    it('names whoever set this off', () => {
+        expect(summarize(assign, { roleId: 'r1', member: 'actor' })).toBe('Assign @Moderator · Whoever set this off');
+    });
+
+    it('says nothing of a choice its source hides, whatever it still holds', () => {
+        const since = descriptorWith(
+            [
+                {
+                    key: 'source',
+                    label: 'Since',
+                    control: 'select',
+                    defaultValue: 'memberJoined',
+                    options: [
+                        { value: 'memberJoined', label: 'When the member joined' },
+                        { value: 'runStarted', label: 'When this run started' },
+                    ],
+                },
+                { ...MEMBER_FIELD, visibleWhen: { field: 'source', equals: ['memberJoined'] } },
+            ],
+            [{ key: 'source' }, MEMBER_PART]
+        );
+
+        expect(summarize(since, { source: 'memberJoined', member: 'actor' })).toBe(
+            'When the member joined · Whoever set this off'
+        );
+        expect(summarize(since, { source: 'runStarted', member: 'actor' })).toBe('When this run started');
+    });
+});

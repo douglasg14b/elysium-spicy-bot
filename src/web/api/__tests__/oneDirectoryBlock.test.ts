@@ -29,10 +29,11 @@ import type { NodeDescriptor as BrowserNodeDescriptor } from '@brattybot/web-sdk
  * The block added to prove the claim.
  *
  * Chosen for what it exercises rather than for being easy: it is a *condition*, so
- * it has two labelled handles and branches; it declares an optional `note`; it has
- * no config fields at all, which is the case a naive renderer built around a config
- * form gets wrong; and its card summary is a pure literal, the arm of the summary
- * interpreter that no other shipped block uses.
+ * it has two labelled handles and branches; it declares an optional `note`; its one
+ * config field is the shared member choice, served to the browser like any other; and
+ * its card summary leads with a pure literal, then names the choice only when it is not
+ * the default. (It once had no config fields at all; since step 3 no shipped non-trigger
+ * block does, so that case is now proven only by field-less triggers such as Member Joins.)
  */
 const PROOF_BLOCK = 'condition.isBooster';
 
@@ -80,11 +81,18 @@ describe('a block added as one directory renders end to end', () => {
         // catch and this must not hide.
         const browserDescriptor = descriptor as BrowserNodeDescriptor;
 
-        // A block with no config fields still seeds cleanly — no keys, not a crash.
-        expect(defaultDataFor(browserDescriptor)).toEqual({});
+        // Seeds the member choice's default, and nothing else.
+        expect(defaultDataFor(browserDescriptor)).toEqual({ member: 'subject' });
 
-        // The literal arm of the summary interpreter, which is what this block uses.
+        // The literal arm of the summary interpreter, then the member choice only when it
+        // is not the default — untouched, or picked, the member the run is about adds nothing.
         expect(summarizeFromDescriptor(browserDescriptor, {}, [], [], [], [])).toBe('Currently boosting?');
+        expect(summarizeFromDescriptor(browserDescriptor, { member: 'subject' }, [], [], [], [])).toBe(
+            'Currently boosting?'
+        );
+        expect(summarizeFromDescriptor(browserDescriptor, { member: 'actor' }, [], [], [], [])).toBe(
+            'Currently boosting? · Whoever set this off'
+        );
     });
 
     it('branches with labelled exits, on the shared rule', () => {

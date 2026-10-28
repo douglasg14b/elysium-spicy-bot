@@ -1416,6 +1416,54 @@ describe('a card-summary part shown only while a choice holds a value', () => {
             /cardSummary\[0\] is shown by "valueType", which needs a declared default/
         );
     });
+
+    describe('shown by a choice that is itself conditional', () => {
+        const conditionalChoice = (cardSummary: readonly Record<string, unknown>[]) =>
+            manifestWith({
+                configSchema: z.object({
+                    mode: z.enum(['plain', 'detailed']).default('plain'),
+                    who: z.enum(['them', 'you']).default('them'),
+                }),
+                configFields: [
+                    {
+                        key: 'mode',
+                        label: 'Mode',
+                        control: 'select',
+                        defaultValue: 'plain',
+                        options: [
+                            { value: 'plain', label: 'Plain' },
+                            { value: 'detailed', label: 'Detailed' },
+                        ],
+                    },
+                    {
+                        key: 'who',
+                        label: 'Who',
+                        control: 'select',
+                        defaultValue: 'them',
+                        options: [
+                            { value: 'them', label: 'Them' },
+                            { value: 'you', label: 'You' },
+                        ],
+                        visibleWhen: { field: 'mode', equals: ['detailed'] },
+                    },
+                ],
+                cardSummary,
+            });
+
+        it('accepts a part shown by its own field: hidden with it, so there is no chain', () => {
+            expect(
+                checkBlockConformance(conditionalChoice([{ key: 'who', visibleWhen: { field: 'who', equals: ['you'] } }]))
+            ).toEqual([]);
+        });
+
+        it("still refuses a part shown by another field's conditional choice", () => {
+            expect(
+                checkBlockConformance(
+                    conditionalChoice([{ key: 'mode', visibleWhen: { field: 'who', equals: ['you'] } }])
+                ).join('\n')
+            ).toMatch(/cardSummary\[0\] is shown by "who", which is itself conditional/);
+        });
+    });
 });
 
 describe('an exit marked worth a warning', () => {

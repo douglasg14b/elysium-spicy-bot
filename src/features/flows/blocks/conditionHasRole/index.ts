@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
-import { requireSubject } from '../types';
+import { MEMBER_CHOICE_CARD_PART, MEMBER_CHOICE_FIELD, memberChoiceSchema, memberFor } from '../memberChoice';
 
 export const CONDITION_HAS_ROLE = 'condition.hasRole';
 
 export const hasRoleConfigSchema = z.object({
     roleId: z.string().min(1),
+    member: memberChoiceSchema,
 });
 
 export type HasRoleConfig = z.infer<typeof hasRoleConfigSchema>;
@@ -25,21 +26,23 @@ export const block: BlockManifest<HasRoleConfig> = {
             description: 'The role they must already hold. Leave by Yes if they do, No if they do not.',
             control: 'rolePicker',
         },
+        MEMBER_CHOICE_FIELD,
     ],
-    cardSummary: [{ key: 'roleId', prefix: 'Checks for ', emptyText: 'no role picked' }],
+    cardSummary: [{ key: 'roleId', prefix: 'Checks for ', emptyText: 'no role picked' }, MEMBER_CHOICE_CARD_PART],
     handles: [
         { id: 'true', label: 'Yes', tone: 'positive' },
         { id: 'false', label: 'No', tone: 'negative' },
     ],
     outputs: [],
-    requires: ['subject'],
+    // The member choice says who it needs: the member, or whoever set this off.
+    requires: [],
     capabilities: [],
     emits: [],
     canSuspend: false,
     run(config, context) {
         return {
             kind: 'continue',
-            handle: requireSubject(context).roles.cache.has(config.roleId) ? 'true' : 'false',
+            handle: memberFor(context, config.member).roles.cache.has(config.roleId) ? 'true' : 'false',
         };
     },
 };

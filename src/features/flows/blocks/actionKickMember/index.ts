@@ -2,7 +2,7 @@ import { PermissionFlagsBits, type Guild, type GuildMember } from 'discord.js';
 import { z } from 'zod';
 import { isUnknownMember } from '../../../../utils/isUnknownMember';
 import type { BlockManifest } from '../manifest';
-import { requireSubject } from '../types';
+import { MEMBER_CHOICE_CARD_PART, MEMBER_CHOICE_FIELD, memberChoiceSchema, memberFor } from '../memberChoice';
 
 export const ACTION_KICK_MEMBER = 'action.kickMember';
 
@@ -11,12 +11,13 @@ export const KICK_REASON_MAX_LENGTH = 512;
 
 export const kickMemberConfigSchema = z.object({
     reason: z.string().min(1).max(KICK_REASON_MAX_LENGTH).optional(),
+    member: memberChoiceSchema,
 });
 
 export type KickMemberConfig = z.infer<typeof kickMemberConfigSchema>;
 
 /**
- * Kick the run's member out of the server.
+ * Kick the run's member — or whoever set this off — out of the server.
  *
  * **Already gone carries on.** The member is fetched fresh right before the kick —
  * not read from the run, which may have parked for days — and a member Discord no
@@ -49,21 +50,27 @@ export const block: BlockManifest<KickMemberConfig> = {
             // rendered text is trimmed to Discord's limit in `run` instead.
             rendersTokens: true,
         },
+        MEMBER_CHOICE_FIELD,
     ],
-    cardSummary: [{ text: 'Boot them' }, { key: 'reason', prefix: ' · ', quote: true, truncate: 24, hideWhenEmpty: true }],
+    cardSummary: [
+        { text: 'Boot them' },
+        { key: 'reason', prefix: ' · ', quote: true, truncate: 24, hideWhenEmpty: true },
+        MEMBER_CHOICE_CARD_PART,
+    ],
     note:
         'Send any DM before this block, not after — once they share no server with the bot, the DM bounces. ' +
         'Someone who has already left counts as kicked, so the rest of the flow still runs.',
     handles: [{ label: 'Then', tone: 'neutral' }],
     outputs: [],
-    requires: ['subject'],
+    // The member choice says who it needs: the member, or whoever set this off.
+    requires: [],
     capabilities: ['kickMembers'],
     // A kick reaches Discord's member-removed event, which starts every Member Leaves
     // trigger — including one in this flow, about the member it just kicked.
     emits: [{ startedBy: 'memberLeave' }],
     canSuspend: false,
     async run(config, context) {
-        const member = await fetchIfStillHere(context.guild, requireSubject(context).id);
+        const member = await fetchIfStillHere(context.guild, memberFor(context, config.member).id);
         if (!member) {
             return { kind: 'continue' };
         }

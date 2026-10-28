@@ -64,7 +64,7 @@ describe('action.kickMember', () => {
     it('kicks the member fresh from Discord, with the reason for the audit log', async () => {
         const { context, kick, fetch } = fixture();
 
-        const outcome = await kickMember.run({ reason: 'Ghosted us' }, context);
+        const outcome = await kickMember.run({ reason: 'Ghosted us', member: 'subject' }, context);
 
         expect(outcome).toEqual({ kind: 'continue' });
         expect(fetch).toHaveBeenCalledWith({ user: MEMBER_ID, force: true });
@@ -74,7 +74,7 @@ describe('action.kickMember', () => {
     it('trims a reason that rendered past the audit-log limit rather than refusing the kick', async () => {
         const { context, kick } = fixture();
 
-        await kickMember.run({ reason: '😈'.repeat(600) }, context);
+        await kickMember.run({ reason: '😈'.repeat(600), member: 'subject' }, context);
 
         expect(kick).toHaveBeenCalledWith('😈'.repeat(512));
     });
@@ -83,7 +83,7 @@ describe('action.kickMember', () => {
         const { context, kick, fetch } = fixture();
         fetch.mockRejectedValue(unknownMember());
 
-        expect(await kickMember.run({}, context)).toEqual({ kind: 'continue' });
+        expect(await kickMember.run({ member: 'subject' }, context)).toEqual({ kind: 'continue' });
         expect(kick).not.toHaveBeenCalled();
     });
 
@@ -91,13 +91,13 @@ describe('action.kickMember', () => {
         const { context, kick } = fixture();
         kick.mockRejectedValue(unknownMember());
 
-        expect(await kickMember.run({}, context)).toEqual({ kind: 'continue' });
+        expect(await kickMember.run({ member: 'subject' }, context)).toEqual({ kind: 'continue' });
     });
 
     it('fails naming the owner when told to kick them', async () => {
         const { context, kick } = fixture({ kickable: false, memberId: OWNER_ID });
 
-        const outcome = await kickMember.run({}, context);
+        const outcome = await kickMember.run({ member: 'subject' }, context);
 
         expect(outcome).toEqual({ kind: 'fail', error: expect.stringContaining('owns the server') });
         expect(kick).not.toHaveBeenCalled();
@@ -106,7 +106,7 @@ describe('action.kickMember', () => {
     it('fails naming the role order when the member outranks the bot', async () => {
         const { context } = fixture({ kickable: false });
 
-        expect(await kickMember.run({}, context)).toEqual({
+        expect(await kickMember.run({ member: 'subject' }, context)).toEqual({
             kind: 'fail',
             error: expect.stringContaining("highest role ranks at or above the bot's"),
         });
@@ -115,7 +115,7 @@ describe('action.kickMember', () => {
     it('fails naming the permission when the bot cannot kick anyone', async () => {
         const { context } = fixture({ kickable: false, botCanKick: false });
 
-        expect(await kickMember.run({}, context)).toEqual({
+        expect(await kickMember.run({ member: 'subject' }, context)).toEqual({
             kind: 'fail',
             error: expect.stringContaining('Kick Members permission'),
         });
@@ -125,6 +125,6 @@ describe('action.kickMember', () => {
         const { context, fetch } = fixture();
         fetch.mockRejectedValue(new Error('gateway hiccup'));
 
-        await expect(kickMember.run({}, context)).rejects.toThrow('gateway hiccup');
+        await expect(kickMember.run({ member: 'subject' }, context)).rejects.toThrow('gateway hiccup');
     });
 });

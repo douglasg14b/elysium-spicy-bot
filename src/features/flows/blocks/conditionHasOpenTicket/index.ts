@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
-import { requireSubject } from '../types';
+import { MEMBER_CHOICE_CARD_PART, MEMBER_CHOICE_FIELD, memberChoiceSchema, memberFor } from '../memberChoice';
 import { findOpenTicket, TICKET_VARIABLES } from '../../../tickets';
 
 export const CONDITION_HAS_OPEN_TICKET = 'condition.hasOpenTicket';
@@ -11,12 +11,14 @@ export const hasOpenTicketConfigSchema = z.object({
     // operator declares. The picker offers the guild's own list; a key it no longer
     // declares is still answered from the records, which may hold tickets of it.
     ticketType: z.string().min(1),
+    member: memberChoiceSchema,
 });
 
 export type HasOpenTicketConfig = z.infer<typeof hasOpenTicketConfigSchema>;
 
 /**
- * Splits on whether the subject already has an open ticket of a given type.
+ * Splits on whether the run's member — or whoever set this off — already has an open
+ * ticket of a given type.
  *
  * The block this whole ticket redesign exists to make cheap. Asking this before
  * meant listing the guild's channels, filtering them by a name pattern, fetching
@@ -47,8 +49,9 @@ export const block: BlockManifest<HasOpenTicketConfig> = {
             description: 'Which kind of ticket to look for. Only open tickets count.',
             control: 'ticketTypePicker',
         },
+        MEMBER_CHOICE_FIELD,
     ],
-    cardSummary: [{ key: 'ticketType', prefix: 'Open ', emptyText: 'no type picked' }],
+    cardSummary: [{ key: 'ticketType', prefix: 'Open ', emptyText: 'no type picked' }, MEMBER_CHOICE_CARD_PART],
     handles: [
         { id: 'true', label: 'Yes', tone: 'positive' },
         { id: 'false', label: 'No', tone: 'negative' },
@@ -75,12 +78,13 @@ export const block: BlockManifest<HasOpenTicketConfig> = {
             handle: 'true',
         },
     ],
-    requires: ['subject'],
+    // The member choice says who it needs: the member, or whoever set this off.
+    requires: [],
     capabilities: [],
     emits: [],
     canSuspend: false,
     async run(config, context) {
-        const ticket = await findOpenTicket(context.guild.id, requireSubject(context).id, config.ticketType);
+        const ticket = await findOpenTicket(context.guild.id, memberFor(context, config.member).id, config.ticketType);
         if (!ticket) {
             return { kind: 'continue', handle: 'false' };
         }

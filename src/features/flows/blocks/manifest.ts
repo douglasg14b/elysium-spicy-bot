@@ -234,8 +234,9 @@ export interface BlockConfigOption {
     /**
      * Run context this choice cannot work without, on top of the block's own `requires`.
      *
-     * For a block that only *sometimes* needs something: Time Since measures from the
-     * member's last message or from a channel's, and only the first needs a member. While
+     * For a block that only *sometimes* needs something: a quiet window counts from the
+     * member's last message or from anyone's, and only the first needs a member; the member
+     * choice (`memberChoice.ts`) needs the member or the actor, whichever it names. While
      * the field is visible and holds this option — stored, or its default — the node's
      * effective requirements include these, so save-time validation and the executor hold
      * the choice to them exactly as they hold a block's own. Absent means the choice

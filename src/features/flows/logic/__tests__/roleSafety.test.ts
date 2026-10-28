@@ -74,7 +74,7 @@ describe.each([
             fakeGuild({ id: GUILD_ID, roles: [{ id: 'role-admin', name: 'Admin', permissions: PermissionFlagsBits.Administrator }] })
         );
 
-        const outcome = await block.run({ roleId: 'role-admin' }, context);
+        const outcome = await block.run({ roleId: 'role-admin', member: 'subject' }, context);
 
         expect(outcome).toEqual({ kind: 'fail', error: expect.stringContaining('Administrator') });
         expect(change).not.toHaveBeenCalled();
@@ -83,7 +83,7 @@ describe.each([
     it('changes an ordinary role', async () => {
         const { context, change } = contextIn(fakeGuild({ id: GUILD_ID, roles: [{ id: 'role-member' }] }));
 
-        const outcome = await block.run({ roleId: 'role-member' }, context);
+        const outcome = await block.run({ roleId: 'role-member', member: 'subject' }, context);
 
         expect(outcome).toEqual({ kind: 'continue' });
         expect(change).toHaveBeenCalledWith('role-member');

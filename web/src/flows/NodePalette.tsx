@@ -10,7 +10,7 @@
 import { useMemo, useState } from 'react';
 import { ScrollArea, Stack, Text, TextInput, UnstyledButton } from '@mantine/core';
 import { IconSearch } from '@tabler/icons-react';
-import type { BlockPaletteGroup, NodeDescriptor } from '@brattybot/web-sdk';
+import type { BlockPaletteGroup, FlowContextRequirement, NodeDescriptor } from '@brattybot/web-sdk';
 import { BLOCK_PALETTE_GROUPS } from './contractValues';
 import { KIND_STYLES } from './nodeMeta';
 
@@ -43,15 +43,42 @@ interface NodePaletteProps {
 /** The tooltip on a block greyed because this flow's runs are about nobody. */
 export const NEEDS_A_MEMBER_NOTE = "Needs a member — this flow's runs are about nobody.";
 
+/** The requirements that are a person: who the run is about, and who set it off. */
+const MEMBER_REQUIREMENTS: readonly FlowContextRequirement[] = ['subject', 'actor'];
+
+/**
+ * Whether every way of filling a block in needs a member: its own `requires` says
+ * `subject`, or a choice it always shows offers only options that need one — the member
+ * choice, "The member this run is about" or "Whoever set this off". A block needing a
+ * member for some choices only (Time Since, whose member choice its source can hide)
+ * does not: it stays usable, its choices disabled in the inspector instead.
+ *
+ * The actor counts because a flow whose runs are about nobody has nobody acting either:
+ * every shipped trigger that names who acted is also about someone. Advice, like the
+ * rest of the greying — the server's check is what refuses.
+ */
+function alwaysNeedsAMember(entry: NodeDescriptor): boolean {
+    return (
+        entry.requires.includes('subject') ||
+        entry.configFields.some(
+            (field) =>
+                (field.control === 'select' || field.control === 'segmented') &&
+                !field.visibleWhen &&
+                field.options.length > 0 &&
+                field.options.every((option) =>
+                    (option.requires ?? []).some((requirement) => MEMBER_REQUIREMENTS.includes(requirement))
+                )
+        )
+    );
+}
+
 /**
  * Whether a palette entry is closed to this flow: a block that always needs a member, on
- * a flow whose runs are all about nobody. Only the block's *own* `requires` — a block
- * needing a member for some choices only (Time Since) stays usable, its choices disabled
- * in the inspector instead. Triggers are never greyed, so an author can still add a
- * member trigger and open the rest.
+ * a flow whose runs are all about nobody. Triggers are never greyed, so an author can
+ * still add a member trigger and open the rest.
  */
 function isGreyed(entry: NodeDescriptor, runsAboutNobody: boolean): boolean {
-    return runsAboutNobody && entry.kind !== 'trigger' && entry.requires.includes('subject');
+    return runsAboutNobody && entry.kind !== 'trigger' && alwaysNeedsAMember(entry);
 }
 
 export function NodePalette({ nodeTypes, runsAboutNobody, onAdd }: NodePaletteProps) {

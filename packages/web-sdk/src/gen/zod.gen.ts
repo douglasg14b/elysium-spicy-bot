@@ -335,10 +335,12 @@ export const zFlowAttachment = z.object({
  */
 export const zFlowBlockFieldRules = z.object({
     'action.assignRole': z.object({
+        member: z.unknown().optional(),
         roleId: z.string().min(1, 'Fill this in.').optional()
     }),
     'action.awardXp': z.object({
-        amount: z.unknown().optional()
+        amount: z.unknown().optional(),
+        member: z.unknown().optional()
     }),
     'action.closeTicket': z.object({
         ticketId: z.string().min(1, 'Fill this in.').optional()
@@ -349,6 +351,7 @@ export const zFlowBlockFieldRules = z.object({
         timeoutCountsFrom: z.unknown().optional()
     }),
     'action.kickMember': z.object({
+        member: z.unknown().optional(),
         reason: z.string().min(1, 'Can\'t be empty.').max(512, 'No more than 512 characters.').optional()
     }),
     'action.openTicket': z.object({
@@ -374,9 +377,11 @@ export const zFlowBlockFieldRules = z.object({
         timeoutMs: z.number().int('Whole numbers only.').gt(0, 'Must be more than 0.').lte(2592000000, 'No more than 2592000000.').optional()
     }),
     'action.removeRole': z.object({
+        member: z.unknown().optional(),
         roleId: z.string().min(1, 'Fill this in.').optional()
     }),
     'action.sendDM': z.object({
+        member: z.unknown().optional(),
         message: z.string().min(1, 'Fill this in.').max(2000, 'No more than 2000 characters.').optional()
     }),
     'action.sendMessage': z.object({
@@ -403,22 +408,28 @@ export const zFlowBlockFieldRules = z.object({
         variableName: z.string().min(1, 'Fill this in.').max(64, 'No more than 64 characters.').regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'A name must start with a letter and use only letters, numbers and underscores — that is what {{var.name}} can address.').optional()
     }),
     'condition.hasOpenTicket': z.object({
+        member: z.unknown().optional(),
         ticketType: z.string().min(1, 'Fill this in.').optional()
     }),
     'condition.hasRole': z.object({
+        member: z.unknown().optional(),
         roleId: z.string().min(1, 'Fill this in.').optional()
     }),
     'condition.inChannel': z.object({
         channelId: z.string().min(1, 'Fill this in.').optional()
     }),
-    'condition.isBooster': z.record(z.string(), z.unknown()),
+    'condition.isBooster': z.object({
+        member: z.unknown().optional()
+    }),
     'condition.levelAtLeast': z.object({
-        level: z.unknown().optional()
+        level: z.unknown().optional(),
+        member: z.unknown().optional()
     }),
     'condition.timeSince': z.object({
         channelId: z.unknown().optional(),
         comparison: z.unknown().optional(),
         durationMs: z.number().int('Whole numbers only.').gt(0, 'Must be more than 0.').lte(31536000000, 'No more than 31536000000.').optional(),
+        member: z.unknown().optional(),
         source: z.unknown().optional(),
         timeVariable: z.string().max(64, 'No more than 64 characters.').regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'A name must start with a letter and use only letters, numbers and underscores — that is what {{var.name}} can address.').optional()
     }),

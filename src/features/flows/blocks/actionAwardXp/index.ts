@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { awardFlowXp, type FlowXpRefusal } from '../../../leveling';
 import type { BlockManifest } from '../manifest';
-import { requireSubject } from '../types';
+import { MEMBER_CHOICE_CARD_PART, MEMBER_CHOICE_FIELD, memberChoiceSchema, memberFor } from '../memberChoice';
 
 export const ACTION_AWARD_XP = 'action.awardXp';
 
@@ -17,6 +17,7 @@ const MAX_FLOW_XP_AWARD = 10_000;
 /** See `triggerLevelReached` for why `z.coerce`: a `text` control yields a string. */
 export const awardXpConfigSchema = z.object({
     amount: z.coerce.number().int().min(1).max(MAX_FLOW_XP_AWARD),
+    member: memberChoiceSchema,
 });
 
 export type AwardXpConfig = z.infer<typeof awardXpConfigSchema>;
@@ -50,6 +51,7 @@ export const block: BlockManifest<AwardXpConfig> = {
             placeholder: '100',
             defaultValue: '100',
         },
+        MEMBER_CHOICE_FIELD,
     ],
     /*
      * `stopIfEmpty`, so an unset amount reads "no amount set" rather than
@@ -58,11 +60,13 @@ export const block: BlockManifest<AwardXpConfig> = {
      */
     cardSummary: [
         { key: 'amount', prefix: 'Awards ', suffix: ' XP', emptyText: 'no amount set', stopIfEmpty: true },
+        MEMBER_CHOICE_CARD_PART,
     ],
     note: 'Announces a level-up in the usual channel if this pushes them over, but will not set off a Reaches Level trigger — that would let two flows feed each other forever.',
     handles: [{ label: 'Then', tone: 'neutral' }],
     outputs: [],
-    requires: ['subject'],
+    // The member choice says who it needs: the member, or whoever set this off.
+    requires: [],
     capabilities: [],
     // XP a flow awards never sets off Level Reached: `awardFlowXp` announces the level
     // but notifies no level-up subscriber. If that ever changes, it becomes an emission.
@@ -72,7 +76,7 @@ export const block: BlockManifest<AwardXpConfig> = {
         const result = await awardFlowXp({
             client: context.client,
             guild: context.guild,
-            userId: requireSubject(context).id,
+            userId: memberFor(context, config.member).id,
             xpAmount: config.amount,
         });
 

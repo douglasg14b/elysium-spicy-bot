@@ -85,10 +85,34 @@ const COUNT_FROM: BlockConfigField = {
 
 const WAIT = descriptor({ type: 'action.wait', label: 'Wait', configFields: [COUNT_FROM] });
 
+/** The shared member choice (`blocks/memberChoice.ts`), as a block taking it serves it. */
+const MEMBER_CHOICE: BlockConfigField = {
+    key: 'member',
+    label: 'Who',
+    control: 'select',
+    defaultValue: 'subject',
+    options: [
+        { value: 'subject', label: 'The member this run is about', requires: ['subject'] },
+        { value: 'actor', label: 'Whoever set this off', requires: ['actor'] },
+    ],
+};
+
+/** A block that acts on one member, as the shipped ones now declare it: no `requires` of its own. */
+const GIVE_ROLE = descriptor({ type: 'action.giveRole', label: 'Give Role', configFields: [MEMBER_CHOICE] });
+
+/** A block whose member choice only some sources show. */
+const MEASURE = descriptor({
+    type: 'condition.measure',
+    label: 'Measure',
+    kind: 'condition',
+    group: 'conditions',
+    configFields: [SOURCE_FIELD, { ...MEMBER_CHOICE, visibleWhen: { field: 'source', equals: ['memberMessage'] } }],
+});
+
 const NO_MEMBER: RequirementAvailability = { ...ALL_REQUIREMENTS_AVAILABLE, subject: 'fromTrigger' };
 
 describe('the palette on a flow whose runs are all about nobody', () => {
-    const CATALOG = [NOBODY_TRIGGER, MEMBER_TRIGGER, ASSIGN_ROLE, TIME_SINCE];
+    const CATALOG = [NOBODY_TRIGGER, MEMBER_TRIGGER, ASSIGN_ROLE, TIME_SINCE, GIVE_ROLE, MEASURE];
 
     function renderPalette(runsAboutNobody: boolean) {
         const onAdd = vi.fn();
@@ -110,10 +134,21 @@ describe('the palette on a flow whose runs are all about nobody', () => {
         expect(onAdd).not.toHaveBeenCalled();
     });
 
+    it('greys a block whose always-shown member choice needs somebody either way', async () => {
+        const { user, onAdd } = renderPalette(true);
+
+        const entry = screen.getByRole('button', { name: /Give Role/ });
+        expect(entry.getAttribute('title')).toBe(NEEDS_A_MEMBER_NOTE);
+        expect(entry.getAttribute('aria-disabled')).toBe('true');
+
+        await user.click(entry);
+        expect(onAdd).not.toHaveBeenCalled();
+    });
+
     it('never greys a trigger, nor a block that only sometimes needs a member', async () => {
         const { user, onAdd } = renderPalette(true);
 
-        for (const label of ['Member Joins', 'On a Schedule', 'Time Since']) {
+        for (const label of ['Member Joins', 'On a Schedule', 'Time Since', 'Measure']) {
             expect(screen.getByRole('button', { name: new RegExp(label) }).getAttribute('aria-disabled')).toBeNull();
         }
         await user.click(screen.getByRole('button', { name: /Member Joins/ }));
@@ -124,6 +159,7 @@ describe('the palette on a flow whose runs are all about nobody', () => {
         renderPalette(false);
 
         expect(screen.getByRole('button', { name: /Assign Role/ }).getAttribute('aria-disabled')).toBeNull();
+        expect(screen.getByRole('button', { name: /Give Role/ }).getAttribute('aria-disabled')).toBeNull();
     });
 
     it('counts a flow as all about nobody only when it has triggers and none supplies a member', () => {
@@ -201,6 +237,32 @@ describe('the inspector where a run about nobody can arrive', () => {
         expect((screen.getByRole('textbox', { name: 'Since' }) as HTMLInputElement).value).toBe(
             "The member's last message"
         );
+    });
+
+    it('disables "Whoever set this off" where nobody acting can be relied on, and leaves the member', async () => {
+        const { user, onChange } = renderInspector(GIVE_ROLE, { ...ALL_REQUIREMENTS_AVAILABLE, actor: 'afterParking' });
+
+        await user.click(screen.getByRole('textbox', { name: 'Who' }));
+        const actorOption = screen.getByRole('option', { name: 'Whoever set this off' });
+
+        expect(actorOption.getAttribute('data-combobox-disabled')).toBe('true');
+        expect(screen.getByTitle(describeUnavailableRequirement('actor', 'afterParking'))).toBeTruthy();
+        await user.click(actorOption);
+        expect(onChange).not.toHaveBeenCalled();
+        expect(
+            screen.getByRole('option', { name: 'The member this run is about' }).getAttribute('data-combobox-disabled')
+        ).toBeNull();
+    });
+
+    it('disables the member and leaves "Whoever set this off" where a run about nobody can arrive', async () => {
+        const { user } = renderInspector(GIVE_ROLE, NO_MEMBER);
+
+        await user.click(screen.getByRole('textbox', { name: 'Who' }));
+
+        expect(
+            screen.getByRole('option', { name: 'The member this run is about' }).getAttribute('data-combobox-disabled')
+        ).toBe('true');
+        expect(screen.getByRole('option', { name: 'Whoever set this off' }).getAttribute('data-combobox-disabled')).toBeNull();
     });
 
     it('disables a segment that needs a member, and says why on hover', () => {
