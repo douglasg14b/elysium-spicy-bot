@@ -3,7 +3,14 @@ import { messageConfigSchema, trimMessageText } from '../../../../shared/discord
 import { messageButtonsConfigSchema } from '../../../provisioning/logic/messageButtonSchema';
 import { recordPostedMessage } from '../../logic/recordPostedMessage';
 import type { BlockManifest } from '../manifest';
-import { requireChannelInGuild } from '../channelInGuild';
+import {
+    CHANNEL_CHOICE_CARD_PART,
+    CHANNEL_CHOICE_FIELD,
+    CHANNEL_PICKER_FIELD,
+    channelChoiceShape,
+    channelFor,
+    checkChannelChoice,
+} from '../channelChoice';
 import { messageWithButtons, renderedMessageIssue } from '../messageWithButtons';
 
 export const ACTION_POST_EMBED = 'action.postEmbed';
@@ -15,6 +22,9 @@ const MESSAGE_LABEL = 'Message';
  * Where to post, the whole message — plain text above, up to ten embeds under it — and the
  * buttons under that.
  *
+ * Where is the shared channel choice (`blocks/channelChoice.ts`): a picked channel, the
+ * default every node saved before the choice means, or the channel the run happened in.
+ *
  * The message is one key holding one object (`src/shared/discordMessage`), edited by the
  * `message` control. Graphs saved when this block held flat keys (`title`, `imageUrl`, …)
  * were rewritten once by `2026-10-24-Post_Embed_Message_Shape`; this schema reads only the
@@ -23,11 +33,13 @@ const MESSAGE_LABEL = 'Message';
  * `buttons` is the message field's `buttonsKey`: drawn and edited in the message window, and
  * optional — absent or empty posts none — so every node saved before buttons existed parses.
  */
-export const postEmbedConfigSchema = z.object({
-    channelId: z.string().min(1),
-    message: messageConfigSchema,
-    buttons: messageButtonsConfigSchema.optional(),
-});
+export const postEmbedConfigSchema = z
+    .object({
+        ...channelChoiceShape,
+        message: messageConfigSchema,
+        buttons: messageButtonsConfigSchema.optional(),
+    })
+    .superRefine((config, context) => checkChannelChoice(config, context));
 
 export type PostEmbedConfig = z.infer<typeof postEmbedConfigSchema>;
 
@@ -40,12 +52,8 @@ export const block: BlockManifest<PostEmbedConfig> = {
     icon: '🖼️',
     configSchema: postEmbedConfigSchema,
     configFields: [
-        {
-            key: 'channelId',
-            label: 'Channel',
-            description: 'Where the message gets posted.',
-            control: 'channelPicker',
-        },
+        CHANNEL_CHOICE_FIELD,
+        CHANNEL_PICKER_FIELD,
         {
             key: 'message',
             label: MESSAGE_LABEL,
@@ -55,7 +63,10 @@ export const block: BlockManifest<PostEmbedConfig> = {
             buttonsKey: 'buttons',
         },
     ],
+    // "#rules · "House rules"", or "The channel this happened in · "House rules"" — the
+    // hidden picker's part renders nothing, so only one of the first two ever shows.
     cardSummary: [
+        CHANNEL_CHOICE_CARD_PART,
         { key: 'channelId', emptyText: 'no channel picked' },
         { key: 'message', prefix: ' · ', quote: true, truncate: 20, hideWhenEmpty: true },
     ],
@@ -78,9 +89,9 @@ export const block: BlockManifest<PostEmbedConfig> = {
             return { kind: 'fail', error: issue };
         }
 
-        // This guild's channels only, and thrown for one that is not sendable here —
-        // see `requireChannelInGuild`.
-        const channel = await requireChannelInGuild(context.guild, config.channelId);
+        // The picked channel or the run's own, this guild's only, and thrown for one that is
+        // not sendable here — see `channelFor`.
+        const channel = await channelFor(context, config);
 
         const buttons = config.buttons ?? [];
         const ready = await messageWithButtons(context.guild, message, buttons, MESSAGE_LABEL);

@@ -343,7 +343,8 @@ export const zFlowBlockFieldRules = z.object({
         member: z.unknown().optional()
     }),
     'action.closeTicket': z.object({
-        ticketId: z.string().min(1, 'Fill this in.').optional()
+        source: z.unknown().optional(),
+        ticketId: z.string().min(1, 'Can\'t be empty.').optional()
     }),
     'action.delay': z.object({
         durationMs: z.number().int('Whole numbers only.').gt(0, 'Must be more than 0.').lte(2592000000, 'No more than 2592000000.').optional(),
@@ -365,8 +366,9 @@ export const zFlowBlockFieldRules = z.object({
         outputKey: z.string().min(1, 'Fill this in.').max(64, 'No more than 64 characters.').regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'A name must start with a letter and use only letters, numbers and underscores — that is what {{var.name}} can address.').optional()
     }),
     'action.postEmbed': z.object({
-        channelId: z.string().min(1, 'Fill this in.').optional(),
-        message: z.unknown().optional()
+        channelId: z.string().min(1, 'Can\'t be empty.').optional(),
+        message: z.unknown().optional(),
+        where: z.unknown().optional()
     }),
     'action.prompt': z.object({
         choices: z.array(z.unknown()).min(1, 'Add at least 1 entry.').max(5, 'No more than 5 entries.').optional(),
@@ -385,8 +387,9 @@ export const zFlowBlockFieldRules = z.object({
         message: z.string().min(1, 'Fill this in.').max(2000, 'No more than 2000 characters.').optional()
     }),
     'action.sendMessage': z.object({
-        channelId: z.string().min(1, 'Fill this in.').optional(),
-        message: z.string().min(1, 'Fill this in.').max(2000, 'No more than 2000 characters.').optional()
+        channelId: z.string().min(1, 'Can\'t be empty.').optional(),
+        message: z.string().min(1, 'Fill this in.').max(2000, 'No more than 2000 characters.').optional(),
+        where: z.unknown().optional()
     }),
     'action.setVariable': z.object({
         booleanValue: z.unknown().optional(),

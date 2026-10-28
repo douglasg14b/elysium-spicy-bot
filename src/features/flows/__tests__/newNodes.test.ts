@@ -270,6 +270,7 @@ describe('action.postEmbed', () => {
     it('fails naming the embed when every part of it rendered to nothing', async () => {
         const send = vi.fn().mockResolvedValue({ id: 'message-1' });
         const rendered: PostEmbedConfig = {
+            where: 'channel',
             channelId: CHANNEL_ID,
             message: { embeds: [{ title: '', fields: [], timestamp: false }] },
         };
@@ -287,7 +288,7 @@ describe('action.postEmbed', () => {
      */
     it('fails in the product’s words when every part came out as blank space', async () => {
         const send = vi.fn().mockResolvedValue({ id: 'message-1' });
-        const rendered: PostEmbedConfig = { channelId: CHANNEL_ID, message: { content: ' \n ', embeds: [] } };
+        const rendered: PostEmbedConfig = { where: 'channel', channelId: CHANNEL_ID, message: { content: ' \n ', embeds: [] } };
 
         const outcome = await actionPostEmbedNode.run(rendered, contextWithChannel(send));
 
@@ -301,6 +302,7 @@ describe('action.postEmbed', () => {
     it('leaves out a footer whose text came out blank, and says its icon has nothing beside it', async () => {
         const send = vi.fn().mockResolvedValue({ id: 'message-1' });
         const rendered: PostEmbedConfig = {
+            where: 'channel',
             channelId: CHANNEL_ID,
             message: {
                 embeds: [
@@ -323,6 +325,7 @@ describe('action.postEmbed', () => {
     it('sends text parts trimmed of the blank space their tokens left around them', async () => {
         const send = vi.fn().mockResolvedValue({ id: 'message-1' });
         const rendered: PostEmbedConfig = {
+            where: 'channel',
             channelId: CHANNEL_ID,
             message: {
                 content: '  Kneel.  ',
@@ -347,6 +350,7 @@ describe('action.postEmbed', () => {
         const send = vi.fn().mockResolvedValue({ id: 'message-1' });
         // As rendered: two `{{var.essay}}` bodies that filled in long.
         const rendered: PostEmbedConfig = {
+            where: 'channel',
             channelId: CHANNEL_ID,
             message: {
                 embeds: [

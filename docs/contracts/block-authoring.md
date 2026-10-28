@@ -468,7 +468,7 @@ way that field's own `control` already implies:
 | `variableSelect` | the bare variable name |
 | `timeOfDay` | the 12-hour clock: `9:00 AM` |
 | `daysOfWeek` | the days in week order, `Mon, Wed, Fri` — or `Every day` when all seven are picked |
-| `message` | its headline: the first embed's title, else its body, else the plain text, else `2 embeds`. A message with nothing in it reads as unset. Post Embed: `[{ key: 'channelId', emptyText: 'no channel picked' }, { key: 'message', prefix: ' · ', quote: true, truncate: 20, hideWhenEmpty: true }]` → `#rules · "House rules"` |
+| `message` | its headline: the first embed's title, else its body, else the plain text, else `2 embeds`. A message with nothing in it reads as unset. Post Embed: `[CHANNEL_CHOICE_CARD_PART, { key: 'channelId', emptyText: 'no channel picked' }, { key: 'message', prefix: ' · ', quote: true, truncate: 20, hideWhenEmpty: true }]` → `#rules · "House rules"`, or `The channel this happened in · "House rules"` |
 | `messageButton` | the message's name and the button's label, `Rules panel · Verify`, read from the journey's declarations — for a block's post, the post's headline (or its block's label) and the button's, `Kneel, pet · Kneel`, read from the journey's posting nodes; a key they no longer hold shows as the key itself (a post no longer on offer as `a block's button · <key>`), since "no button picked" would misstate a node that names one. Button Click: `[{ key: 'button', emptyText: 'no button picked', stopIfEmpty: true }, …]` |
 
 A part whose field is currently hidden by its `visibleWhen` renders **nothing** — not its
@@ -582,9 +582,12 @@ is only taken on waking cannot be read off a declaration, so that half is yours 
   on a run from a trigger that does not say who acted** — Member Leaves, since Discord does not
   say who kicked them. A ticket change always names someone: the person, or the bot when a flow
   made it; one who has since left arrives as a partial member, as a departed subject does.
-- `channel` — where the run is operating. **Absent on a run started by a member joining or
-  leaving**, which happens nowhere in particular, and absent on a resumed run, because a parked
-  run does not yet remember where it was.
+- `channel` — where the run is operating. **Not promised below a trigger that does not declare
+  it** — a member joining or leaving, a Schedule, a level reached, which happen nowhere in
+  particular, and a ticket change, whose runs carry the ticket's channel when it resolves but
+  whose trigger does not promise one. A park keeps it: the snapshot records the channel and resume fetches it again — but one
+  deleted or walled off while the run waited resumes as nowhere, which is why the executor
+  leaves this one to you (below).
 - `interaction` — the interaction that started it. **Absent on any gateway-started run and on
   every resumed run**, because the token expires when the run parks.
 
@@ -627,6 +630,26 @@ through `requireSubject` (Open Ticket does; the other two leave it to the engine
 their waits by the run's member). `blocks/__tests__/memberChoice.test.ts` holds every block
 reading a member to one way or the other, and refuses a block reading `context.subject` or
 `context.actor` directly.
+
+**Posting where it happened.** A block that posts into one channel lets the author pick the
+channel or take the one the run happened in — where the button was pressed, the message sent,
+the reaction left — through one shared definition in `blocks/channelChoice.ts`: spread
+`channelChoiceShape` into your schema (the `where` choice, and `channelId` as
+`.min(1).optional()`), add `.superRefine((config, context) => checkChannelChoice(config, context))`,
+put `CHANNEL_CHOICE_FIELD` (the "Where" select: "A channel I pick", the default, or "The channel
+this happened in") and `CHANNEL_PICKER_FIELD` (the picker, shown only for "pick") in
+`configFields`, `CHANNEL_CHOICE_CARD_PART` in `cardSummary` before the picker's part (it names the
+choice only when it is not the default; the hidden picker's part renders nothing), and get the
+channel with `channelFor(context, config)`. Declare no `channel` in `requires` — the "here"
+option carries it, so an untouched node posts where it always did, and "here" is refused at save
+below a trigger that happens nowhere and greyed in the builder there. `channelFor` holds the
+run's channel to `requireChannelInGuild` as it does a picked one, and **throws by name when the
+run has no channel**: not a regression, as `memberFor`'s throw is, because the executor leaves
+`channel` to you. Post Embed and Send Message are the worked examples;
+`blocks/__tests__/channelChoice.test.ts` holds every block posting through `channelFor` to the
+shared declarations. Close Ticket's "Which ticket" (`source`: an id, the default, or "The ticket
+in this channel", a thread counting toward the channel it sits under) is the same shape kept in
+its own directory, since only it finds a ticket.
 
 **On a trigger, `requires` reads the other way round.** A trigger is never reached by an edge,
 so nothing upstream could fail to satisfy it — what it declares is what its own event

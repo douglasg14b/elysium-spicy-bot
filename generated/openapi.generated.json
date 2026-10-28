@@ -2033,11 +2033,12 @@
                     },
                     "action.closeTicket": {
                         "properties": {
+                            "source": {},
                             "ticketId": {
                                 "minLength": 1,
                                 "type": "string",
                                 "x-messages": {
-                                    "minLength": "Fill this in."
+                                    "minLength": "Can't be empty."
                                 }
                             }
                         },
@@ -2136,10 +2137,11 @@
                                 "minLength": 1,
                                 "type": "string",
                                 "x-messages": {
-                                    "minLength": "Fill this in."
+                                    "minLength": "Can't be empty."
                                 }
                             },
-                            "message": {}
+                            "message": {},
+                            "where": {}
                         },
                         "type": "object"
                     },
@@ -2214,7 +2216,7 @@
                                 "minLength": 1,
                                 "type": "string",
                                 "x-messages": {
-                                    "minLength": "Fill this in."
+                                    "minLength": "Can't be empty."
                                 }
                             },
                             "message": {
@@ -2225,7 +2227,8 @@
                                     "maxLength": "No more than 2000 characters.",
                                     "minLength": "Fill this in."
                                 }
-                            }
+                            },
+                            "where": {}
                         },
                         "type": "object"
                     },

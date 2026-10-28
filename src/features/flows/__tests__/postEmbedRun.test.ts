@@ -13,6 +13,7 @@ import {
 } from '../../../shared/__tests__/support/testDiscord';
 import { ACTION_POST_EMBED } from '../blocks/actionPostEmbed';
 import { ensureBlocksDiscovered } from '../blocks/registry';
+import { TRIGGER_MESSAGE_SENT } from '../blocks/triggerMessageSent';
 import { TRIGGER_SCHEDULE } from '../blocks/triggerSchedule';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../data/flowGraph';
 import { executeFlow, type FlowRunResult } from '../engine/executor';
@@ -291,6 +292,56 @@ describe('Post Embed with buttons', () => {
                 postedAt: expect.any(Date),
             },
         ]);
+    });
+
+    it('posts in the channel the run happened in, and records the post against that channel', async () => {
+        const recordsBefore = (await records()).length;
+        const room = home.guild.createTextChannel({ name: 'confession-booth' });
+        const roomWrites = discord.writesTo(room).length;
+        const homeWrites = discord.writesTo(home.channel).length;
+        const clientGuild = discord.clientGuild(home.guild);
+        const runChannel = clientGuild.channels.cache.get(room.id);
+        if (!runChannel?.isTextBased()) throw new Error('TestDiscord did not cache the room as a text channel');
+        // A message landing in the room started this run — the channel a Message Sent run carries.
+        const graph: FlowGraph = {
+            version: FLOW_GRAPH_VERSION,
+            nodes: [
+                { id: 'said', type: TRIGGER_MESSAGE_SENT, position: { x: 0, y: 0 }, data: { where: 'anywhere' } },
+                {
+                    id: 'post',
+                    type: ACTION_POST_EMBED,
+                    position: { x: 0, y: 160 },
+                    // The picker still names the home channel from before the switch; hidden, it is never read.
+                    data: {
+                        where: 'here',
+                        channelId: home.channel.id,
+                        message: { embeds: [{ title: 'Confess.' }] },
+                        buttons: [{ key: 'sin', label: 'Sin', style: 'Danger' }],
+                    },
+                },
+            ],
+            edges: [{ id: 'e1', source: 'said', target: 'post' }],
+        };
+
+        const result = await executeFlow('flow-1', graph, 'said', {
+            client,
+            guild: clientGuild,
+            channel: runChannel,
+            variables: {},
+        });
+
+        expect(result.status).toBe('success');
+        expect(discord.writesTo(room).slice(roomWrites)).toHaveLength(1);
+        expect(discord.writesTo(home.channel).slice(homeWrites)).toEqual([]);
+        const posted = room.messages.at(-1);
+        const added = await database
+            .selectFrom('flow_posted_messages')
+            .selectAll()
+            .where('messageId', '=', posted?.id ?? '')
+            .execute();
+        expect(added).toEqual([expect.objectContaining({ channelId: room.id, nodeId: 'post', runId: result.runId })]);
+        // Nothing recorded against the home channel the picker still names.
+        expect(await records()).toHaveLength(recordsBefore);
     });
 
     it('posts no rows and records nothing without buttons, or with an empty list', async () => {

@@ -529,6 +529,7 @@ export type FlowBlockFieldRules = {
         member?: unknown;
     };
     'action.closeTicket': {
+        source?: unknown;
         ticketId?: string;
     };
     'action.delay': {
@@ -553,6 +554,7 @@ export type FlowBlockFieldRules = {
     'action.postEmbed': {
         channelId?: string;
         message?: unknown;
+        where?: unknown;
     };
     'action.prompt': {
         choices?: Array<unknown>;
@@ -573,6 +575,7 @@ export type FlowBlockFieldRules = {
     'action.sendMessage': {
         channelId?: string;
         message?: string;
+        where?: unknown;
     };
     'action.setVariable': {
         booleanValue?: unknown;
