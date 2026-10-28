@@ -4,6 +4,7 @@ import { ensureBlocksDiscovered } from '../../blocks/registry';
 import { FLOW_GRAPH_VERSION, type FlowGraph, type FlowNode } from '../../data/flowGraph';
 import { fakeGuild } from '../../__tests__/support/fakeGuild';
 import { flowReadinessIssuesInGuild } from '../flowReadiness';
+import { NEW_FLOW_SCOPE } from '../readinessScope';
 import { guildReferenceIssues } from '../guildReferences';
 
 /**
@@ -132,7 +133,7 @@ describe('readiness in the guild', () => {
     it('reports the guild issues alongside the graph ones', () => {
         const graph = graphOf(node('post', 'action.sendMessage', { channelId: 'another-servers-channel', message: '' }));
 
-        const issues = flowReadinessIssuesInGuild(graph, [], guild(), { named: new Set(), sizes: new Map() });
+        const issues = flowReadinessIssuesInGuild(graph, NEW_FLOW_SCOPE, guild(), { named: new Set(), sizes: new Map() });
 
         expect(issues.map((issue) => issue.field)).toEqual(['message', 'channelId']);
     });

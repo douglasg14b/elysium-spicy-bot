@@ -25,8 +25,15 @@ export interface ButtonTrigger {
  * `flowsInJourney` does.
  */
 export async function journeyButtonTriggers(guildId: string, journeyKey: string): Promise<ButtonTrigger[]> {
-    const flows = await flowsInJourney(guildId, journeyKey);
+    return journeyButtonTriggersIn(await flowsInJourney(guildId, journeyKey));
+}
 
+/**
+ * {@link journeyButtonTriggers} over flows the caller already read (`flowsInJourney`), for a
+ * caller that reads them for something else too — the listener route, which also lists the
+ * block buttons of the same flows. Pure. Needs the block registry.
+ */
+export function journeyButtonTriggersIn(flows: readonly FlowEntity[]): ButtonTrigger[] {
     return flows.flatMap((flow) =>
         buttonPicksIn(flow.graph).map(({ nodeId, pick }) => {
             const node = flow.graph.nodes.find((candidate) => candidate.id === nodeId);

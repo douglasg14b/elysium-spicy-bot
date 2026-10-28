@@ -18,6 +18,7 @@ import {
     uninstalledResourceKeys,
 } from '../../features/flows/logic/flowReadiness';
 import { getPublishedFlowState } from '../../features/flows/logic/publishedFlowState';
+import { NEW_FLOW_SCOPE, type ReadinessScope } from '../../features/flows/logic/readinessScope';
 import { loadUploadIndex, uploadIndexCovers, type UploadIndex } from '../../features/flows/logic/uploadReferences';
 import { guildSettingsRepo } from '../../features-system/guild-settings';
 import {
@@ -42,7 +43,7 @@ import {
     type FlowSaveBody,
 } from './flowBody';
 import { defineFlowDraftRoutes } from './flowDraftRoutes';
-import { loadFlowJourneyIndex } from './flowJourneyIndex';
+import { loadFlowJourneyIndex, readinessScopeOf } from './flowJourneyIndex';
 import { staleBuilderRefusal } from './staleBuilderGraph';
 import { flowJourneyLinksRepo } from '../../features/provisioning/data/flowJourneyLinksRepo';
 import { toDeclarationFromRow } from '../../features/provisioning/data/journeysRepo';
@@ -60,7 +61,6 @@ import {
     runInstall,
     unpublishJourney,
     type JourneyDeclaration,
-    type ResourceDeclaration,
 } from '../../features/provisioning';
 import type { AppEnv } from '../types';
 import { flowNameInGuild } from './flowNameInGuild';
@@ -398,9 +398,10 @@ interface FlowSaver {
  *
  * Only a request that **can** be refused is judged at all — one carrying a graph, or
  * `enabled: true`. A switch-off or a rename is written as it is, whatever the stored graph
- * holds, so nothing below can refuse one. `declarations` is `null` when the caller could
- * not read the declarations; the caller has already answered a refusable request with a
- * 500 then, so only an unrefusable one arrives without them.
+ * holds, so nothing below can refuse one. `scope` — the flow's declarations and its
+ * journey's other flows (`readDeclarations`) — is `null` when the caller could not read the
+ * declarations; the caller has already answered a refusable request with a 500 then, so only
+ * an unrefusable one arrives without them.
  *
  * `otherLiveFlows` is every *other* flow of the guild that is on — this flow's own stored
  * row left out, or its old graph would refuse the very edit that breaks a loop. `null`
@@ -431,13 +432,14 @@ function decidePut(
     current: FlowEntity,
     request: FlowPutRequest,
     saver: FlowSaver,
-    declarations: readonly ResourceDeclaration[] | null,
+    scope: ReadinessScope | null,
     otherLiveFlows: readonly FlowEntity[] | null,
     journeyFlowIds: ReadonlySet<string> | null,
     guild: Guild,
     uploads: UploadIndex
 ): FlowWriteDecision<ReadinessRefusal> {
-    if (declarations && isRefusable(request)) {
+    if (scope && isRefusable(request)) {
+        const { declarations } = scope;
         const runs = request.graph ?? current.graph;
         if (!uploadIndexCovers(uploads, runs)) {
             return {
@@ -445,7 +447,7 @@ function decidePut(
                 refusal: { error: 'This flow changed while you were saving. Save again.', issues: [] },
             };
         }
-        const issues = flowReadinessIssuesInGuild(runs, declarations, guild, uploads);
+        const issues = flowReadinessIssuesInGuild(runs, scope, guild, uploads);
         const staysLive = current.enabled && request.enabled !== false;
 
         if (
@@ -503,13 +505,14 @@ function decidePut(
             return { kind: 'refuse', refusal: { error: describeFlowCycle(cycle), issues: [] } };
         }
 
-        if (journeyFlowIds && declarations) {
+        if (journeyFlowIds && scope) {
             const claimed = buttonClaimConflict({
                 flowId: current.flowId,
                 graph: request.graph ?? current.graph,
                 flows: otherLiveFlows,
                 journeyFlowIds,
-                declarations,
+                declarations: scope.declarations,
+                posters: scope.journeyFlows,
             });
             if (claimed) {
                 return { kind: 'refuse', refusal: { error: buttonClaimRefusal(claimed), issues: [] } };
@@ -723,12 +726,17 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
         );
 
         // The same indexes answer each row's readiness: a flow's declared keys are its
-        // journey's, so `issueCount` costs no query beyond the ones above. A malformed
-        // journey row fails the index — and so the list — exactly as it did before
-        // readiness was on it; no row is judged against a guess.
+        // journey's, and its journey's other flows are rows already loaded here, so
+        // `issueCount` costs no query beyond the ones above. A malformed journey row fails
+        // the index — and so the list — exactly as it did before readiness was on it; no
+        // row is judged against a guess.
+        const flowsById = new Map(flows.map((flow) => [flow.flowId, flow] as const));
         return c.json(
             {
-                flows: flows.map((flow) => flowSummary(flow, journeys.get(flow.flowId), guild, uploads)),
+                flows: flows.map((flow) => {
+                    const entry = journeys.get(flow.flowId);
+                    return flowSummary(flow, entry, readinessScopeOf(flow.flowId, entry, flowsById), guild, uploads);
+                }),
             },
             200
         );
@@ -753,7 +761,7 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
         }
         const uploads = await loadUploadIndex(guildId, [flow.graph]);
 
-        return c.json(flowDetail(flow, flowReadinessIssuesInGuild(flow.graph, declared.declarations, guild, uploads)), 200);
+        return c.json(flowDetail(flow, flowReadinessIssuesInGuild(flow.graph, declared, guild, uploads)), 200);
     });
 
     /*
@@ -813,7 +821,7 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
         }
         const uploads = await loadUploadIndex(guildId, [structural.graph]);
 
-        return c.json({ issues: flowReadinessIssuesInGuild(structural.graph, declared.declarations, guild, uploads) }, 200);
+        return c.json({ issues: flowReadinessIssuesInGuild(structural.graph, declared, guild, uploads) }, 200);
     });
 
     // Create a flow. Starts empty + disabled unless a graph is supplied.
@@ -848,7 +856,7 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
         // shortcut: a flow cannot reference a declaration it has not saved. An
         // incomplete graph is stored all the same — a new flow starts switched off.
         const uploads = await loadUploadIndex(guildId, [graph]);
-        const issues = flowReadinessIssuesInGuild(graph, [], guild, uploads);
+        const issues = flowReadinessIssuesInGuild(graph, NEW_FLOW_SCOPE, guild, uploads);
 
         const flow = await flowsRepo.create({
             guildId,
@@ -963,7 +971,7 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
                 current,
                 request,
                 saver,
-                declared.ok ? declared.declarations : null,
+                declared.ok ? declared : null,
                 otherLiveFlows,
                 journeyFlowIds,
                 guild,
@@ -999,7 +1007,7 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
         const written = writtenGraphs.every((writtenGraph) => uploadIndexCovers(uploads, writtenGraph))
             ? uploads
             : await loadUploadIndex(guildId, writtenGraphs);
-        const flow = flowDetail(outcome.flow, flowReadinessIssuesInGuild(outcome.flow.graph, declared.declarations, guild, written));
+        const flow = flowDetail(outcome.flow, flowReadinessIssuesInGuild(outcome.flow.graph, declared, guild, written));
         switch (outcome.kind) {
             case 'written':
                 return c.json({ ...flow, savedAs: 'flow' } satisfies FlowSaveBody, 200);
@@ -1012,7 +1020,7 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
                             outcome.draft,
                             saver.id,
                             outcome.flow.updatedAt,
-                            flowReadinessIssuesInGuild(outcome.draft.graph, declared.declarations, guild, written)
+                            flowReadinessIssuesInGuild(outcome.draft.graph, declared, guild, written)
                         ),
                         uninstalled: uninstalledResourceKeys(outcome.draft.graph, declared.declarations),
                     } satisfies FlowSaveBody,

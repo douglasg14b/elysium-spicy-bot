@@ -9,7 +9,14 @@ import { Fragment, useEffect, useState } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { Text, Tooltip } from '@mantine/core';
 import { IconAlertTriangle } from '@tabler/icons-react';
-import type { GuildChannel, GuildRole, NodeDescriptor, ResourceDeclaration, TicketTypeView } from '@brattybot/web-sdk';
+import type {
+    BlockButtonMessage,
+    GuildChannel,
+    GuildRole,
+    NodeDescriptor,
+    ResourceDeclaration,
+    TicketTypeView,
+} from '@brattybot/web-sdk';
 import { summarizeFromDescriptor } from './cardSummary';
 import { describeConvergence } from './convergingTriggers';
 import { describeNextRun, formatNextRunExact, NEXT_RUN_AFTER_SAVE, type NodeNextRun } from './nextRun';
@@ -36,6 +43,12 @@ export interface FlowNodeCardData extends Record<string, unknown> {
      * the cards by an effect in `FlowBuilderPage`, as the issue count is.
      */
     declaredResources: ResourceDeclaration[];
+    /**
+     * The block posts a Button Click may name — this flow's and its journey's other flows' — so
+     * a trigger naming one reads "Welcome · Verify" rather than its ids. Carried onto the cards
+     * by an effect in `FlowBuilderPage`, as the declarations are.
+     */
+    blockMessages: readonly BlockButtonMessage[];
     /**
      * How many things the server last found wrong with this node — when the flow was
      * opened, or at the last save.
@@ -105,6 +118,7 @@ export function FlowNodeCard({ data, selected }: NodeProps<FlowCardNode>) {
         channels,
         ticketTypes,
         declaredResources,
+        blockMessages,
         issueCount,
         unreachable,
         convergingTriggers,
@@ -227,7 +241,7 @@ export function FlowNodeCard({ data, selected }: NodeProps<FlowCardNode>) {
 
             <div style={{ padding: 12 }}>
                 <Text size="12px" c="dark.1" lineClamp={2}>
-                    {summarizeFromDescriptor(descriptor, config, roles, channels, ticketTypes, declaredResources)}
+                    {summarizeFromDescriptor(descriptor, config, roles, channels, ticketTypes, declaredResources, blockMessages)}
                 </Text>
                 {nextRun ? <NextRunLine nextRun={nextRun} /> : null}
                 {failed ? (

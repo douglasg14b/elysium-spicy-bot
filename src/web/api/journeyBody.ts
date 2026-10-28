@@ -5,6 +5,7 @@
  * route tests mock the barrel down to the functions they exercise.
  */
 import { z } from '@hono/zod-openapi';
+import type { BlockButtonListener, BlockButtonMessage } from '../../features/flows/logic/blockButtonListeners';
 import type { ButtonListener } from '../../features/provisioning/buttonListeners';
 import type { JourneyEntity } from '../../features/provisioning/data/journeysSchema';
 import { REPAIR_OUTCOMES, type RepairedResource } from '../../features/provisioning/logic/applyDriftRepair';
@@ -801,10 +802,47 @@ const ButtonListenerSchema = z
             '`enabled` says whether its flow is switched on; an off flow is listed too.',
     });
 
-/** Every trigger listening to the journey's message buttons, live and off. */
+/** A node of one of the journey's flows that posts buttons under its message. */
+const BlockButtonMessageSchema = z
+    .object({
+        flowId: z.string(),
+        flowName: z.string(),
+        nodeId: z.string(),
+        blockLabel: z.string(),
+        headline: z.union([z.string(), z.null()]),
+        buttons: z.array(MessageButtonSchema).readonly(),
+    })
+    .openapi('BlockButtonMessage', {
+        description:
+            "A block of one of the journey's flows that posts buttons under its message (Post Embed, Open " +
+            "Ticket): the posting flow and node, the block's label, the message as one line (`null` when it " +
+            'has none) and the buttons it posts now.',
+    });
+
+/** One trigger listening to a button under a block's post. */
+const BlockButtonListenerSchema = z
+    .object({
+        messageFlowId: z.string(),
+        messageNodeId: z.string(),
+        buttonKey: z.string(),
+        flowId: z.string(),
+        flowName: z.string(),
+        nodeId: z.string(),
+        enabled: z.boolean(),
+    })
+    .openapi('BlockButtonListener', {
+        description:
+            "A Button Click trigger naming a button under a block's post. `messageFlowId` and `messageNodeId` " +
+            'are the poster; `flowId`, `flowName` and `nodeId` are the listener, and `enabled` whether its flow ' +
+            'is switched on.',
+    });
+
+/** Every trigger listening to the journey's buttons, live and off, and every block posting some. */
 export const JourneyButtonListenersSchema = z
     .object({
         listeners: z.array(ButtonListenerSchema).readonly(),
+        blockMessages: z.array(BlockButtonMessageSchema).readonly(),
+        blockListeners: z.array(BlockButtonListenerSchema).readonly(),
     })
     .openapi('JourneyButtonListeners');
 
@@ -839,6 +877,8 @@ type JourneyBodyChecks = ChecksHold<{
     JourneyMergePlan: SchemaMatches<typeof journeyMergePlanSchema, JourneyMergePlan>;
     RepairedResource: SchemaMatches<typeof RepairedResourceSchema, RepairedResource>;
     ButtonListener: SchemaMatches<typeof ButtonListenerSchema, ButtonListener>;
+    BlockButtonMessage: SchemaMatches<typeof BlockButtonMessageSchema, BlockButtonMessage>;
+    BlockButtonListener: SchemaMatches<typeof BlockButtonListenerSchema, BlockButtonListener>;
 }>;
 
 /** The checks in {@link JourneyBodyChecks} that fail, or `never`. Asserted `never` in `__tests__/journeyBody.test-d.ts`. */

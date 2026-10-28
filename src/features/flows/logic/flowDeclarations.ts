@@ -1,20 +1,27 @@
-import { MalformedJourneyError, resolveFlowJourney, type ResourceDeclaration } from '../../provisioning';
+import { MalformedJourneyError, resolveFlowJourney } from '../../provisioning';
+import { flowsInJourney } from './journeyMembership';
+import type { ReadinessScope } from './readinessScope';
 
-/** The journey a flow belongs to, as readiness needs it: its key, and what it declares. */
-export interface FlowDeclarations {
-    /** `null` for a flow attached to no journey, which declares nothing. */
+/**
+ * The journey a flow belongs to, as readiness needs it: its key, what it declares, and its
+ * other flows — a {@link ReadinessScope} for this flow, with the journey's key beside it.
+ */
+export interface FlowDeclarations extends ReadinessScope {
+    readonly flowId: string;
+    /** `null` for a flow attached to no journey, which declares nothing and shares with nobody. */
     readonly journeyKey: string | null;
-    readonly declarations: readonly ResourceDeclaration[];
 }
 
 /**
  * The resources a flow declares, for `flowReadinessIssues`, with the key of the journey
- * declaring them.
+ * declaring them and that journey's other flows (whose posted buttons a trigger here may name).
  *
  * Resolved through the flow's journey attachment rather than by assuming the journey
  * is keyed on the flow's own id, so a flow sharing a journey with others sees what that
  * journey declares. A flow attached to nothing has no journey row at all, which is the
- * normal state and not an error — hence no declarations rather than a refusal.
+ * normal state and not an error — hence no declarations rather than a refusal, and no
+ * further read. The other flows are the journey's by the one membership rule
+ * (`flowsInJourney`), this flow left out.
  *
  * Ownership is deliberately *not* checked here. The declarations only decide which picker
  * fields are allowed to be empty pending an install, and which messages a Button Click may
@@ -27,9 +34,19 @@ export interface FlowDeclarations {
  */
 export async function flowDeclarations(guildId: string, flowId: string): Promise<FlowDeclarations> {
     const resolved = await resolveFlowJourney(guildId, flowId);
+    if (!resolved) {
+        return { flowId, journeyKey: null, declarations: [], journeyFlows: [] };
+    }
+
+    const { journeyKey, resources } = resolved.journey;
+    const members = await flowsInJourney(guildId, journeyKey);
     return {
-        journeyKey: resolved?.journey.journeyKey ?? null,
-        declarations: resolved?.journey.resources ?? [],
+        flowId,
+        journeyKey,
+        declarations: resources,
+        journeyFlows: members
+            .filter((member) => member.flowId !== flowId)
+            .map(({ flowId: memberId, name, graph }) => ({ flowId: memberId, name, graph })),
     };
 }
 

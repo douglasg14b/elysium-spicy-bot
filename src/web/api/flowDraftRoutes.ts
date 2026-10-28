@@ -145,7 +145,7 @@ export function defineFlowDraftRoutes(router: ApiRouteRegistrar): undefined {
                         draft,
                         viewerId,
                         flow.updatedAt,
-                        flowReadinessIssuesInGuild(draft.graph, declared.declarations, guild, uploads)
+                        flowReadinessIssuesInGuild(draft.graph, declared, guild, uploads)
                     )
                 ),
             },

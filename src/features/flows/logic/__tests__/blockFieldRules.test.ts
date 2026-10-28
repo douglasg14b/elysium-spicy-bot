@@ -8,6 +8,7 @@ import { VARIABLE_NAME_MESSAGE } from '../../blocks/variableName';
 import { FLOW_GRAPH_VERSION } from '../../data/flowGraph';
 import { browserFieldRules, fieldJsonSchemas, type BlockSchemaSource } from '../blockFieldRules';
 import { flowReadinessIssues } from '../flowReadiness';
+import { NEW_FLOW_SCOPE } from '../readinessScope';
 import { blockWith } from './support/blockWith';
 import { toDescriptor } from '../../../../web/api/nodeRoutes';
 import type { NodeDescriptor as BrowserNodeDescriptor } from '@brattybot/web-sdk';
@@ -45,7 +46,7 @@ function serverMessages(
 ): string[] {
     const issues = flowReadinessIssues(
         { version: FLOW_GRAPH_VERSION, nodes: [{ id: 'probe', type, position: { x: 0, y: 0 }, data }], edges: [] },
-        declarations
+        { ...NEW_FLOW_SCOPE, declarations }
     );
     return issues.filter((issue) => issue.nodeId === 'probe' && issue.field === field).map((issue) => issue.message);
 }

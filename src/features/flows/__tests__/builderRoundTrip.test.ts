@@ -24,6 +24,7 @@ import { executeFlow } from '../engine/executor';
 import { validateFlowGraph } from '../engine/graphValidation';
 import { describeIssue } from '../engine/nodeDataValidation';
 import { flowReadinessIssues } from '../logic/flowReadiness';
+import { NEW_FLOW_SCOPE } from '../logic/readinessScope';
 import { ensureBlocksDiscovered } from '../blocks/registry';
 import type { FlowGraph } from '../data/flowGraph';
 import type { FlowRunSeed } from '../blocks/types';
@@ -105,7 +106,7 @@ function readinessAsApiJudges(graph: FlowGraph): readonly string[] {
     const structural = validateFlowGraph(graph);
     if (!structural.valid) return structural.errors;
 
-    return flowReadinessIssues(structural.graph, ROLES_PANEL).map(describeIssue);
+    return flowReadinessIssues(structural.graph, { ...NEW_FLOW_SCOPE, declarations: ROLES_PANEL }).map(describeIssue);
 }
 
 /** The journey's message the trigger listens to, with its one button. */

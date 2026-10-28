@@ -1,5 +1,5 @@
 import { database, type DatabaseClient } from '../../../features-system/data-persistence/database';
-import type { NewFlowPostedMessageEntity } from './flowPostedMessagesSchema';
+import type { FlowPostedMessageEntity, NewFlowPostedMessageEntity } from './flowPostedMessagesSchema';
 
 /**
  * Persistence for `flow_posted_messages` — a block's posted message that carries buttons. See
@@ -15,6 +15,22 @@ export class FlowPostedMessagesRepo {
      */
     async create(row: NewFlowPostedMessageEntity): Promise<void> {
         await this.db.insertInto('flow_posted_messages').values(row).execute();
+    }
+
+    /**
+     * The record of a posted message, by the id a press arrives naming — a primary-key read,
+     * scoped to the guild so a press in one server never finds another's post. `null` for a
+     * message no block recorded: a journey's message, one posted before records existed, or one
+     * whose record failed to write.
+     */
+    async findByMessageId(guildId: string, messageId: string): Promise<FlowPostedMessageEntity | null> {
+        const row = await this.db
+            .selectFrom('flow_posted_messages')
+            .selectAll()
+            .where('messageId', '=', messageId)
+            .where('guildId', '=', guildId)
+            .executeTakeFirst();
+        return row ?? null;
     }
 }
 

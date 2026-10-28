@@ -7,6 +7,7 @@ import {
     type JourneyInstallState,
 } from '../../features/provisioning/logic/journeyInstallState';
 import type { ResourceDeclaration } from '../../features/provisioning/logic/resourceDeclaration';
+import type { ReadinessFlow, ReadinessScope } from '../../features/flows/logic/readinessScope';
 
 /**
  * Which journey each flow in a guild belongs to, resolved once for a whole list.
@@ -82,6 +83,34 @@ export interface FlowJourneyIndexEntry {
     readonly membership: FlowJourneyMembership;
     /** Everything the journey declares — the `declarations` `flowReadinessIssues` takes. */
     readonly declarations: readonly ResourceDeclaration[];
+    /**
+     * Every flow the journey holds, this one included, by the same resolution as the
+     * membership — for {@link readinessScopeOf}, which picks the other flows' rows out of the
+     * list the caller already loaded.
+     */
+    readonly memberFlowIds: readonly string[];
+}
+
+/**
+ * The readiness scope of one flow of the list: its journey's declarations and the journey's
+ * other flows, taken from the rows the list already holds — so a row's `issueCount` judges a
+ * Button Click naming another flow's post without a query of its own. A flow in no journey
+ * declares nothing and shares with nobody, exactly as `flowDeclarations` answers.
+ */
+export function readinessScopeOf(
+    flowId: string,
+    entry: FlowJourneyIndexEntry | undefined,
+    flowsById: ReadonlyMap<string, ReadinessFlow>
+): ReadinessScope {
+    if (!entry) return { flowId, declarations: [], journeyFlows: [] };
+    return {
+        flowId,
+        declarations: entry.declarations,
+        journeyFlows: entry.memberFlowIds.flatMap((memberId) => {
+            const member = memberId === flowId ? undefined : flowsById.get(memberId);
+            return member ? [member] : [];
+        }),
+    };
 }
 
 /**
@@ -138,9 +167,9 @@ export async function loadFlowJourneyIndex(
         }
     }
 
-    const memberCounts = new Map<string, number>();
-    for (const journeyKey of keyByFlowId.values()) {
-        memberCounts.set(journeyKey, (memberCounts.get(journeyKey) ?? 0) + 1);
+    const membersByKey = new Map<string, string[]>();
+    for (const [flowId, journeyKey] of keyByFlowId) {
+        membersByKey.set(journeyKey, [...(membersByKey.get(journeyKey) ?? []), flowId]);
     }
 
     const index = new Map<string, FlowJourneyIndexEntry>();
@@ -154,17 +183,19 @@ export async function loadFlowJourneyIndex(
             bindings: bindingsByJourney.get(journeyKey) ?? [],
         });
 
+        const memberFlowIds = membersByKey.get(journeyKey) ?? [flowId];
         index.set(flowId, {
             membership: {
                 journeyKey,
                 name: journey.name,
                 resourceCount: journey.resources.length,
-                memberCount: memberCounts.get(journeyKey) ?? 1,
+                memberCount: memberFlowIds.length,
                 installState: install.state,
                 installedCount: install.installedCount,
                 installedKeys: install.installedKeys,
             },
             declarations: journey.resources,
+            memberFlowIds,
         });
     }
 

@@ -607,13 +607,19 @@ export type BlockConfigField =
           readonly defaultValue?: DiscordMessageInput;
       })
     | (BlockConfigFieldBase & {
-          /** A message's button, by its two keys. */
+          /**
+           * A message's button: a message resource's, by its two keys, or one under a block's
+           * post, by the posting flow, node and the button's key.
+           */
           readonly control: 'messageButton';
           /**
            * Declared for the arm's shape like every other; no block has one to give, since
-           * which message and which button are the journey's, never the block's.
+           * which message and which button are the journey's or the posting flow's, never the
+           * block's.
            */
-          readonly defaultValue?: { readonly messageKey: string; readonly buttonKey: string };
+          readonly defaultValue?:
+              | { readonly messageKey: string; readonly buttonKey: string }
+              | { readonly flowId: string; readonly nodeId: string; readonly buttonKey: string };
       });
 
 /**

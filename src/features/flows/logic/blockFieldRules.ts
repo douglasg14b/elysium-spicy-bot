@@ -412,10 +412,14 @@ function ruleBehind(issue: z.core.$ZodIssue, value: unknown, required: boolean):
                 'maximum',
                 'exclusiveMaximum',
             ]);
+        case 'invalid_union':
+            // A union left out reports no arm matching rather than the wrong type — Button
+            // Click's `button`, one of two shapes. Absent is still "fill this in"; a value that
+            // fits neither arm is the schema's own complaint.
+            return value === undefined ? { rule: 'required' } : undefined;
         case 'invalid_format':
         case 'not_multiple_of':
         case 'unrecognized_keys':
-        case 'invalid_union':
         case 'invalid_key':
         case 'invalid_element':
         case 'invalid_value':

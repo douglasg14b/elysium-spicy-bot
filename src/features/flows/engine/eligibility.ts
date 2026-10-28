@@ -256,14 +256,15 @@ export interface EligibilityFacts {
     /** The member whose admission is in question. */
     readonly candidate: GuildMember;
     /**
-     * The member the run is about, when there is a run.
+     * The member the run is about, or the run a press would start is about.
      *
-     * Absent before a run starts. A `subject` gate evaluated with no subject
-     * refuses rather than admitting — see {@link evaluateEligibility}.
+     * Absent when nobody is. A `subject` gate evaluated with no subject refuses rather than
+     * admitting — see {@link evaluateEligibility}. Only the id is read, so a caller may judge
+     * a member it has not fetched — one who may have left — by id alone.
      */
-    readonly subject?: GuildMember;
-    /** The member who caused the current step, when a member caused it. */
-    readonly actor?: GuildMember;
+    readonly subject?: Pick<GuildMember, 'id'>;
+    /** The member who caused the current step, when a member caused it. Only the id is read. */
+    readonly actor?: Pick<GuildMember, 'id'>;
     /** The run's variables, for a `variable` gate to read an id out of. */
     readonly variables?: Readonly<Record<string, FlowVariableValue>>;
 }

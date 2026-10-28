@@ -5,7 +5,8 @@
  */
 
 import { createContext, useContext } from 'react';
-import type { ButtonListener, GuildEmoji, MessageButton } from '@brattybot/web-sdk';
+import type { GuildEmoji, MessageButton } from '@brattybot/web-sdk';
+import type { ListenerOnButton } from '../buttonListeners';
 import type { GuildUploads } from '../controls/types';
 import type { AvailableVariable, RequirementAvailability } from '../variables';
 import type { MessageDraft } from './messageDraft';
@@ -57,10 +58,11 @@ export interface EditorButtons {
     /** What is wrong with each button, by position; a complaint about the whole list under `-1`. */
     readonly issues?: ReadonlyMap<number, readonly string[]>;
     /**
-     * The Button Click triggers listening to this message's buttons. A listened button names
-     * its flow under it, its key is locked — a press is routed by it — and removing it asks.
+     * The Button Click triggers listening to this message's buttons — a journey message's, or a
+     * block's post's. A listened button names its flow under it, its key is locked — a press is
+     * routed by it — and removing it asks.
      */
-    readonly listeners: readonly ButtonListener[];
+    readonly listeners: readonly ListenerOnButton[];
     /**
      * The server's own emoji, for a button's emoji grid and its "gone from the server" note.
      * `undefined` until the read answers, and after one that failed: the grid then offers the

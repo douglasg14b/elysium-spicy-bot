@@ -5,6 +5,7 @@ import { flowsRepo } from '../data/flowsRepo';
 import { describeFlowCycle, findFlowCycleThrough } from '../engine/flowCycles';
 import { describeIssue } from '../engine/nodeDataValidation';
 import { flowReadinessIssues } from '../logic/flowReadiness';
+import { NEW_FLOW_SCOPE } from '../logic/readinessScope';
 import { buildOnboardingFlowGraph } from './onboardingFlow';
 
 /** The seeded flow's id in the loop check, before it has a real one. Never a UUID, so never a stored flow's. */
@@ -51,7 +52,8 @@ async function main(): Promise<void> {
     // The repo stores anything structurally sound, and this seeds the flow switched
     // on — so it asks the question the enable route asks, against the journey the seed
     // is about to write: the trigger names the panel's button, which only it declares.
-    const issues = flowReadinessIssues(graph, resources);
+    // No flow id yet, and no other flow in the journey: the seed's trigger names a journey button.
+    const issues = flowReadinessIssues(graph, { ...NEW_FLOW_SCOPE, declarations: resources });
     if (issues.length > 0) {
         throw new Error(
             `The onboarding template is not ready to go live: ${issues.map(describeIssue).join('; ')}`

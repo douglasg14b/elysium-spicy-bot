@@ -44,11 +44,13 @@ const PRINCIPAL_COPY: Record<EligibilityPrincipal, { label: string; hint: string
     anyone: { label: 'Anyone', hint: 'Nobody is turned away.' },
     subject: {
         label: "Only the person it's about",
-        hint: 'The member this run is for. On a trigger there is no run yet, so this turns everyone away.',
+        hint:
+            "The member this run is for. On a button under a block's post, whoever that post's run was about; " +
+            "on a journey's message, or a post that was about nobody, whoever presses it.",
     },
     actor: {
         label: 'Only whoever set it going',
-        hint: 'The member who caused this step. On a trigger there is no run yet, so this turns everyone away.',
+        hint: 'The member who caused this step. On a button, whoever presses it — so this lets every presser through.',
     },
     roles: { label: 'Anyone with one of these roles', hint: 'Holding any one of them is enough.' },
     discordPermission: {

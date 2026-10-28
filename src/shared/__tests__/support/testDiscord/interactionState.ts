@@ -4,6 +4,8 @@ import {
     InteractionContextType,
     InteractionType,
     Locale,
+    MessageFlags,
+    MessageType,
     SnowflakeUtil,
     type APIButtonComponentWithCustomId,
     type APIInteractionGuildMember,
@@ -31,9 +33,12 @@ import { TestDiscordError } from './testDiscordError';
  *    reply (type 4, flags 64). A public reply, a modal, an edit of the message, and a second
  *    acknowledgement of one press are all refused — Discord answers the last with 40060,
  *    and a product that sends it has a double-reply bug the test should hear about loudly.
- *  - **Follow-ups and edits of the reply** (`/webhooks/:appId/:token…`) are not modelled.
+ *  - **An ephemeral follow-up** (`POST /webhooks/:appId/:token`, flags 64) is modelled, after
+ *    the press was acknowledged — what a bot says once a deferred press went wrong. One before
+ *    any acknowledgement is refused: Discord has no webhook for the press until then. A public
+ *    follow-up and edits of the reply (`/webhooks/:appId/:token/messages/…`) are not modelled.
  *    Add them when a test needs one.
- *  - An ephemeral reply lands in no channel: it is kept on the press, and read there.
+ *  - An ephemeral reply or follow-up lands in no channel: it is kept on the press, and read there.
  */
 
 /** A press as the harness sends it: always in a guild, so always with its guild and member. */
@@ -45,12 +50,14 @@ export type ButtonPressPayload = APIMessageComponentButtonInteraction & {
 /** What the bot answered one press with, as a test reads it. */
 export type InteractionResponseView =
     | { readonly kind: 'deferUpdate' }
-    | { readonly kind: 'ephemeralReply'; readonly content: string };
+    | { readonly kind: 'ephemeralReply'; readonly content: string }
+    | { readonly kind: 'ephemeralFollowUp'; readonly content: string };
 
 /** One press as Discord holds it. */
 interface PressRecord {
     readonly id: string;
     readonly token: string;
+    readonly channelId: string;
     readonly responses: InteractionResponseView[];
 }
 
@@ -105,6 +112,7 @@ export class ServerInteractions {
         const press: PressRecord = {
             id: SnowflakeUtil.generate().toString(),
             token: `test-discord-interaction-token-${this.presses.size + 1}`,
+            channelId: input.channelId,
             responses: [],
         };
         this.presses.set(press.id, press);
@@ -158,6 +166,55 @@ export class ServerInteractions {
     respond(interactionId: string, token: string, response: InteractionResponseView): void {
         this.checkRespond(interactionId, token);
         this.require(interactionId).responses.push(response);
+    }
+
+    /** Refuse a follow-up the harness cannot model. Reads only, so the router can run it first. */
+    checkFollowUp(applicationId: string, token: string): void {
+        this.requireFollowUpTarget(applicationId, token);
+    }
+
+    /**
+     * An ephemeral follow-up to an acknowledged press: kept on the press, and answered with the
+     * message Discord would return — in the press's channel, by the bot, flagged ephemeral.
+     */
+    followUp(applicationId: string, token: string, content: string): APIMessage {
+        const press = this.requireFollowUpTarget(applicationId, token);
+        press.responses.push({ kind: 'ephemeralFollowUp', content });
+        const sentAt = new Date();
+        return {
+            id: SnowflakeUtil.generate({ timestamp: sentAt }).toString(),
+            channel_id: press.channelId,
+            author: structuredClone(this.host.botUser),
+            content,
+            timestamp: sentAt.toISOString(),
+            edited_timestamp: null,
+            tts: false,
+            mention_everyone: false,
+            mentions: [],
+            mention_roles: [],
+            attachments: [],
+            embeds: [],
+            pinned: false,
+            type: MessageType.Default,
+            components: [],
+            flags: MessageFlags.Ephemeral,
+        };
+    }
+
+    private requireFollowUpTarget(applicationId: string, token: string): PressRecord {
+        if (applicationId !== this.host.botUser.id) {
+            throw new TestDiscordError(`A follow-up was sent for application ${applicationId}, which is not the bot.`);
+        }
+        const press = [...this.presses.values()].find((candidate) => candidate.token === token);
+        if (!press) {
+            throw new TestDiscordError(`A follow-up was sent with token ${token}, which no press carries.`);
+        }
+        if (press.responses.length === 0) {
+            throw new TestDiscordError(
+                `A follow-up was sent to interaction ${press.id} before it was acknowledged. Discord has no webhook for a press until then (10015).`
+            );
+        }
+        return press;
     }
 
     private require(interactionId: string): PressRecord {

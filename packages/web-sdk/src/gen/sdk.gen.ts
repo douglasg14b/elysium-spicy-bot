@@ -303,7 +303,7 @@ export const updateJourney = <ThrowOnError extends boolean = true>(options: Opti
 });
 
 /**
- * Which flows' triggers listen to the journey's message buttons
+ * Which flows' triggers listen to the journey's buttons, and which blocks post some
  */
 export const getJourneyButtonListeners = <ThrowOnError extends boolean = true>(options: Options<GetJourneyButtonListenersData, ThrowOnError>): RequestResult<GetJourneyButtonListenersResponses, GetJourneyButtonListenersErrors, ThrowOnError> => (options.client ?? client).get<GetJourneyButtonListenersResponses, GetJourneyButtonListenersErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/journeys/{journeyKey}/button-listeners', ...options });
 

@@ -95,6 +95,104 @@
                 ],
                 "type": "string"
             },
+            "BlockButtonListener": {
+                "description": "A Button Click trigger naming a button under a block's post. `messageFlowId` and `messageNodeId` are the poster; `flowId`, `flowName` and `nodeId` are the listener, and `enabled` whether its flow is switched on.",
+                "properties": {
+                    "buttonKey": {
+                        "type": "string"
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "flowId": {
+                        "type": "string"
+                    },
+                    "flowName": {
+                        "type": "string"
+                    },
+                    "messageFlowId": {
+                        "type": "string"
+                    },
+                    "messageNodeId": {
+                        "type": "string"
+                    },
+                    "nodeId": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "messageFlowId",
+                    "messageNodeId",
+                    "buttonKey",
+                    "flowId",
+                    "flowName",
+                    "nodeId",
+                    "enabled"
+                ],
+                "type": "object"
+            },
+            "BlockButtonMessage": {
+                "description": "A block of one of the journey's flows that posts buttons under its message (Post Embed, Open Ticket): the posting flow and node, the block's label, the message as one line (`null` when it has none) and the buttons it posts now.",
+                "properties": {
+                    "blockLabel": {
+                        "type": "string"
+                    },
+                    "buttons": {
+                        "items": {
+                            "$ref": "#/components/schemas/MessageButton"
+                        },
+                        "type": "array"
+                    },
+                    "flowId": {
+                        "type": "string"
+                    },
+                    "flowName": {
+                        "type": "string"
+                    },
+                    "headline": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "nodeId": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "flowId",
+                    "flowName",
+                    "nodeId",
+                    "blockLabel",
+                    "headline",
+                    "buttons"
+                ],
+                "type": "object"
+            },
+            "BlockButtonRef": {
+                "description": "One button under a message a block posts (Post Embed's, Open Ticket's): the posting flow's id, the posting node's id and the button's key. The flow id is set even when it is the listener's own.",
+                "properties": {
+                    "buttonKey": {
+                        "type": "string"
+                    },
+                    "flowId": {
+                        "type": "string"
+                    },
+                    "nodeId": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "flowId",
+                    "nodeId",
+                    "buttonKey"
+                ],
+                "type": "object"
+            },
             "BlockCardSummaryPart": {
                 "anyOf": [
                     {
@@ -3665,6 +3763,18 @@
             },
             "JourneyButtonListeners": {
                 "properties": {
+                    "blockListeners": {
+                        "items": {
+                            "$ref": "#/components/schemas/BlockButtonListener"
+                        },
+                        "type": "array"
+                    },
+                    "blockMessages": {
+                        "items": {
+                            "$ref": "#/components/schemas/BlockButtonMessage"
+                        },
+                        "type": "array"
+                    },
                     "listeners": {
                         "items": {
                             "$ref": "#/components/schemas/ButtonListener"
@@ -3673,7 +3783,25 @@
                     }
                 },
                 "required": [
-                    "listeners"
+                    "listeners",
+                    "blockMessages",
+                    "blockListeners"
+                ],
+                "type": "object"
+            },
+            "JourneyButtonRef": {
+                "description": "One button on one of the flow's journey's messages: the message resource's key and the button's key.",
+                "properties": {
+                    "buttonKey": {
+                        "type": "string"
+                    },
+                    "messageKey": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "messageKey",
+                    "buttonKey"
                 ],
                 "type": "object"
             },
@@ -4509,20 +4637,15 @@
                 "type": "object"
             },
             "MessageButtonRef": {
-                "description": "One button on one of the flow's journey's messages: the message resource's key and the button's key.",
-                "properties": {
-                    "buttonKey": {
-                        "type": "string"
+                "anyOf": [
+                    {
+                        "$ref": "#/components/schemas/JourneyButtonRef"
                     },
-                    "messageKey": {
-                        "type": "string"
+                    {
+                        "$ref": "#/components/schemas/BlockButtonRef"
                     }
-                },
-                "required": [
-                    "messageKey",
-                    "buttonKey"
                 ],
-                "type": "object"
+                "description": "One button a Button Click listens to: on one of the flow's journey's messages, or under a block's post."
             },
             "MessageButtonStyle": {
                 "enum": [
@@ -10284,7 +10407,7 @@
                                 }
                             }
                         },
-                        "description": "Every Button Click trigger of the journey's flows naming one of its buttons, live and off."
+                        "description": "Every Button Click trigger of the journey's flows naming one of its messages' buttons, live and off; every block of those flows posting buttons; and every trigger naming one of a block's buttons."
                     },
                     "400": {
                         "content": {
@@ -10347,7 +10470,7 @@
                         "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
-                "summary": "Which flows' triggers listen to the journey's message buttons",
+                "summary": "Which flows' triggers listen to the journey's buttons, and which blocks post some",
                 "tags": [
                     "journeys"
                 ]

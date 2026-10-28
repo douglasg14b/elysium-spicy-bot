@@ -3,6 +3,7 @@ import { messageResourceProblems } from '../../../provisioning/logic/messageReso
 import { validateJourneyDeclaration } from '../../../provisioning/logic/resourceDeclaration';
 import { ensureBlocksDiscovered } from '../../blocks/registry';
 import { flowReadinessIssues } from '../../logic/flowReadiness';
+import { NEW_FLOW_SCOPE } from '../../logic/readinessScope';
 import { buildOnboardingFlowGraph } from '../onboardingFlow';
 
 const INPUT = { memberRoleId: 'role-1', channelId: '111111111111111111', welcomeMessage: 'Welcome in.' };
@@ -20,13 +21,13 @@ describe('the onboarding template', () => {
     it('is ready against the journey it declares', () => {
         const { graph, resources } = buildOnboardingFlowGraph(INPUT);
 
-        expect(flowReadinessIssues(graph, resources)).toEqual([]);
+        expect(flowReadinessIssues(graph, { ...NEW_FLOW_SCOPE, declarations: resources })).toEqual([]);
     });
 
     it('is not ready without it: its trigger names the rules panel', () => {
         const { graph, nodeIds } = buildOnboardingFlowGraph(INPUT);
 
-        expect(flowReadinessIssues(graph, [])).toEqual([
+        expect(flowReadinessIssues(graph, NEW_FLOW_SCOPE)).toEqual([
             { nodeId: nodeIds.trigger, field: 'button', message: expect.stringMatching(/no message "rules-panel"/) },
         ]);
     });

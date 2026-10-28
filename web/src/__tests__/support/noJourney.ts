@@ -9,6 +9,6 @@ export const NO_JOURNEY: Pick<ControlContext, 'declareResources' | 'listeners' |
     declareResources: () => {
         throw new Error('This test hands its controls no way to declare a resource.');
     },
-    listeners: { all: [], flowId: 'test-flow', nodeId: 'test-node' },
+    listeners: { listeners: [], blockMessages: [], blockListeners: [], flowId: 'test-flow', nodeId: 'test-node' },
     journey: { key: undefined, boundKeys: new Map() },
 };

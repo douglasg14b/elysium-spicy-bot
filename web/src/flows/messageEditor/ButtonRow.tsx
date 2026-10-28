@@ -1,5 +1,5 @@
 /**
- * The buttons under a message resource's embeds, as Discord lays them out — five to a row, each
+ * The buttons under a message's embeds (a message resource's, or a block's post's), as Discord lays them out — five to a row, each
  * in its style — with, in Edit, what listens to each and **+ Add button** after the last
  * (mockup `message-editor.mockup.html`, section 3).
  *
@@ -17,9 +17,9 @@
 import { useRef, useState } from 'react';
 import { Button, Group, Popover, Stack, Text, TextInput, UnstyledButton } from '@mantine/core';
 import { IconLock, IconPlus } from '@tabler/icons-react';
-import type { ButtonListener, GuildEmoji, MessageButton } from '@brattybot/web-sdk';
+import type { GuildEmoji, MessageButton } from '@brattybot/web-sdk';
 import { buttonDisplayName } from '../buttonEmoji';
-import { cutOffQuestion, flowNamesOf } from '../buttonListeners';
+import { cutOffQuestion, flowNamesOf, type ListenerOnButton } from '../buttonListeners';
 import { joinWithAnd } from '../nameLists';
 import { ButtonFaceContent } from './ButtonFace';
 import { ButtonEmojiField, ButtonLabelField, ButtonStyleField } from './ButtonFields';
@@ -178,7 +178,7 @@ function ButtonSlot({ buttons, index, button }: ButtonSlotProps) {
 interface ButtonBoxProps {
     readonly button: MessageButton;
     /** The triggers listening to this button; none leaves its key free and its removal unasked. */
-    readonly listeners: readonly ButtonListener[];
+    readonly listeners: readonly ListenerOnButton[];
     readonly problems: readonly string[];
     /** The server's own emoji, for the grid and the "gone" note; `undefined` until read. */
     readonly serverEmojis: readonly GuildEmoji[] | undefined;

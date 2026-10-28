@@ -646,7 +646,11 @@ describe('2026-10-26-Button_Click_Listens_To_Message (sqlite, through Migrator)'
                 .selectAll()
                 .where('journeyKey', '=', link?.journeyKey ?? '')
                 .executeTakeFirstOrThrow();
-            const issues = flowReadinessIssues(await graphOfFlow(flowId), journey.resources);
+            const issues = flowReadinessIssues(await graphOfFlow(flowId), {
+                flowId,
+                declarations: journey.resources,
+                journeyFlows: [],
+            });
 
             if (flowId === 'flow-welcome') {
                 expect(issues.length).toBeGreaterThan(0);

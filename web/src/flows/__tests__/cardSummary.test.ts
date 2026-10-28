@@ -8,7 +8,14 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { GuildChannel, GuildRole, NodeDescriptor, ResourceDeclaration, TicketTypeView } from '@brattybot/web-sdk';
+import type {
+    BlockButtonMessage,
+    GuildChannel,
+    GuildRole,
+    NodeDescriptor,
+    ResourceDeclaration,
+    TicketTypeView,
+} from '@brattybot/web-sdk';
 import { summarizeFromDescriptor } from '../cardSummary';
 
 const ROLES: GuildRole[] = [{ id: 'r1', name: 'Moderator', color: 0, position: 1, owner: null }];
@@ -148,6 +155,38 @@ describe('summarizeFromDescriptor', () => {
         expect(card({ button: { messageKey: 'rules-panel', buttonKey: 'gone' } })).toBe('Rules panel · gone');
         expect(card({ button: { messageKey: 'old-panel', buttonKey: 'verify' } })).toBe('old-panel · verify');
         expect(card({})).toBe('no button picked');
+    });
+
+    it("names a block's button by its post's headline or block, and one whose post is not on offer by its key", () => {
+        const descriptor = descriptorWith(
+            [{ key: 'button', label: 'Button', control: 'messageButton' }],
+            [{ key: 'button', emptyText: 'no button picked', stopIfEmpty: true }]
+        );
+        const posts: BlockButtonMessage[] = [
+            {
+                flowId: 'welcome',
+                flowName: 'Welcome',
+                nodeId: 'post',
+                blockLabel: 'Post Embed',
+                headline: 'Kneel, pet',
+                buttons: [{ key: 'kneel', label: 'Kneel', style: 'Primary' }],
+            },
+            {
+                flowId: 'welcome',
+                flowName: 'Welcome',
+                nodeId: 'ticket',
+                blockLabel: 'Open Ticket',
+                headline: null,
+                buttons: [{ key: 'close', label: 'Close it', style: 'Danger' }],
+            },
+        ];
+        const card = (config: Record<string, unknown>): string =>
+            summarizeFromDescriptor(descriptor, config, ROLES, CHANNELS, TICKET_TYPES, [], posts);
+
+        expect(card({ button: { flowId: 'welcome', nodeId: 'post', buttonKey: 'kneel' } })).toBe('Kneel, pet · Kneel');
+        expect(card({ button: { flowId: 'welcome', nodeId: 'ticket', buttonKey: 'close' } })).toBe('Open Ticket · Close it');
+        expect(card({ button: { flowId: 'welcome', nodeId: 'post', buttonKey: 'gone' } })).toBe('Kneel, pet · gone');
+        expect(card({ button: { flowId: 'elsewhere', nodeId: 'post', buttonKey: 'kneel' } })).toBe("a block's button · kneel");
     });
 
     it('names a ticket type by its label, shows a key the guild dropped as the key, and empty as empty', () => {

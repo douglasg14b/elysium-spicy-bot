@@ -12,6 +12,7 @@ import { handleFlowChoiceInteraction } from '../engine/flowChoiceDispatch';
 import { failParkedRun, resumeFlowRun } from '../engine/flowRunResume';
 import { resetFlowRunSchedulerForTests } from '../engine/flowRunScheduler';
 import { flowReadinessIssues } from '../logic/flowReadiness';
+import { NEW_FLOW_SCOPE } from '../logic/readinessScope';
 import { buildFlowChoiceCustomId } from '../utils/customId';
 import {
     createFlowRunsTestDb,
@@ -163,7 +164,7 @@ describe('a parked run resuming into an incomplete graph', () => {
         ]);
         // The premise, asserted rather than assumed: this graph is one the enable
         // gate would refuse, so it is the state the new save path can produce.
-        expect(flowReadinessIssues(flow.graph, []).map((issue) => issue.nodeId)).toEqual([AFTER_TIMEOUT]);
+        expect(flowReadinessIssues(flow.graph, NEW_FLOW_SCOPE).map((issue) => issue.nodeId)).toEqual([AFTER_TIMEOUT]);
 
         const { outcome, stored, userSend, edit } = await resumeInto(flow);
 

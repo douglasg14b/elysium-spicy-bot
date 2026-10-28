@@ -1258,6 +1258,27 @@ describe('a control whose stored shape the control decides', () => {
 
         expect(issues).toMatch(/accepts \{\}/);
     });
+
+    it("catches a messageButton field that takes a journey message's button but not a block's", () => {
+        const issues = checkBlockConformance(
+            messageButtonManifest(z.object({ messageKey: z.string().min(1), buttonKey: z.string().min(1) }))
+        ).join('\n');
+
+        expect(issues).toMatch(/refuses \{"flowId":"f","nodeId":"n","buttonKey":"b"\}/);
+    });
+
+    it("catches a messageButton field that takes half of a block's button", () => {
+        const issues = checkBlockConformance(
+            messageButtonManifest(
+                z.union([
+                    z.object({ messageKey: z.string().min(1), buttonKey: z.string().min(1) }),
+                    z.object({ flowId: z.string().min(1), nodeId: z.string().optional(), buttonKey: z.string().min(1) }),
+                ])
+            )
+        ).join('\n');
+
+        expect(issues).toMatch(/accepts \{"flowId":"f","buttonKey":"b"\}/);
+    });
 });
 
 describe("a message field's buttons, kept in a key it names", () => {

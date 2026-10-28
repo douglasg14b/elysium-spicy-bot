@@ -5,6 +5,7 @@ import { ensureBlocksDiscovered } from '../../blocks/registry';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../data/flowGraph';
 import { flowReadinessIssues } from '../flowReadiness';
 import { messageButtonIssues } from '../messageButtonReferences';
+import type { ReadinessScope } from '../readinessScope';
 
 /**
  * The message-button half of readiness: a Button Click must name a message its journey
@@ -25,6 +26,9 @@ const DECLARATIONS: readonly ResourceDeclaration[] = [
         ],
     },
 ];
+
+/** A flow on that journey, alone in it. */
+const SCOPE: ReadinessScope = { flowId: 'flow-1', declarations: DECLARATIONS, journeyFlows: [] };
 
 /** Button Click nodes, one per value, ids `press-1`, `press-2`, … */
 function pressing(...buttons: unknown[]): FlowGraph {
@@ -111,7 +115,7 @@ describe('messageButtonIssues', () => {
 
 describe('readiness, on declarations', () => {
     it('asks messageButtonIssues, so the builder, the list and the switch-on gate agree', () => {
-        expect(flowReadinessIssues(pressing({ messageKey: 'rules-panel', buttonKey: 'gone' }), DECLARATIONS)).toEqual([
+        expect(flowReadinessIssues(pressing({ messageKey: 'rules-panel', buttonKey: 'gone' }), SCOPE)).toEqual([
             { nodeId: 'press-1', field: 'button', message: '"Rules panel" has no button "gone" any more. Pick another.' },
         ]);
     });
@@ -120,7 +124,7 @@ describe('readiness, on declarations', () => {
         const graph = pressing(undefined);
         delete graph.nodes[0]!.data.button;
 
-        expect(flowReadinessIssues(graph, DECLARATIONS)).toEqual([
+        expect(flowReadinessIssues(graph, SCOPE)).toEqual([
             expect.objectContaining({ nodeId: 'press-1', field: 'button', message: expect.stringMatching(/Fill this in/) }),
         ]);
     });

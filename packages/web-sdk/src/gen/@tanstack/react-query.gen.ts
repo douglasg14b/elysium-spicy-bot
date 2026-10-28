@@ -742,7 +742,7 @@ export const updateJourneyMutation = (options?: Partial<Options<UpdateJourneyDat
 export const getJourneyButtonListenersQueryKey = (options: Options<GetJourneyButtonListenersData>) => createQueryKey('getJourneyButtonListeners', options);
 
 /**
- * Which flows' triggers listen to the journey's message buttons
+ * Which flows' triggers listen to the journey's buttons, and which blocks post some
  */
 export const getJourneyButtonListenersOptions = (options: Options<GetJourneyButtonListenersData>) => queryOptions<GetJourneyButtonListenersResponse, GetJourneyButtonListenersError, GetJourneyButtonListenersResponse, ReturnType<typeof getJourneyButtonListenersQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {

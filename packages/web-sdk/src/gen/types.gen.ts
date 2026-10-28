@@ -35,6 +35,40 @@ export type AuthUser = {
 
 export type BindingOwnerKind = 'journey' | 'tickets';
 
+/**
+ * A Button Click trigger naming a button under a block's post. `messageFlowId` and `messageNodeId` are the poster; `flowId`, `flowName` and `nodeId` are the listener, and `enabled` whether its flow is switched on.
+ */
+export type BlockButtonListener = {
+    buttonKey: string;
+    enabled: boolean;
+    flowId: string;
+    flowName: string;
+    messageFlowId: string;
+    messageNodeId: string;
+    nodeId: string;
+};
+
+/**
+ * A block of one of the journey's flows that posts buttons under its message (Post Embed, Open Ticket): the posting flow and node, the block's label, the message as one line (`null` when it has none) and the buttons it posts now.
+ */
+export type BlockButtonMessage = {
+    blockLabel: string;
+    buttons: Array<MessageButton>;
+    flowId: string;
+    flowName: string;
+    headline: string | null;
+    nodeId: string;
+};
+
+/**
+ * One button under a message a block posts (Post Embed's, Open Ticket's): the posting flow's id, the posting node's id and the button's key. The flow id is set even when it is the listener's own.
+ */
+export type BlockButtonRef = {
+    buttonKey: string;
+    flowId: string;
+    nodeId: string;
+};
+
 export type BlockCardSummaryPart = {
     emptyText?: string;
     hideWhenEmpty?: boolean;
@@ -977,7 +1011,17 @@ export type Journey = {
 };
 
 export type JourneyButtonListeners = {
+    blockListeners: Array<BlockButtonListener>;
+    blockMessages: Array<BlockButtonMessage>;
     listeners: Array<ButtonListener>;
+};
+
+/**
+ * One button on one of the flow's journey's messages: the message resource's key and the button's key.
+ */
+export type JourneyButtonRef = {
+    buttonKey: string;
+    messageKey: string;
 };
 
 export type JourneyCreate = {
@@ -1233,12 +1277,9 @@ export type MessageButtonEmoji = {
 };
 
 /**
- * One button on one of the flow's journey's messages: the message resource's key and the button's key.
+ * One button a Button Click listens to: on one of the flow's journey's messages, or under a block's post.
  */
-export type MessageButtonRef = {
-    buttonKey: string;
-    messageKey: string;
-};
+export type MessageButtonRef = JourneyButtonRef | BlockButtonRef;
 
 export type MessageButtonStyle = 'Primary' | 'Secondary' | 'Success' | 'Danger';
 
@@ -3636,7 +3677,7 @@ export type GetJourneyButtonListenersError = GetJourneyButtonListenersErrors[key
 
 export type GetJourneyButtonListenersResponses = {
     /**
-     * Every Button Click trigger of the journey's flows naming one of its buttons, live and off.
+     * Every Button Click trigger of the journey's flows naming one of its messages' buttons, live and off; every block of those flows posting buttons; and every trigger naming one of a block's buttons.
      */
     200: JourneyButtonListeners;
 };

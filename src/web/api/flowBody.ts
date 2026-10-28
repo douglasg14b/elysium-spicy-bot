@@ -6,6 +6,7 @@ import type { FlowScheduleNextRun } from '../../features/flows/data/flowSchedule
 import type { FlowEntity } from '../../features/flows/data/flowsSchema';
 import { describeIssue, type FlowValidationIssue } from '../../features/flows/engine/nodeDataValidation';
 import { flowReadinessIssuesInGuild } from '../../features/flows/logic/flowReadiness';
+import type { ReadinessScope } from '../../features/flows/logic/readinessScope';
 import type { UploadIndex } from '../../features/flows/logic/uploadReferences';
 import { JOURNEY_INSTALL_STATES } from '../../features/provisioning/logic/journeyInstallState';
 import type { FlowJourneyIndexEntry, FlowJourneyMembership } from './flowJourneyIndex';
@@ -446,12 +447,14 @@ export function flowDraft(
 
 /**
  * A stored flow as {@link FlowSummaryBody}, judged against its entry in the list's
- * journey index, the guild it is in and the list's upload index — so a row's `issueCount`
- * costs no query of its own, and counts what the builder marks.
+ * journey index, its readiness scope (`readinessScopeOf`, from the rows the list loaded), the
+ * guild it is in and the list's upload index — so a row's `issueCount` costs no query of its
+ * own, and counts what the builder marks.
  */
 export function flowSummary(
     flow: FlowEntity,
     entry: FlowJourneyIndexEntry | undefined,
+    scope: ReadinessScope,
     guild: Guild,
     uploads: UploadIndex
 ): FlowSummaryBody {
@@ -460,8 +463,7 @@ export function flowSummary(
         name: flow.name,
         enabled: flow.enabled,
         nodeCount: flow.graph.nodes.length,
-        // A flow in no journey declares nothing, exactly as `flowDeclarations` answers.
-        issueCount: flowReadinessIssuesInGuild(flow.graph, entry?.declarations ?? [], guild, uploads).length,
+        issueCount: flowReadinessIssuesInGuild(flow.graph, scope, guild, uploads).length,
         journey: entry?.membership ?? null,
         createdAt: new Date(flow.createdAt).toISOString(),
         updatedAt: new Date(flow.updatedAt).toISOString(),

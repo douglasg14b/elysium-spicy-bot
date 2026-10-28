@@ -6,12 +6,14 @@
  * (`MessagePreviewCard`), how many problems the server found inside the message, and the
  * button that opens the message window (`../messageEditor`), where every part is edited in
  * place. The buttons are drawn and edited there too, under the embeds, and written into their
- * own key (`context.setConfigKey`).
+ * own key (`context.setConfigKey`). Under each, the Button Click triggers listening to it — a
+ * listened button's key is locked and removing it asks, as on a journey's message.
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Stack, Text } from '@mantine/core';
-import type { BlockConfigField, ButtonListener } from '@brattybot/web-sdk';
+import type { BlockConfigField } from '@brattybot/web-sdk';
+import { listenersOnPost } from '../buttonListeners';
 import { MessageEditor } from '../messageEditor/MessageEditor';
 import { MessagePreviewCard } from '../messageEditor/MessagePreviewCard';
 import { problemCount } from '../validationIssues';
@@ -21,17 +23,16 @@ type MessageField = Extract<BlockConfigField, { control: 'message' }>;
 
 const NO_SWATCHES: readonly string[] = [];
 
-/**
- * Who listens to a block's buttons: nobody yet. A press on one answers "Nothing's hooked up to
- * this yet" until a Button Click trigger can name a block's button (step 2 of
- * `docs/plans/block-message-buttons-step-1.md`).
- */
-const NO_LISTENERS: readonly ButtonListener[] = [];
-
 export function MessageControl({ field, value, onChange, context, config, error, issues }: ControlProps<MessageField>) {
     const [editing, setEditing] = useState(false);
     const problems = issues?.length ?? 0;
     const { buttonsKey } = field;
+    // This node's own posted buttons, by the listeners' poster ids: the view is drawn for it.
+    const { flowId, nodeId, blockListeners } = context.listeners;
+    const listeners = useMemo(
+        () => listenersOnPost(blockListeners, { flowId, nodeId }),
+        [blockListeners, flowId, nodeId]
+    );
 
     return (
         <Stack gap={6}>
@@ -80,7 +81,7 @@ export function MessageControl({ field, value, onChange, context, config, error,
                             ? {
                                   value: asMessageButtons(config?.[buttonsKey]),
                                   onChange: (next) => context.setConfigKey(buttonsKey, next),
-                                  listeners: NO_LISTENERS,
+                                  listeners,
                                   serverEmojis: context.serverEmojis,
                               }
                             : undefined

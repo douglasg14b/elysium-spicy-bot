@@ -935,10 +935,17 @@ function controlShapeProbes(control: unknown): ControlShapeProbes | undefined {
                 description: 'a message object holding an `embeds` list',
             };
         case 'messageButton':
+            // Either arm the picker writes, and neither half of one: a message key with no
+            // button, or a block's button with no node, names nothing a press could match.
             return {
-                accepts: [{ messageKey: 'a', buttonKey: 'b' }],
-                refuses: [{}, 'x'],
-                description: 'a `{ messageKey, buttonKey }` object naming a message resource and one of its buttons',
+                accepts: [
+                    { messageKey: 'a', buttonKey: 'b' },
+                    { flowId: 'f', nodeId: 'n', buttonKey: 'b' },
+                ],
+                refuses: [{}, 'x', { messageKey: 'a' }, { flowId: 'f', buttonKey: 'b' }, { nodeId: 'n', buttonKey: 'b' }],
+                description:
+                    'a `{ messageKey, buttonKey }` object naming a message resource and one of its buttons, or a ' +
+                    "`{ flowId, nodeId, buttonKey }` object naming one of a block's posted buttons",
             };
         default:
             return undefined;

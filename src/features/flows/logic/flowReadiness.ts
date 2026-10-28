@@ -3,10 +3,12 @@ import type { ResourceDeclaration } from '../../provisioning/logic/resourceDecla
 import type { FlowGraph } from '../data/flowGraph';
 import { authoredGraphIssues } from '../engine/graphValidation';
 import { validateNodeData, type FlowValidationIssue } from '../engine/nodeDataValidation';
+import { blockButtonIssues } from './blockButtonReferences';
 import { fieldRuleIssueMessage } from './blockFieldRules';
 import { guildReferenceIssues } from './guildReferences';
 import { messageButtonIssues } from './messageButtonReferences';
 import { pendingResourceFields } from './pendingResourceFields';
+import type { ReadinessScope } from './readinessScope';
 import { collectApplicableResourceTargets } from './resourceTargets';
 import { uploadReferenceIssues, type UploadIndex } from './uploadReferences';
 
@@ -58,8 +60,11 @@ import { uploadReferenceIssues, type UploadIndex } from './uploadReferences';
  * naming the declaration. {@link pendingResourceFields} translates the declaration into
  * the engine's own vocabulary — "these fields are filled in later" — so the validator
  * stays a general check that has never heard of provisioning. The declarations themselves
- * are what a Button Click is judged against ({@link messageButtonIssues}): whether its
- * message is declared, and still has its button.
+ * are what a Button Click naming a journey's button is judged against
+ * ({@link messageButtonIssues}): whether its message is declared, and still has its button.
+ * One naming a block's button is judged against this flow and its journey's other flows
+ * ({@link blockButtonIssues}): whether the posting node is still there, in a flow that may be
+ * listened to, and still posts that button.
  *
  * Issues, not a joined string, and every one names its node — which is what the builder
  * marks the card with, and the only place an operator can find a problem on a canvas.
@@ -67,13 +72,12 @@ import { uploadReferenceIssues, type UploadIndex } from './uploadReferences';
  * Needs the block registry, so a caller must have awaited discovery.
  *
  * @param graph - A graph that has already passed `validateFlowGraph`.
- * @param declarations - The resources this flow's journey declares. Empty for a flow with
- * no journey — or one that does not exist yet, which can have declared nothing.
+ * @param scope - Which flow this is, what its journey declares, and the journey's other
+ * flows. `NEW_FLOW_SCOPE` for a flow that does not exist yet, which can have declared
+ * nothing.
  */
-export function flowReadinessIssues(
-    graph: FlowGraph,
-    declarations: readonly ResourceDeclaration[]
-): readonly FlowValidationIssue[] {
+export function flowReadinessIssues(graph: FlowGraph, scope: ReadinessScope): readonly FlowValidationIssue[] {
+    const { declarations } = scope;
     const pending = pendingResourceFields(graph, declaredKeysOf(declarations));
     const nodeData = validateNodeData(graph, {
         pendingFields: pending.pendingFields,
@@ -89,6 +93,7 @@ export function flowReadinessIssues(
         ...pending.issues,
         ...(nodeData.valid ? [] : nodeData.issues),
         ...messageButtonIssues(graph, declarations),
+        ...blockButtonIssues(graph, scope),
         ...authoredGraphIssues(graph),
     ];
 }
@@ -116,12 +121,12 @@ function declaredKeysOf(declarations: readonly ResourceDeclaration[]): ReadonlyS
  */
 export function flowReadinessIssuesInGuild(
     graph: FlowGraph,
-    declarations: readonly ResourceDeclaration[],
+    scope: ReadinessScope,
     guild: Guild,
     uploads: UploadIndex
 ): readonly FlowValidationIssue[] {
     return [
-        ...flowReadinessIssues(graph, declarations),
+        ...flowReadinessIssues(graph, scope),
         ...guildReferenceIssues(graph, guild),
         ...uploadReferenceIssues(graph, uploads),
     ];

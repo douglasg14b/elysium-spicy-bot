@@ -1,15 +1,15 @@
-import { ButtonInteraction, GuildMember, type Guild } from 'discord.js';
+import { ButtonInteraction, GuildMember, type Guild, type PartialGuildMember } from 'discord.js';
 import type { InteractionHandlerResult } from '../../../features-system/commands/types';
 import { flowsRepo } from '../data/flowsRepo';
 import type { FlowNode } from '../data/flowGraph';
 import type { FlowEntity } from '../data/flowsSchema';
 import { isTriggerStartedBy } from '../blocks/registry';
 import { parseFlowCustomId } from '../utils/customId';
-import { evaluateEligibility, readEligibility, UNREADABLE_GATE_MESSAGE } from './eligibility';
+import { evaluateEligibility, readEligibility, UNREADABLE_GATE_MESSAGE, type EligibilityFacts } from './eligibility';
 import { executeFlow } from './executor';
 import { asGuildTextChannel } from './runChannel';
 import { resumeWaitingRunsForEvent } from './waitingRunDispatch';
-import type { FlowRunSeed } from '../blocks/types';
+import type { FlowRunSeed, FlowVariableValue } from '../blocks/types';
 
 /** A trigger node whose gate a press asks, with the flow it is in — for the log, when it cannot be read. */
 export interface ButtonGate {
@@ -35,11 +35,32 @@ export type ButtonRunOutcome =
           readonly gates: readonly ButtonGate[];
       };
 
+/** A press's subject other than the presser: who, and how to fetch them when a run starts. */
+export interface ButtonRunSubject {
+    readonly id: string;
+    /** The member, or a partial one when they have left. May throw on a failed fetch. */
+    readonly resolve: () => Promise<GuildMember | PartialGuildMember>;
+}
+
 export interface ButtonRunInput {
     readonly interaction: ButtonInteraction;
     readonly guild: Guild;
+    /** Who pressed: always the run's actor, and the one every gate is asked about. */
     readonly member: GuildMember;
     readonly outcome: ButtonRunOutcome;
+    /**
+     * Who the run a press starts is about, when its caller knows somebody other than the
+     * presser — the member a block's post was about, who may have left since. Absent: the
+     * presser.
+     *
+     * By id, with a way to fetch them: the gates read only the id, and the member is fetched
+     * only once a run is starting, after the press is acknowledged — a fetch (two, for a
+     * leaver) before the acknowledgement could run the press past Discord's three seconds,
+     * and would be paid on answers that start nothing.
+     */
+    readonly subject?: ButtonRunSubject;
+    /** The run's opening variables, when its caller has some to hand on. Absent: none. */
+    readonly variables?: Readonly<Record<string, FlowVariableValue>>;
 }
 
 /**
@@ -52,14 +73,28 @@ export interface ButtonRunInput {
  *     refuses them;
  *  3. **the caller's own answer**, when the press starts nothing;
  *  4. **the refusal**, quietly, to the presser;
- *  5. **the run**: `deferUpdate`, then the executor, then a follow-up only on failure.
+ *  5. **the run**: `deferUpdate`, then the subject fetched (when the caller named one), then
+ *     the executor, then a follow-up only on failure.
  *
  * Each caller words its own off, missing and wrong-server cases into {@link ButtonRunOutcome}
  * — which is why they come after the wake rather than before it: none of them is a refusal of
  * this member.
+ *
+ * **One gate rule for every press**: each gate sees the run the press would start — about
+ * `subject` (else the presser), set going by the presser, carrying `variables`. On a press
+ * whose caller names no subject the presser is both, so a `subject` or `actor` gate there
+ * admits whoever presses. The gates of an answer are asked against the same facts, so a
+ * switched-off or fighting flow decides the wake exactly as it would decide the run.
  */
 export async function startButtonRun(input: ButtonRunInput): Promise<InteractionHandlerResult> {
     const { interaction, guild, member, outcome } = input;
+    const variables = input.variables ?? {};
+    const facts: EligibilityFacts = {
+        candidate: member,
+        subject: input.subject ? { id: input.subject.id } : member,
+        actor: member,
+        variables,
+    };
     const gates: readonly ButtonGate[] =
         outcome.kind === 'run' ? [{ flowId: outcome.flow.flowId, node: outcome.node }] : outcome.gates;
 
@@ -74,7 +109,7 @@ export async function startButtonRun(input: ButtonRunInput): Promise<Interaction
      * Every gate is asked, not just up to the first refusal, so an unreadable one behind it
      * is still found for the log below.
      */
-    const gateRefusals = gates.map((gate) => ({ gate, refusal: refusalFor(gate.node, member) }));
+    const gateRefusals = gates.map((gate) => ({ gate, refusal: refusalFor(gate.node, facts) }));
     const refusal = gateRefusals.find((entry) => entry.refusal !== null)?.refusal ?? null;
 
     /*
@@ -120,21 +155,6 @@ export async function startButtonRun(input: ButtonRunInput): Promise<Interaction
         return refuse(interaction, refusal.content, refusal.status, refusal.message);
     }
 
-    // A button click happens in a channel, and that channel is the run's.
-    const interactionChannel = asGuildTextChannel(interaction.channel);
-    const context: FlowRunSeed = {
-        client: interaction.client,
-        guild,
-        // The clicker is both who the run is about and who caused this step. They
-        // diverge only once a run can be advanced by someone other than its
-        // subject; setting both from one member here is true, not a placeholder.
-        subject: member,
-        actor: member,
-        channel: interactionChannel,
-        variables: {},
-        interaction,
-    };
-
     // Acknowledge quietly so the user is not left with a "failed" interaction
     // while actions run. Actions post their own visible side effects.
     //
@@ -149,24 +169,56 @@ export async function startButtonRun(input: ButtonRunInput): Promise<Interaction
         await interaction.deferUpdate();
     }
 
+    // Fetched only now, acknowledged: the gates above judged this id.
+    let subject: GuildMember | PartialGuildMember;
+    try {
+        subject = input.subject ? await input.subject.resolve() : member;
+    } catch (error) {
+        console.error(
+            `[flows] A button press could not fetch the member its run is about — flow ${outcome.flow.flowId}, node ${outcome.node.id}, member ${input.subject?.id}:`,
+            error
+        );
+        await sayRunFailed(interaction);
+        return { status: 'error', message: 'Could not fetch the member the run is about.' };
+    }
+
+    // A button click happens in a channel, and that channel is the run's.
+    const context: FlowRunSeed = {
+        client: interaction.client,
+        guild,
+        // Who the run is about — the member a block's post was about, or the presser — and
+        // the presser as who caused this step. The gates above saw exactly these.
+        subject,
+        actor: member,
+        channel: asGuildTextChannel(interaction.channel),
+        variables,
+        interaction,
+    };
+
     const result = await executeFlow(outcome.flow.flowId, outcome.flow.graph, outcome.node.id, context);
 
-    // Only a failure has anything to say. `followUp`, not `editReply`: after
-    // `deferUpdate` there is no reply to edit, and editing would rewrite the
-    // message the button sits on.
     if (result.status !== 'success') {
-        const content = '❌ Something went wrong running this flow. A mod has been notified in the logs.';
-        if (interaction.deferred || interaction.replied) {
-            await interaction.followUp({ content, ephemeral: true });
-        } else {
-            await interaction.reply({ content, ephemeral: true });
-        }
+        await sayRunFailed(interaction);
     }
 
     return {
         status: result.status === 'success' ? 'success' : 'error',
         message: result.status === 'success' ? undefined : result.error,
     };
+}
+
+/**
+ * Tell the presser, quietly, that their run went wrong — the only thing a press says once it
+ * has been accepted. `followUp`, not `editReply`: after `deferUpdate` there is no reply to edit,
+ * and editing would rewrite the message the button sits on.
+ */
+async function sayRunFailed(interaction: ButtonInteraction): Promise<void> {
+    const content = '❌ Something went wrong running this flow. A mod has been notified in the logs.';
+    if (interaction.deferred || interaction.replied) {
+        await interaction.followUp({ content, ephemeral: true });
+    } else {
+        await interaction.reply({ content, ephemeral: true });
+    }
 }
 
 /**
@@ -262,7 +314,7 @@ function outcomeOf(flow: FlowEntity | null, triggerNode: FlowNode | undefined, g
  */
 function refusalFor(
     triggerNode: { readonly data?: unknown },
-    member: GuildMember
+    facts: EligibilityFacts
 ): { content: string; status: InteractionHandlerResult['status']; message?: string } | null {
     // Read off the raw node data rather than the block's validated config,
     // because that is all a dispatcher has: the graph came out of the database,
@@ -276,11 +328,9 @@ function refusalFor(
         };
     }
 
-    // No subject, no actor and no variables: before a run exists the presser is
-    // the only member there is. A `subject` or `actor` rule on a trigger is
-    // therefore refused rather than quietly read as "the presser" — both are
-    // about a run in progress, and a trigger has none to be about.
-    const decision = evaluateEligibility(gate, { candidate: member });
+    // Judged against the run the press would start (see `startButtonRun`): its subject, the
+    // presser as its actor, and its opening variables.
+    const decision = evaluateEligibility(gate, facts);
     return decision.allowed ? null : { content: `🚫 ${decision.reason}`, status: 'skipped' };
 }
 

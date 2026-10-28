@@ -1,4 +1,4 @@
-import { GuildMember, PermissionsBitField } from 'discord.js';
+import { GuildMember, PermissionsBitField, type PartialGuildMember } from 'discord.js';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { ensureBlocksDiscovered } from '../blocks/registry';
 import type { FlowRunSeed } from '../blocks/types';
@@ -87,6 +87,18 @@ describe('who a rule admits', () => {
         ).toBe(false);
     });
 
+    it('reads a subject or actor who has left — a partial member — by id alone', () => {
+        // A press on a block's post starts a run about the member that post was about, who
+        // may have left since: discord.js hands those over as partial members, no roles.
+        const candidate = member();
+        const leaver = { id: MEMBER_ID, partial: true } as unknown as PartialGuildMember;
+        const someoneElse = { id: 'member-2', partial: true } as unknown as PartialGuildMember;
+
+        expect(evaluateEligibility({ principal: 'subject' }, { candidate, subject: leaver }).allowed).toBe(true);
+        expect(evaluateEligibility({ principal: 'actor' }, { candidate, actor: leaver }).allowed).toBe(true);
+        expect(evaluateEligibility({ principal: 'subject' }, { candidate, subject: someoneElse }).allowed).toBe(false);
+    });
+
     it('will not match a member id that arrived as a number', () => {
         // A snowflake past 2^53 is already the wrong id by the time it is a
         // number, so coercing one to compare it could admit on a near miss. It
@@ -133,6 +145,18 @@ describe('pressing a gated trigger button', () => {
         expect(refused.status).toBe('skipped');
         // The refusal changed nothing — the flow never ran.
         expect(executed).toHaveLength(1);
+    });
+
+    it('judges a subject or actor rule against the run the press starts: the presser, on a press about nobody else', async () => {
+        // One gate rule for every press (block-message-buttons step 2, Decision 1): a press
+        // naming no subject starts a run about the presser, set going by the presser.
+        executed.length = 0;
+        for (const principal of ['subject', 'actor'] as const) {
+            flowFixture = () => gatedFlow({ principal });
+            const pressed = await handleFlowButtonInteraction(press(member()));
+            expect(pressed.status).toBe('success');
+        }
+        expect(executed).toHaveLength(2);
     });
 
     it('never draws from the message flood limit — a press is a one-off, and dropping one loses it', async () => {

@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { ResourceDeclaration } from '../../../provisioning/logic/resourceDeclaration';
+import { ACTION_POST_EMBED } from '../../blocks/actionPostEmbed';
 import { ensureBlocksDiscovered } from '../../blocks/registry';
 import { TRIGGER_BUTTON_CLICK } from '../../blocks/triggerButtonClick';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../data/flowGraph';
@@ -58,13 +59,13 @@ describe('buttonClaimConflict', () => {
             flows: [flow('welcome', 'Welcome', true, pressing('verify'))],
             journeyFlowIds: new Set(['gatekeeper', 'welcome']),
             declarations: DECLARATIONS,
+            posters: [],
         });
 
         expect(conflict).toEqual({
             flowId: 'welcome',
             flowName: 'Welcome',
-            messageKey: 'rules-panel',
-            buttonKey: 'verify',
+            button: { messageKey: 'rules-panel', buttonKey: 'verify' },
             messageName: 'Rules panel',
             buttonLabel: 'Verify',
         });
@@ -81,6 +82,7 @@ describe('buttonClaimConflict', () => {
                 flows: [flow('elsewhere', 'Elsewhere', true, pressing('verify'))],
                 journeyFlowIds: new Set(['gatekeeper']),
                 declarations: DECLARATIONS,
+                posters: [],
             })
         ).toBeUndefined();
     });
@@ -93,6 +95,7 @@ describe('buttonClaimConflict', () => {
                 flows: [flow('welcome', 'Welcome', false, pressing('verify'))],
                 journeyFlowIds: new Set(['gatekeeper', 'welcome']),
                 declarations: DECLARATIONS,
+                posters: [],
             })
         ).toBeUndefined();
     });
@@ -105,6 +108,7 @@ describe('buttonClaimConflict', () => {
                 flows: [flow('welcome', 'Welcome', true, pressing('verify'))],
                 journeyFlowIds: new Set(['gatekeeper', 'welcome']),
                 declarations: DECLARATIONS,
+                posters: [],
             })
         ).toBeUndefined();
     });
@@ -117,6 +121,7 @@ describe('buttonClaimConflict', () => {
                 flows: [flow('welcome', 'Welcome', true, pressing('verify'))],
                 journeyFlowIds: new Set(['welcome']),
                 declarations: DECLARATIONS,
+                posters: [],
             })
         ).toBeUndefined();
     });
@@ -128,11 +133,100 @@ describe('buttonClaimConflict', () => {
             flows: [flow('welcome', 'Welcome', true, pressing('spicy'))],
             journeyFlowIds: new Set(['gatekeeper', 'welcome']),
             declarations: DECLARATIONS,
+            posters: [],
         });
 
         expect(conflict && buttonClaimRefusal(conflict)).toBe(
             '"Welcome" already listens to "🌶️" on "Rules panel". One flow per button — point this trigger at another.'
         );
+    });
+
+    describe("a block's button", () => {
+        /** "poster"'s Post Embed, posting a "kneel" button under "Kneel, pet". */
+        const POSTER_GRAPH: FlowGraph = {
+            version: FLOW_GRAPH_VERSION,
+            nodes: [
+                {
+                    id: 'post',
+                    type: ACTION_POST_EMBED,
+                    position: { x: 0, y: 0 },
+                    data: {
+                        channelId: '111111111111111111',
+                        message: { embeds: [{ title: 'Kneel, pet' }] },
+                        buttons: [{ key: 'kneel', label: 'Kneel', style: 'Primary' }],
+                    },
+                },
+            ],
+            edges: [],
+        };
+
+        function pressingBlock(flowId: string, nodeId: string, buttonKey: string): FlowGraph {
+            return {
+                version: FLOW_GRAPH_VERSION,
+                nodes: [
+                    {
+                        id: 'press',
+                        type: TRIGGER_BUTTON_CLICK,
+                        position: { x: 0, y: 0 },
+                        data: { button: { flowId, nodeId, buttonKey }, eligibility: { principal: 'anyone' } },
+                    },
+                ],
+                edges: [],
+            };
+        }
+
+        it('names a live flow of the journey on the exact same poster, node and key, and the post it is under', () => {
+            // As `decidePut` calls it: the live flows only, the switched-off poster among the posters.
+            const conflict = buttonClaimConflict({
+                flowId: 'gatekeeper',
+                graph: pressingBlock('poster', 'post', 'kneel'),
+                flows: [flow('welcome', 'Welcome', true, pressingBlock('poster', 'post', 'kneel'))],
+                journeyFlowIds: new Set(['gatekeeper', 'welcome', 'poster']),
+                declarations: DECLARATIONS,
+                posters: [flow('poster', 'Poster', false, POSTER_GRAPH)],
+            });
+
+            expect(conflict).toEqual({
+                flowId: 'welcome',
+                flowName: 'Welcome',
+                button: { flowId: 'poster', nodeId: 'post', buttonKey: 'kneel' },
+                messageName: 'Kneel, pet in Poster',
+                buttonLabel: 'Kneel',
+            });
+        });
+
+        it('lets another node, another key, another journey or a switched-off flow hold its own', () => {
+            const claim = (flows: readonly ClaimingFlow[], journeyFlowIds: ReadonlySet<string>) =>
+                buttonClaimConflict({
+                    flowId: 'gatekeeper',
+                    graph: pressingBlock('poster', 'post', 'kneel'),
+                    flows,
+                    journeyFlowIds,
+                    declarations: DECLARATIONS,
+                    posters: [],
+                });
+            const journey = new Set(['gatekeeper', 'welcome', 'poster']);
+
+            expect(claim([flow('welcome', 'Welcome', true, pressingBlock('poster', 'other', 'kneel'))], journey)).toBeUndefined();
+            expect(claim([flow('welcome', 'Welcome', true, pressingBlock('poster', 'post', 'beg'))], journey)).toBeUndefined();
+            expect(claim([flow('welcome', 'Welcome', false, pressingBlock('poster', 'post', 'kneel'))], journey)).toBeUndefined();
+            expect(
+                claim([flow('welcome', 'Welcome', true, pressingBlock('poster', 'post', 'kneel'))], new Set(['gatekeeper']))
+            ).toBeUndefined();
+        });
+
+        it("never matches a journey message's keys against a block's button", () => {
+            expect(
+                buttonClaimConflict({
+                    flowId: 'gatekeeper',
+                    graph: pressingBlock('poster', 'rules-panel', 'verify'),
+                    flows: [flow('welcome', 'Welcome', true, pressing('verify'))],
+                    journeyFlowIds: new Set(['gatekeeper', 'welcome']),
+                    declarations: DECLARATIONS,
+                    posters: [],
+                })
+            ).toBeUndefined();
+        });
     });
 
     it('names the keys when the journey no longer declares the button', () => {
@@ -143,6 +237,7 @@ describe('buttonClaimConflict', () => {
                 flows: [flow('welcome', 'Welcome', true, pressing('gone'))],
                 journeyFlowIds: new Set(['gatekeeper', 'welcome']),
                 declarations: DECLARATIONS,
+                posters: [],
             })
         ).toMatchObject({ messageName: 'Rules panel', buttonLabel: 'gone' });
     });

@@ -1,9 +1,11 @@
 import { Hono } from 'hono';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { ACTION_POST_EMBED } from '../../../features/flows/blocks/actionPostEmbed';
 import { ensureBlocksDiscovered } from '../../../features/flows/blocks/registry';
 import { TRIGGER_BUTTON_CLICK } from '../../../features/flows/blocks/triggerButtonClick';
-import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../../features/flows/data/flowGraph';
+import { FLOW_GRAPH_VERSION, type FlowGraph, type FlowNode } from '../../../features/flows/data/flowGraph';
 import { flowsRepo } from '../../../features/flows/data/flowsRepo';
+import { flowDeclarations } from '../../../features/flows/logic/flowDeclarations';
 import { flowJourneyLinksRepo } from '../../../features/provisioning/data/flowJourneyLinksRepo';
 import { journeysRepo } from '../../../features/provisioning/data/journeysRepo';
 import type { ResourceDeclaration } from '../../../features/provisioning/logic/resourceDeclaration';
@@ -69,6 +71,39 @@ function pressing(buttonKey: string): FlowGraph {
     };
 }
 
+const POST_CHANNEL_ID = '111111111111111111';
+
+/** A Post Embed posting `Kneel, pet` with one `kneel` button, as node `post`. */
+const POST_NODE: FlowNode = {
+    id: 'post',
+    type: ACTION_POST_EMBED,
+    position: { x: 0, y: 0 },
+    data: {
+        channelId: POST_CHANNEL_ID,
+        message: { embeds: [{ title: 'Kneel, pet' }] },
+        buttons: [{ key: 'kneel', label: 'Kneel', style: 'Primary' }],
+    },
+};
+
+const POSTER_GRAPH: FlowGraph = { version: FLOW_GRAPH_VERSION, nodes: [POST_NODE], edges: [] };
+
+/** A Button Click on `flowId`'s `post` node's `kneel` button, with `extra` nodes beside it. */
+function pressingBlock(flowId: string, extra: FlowNode[] = []): FlowGraph {
+    return {
+        version: FLOW_GRAPH_VERSION,
+        nodes: [
+            {
+                id: 'press-kneel',
+                type: TRIGGER_BUTTON_CLICK,
+                position: { x: 0, y: 200 },
+                data: { button: { flowId, nodeId: 'post', buttonKey: 'kneel' }, eligibility: { principal: 'anyone' } },
+            },
+            ...extra,
+        ],
+        edges: [],
+    };
+}
+
 let guildCount = 0;
 
 /** A guild no other case has touched, holding the rules journey. */
@@ -103,7 +138,8 @@ async function reread(flowId: string) {
 function app(guildId: string): Hono<AppEnv> {
     const outer = new Hono<AppEnv>();
     outer.use('*', async (c, next) => {
-        c.set('guild', { id: guildId } as never);
+        // Holding the one channel a Post Embed here posts in, which readiness looks up.
+        c.set('guild', { id: guildId, channels: { cache: new Map([[POST_CHANNEL_ID, { id: POST_CHANNEL_ID }]]) } } as never);
         c.set('user', { ...OPERATOR, manageableGuildIds: [guildId] });
         await next();
     });
@@ -186,6 +222,85 @@ describe('going live on a button another flow listens to', () => {
 
         expect(switched.status).toBe(200);
         expect(switched.body.enabled).toBe(true);
+    });
+
+    it("refuses switching on a flow on a block's button another live flow of the journey holds, naming the post", async () => {
+        const guildId = await freshGuild();
+        const posterId = await stored(guildId, 'Poster', POSTER_GRAPH, false);
+        await stored(guildId, 'Welcome', pressingBlock(posterId), true);
+        const gatekeeperId = await stored(guildId, 'Gatekeeper', pressingBlock(posterId), false);
+
+        const switched = await send<RefusalBody>(guildId, 'PUT', `/flows/${gatekeeperId}`, { enabled: true });
+
+        expect(switched.status).toBe(400);
+        expect(switched.body).toEqual({
+            error: '"Welcome" already listens to "Kneel" on "Kneel, pet in Poster". One flow per button — point this trigger at another.',
+            issues: [],
+        });
+        expect((await reread(gatekeeperId)).enabled).toBe(false);
+    });
+
+    it("refuses switching on a flow on a block's button of a flow outside its journey, at the field", async () => {
+        const guildId = await freshGuild();
+        const strangerId = await stored(guildId, 'Stranger', POSTER_GRAPH, false, null);
+        const listenerId = await stored(guildId, 'Listener', pressingBlock(strangerId), false);
+
+        const switched = await send<RefusalBody>(guildId, 'PUT', `/flows/${listenerId}`, { enabled: true });
+
+        expect(switched.status).toBe(400);
+        expect(switched.body.issues).toEqual([
+            {
+                nodeId: 'press-kneel',
+                field: 'button',
+                message: "That button's flow isn't in this flow's journey any more, or it's gone. Pick another.",
+            },
+        ]);
+    });
+
+    it('saves a live flow listening to a post only the graph being saved holds', async () => {
+        const guildId = await freshGuild();
+        const flowId = await stored(guildId, 'Talks to itself', pressing('nope'), true);
+
+        const saved = await send<{ savedAs: string }>(guildId, 'PUT', `/flows/${flowId}`, {
+            graph: pressingBlock(flowId, [POST_NODE]),
+        });
+
+        expect(saved.status).toBe(200);
+        expect(saved.body.savedAs).toBe('flow');
+    });
+});
+
+describe('the flows list', () => {
+    /** Each row's `issueCount`, by flow id. */
+    async function issueCounts(guildId: string): Promise<Map<string, number>> {
+        const listed = await send<{ flows: { flowId: string; issueCount: number }[] }>(guildId, 'GET', '/flows');
+        expect(listed.status).toBe(200);
+        return new Map(listed.body.flows.map((row) => [row.flowId, row.issueCount] as const));
+    }
+
+    it("judges a pick on another flow's post as the builder does: clean while the poster is in the journey, one issue once it leaves", async () => {
+        const guildId = await freshGuild();
+        const posterId = await stored(guildId, 'Poster', POSTER_GRAPH, false);
+        const listenerId = await stored(guildId, 'Listener', pressingBlock(posterId), false);
+
+        expect((await issueCounts(guildId)).get(listenerId)).toBe(0);
+
+        await journeysRepo.create({ guildId, journeyKey: 'elsewhere', name: 'Elsewhere', resources: [] });
+        await flowJourneyLinksRepo.attach({ guildId, flowId: posterId, journeyKey: 'elsewhere' });
+
+        expect((await issueCounts(guildId)).get(listenerId)).toBe(1);
+    });
+});
+
+describe('flowDeclarations', () => {
+    it("lists the journey's other flows, never the flow itself", async () => {
+        const guildId = await freshGuild();
+        const posterId = await stored(guildId, 'Poster', POSTER_GRAPH, false);
+        const listenerId = await stored(guildId, 'Listener', pressingBlock(posterId), true);
+
+        const declared = await flowDeclarations(guildId, listenerId);
+
+        expect(declared.journeyFlows).toEqual([{ flowId: posterId, name: 'Poster', graph: POSTER_GRAPH }]);
     });
 });
 
@@ -349,5 +464,43 @@ describe('GET /journeys/{journeyKey}/button-listeners', () => {
 
         expect(listed.status).toBe(404);
         expect(listed.body.error).toBe('Journey not found.');
+    });
+
+    it("lists the journey's posting nodes and every trigger naming a block's button, and none of another journey's", async () => {
+        const guildId = await freshGuild();
+        const posterId = await stored(guildId, 'Poster', POSTER_GRAPH, false);
+        const listenerId = await stored(guildId, 'Listener', pressingBlock(posterId), true);
+        await journeysRepo.create({ guildId, journeyKey: 'other-rules', name: 'Other rules', resources: DECLARATIONS });
+        await stored(guildId, 'Elsewhere', pressingBlock(posterId, [POST_NODE]), true, 'other-rules');
+
+        const listed = await send<{ listeners: unknown[]; blockMessages: unknown[]; blockListeners: unknown[] }>(
+            guildId,
+            'GET',
+            `/journeys/${JOURNEY_KEY}/button-listeners`
+        );
+
+        expect(listed.status).toBe(200);
+        expect(listed.body.listeners).toEqual([]);
+        expect(listed.body.blockMessages).toEqual([
+            {
+                flowId: posterId,
+                flowName: 'Poster',
+                nodeId: 'post',
+                blockLabel: 'Post Embed',
+                headline: 'Kneel, pet',
+                buttons: [{ key: 'kneel', label: 'Kneel', style: 'Primary' }],
+            },
+        ]);
+        expect(listed.body.blockListeners).toEqual([
+            {
+                messageFlowId: posterId,
+                messageNodeId: 'post',
+                buttonKey: 'kneel',
+                flowId: listenerId,
+                flowName: 'Listener',
+                nodeId: 'press-kneel',
+                enabled: true,
+            },
+        ]);
     });
 });

@@ -38,6 +38,28 @@ export const zAuthUser = z.object({
 
 export const zBindingOwnerKind = z.enum(['journey', 'tickets']);
 
+/**
+ * A Button Click trigger naming a button under a block's post. `messageFlowId` and `messageNodeId` are the poster; `flowId`, `flowName` and `nodeId` are the listener, and `enabled` whether its flow is switched on.
+ */
+export const zBlockButtonListener = z.object({
+    buttonKey: z.string(),
+    enabled: z.boolean(),
+    flowId: z.string(),
+    flowName: z.string(),
+    messageFlowId: z.string(),
+    messageNodeId: z.string(),
+    nodeId: z.string()
+});
+
+/**
+ * One button under a message a block posts (Post Embed's, Open Ticket's): the posting flow's id, the posting node's id and the button's key. The flow id is set even when it is the listener's own.
+ */
+export const zBlockButtonRef = z.object({
+    buttonKey: z.string(),
+    flowId: z.string(),
+    nodeId: z.string()
+});
+
 export const zBlockCardSummaryPart = z.union([
     z.object({
         emptyText: z.string().optional(),
@@ -796,8 +818,12 @@ export const zInstallResult = z.object({
     writtenCount: z.number()
 });
 
-export const zJourneyButtonListeners = z.object({
-    listeners: z.array(zButtonListener)
+/**
+ * One button on one of the flow's journey's messages: the message resource's key and the button's key.
+ */
+export const zJourneyButtonRef = z.object({
+    buttonKey: z.string(),
+    messageKey: z.string()
 });
 
 /**
@@ -993,12 +1019,12 @@ export const zMessageButtonEmoji = z.object({
 });
 
 /**
- * One button on one of the flow's journey's messages: the message resource's key and the button's key.
+ * One button a Button Click listens to: on one of the flow's journey's messages, or under a block's post.
  */
-export const zMessageButtonRef = z.object({
-    buttonKey: z.string(),
-    messageKey: z.string()
-});
+export const zMessageButtonRef = z.union([
+    zJourneyButtonRef,
+    zBlockButtonRef
+]);
 
 /**
  * One editable config field, in the order the inspector renders it, discriminated on `control`.
@@ -1245,6 +1271,24 @@ export const zMessageButton = z.object({
     key: z.string().min(1, 'Give the button a key.').max(64, 'Button keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Button keys use lowercase letters, numbers and single hyphens (for example `let-me-in`).'),
     label: z.string().min(1, 'A button\'s label can\'t be blank — write one, or leave it off and let the emoji talk.').max(80, 'Button labels stop at 80 characters — Discord\'s rule, not ours.').optional(),
     style: zMessageButtonStyle
+});
+
+/**
+ * A block of one of the journey's flows that posts buttons under its message (Post Embed, Open Ticket): the posting flow and node, the block's label, the message as one line (`null` when it has none) and the buttons it posts now.
+ */
+export const zBlockButtonMessage = z.object({
+    blockLabel: z.string(),
+    buttons: z.array(zMessageButton),
+    flowId: z.string(),
+    flowName: z.string(),
+    headline: z.string().nullable(),
+    nodeId: z.string()
+});
+
+export const zJourneyButtonListeners = z.object({
+    blockListeners: z.array(zBlockButtonListener),
+    blockMessages: z.array(zBlockButtonMessage),
+    listeners: z.array(zButtonListener)
 });
 
 /**
@@ -2206,7 +2250,7 @@ export const zGetJourneyButtonListenersPath = z.object({
 });
 
 /**
- * Every Button Click trigger of the journey's flows naming one of its buttons, live and off.
+ * Every Button Click trigger of the journey's flows naming one of its messages' buttons, live and off; every block of those flows posting buttons; and every trigger naming one of a block's buttons.
  */
 export const zGetJourneyButtonListenersResponse = zJourneyButtonListeners;
 

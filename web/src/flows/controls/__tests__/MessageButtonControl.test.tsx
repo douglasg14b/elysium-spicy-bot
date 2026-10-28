@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type {
+    BlockButtonListener,
+    BlockButtonMessage,
     BlockConfigField,
     ButtonListener,
     GuildChannel,
@@ -81,14 +83,27 @@ interface HarnessProps {
     readonly record: Recorded;
     readonly initialDeclared: readonly ResourceDeclaration[];
     readonly initialValue: unknown;
-    readonly listeners: readonly ButtonListener[];
+    readonly listeners: ButtonListener[];
+    readonly blockMessages: BlockButtonMessage[];
+    readonly blockListeners: BlockButtonListener[];
     readonly channels: GuildChannel[];
     readonly journey: JourneyHoldings;
     readonly serverEmojis?: readonly GuildEmoji[];
     readonly error?: string;
 }
 
-function Harness({ record, initialDeclared, initialValue, listeners, channels, journey, serverEmojis, error }: HarnessProps) {
+function Harness({
+    record,
+    initialDeclared,
+    initialValue,
+    listeners,
+    blockMessages,
+    blockListeners,
+    channels,
+    journey,
+    serverEmojis,
+    error,
+}: HarnessProps) {
     const [declared, setDeclared] = useState<ResourceDeclaration[]>([...initialDeclared]);
     const [value, setValue] = useState<unknown>(initialValue);
 
@@ -110,7 +125,7 @@ function Harness({ record, initialDeclared, initialValue, listeners, channels, j
         uploads: NO_UPLOADS,
         ...(serverEmojis ? { serverEmojis } : {}),
         declareResources: (update) => setDeclared((current) => update(current)),
-        listeners: { all: listeners, flowId: THIS_FLOW, nodeId: THIS_NODE },
+        listeners: { listeners, blockMessages, blockListeners, flowId: THIS_FLOW, nodeId: THIS_NODE },
         journey,
     };
 
@@ -131,7 +146,9 @@ function Harness({ record, initialDeclared, initialValue, listeners, channels, j
 interface RenderOptions {
     readonly declared?: readonly ResourceDeclaration[];
     readonly value?: unknown;
-    readonly listeners?: readonly ButtonListener[];
+    readonly listeners?: ButtonListener[];
+    readonly blockMessages?: BlockButtonMessage[];
+    readonly blockListeners?: BlockButtonListener[];
     readonly channels?: GuildChannel[];
     readonly journey?: JourneyHoldings;
     readonly serverEmojis?: readonly GuildEmoji[];
@@ -146,6 +163,8 @@ function renderPicker(options: RenderOptions = {}) {
             initialDeclared={options.declared ?? [RULES_CHANNEL, RULES_PANEL]}
             initialValue={options.value}
             listeners={options.listeners ?? []}
+            blockMessages={options.blockMessages ?? []}
+            blockListeners={options.blockListeners ?? []}
             channels={options.channels ?? []}
             journey={options.journey ?? { key: JOURNEY_KEY, boundKeys: new Map() }}
             serverEmojis={options.serverEmojis}
@@ -215,6 +234,82 @@ describe('picking a button', () => {
 
         expect(screen.getByText("This flow's journey has no messages yet.")).toBeTruthy();
         expect(screen.queryByRole('textbox', { name: 'Message' })).toBeNull();
+    });
+});
+
+describe("a block's post", () => {
+    const KNEEL: MessageButton = { key: 'kneel', label: 'Kneel', style: 'Primary' };
+    const BEG: MessageButton = { key: 'beg', label: 'Beg', style: 'Secondary' };
+    const OWN_POST: BlockButtonMessage = {
+        flowId: THIS_FLOW,
+        flowName: 'This one',
+        nodeId: 'post-1',
+        blockLabel: 'Post Embed',
+        headline: 'Kneel, pet',
+        buttons: [KNEEL, BEG],
+    };
+    const WELCOME_POST: BlockButtonMessage = {
+        flowId: 'welcome',
+        flowName: 'Welcome',
+        nodeId: 'ticket-1',
+        blockLabel: 'Open Ticket',
+        headline: null,
+        buttons: [{ key: 'close', label: 'Close it', style: 'Danger' }],
+    };
+
+    it("lists the journey's messages, then this flow's posts first, then another flow's, and writes the poster's ids", async () => {
+        const { user, record } = renderPicker({ blockMessages: [WELCOME_POST, OWN_POST] });
+
+        await user.click(messageSelect());
+        const options = screen.getAllByRole('option').map((option) => option.textContent ?? '');
+        expect(options.map((text) => text.split('in #')[0]?.split('posted by')[0])).toEqual([
+            'Rules panel',
+            'Kneel, pet',
+            'Open Ticket',
+        ]);
+        expect(screen.getByText('This flow')).toBeTruthy();
+        expect(screen.getByText('Welcome')).toBeTruthy();
+
+        await user.click(screen.getByRole('option', { name: /^Kneel, pet/ }));
+        await user.click(buttonSelect());
+        await user.click(screen.getByRole('option', { name: /^Beg/ }));
+
+        expect(record.changes).toEqual([{ flowId: THIS_FLOW, nodeId: 'post-1', buttonKey: 'beg' }]);
+    });
+
+    it('greys a button another flow listens to, and offers no inline add — its buttons are its block\'s', async () => {
+        const { user, record } = renderPicker({
+            value: { flowId: THIS_FLOW, nodeId: 'post-1', buttonKey: 'beg' },
+            blockMessages: [OWN_POST],
+            blockListeners: [
+                {
+                    messageFlowId: THIS_FLOW,
+                    messageNodeId: 'post-1',
+                    buttonKey: 'kneel',
+                    flowId: 'welcome',
+                    flowName: 'Welcome',
+                    nodeId: 'welcome-trigger',
+                    enabled: false,
+                },
+            ],
+        });
+
+        expect(messageSelect().value).toBe('Kneel, pet');
+        expect(screen.queryByRole('button', { name: 'New button on this message' })).toBeNull();
+        expect(screen.getByText('Its buttons are edited in its own message window.')).toBeTruthy();
+
+        await user.click(buttonSelect());
+        const taken = screen.getByRole('option', { name: /^Kneel/ });
+        expect(taken.getAttribute('data-combobox-disabled')).toBe('true');
+        expect(taken.textContent).toContain('↳ Welcome');
+        await user.click(taken);
+        expect(record.changes).toEqual([]);
+    });
+
+    it('keeps a pick whose post is gone shown, marked', () => {
+        renderPicker({ value: { flowId: 'gone-flow', nodeId: 'post-9', buttonKey: 'kneel' }, blockMessages: [OWN_POST] });
+
+        expect(messageSelect().value).toBe("A block's post that isn't here any more");
     });
 });
 

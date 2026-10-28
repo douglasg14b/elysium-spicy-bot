@@ -5,18 +5,50 @@ import { getBlockDefinition } from '../blocks/registry';
 import type { FlowGraph } from '../data/flowGraph';
 import type { FlowValidationIssue } from '../engine/nodeDataValidation';
 
-/** A `messageButton` field's value, once it is the two keys the control writes. */
+/** A `messageButton` field's value, once it is the two keys the control writes for a message resource. */
 export interface PickedButton {
     readonly messageKey: string;
     readonly buttonKey: string;
 }
 
-/** The two keys, or `undefined` for anything else — which is the schema's to complain about. */
+/**
+ * The two keys, or `undefined` for anything else — a block's button
+ * (`blockButtonReferences.ts`), or a shape that is the schema's to complain about.
+ */
 function pickedButtonOf(value: unknown): PickedButton | undefined {
     if (!value || typeof value !== 'object') return undefined;
     const { messageKey, buttonKey } = value as Record<string, unknown>;
     if (typeof messageKey !== 'string' || typeof buttonKey !== 'string') return undefined;
     return { messageKey, buttonKey };
+}
+
+/** One visible `messageButton` field of one node, with whatever it holds. */
+export interface ButtonFieldValue {
+    readonly nodeId: string;
+    readonly fieldKey: string;
+    readonly value: unknown;
+}
+
+/**
+ * Every visible `messageButton` field in the graph, with its raw value — found by control,
+ * never by block, as `messageFieldsOf` finds `message` fields. A node whose block is not
+ * registered has none; `validateNodeData` reports the unknown type.
+ *
+ * The one walk both kinds of pick are read from: a message resource's button
+ * ({@link buttonPicksIn}) and a block's (`blockButtonPicksIn`). Needs the block registry.
+ */
+export function buttonFieldValuesIn(graph: FlowGraph): readonly ButtonFieldValue[] {
+    const values: ButtonFieldValue[] = [];
+    for (const node of graph.nodes) {
+        const block = getBlockDefinition(node.type);
+        if (!block) continue;
+        for (const field of block.configFields) {
+            if (field.control !== 'messageButton') continue;
+            if (!isFieldVisible(field, block.configFields, node.data)) continue;
+            values.push({ nodeId: node.id, fieldKey: field.key, value: node.data[field.key] });
+        }
+    }
+    return values;
 }
 
 /** One visible `messageButton` field of one node, holding a pick. */
@@ -27,27 +59,26 @@ export interface ButtonPick {
 }
 
 /**
- * Every visible `messageButton` field in the graph that holds a pick — found by control,
- * never by block, as `messageFieldsOf` finds `message` fields. A node whose block is not
- * registered has none; `validateNodeData` reports the unknown type.
+ * Every visible `messageButton` field in the graph that holds a message resource's button.
+ * A field naming a block's button is not listed: those are `blockButtonPicksIn`'s.
  *
- * The one walk for "which buttons does this graph listen to": readiness below, the
- * one-flow-per-button check (`buttonClaims.ts`) and the listener list
+ * The one walk for "which of a journey's buttons does this graph listen to": readiness below,
+ * the one-flow-per-button check (`buttonClaims.ts`) and the listener list
  * (`journeyButtonListeners.ts`) all ask it. Needs the block registry.
  */
 export function buttonPicksIn(graph: FlowGraph): readonly ButtonPick[] {
-    const picks: ButtonPick[] = [];
-    for (const node of graph.nodes) {
-        const block = getBlockDefinition(node.type);
-        if (!block) continue;
-        for (const field of block.configFields) {
-            if (field.control !== 'messageButton') continue;
-            if (!isFieldVisible(field, block.configFields, node.data)) continue;
-            const pick = pickedButtonOf(node.data[field.key]);
-            if (pick) picks.push({ nodeId: node.id, fieldKey: field.key, pick });
-        }
-    }
-    return picks;
+    return buttonFieldValuesIn(graph).flatMap(({ nodeId, fieldKey, value }) => {
+        const pick = pickedButtonOf(value);
+        return pick ? [{ nodeId, fieldKey, pick }] : [];
+    });
+}
+
+/**
+ * What two triggers of one flow naming one button are told, each of them — a journey's button
+ * or a block's: one press would start two runs.
+ */
+export function twoTriggersOnOneButtonMessage(buttonLabel: string): string {
+    return `Two triggers in this flow listen to "${buttonLabel}". One press starts one run.`;
 }
 
 /**
@@ -116,11 +147,7 @@ export function messageButtonIssues(
     }
     for (const { pick, label } of resolved) {
         if ((pickCounts.get(identityOf(pick)) ?? 0) < 2) continue;
-        issues.push({
-            nodeId: pick.nodeId,
-            field: pick.fieldKey,
-            message: `Two triggers in this flow listen to "${label}". One press starts one run.`,
-        });
+        issues.push({ nodeId: pick.nodeId, field: pick.fieldKey, message: twoTriggersOnOneButtonMessage(label) });
     }
 
     return issues;

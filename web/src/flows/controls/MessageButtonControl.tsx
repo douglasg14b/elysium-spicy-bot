@@ -1,35 +1,47 @@
 /**
- * The `messageButton` control: one button on one of the messages the flow's journey declares,
+ * The `messageButton` control: one button — on one of the messages the flow's journey declares,
  * stored as the two keys `{ messageKey, buttonKey }` (mockup `message-editor.mockup.html`,
- * section 4).
+ * section 4), or under a message a block posts, stored as `{ flowId, nodeId, buttonKey }` (step 2
+ * of `docs/plans/block-message-buttons-step-2.md`).
  *
- * Pick a message, then one of its buttons — each drawn in its Discord style, with who listens
- * to it. One flow per button: a button another flow listens to is shown, greyed, naming that
- * flow, and cannot be picked; the server refuses switching on a flow whose button is taken all
- * the same, so this is the author never having to meet that refusal.
+ * Pick a message — the journey's, then the posts of this flow's blocks, then those of the
+ * journey's other flows — then one of its buttons, each drawn in its Discord style, with who
+ * listens to it. One flow per button: a button another flow listens to is shown, greyed, naming
+ * that flow, and cannot be picked; the server refuses switching on a flow whose button is taken
+ * all the same, so this is the author never having to meet that refusal.
  *
- * Either can be made on the spot. "+ New button on this message" and "+ New message in…" write
- * into the journey's Resources through `declareResources` — a button exists only on a message
- * resource, so the message window shows what was made here — and the new button is picked in
- * the same click.
+ * A journey's message or button can be made on the spot. "+ New button on this message" and
+ * "+ New message in…" write into the journey's Resources through `declareResources` — a button
+ * exists only on a message resource, so the message window shows what was made here — and the
+ * new button is picked in the same click. A block's post has no "+ New button": its buttons are
+ * the block's, edited in that block's own message window.
  *
  * It is not a resource picker: it writes no `<field>Key` sidecar, and nothing is written back at
- * install, because a press finds its message through the message's binding.
+ * install, because a press finds its message through the message's binding or its post's record.
  */
 
 import { useState } from 'react';
-import { Button, Group, Input, Menu, Popover, Select, Stack, Text } from '@mantine/core';
+import { Button, Group, Input, Menu, Popover, Select, Stack, Text, type ComboboxData } from '@mantine/core';
 import { IconPlus } from '@tabler/icons-react';
 import type {
+    BlockButtonMessage,
     BlockConfigField,
     GuildEmoji,
     MessageButton,
     MessageButtonEmoji,
+    MessageButtonRef,
     MessageButtonStyle,
     ResourceDeclaration,
 } from '@brattybot/web-sdk';
 import { buttonDisplayName } from '../buttonEmoji';
-import { buttonHolder, readButtonPick, type ButtonHolder } from '../buttonListeners';
+import {
+    blockMessageOf,
+    buttonHolder,
+    isJourneyButtonRef,
+    postName,
+    readButtonPick,
+    type ButtonHolder,
+} from '../buttonListeners';
 import { ButtonFaceContent } from '../messageEditor/ButtonFace';
 import { ButtonEmojiField, ButtonLabelField, ButtonStyleField } from '../messageEditor/ButtonFields';
 import { BUTTON_FACE, BUTTON_STYLES } from '../messageEditor/discordLook';
@@ -52,6 +64,24 @@ function postedIn(message: ResourceDeclaration, declared: readonly ResourceDecla
     return channel ? `in #${channel.defaultName}` : 'not in any channel yet';
 }
 
+/** A journey message option's second line: where it is posted. Nothing for one not declared. */
+function journeyMessageLine(
+    messageKey: string,
+    messages: readonly ResourceDeclaration[],
+    declared: readonly ResourceDeclaration[]
+): string | null {
+    const candidate = messages.find((entry) => entry.key === messageKey);
+    return candidate ? postedIn(candidate, declared) : null;
+}
+
+/**
+ * A block post option's second line: which block posts it, when its headline is what the
+ * option is called — a post with no headline is already called by its block.
+ */
+function blockPostLine(post: BlockButtonMessage | undefined): string | null {
+    return post?.headline ? `posted by ${post.blockLabel}` : null;
+}
+
 /** What the line under a button option says about who listens to it, if anyone. */
 function holderLine(holder: ButtonHolder): string | null {
     switch (holder.kind) {
@@ -70,38 +100,120 @@ function holderLine(holder: ButtonHolder): string | null {
     }
 }
 
+/** Which message a pick is on: a journey's, by key, or a block's post, by its flow and node. */
+type MessageChoice =
+    | { readonly kind: 'journey'; readonly messageKey: string }
+    | { readonly kind: 'block'; readonly flowId: string; readonly nodeId: string };
+
+/** A choice as the Message select's option value — one string, unique across both kinds. */
+function choiceValue(choice: MessageChoice): string {
+    return choice.kind === 'journey'
+        ? `journey:${choice.messageKey}`
+        : `block:${JSON.stringify([choice.flowId, choice.nodeId])}`;
+}
+
+/** An option value back as the choice it was made from; `undefined` for one this never made. */
+function choiceOf(value: string): MessageChoice | undefined {
+    if (value.startsWith('journey:')) return { kind: 'journey', messageKey: value.slice('journey:'.length) };
+    if (!value.startsWith('block:')) return undefined;
+    const parsed: unknown = JSON.parse(value.slice('block:'.length));
+    if (!Array.isArray(parsed) || typeof parsed[0] !== 'string' || typeof parsed[1] !== 'string') return undefined;
+    return { kind: 'block', flowId: parsed[0], nodeId: parsed[1] };
+}
+
+/** The message a stored pick is on. */
+function choiceOfPick(pick: MessageButtonRef): MessageChoice {
+    return isJourneyButtonRef(pick)
+        ? { kind: 'journey', messageKey: pick.messageKey }
+        : { kind: 'block', flowId: pick.flowId, nodeId: pick.nodeId };
+}
+
+/** The pick a button of the chosen message makes. */
+function pickOn(choice: MessageChoice, buttonKey: string): MessageButtonRef {
+    return choice.kind === 'journey'
+        ? { messageKey: choice.messageKey, buttonKey }
+        : { flowId: choice.flowId, nodeId: choice.nodeId, buttonKey };
+}
+
+/**
+ * The Message select's options: the journey's messages, then the block posts grouped by flow —
+ * this flow's first, under "This flow". Flat while there are no block posts, as before there
+ * could be any.
+ */
+function messageOptionsOf(
+    messages: readonly ResourceDeclaration[],
+    posts: readonly BlockButtonMessage[],
+    thisFlowId: string,
+    gone: { readonly value: string; readonly label: string } | undefined
+): ComboboxData {
+    const journeyItems = messages.map((candidate) => ({
+        value: choiceValue({ kind: 'journey', messageKey: candidate.key }),
+        label: candidate.defaultName,
+    }));
+    const goneItems = gone ? [gone] : [];
+    if (posts.length === 0) return [...journeyItems, ...goneItems];
+
+    const flowIds = [...new Set(posts.map((post) => post.flowId))].sort((left, right) =>
+        left === thisFlowId ? -1 : right === thisFlowId ? 1 : 0
+    );
+    return [
+        ...(journeyItems.length > 0 ? [{ group: "This journey's messages", items: journeyItems }] : []),
+        ...flowIds.map((flowId) => {
+            const inFlow = posts.filter((post) => post.flowId === flowId);
+            return {
+                group: flowId === thisFlowId ? 'This flow' : (inFlow[0]?.flowName ?? flowId),
+                items: inFlow.map((post) => ({
+                    value: choiceValue({ kind: 'block', flowId: post.flowId, nodeId: post.nodeId }),
+                    label: postName(post),
+                })),
+            };
+        }),
+        ...(goneItems.length > 0 ? [{ group: 'Gone', items: goneItems }] : []),
+    ];
+}
+
 /**
  * Pick a message, then one of its buttons.
  *
  * Changing the message clears the stored pick until a button of the new one is chosen: a
- * message key alone names nothing a press could match. A stored key the journey no longer
- * declares stays shown, marked, rather than going blank — the readiness issue under the field
- * says what to do about it.
+ * message alone names nothing a press could match. A stored pick naming a message that is not
+ * offered any more stays shown, marked, rather than going blank — the readiness issue under the
+ * field says what to do about it.
  */
 export function MessageButtonControl({ field, value, onChange, context, error }: ControlProps<MessageButtonField>) {
     const pick = readButtonPick(value);
-    // A message chosen whose button is not picked yet. Ignored once a pick is stored.
+    // A message chosen whose button is not picked yet, as its option value. Ignored once a pick is stored.
     const [choosing, setChoosing] = useState<string | null>(null);
     // Whether "+ New button" is open — also opened by a new message, whose first button it asks for.
     const [addingButton, setAddingButton] = useState(false);
-    const messageKey = pick?.messageKey ?? choosing;
+    const choice: MessageChoice | undefined = pick ? choiceOfPick(pick) : choosing ? choiceOf(choosing) : undefined;
+    const chosenValue = choice ? choiceValue(choice) : null;
 
     const declared = context.declaredResources;
+    const posts = context.listeners.blockMessages;
     const messages = declared.filter((resource) => resource.kind === 'message');
-    const message = messages.find((candidate) => candidate.key === messageKey);
-    const buttons: readonly MessageButton[] = message?.buttons ?? [];
+    const message =
+        choice?.kind === 'journey' ? messages.find((candidate) => candidate.key === choice.messageKey) : undefined;
+    const post = choice?.kind === 'block' ? blockMessageOf(posts, choice) : undefined;
+    const buttons: readonly MessageButton[] = message?.buttons ?? post?.buttons ?? [];
+    // The chosen message is offered: a journey message still declared, or a post still posting.
+    const offered = message ?? post;
 
-    const messageOptions = messages.map((candidate) => ({ value: candidate.key, label: candidate.defaultName }));
-    if (messageKey && !message) {
-        messageOptions.push({ value: messageKey, label: `${messageKey} — not in this journey's resources` });
-    }
+    const gone =
+        choice && chosenValue && !offered
+            ? {
+                  value: chosenValue,
+                  label:
+                      choice.kind === 'journey'
+                          ? `${choice.messageKey} — not in this journey's resources`
+                          : "A block's post that isn't here any more",
+              }
+            : undefined;
+    const messageOptions = messageOptionsOf(messages, posts, context.listeners.flowId, gone);
 
     const holders = new Map<string, ButtonHolder>(
-        message
-            ? buttons.map((button) => [
-                  button.key,
-                  buttonHolder(context.listeners, { messageKey: message.key, buttonKey: button.key }),
-              ])
+        choice && offered
+            ? buttons.map((button) => [button.key, buttonHolder(context.listeners, pickOn(choice, button.key))])
             : []
     );
     const buttonOptions = buttons.map((button) => {
@@ -110,7 +222,7 @@ export function MessageButtonControl({ field, value, onChange, context, error }:
         const taken = holder?.kind === 'otherFlows' || holder?.kind === 'thisFlow';
         return { value: button.key, label: buttonDisplayName(button), disabled: taken };
     });
-    if (pick && message && !buttons.some((button) => button.key === pick.buttonKey)) {
+    if (pick && offered && !buttons.some((button) => button.key === pick.buttonKey)) {
         buttonOptions.push({ value: pick.buttonKey, label: `${pick.buttonKey} — not on this message any more`, disabled: false });
     }
 
@@ -119,10 +231,10 @@ export function MessageButtonControl({ field, value, onChange, context, error }:
         setAddingButton(false);
         // The old pick names a button of another message; it goes until one of this
         // message's buttons is picked.
-        if (pick && pick.messageKey !== next) onChange(undefined);
+        if (pick && chosenValue !== next) onChange(undefined);
     };
 
-    const noMessagesYet = messages.length === 0 && !messageKey;
+    const noMessagesYet = messages.length === 0 && posts.length === 0 && !choice;
 
     return (
         // One label over both selects, and the issue line under them both: the field is the pair.
@@ -140,18 +252,24 @@ export function MessageButtonControl({ field, value, onChange, context, error }:
                             aria-label="Message"
                             placeholder="Pick a message"
                             data={messageOptions}
-                            value={messageKey ?? null}
+                            value={chosenValue}
                             onChange={(next) => {
-                                if (next && next !== messageKey) pickMessage(next);
+                                if (next && next !== chosenValue) pickMessage(next);
                             }}
                             renderOption={({ option }) => {
-                                const candidate = messages.find((entry) => entry.key === option.value);
+                                const optionChoice = choiceOf(option.value);
+                                const line =
+                                    optionChoice?.kind === 'journey'
+                                        ? journeyMessageLine(optionChoice.messageKey, messages, declared)
+                                        : optionChoice?.kind === 'block'
+                                          ? blockPostLine(blockMessageOf(posts, optionChoice))
+                                          : null;
                                 return (
                                     <div>
                                         <Text size="13px">{option.label}</Text>
-                                        {candidate ? (
+                                        {line ? (
                                             <Text size="11px" c="dimmed">
-                                                {postedIn(candidate, declared)}
+                                                {line}
                                             </Text>
                                         ) : null}
                                     </div>
@@ -162,14 +280,14 @@ export function MessageButtonControl({ field, value, onChange, context, error }:
                         />
                         <Select
                             aria-label="Button"
-                            placeholder={messageKey ? 'Pick a button' : 'Pick a message first'}
+                            placeholder={choice ? 'Pick a button' : 'Pick a message first'}
                             // Red, with the sentence under the pair rather than under this one.
                             error={!!error}
                             data={buttonOptions}
                             value={pick?.buttonKey ?? null}
                             onChange={(next) => {
-                                if (!next || !messageKey) return;
-                                onChange({ messageKey, buttonKey: next });
+                                if (!next || !choice) return;
+                                onChange(pickOn(choice, next));
                             }}
                             renderOption={({ option }) => {
                                 const button = buttons.find((entry) => entry.key === option.value);
@@ -186,6 +304,13 @@ export function MessageButtonControl({ field, value, onChange, context, error }:
                         {message && buttons.length === 0 && !addingButton ? (
                             <Text size="11px" c="dimmed">
                                 &ldquo;{message.defaultName}&rdquo; has no buttons yet — give it one.
+                            </Text>
+                        ) : null}
+                        {post ? (
+                            <Text size="11px" c="dimmed">
+                                {buttons.length === 0
+                                    ? `"${postName(post)}" posts no buttons yet — give it some in its own message window.`
+                                    : 'Its buttons are edited in its own message window.'}
                             </Text>
                         ) : null}
                     </>
@@ -215,7 +340,7 @@ export function MessageButtonControl({ field, value, onChange, context, error }:
                         onPick={(where) => {
                             const created = declareMessageIn(declared, where);
                             context.declareResources((current) => declareMessageIn(current, where).resources);
-                            pickMessage(created.messageKey);
+                            pickMessage(choiceValue({ kind: 'journey', messageKey: created.messageKey }));
                             // A message with no button is nothing a trigger can listen to yet.
                             setAddingButton(true);
                         }}

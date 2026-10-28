@@ -6,6 +6,7 @@
  */
 
 import type {
+    BlockButtonMessage,
     BlockCardSummaryPart,
     BlockConfigField,
     GuildChannel,
@@ -16,6 +17,7 @@ import type {
     TicketTypeView,
 } from '@brattybot/web-sdk';
 import { buttonFaceText } from './buttonEmoji';
+import { blockMessageOf, isJourneyButtonRef, postName, readButtonPick } from './buttonListeners';
 import { formatDaysOfWeek, formatTimeOfDay } from './clockValues';
 import { ELIGIBILITY_PRINCIPALS, type EligibilityPrincipal } from './contractValues';
 import { resourceKeyFieldFor } from './controls/types';
@@ -31,7 +33,11 @@ interface SummaryContext {
     channels: GuildChannel[];
     ticketTypes: TicketTypeView[];
     declaredResources: readonly ResourceDeclaration[];
+    blockMessages: readonly BlockButtonMessage[];
 }
+
+/** No block posts to name: a summary drawn outside the builder's canvas. */
+const NO_BLOCK_MESSAGES: readonly BlockButtonMessage[] = [];
 
 /**
  * A resource picker left empty because it waits on a resource the journey declares: the
@@ -93,17 +99,26 @@ function messageHeadline(raw: unknown): string {
  * server's), or whichever it has — read from what the journey declares. A key the declarations
  * no longer hold shows as the key itself — like a ticket type's, a key is readable, and "no
  * button picked" would be a lie about a node that names one.
+ *
+ * A block's button reads the same way off the block posts on offer — the post's headline, else
+ * its block — and as "a block's button · <key>" when its post is not among them: the ids it is
+ * stored by are not something an author reads.
  */
 function messageButtonName(raw: unknown, context: SummaryContext): string {
-    if (!raw || typeof raw !== 'object') return '';
-    const { messageKey, buttonKey } = raw as { messageKey?: unknown; buttonKey?: unknown };
-    if (typeof messageKey !== 'string' || typeof buttonKey !== 'string') return '';
+    const pick = readButtonPick(raw);
+    if (!pick) return '';
+
+    if (!isJourneyButtonRef(pick)) {
+        const post = blockMessageOf(context.blockMessages, pick);
+        const button = post?.buttons.find((candidate) => candidate.key === pick.buttonKey);
+        return `${post ? postName(post) : "a block's button"} · ${button ? buttonFaceText(button) : pick.buttonKey}`;
+    }
 
     const message = context.declaredResources.find(
-        (resource) => resource.kind === 'message' && resource.key === messageKey
+        (resource) => resource.kind === 'message' && resource.key === pick.messageKey
     );
-    const button = message?.buttons?.find((candidate) => candidate.key === buttonKey);
-    return `${message?.defaultName ?? messageKey} · ${button ? buttonFaceText(button) : buttonKey}`;
+    const button = message?.buttons?.find((candidate) => candidate.key === pick.buttonKey);
+    return `${message?.defaultName ?? pick.messageKey} · ${button ? buttonFaceText(button) : pick.buttonKey}`;
 }
 
 /**
@@ -344,6 +359,7 @@ function decorateEmpty(
  * @param channels - Guild channels, for resolving a `channelPicker` to `#name`.
  * @param ticketTypes - The guild's ticket types, for resolving a `ticketTypePicker` to its label.
  * @param declaredResources - What the flow's journey declares, for a picker still waiting on install.
+ * @param blockMessages - The block posts a Button Click may name, for one naming a block's button.
  */
 export function summarizeFromDescriptor(
     descriptor: NodeDescriptor | undefined,
@@ -351,11 +367,12 @@ export function summarizeFromDescriptor(
     roles: GuildRole[],
     channels: GuildChannel[],
     ticketTypes: TicketTypeView[],
-    declaredResources: readonly ResourceDeclaration[]
+    declaredResources: readonly ResourceDeclaration[],
+    blockMessages: readonly BlockButtonMessage[] = NO_BLOCK_MESSAGES
 ): string {
     if (!descriptor?.cardSummary || descriptor.cardSummary.length === 0) return NO_SUMMARY;
 
-    const context: SummaryContext = { roles, channels, ticketTypes, declaredResources };
+    const context: SummaryContext = { roles, channels, ticketTypes, declaredResources, blockMessages };
     const pieces: string[] = [];
 
     for (const part of descriptor.cardSummary) {

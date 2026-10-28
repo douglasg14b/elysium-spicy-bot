@@ -116,9 +116,11 @@ export interface ControlContext {
      */
     declareResources: (update: (current: readonly ResourceDeclaration[]) => ResourceDeclaration[]) => void;
     /**
-     * Who listens to the journey's buttons — the server's answer with this flow's own picks
-     * replaced by what is on the canvas — and which flow and node this control is drawn for,
-     * so a button another flow holds can be told from this one's own.
+     * Who listens to the journey's buttons and to its blocks' posted buttons, and which blocks
+     * post some — the server's answer with this flow's own picks and posts replaced by what is
+     * on the canvas — and which flow and node this control is drawn for, so a button another
+     * flow holds can be told from this one's own, and a block's message window can name who
+     * listens to its own buttons.
      */
     listeners: ButtonListenersView;
     /**

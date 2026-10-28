@@ -30,19 +30,37 @@ export const DiscordMessageSchema = z
             'rules spanning parts, when it re-checks the node.',
     });
 
+/** A button on one of the journey's message resources, by the message's key and the button's. */
+const JourneyButtonRefSchema = z.object({ messageKey: z.string(), buttonKey: z.string() }).openapi('JourneyButtonRef', {
+    description: "One button on one of the flow's journey's messages: the message resource's key and the button's key.",
+});
+
 /**
- * What a `messageButton` config field holds: one button on one of the journey's messages, by
- * the message resource's key and the button's. Named `MessageButtonRef` in the spec.
+ * A button under a message a block posts, by the posting flow and node and the button's key.
+ * `flowId` is written even when the poster is the listening flow itself.
+ */
+const BlockButtonRefSchema = z
+    .object({ flowId: z.string(), nodeId: z.string(), buttonKey: z.string() })
+    .openapi('BlockButtonRef', {
+        description:
+            "One button under a message a block posts (Post Embed's, Open Ticket's): the posting flow's id, the " +
+            "posting node's id and the button's key. The flow id is set even when it is the listener's own.",
+    });
+
+/**
+ * What a `messageButton` config field holds: one button on one of the journey's messages
+ * (`JourneyButtonRef`), or one under a block's post (`BlockButtonRef`). Named
+ * `MessageButtonRef` in the spec.
  *
  * The `defaultValue` of a `messageButton` config field (`nodeBody.ts`), which is how it reaches
  * the spec, so the builder takes the control's value type from the SDK rather than writing its
- * own. Plain strings: the picker writes only
- * keys the journey declares, and the server judges them when it re-checks the node — the key
- * rule in the block's schema, the declarations in `messageButtonIssues`.
+ * own. Plain strings: the picker writes only keys and ids it was offered, and the server judges
+ * them when it re-checks the node — the key rule in the block's schema, the declarations in
+ * `messageButtonIssues`, the posting node in `blockButtonIssues`.
  */
 export const MessageButtonRefSchema = z
-    .object({ messageKey: z.string(), buttonKey: z.string() })
+    .union([JourneyButtonRefSchema, BlockButtonRefSchema])
     .openapi('MessageButtonRef', {
         description:
-            "One button on one of the flow's journey's messages: the message resource's key and the button's key.",
+            "One button a Button Click listens to: on one of the flow's journey's messages, or under a block's post.",
     });

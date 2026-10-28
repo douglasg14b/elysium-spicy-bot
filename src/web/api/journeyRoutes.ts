@@ -2,8 +2,9 @@ import { createRoute, z, type OpenAPIHono } from '@hono/zod-openapi';
 import { flowsRepo } from '../../features/flows/data/flowsRepo';
 import type { FlowEntity } from '../../features/flows/data/flowsSchema';
 import { buttonClaimConflict, buttonClaimMoveRefusal } from '../../features/flows/logic/buttonClaims';
-import { journeyButtonListeners } from '../../features/flows/logic/journeyButtonListeners';
-import { flowIdsInJourney } from '../../features/flows/logic/journeyMembership';
+import { journeyBlockButtons } from '../../features/flows/logic/blockButtonListeners';
+import { journeyButtonTriggersIn } from '../../features/flows/logic/journeyButtonListeners';
+import { flowIdsInJourney, flowsInJourney } from '../../features/flows/logic/journeyMembership';
 import { getPublishedJourneyState } from '../../features/flows/logic/publishedJourneyState';
 import { flowJourneyLinksRepo } from '../../features/provisioning/data/flowJourneyLinksRepo';
 import { DuplicateJourneyKeyError, journeysRepo } from '../../features/provisioning/data/journeysRepo';
@@ -388,11 +389,12 @@ const getJourneyButtonListenersRoute = createRoute({
     path: '/{guildId}/journeys/{journeyKey}/button-listeners',
     operationId: 'getJourneyButtonListeners',
     tags: ['journeys'],
-    summary: "Which flows' triggers listen to the journey's message buttons",
+    summary: "Which flows' triggers listen to the journey's buttons, and which blocks post some",
     request: { params: JourneyPathSchema },
     responses: {
         200: jsonResponse(
-            'Every Button Click trigger of the journey\'s flows naming one of its buttons, live and off.',
+            "Every Button Click trigger of the journey's flows naming one of its messages' buttons, live and off; " +
+                "every block of those flows posting buttons; and every trigger naming one of a block's buttons.",
             JourneyButtonListenersSchema
         ),
         ...JOURNEY_ERRORS,
@@ -499,12 +501,15 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
     });
 
     /**
-     * Who listens to this journey's message buttons: every Button Click of its flows naming
-     * one, live and off, by the one membership rule — the message window's "↳ <flow>" lines
-     * and the listened-key lock read it.
+     * Who listens to this journey's buttons: every Button Click of its flows naming one of its
+     * messages' buttons, live and off, by the one membership rule — the message window's
+     * "↳ <flow>" lines and the listened-key lock read it. Beside them, every block of those
+     * flows that posts buttons and every trigger naming one of those (step 2 of
+     * `docs/plans/block-message-buttons-step-2.md`), for the trigger's picker and a block's
+     * message window.
      *
-     * Database only. `journeysRepo.getByKey` is guild-scoped, so another guild's journey is a
-     * 404 and never confirmed.
+     * Database only, one read of the journey's flows for both halves. `journeysRepo.getByKey`
+     * is guild-scoped, so another guild's journey is a 404 and never confirmed.
      */
     router.openapi(getJourneyButtonListenersRoute, async (c) => {
         const guildId = c.get('guild').id;
@@ -515,7 +520,14 @@ function defineJourneyRoutes(router: ApiRouteRegistrar): undefined {
             return c.json({ error: 'Journey not found.' }, 404);
         }
 
-        return c.json({ listeners: await journeyButtonListeners(guildId, journeyKey) }, 200);
+        const flows = await flowsInJourney(guildId, journeyKey);
+        return c.json(
+            {
+                listeners: journeyButtonTriggersIn(flows).map((trigger) => trigger.listener),
+                ...journeyBlockButtons(flows),
+            },
+            200
+        );
     });
 
     /**
@@ -1556,6 +1568,8 @@ async function moveButtonConflict(input: {
         flows,
         journeyFlowIds,
         declarations: destination?.resources ?? [],
+        // A superset of the destination's flows, which is all the name needs.
+        posters: flows,
     });
     return conflict && buttonClaimMoveRefusal(conflict, moving.name);
 }

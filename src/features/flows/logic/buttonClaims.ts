@@ -2,10 +2,13 @@ import type { ResourceDeclaration } from '../../provisioning';
 // From its module, not the barrel: the barrel loads the provisioning service and its database.
 import { buttonDisplayName } from '../../provisioning/logic/messageButtons';
 import type { FlowGraph } from '../data/flowGraph';
-import { buttonPicksIn } from './messageButtonReferences';
+import { blockButtonPicksIn, postedButtonNodeOf, postedNodeName, type PickedBlockButton } from './blockButtonReferences';
+import { buttonPicksIn, type PickedButton } from './messageButtonReferences';
+import type { ReadinessFlow } from './readinessScope';
 
 /**
- * One flow per button (step 3, `docs/plans/message-resource-step-3.md`, pick 3).
+ * One flow per button (step 3, `docs/plans/message-resource-step-3.md`, pick 3; and a block's
+ * button, step 2 of `docs/plans/block-message-buttons-step-2.md`).
  *
  * A press on a message's button starts the one **live** flow of the message's journey whose
  * Button Click names that button. Two live flows naming it would leave the press nobody to
@@ -13,6 +16,10 @@ import { buttonPicksIn } from './messageButtonReferences';
  * go live on a taken button are refused before they land: switching it on or saving its graph
  * while on (`decidePut`), and moving a live flow into the journey (the group and attach
  * routes). Pure; each caller reads the flows beforehand.
+ *
+ * A journey's button is named by keys, which mean "in my journey"; a block's by the posting
+ * flow, node and key, compared exactly. Either way only flows of the same journey can collide:
+ * a flow on no journey is the only one that may listen to its own posts.
  */
 
 /** A flow as the claim check reads it. */
@@ -28,9 +35,13 @@ export interface ButtonClaimConflict {
     /** The flow already listening. */
     readonly flowId: string;
     readonly flowName: string;
-    readonly messageKey: string;
-    readonly buttonKey: string;
-    /** The message's name, or its key when the journey no longer declares it. */
+    /** The button both name, as the trigger stores it. */
+    readonly button: PickedButton | PickedBlockButton;
+    /**
+     * The message's name, or its key when the journey no longer declares it — for a block's
+     * button, `"<headline or block> in <posting flow>"`, or "a block's post" when the poster
+     * cannot be read from here.
+     */
     readonly messageName: string;
     /** What the button is called (`buttonDisplayName`), or its key when the message no longer has it. */
     readonly buttonLabel: string;
@@ -50,15 +61,21 @@ export interface ButtonClaimInput {
     readonly journeyFlowIds: ReadonlySet<string>;
     /** That journey's declarations, for the names in the refusal. */
     readonly declarations: readonly ResourceDeclaration[];
+    /**
+     * Flows that may have posted a block's button, for the post's name in the refusal — the
+     * journey's flows, switched off ones included, since the poster need not be live. `flows`
+     * cannot stand in: a caller may hand it only the live ones.
+     */
+    readonly posters: readonly ReadinessFlow[];
 }
 
 /**
  * The first button `graph` names that another **live** flow of the same journey already names,
- * or `undefined` when none is taken.
+ * or `undefined` when none is taken — a journey's button first, then a block's.
  *
- * Judged on the raw keys, not on whether the journey still declares them: a pick naming
- * nothing is a readiness issue of its own, and two flows on one pair of keys collide the
- * moment the message is declared again. Needs the block registry.
+ * Judged on the raw picks, not on whether they still name anything: a pick naming nothing is
+ * a readiness issue of its own, and two flows on one pair of keys collide the moment the
+ * message is declared again. Needs the block registry.
  */
 export function buttonClaimConflict(input: ButtonClaimInput): ButtonClaimConflict | undefined {
     const holders = input.flows.filter(
@@ -66,6 +83,13 @@ export function buttonClaimConflict(input: ButtonClaimInput): ButtonClaimConflic
     );
     if (holders.length === 0) return undefined;
 
+    return journeyButtonConflict(input, holders) ?? blockButtonConflict(input, holders);
+}
+
+function journeyButtonConflict(
+    input: ButtonClaimInput,
+    holders: readonly ClaimingFlow[]
+): ButtonClaimConflict | undefined {
     const heldBy = holders.map((flow) => ({ flow, picks: buttonPicksIn(flow.graph) }));
 
     for (const { pick } of buttonPicksIn(input.graph)) {
@@ -83,9 +107,42 @@ export function buttonClaimConflict(input: ButtonClaimInput): ButtonClaimConflic
         return {
             flowId: holder.flow.flowId,
             flowName: holder.flow.name,
-            messageKey: pick.messageKey,
-            buttonKey: pick.buttonKey,
+            button: pick,
             messageName: message?.defaultName ?? pick.messageKey,
+            buttonLabel: button ? buttonDisplayName(button) : pick.buttonKey,
+        };
+    }
+
+    return undefined;
+}
+
+function blockButtonConflict(input: ButtonClaimInput, holders: readonly ClaimingFlow[]): ButtonClaimConflict | undefined {
+    const heldBy = holders.map((flow) => ({ flow, picks: blockButtonPicksIn(flow.graph) }));
+
+    for (const { pick } of blockButtonPicksIn(input.graph)) {
+        const holder = heldBy.find(({ picks }) =>
+            picks.some(
+                (held) =>
+                    held.pick.flowId === pick.flowId &&
+                    held.pick.nodeId === pick.nodeId &&
+                    held.pick.buttonKey === pick.buttonKey
+            )
+        );
+        if (!holder) continue;
+
+        // The poster: the listener itself, or one of the flows that may post.
+        const poster =
+            pick.flowId === input.flowId
+                ? { name: 'this flow', graph: input.graph }
+                : input.posters.find((flow) => flow.flowId === pick.flowId);
+        const node = poster?.graph.nodes.find((candidate) => candidate.id === pick.nodeId);
+        const posted = node ? postedButtonNodeOf(node) : undefined;
+        const button = posted?.buttons.find((candidate) => candidate.key === pick.buttonKey);
+        return {
+            flowId: holder.flow.flowId,
+            flowName: holder.flow.name,
+            button: pick,
+            messageName: poster && posted ? `${postedNodeName(posted)} in ${poster.name}` : "a block's post",
             buttonLabel: button ? buttonDisplayName(button) : pick.buttonKey,
         };
     }

@@ -82,7 +82,7 @@ import {
     listJourneys,
     saveMyFlowDraft,
     updateFlow,
-    type ButtonListener,
+    type BlockButtonMessage,
     type FlowAttachment,
     type FlowDraft,
     type FlowEdge,
@@ -157,7 +157,7 @@ import { JourneyAttachmentControl } from '../flows/JourneyAttachmentControl';
 import { INSTALL_QUERY_PARAM } from '../flows/installStateChip';
 import { ResourcesDialog } from '../flows/ResourcesDialog';
 import { builderResourcesTarget, type ResourceSaveTarget, type StoredResources } from '../flows/resourceSaveTarget';
-import { overlayCanvasListeners } from '../flows/buttonListeners';
+import { NO_BUTTON_ANSWER, overlayCanvas } from '../flows/buttonListeners';
 import {
     defaultDataFor,
     EDGE_STROKE_WIDTH,
@@ -189,8 +189,8 @@ const NO_EXITS: readonly string[] = [];
 /** A card's declarations before the effect that carries them has run. */
 const NO_DECLARED_RESOURCES: ResourceDeclaration[] = [];
 
-/** No listeners from the server: before its answer, after a failed one, or with no journey to ask about. */
-const NO_LISTENERS: readonly ButtonListener[] = [];
+/** A card's block posts before the effect that carries them has run. */
+const NO_BLOCK_MESSAGES: readonly BlockButtonMessage[] = [];
 
 /** The status line's colour per tone — yellow for unsaved, orange for "look at this". */
 const STATUS_TONE_COLOUR: Record<BuilderStatus['tone'], string> = {
@@ -753,6 +753,8 @@ function FlowBuilder() {
                             ticketTypes: directory.ticketTypes,
                             // Kept current by the effect that carries the declarations.
                             declaredResources: NO_DECLARED_RESOURCES,
+                            // And by the one that carries the block posts.
+                            blockMessages: NO_BLOCK_MESSAGES,
                             // Filled from the flow's own `issues` by the effect
                             // that carries `graphIssues` onto the cards.
                             issueCount: 0,
@@ -984,6 +986,8 @@ function FlowBuilder() {
                     channels,
                     ticketTypes,
                     declaredResources,
+                    // The effect that carries the block posts fills this in on the next render.
+                    blockMessages: NO_BLOCK_MESSAGES,
                     // Nothing has judged it yet; the next save will.
                     issueCount: 0,
                     // A block just dropped from the palette has no edges, and an
@@ -1675,11 +1679,14 @@ function FlowBuilder() {
     const issuesForNode = useMemo(() => issuesByNode(graphIssues), [graphIssues]);
 
     /*
-     * Who listens to the journey's buttons. Asked only once the flow is on a journey — before
-     * that nobody else can listen to its messages — and the server's answer describes the
-     * *saved* graphs, so this flow's own entries are replaced by the triggers on the canvas: a
-     * pick shows as this flow's the moment it is made (step 3, pick 12). A failed read leaves
-     * the other flows out, and the server's go-live refusal is still there behind it.
+     * Who listens to the journey's buttons, and which of its flows' blocks post some. Asked
+     * only once the flow is on a journey — before that nobody else can listen to its messages
+     * or its posts — and the server's answer describes the *saved* graphs, so this flow's own
+     * entries are replaced by what is on the canvas: a pick shows as this flow's the moment it
+     * is made (step 3, pick 12), and a block's buttons are offered as they are typed. On no
+     * journey the canvas alone is the answer — a flow may always listen to its own posts. A
+     * failed read leaves the other flows out, and the server's go-live refusal is still there
+     * behind it.
      */
     const listenersQuery = useQuery({
         ...getJourneyButtonListenersOptions({
@@ -1687,22 +1694,34 @@ function FlowBuilder() {
         }),
         enabled: !!selected && !!attachment?.journeyKey,
     });
-    const serverListeners = listenersQuery.data?.listeners ?? NO_LISTENERS;
-    const buttonListeners = useMemo(
+    const serverAnswer = listenersQuery.data ?? NO_BUTTON_ANSWER;
+    const buttonAnswer = useMemo(
         () =>
             flowId
-                ? overlayCanvasListeners(serverListeners, {
+                ? overlayCanvas(serverAnswer, {
                       flowId,
                       flowName: canvasPayload.name,
                       enabled,
                       nodes: nodes.map((node) => ({
                           id: node.id,
+                          blockLabel: node.data.descriptor?.label,
                           fields: node.data.descriptor?.configFields,
                           config: node.data.config,
                       })),
                   })
-                : [...serverListeners],
-        [serverListeners, flowId, canvasPayload.name, enabled, nodes]
+                : serverAnswer,
+        [serverAnswer, flowId, canvasPayload.name, enabled, nodes]
+    );
+    const buttonListeners = buttonAnswer.listeners;
+    /*
+     * The posts on offer, kept the same array while their content is: the cards carry it (the
+     * effect below), and the overlay is recomputed on every change to the nodes — the cards
+     * receiving it included — so an array new on each pass would write the cards forever.
+     */
+    const blockMessagesJson = JSON.stringify(buttonAnswer.blockMessages);
+    const blockMessages = useMemo(
+        (): readonly BlockButtonMessage[] => JSON.parse(blockMessagesJson) as BlockButtonMessage[],
+        [blockMessagesJson]
     );
     const journeyHoldings = useMemo(
         () => ({ key: resourcesJourneyKey, boundKeys: installedKeysByDiscordId }),
@@ -1817,6 +1836,24 @@ function FlowBuilder() {
                   )
         );
     }, [declaredResources, nodes, setNodes]);
+
+    /**
+     * Carry the block posts on offer onto the cards that can name one — those with a
+     * `messageButton` field — so a Button Click says which post and which button, as the
+     * declarations are carried and for the same reasons. Only those cards: the posts change on
+     * every keystroke in a posting block's message, and every other card would re-render for
+     * nothing. Settles at once: `blockMessages` keeps its identity while its content does.
+     */
+    useEffect(() => {
+        const wants = (node: FlowCardNode): boolean =>
+            node.data.blockMessages !== blockMessages &&
+            !!node.data.descriptor?.configFields.some((field) => field.control === 'messageButton');
+        setNodes((prev) =>
+            prev.some(wants)
+                ? prev.map((node) => (wants(node) ? { ...node, data: { ...node.data, blockMessages } } : node))
+                : prev
+        );
+    }, [blockMessages, nodes, setNodes]);
 
     /**
      * What the selection's ancestry implies for the copy fields in it.
@@ -2310,7 +2347,7 @@ function FlowBuilder() {
                                 uploads={guildUploads}
                                 serverEmojis={guildEmojisQuery.data?.emojis}
                                 declareResources={declareResources}
-                                listeners={{ all: buttonListeners, flowId: flowId ?? '', nodeId: selectedNode.id }}
+                                listeners={{ ...buttonAnswer, flowId: flowId ?? '', nodeId: selectedNode.id }}
                                 journey={journeyHoldings}
                                 issues={issuesForNode.get(selectedNode.id) ?? []}
                                 unconnectedExits={selectedNode.data.unconnectedExits}

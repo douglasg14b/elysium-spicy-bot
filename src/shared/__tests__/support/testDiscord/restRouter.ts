@@ -322,7 +322,39 @@ const interactionCallbackSchema = z.discriminatedUnion('type', [
 /** discord.js 14.23 asks for no callback body on every answer; one asking for it is not modelled. */
 const interactionCallbackQuerySchema = z.strictObject({ with_response: z.literal('false') });
 
+/** An ephemeral follow-up, as discord.js 14 sends `interaction.followUp({ content, ephemeral: true })`. */
+const interactionFollowUpSchema = z.strictObject({
+    content: z.string().min(1),
+    // Always sent, and always false, as on a channel message (`messageSchemas.ts`).
+    tts: z.literal(false),
+    enforce_nonce: z.literal(false),
+    flags: z.literal(MessageFlags.Ephemeral),
+    allowed_mentions: z.strictObject({ parse: z.array(z.literal('users')), replied_user: z.boolean() }).optional(),
+});
+
+/** discord.js waits for the created message on every webhook send. */
+const interactionFollowUpQuerySchema = z.strictObject({ wait: z.literal('true') });
+
 const ROUTES: readonly Route[] = [
+    defineRoute({
+        /*
+         * A follow-up to a press already acknowledged — what the bot says once a deferred
+         * press went wrong. Answered with the message, which discord.js waits for. Ephemeral
+         * only; it lands in no channel and is kept on the press.
+         */
+        key: 'POST /webhooks/:applicationId/:token',
+        schema: interactionFollowUpSchema,
+        query: interactionFollowUpQuerySchema,
+        validate(state, params) {
+            state.interactions.checkFollowUp(params.applicationId ?? '', params.token ?? '');
+        },
+        apply(state, params, body) {
+            return {
+                status: 200,
+                body: state.interactions.followUp(params.applicationId ?? '', params.token ?? '', body.content),
+            };
+        },
+    }),
     defineRoute({
         /*
          * The bot answering a press. Discord answers 204 when no response body is asked
