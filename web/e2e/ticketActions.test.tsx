@@ -196,6 +196,7 @@ async function openTicket(ticketGuild: TicketGuild, title: string, ticketType: s
             subject: liveSubject,
             variables: {},
             runId: `e2e-${title}`,
+            flowId: 'e2e-flow',
             nodeId: 'open-ticket',
             chainDepth: 1,
             setOutput: (key, value) => outputs.set(key, value),

@@ -313,6 +313,7 @@ export async function executeFlowSegment(
         const stepContext: FlowRunContext = {
             ...context,
             runId: options.runId,
+            flowId,
             ...(options.startedAt ? { startedAt: options.startedAt } : {}),
             chainDepth: chainDepthOf(context),
             nodeId: node.id,

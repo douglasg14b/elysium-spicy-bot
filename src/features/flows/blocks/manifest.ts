@@ -591,6 +591,15 @@ export type BlockConfigField =
           /** Colours to offer for an embed's stripe; the first colours a new embed. */
           readonly swatches?: readonly string[];
           /**
+           * The sibling config key holding the buttons under this message, for a block that
+           * posts some: `MessageButton[]`, up to 25, five to a row — the message window draws
+           * and edits them under the embeds and writes them there. A sidecar, as a picker's
+           * `<field>Key` is, so the message value keeps the shape every message shares
+           * (`DiscordMessage`). The key needs no field of its own; conformance holds its
+           * schema to a button list (`messageButtonsConfigSchema`). Absent: no buttons.
+           */
+          readonly buttonsKey?: string;
+          /**
            * The starting message, as schema input like every default. A declared one must
            * parse, and the rules refuse an empty message, so a block that has no sensible
            * default declares none and lets the editor start from one fresh embed.

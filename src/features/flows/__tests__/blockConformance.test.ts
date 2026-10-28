@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { messageConfigSchema } from '../../../shared/discordMessage';
+import { messageButtonsConfigSchema } from '../../provisioning/logic/messageButtonSchema';
 import { checkBlockConformance, checkBlockOutcome, checkEmissionTargets } from '../blocks/conformance';
 import { buttonClickConfigSchema } from '../blocks/triggerButtonClick';
 import type { BlockManifest } from '../blocks/manifest';
@@ -41,6 +42,7 @@ const context = {
     guild: { id: 'guild-1' } as FlowRunContext['guild'],
     subject: {} as FlowRunContext['subject'],
     runId: 'run-1',
+    flowId: 'flow-1',
     nodeId: 'node-1',
     chainDepth: 1,
     variables: {},
@@ -1255,6 +1257,105 @@ describe('a control whose stored shape the control decides', () => {
         ).join('\n');
 
         expect(issues).toMatch(/accepts \{\}/);
+    });
+});
+
+describe("a message field's buttons, kept in a key it names", () => {
+    /** A message field naming `buttonsKey`, over `shape` beside the message itself. */
+    const buttonsManifest = (shape: Record<string, z.ZodType>, buttonsKey: unknown = 'buttons') =>
+        manifestWith({
+            configSchema: z.object({ message: messageConfigSchema, ...shape }),
+            configFields: [{ key: 'message', label: 'Message', control: 'message', buttonsKey }],
+        });
+
+    it('accepts the shared button list, with no field of its own for the key', () => {
+        // The positive control: without it, a check refusing every buttonsKey would pass every case below.
+        expect(checkBlockConformance(buttonsManifest({ buttons: messageButtonsConfigSchema.optional() }))).toEqual([]);
+    });
+
+    it('catches a buttonsKey naming a key the schema does not validate, which the save would drop', () => {
+        const issues = checkBlockConformance(buttonsManifest({}, 'buttons')).join('\n');
+
+        expect(issues).toMatch(/keeps its buttons in "buttons", which its configSchema does not validate/);
+    });
+
+    it('catches a buttonsKey over a schema that refuses a button list', () => {
+        const issues = checkBlockConformance(buttonsManifest({ buttons: z.string().optional() })).join('\n');
+
+        expect(issues).toMatch(/keeps its buttons in "buttons", but its configSchema refuses \[\], \[\{"key":"a","label":"A","style":"Primary"\}\]/);
+        expect(issues).toMatch(/accepts "x"/);
+    });
+
+    it('catches a buttonsKey over a schema that takes a nameless button', () => {
+        const issues = checkBlockConformance(buttonsManifest({ buttons: z.array(z.unknown()).optional() })).join('\n');
+
+        expect(issues).toMatch(/accepts \[\{\}\], /);
+    });
+
+    it('catches a required button list, which every node saved before buttons existed would fail', () => {
+        const issues = checkBlockConformance(buttonsManifest({ buttons: messageButtonsConfigSchema })).join('\n');
+
+        expect(issues).toMatch(/configSchema refuses nothing at all there/);
+    });
+
+    it('catches a defaulted button list, which posts buttons nobody drew', () => {
+        const issues = checkBlockConformance(
+            buttonsManifest({ buttons: messageButtonsConfigSchema.default([{ key: 'a', label: 'A', style: 'Primary' }]) })
+        ).join('\n');
+
+        expect(issues).toMatch(/defaults it to \[\{"key":"a","label":"A","style":"Primary"\}\]/);
+    });
+
+    it('catches a button list that skips the shared rules, letting two buttons share a key', () => {
+        const ruleFree = z.array(z.object({ key: z.string().min(1), label: z.string().optional(), style: z.string() })).optional();
+        const issues = checkBlockConformance(buttonsManifest({ buttons: ruleFree })).join('\n');
+
+        expect(issues).toMatch(/accepts \[\{"key":"a","label":"A","style":"Primary"\},\{"key":"a","label":"B","style":"Primary"\}\] there/);
+    });
+
+    it('catches two message fields keeping their buttons in one key', () => {
+        const issues = checkBlockConformance(
+            manifestWith({
+                configSchema: z.object({
+                    message: messageConfigSchema,
+                    aftercare: messageConfigSchema,
+                    buttons: messageButtonsConfigSchema.optional(),
+                }),
+                configFields: [
+                    { key: 'message', label: 'Message', control: 'message', buttonsKey: 'buttons' },
+                    { key: 'aftercare', label: 'Aftercare', control: 'message', buttonsKey: 'buttons' },
+                ],
+            })
+        ).join('\n');
+
+        expect(issues).toMatch(/the message field "aftercare" keeps its buttons in "buttons", which a field already writes/);
+    });
+
+    it('catches a buttonsKey naming the message field itself, or a key another field writes', () => {
+        const own = checkBlockConformance(buttonsManifest({}, 'message')).join('\n');
+        expect(own).toMatch(/keeps its buttons in "message", which a field already writes/);
+
+        const other = checkBlockConformance(
+            manifestWith({
+                configSchema: z.object({ message: messageConfigSchema, roleId: z.string().min(1) }),
+                configFields: [
+                    { key: 'message', label: 'Message', control: 'message', buttonsKey: 'roleId' },
+                    { key: 'roleId', label: 'Role', control: 'rolePicker' },
+                ],
+            })
+        ).join('\n');
+        expect(other).toMatch(/keeps its buttons in "roleId", which a field already writes/);
+    });
+
+    it('catches a buttonsKey on a field that is not a message', () => {
+        const issues = checkBlockConformance(
+            manifestWith({
+                configSchema: z.object({ roleId: z.string().min(1), buttons: messageButtonsConfigSchema.optional() }),
+                configFields: [{ key: 'roleId', label: 'Role', control: 'rolePicker', buttonsKey: 'buttons' }],
+            })
+        ).join('\n');
+
+        expect(issues).toMatch(/the rolePicker field "roleId" declares a buttonsKey, which only a message field may/);
     });
 });
 

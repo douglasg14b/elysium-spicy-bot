@@ -984,6 +984,100 @@ function checkControlShape(
 }
 
 /**
+ * What the message window writes into a `buttonsKey`: a list of buttons, each a key, a style,
+ * and a label or an emoji — empty when the author removed them all — or nothing at all, as on
+ * every node saved before the block had buttons. A schema refusing any of those would drop the
+ * author's buttons at save, or refuse every older node over a key no field shows; one taking a
+ * string or a nameless button would store something the window can never draw; and one taking
+ * two buttons on one key skipped the shared rules (`messageButtonProblems`), so Discord would
+ * refuse the whole message over the duplicate custom_id.
+ */
+const BUTTON_LIST_PROBES: ControlShapeProbes = {
+    accepts: [undefined, [], [{ key: 'a', label: 'A', style: 'Primary' }]],
+    refuses: [
+        'x',
+        [{}],
+        [
+            { key: 'a', label: 'A', style: 'Primary' },
+            { key: 'a', label: 'B', style: 'Primary' },
+        ],
+    ],
+    description: 'an optional list of message buttons, under the shared button rules',
+};
+
+/**
+ * A `message` field's `buttonsKey` must name a key of the schema that takes a list of buttons
+ * ({@link BUTTON_LIST_PROBES}) with no default, and no key a field of its own writes — the
+ * field's own and another message field's buttons included — since the two controls would
+ * overwrite each other. Only a
+ * `message` field carries one. A key that passes is added to `buttonKeys`, so the schema key
+ * is not reported as one no field lets an author set.
+ */
+function checkButtonsKey(
+    label: string,
+    field: Partial<BlockConfigField>,
+    shape: Readonly<Record<string, ZodType>>,
+    fieldKeys: ReadonlySet<string>,
+    buttonKeys: Set<string>
+): readonly string[] {
+    const buttonsKey = readProperty(field, 'buttonsKey');
+    if (buttonsKey === undefined) {
+        return [];
+    }
+
+    const where = `${label}: the ${String(field.control)} field "${String(field.key)}"`;
+    if (field.control !== 'message') {
+        return [`${where} declares a buttonsKey, which only a message field may — only the message window draws buttons.`];
+    }
+    if (typeof buttonsKey !== 'string' || !buttonsKey) {
+        return [`${where} declares a buttonsKey that names no config key.`];
+    }
+    if (fieldKeys.has(buttonsKey) || buttonKeys.has(buttonsKey)) {
+        return [
+            `${where} keeps its buttons in "${buttonsKey}", which a field already writes — the message window ` +
+                'and that control would overwrite each other. Give the buttons a key of their own.',
+        ];
+    }
+
+    const buttonsSchema = shape[buttonsKey];
+    if (!buttonsSchema) {
+        return [
+            `${where} keeps its buttons in "${buttonsKey}", which its configSchema does not validate, so the ` +
+                'save would drop every button. Add it — messageButtonsConfigSchema, optional.',
+        ];
+    }
+
+    buttonKeys.add(buttonsKey);
+    const missing = BUTTON_LIST_PROBES.accepts.filter((probe) => !buttonsSchema.safeParse(probe).success);
+    const notRefused = BUTTON_LIST_PROBES.refuses.filter((probe) => buttonsSchema.safeParse(probe).success);
+    const probeText = (probe: unknown): string => (probe === undefined ? 'nothing at all' : JSON.stringify(probe));
+    const issues: string[] = [];
+    if (missing.length > 0) {
+        issues.push(
+            `${where} keeps its buttons in "${buttonsKey}", but its configSchema refuses ` +
+                `${missing.map(probeText).join(', ')} there — the window would write buttons the save then ` +
+                'refuses, or a node saved before buttons existed would no longer parse. Use messageButtonsConfigSchema, optional.'
+        );
+    }
+    if (notRefused.length > 0) {
+        issues.push(
+            `${where} keeps its buttons in "${buttonsKey}", but its configSchema accepts ` +
+                `${notRefused.map(probeText).join(', ')} there — not ${BUTTON_LIST_PROBES.description}. ` +
+                'Use messageButtonsConfigSchema.'
+        );
+    }
+    // A default would fill in buttons the window never drew and the author never made.
+    const absent = buttonsSchema.safeParse(undefined);
+    if (absent.success && absent.data !== undefined) {
+        issues.push(
+            `${where} keeps its buttons in "${buttonsKey}", but its configSchema defaults it to ` +
+                `${JSON.stringify(absent.data)} — buttons a node would post without its author ever seeing them. Drop the default.`
+        );
+    }
+    return issues;
+}
+
+/**
  * A `variableSelect` that declares a kind must name a real one, and its schema must take
  * a variable name in the shared spelling. Declaring no kind is allowed — it takes any
  * variable — so only a kind that is present is judged.
@@ -1088,8 +1182,15 @@ function checkConfigFields(label: string, configFields: unknown, configSchema: u
         issues.push(...checkControlShape(label, key, field, fieldSchema));
     }
 
+    // A message's buttons sit in a sibling key the message field names, which needs no field
+    // of its own — so a key named that way counts as one an author can set.
+    const buttonKeys = new Set<string>();
+    for (const field of fields) {
+        issues.push(...checkButtonsKey(label, field, shape, declared, buttonKeys));
+    }
+
     for (const key of Object.keys(shape)) {
-        if (!declared.has(key)) {
+        if (!declared.has(key) && !buttonKeys.has(key)) {
             issues.push(
                 `${label}: its configSchema validates "${key}", but no config field lets an author set it.`
             );

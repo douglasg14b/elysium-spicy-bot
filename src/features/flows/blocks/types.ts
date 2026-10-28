@@ -238,6 +238,12 @@ export interface FlowRunContext extends FlowRunSeed {
     readonly runId: string;
     readonly nodeId: string;
     /**
+     * The flow this run is running, by `flows.flowId` — for a block that records what it did
+     * against the flow that did it (a posted message's buttons, `flow_posted_messages`), which
+     * outlives the run. Not for addressing a component: see {@link runId}.
+     */
+    readonly flowId: string;
+    /**
      * When this run started — taken as the trigger fired, and carried through every
      * park in the run's snapshot, so a resumed run reports the same instant.
      *

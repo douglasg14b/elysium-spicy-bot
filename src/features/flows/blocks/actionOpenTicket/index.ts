@@ -1,5 +1,10 @@
+import type { Guild } from 'discord.js';
 import { z } from 'zod';
+import { messageConfigSchema, trimMessageText } from '../../../../shared/discordMessage';
+import { messageButtonsConfigSchema } from '../../../provisioning/logic/messageButtonSchema';
+import { recordPostedMessage } from '../../logic/recordPostedMessage';
 import type { BlockManifest } from '../manifest';
+import { messageWithButtons, renderedMessageIssue, type MessageWithButtons } from '../messageWithButtons';
 import { requireSubject } from '../types';
 import { attachTicketChannel, openTicket, recordTicketStateMessage, TICKET_VARIABLES } from '../../../tickets';
 import { ticketingRepo } from '../../../tickets/data/ticketingRepo';
@@ -11,20 +16,53 @@ import { ticketIdentityFromMember } from '../../../tickets/logic/resolveTicketId
 
 export const ACTION_OPEN_TICKET = 'action.openTicket';
 
-export const openTicketConfigSchema = z.object({
-    // Free text rather than an enum: a ticket type is a row in the guild's
-    // `ticketing_config`, so a closed union in source would reject every type an
-    // operator declares. The picker offers the guild's own list; a key it no longer
-    // declares fails the run by name below.
-    ticketType: z.string().min(1),
-    title: z.string().min(1).max(100),
-    // Optional rather than defaulted: a schema default the builder does not also
-    // declare produces a node whose key is simply unset, which the conformance
-    // gate rightly refuses. Absent and empty mean the same thing to `run`.
-    reason: z.string().max(1000).optional(),
-});
+/** The message field's label: what the form shows, and what every failure names a part by. */
+const MESSAGE_LABEL = 'Message';
+
+/** Buttons with no message: they need something to sit under, as a journey message's do. */
+const BUTTONS_WITHOUT_MESSAGE =
+    "Buttons need a message to hang off — give it some words or an embed, or bin the buttons.";
+
+export const openTicketConfigSchema = z
+    .object({
+        // Free text rather than an enum: a ticket type is a row in the guild's
+        // `ticketing_config`, so a closed union in source would reject every type an
+        // operator declares. The picker offers the guild's own list; a key it no longer
+        // declares fails the run by name below.
+        ticketType: z.string().min(1),
+        title: z.string().min(1).max(100),
+        // Optional rather than defaulted: a schema default the builder does not also
+        // declare produces a node whose key is simply unset, which the conformance
+        // gate rightly refuses. Absent and empty mean the same thing to `run`.
+        reason: z.string().max(1000).optional(),
+        // The flow's own message, posted in the ticket channel above the ticket card, and
+        // the buttons under it (the field's `buttonsKey`). Both optional: unset posts the
+        // card alone, as every node saved before these existed does.
+        message: messageConfigSchema.optional(),
+        buttons: messageButtonsConfigSchema.optional(),
+    })
+    .superRefine((config, context) => {
+        if (!config.message && (config.buttons?.length ?? 0) > 0) {
+            context.addIssue({ code: 'custom', path: ['buttons'], message: BUTTONS_WITHOUT_MESSAGE });
+        }
+    });
 
 export type OpenTicketConfig = z.infer<typeof openTicketConfigSchema>;
+
+/**
+ * The flow's message as it will be sent, or why it cannot be — judged and its uploads read
+ * before any ticket exists, so a message that can never post allocates no number, makes no
+ * row and no channel. `undefined` when the node has no message.
+ */
+async function readyMessage(config: OpenTicketConfig, guild: Guild): Promise<MessageWithButtons | undefined> {
+    if (!config.message) return undefined;
+
+    const message = trimMessageText(config.message);
+    const issue = renderedMessageIssue(message, MESSAGE_LABEL);
+    if (issue) return { kind: 'fail', error: issue };
+
+    return messageWithButtons(guild, message, config.buttons ?? [], MESSAGE_LABEL);
+}
 
 /**
  * Opens a ticket for the subject and hands its channel to later blocks.
@@ -33,7 +71,8 @@ export type OpenTicketConfig = z.infer<typeof openTicketConfigSchema>;
  * permission model, whether the type auto-claims, and what "open" means all live
  * in the ticket service, where they are testable without a gateway and reachable
  * by the mod-facing commands too. This block only supplies the subject and
- * carries the result back into the run.
+ * carries the result back into the run — and posts the flow's own message, if the node has
+ * one, in the ticket channel above the card (`messageWithButtons`, as Post Embed posts).
  *
  * `openerId` is null here — a flow opened this, no human filed it. That case did
  * not previously exist: the old creation path read its opener out of
@@ -71,6 +110,15 @@ export const block: BlockManifest<OpenTicketConfig> = {
             maxLength: 1000,
             rendersTokens: true,
         },
+        {
+            key: 'message',
+            label: MESSAGE_LABEL,
+            description:
+                'Posted in the ticket channel, above the ticket card — words, embeds, buttons. Leave it alone and the card goes in by itself.',
+            control: 'message',
+            swatches: ['#00A2FF', '#FF2D95', '#7A5CFF', '#FF6B35'],
+            buttonsKey: 'buttons',
+        },
     ],
     cardSummary: [
         { key: 'ticketType', emptyText: 'no type picked' },
@@ -95,8 +143,9 @@ export const block: BlockManifest<OpenTicketConfig> = {
     requires: ['subject'],
     // `manageChannels` because opening a ticket creates a channel, and may
     // create its category. The most channel-hungry block in the tree, so it is
-    // the one that would silently pass when capability checking lands.
-    capabilities: ['sendMessages', 'embedLinks', 'manageChannels'],
+    // the one that would silently pass when capability checking lands. `attachFiles` for
+    // the uploaded pictures the flow's own message may show.
+    capabilities: ['sendMessages', 'embedLinks', 'attachFiles', 'manageChannels'],
     /*
      * The ticket it opens is announced as opened, of the type picked here — a fixed key,
      * since the type picker takes no `{{var}}`. Never as claimed: `openerId` is null
@@ -131,6 +180,12 @@ export const block: BlockManifest<OpenTicketConfig> = {
             );
         }
 
+        // Before the ticket: a message that cannot post fails the run with nothing made.
+        const flowMessage = await readyMessage(config, context.guild);
+        if (flowMessage?.kind === 'fail') {
+            return { kind: 'fail', error: flowMessage.error };
+        }
+
         const subject = requireSubject(context);
         const ticketResult = await openTicket({
             guildId: context.guild.id,
@@ -163,6 +218,16 @@ export const block: BlockManifest<OpenTicketConfig> = {
 
         const attached = await attachTicketChannel(ticket.id, channel.id);
         if (!attached.ok) throw attached.error;
+
+        // The flow's message first, so the card — what the ticket is run from — is the
+        // newest thing in the channel, and the message is there before the ticket is
+        // announced as opened (below), so a Ticket Event flow's post lands under it. A send
+        // failing here leaves the half-made ticket a failed card send leaves too: a row and
+        // a channel, no state message, no announcement.
+        if (flowMessage) {
+            const posted = await channel.send(flowMessage.options);
+            await recordPostedMessage({ posted, buttons: config.buttons ?? [], context, ticketId: ticket.id });
+        }
 
         const message = await channel.send({
             content: `<@${ticket.subjectId}>`,

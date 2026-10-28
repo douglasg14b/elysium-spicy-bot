@@ -23,6 +23,10 @@ import {
     type MessageButtonEmoji,
 } from '../../features/provisioning/logic/messageButtons';
 import {
+    MESSAGE_BUTTON_RULE_SENTENCES as BUTTON_SENTENCES,
+    SERVER_EMOJI_ID_PATTERN,
+} from '../../features/provisioning/logic/messageButtonSchema';
+import {
     describeMessageResourceProblem,
     messageResourceProblems,
 } from '../../features/provisioning/logic/messageResourceProblems';
@@ -221,9 +225,9 @@ const MessageButtonEmojiSchema = z
     .object({
         name: z
             .string()
-            .min(1, 'An emoji needs a name.')
-            .max(MESSAGE_BUTTON_EMOJI_NAME_MAX_LENGTH, `Emoji names stop at ${MESSAGE_BUTTON_EMOJI_NAME_MAX_LENGTH} characters.`),
-        id: z.string().regex(/^\d{17,20}$/, "A server emoji's id is 17 to 20 digits.").optional(),
+            .min(1, BUTTON_SENTENCES.emojiNameMissing)
+            .max(MESSAGE_BUTTON_EMOJI_NAME_MAX_LENGTH, BUTTON_SENTENCES.emojiNameTooLong),
+        id: z.string().regex(SERVER_EMOJI_ID_PATTERN, BUTTON_SENTENCES.emojiIdShape).optional(),
         animated: z.boolean().optional(),
     })
     .openapi('MessageButtonEmoji', {
@@ -234,7 +238,8 @@ const MessageButtonEmojiSchema = z
     });
 
 /**
- * One button under a message resource.
+ * One button under a message resource. Its sentences are `MESSAGE_BUTTON_RULE_SENTENCES`, which
+ * a block's buttons (`messageButtonsConfigSchema`) are refused with too.
  *
  * The key follows the resource key rule, for the same reason: it travels in the button's
  * custom_id (`mbtn:<key>`), which Discord caps at 100 characters. That keys are unique within
@@ -245,19 +250,13 @@ const MessageButtonSchema = z
     .object({
         key: z
             .string()
-            .min(1, 'Give the button a key.')
-            .max(RESOURCE_KEY_MAX_LENGTH, `Button keys cap at ${RESOURCE_KEY_MAX_LENGTH} characters.`)
-            .regex(
-                new RegExp(`^${RESOURCE_KEY_PATTERN}$`),
-                'Button keys use lowercase letters, numbers and single hyphens (for example `let-me-in`).'
-            ),
+            .min(1, BUTTON_SENTENCES.keyMissing)
+            .max(RESOURCE_KEY_MAX_LENGTH, BUTTON_SENTENCES.keyTooLong)
+            .regex(new RegExp(`^${RESOURCE_KEY_PATTERN}$`), BUTTON_SENTENCES.keyShape),
         label: z
             .string()
-            .min(1, "A button's label can't be blank — write one, or leave it off and let the emoji talk.")
-            .max(
-                DISCORD_BUTTON_LABEL_MAX_LENGTH,
-                `Button labels stop at ${DISCORD_BUTTON_LABEL_MAX_LENGTH} characters — Discord's rule, not ours.`
-            )
+            .min(1, BUTTON_SENTENCES.labelBlank)
+            .max(DISCORD_BUTTON_LABEL_MAX_LENGTH, BUTTON_SENTENCES.labelTooLong)
             .optional(),
         style: MessageButtonStyleSchema,
         emoji: MessageButtonEmojiSchema.optional(),
@@ -323,7 +322,7 @@ export const ResourceDeclarationSchema = z
         /** The buttons under a `message` resource, in order. */
         buttons: z
             .array(MessageButtonSchema)
-            .max(MESSAGE_MAX_BUTTONS, `A message holds ${MESSAGE_MAX_BUTTONS} buttons, tops — five rows of five.`)
+            .max(MESSAGE_MAX_BUTTONS, BUTTON_SENTENCES.tooMany)
             .readonly()
             .optional(),
     })

@@ -1032,6 +1032,9 @@
                     },
                     {
                         "properties": {
+                            "buttonsKey": {
+                                "type": "string"
+                            },
                             "control": {
                                 "enum": [
                                     "message"
@@ -1973,6 +1976,7 @@
                     },
                     "action.openTicket": {
                         "properties": {
+                            "message": {},
                             "reason": {
                                 "maxLength": 1000,
                                 "type": "string",

@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Client } from 'discord.js';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { database } from '../../../features-system/data-persistence/database';
 import { guildUploadsRepo } from '../../../features-system/guild-uploads';
 import { migrateTestDatabase } from '../../../features-system/data-persistence/__tests__/support/migrateTestDatabase';
 import { MIB } from '../../../shared/byteSizes';
@@ -50,13 +51,21 @@ async function upload(guildId: string, bytes: Buffer = png()): Promise<string> {
     return stored.uploadId;
 }
 
-/** Schedule → Post Embed into `channelId` (the home channel unless named), holding `message`. */
-function posting(message: Record<string, unknown>, channelId: string = home.channel.id): FlowGraph {
+/**
+ * Schedule → Post Embed into `channelId` (the home channel unless named), holding `message`
+ * and, when given, `buttons`.
+ */
+function posting(message: Record<string, unknown>, channelId: string = home.channel.id, buttons?: readonly unknown[]): FlowGraph {
     return {
         version: FLOW_GRAPH_VERSION,
         nodes: [
             { id: 'clock', type: TRIGGER_SCHEDULE, position: { x: 0, y: 0 }, data: { repeat: 'daily', time: '09:00' } },
-            { id: 'post', type: ACTION_POST_EMBED, position: { x: 0, y: 160 }, data: { channelId, message } },
+            {
+                id: 'post',
+                type: ACTION_POST_EMBED,
+                position: { x: 0, y: 160 },
+                data: { channelId, message, ...(buttons ? { buttons } : {}) },
+            },
         ],
         edges: [{ id: 'e1', source: 'clock', target: 'post' }],
     };
@@ -66,10 +75,11 @@ interface RunOptions {
     /** What an earlier block recorded, for `{{var.<name>}}` to read. */
     readonly variables?: Record<string, string>;
     readonly channelId?: string;
+    readonly buttons?: readonly unknown[];
 }
 
 function run(message: Record<string, unknown>, options: RunOptions = {}): Promise<FlowRunResult> {
-    return executeFlow('flow-1', posting(message, options.channelId), 'clock', {
+    return executeFlow('flow-1', posting(message, options.channelId, options.buttons), 'clock', {
         client,
         guild: discord.clientGuild(home.guild),
         variables: options.variables ?? {},
@@ -236,6 +246,64 @@ describe('Post Embed posting an uploaded picture', () => {
         expect(filesFor).not.toHaveBeenCalled();
         sizesFor.mockRestore();
         filesFor.mockRestore();
+    });
+});
+
+describe('Post Embed with buttons', () => {
+    /** The records of every message posted with buttons into the home channel. */
+    async function records() {
+        return database.selectFrom('flow_posted_messages').selectAll().where('channelId', '=', home.channel.id).execute();
+    }
+
+    it('posts its buttons as mbtn: rows of five, and records the post against the flow, node and run', async () => {
+        const recordsBefore = (await records()).length;
+        const buttons = Array.from({ length: 6 }, (_unused, index) => ({
+            key: `pick-${index + 1}`,
+            label: `Pick ${index + 1}`,
+            style: index === 5 ? 'Danger' : 'Primary',
+        }));
+        const from = discord.writesTo(home.channel).length;
+
+        const result = await run({ embeds: [{ title: 'Choose your poison' }] }, { buttons });
+
+        expect(result.status).toBe('success');
+        const [request] = writesSince(from);
+        expect(request?.body).toMatchObject({
+            components: [
+                { type: 1, components: buttons.slice(0, 5).map((button) => ({ type: 2, custom_id: `mbtn:${button.key}`, label: button.label })) },
+                { type: 1, components: [{ type: 2, custom_id: 'mbtn:pick-6', label: 'Pick 6', style: 4 }] },
+            ],
+        });
+
+        const posted = home.channel.messages.at(-1);
+        const added = (await records()).slice(recordsBefore);
+        expect(added).toEqual([
+            {
+                messageId: posted?.id,
+                guildId: home.guild.id,
+                channelId: home.channel.id,
+                flowId: 'flow-1',
+                nodeId: 'post',
+                runId: result.runId,
+                // A Schedule's run is about nobody, and Post Embed opens no ticket.
+                subjectId: null,
+                ticketId: null,
+                postedAt: expect.any(Date),
+            },
+        ]);
+    });
+
+    it('posts no rows and records nothing without buttons, or with an empty list', async () => {
+        const recordsBefore = (await records()).length;
+        const from = discord.writesTo(home.channel).length;
+
+        expect((await run({ embeds: [{ title: 'No buttons' }] })).status).toBe('success');
+        expect((await run({ embeds: [{ title: 'Empty list' }] }, { buttons: [] })).status).toBe('success');
+
+        for (const request of writesSince(from)) {
+            expect(request.body).toMatchObject({ components: [] });
+        }
+        expect(await records()).toHaveLength(recordsBefore);
     });
 });
 

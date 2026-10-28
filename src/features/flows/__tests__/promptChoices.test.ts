@@ -469,6 +469,7 @@ function runContext(): FlowRunContext {
         guild: { id: GUILD_ID } as FlowRunContext['guild'],
         subject: {} as FlowRunContext['subject'],
         runId: RUN_ID,
+        flowId: 'flow-1',
         nodeId: NODE_ID,
         chainDepth: 1,
         variables: {},

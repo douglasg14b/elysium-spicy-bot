@@ -254,6 +254,7 @@ export type BlockConfigField = {
         field: string;
     };
 } | {
+    buttonsKey?: string;
     control: 'message';
     defaultValue?: DiscordMessage;
     description?: string;
@@ -503,6 +504,7 @@ export type FlowBlockFieldRules = {
         reason?: string;
     };
     'action.openTicket': {
+        message?: unknown;
         reason?: string;
         ticketType?: string;
         title?: string;

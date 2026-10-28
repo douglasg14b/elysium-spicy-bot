@@ -389,6 +389,12 @@ const GENERIC_VOCABULARY = [
     // one titled embed — an object literal's key, which {@link MEMBER} reads as a declared
     // member. A title is a heading in any codebase. Folds onto no proven rejection.
     'title',
+    // A message's buttons, posted by a block (`blocks/messageWithButtons.ts`) and probed by
+    // conformance (`checkButtonsKey`). Both are discord.js's own keys, reported only because
+    // {@link MEMBER} reads an object literal's key as a declared member, as `components` is:
+    // `allowedMentions` on a send, and a button's `style` in the probe. API surface, not what
+    // a flow is for; neither folds onto a proven rejection.
+    'mentions', 'style',
 ];
 
 /**

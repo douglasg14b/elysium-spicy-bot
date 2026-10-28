@@ -248,6 +248,8 @@ const CONFIG_FIELD_ARMS = {
         control: z.literal('message'),
         /** Colours to offer for an embed's stripe; the first colours a new embed. */
         swatches: z.array(z.string()).readonly().optional(),
+        /** The sibling config key holding the buttons under the message, for a block that posts some. */
+        buttonsKey: z.string().optional(),
         defaultValue: DiscordMessageSchema.optional(),
     }),
     messageButton: z.object({

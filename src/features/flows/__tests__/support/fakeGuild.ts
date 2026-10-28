@@ -1,4 +1,4 @@
-import { PermissionsBitField, type Guild, type GuildTextBasedChannel, type Role } from 'discord.js';
+import { Collection, PermissionsBitField, type Guild, type GuildEmoji, type GuildTextBasedChannel, type Role } from 'discord.js';
 
 /** A role the fake guild holds: an id, plus whatever a test needs to say about it. */
 export interface FakeRoleInput {
@@ -10,8 +10,8 @@ export interface FakeRoleInput {
 }
 
 /**
- * A guild holding just the roles and channels a test names, in the two caches flows read
- * them from — so a block or a save-time check resolving an id against "this server" finds
+ * A guild holding just the roles and channels a test names (and no emoji), in the caches flows
+ * read them from — so a block or a save-time check resolving an id against "this server" finds
  * exactly these and nothing else.
  *
  * Channels are passed in as whatever the test already built (a `{ send }` mock, usually);
@@ -58,5 +58,15 @@ export function fakeGuild(options: {
         return channel;
     };
 
-    return { id, name: options.name, roles: { cache: roles }, channels: { cache: channels, fetch } } as unknown as Guild;
+    // No emoji of its own: a posted message's buttons are checked against this cache
+    // (`serverEmojiIds`), as a real guild's are, and a fake guild's buttons use none.
+    const emojis = new Collection<string, GuildEmoji>();
+
+    return {
+        id,
+        name: options.name,
+        roles: { cache: roles },
+        channels: { cache: channels, fetch },
+        emojis: { cache: emojis },
+    } as unknown as Guild;
 }

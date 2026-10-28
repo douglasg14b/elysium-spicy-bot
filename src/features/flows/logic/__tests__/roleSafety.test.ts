@@ -60,6 +60,7 @@ describe.each([
                 guild,
                 subject: { roles: { [method]: change } } as unknown as FlowRunContext['subject'],
                 runId: 'run-1',
+                flowId: 'flow-1',
                 nodeId: 'node-1',
                 chainDepth: 1,
                 variables: {},

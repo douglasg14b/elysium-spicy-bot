@@ -70,6 +70,7 @@ function contextWith(overrides: ContextOverrides = {}): FlowRunContext {
             joinedAt: overrides.joinedAt === undefined ? null : overrides.joinedAt,
         } as unknown as FlowRunContext['subject'],
         runId: 'run-1',
+        flowId: 'flow-1',
         nodeId: 'since',
         chainDepth: 1,
         variables: overrides.variables ?? {},

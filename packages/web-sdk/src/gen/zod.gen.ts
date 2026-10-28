@@ -330,6 +330,7 @@ export const zFlowBlockFieldRules = z.object({
         reason: z.string().min(1, 'Can\'t be empty.').max(512, 'No more than 512 characters.').optional()
     }),
     'action.openTicket': z.object({
+        message: z.unknown().optional(),
         reason: z.string().max(1000, 'No more than 1000 characters.').optional(),
         ticketType: z.string().min(1, 'Fill this in.').optional(),
         title: z.string().min(1, 'Fill this in.').max(100, 'No more than 100 characters.').optional()
@@ -1204,6 +1205,7 @@ export const zBlockConfigField = z.union([
         }).optional()
     }),
     z.object({
+        buttonsKey: z.string().optional(),
         control: z.enum(['message']),
         defaultValue: zDiscordMessage.optional(),
         description: z.string().optional(),

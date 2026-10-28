@@ -16,10 +16,12 @@ import type {
     GuildRole,
     GuildSettings,
     GuildUpload,
+    MessageButton,
     MessageButtonRef,
     ResourceDeclaration,
     TicketTypeView,
 } from '@brattybot/web-sdk';
+import { zMessageButtonStyle } from '@brattybot/web-sdk';
 import type { ButtonListenersView } from '../buttonListeners';
 import type { AvailableVariable, RequirementAvailability } from '../variables';
 
@@ -68,16 +70,18 @@ export interface ControlContext {
     /**
      * Write a config key other than the control's own.
      *
-     * Only the pickers use this, and only for the resource-key sidecar: picking a
-     * declared resource writes both `<field>` (the snowflake, empty until install)
-     * and `<field>Key` (the resource key, which is canonical).
+     * For a sidecar beside the control's own key. The pickers write the resource-key
+     * sidecar: picking a declared resource writes both `<field>` (the snowflake, empty
+     * until install) and `<field>Key` (the resource key, which is canonical). A `message`
+     * field writes its buttons into the key its `buttonsKey` names, so the message value
+     * keeps the shape every message shares.
      *
      * Two keys rather than one structured value because `roleId` is handed straight
      * to `roles.add()` by the block — a structured value there would change seven
      * block schemas, every executor read, and need a migration for saved graphs, to
      * express something a sibling key already says.
      */
-    setConfigKey: (key: string, value: string | undefined) => void;
+    setConfigKey: (key: string, value: string | MessageButton[] | undefined) => void;
     /**
      * The server's time zone — the one it picked, or `null`, beside the zone an unpicked
      * server runs on — for a control whose value is a time on the server's clock.
@@ -217,8 +221,8 @@ export interface ControlProps<TField extends BlockConfigField = BlockConfigField
     /**
      * The whole node's config, for the rare control that reads a sibling key.
      *
-     * Only the pickers use it, to find their resource-key sidecar. Passed to every
-     * control so the dispatcher stays free of special cases.
+     * The pickers read their resource-key sidecar from it, and a `message` field its
+     * buttons. Passed to every control so the dispatcher stays free of special cases.
      */
     config?: Record<string, unknown>;
     /**
@@ -262,4 +266,39 @@ export function asNumber(value: unknown): number | null {
  */
 export function asTextList(value: unknown): string[] {
     return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
+}
+
+/**
+ * Narrow an unknown `node.data` value to a message's buttons, for the message window.
+ *
+ * Only what the window needs to draw a button is asked — a key and a style, both strings —
+ * and anything else is dropped, as `asTextList` drops a non-string. A button breaking a rule
+ * (a label too long, a key with a capital) is kept: the window shows it so the author can
+ * fix it, and the server's re-check says what is wrong.
+ *
+ * The stored list itself when every entry passes, and one shared empty list when there is
+ * none, so the value is the same object from render to render while nothing changes — the
+ * window's Cancel writes the buttons back only when they are not.
+ */
+export function asMessageButtons(value: unknown): readonly MessageButton[] {
+    if (!Array.isArray(value)) return NO_BUTTONS;
+    return value.every(isButtonShaped) ? value : value.filter(isButtonShaped);
+}
+
+const NO_BUTTONS: readonly MessageButton[] = [];
+
+/**
+ * Whether an entry is a button the window can draw: a string key, one of the four styles (the
+ * window colours a face by its style, and has no colour for any other), a string label or none,
+ * and an object emoji or none. Lengths and patterns are not asked — those the author can fix.
+ */
+function isButtonShaped(entry: unknown): entry is MessageButton {
+    if (typeof entry !== 'object' || entry === null) return false;
+    const { key, style, label, emoji } = entry as Record<string, unknown>;
+    return (
+        typeof key === 'string' &&
+        zMessageButtonStyle.safeParse(style).success &&
+        (label === undefined || typeof label === 'string') &&
+        (emoji === undefined || (typeof emoji === 'object' && emoji !== null && typeof (emoji as Record<string, unknown>).name === 'string'))
+    );
 }

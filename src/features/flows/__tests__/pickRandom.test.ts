@@ -18,6 +18,7 @@ function recordingContext(): { context: FlowRunContext; writes: Map<string, Flow
             guild: { id: 'guild-1' } as FlowRunContext['guild'],
             subject: {} as FlowRunContext['subject'],
             runId: 'run-1',
+            flowId: 'flow-1',
             nodeId: 'node-1',
             chainDepth: 1,
             variables: {},

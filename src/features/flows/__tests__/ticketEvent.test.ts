@@ -145,6 +145,7 @@ async function openTicket(scenario: TicketGuild, ticketType: string): Promise<{ 
             subject: liveMember(scenario.guild, scenario.subject),
             variables: {},
             runId: `run-${ticketType}`,
+            flowId: 'flow-open',
             nodeId: 'open',
             chainDepth: 1,
             setOutput: (key, value) => outputs.set(key, value),

@@ -24,13 +24,13 @@
  *  2. **The message as Post Embed takes it** (`messageConfigSchema`): each picture an upload, a
  *     link or a token, and the rules spanning parts (`messageProblems`: an empty message, an empty
  *     embed, a lone header or footer icon, more than 6000 characters).
- *  3. **Each button has something to press**: a label or an emoji, and an emoji that is one — a
- *     server emoji's name Discord's `[A-Za-z0-9_]{2,32}`, a standard one's a single emoji, and
- *     only a server emoji animated.
- *  4. **No `{{tokens}}`** in the copy, a picture, or a button's label.
- *  5. **Each button its own key.**
+ *  3. **No `{{tokens}}`** in the copy or a picture.
+ *  4. **The buttons** (`messageButtonProblems`): each has something to press — a label or an
+ *     emoji, and an emoji that is one: a server emoji's name Discord's `[A-Za-z0-9_]{2,32}`, a
+ *     standard one's a single emoji, and only a server emoji animated — no `{{tokens}}` in a
+ *     label, and each its own key.
  *
- * The browser cannot import the bot's tree, so stages 2–5 are written out here, and
+ * The browser cannot import the bot's tree, so stages 2–4 are written out here, and
  * `src/features/provisioning/logic/__tests__/messageResourceProblemsDrift.test.ts` runs the
  * server's rules and this over one table.
  *
@@ -76,6 +76,9 @@ const TOKEN_IN_TEXT =
 const TOKEN_IN_PICTURE =
     "No tokens here — this message sits in its channel for everyone, so there's nobody to fill {{…}} in for. " +
     'Pick an upload or paste a link.';
+
+/** A button label holding a `{{token}}`. The server's sentence. */
+const TOKEN_IN_BUTTON_LABEL = "No tokens here — a button's label goes out exactly as typed, braces and all. Spell it out.";
 
 /** A button with nothing on its face. The server's sentence. */
 const NOTHING_TO_PRESS = 'A button needs a label or an emoji — something to press.';
@@ -392,6 +395,11 @@ export function messageResourceProblems(resource: ResourceDeclaration): readonly
     }
     problems.push(...spanningProblems(message));
 
+    for (const part of copyOf(message)) {
+        if (holdsToken(part.value)) problems.push(inMessage(part.path, part.picture ? TOKEN_IN_PICTURE : TOKEN_IN_TEXT));
+    }
+
+    // The server's `messageButtonProblems`, the rules a block's buttons share.
     const buttons = resource.buttons ?? [];
     buttons.forEach((button, index) => {
         if (!button.label && !button.emoji) problems.push(onButton(index, [], NOTHING_TO_PRESS));
@@ -399,12 +407,8 @@ export function messageResourceProblems(resource: ResourceDeclaration): readonly
         if (emojiIssue) problems.push(onButton(index, ['emoji'], emojiIssue));
     });
 
-    for (const part of copyOf(message)) {
-        if (holdsToken(part.value)) problems.push(inMessage(part.path, part.picture ? TOKEN_IN_PICTURE : TOKEN_IN_TEXT));
-    }
-
     buttons.forEach((button, index) => {
-        if (button.label && holdsToken(button.label)) problems.push(onButton(index, [], TOKEN_IN_TEXT));
+        if (button.label && holdsToken(button.label)) problems.push(onButton(index, [], TOKEN_IN_BUTTON_LABEL));
     });
 
     const seenKeys = new Set<string>();

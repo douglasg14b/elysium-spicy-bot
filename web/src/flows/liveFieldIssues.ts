@@ -103,12 +103,16 @@ export function fieldIssue(
 }
 
 /**
- * The config field a key written into `node.data` belongs to: the field itself, or the
- * picker whose resource-key sidecar it is. Undefined for a key no drawn field owns.
+ * The config field a key written into `node.data` belongs to: the field itself, the picker
+ * whose resource-key sidecar it is, or the message whose buttons it holds. Undefined for a key
+ * no drawn field owns.
  */
 export function fieldOwning(descriptor: NodeDescriptor, configKey: string): string | undefined {
     return descriptor.configFields.find(
-        (field) => field.key === configKey || resourceKeyFieldFor(field.key) === configKey
+        (field) =>
+            field.key === configKey ||
+            resourceKeyFieldFor(field.key) === configKey ||
+            (field.control === 'message' && field.buttonsKey === configKey)
     )?.key;
 }
 

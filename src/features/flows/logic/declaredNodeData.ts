@@ -10,8 +10,8 @@ import { RESOURCE_KEY_SUFFIX, RESOURCE_PICKER_CONTROLS } from './resourceTargets
  * judges the keys it knows and ignores the rest. So without this a request could store
  * any key at all in a flow, where nothing would ever read it or say it was there. What a
  * block declares is its `configFields` (conformance holds them to the schema both ways),
- * plus the `<field>Key` sidecar beside each picker that writes one; the builder writes
- * nothing else.
+ * plus the `<field>Key` sidecar beside each picker that writes one and the `buttonsKey` a
+ * `message` field names for its buttons; the builder writes nothing else.
  *
  * **Stripped, not refused.** A graph saved before a field was renamed still carries the old
  * key, and the builder sends back what it loaded — refusing would 400 that flow's next
@@ -40,9 +40,11 @@ function declaredDataOf(node: FlowNode): FlowNode['data'] {
     if (!block) return node.data;
 
     const declared = new Set(
-        block.configFields.flatMap((field) =>
-            RESOURCE_PICKER_CONTROLS.has(field.control) ? [field.key, `${field.key}${RESOURCE_KEY_SUFFIX}`] : [field.key]
-        )
+        block.configFields.flatMap((field) => {
+            if (RESOURCE_PICKER_CONTROLS.has(field.control)) return [field.key, `${field.key}${RESOURCE_KEY_SUFFIX}`];
+            if (field.control === 'message' && field.buttonsKey) return [field.key, field.buttonsKey];
+            return [field.key];
+        })
     );
     const entries = Object.entries(node.data);
     const kept = entries.filter(([key]) => declared.has(key));
