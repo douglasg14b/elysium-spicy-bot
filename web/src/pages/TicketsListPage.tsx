@@ -33,7 +33,6 @@ import {
     TextInput,
     Title,
     Tooltip,
-    UnstyledButton,
 } from '@mantine/core';
 import {
     IconAlertTriangle,
@@ -57,6 +56,7 @@ import {
 } from '../tickets/ticketFilters';
 import { participantLabel, optionalParticipantLabel } from '../tickets/participantLabel';
 import { useGuilds } from '../guilds/GuildContext';
+import { CountTile } from '../layout/CountTile';
 import { PAGE_MAX_WIDTH } from '../theme';
 
 /** How long a keystroke waits before it becomes a request. */
@@ -581,38 +581,5 @@ export function TicketsListPage() {
                 ) : null}
             </Card>
         </Stack>
-    );
-}
-
-/** One number in the counts strip, clickable into the filter it describes. */
-function CountTile({
-    label,
-    value,
-    active,
-    onClick,
-}: {
-    label: string;
-    value: number;
-    active: boolean;
-    onClick: () => void;
-}) {
-    return (
-        <UnstyledButton onClick={onClick}>
-            <Card
-                p="xs"
-                px="md"
-                bg={active ? 'dark.6' : 'dark.7'}
-                style={{
-                    borderColor: active ? 'var(--mantine-color-brand-6)' : undefined,
-                }}
-            >
-                <Text size="11px" c="dark.2" fw={700} tt="uppercase">
-                    {label}
-                </Text>
-                <Text size="20px" fw={800} lh={1.2}>
-                    {value}
-                </Text>
-            </Card>
-        </UnstyledButton>
     );
 }
