@@ -62,6 +62,8 @@ const DISCORD_READS: readonly RegExp[] = [
     // Member snapshots for the leaderboard, over the gateway (RequestGuildMembers).
     /^leveling$/,
     /^leveling\/users\/[^/]+$/,
+    // Discord's member name search (`GET /guilds/{id}/members/search`), for the warn dialog's picker.
+    /^members\/search$/,
     // A full channel fetch, so drift sees fresh permission overwrites.
     /^journeys\/[^/]+\/drift$/,
     // One message fetch per message resource the journey posted, to tell whether it is still

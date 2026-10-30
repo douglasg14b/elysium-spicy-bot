@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AttachFlowToJourneyData, AttachFlowToJourneyErrors, AttachFlowToJourneyResponses, CheckFlowData, CheckFlowErrors, CheckFlowResponses, ClaimTicketData, ClaimTicketErrors, ClaimTicketResponses, CloseTicketData, CloseTicketErrors, CloseTicketResponses, CreateFlowData, CreateFlowErrors, CreateFlowResponses, CreateJourneyData, CreateJourneyErrors, CreateJourneyResponses, DeleteFlowData, DeleteFlowErrors, DeleteFlowResponses, DeleteGuildUploadData, DeleteGuildUploadErrors, DeleteGuildUploadResponses, DeleteJourneyData, DeleteJourneyErrors, DeleteJourneyResponses, DeleteTicketTypeData, DeleteTicketTypeErrors, DeleteTicketTypeResponses, DetachFlowFromJourneyData, DetachFlowFromJourneyErrors, DetachFlowFromJourneyResponses, DiscardFlowDraftData, DiscardFlowDraftErrors, DiscardFlowDraftResponses, ForgetJourneyOrphanData, ForgetJourneyOrphanErrors, ForgetJourneyOrphanResponses, GetBotIdentityData, GetBotIdentityErrors, GetBotIdentityResponses, GetCurrentUserData, GetCurrentUserErrors, GetCurrentUserResponses, GetFlowAttachmentData, GetFlowAttachmentErrors, GetFlowAttachmentResponses, GetFlowData, GetFlowErrors, GetFlowNextRunsData, GetFlowNextRunsErrors, GetFlowNextRunsResponses, GetFlowResourcesData, GetFlowResourcesErrors, GetFlowResourcesResponses, GetFlowResponses, GetGuildChannelsData, GetGuildChannelsErrors, GetGuildChannelsResponses, GetGuildEmojisData, GetGuildEmojisErrors, GetGuildEmojisResponses, GetGuildRolesData, GetGuildRolesErrors, GetGuildRolesResponses, GetGuildSettingsData, GetGuildSettingsErrors, GetGuildSettingsResponses, GetGuildUploadData, GetGuildUploadErrors, GetGuildUploadResponses, GetHealthData, GetHealthErrors, GetHealthResponses, GetInstallPlanData, GetInstallPlanErrors, GetInstallPlanResponses, GetJourneyButtonListenersData, GetJourneyButtonListenersErrors, GetJourneyButtonListenersResponses, GetJourneyData, GetJourneyDriftData, GetJourneyDriftErrors, GetJourneyDriftResponses, GetJourneyErrors, GetJourneyPublishedStateData, GetJourneyPublishedStateErrors, GetJourneyPublishedStateResponses, GetJourneyResponses, GetLevelingInsightsData, GetLevelingInsightsErrors, GetLevelingInsightsResponses, GetLevelingUserData, GetLevelingUserErrors, GetLevelingUserResponses, GetNodeTypesData, GetNodeTypesErrors, GetNodeTypesResponses, GetPublishedStateData, GetPublishedStateErrors, GetPublishedStateResponses, GetTicketData, GetTicketErrors, GetTicketResponses, GetTicketsConfigData, GetTicketsConfigErrors, GetTicketsConfigResponses, GetWarningsConfigData, GetWarningsConfigErrors, GetWarningsConfigResponses, GroupFlowWithData, GroupFlowWithErrors, GroupFlowWithResponses, InstallFlowData, InstallFlowErrors, InstallFlowResponses, ListFlowDraftsData, ListFlowDraftsErrors, ListFlowDraftsResponses, ListFlowsData, ListFlowsErrors, ListFlowsResponses, ListGuildsData, ListGuildsErrors, ListGuildsResponses, ListGuildUploadsData, ListGuildUploadsErrors, ListGuildUploadsResponses, ListJourneysData, ListJourneysErrors, ListJourneysResponses, ListLevelingData, ListLevelingErrors, ListLevelingResponses, ListTicketsData, ListTicketsErrors, ListTicketsResponses, LoginCallbackData, LoginCallbackErrors, LoginData, LoginErrors, LogoutData, LogoutErrors, LogoutResponses, PreviewFlowGroupingData, PreviewFlowGroupingErrors, PreviewFlowGroupingResponses, ReopenTicketData, ReopenTicketErrors, ReopenTicketResponses, RepairJourneyDriftData, RepairJourneyDriftErrors, RepairJourneyDriftResponses, SaveFlowResourcesData, SaveFlowResourcesErrors, SaveFlowResourcesResponses, SaveMyFlowDraftData, SaveMyFlowDraftErrors, SaveMyFlowDraftResponses, SaveTicketTypeData, SaveTicketTypeErrors, SaveTicketTypeResponses, UnclaimTicketData, UnclaimTicketErrors, UnclaimTicketResponses, UnpublishFlowData, UnpublishFlowErrors, UnpublishFlowResponses, UnpublishJourneyData, UnpublishJourneyErrors, UnpublishJourneyResponses, UpdateFlowData, UpdateFlowErrors, UpdateFlowResponses, UpdateGuildSettingsData, UpdateGuildSettingsErrors, UpdateGuildSettingsResponses, UpdateGuildTimeZoneData, UpdateGuildTimeZoneErrors, UpdateGuildTimeZoneResponses, UpdateJourneyData, UpdateJourneyErrors, UpdateJourneyResponses, UpdateTicketsConfigData, UpdateTicketsConfigErrors, UpdateTicketsConfigResponses, UpdateWarningsConfigData, UpdateWarningsConfigErrors, UpdateWarningsConfigResponses, UploadGuildImageData, UploadGuildImageErrors, UploadGuildImageResponses } from './types.gen';
+import type { AttachFlowToJourneyData, AttachFlowToJourneyErrors, AttachFlowToJourneyResponses, CheckFlowData, CheckFlowErrors, CheckFlowResponses, ClaimTicketData, ClaimTicketErrors, ClaimTicketResponses, CloseTicketData, CloseTicketErrors, CloseTicketResponses, CreateFlowData, CreateFlowErrors, CreateFlowResponses, CreateJourneyData, CreateJourneyErrors, CreateJourneyResponses, DeleteFlowData, DeleteFlowErrors, DeleteFlowResponses, DeleteGuildUploadData, DeleteGuildUploadErrors, DeleteGuildUploadResponses, DeleteJourneyData, DeleteJourneyErrors, DeleteJourneyResponses, DeleteTicketTypeData, DeleteTicketTypeErrors, DeleteTicketTypeResponses, DetachFlowFromJourneyData, DetachFlowFromJourneyErrors, DetachFlowFromJourneyResponses, DiscardFlowDraftData, DiscardFlowDraftErrors, DiscardFlowDraftResponses, ForgetJourneyOrphanData, ForgetJourneyOrphanErrors, ForgetJourneyOrphanResponses, GetBotIdentityData, GetBotIdentityErrors, GetBotIdentityResponses, GetCurrentUserData, GetCurrentUserErrors, GetCurrentUserResponses, GetFlowAttachmentData, GetFlowAttachmentErrors, GetFlowAttachmentResponses, GetFlowData, GetFlowErrors, GetFlowNextRunsData, GetFlowNextRunsErrors, GetFlowNextRunsResponses, GetFlowResourcesData, GetFlowResourcesErrors, GetFlowResourcesResponses, GetFlowResponses, GetGuildChannelsData, GetGuildChannelsErrors, GetGuildChannelsResponses, GetGuildEmojisData, GetGuildEmojisErrors, GetGuildEmojisResponses, GetGuildRolesData, GetGuildRolesErrors, GetGuildRolesResponses, GetGuildSettingsData, GetGuildSettingsErrors, GetGuildSettingsResponses, GetGuildUploadData, GetGuildUploadErrors, GetGuildUploadResponses, GetHealthData, GetHealthErrors, GetHealthResponses, GetInstallPlanData, GetInstallPlanErrors, GetInstallPlanResponses, GetJourneyButtonListenersData, GetJourneyButtonListenersErrors, GetJourneyButtonListenersResponses, GetJourneyData, GetJourneyDriftData, GetJourneyDriftErrors, GetJourneyDriftResponses, GetJourneyErrors, GetJourneyPublishedStateData, GetJourneyPublishedStateErrors, GetJourneyPublishedStateResponses, GetJourneyResponses, GetLevelingInsightsData, GetLevelingInsightsErrors, GetLevelingInsightsResponses, GetLevelingUserData, GetLevelingUserErrors, GetLevelingUserResponses, GetNodeTypesData, GetNodeTypesErrors, GetNodeTypesResponses, GetPublishedStateData, GetPublishedStateErrors, GetPublishedStateResponses, GetTicketData, GetTicketErrors, GetTicketResponses, GetTicketsConfigData, GetTicketsConfigErrors, GetTicketsConfigResponses, GetWarningsConfigData, GetWarningsConfigErrors, GetWarningsConfigResponses, GroupFlowWithData, GroupFlowWithErrors, GroupFlowWithResponses, InstallFlowData, InstallFlowErrors, InstallFlowResponses, IssueWarningData, IssueWarningErrors, IssueWarningResponses, ListFlowDraftsData, ListFlowDraftsErrors, ListFlowDraftsResponses, ListFlowsData, ListFlowsErrors, ListFlowsResponses, ListGuildsData, ListGuildsErrors, ListGuildsResponses, ListGuildUploadsData, ListGuildUploadsErrors, ListGuildUploadsResponses, ListJourneysData, ListJourneysErrors, ListJourneysResponses, ListLevelingData, ListLevelingErrors, ListLevelingResponses, ListTicketsData, ListTicketsErrors, ListTicketsResponses, ListWarningsData, ListWarningsErrors, ListWarningsResponses, LoginCallbackData, LoginCallbackErrors, LoginData, LoginErrors, LogoutData, LogoutErrors, LogoutResponses, PreviewFlowGroupingData, PreviewFlowGroupingErrors, PreviewFlowGroupingResponses, ReleaseWarningData, ReleaseWarningErrors, ReleaseWarningResponses, ReopenTicketData, ReopenTicketErrors, ReopenTicketResponses, RepairJourneyDriftData, RepairJourneyDriftErrors, RepairJourneyDriftResponses, SaveFlowResourcesData, SaveFlowResourcesErrors, SaveFlowResourcesResponses, SaveMyFlowDraftData, SaveMyFlowDraftErrors, SaveMyFlowDraftResponses, SaveTicketTypeData, SaveTicketTypeErrors, SaveTicketTypeResponses, SearchGuildMembersData, SearchGuildMembersErrors, SearchGuildMembersResponses, UnclaimTicketData, UnclaimTicketErrors, UnclaimTicketResponses, UnpublishFlowData, UnpublishFlowErrors, UnpublishFlowResponses, UnpublishJourneyData, UnpublishJourneyErrors, UnpublishJourneyResponses, UpdateFlowData, UpdateFlowErrors, UpdateFlowResponses, UpdateGuildSettingsData, UpdateGuildSettingsErrors, UpdateGuildSettingsResponses, UpdateGuildTimeZoneData, UpdateGuildTimeZoneErrors, UpdateGuildTimeZoneResponses, UpdateJourneyData, UpdateJourneyErrors, UpdateJourneyResponses, UpdateTicketsConfigData, UpdateTicketsConfigErrors, UpdateTicketsConfigResponses, UpdateWarningData, UpdateWarningErrors, UpdateWarningResponses, UpdateWarningsConfigData, UpdateWarningsConfigErrors, UpdateWarningsConfigResponses, UploadGuildImageData, UploadGuildImageErrors, UploadGuildImageResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -355,6 +355,11 @@ export const getLevelingInsights = <ThrowOnError extends boolean = true>(options
 export const getLevelingUser = <ThrowOnError extends boolean = true>(options: Options<GetLevelingUserData, ThrowOnError>): RequestResult<GetLevelingUserResponses, GetLevelingUserErrors, ThrowOnError> => (options.client ?? client).get<GetLevelingUserResponses, GetLevelingUserErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/leveling/users/{userId}', ...options });
 
 /**
+ * Members whose name starts with a search, bots left out
+ */
+export const searchGuildMembers = <ThrowOnError extends boolean = true>(options: Options<SearchGuildMembersData, ThrowOnError>): RequestResult<SearchGuildMembersResponses, SearchGuildMembersErrors, ThrowOnError> => (options.client ?? client).get<SearchGuildMembersResponses, SearchGuildMembersErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/members/search', ...options });
+
+/**
  * The guild's assignable roles
  */
 export const getGuildRoles = <ThrowOnError extends boolean = true>(options: Options<GetGuildRolesData, ThrowOnError>): RequestResult<GetGuildRolesResponses, GetGuildRolesErrors, ThrowOnError> => (options.client ?? client).get<GetGuildRolesResponses, GetGuildRolesErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/roles', ...options });
@@ -453,6 +458,47 @@ export const deleteGuildUpload = <ThrowOnError extends boolean = true>(options: 
  * The picture itself, as the content type its bytes were read as, for an `<img src>` on a signed-in page. Not JSON, so not meant for the SDK.
  */
 export const getGuildUpload = <ThrowOnError extends boolean = true>(options: Options<GetGuildUploadData, ThrowOnError>): RequestResult<GetGuildUploadResponses, GetGuildUploadErrors, ThrowOnError> => (options.client ?? client).get<GetGuildUploadResponses, GetGuildUploadErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/uploads/{uploadId}', ...options });
+
+/**
+ * The server's warnings, newest issued first
+ */
+export const listWarnings = <ThrowOnError extends boolean = true>(options: Options<ListWarningsData, ThrowOnError>): RequestResult<ListWarningsResponses, ListWarningsErrors, ThrowOnError> => (options.client ?? client).get<ListWarningsResponses, ListWarningsErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/warnings', ...options });
+
+/**
+ * Warn a member as the signed-in operator, and post the mod-log notice
+ */
+export const issueWarning = <ThrowOnError extends boolean = true>(options: Options<IssueWarningData, ThrowOnError>): RequestResult<IssueWarningResponses, IssueWarningErrors, ThrowOnError> => (options.client ?? client).post<IssueWarningResponses, IssueWarningErrors, ThrowOnError>({
+    url: '/api/guilds/{guildId}/warnings',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Change a warning's rule, description and drop-off date, and post the mod-log notice
+ */
+export const updateWarning = <ThrowOnError extends boolean = true>(options: Options<UpdateWarningData, ThrowOnError>): RequestResult<UpdateWarningResponses, UpdateWarningErrors, ThrowOnError> => (options.client ?? client).put<UpdateWarningResponses, UpdateWarningErrors, ThrowOnError>({
+    url: '/api/guilds/{guildId}/warnings/{slug}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Release a warning — active or expired — with a reason, and post the mod-log notice
+ */
+export const releaseWarning = <ThrowOnError extends boolean = true>(options: Options<ReleaseWarningData, ThrowOnError>): RequestResult<ReleaseWarningResponses, ReleaseWarningErrors, ThrowOnError> => (options.client ?? client).post<ReleaseWarningResponses, ReleaseWarningErrors, ThrowOnError>({
+    url: '/api/guilds/{guildId}/warnings/{slug}/release',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
 
 /**
  * Whether the web server is up

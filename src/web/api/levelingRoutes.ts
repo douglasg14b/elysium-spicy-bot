@@ -17,6 +17,7 @@ import {
 import { fetchMemberSnapshotsById } from '../../features/leveling/logic/fetchMemberSnapshots';
 import type { GuildMemberSnapshot } from '../../features/leveling/logic/belowThresholdReport';
 import type { AppEnv } from '../types';
+import { resolveUserId } from './userIdParam';
 import {
     LevelingInsightsBodySchema,
     LevelingListResultSchema,
@@ -164,6 +165,8 @@ export function levelingRoutes(): OpenAPIHono<AppEnv> {
         router.openapi(getLevelingUserRoute, async (c) => {
             const guild = c.get('guild');
 
+            // Unlike a ticket there is no cross-guild concern to hide: progress is looked up by
+            // `(guildId, userId)` together, so an unknown id simply has no activity.
             const resolved = resolveUserId(c.req.valid('param').userId);
             if (!resolved.ok) {
                 return c.json({ error: resolved.error }, resolved.status);
@@ -216,38 +219,6 @@ export function levelingRoutes(): OpenAPIHono<AppEnv> {
 }
 
 /* ---- Helpers ---- */
-
-type ResolveUserIdResult =
-    | { ok: true; userId: string }
-    | { ok: false; error: string; status: 400 };
-
-/**
- * Parse the path's user id before it can reach a query.
- *
- * A snowflake, so a length and digit check rather than `Number()` — the value exceeds
- * `Number.MAX_SAFE_INTEGER` and parsing it would corrupt the id it is meant to validate.
- * Unlike a ticket there is no cross-guild concern to hide: progress is looked up by
- * `(guildId, userId)` together, so another guild's row is unreachable by construction and
- * an unknown id simply has no activity.
- *
- * Twenty digits can still exceed a snowflake's 64 bits, which Discord refuses as a malformed
- * request rather than an unknown member — so that bound is checked here too, as a `BigInt`.
- * The refusal echoes the id, cut short: a path segment can be as long as the caller likes.
- */
-function resolveUserId(rawId: string): ResolveUserIdResult {
-    if (!/^\d{17,20}$/.test(rawId) || BigInt(rawId) > MAX_SNOWFLAKE) {
-        const shown = rawId.length > ECHOED_ID_MAX_LENGTH ? `${rawId.slice(0, ECHOED_ID_MAX_LENGTH)}…` : rawId;
-        return { ok: false, error: `\`${shown}\` is not a user id.`, status: 400 };
-    }
-
-    return { ok: true, userId: rawId };
-}
-
-/** A snowflake is an unsigned 64-bit integer. */
-const MAX_SNOWFLAKE = 2n ** 64n - 1n;
-
-/** How much of a refused id is echoed back. */
-const ECHOED_ID_MAX_LENGTH = 32;
 
 async function memberSnapshot(guild: Guild, userId: string): Promise<LevelingMember | null> {
     const found = await fetchMemberSnapshotsById(guild, [userId]);

@@ -77,6 +77,13 @@ const EXPECTED_BUDGET: Readonly<Record<string, RateBudget>> = {
     updateTicketsConfig: 'discord',
     saveTicketType: 'discord',
     deleteTicketType: 'discord',
+    // Warnings. Each write posts a mod-log notice, and issuing fetches the member; the search
+    // asks Discord for members by name.
+    listWarnings: 'general',
+    issueWarning: 'discord',
+    updateWarning: 'discord',
+    releaseWarning: 'discord',
+    searchGuildMembers: 'discord',
     // Uploads. Database only; the upload is bounded by the server's total, not the Discord budget,
     // and the delete only frees room.
     uploadGuildImage: 'general',

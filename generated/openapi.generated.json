@@ -3384,6 +3384,33 @@
                 ],
                 "type": "object"
             },
+            "GuildMemberMatch": {
+                "description": "A member whose name starts with the search. `avatarUrl` is null when they have no avatar.",
+                "properties": {
+                    "avatarUrl": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "displayName": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "username": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "displayName",
+                    "username",
+                    "avatarUrl"
+                ],
+                "type": "object"
+            },
             "GuildObjectOwner": {
                 "description": "Who already holds a channel, category or role: a journey (by key) or the ticket system. `label` names the owner for the operator.",
                 "properties": {
@@ -6135,6 +6162,323 @@
                         "$ref": "#/components/schemas/JourneyMessageUploadUse"
                     }
                 ]
+            },
+            "Warning": {
+                "description": "One warning. `issuedOn` and `dropsOffOn` are Pacific calendar dates (`YYYY-MM-DD`); it counts as active through its drop-off day. `edited` is the last edit only.",
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "dropsOffOn": {
+                        "type": "string"
+                    },
+                    "edited": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/WarningEdit"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "issuedBy": {
+                        "$ref": "#/components/schemas/WarningPerson"
+                    },
+                    "issuedOn": {
+                        "type": "string"
+                    },
+                    "member": {
+                        "$ref": "#/components/schemas/WarningPerson"
+                    },
+                    "released": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/WarningRelease"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "rule": {
+                        "type": "string"
+                    },
+                    "slug": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/WarningStatus"
+                    }
+                },
+                "required": [
+                    "slug",
+                    "rule",
+                    "description",
+                    "member",
+                    "issuedBy",
+                    "issuedOn",
+                    "dropsOffOn",
+                    "status",
+                    "edited",
+                    "released"
+                ],
+                "type": "object"
+            },
+            "WarningCounts": {
+                "description": "The server's warning totals, whatever the list is filtered to.",
+                "properties": {
+                    "active": {
+                        "type": "number"
+                    },
+                    "expired": {
+                        "type": "number"
+                    },
+                    "released": {
+                        "type": "number"
+                    }
+                },
+                "required": [
+                    "active",
+                    "expired",
+                    "released"
+                ],
+                "type": "object"
+            },
+            "WarningEdit": {
+                "description": "The last edit: who, and when (ISO).",
+                "properties": {
+                    "at": {
+                        "type": "string"
+                    },
+                    "by": {
+                        "$ref": "#/components/schemas/WarningPerson"
+                    }
+                },
+                "required": [
+                    "by",
+                    "at"
+                ],
+                "type": "object"
+            },
+            "WarningIssue": {
+                "description": "A new warning. `issuedOn` defaults to today and `dropsOffOn` to six months after it (Pacific calendar). The issued date cannot be in the future, and the drop-off must be after it and not already past.",
+                "properties": {
+                    "description": {
+                        "maxLength": 1000,
+                        "minLength": 1,
+                        "type": "string",
+                        "x-messages": {
+                            "maxLength": "Keep the description to 1000 characters. Specific, not a saga.",
+                            "minLength": "Description cannot be empty. Tell the story."
+                        }
+                    },
+                    "dropsOffOn": {
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                        "type": "string",
+                        "x-messages": {
+                            "pattern": "Drop-off date has to be YYYY-MM-DD."
+                        }
+                    },
+                    "issuedOn": {
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                        "type": "string",
+                        "x-messages": {
+                            "pattern": "Issued date has to be YYYY-MM-DD. Time travel spelling doesn't count."
+                        }
+                    },
+                    "rule": {
+                        "maxLength": 100,
+                        "minLength": 1,
+                        "type": "string",
+                        "x-messages": {
+                            "maxLength": "Keep the rule to 100 characters. Name the line, not the essay.",
+                            "minLength": "Rule cannot be empty. Name the line they crossed."
+                        }
+                    },
+                    "userId": {
+                        "pattern": "^\\d{17,20}$",
+                        "type": "string",
+                        "x-messages": {
+                            "pattern": "Pick a member to warn."
+                        }
+                    }
+                },
+                "required": [
+                    "userId",
+                    "rule",
+                    "description"
+                ],
+                "type": "object"
+            },
+            "WarningList": {
+                "description": "The warnings matching the filter, newest issued first. `truncated` means the list was capped and more match; `counts` still reports the whole server.",
+                "properties": {
+                    "counts": {
+                        "$ref": "#/components/schemas/WarningCounts"
+                    },
+                    "truncated": {
+                        "type": "boolean"
+                    },
+                    "warnings": {
+                        "items": {
+                            "$ref": "#/components/schemas/Warning"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "warnings",
+                    "counts",
+                    "truncated"
+                ],
+                "type": "object"
+            },
+            "WarningNoticeStatus": {
+                "description": "Whether the mod-log notice went out. The warning is saved whatever this says: `unconfigured` means the server has no mod channel, `skipped` that the bot cannot reach it, `failed` that the post threw.",
+                "enum": [
+                    "sent",
+                    "unconfigured",
+                    "skipped",
+                    "failed"
+                ],
+                "type": "string"
+            },
+            "WarningPerson": {
+                "description": "Somebody on a warning, as the row recorded them. `name` is null on a warning written before names were recorded; show the id then.",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                },
+                "required": [
+                    "id",
+                    "name"
+                ],
+                "type": "object"
+            },
+            "WarningRelease": {
+                "description": "The release: who, when (ISO), and why. `reason` is null on a warning released before reasons were recorded.",
+                "properties": {
+                    "at": {
+                        "type": "string"
+                    },
+                    "by": {
+                        "$ref": "#/components/schemas/WarningPerson"
+                    },
+                    "reason": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                },
+                "required": [
+                    "by",
+                    "at",
+                    "reason"
+                ],
+                "type": "object"
+            },
+            "WarningReleaseRequest": {
+                "description": "Why the warning is released. Kept on the record.",
+                "properties": {
+                    "reason": {
+                        "maxLength": 500,
+                        "minLength": 1,
+                        "type": "string",
+                        "x-messages": {
+                            "maxLength": "Keep the reason to 500 characters. It's a record, not a memoir.",
+                            "minLength": "A release needs a reason. Say why they're off the hook."
+                        }
+                    }
+                },
+                "required": [
+                    "reason"
+                ],
+                "type": "object"
+            },
+            "WarningResult": {
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/Warning"
+                    },
+                    {
+                        "properties": {
+                            "notice": {
+                                "$ref": "#/components/schemas/WarningNoticeStatus"
+                            }
+                        },
+                        "required": [
+                            "notice"
+                        ],
+                        "type": "object"
+                    }
+                ],
+                "description": "The warning as saved, and whether its mod-log notice went out. Say so plainly when it did not."
+            },
+            "WarningStatus": {
+                "description": "`released` once a moderator released it (whether or not it had dropped off), `expired` once its drop-off day has passed on the Pacific calendar, `active` otherwise.",
+                "enum": [
+                    "active",
+                    "expired",
+                    "released"
+                ],
+                "type": "string"
+            },
+            "WarningUpdate": {
+                "description": "A warning's editable fields, all three always, and `baseEditedAt`: the `edited.at` the form was loaded from, or null if the warning had never been edited. A warning edited since is refused (409, reload). A drop-off that moves must be after the issued date and not already past; one left as it was is not judged again, so an expired warning can be corrected without reviving it.",
+                "properties": {
+                    "baseEditedAt": {
+                        "anyOf": [
+                            {
+                                "format": "date-time",
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "description": {
+                        "maxLength": 1000,
+                        "minLength": 1,
+                        "type": "string",
+                        "x-messages": {
+                            "maxLength": "Keep the description to 1000 characters. Specific, not a saga.",
+                            "minLength": "Description cannot be empty. Tell the story."
+                        }
+                    },
+                    "dropsOffOn": {
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                        "type": "string",
+                        "x-messages": {
+                            "pattern": "Drop-off date has to be YYYY-MM-DD."
+                        }
+                    },
+                    "rule": {
+                        "maxLength": 100,
+                        "minLength": 1,
+                        "type": "string",
+                        "x-messages": {
+                            "maxLength": "Keep the rule to 100 characters. Name the line, not the essay.",
+                            "minLength": "Rule cannot be empty. Name the line they crossed."
+                        }
+                    }
+                },
+                "required": [
+                    "rule",
+                    "description",
+                    "dropsOffOn",
+                    "baseEditedAt"
+                ],
+                "type": "object"
             },
             "WarningsConfig": {
                 "properties": {
@@ -11397,6 +11741,116 @@
                 ]
             }
         },
+        "/api/guilds/{guildId}/members/search": {
+            "get": {
+                "operationId": "searchGuildMembers",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "The start of a username or server nickname.",
+                        "in": "query",
+                        "name": "q",
+                        "required": true,
+                        "schema": {
+                            "description": "The start of a username or server nickname.",
+                            "maxLength": 32,
+                            "minLength": 1,
+                            "type": "string",
+                            "x-messages": {
+                                "maxLength": "Discord names stop at 32 characters, so that search matches nobody.",
+                                "minLength": "Type the start of their name."
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/GuildMemberMatch"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "Up to 10 members whose username or server nickname starts with the search, bots left out."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The search was blank or too long, or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
+                    }
+                },
+                "summary": "Members whose name starts with a search, bots left out",
+                "tags": [
+                    "members"
+                ]
+            }
+        },
         "/api/guilds/{guildId}/roles": {
             "get": {
                 "operationId": "getGuildRoles",
@@ -12996,6 +13450,540 @@
                 "summary": "One uploaded picture",
                 "tags": [
                     "uploads"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/warnings": {
+            "get": {
+                "operationId": "listWarnings",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "`active`, `expired` or `released`. Absent or blank means every status.",
+                        "in": "query",
+                        "name": "status",
+                        "required": false,
+                        "schema": {
+                            "description": "`active`, `expired` or `released`. Absent or blank means every status.",
+                            "maxLength": 16,
+                            "type": "string",
+                            "x-messages": {
+                                "maxLength": "That is not a warning status. Try active, expired or released."
+                            }
+                        }
+                    },
+                    {
+                        "description": "One member's warnings only, by their user id.",
+                        "in": "query",
+                        "name": "userId",
+                        "required": false,
+                        "schema": {
+                            "description": "One member's warnings only, by their user id.",
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "The start of the slug, the rule, the member's name or the issuer's name, any case. Trimmed; blank means no search.",
+                        "in": "query",
+                        "name": "search",
+                        "required": false,
+                        "schema": {
+                            "description": "The start of the slug, the rule, the member's name or the issuer's name, any case. Trimmed; blank means no search.",
+                            "maxLength": 100,
+                            "type": "string",
+                            "x-messages": {
+                                "maxLength": "That search is longer than anything on a warning. Shorten it."
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WarningList"
+                                }
+                            }
+                        },
+                        "description": "The matching warnings, and the server-wide counts."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "A filter was refused — a status that is not one, a user id that is not one, or a search too long to match anything — or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
+                    }
+                },
+                "summary": "The server's warnings, newest issued first",
+                "tags": [
+                    "warnings"
+                ]
+            },
+            "post": {
+                "operationId": "issueWarning",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WarningIssue"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WarningResult"
+                                }
+                            }
+                        },
+                        "description": "The warning as saved, and whether its notice went out."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was refused, a date rule refused the dates (the sentence says which), the member is not in this server, or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was over the size limit."
+                    },
+                    "415": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was not sent as JSON."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
+                    }
+                },
+                "summary": "Warn a member as the signed-in operator, and post the mod-log notice",
+                "tags": [
+                    "warnings"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/warnings/{slug}": {
+            "put": {
+                "operationId": "updateWarning",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "slug",
+                        "required": true,
+                        "schema": {
+                            "maxLength": 64,
+                            "type": "string",
+                            "x-messages": {
+                                "maxLength": "That is not a warning slug."
+                            }
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WarningUpdate"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WarningResult"
+                                }
+                            }
+                        },
+                        "description": "The warning as saved, and whether its notice went out."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was refused, a date rule refused the drop-off (the sentence says which), nothing would change, or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, or the server has no warning by that slug."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The warning is released, and released warnings are not edited; or somebody else edited it since `baseEditedAt` (or while this save ran), so nothing changed — reload it. The sentence says which."
+                    },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was over the size limit."
+                    },
+                    "415": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was not sent as JSON."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
+                    }
+                },
+                "summary": "Change a warning's rule, description and drop-off date, and post the mod-log notice",
+                "tags": [
+                    "warnings"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/warnings/{slug}/release": {
+            "post": {
+                "operationId": "releaseWarning",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "slug",
+                        "required": true,
+                        "schema": {
+                            "maxLength": 64,
+                            "type": "string",
+                            "x-messages": {
+                                "maxLength": "That is not a warning slug."
+                            }
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WarningReleaseRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WarningResult"
+                                }
+                            }
+                        },
+                        "description": "The warning as released, and whether its notice went out."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was refused, or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, or the server has no warning by that slug."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The warning was already released. Nothing changed."
+                    },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was over the size limit."
+                    },
+                    "415": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was not sent as JSON."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
+                    }
+                },
+                "summary": "Release a warning — active or expired — with a reason, and post the mod-log notice",
+                "tags": [
+                    "warnings"
                 ]
             }
         },

@@ -16,6 +16,7 @@ import { levelingRoutes } from './levelingRoutes';
 import { nodeRoutes } from './nodeRoutes';
 import { ticketRoutes } from './ticketRoutes';
 import { uploadRoutes } from './uploadRoutes';
+import { warningRoutes } from './warningRoutes';
 
 /**
  * The largest request body any `/api` route accepts: 1 MiB.
@@ -144,6 +145,10 @@ export function registerApiRoutes(app: OpenAPIHono<AppEnv>): void {
     // data in a guild the caller already administers, so it is the existing tier
     // rather than a second authorization concept.
     app.route('/api/guilds', ticketRoutes());
+    // Warnings — the list, issue, edit and release, and the member search the issue dialog
+    // picks from. Same prefix again, so `requireGuildAccess` above already authorizes every
+    // route in it and the router adds no middleware of its own.
+    app.route('/api/guilds', warningRoutes());
     // Leveling — the guild leaderboard and one member's stats. Same prefix again, so
     // `requireGuildAccess` above already authorizes it and the router adds no middleware.
     // A member's XP is moderator-facing data in a guild the caller already administers, so
