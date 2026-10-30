@@ -9,6 +9,7 @@ import type {
     ColumnType,
     Generated,
 } from 'kysely';
+import { toSnakeCase } from './snakeCase';
 
 type ExcludedObjectTypes = Generated<number> | Date | ColumnType<Date, string, string>;
 
@@ -23,11 +24,6 @@ type ObjectArrayOnlyKeys<TSchema> = {
 type ObjectArrayColumns<TSchema> = {
     [TTable in keyof TSchema]?: readonly ObjectArrayOnlyKeys<TSchema[TTable]>[];
 };
-
-/** `contextSnapshot` -> `context_snapshot`, matching Kysely's CamelCasePlugin. */
-function toSnakeCase(value: string): string {
-    return value.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
-}
 
 export class SqliteJsonPlugin<TSchema> implements KyselyPlugin {
     private readonly allJsonColumns: Set<string>;

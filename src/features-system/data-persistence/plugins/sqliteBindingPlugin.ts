@@ -8,6 +8,7 @@ import type {
     ColumnType,
 } from 'kysely';
 import { transformSqliteQueryBindings } from './sqlBindingTransform';
+import { toSnakeCase } from './snakeCase';
 
 type BooleanOnlyKeys<TSchema> = {
     [K in keyof TSchema]: TSchema[K] extends ColumnType<boolean, 0 | 1, 0 | 1> | boolean ? K : never;
@@ -25,7 +26,14 @@ export class SqliteBindingPlugin<DB> implements KyselyPlugin {
     private readonly allBoolColumns: Set<string>;
 
     constructor(private readonly boolCols: BoolColumns<DB>) {
-        this.allBoolColumns = new Set<string>(Object.values(this.boolCols ?? {}).flat() as string[]);
+        // Both spellings, as `SqliteJsonPlugin` registers them: this plugin runs before
+        // CamelCasePlugin in the result pipeline, so a multi-word column (`in_server`)
+        // still arrives snake_case here, and registering only `inServer` left it 0/1.
+        this.allBoolColumns = new Set<string>();
+        for (const column of Object.values(this.boolCols ?? {}).flat() as string[]) {
+            this.allBoolColumns.add(column);
+            this.allBoolColumns.add(toSnakeCase(column));
+        }
     }
 
     transformQuery(args: PluginTransformQueryArgs): RootOperationNode {
