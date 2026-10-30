@@ -16,7 +16,6 @@ import {
     WARN_DATE_INPUT_MAX_LENGTH,
     WARN_DESCRIPTION_MAX_LENGTH,
     WARN_RULE_MAX_LENGTH,
-    WARNING_DATE_PLACEHOLDER,
     WARNING_DEFAULT_DURATION_MONTHS,
 } from '../constants';
 import { issueGuildWarning } from '../logic/issueGuildWarning';
@@ -26,9 +25,10 @@ import {
     calendarDateFromUtcMidnight,
     formatCalendarDate,
     getPacificCalendarDate,
-    type WarningDateErrorKind,
 } from '../logic/warningDates';
 import { memberHasModerateMembers } from '../logic/warningPermissions';
+import { warningInputRefusalSentence } from '../logic/warningRefusals';
+import { memberDisplayName } from '../utils/memberDisplayName';
 
 export const WARN_MODAL_ID = 'warn_issue_modal';
 
@@ -37,21 +37,6 @@ export const WARN_RULE_INPUT_ID = 'warn_rule_input';
 export const WARN_DESCRIPTION_INPUT_ID = 'warn_description_input';
 export const WARN_ISSUED_INPUT_ID = 'warn_issued_input';
 export const WARN_EXPIRES_INPUT_ID = 'warn_expires_input';
-
-function warningDateErrorCopy(kind: WarningDateErrorKind): string {
-    switch (kind) {
-        case 'invalid-issued':
-            return `Issued date has to be ${WARNING_DATE_PLACEHOLDER}. Time travel spelling doesn't count.`;
-        case 'invalid-expires':
-            return `Drop-off date has to be ${WARNING_DATE_PLACEHOLDER}.`;
-        case 'issued-in-future':
-            return "Issued date can't be in the future. Backdate all you want — just not tomorrow.";
-        case 'expires-not-after-issued':
-            return 'Drop-off has to be after the issued date, or this warning is already a ghost.';
-        case 'expires-already-passed':
-            return 'That drop-off date is already in the past. Pick a future one or leave it blank for six months.';
-    }
-}
 
 function readOptionalTextInput(interaction: ModalSubmitInteraction, customId: string): string {
     try {
@@ -177,7 +162,12 @@ export function WarnModalComponent() {
             const result = await issueGuildWarning({
                 guildId: interaction.guildId,
                 userId: selectedUser.id,
+                userName: memberDisplayName(
+                    interaction.fields.getSelectedMembers(WARN_USER_INPUT_ID)?.get(selectedUser.id),
+                    selectedUser
+                ),
                 issuerId: interaction.user.id,
+                issuerName: memberDisplayName(interaction.member, interaction.user),
                 rule: interaction.fields.getTextInputValue(WARN_RULE_INPUT_ID),
                 description: interaction.fields.getTextInputValue(WARN_DESCRIPTION_INPUT_ID),
                 issuedInput: readOptionalTextInput(interaction, WARN_ISSUED_INPUT_ID),
@@ -185,12 +175,7 @@ export function WarnModalComponent() {
             });
 
             if (!result.ok) {
-                const message =
-                    result.kind === 'empty-rule'
-                        ? 'Rule cannot be empty. Name the line they crossed.'
-                        : result.kind === 'empty-description'
-                          ? 'Description cannot be empty. Tell the story.'
-                          : warningDateErrorCopy(result.kind);
+                const message = warningInputRefusalSentence(result.kind);
 
                 await interaction.editReply({ content: message });
                 return commandError(message);

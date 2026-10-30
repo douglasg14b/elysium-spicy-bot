@@ -42,6 +42,11 @@ export function slugifyWarningRule(rule: string, maxLength: number = WARNING_SLU
     return truncated || 'warn';
 }
 
+/** A slug as somebody typed or pasted it, in the form it is stored: trimmed and lower-cased. */
+export function normalizeWarningSlug(slug: string): string {
+    return slug.trim().toLowerCase();
+}
+
 export function generateWarningSlug(
     rule: string,
     suffix: string = createRandomSlugSuffix()

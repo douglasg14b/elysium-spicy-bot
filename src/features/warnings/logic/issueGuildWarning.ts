@@ -1,16 +1,17 @@
 import { warningsRepo } from '../data/warningsRepo';
 import type { Warning } from '../data/warningsSchema';
-import {
-    calendarDateToUtcMidnightIso,
-    resolveWarningDates,
-    type WarningDateErrorKind,
-} from './warningDates';
+import { calendarDateToUtcMidnightIso, resolveWarningDates } from './warningDates';
+import type { WarningInputRefusal } from './warningRefusals';
 import { generateWarningSlug, withUniqueSlugRetry } from './warningSlug';
 
 export type IssueGuildWarningInput = {
     guildId: string;
     userId: string;
+    /** The warned member's display name now, recorded so the dashboard can name them without a lookup. */
+    userName: string;
     issuerId: string;
+    /** The issuer's display name now. */
+    issuerName: string;
     rule: string;
     description: string;
     issuedInput: string;
@@ -18,10 +19,9 @@ export type IssueGuildWarningInput = {
     now?: Date;
 };
 
-export type IssueGuildWarningResult =
-    | { ok: true; warning: Warning }
-    | { ok: false; kind: WarningDateErrorKind | 'empty-rule' | 'empty-description' };
+export type IssueGuildWarningResult = { ok: true; warning: Warning } | { ok: false; kind: WarningInputRefusal };
 
+/** Issue a warning — the one write path for `/warn` and the dashboard alike. */
 export async function issueGuildWarning(input: IssueGuildWarningInput): Promise<IssueGuildWarningResult> {
     const rule = input.rule.trim();
     const description = input.description.trim();
@@ -53,7 +53,9 @@ export async function issueGuildWarning(input: IssueGuildWarningInput): Promise<
             warningsRepo.insert({
                 guildId: input.guildId,
                 userId: input.userId,
+                userName: input.userName,
                 issuerId: input.issuerId,
+                issuerName: input.issuerName,
                 slug,
                 rule,
                 description,

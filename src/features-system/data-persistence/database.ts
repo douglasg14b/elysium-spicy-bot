@@ -103,7 +103,7 @@ function getDatabaseClient() {
                 ],
                 leveling_xp_grants: ['occurredAt', 'voiceSessionStartedAt', 'voiceSessionEndedAt'],
                 leveling_voice_sessions: ['sessionStartedAt', 'eligibleSince', 'updatedAt'],
-                warnings: ['issuedAt', 'expiresAt', 'clearedAt', 'createdAt'],
+                warnings: ['issuedAt', 'expiresAt', 'clearedAt', 'editedAt', 'createdAt'],
                 warnings_config: ['createdAt', 'updatedAt'],
                 flows: ['createdAt', 'updatedAt'],
                 flow_runs: ['wakeAt', 'claimedAt', 'createdAt', 'updatedAt'],
