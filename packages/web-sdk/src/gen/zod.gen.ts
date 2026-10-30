@@ -388,6 +388,7 @@ export const zFlowBlockFieldRules = z.object({
     }),
     'action.sendMessage': z.object({
         channelId: z.string().min(1, 'Can\'t be empty.').optional(),
+        ephemeral: z.unknown().optional(),
         message: z.string().min(1, 'Fill this in.').max(2000, 'No more than 2000 characters.').optional(),
         where: z.unknown().optional()
     }),
@@ -1263,6 +1264,18 @@ export const zBlockConfigField = z.union([
         description: z.string().optional(),
         key: z.string(),
         label: z.string(),
+        visibleWhen: z.object({
+            equals: z.array(z.string()),
+            field: z.string()
+        }).optional()
+    }),
+    z.object({
+        control: z.enum(['toggle']),
+        defaultValue: z.boolean().optional(),
+        description: z.string().optional(),
+        key: z.string(),
+        label: z.string(),
+        requiresWhenOn: z.array(zFlowContextRequirement).optional(),
         visibleWhen: z.object({
             equals: z.array(z.string()),
             field: z.string()

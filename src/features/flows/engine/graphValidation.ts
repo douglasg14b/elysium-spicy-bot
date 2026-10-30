@@ -819,13 +819,14 @@ function checkContextRequirements(graph: FlowGraph): readonly FlowValidationIssu
     return issues;
 }
 
-/** The field a requirement's finding sits under in the inspector — only a picked option's. */
+/** The field a requirement's finding sits under in the inspector — a picked option's or a ticked box's. */
 function causeField(cause: RequirementCause): string | undefined {
     switch (cause.kind) {
         case 'block':
         case 'token':
             return undefined;
         case 'option':
+        case 'toggle':
             return cause.field.key;
         default: {
             const illegal: never = cause;

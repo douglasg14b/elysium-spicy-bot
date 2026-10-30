@@ -17,7 +17,7 @@ import { ColourControl } from './ColourControl';
 import { DurationControl } from './DurationControl';
 import { MessageButtonControl } from './MessageButtonControl';
 import { MessageControl } from './MessageControl';
-import { SegmentedChoiceControl, SelectChoiceControl } from './ChoiceControls';
+import { SegmentedChoiceControl, SelectChoiceControl, ToggleControl } from './ChoiceControls';
 import { LongTextControl, TextControl } from './TextControls';
 import { ObjectListControl } from './ObjectListControl';
 import { TextListControl } from './TextListControl';
@@ -87,6 +87,8 @@ export function renderControl(
             return <MessageControl field={field} {...props} />;
         case 'messageButton':
             return <MessageButtonControl field={field} {...props} />;
+        case 'toggle':
+            return <ToggleControl field={field} {...props} />;
         default: {
             // Adding a member to `BLOCK_CONTROL_TYPES` without implementing it here
             // is a compile error, by design.

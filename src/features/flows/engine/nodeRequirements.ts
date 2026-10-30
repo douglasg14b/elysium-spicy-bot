@@ -19,7 +19,8 @@ export type { RunLeg } from './copyRendering';
  *
  * 1. its block's `requires`;
  * 2. the `requires` of the option picked in each visible `select` or `segmented` field —
- *    Time Since's "the member's last message" needs a member, its channel source does not;
+ *    Time Since's "the member's last message" needs a member, its channel source does not —
+ *    and the `requiresWhenOn` of each visible `toggle` that is ticked;
  * 3. the requirement of each built-in token in its visible copy, wherever
  *    `copyLocationsOf` finds it — `objectList` columns and a message's parts included —
  *    `{{subject.mention}}` needs a member, `{{guild.name}}` nothing.
@@ -38,6 +39,11 @@ export type RequirementCause =
           readonly field: BlockConfigField;
           /** The picked option's label, as the author sees it in the control. */
           readonly optionLabel: string;
+      }
+    | {
+          /** A checkbox that is ticked, and says what ticking it needs. */
+          readonly kind: 'toggle';
+          readonly field: BlockConfigField;
       }
     | {
           readonly kind: 'token';
@@ -80,16 +86,32 @@ export function effectiveRequirements(
     }
 
     for (const field of block.configFields) {
-        if ((field.control !== 'select' && field.control !== 'segmented') || !isFieldVisible(field, block.configFields, nodeData)) {
+        if (!isFieldVisible(field, block.configFields, nodeData)) {
             continue;
         }
         const value = effectiveFieldValue(field, nodeData);
-        const option = field.options.find((candidate) => candidate.value === value);
-        if (!option) {
-            continue;
-        }
-        for (const requirement of option.requires ?? []) {
-            add(requirement, { kind: 'option', field, optionLabel: option.label });
+        switch (field.control) {
+            case 'select':
+            case 'segmented': {
+                const option = field.options.find((candidate) => candidate.value === value);
+                if (!option) {
+                    break;
+                }
+                for (const requirement of option.requires ?? []) {
+                    add(requirement, { kind: 'option', field, optionLabel: option.label });
+                }
+                break;
+            }
+            case 'toggle': {
+                if (value === true) {
+                    for (const requirement of field.requiresWhenOn ?? []) {
+                        add(requirement, { kind: 'toggle', field });
+                    }
+                }
+                break;
+            }
+            default:
+                break;
         }
     }
 
@@ -115,6 +137,8 @@ export function describeRequirementCause(cause: RequirementCause): string {
             return '';
         case 'option':
             return ` for "${cause.field.label}" set to "${cause.optionLabel}"`;
+        case 'toggle':
+            return ` for "${cause.field.label}" ticked`;
         case 'token':
             return ` for {{${cause.token}}} in ${cause.where}`;
         default: {

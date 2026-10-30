@@ -174,7 +174,7 @@ export function resourceKeyFieldFor(fieldKey: string): string {
  * outright rather than leaving it present-but-`undefined`; see `updateNodeConfig`
  * in `FlowBuilderPage` for why the difference is load-bearing.
  *
- * `string[]` is `textList`'s value, `Record<string, unknown>[]` is `objectList`'s,
+ * `boolean` is `toggle`'s value, `string[]` is `textList`'s, `Record<string, unknown>[]` is `objectList`'s,
  * `Eligibility` is `eligibility`'s, `DiscordMessage` is `message`'s and `MessageButtonRef`
  * is `messageButton`'s — the generated types, so no hand-written shape lives in the
  * builder. All five are a **new value every time** rather than a mutated one: the patch lands in React state, so a
@@ -196,6 +196,7 @@ export type ControlChange = (
     value:
         | string
         | number
+        | boolean
         | string[]
         | Record<string, unknown>[]
         | Eligibility

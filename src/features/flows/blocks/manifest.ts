@@ -207,6 +207,15 @@ export const BLOCK_CONTROL_TYPES = [
      * declarations (`messageButtonIssues` in `logic/messageButtonReferences.ts`).
      */
     'messageButton',
+    /**
+     * A checkbox storing a boolean — the field is on or it is off, with nothing between.
+     *
+     * Not a `segmented` of "yes" and "no": the browser draws one box, the schema is a plain
+     * `z.boolean()`, and the field can say what *ticking it* needs from the run
+     * (`requiresWhenOn`), as a `select` option says what *picking it* does. Conformance
+     * holds the schema to the stored shape: it must take `true` and `false` and refuse text.
+     */
+    'toggle',
 ] as const;
 
 export type BlockControlType = (typeof BLOCK_CONTROL_TYPES)[number];
@@ -621,6 +630,21 @@ export type BlockConfigField =
           readonly defaultValue?:
               | { readonly messageKey: string; readonly buttonKey: string }
               | { readonly flowId: string; readonly nodeId: string; readonly buttonKey: string };
+      })
+    | (BlockConfigFieldBase & {
+          /** A checkbox: the field holds `true` or `false`. */
+          readonly control: 'toggle';
+          /**
+           * Run context the node needs **while this is ticked**, on top of the block's own
+           * `requires` — what an option's `requires` is to a `select`, for a field with no
+           * options. Read through `effectiveRequirements`, so an unticked box (stored, or by
+           * its default) and a hidden one need nothing; save-time validation and the executor
+           * hold a ticked one to it, and the builder disables the box where the run cannot
+           * carry it. Absent means ticking it needs nothing extra. Conformance holds each
+           * entry to {@link FLOW_CONTEXT_REQUIREMENTS}.
+           */
+          readonly requiresWhenOn?: readonly FlowContextRequirement[];
+          readonly defaultValue?: boolean;
       });
 
 /**

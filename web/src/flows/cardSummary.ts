@@ -314,6 +314,14 @@ function resolveValue(
             return messageHeadline(raw);
         case 'messageButton':
             return messageButtonName(raw, context);
+        /*
+         * The box's own label while it is ticked, nothing while it is not — an unticked box is
+         * the normal case and says nothing, so a part pairs this with `hideWhenEmpty` to
+         * vanish. Read from what is stored, as every control above is: a node dropped from the
+         * palette holds `false`, and one saved before the box existed holds nothing.
+         */
+        case 'toggle':
+            return raw === true ? field.label : '';
         default: {
             const unhandled: never = field;
             void unhandled;

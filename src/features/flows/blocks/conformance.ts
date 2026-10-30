@@ -422,6 +422,10 @@ function checkVocabulary(label: string, block: Partial<Record<string, unknown>>)
                 member('configFields.options.requires', requirement, FLOW_CONTEXT_REQUIREMENTS);
             }
         }
+        // A ticked toggle's `requiresWhenOn` joins them the same way.
+        for (const requirement of asArray(readProperty(field, 'requiresWhenOn'))) {
+            member('configFields.requiresWhenOn', requirement, FLOW_CONTEXT_REQUIREMENTS);
+        }
     }
     for (const handle of asArray(block.handles)) {
         member('handles.tone', readProperty(handle, 'tone'), BLOCK_HANDLE_TONES);
@@ -906,8 +910,8 @@ function checkVisibleWhenSource(
  * — for the controls whose stored shape is fixed by the control rather than by the block.
  *
  * A time-of-day control writes `HH:MM`, a days-of-week control writes `'mon'` … `'sun'`,
- * a message control writes a message object, and a message-button control writes two keys,
- * whatever block asks for one. A schema
+ * a toggle writes a boolean, a message control writes a message object, and a
+ * message-button control writes two keys, whatever block asks for one. A schema
  * looser than that would save a value the control can never draw (and the reader of the
  * value would have to guess at it); a stricter one — a message field over a string schema —
  * would refuse a value the control offers. Probed, like every other schema check here, so
@@ -933,6 +937,12 @@ function controlShapeProbes(control: unknown): ControlShapeProbes | undefined {
                 accepts: BLOCK_DAY_KEYS.map((day) => [day]),
                 refuses: [['Mon'], ['monday'], ['someday'], 'mon'],
                 description: `a list of the seven day keys, ${BLOCK_DAY_KEYS.map((day) => `'${day}'`).join(', ')}`,
+            };
+        case 'toggle':
+            return {
+                accepts: [true, false],
+                refuses: ['x', 'true', 1],
+                description: 'a boolean, true or false',
             };
         case 'message':
             return {

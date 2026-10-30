@@ -1,20 +1,23 @@
 /**
- * The two fixed-choice controls. `segmented` shows every option at once;
- * `select` drops down, for when the labels are too long to sit side by side.
+ * The fixed-choice controls. `segmented` shows every option at once;
+ * `select` drops down, for when the labels are too long to sit side by side;
+ * `toggle` is the one with only two, a single checkbox.
  *
- * Both disable an option whose declared `requires` the run reaching this node cannot be
- * relied on to carry — "The member's last message" where a run about nobody can arrive —
- * and say why on hover. A value already picked stays shown: the server's issue sits
- * beside it, and the author picks another.
+ * Each disables what its declared requirement says the run reaching this node cannot be
+ * relied on to carry — an option's `requires` ("The member's last message" where a run
+ * about nobody can arrive), a box's `requiresWhenOn` — and says why on hover. A value
+ * already picked stays shown: the server's issue sits beside it, and the author picks
+ * another (or unticks the box).
  */
 
-import { SegmentedControl, Select, Text } from '@mantine/core';
+import { Checkbox, SegmentedControl, Select, Text } from '@mantine/core';
 import { asText, type ControlProps } from './types';
 import type { BlockConfigField, BlockConfigOption } from '@brattybot/web-sdk';
 import { describeUnavailableRequirement, firstUnavailable, type RequirementAvailability } from '../variables';
 
 type SegmentedField = Extract<BlockConfigField, { control: 'segmented' }>;
 type SelectField = Extract<BlockConfigField, { control: 'select' }>;
+type ToggleField = Extract<BlockConfigField, { control: 'toggle' }>;
 
 /**
  * What a choice control shows when `node.data` carries no value for it.
@@ -117,5 +120,32 @@ export function SelectChoiceControl({ field, value, onChange, context, error }: 
             onChange={(next) => onChange(next ?? fallback)}
             allowDeselect={false}
         />
+    );
+}
+
+/**
+ * A checkbox for a yes-or-no setting.
+ *
+ * Shows its declared default when `node.data` holds nothing, as the choice controls do, and
+ * writes only on a change. Where the run reaching this node cannot carry what ticking it needs
+ * (`requiresWhenOn`), an unticked box is disabled and says why on hover; a ticked one stays
+ * clickable, because unticking it is how the author makes the node valid again.
+ */
+export function ToggleControl({ field, value, onChange, context, error }: ControlProps<ToggleField>) {
+    const checked = typeof value === 'boolean' ? value : (field.defaultValue ?? false);
+    const missing = firstUnavailable(field.requiresWhenOn, context.requirements);
+    const reason = missing ? describeUnavailableRequirement(missing.requirement, missing.loss) : undefined;
+
+    return (
+        <div title={reason}>
+            <Checkbox
+                label={field.label}
+                description={field.description}
+                error={error}
+                checked={checked}
+                disabled={reason !== undefined && !checked}
+                onChange={(event) => onChange(event.currentTarget.checked)}
+            />
+        </div>
     );
 }

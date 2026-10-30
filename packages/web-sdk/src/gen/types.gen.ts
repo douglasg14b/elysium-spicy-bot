@@ -309,6 +309,17 @@ export type BlockConfigField = {
         equals: Array<string>;
         field: string;
     };
+} | {
+    control: 'toggle';
+    defaultValue?: boolean;
+    description?: string;
+    key: string;
+    label: string;
+    requiresWhenOn?: Array<FlowContextRequirement>;
+    visibleWhen?: {
+        equals: Array<string>;
+        field: string;
+    };
 };
 
 /**
@@ -574,6 +585,7 @@ export type FlowBlockFieldRules = {
     };
     'action.sendMessage': {
         channelId?: string;
+        ephemeral?: unknown;
         message?: string;
         where?: unknown;
     };

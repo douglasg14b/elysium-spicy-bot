@@ -257,6 +257,13 @@ const CONFIG_FIELD_ARMS = {
         control: z.literal('messageButton'),
         defaultValue: MessageButtonRefSchema.optional(),
     }),
+    toggle: z.object({
+        ...fieldBase,
+        control: z.literal('toggle'),
+        /** Run context the node needs while the box is ticked, on top of the block's own. */
+        requiresWhenOn: z.array(FlowContextRequirementSchema).readonly().optional(),
+        defaultValue: z.boolean().optional(),
+    }),
 } satisfies { [Control in BlockControlType]: z.ZodObject };
 
 const BlockConfigFieldSchema = z
@@ -279,6 +286,7 @@ const BlockConfigFieldSchema = z
         CONFIG_FIELD_ARMS.daysOfWeek,
         CONFIG_FIELD_ARMS.message,
         CONFIG_FIELD_ARMS.messageButton,
+        CONFIG_FIELD_ARMS.toggle,
     ])
     .openapi('BlockConfigField', {
         description: 'One editable config field, in the order the inspector renders it, discriminated on `control`.',

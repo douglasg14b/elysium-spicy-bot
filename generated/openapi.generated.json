@@ -1228,6 +1228,58 @@
                             "control"
                         ],
                         "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "control": {
+                                "enum": [
+                                    "toggle"
+                                ],
+                                "type": "string"
+                            },
+                            "defaultValue": {
+                                "type": "boolean"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "key": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "requiresWhenOn": {
+                                "items": {
+                                    "$ref": "#/components/schemas/FlowContextRequirement"
+                                },
+                                "type": "array"
+                            },
+                            "visibleWhen": {
+                                "properties": {
+                                    "equals": {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "field": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "field",
+                                    "equals"
+                                ],
+                                "type": "object"
+                            }
+                        },
+                        "required": [
+                            "key",
+                            "label",
+                            "control"
+                        ],
+                        "type": "object"
                     }
                 ]
             },
@@ -2219,6 +2271,7 @@
                                     "minLength": "Can't be empty."
                                 }
                             },
+                            "ephemeral": {},
                             "message": {
                                 "maxLength": 2000,
                                 "minLength": 1,
