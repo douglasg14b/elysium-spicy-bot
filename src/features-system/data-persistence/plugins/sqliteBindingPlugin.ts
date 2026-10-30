@@ -8,6 +8,7 @@ import type {
     ColumnType,
 } from 'kysely';
 import { transformSqliteQueryBindings } from './sqlBindingTransform';
+import { toSnakeCase } from './toSnakeCase';
 
 type BooleanOnlyKeys<TSchema> = {
     [K in keyof TSchema]: TSchema[K] extends ColumnType<boolean, 0 | 1, 0 | 1> | boolean ? K : never;
@@ -25,7 +26,13 @@ export class SqliteBindingPlugin<DB> implements KyselyPlugin {
     private readonly allBoolColumns: Set<string>;
 
     constructor(private readonly boolCols: BoolColumns<DB>) {
-        this.allBoolColumns = new Set<string>(Object.values(this.boolCols ?? {}).flat() as string[]);
+        const camelNames = Object.values(this.boolCols ?? {}).flat() as string[];
+        /*
+         * Both spellings: Kysely hands results to plugins in the order they are listed, and this
+         * one is listed before `CamelCasePlugin`, so a row still has its database names here.
+         * Matching the camel name alone left every multi-word column (`preserve_pinned`) as 0/1.
+         */
+        this.allBoolColumns = new Set<string>([...camelNames, ...camelNames.map(toSnakeCase)]);
     }
 
     transformQuery(args: PluginTransformQueryArgs): RootOperationNode {
