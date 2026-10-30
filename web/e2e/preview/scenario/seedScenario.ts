@@ -4,6 +4,7 @@ import type { PreviewPage } from '../previewPages';
 import type { SeedApi } from './seedApi';
 import { seedButtonClickTrigger } from './seedButtonClickTrigger';
 import { seedDiscord, type ScenarioGuild } from './seedDiscord';
+import { seedFlashChat } from './seedFlashChat';
 import { seedFlows } from './seedFlows';
 import { seedMessageEditor } from './seedMessageEditor';
 import { seedMessageResource } from './seedMessageResource';
@@ -41,6 +42,7 @@ export const seedScenario = {
         pages.push(...(await seedButtonClickTrigger(context)));
         pages.push(...(await seedUploads(context)));
         pages.push(...(await seedTickets(context)));
+        pages.push(...(await seedFlashChat(context)));
         return pages;
     },
 };

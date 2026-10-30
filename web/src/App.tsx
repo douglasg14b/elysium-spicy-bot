@@ -9,6 +9,7 @@ import { DashboardLayout } from './layout/DashboardLayout';
 import { LoginPage } from './pages/LoginPage';
 import { WarningsPage } from './pages/WarningsPage';
 import { ComingSoonPage } from './pages/ComingSoonPage';
+import { FlashChatPage } from './pages/FlashChatPage';
 import { FlowsListPage } from './pages/FlowsListPage';
 import { FlowBuilderPage } from './pages/FlowBuilderPage';
 import { LevelingInsightsPage } from './pages/LevelingInsightsPage';
@@ -101,6 +102,7 @@ function AuthGate() {
                      */}
                     <Route path="/tickets/config" element={<TicketsConfigPage />} />
                     <Route path="/tickets/:ticketId" element={<TicketDetailPage />} />
+                    <Route path="/flash-chat" element={<FlashChatPage />} />
                     <Route
                         path="/birthdays"
                         element={

@@ -12,6 +12,7 @@ import { flowRoutes } from './flowRoutes';
 import { guildRoutes } from './guildRoutes';
 import { healthRoutes } from './healthRoutes';
 import { journeyRoutes } from './journeyRoutes';
+import { flashChatRoutes } from './flashChatRoutes';
 import { levelingRoutes } from './levelingRoutes';
 import { nodeRoutes } from './nodeRoutes';
 import { ticketRoutes } from './ticketRoutes';
@@ -149,6 +150,9 @@ export function registerApiRoutes(app: OpenAPIHono<AppEnv>): void {
     // A member's XP is moderator-facing data in a guild the caller already administers, so
     // it is the existing tier rather than a second authorization concept.
     app.route('/api/guilds', levelingRoutes());
+    // Flash chat — which channels delete their messages, and after how long. Same prefix again,
+    // so `requireGuildAccess` above already authorizes it and the router adds no middleware.
+    app.route('/api/guilds', flashChatRoutes());
     // Uploaded pictures — the one route whose body may pass 1 MiB (see `apiBodyLimit`). Same
     // prefix again, so `requireGuildAccess` above authorizes it and the router adds nothing.
     app.route('/api/guilds', uploadRoutes());

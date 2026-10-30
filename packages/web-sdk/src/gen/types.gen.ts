@@ -499,6 +499,32 @@ export type ErrorBody = {
     error: string;
 };
 
+export type FlashChatChannel = {
+    channelId: string;
+    /**
+     * Null when the channel is gone from the server: its settings outlived it.
+     */
+    channelName: string | null;
+    preserveHistory: boolean;
+    preservePinned: boolean;
+    /**
+     * Whether the bot is deleting in it right now. False when it could not start: the channel is gone, or the bot lost its permissions there.
+     */
+    running: boolean;
+    timeoutSeconds: number;
+    /**
+     * ISO 8601.
+     */
+    updatedAt: string;
+    updatedByName: string;
+};
+
+export type FlashChatSettings = {
+    preserveHistory: boolean;
+    preservePinned: boolean;
+    timeoutSeconds: number;
+};
+
 /**
  * A flow with its graph. `issues` describes the stored graph: empty means it is ready to go live, and a switched-off flow may hold an unfinished one.
  */
@@ -2276,6 +2302,159 @@ export type GetGuildEmojisResponses = {
 };
 
 export type GetGuildEmojisResponse = GetGuildEmojisResponses[keyof GetGuildEmojisResponses];
+
+export type ListFlashChatChannelsData = {
+    body?: never;
+    path: {
+        guildId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flash-chat';
+};
+
+export type ListFlashChatChannelsErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type ListFlashChatChannelsError = ListFlashChatChannelsErrors[keyof ListFlashChatChannelsErrors];
+
+export type ListFlashChatChannelsResponses = {
+    /**
+     * Every flash chat channel in the server, oldest set-up first.
+     */
+    200: {
+        channels: Array<FlashChatChannel>;
+    };
+};
+
+export type ListFlashChatChannelsResponse = ListFlashChatChannelsResponses[keyof ListFlashChatChannelsResponses];
+
+export type DeleteFlashChatChannelData = {
+    body?: never;
+    path: {
+        guildId: string;
+        channelId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flash-chat/{channelId}';
+};
+
+export type DeleteFlashChatChannelErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or flash chat is not on in that channel.
+     */
+    404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type DeleteFlashChatChannelError = DeleteFlashChatChannelErrors[keyof DeleteFlashChatChannelErrors];
+
+export type DeleteFlashChatChannelResponses = {
+    /**
+     * Turned off.
+     */
+    204: void;
+};
+
+export type DeleteFlashChatChannelResponse = DeleteFlashChatChannelResponses[keyof DeleteFlashChatChannelResponses];
+
+export type SaveFlashChatChannelData = {
+    body: FlashChatSettings;
+    path: {
+        guildId: string;
+        channelId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/flash-chat/{channelId}';
+};
+
+export type SaveFlashChatChannelErrors = {
+    /**
+     * The body was refused, the channel is not a text channel in this server, the bot is missing permissions there (the sentence names them), or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+    /**
+     * The body was over the size limit.
+     */
+    413: ErrorBody;
+    /**
+     * The body was not sent as JSON.
+     */
+    415: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type SaveFlashChatChannelError = SaveFlashChatChannelErrors[keyof SaveFlashChatChannelErrors];
+
+export type SaveFlashChatChannelResponses = {
+    /**
+     * The channel as saved. `running` is false when the bot could not start deleting there.
+     */
+    200: FlashChatChannel;
+};
+
+export type SaveFlashChatChannelResponse = SaveFlashChatChannelResponses[keyof SaveFlashChatChannelResponses];
 
 export type ListFlowsData = {
     body?: never;

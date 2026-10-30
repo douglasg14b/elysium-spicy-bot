@@ -1,16 +1,15 @@
 import {
     Client,
-    Events,
     FetchMessagesOptions,
     Message,
     OmitPartialGroupDMChannel,
     PartialMessage,
-    PermissionsBitField,
     Snowflake,
     TextChannel,
 } from 'discord.js';
 import { deleteMessageSafely } from './utils';
 import { FlashChatConfig } from './data/flashChatSchema';
+import { checkFlashChatChannel } from './logic/flashChatChannel';
 
 function getPeriodicCleanupInterval(baseTimeout: number) {
     // Randomize interval between 80% and 120% of base timeout
@@ -96,65 +95,63 @@ export class FlashChatInstance {
         }
     }
 
-    // Cleans up expired messages that may have been missed (e.g., bot was offline)
-    private async cleanupExpiredMessages() {
-        // console.log(`🧹 Starting cleanup of expired messages in #${this._config.channelId}...`);
+    /**
+     * Deletes expired messages that have no timer — posted while the bot was offline, or
+     * before a restart cleared the timers — then schedules the next sweep. Pages back as far
+     * as the channel's setup (`createdAt`) and no further, and stops between pages once this
+     * instance is stopped, so a sweep cannot outlive the settings it started under.
+     */
+    private async cleanupExpiredMessages(): Promise<void> {
+        if (this.stopped) return;
 
-        this.checkStopped();
-        const channel = this.client.channels.cache.get(this._config.channelId) as TextChannel;
-        const cutoffTime = Date.now() - this._config.timeoutSeconds * 1000;
-        const cutoffDate = new Date(cutoffTime);
+        try {
+            const channel = this.client.channels.cache.get(this._config.channelId) as TextChannel;
+            const cutoffDate = new Date(Date.now() - this._config.timeoutSeconds * 1000);
 
-        while (true) {
-            const { messages, next } = await this.getDeletableMessages(channel, this.config.createdAt, cutoffDate);
-            if (messages.length === 0) break;
-
-            for (const message of messages) {
-                this.deleteMessage(message);
+            let page: DeletablePage | null = await this.getDeletableMessages(channel, this.config.createdAt, cutoffDate);
+            while (page && !this.stopped) {
+                for (const message of page.messages) {
+                    this.deleteMessage(message);
+                }
+                page = page.next ? await page.next() : null;
             }
-
-            // If there's a next page, wait for it to resolve
-            if (next) {
-                await next();
-            } else {
-                break;
+        } catch (error) {
+            // Retried on the next sweep: a permission put back starts it deleting again.
+            console.error(
+                `❌ Flash chat sweep failed for ${this._config.guildId}/${this._config.channelId}:`,
+                (error as Error).message,
+            );
+        } finally {
+            if (!this.stopped) {
+                const nextInterval = getPeriodicCleanupInterval(this._config.timeoutSeconds * 1000);
+                this.cleanupTimer = setTimeout(() => void this.cleanupExpiredMessages(), nextInterval);
             }
         }
-
-        const nextInterval = getPeriodicCleanupInterval(this._config.timeoutSeconds * 1000);
-        // console.log(`⏲️ Next periodic cleanup in ${Math.round(nextInterval / 1000)} seconds`);
-        this.cleanupTimer = setTimeout(() => this.cleanupExpiredMessages(), nextInterval);
     }
 
-    private async getDeletableMessages(channel: TextChannel, minDate: Date, maxDate: Date) {
+    private async getDeletableMessages(channel: TextChannel, minDate: Date, maxDate: Date): Promise<DeletablePage> {
         const maxTime = maxDate.getTime();
         const minTime = minDate.getTime();
 
-        const fetchPage = async (before?: Snowflake) => {
+        const fetchPage = async (before?: Snowflake): Promise<DeletablePage> => {
             const coll = await channel.messages.fetch({ limit: 100, before });
-            if (coll.size === 0)
-                return {
-                    messages: [],
-                };
-
             const raw = Array.from(coll.values()); // newest -> oldest
-            const nextBefore = raw.at(-1)?.id ?? null;
+            const oldest = raw.at(-1);
 
-            // Apply filters but ALWAYS compute nextBefore from the raw batch
             let filtered = raw;
             if (this.config.preservePinned) {
-                filtered = filtered.filter((m) => !m.pinned);
-                // Optional: warn once if a page was fully pinned
-                if (filtered.length === 0 && raw.length > 100) {
-                    console.warn('⚠️ Page contained only pinned messages; paging deeper…');
-                }
+                filtered = filtered.filter((message) => !message.pinned);
             }
+            filtered = filtered.filter(
+                (message) => message.createdTimestamp < maxTime && message.createdTimestamp > minTime,
+            );
 
-            filtered = filtered.filter((m) => m.createdTimestamp < maxTime && m.createdTimestamp > minTime);
-
+            // Paging from the raw batch, so a page of only pinned messages still leads on; and
+            // no further than the oldest message that could be deleted.
+            const morePossible = oldest && raw.length === 100 && oldest.createdTimestamp > minTime;
             return {
                 messages: filtered,
-                next: nextBefore ? () => fetchPage(nextBefore) : null,
+                next: morePossible ? () => fetchPage(oldest.id) : null,
             };
         };
 
@@ -186,10 +183,11 @@ export class FlashChatInstance {
         // Fetch messages in batches (Discord API limit is 100 per request)
         let lastMessageId: string | undefined;
 
-        // TODO: Has a bug where if there are more than 100 non-deletable messages will look infinitely
-        // TODO: WIll not delete messages that newer than teh cutoff after this script completes, since they have no timers
+        // Messages newer than the cutoff are left to the periodic sweep, which reaches back to `createdAt`.
+        // Every wait below checks `stopped` after it: an edit or a turn-off must end the purge
+        // rather than leave it deleting for minutes under settings that no longer apply.
         let iterations = 0;
-        while (true && iterations < 50) {
+        while (iterations < 50 && !this.stopped) {
             iterations++;
             const fetchOptions: FetchMessagesOptions = { limit: 100 };
             if (lastMessageId) {
@@ -198,6 +196,8 @@ export class FlashChatInstance {
             const messages = await channel.messages.fetch(fetchOptions);
 
             if (messages.size === 0) break; // No more messages
+            if (this.stopped) return;
+            lastMessageId = messages.last()?.id;
 
             totalFetched += messages.size;
             console.log(`📥 Fetched ${messages.size} messages (total: ${totalFetched})`);
@@ -229,6 +229,7 @@ export class FlashChatInstance {
                         `⏳ Deleting ${bulkDeletable.size} messages via bulk delete in 3 seconds... (Ctrl+C to cancel)`,
                     );
                     await new Promise((resolve) => setTimeout(resolve, 3000)); // 3 second delay before bulk delete
+                    if (this.stopped) return;
 
                     // Bulk delete recent messages (more efficient)
                     if (bulkDeletable.size > 1) {
@@ -241,6 +242,7 @@ export class FlashChatInstance {
                             // Fall back to individual deletion
                             console.log(`🔄 Falling back to individual deletion...`);
                             for (const msg of bulkDeletable.values()) {
+                                if (this.stopped) return;
                                 try {
                                     await msg.delete();
                                     deletedCount++;
@@ -266,6 +268,7 @@ export class FlashChatInstance {
                 if (individualDelete.size > 0) {
                     console.log(`⏳ Individually deleting ${individualDelete.size} old messages (>14 days)...`);
                     for (const msg of individualDelete.values()) {
+                        if (this.stopped) return;
                         try {
                             await msg.delete();
                             deletedCount++;
@@ -290,10 +293,15 @@ export class FlashChatInstance {
 
     public start() {
         this.verifyPerms();
-        this.cleanupTimer = setTimeout(() => this.cleanupExpiredMessages(), 500);
+        this.cleanupTimer = setTimeout(() => void this.cleanupExpiredMessages(), 500);
 
         if (!this._config.preserveHistory) {
-            this.cleanupChannelHistory();
+            this.cleanupChannelHistory().catch((error: unknown) => {
+                console.error(
+                    `❌ Flash chat history purge failed for ${this._config.guildId}/${this._config.channelId}:`,
+                    (error as Error).message,
+                );
+            });
         }
     }
 
@@ -308,23 +316,17 @@ export class FlashChatInstance {
         console.log(`🛑 Stopped flash chat for ${this._config.guildId}/${this._config.channelId}`);
     }
 
+    /** The same check the slash command and the dashboard ask before saving, asked again at start. */
     private verifyPerms() {
-        const channel = this.client.channels.cache.get(this._config.channelId) as TextChannel;
-
-        if (!channel) {
-            throw new Error(`Channel ID ${this._config.channelId} not found in cache.`);
+        const guild = this.client.guilds.cache.get(this._config.guildId);
+        if (!guild) {
+            throw new Error(`Guild ${this._config.guildId} is not in the cache.`);
         }
 
-        const botMember = channel.guild.members.me;
-        if (!botMember) {
-            throw new Error(`Bot is not a member of the guild ${channel.guild.name}.`);
+        const check = checkFlashChatChannel(guild, this._config.channelId);
+        if (!check.ok) {
+            throw new Error(`Cannot run flash chat in ${this._config.channelId}: ${check.message}`);
         }
-
-        if (!botMember.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
-            throw new Error(`Bot lacks 'Manage Messages' permission in channel ${channel.name}.`);
-        }
-
-        console.log(`✅ Verified permissions in channel #${channel.name}`);
     }
 
     private checkStopped() {

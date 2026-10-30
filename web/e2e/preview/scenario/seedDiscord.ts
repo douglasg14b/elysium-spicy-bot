@@ -71,6 +71,8 @@ export function seedDiscord(discord: TestDiscord): ScenarioGuild {
                 'AttachFiles',
                 // A journey's message is read back for drift, so its install asks for this too.
                 'ReadMessageHistory',
+                // Flash chat deletes in the channels it runs in.
+                'ManageMessages',
             ],
         },
     });

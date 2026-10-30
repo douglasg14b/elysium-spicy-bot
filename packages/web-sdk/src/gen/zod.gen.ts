@@ -315,6 +315,23 @@ export const zErrorBody = z.object({
     error: z.string()
 });
 
+export const zFlashChatChannel = z.object({
+    channelId: z.string(),
+    channelName: z.string().nullable(),
+    preserveHistory: z.boolean(),
+    preservePinned: z.boolean(),
+    running: z.boolean(),
+    timeoutSeconds: z.int(),
+    updatedAt: z.string(),
+    updatedByName: z.string()
+});
+
+export const zFlashChatSettings = z.object({
+    preserveHistory: z.boolean(),
+    preservePinned: z.boolean(),
+    timeoutSeconds: z.number().int('A timer counts whole seconds.').gte(1, 'Give messages at least a second to live.').lte(1209600, 'Fourteen days is the longest a message can wait to die.')
+});
+
 export const zFlowAttach = z.object({
     journeyKey: z.string().min(1, 'Give the resource a key.').max(64, 'Resource keys cap at 64 characters.').regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Resource keys use lowercase letters, numbers and single hyphens (for example `qa-channel`).')
 });
@@ -1975,6 +1992,39 @@ export const zGetGuildEmojisPath = z.object({
 export const zGetGuildEmojisResponse = z.object({
     emojis: z.array(zGuildEmoji)
 });
+
+export const zListFlashChatChannelsPath = z.object({
+    guildId: z.string()
+});
+
+/**
+ * Every flash chat channel in the server, oldest set-up first.
+ */
+export const zListFlashChatChannelsResponse = z.object({
+    channels: z.array(zFlashChatChannel)
+});
+
+export const zDeleteFlashChatChannelPath = z.object({
+    guildId: z.string(),
+    channelId: z.string()
+});
+
+/**
+ * Turned off.
+ */
+export const zDeleteFlashChatChannelResponse = z.void();
+
+export const zSaveFlashChatChannelBody = zFlashChatSettings;
+
+export const zSaveFlashChatChannelPath = z.object({
+    guildId: z.string(),
+    channelId: z.string()
+});
+
+/**
+ * The channel as saved. `running` is false when the bot could not start deleting there.
+ */
+export const zSaveFlashChatChannelResponse = zFlashChatChannel;
 
 export const zListFlowsPath = z.object({
     guildId: z.string()

@@ -1,6 +1,7 @@
 import type { Client } from 'discord.js';
 import { Hono, type Context } from 'hono';
 import { resolveFlavour, type BotIdentityResponse } from '../../../src/web/api/botRoutes';
+import { flashChatRoutes } from '../../../src/web/api/flashChatRoutes';
 import { flowRoutes } from '../../../src/web/api/flowRoutes';
 import { guildRoutes } from '../../../src/web/api/guildRoutes';
 import { journeyRoutes } from '../../../src/web/api/journeyRoutes';
@@ -102,6 +103,7 @@ export function buildDashboardApp({ client, operator, onFault, sessionLive = () 
     app.route('/api/guilds', flowRoutes());
     app.route('/api/guilds', journeyRoutes());
     app.route('/api/guilds', ticketRoutes());
+    app.route('/api/guilds', flashChatRoutes());
     app.route('/api/guilds', uploadRoutes());
     app.route('/api/nodes', nodeRoutes());
 

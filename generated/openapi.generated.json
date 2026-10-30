@@ -1971,6 +1971,81 @@
                 ],
                 "type": "object"
             },
+            "FlashChatChannel": {
+                "properties": {
+                    "channelId": {
+                        "type": "string"
+                    },
+                    "channelName": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Null when the channel is gone from the server: its settings outlived it."
+                    },
+                    "preserveHistory": {
+                        "type": "boolean"
+                    },
+                    "preservePinned": {
+                        "type": "boolean"
+                    },
+                    "running": {
+                        "description": "Whether the bot is deleting in it right now. False when it could not start: the channel is gone, or the bot lost its permissions there.",
+                        "type": "boolean"
+                    },
+                    "timeoutSeconds": {
+                        "type": "integer"
+                    },
+                    "updatedAt": {
+                        "description": "ISO 8601.",
+                        "type": "string"
+                    },
+                    "updatedByName": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "channelId",
+                    "channelName",
+                    "timeoutSeconds",
+                    "preservePinned",
+                    "preserveHistory",
+                    "running",
+                    "updatedByName",
+                    "updatedAt"
+                ],
+                "type": "object"
+            },
+            "FlashChatSettings": {
+                "properties": {
+                    "preserveHistory": {
+                        "type": "boolean"
+                    },
+                    "preservePinned": {
+                        "type": "boolean"
+                    },
+                    "timeoutSeconds": {
+                        "maximum": 1209600,
+                        "minimum": 1,
+                        "type": "integer",
+                        "x-messages": {
+                            "integer": "A timer counts whole seconds.",
+                            "maximum": "Fourteen days is the longest a message can wait to die.",
+                            "minimum": "Give messages at least a second to live."
+                        }
+                    }
+                },
+                "required": [
+                    "timeoutSeconds",
+                    "preservePinned",
+                    "preserveHistory"
+                ],
+                "type": "object"
+            },
             "Flow": {
                 "description": "A flow with its graph. `issues` describes the stored graph: empty means it is ready to go live, and a switched-off flow may hold an unfinished one.",
                 "properties": {
@@ -7425,6 +7500,327 @@
                 "summary": "The guild's own emoji a message button may show",
                 "tags": [
                     "guilds"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/flash-chat": {
+            "get": {
+                "operationId": "listFlashChatChannels",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "channels": {
+                                            "items": {
+                                                "$ref": "#/components/schemas/FlashChatChannel"
+                                            },
+                                            "type": "array"
+                                        }
+                                    },
+                                    "required": [
+                                        "channels"
+                                    ],
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "Every flash chat channel in the server, oldest set-up first."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
+                    }
+                },
+                "summary": "The channels flash chat is on in",
+                "tags": [
+                    "flash-chat"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/flash-chat/{channelId}": {
+            "delete": {
+                "operationId": "deleteFlashChatChannel",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "channelId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Turned off."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, or flash chat is not on in that channel."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
+                    }
+                },
+                "summary": "Turn flash chat off in a channel and forget its settings",
+                "tags": [
+                    "flash-chat"
+                ]
+            },
+            "put": {
+                "operationId": "saveFlashChatChannel",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "channelId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FlashChatSettings"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FlashChatChannel"
+                                }
+                            }
+                        },
+                        "description": "The channel as saved. `running` is false when the bot could not start deleting there."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was refused, the channel is not a text channel in this server, the bot is missing permissions there (the sentence names them), or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was over the size limit."
+                    },
+                    "415": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was not sent as JSON."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
+                    }
+                },
+                "summary": "Turn flash chat on in a channel, or change its settings there",
+                "tags": [
+                    "flash-chat"
                 ]
             }
         },

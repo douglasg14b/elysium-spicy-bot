@@ -66,6 +66,10 @@ const EXPECTED_BUDGET: Readonly<Record<string, RateBudget>> = {
     listLeveling: 'discord',
     getLevelingUser: 'discord',
     getLevelingInsights: 'general',
+    // Flash chat. A save or a removal starts or stops the deleting and posts in the channel.
+    listFlashChatChannels: 'general',
+    saveFlashChatChannel: 'discord',
+    deleteFlashChatChannel: 'discord',
     // Tickets.
     listTickets: 'general',
     getTicket: 'general',

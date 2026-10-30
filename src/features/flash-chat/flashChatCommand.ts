@@ -3,59 +3,22 @@ import {
     ChatInputCommandInteraction,
     PermissionsBitField,
     SlashCommandBuilder,
-    TextChannel,
+    type Guild,
 } from 'discord.js';
-import { stringToTitleCase, verifyCommandPermissions } from '../../utils';
+import { WEB_ENABLED, WEB_PUBLIC_URL } from '../../environment';
 import { commandError, commandSuccess } from '../../features-system/commands';
-import { flashChatRepo } from './data/flashChatRepo';
-import { flashChatService } from './flashChatService';
 import { InteractionHandlerResult } from '../../features-system/commands/types';
-
-const REQUIRED_PERMISSIONS = [
-    PermissionsBitField.Flags.ViewChannel,
-    PermissionsBitField.Flags.SendMessages,
-    PermissionsBitField.Flags.ManageMessages,
-    PermissionsBitField.Flags.ReadMessageHistory,
-];
-
-type SubCommand = 'config' | 'setup' | 'on' | 'off';
-
-type CommandOptions =
-    | {
-          subcommand: 'setup';
-          channel: TextChannel;
-          timeout: number;
-          preservePinned: boolean;
-          preserveHistory: boolean;
-      }
-    | {
-          subcommand: 'on';
-          timeout: number;
-          preservePinned: boolean;
-          preserveHistory: boolean;
-          replace: boolean;
-      }
-    | {
-          subcommand: 'off';
-      };
+import { FLASH_CHAT_MAX_TIMEOUT_SECONDS } from './constants';
+import { flashChatRepo, type FlashChatSettings } from './data/flashChatRepo';
+import { flashChatManager } from './flashChatManager';
+import { flashChatService } from './flashChatService';
+import { checkFlashChatChannel } from './logic/flashChatChannel';
+import { formatFlashChatTimeout } from './logic/flashChatNotices';
 
 type CommandArgs =
-    | {
-          subcommand: 'config';
-          channel: TextChannel;
-      }
-    | {
-          subcommand: 'setup' | 'on';
-          channel: TextChannel;
-          timeoutSeconds: number;
-          preservePinned: boolean;
-          preserveHistory: boolean;
-          replace: boolean;
-      }
-    | {
-          subcommand: 'off';
-          channel: TextChannel;
-      };
+    | { subcommand: 'config' }
+    | { subcommand: 'off'; channelId: string }
+    | { subcommand: 'setup' | 'on'; channelId: string; settings: FlashChatSettings; replace: boolean };
 
 export const FLASH_CHAT_COMMAND_NAME = 'flash-chat';
 
@@ -83,7 +46,7 @@ export const flashChatCommand = new SlashCommandBuilder()
                         .setDescription('The message timeout in seconds')
                         .setRequired(true)
                         .setMinValue(1) // 1 second min
-                        .setMaxValue(60 * 60 * 24 * 14), // 14 days max
+                        .setMaxValue(FLASH_CHAT_MAX_TIMEOUT_SECONDS),
             )
             .addBooleanOption((option) =>
                 option
@@ -114,7 +77,7 @@ export const flashChatCommand = new SlashCommandBuilder()
                     .setDescription('The message timeout in seconds')
                     .setRequired(true)
                     .setMinValue(1)
-                    .setMaxValue(60 * 60 * 24 * 14),
+                    .setMaxValue(FLASH_CHAT_MAX_TIMEOUT_SECONDS),
             )
             .addBooleanOption((option) =>
                 option
@@ -140,199 +103,133 @@ export const flashChatCommand = new SlashCommandBuilder()
     )
     .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageChannels);
 
+function readSettings(interaction: ChatInputCommandInteraction): FlashChatSettings {
+    return {
+        timeoutSeconds: interaction.options.getInteger('timeout', true),
+        preservePinned: interaction.options.getBoolean('preserve-pinned', true),
+        preserveHistory: interaction.options.getBoolean('preserve-history', true),
+    };
+}
+
 function resolveCommandArgs(interaction: ChatInputCommandInteraction): CommandArgs {
-    const subcommand = interaction.options.getSubcommand() as SubCommand;
-    if (subcommand === 'config') {
-        return { subcommand, channel: interaction.channel as TextChannel };
-    } else if (subcommand === 'setup') {
-        return {
-            subcommand,
-            channel: interaction.options.getChannel('channel', true) as TextChannel,
-            timeoutSeconds: interaction.options.getInteger('timeout', true),
-            preservePinned: interaction.options.getBoolean('preserve-pinned', true),
-            preserveHistory: interaction.options.getBoolean('preserve-history', true),
-            replace: interaction.options.getBoolean('replace', true),
-        };
-    } else if (subcommand === 'on') {
-        return {
-            subcommand,
-            channel: interaction.channel as TextChannel,
-            timeoutSeconds: interaction.options.getInteger('timeout', true),
-            preservePinned: interaction.options.getBoolean('preserve-pinned', true),
-            preserveHistory: interaction.options.getBoolean('preserve-history', true),
-            replace: interaction.options.getBoolean('replace', true),
-        };
-    } else {
-        return { subcommand, channel: interaction.channel as TextChannel };
+    const subcommand = interaction.options.getSubcommand();
+    switch (subcommand) {
+        case 'config':
+            return { subcommand };
+        case 'off':
+            return { subcommand, channelId: interaction.channelId };
+        case 'setup':
+            return {
+                subcommand,
+                channelId: interaction.options.getChannel('channel', true).id,
+                settings: readSettings(interaction),
+                replace: interaction.options.getBoolean('replace', true),
+            };
+        case 'on':
+            return {
+                subcommand,
+                channelId: interaction.channelId,
+                settings: readSettings(interaction),
+                replace: interaction.options.getBoolean('replace', true),
+            };
+        default:
+            throw new Error(`Unknown /${FLASH_CHAT_COMMAND_NAME} subcommand: ${subcommand}`);
     }
 }
 
 export const handleFlashChatCommand = async (
     interaction: ChatInputCommandInteraction,
 ): Promise<InteractionHandlerResult> => {
-    // Get command options
     const commandArgs = resolveCommandArgs(interaction);
-    const { subcommand } = commandArgs;
+    const guild = interaction.guild;
 
-    if (!interaction.guildId) {
+    if (!guild) {
         await interaction.reply({ content: 'This command can only be used in a server.', ephemeral: true });
         return commandError('Not in a guild');
     }
 
-    if (subcommand === 'config') {
-        // Not yet implemented
-        await interaction.reply({
-            content: `⚙️ Flash chat configuration UI is under development. Please use /flash-chat setup to configure channels for now.`,
-            ephemeral: true,
-        });
-        // handleFlashConfigCommand(interaction);
-        return commandSuccess();
-    }
+    // Saving and switching off post in the channel before answering, which can outrun Discord's three seconds.
+    await interaction.deferReply({ ephemeral: true });
 
-    if (subcommand === 'off') {
-        const flashChatConfig = await flashChatRepo.get(interaction.guildId, commandArgs.channel.id);
-
-        if (!flashChatConfig) {
-            await interaction.reply({
-                content: `❌ Flash chat is not enabled in ${commandArgs.channel}.`,
-                ephemeral: true,
-            });
-            return commandSuccess();
-        }
-
-        await flashChatService.stopFlashChat(interaction.guildId, commandArgs.channel.id);
-
-        await interaction.reply({
-            content: `⚡ Flash chat has been disabled in ${commandArgs.channel}.`,
-            ephemeral: true,
-        });
-
-        await commandArgs.channel.send({
-            embeds: [
-                {
-                    title: '⚡ Flash Chat Disabled',
-                    description: 'Flash chat has been turned off in this channel.',
-                    color: 0xff0000,
-                },
-            ],
-        });
-        return commandSuccess();
-    }
-
-    const { channel, timeoutSeconds: timeout, preservePinned, preserveHistory } = commandArgs;
-
-    // Check bot permissions in target channel
-    const botMember = interaction.guild?.members.me;
-    const channelPermissions = channel.permissionsFor(botMember!);
-
-    const missingPermissions = verifyCommandPermissions(channelPermissions!, REQUIRED_PERMISSIONS);
-    if (missingPermissions.length > 0) {
-        await interaction.reply({
-            content: `❌ I'm missing these permissions in ${channel}: **${missingPermissions.join(', ')}**`,
-            ephemeral: true,
-        });
-
-        return commandError('Missing permissions', {
-            missingPermissions: missingPermissions,
-            channelId: channel.id,
-        });
-    }
-
+    // Once deferred, the registry no longer answers a throw, so this handler must.
     try {
-        const startResult = await flashChatService.startFlashChat({
-            guildId: interaction.guildId,
-            channelId: channel.id,
-            timeoutSeconds: timeout,
-            preservePinned,
-            preserveHistory,
-            replaceConfig: commandArgs.replace,
-            user: interaction.user,
-        });
-
-        if (!startResult.ok) {
-            await interaction.reply({
-                content: `❌ Failed to enable flash chat: ${startResult.valueOrError}`,
-                ephemeral: true,
-            });
-            return commandError('Failed to enable flash chat', { channelId: channel.id });
-        }
-
-        // Create success embed
-        const replyEmbed = {
-            title: '⚡ Flash Chat Configured',
-            color: 0x00ff00,
-            fields: [
-                { name: '📺 Channel', value: `${channel}`, inline: true },
-                { name: '⏱️ Timeout', value: formatTimeout(timeout), inline: true },
-                { name: '📌 Preserve Pinned', value: preservePinned ? '✅ Yes' : '❌ No', inline: true },
-                { name: '🗂️ Preserve History', value: preserveHistory ? '✅ Yes' : '❌ No', inline: true },
-            ],
-            footer: {
-                text: `Configured by ${interaction.user.tag}`,
-                icon_url: interaction.user.displayAvatarURL(),
-            },
-            timestamp: new Date().toISOString(),
-            ephemeral: true,
-        };
-
-        await interaction.reply({ embeds: [replyEmbed], ephemeral: true, options: { ephemeral: true } });
-
-        // Send notification to the configured channel
-        try {
-            await channel.send({
-                embeds: [
-                    {
-                        title: '⚡ Flash Chat Enabled',
-                        description: `Messages in this channel will be automatically deleted after **${formatTimeout(
-                            timeout,
-                        )}**`,
-                        color: 0xffa500,
-                        footer: {
-                            text: preservePinned ? 'Pinned messages will be preserved' : 'All messages will be deleted',
-                        },
-                    },
-                ],
-            });
-        } catch (error) {
-            console.warn('Could not send notification to target channel:', error);
-        }
+        return await runSubcommand(interaction, guild, commandArgs);
     } catch (error) {
-        console.error('Error saving flash chat config:', error);
-        await interaction.reply({
-            content: '❌ Failed to configure flash chat. Please try again.',
-            ephemeral: true,
+        console.error(`/${FLASH_CHAT_COMMAND_NAME} ${commandArgs.subcommand} failed:`, error);
+        await interaction.editReply('❌ Flash chat tripped over its own feet. Try again in a moment.');
+        return commandError(`Error in /${FLASH_CHAT_COMMAND_NAME} ${commandArgs.subcommand}`, {
+            error: (error as Error).message,
         });
-
-        return commandError('Error configuring flash chat', { error: (error as Error).message });
     }
+};
+
+async function runSubcommand(
+    interaction: ChatInputCommandInteraction,
+    guild: Guild,
+    commandArgs: CommandArgs,
+): Promise<InteractionHandlerResult> {
+    if (commandArgs.subcommand === 'config') {
+        await interaction.editReply(
+            WEB_ENABLED
+                ? `⚙️ Flash chat lives in the dashboard now: ${WEB_PUBLIC_URL}/flash-chat`
+                : "⚙️ The dashboard isn't switched on for this bot. Use /flash-chat setup to configure channels.",
+        );
+        return commandSuccess();
+    }
+
+    if (commandArgs.subcommand === 'off') {
+        const removed = await flashChatService.remove(guild, commandArgs.channelId);
+        await interaction.editReply(
+            removed
+                ? `⚡ Flash chat has been disabled in <#${commandArgs.channelId}>.`
+                : `❌ Flash chat is not enabled in <#${commandArgs.channelId}>.`,
+        );
+        return commandSuccess();
+    }
+
+    const { channelId, settings, replace } = commandArgs;
+
+    const check = checkFlashChatChannel(guild, channelId);
+    if (!check.ok) {
+        await interaction.editReply(`❌ ${check.message}`);
+        return commandError('Channel cannot run flash chat', { channelId });
+    }
+
+    if (!replace && (await flashChatRepo.get(guild.id, channelId))) {
+        await interaction.editReply(
+            `❌ Flash chat is already on in ${check.channel}. Set \`replace\` to true to change it.`,
+        );
+        return commandSuccess();
+    }
+
+    await flashChatService.configure({ channel: check.channel, settings, by: interaction.user });
+
+    if (!flashChatManager.has(guild.id, channelId)) {
+        await interaction.editReply(
+            `⚠️ Saved, but I couldn't start deleting in ${check.channel}. Check I can still see it and manage messages there, then run this again.`,
+        );
+        return commandError('Flash chat saved but not running', { channelId });
+    }
+
+    await interaction.editReply({
+        embeds: [
+            {
+                title: '⚡ Flash Chat Configured',
+                color: 0x00ff00,
+                fields: [
+                    { name: '📺 Channel', value: `${check.channel}`, inline: true },
+                    { name: '⏱️ Timeout', value: formatFlashChatTimeout(settings.timeoutSeconds), inline: true },
+                    { name: '📌 Preserve Pinned', value: settings.preservePinned ? '✅ Yes' : '❌ No', inline: true },
+                    { name: '🗂️ Preserve History', value: settings.preserveHistory ? '✅ Yes' : '❌ No', inline: true },
+                ],
+                footer: {
+                    text: `Configured by ${interaction.user.tag}`,
+                    icon_url: interaction.user.displayAvatarURL(),
+                },
+                timestamp: new Date().toISOString(),
+            },
+        ],
+    });
 
     return commandSuccess();
-};
-
-// Helper function to format timeout duration
-const formatTimeout = (seconds: number): string => {
-    if (seconds < 60) return `${seconds}s`;
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    return `${hours}h ${minutes}m ${secs}s`;
-};
-
-// Interface for flash chat configuration
-interface FlashChatConfig {
-    channelId: string;
-    guildId: string;
-    timeout: number; // in milliseconds
-    preservePinned: boolean;
-    preserveHistory: boolean;
-    enabled: boolean;
-    configuredBy: string;
-    configuredAt: Date;
 }
-
-// Placeholder for storage function
-const saveFlashChatConfig = async (config: FlashChatConfig): Promise<void> => {
-    // TODO: Implement based on your storage solution
-    console.log('Saving flash chat config:', config);
-};
