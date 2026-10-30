@@ -14,7 +14,15 @@ import { VariablePicker } from '../controls/VariablePicker';
 import { CopyText } from './CopyText';
 import { DISCORD, PART_TYPE } from './discordLook';
 import { useEditorScope } from './editorScope';
-import { isRemovablePart, partLabel, partPath, readTextPart, setTextPart, type TextPart } from './messageDraft';
+import {
+    isRemovablePart,
+    partLabel,
+    partPath,
+    readTextPart,
+    setTextPart,
+    showsChannelLinks,
+    type TextPart,
+} from './messageDraft';
 import { PartProblems } from './PartProblems';
 import { partRule } from './partRules';
 
@@ -257,6 +265,7 @@ function TokenButton({ part, text }: { readonly part: TextPart; readonly text: s
                     onInsert={(token) =>
                         scope.apply((message) => setTextPart(message, part, withToken(readTextPart(message, part) ?? '', token)))
                     }
+                    channelLinks={showsChannelLinks(part)}
                 />
             </Popover.Dropdown>
         </Popover>

@@ -186,6 +186,29 @@ export function isRemovablePart(part: TextPart): boolean {
     return part.kind !== 'fieldName' && part.kind !== 'fieldValue';
 }
 
+/**
+ * Whether Discord shows a `<#channel>` in this part as a link. It does in the plain text, an
+ * embed's description and a field's text; everywhere else it shows `<#…>` as written.
+ */
+export function showsChannelLinks(part: TextPart): boolean {
+    switch (part.kind) {
+        case 'content':
+        case 'description':
+        case 'fieldValue':
+            return true;
+        case 'authorName':
+        case 'title':
+        case 'url':
+        case 'footerText':
+        case 'fieldName':
+            return false;
+        default: {
+            const illegal: never = part;
+            throw new Error(`Unknown text part ${JSON.stringify(illegal)}.`);
+        }
+    }
+}
+
 /** `message` with a text part set to `text` — or left out, when `text` is empty and {@link isRemovablePart}. */
 export function setTextPart(message: MessageDraft, part: TextPart, text: string): MessageDraft {
     const value = text === '' && isRemovablePart(part) ? undefined : text;

@@ -450,6 +450,14 @@ export function variableToken(name: string): string {
 }
 
 /**
+ * A channel variable written as a link, e.g. `<#{{var.ticketChannelId}}>`. Plain copy to the
+ * engine, which fills in the id; Discord shows `<#id>` as the channel, clickable.
+ */
+export function channelLinkToken(name: string): string {
+    return `<#${variableToken(name)}>`;
+}
+
+/**
  * Every `{{…}}` the engine would *see* in one piece of copy, contents trimmed.
  *
  * Mirrors `TOKEN_PATTERN` in `src/features/flows/engine/copyRendering.ts`, and is

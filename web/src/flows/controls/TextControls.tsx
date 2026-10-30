@@ -57,6 +57,9 @@ function variableHints(
     context: ControlContext,
     onAppend: (token: string) => void
 ) {
+    // A message body is a `longText`; a single line is a title, a reason or a value to
+    // compare, where `<#id>` would show raw or be compared as written.
+    const channelLinks = field.control === 'longText';
     if (!field.rendersTokens) {
         return null;
     }
@@ -72,6 +75,7 @@ function variableHints(
                 requirements={context.requirements}
                 value={asText(value)}
                 onInsert={onAppend}
+                channelLinks={channelLinks}
             />
         </>
     );

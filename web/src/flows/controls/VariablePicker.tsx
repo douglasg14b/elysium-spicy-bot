@@ -8,6 +8,8 @@
  *   already know `{{subject.username}}` existed had no way to find out.
  * * **From your blocks** — the variables some upstream block writes, each a click
  *   away from being inserted as `{{var.name}}`.
+ *   A variable holding a channel also gets a `#name` chip, inserting it as a link
+ *   (`<#{{var.name}}>`) — offered only where Discord shows one (`channelLinks`).
  * * **Warn** — a `{{var.…}}` the copy references that nothing upstream produces.
  *   This is the typo that used to surface at *run* time as a token resolving to
  *   nothing; here it is visible while the author is looking at the field.
@@ -19,10 +21,11 @@
  * a token the actor may not survive to is greyed but still clickable.
  */
 
+import { Fragment } from 'react';
 import { Group, Text, Tooltip, UnstyledButton } from '@mantine/core';
 import { BUILTIN_TOKENS, builtinToken } from '../builtinTokens';
 import type { AvailableVariable, RequirementAvailability } from '../variables';
-import { describeUnavailableRequirement, referencedVariables, variableToken } from '../variables';
+import { channelLinkToken, describeUnavailableRequirement, referencedVariables, variableToken } from '../variables';
 
 interface VariablePickerProps {
     /** What upstream blocks write, in the order a run would write them. */
@@ -33,6 +36,12 @@ interface VariablePickerProps {
     value: string;
     /** Append a token to the field's value. */
     onInsert: (token: string) => void;
+    /**
+     * Whether Discord shows `<#id>` in this text as a link: a message's text, an embed's
+     * description or a field's value — not a title, header, footer, field name, single-line
+     * box or picture, where it would show the raw `<#…>` or break the link.
+     */
+    channelLinks: boolean;
 }
 
 const CHIP_STYLE = {
@@ -79,6 +88,7 @@ export function VariablePicker({
     requirements,
     value,
     onInsert,
+    channelLinks,
 }: VariablePickerProps) {
     const known = new Set(variables.map((variable) => variable.name));
     const unknown = referencedVariables(value).filter((name) => !known.has(name));
@@ -132,27 +142,51 @@ export function VariablePicker({
                         From your blocks:
                     </Text>
                     {variables.map((variable) => (
-                        <Tooltip
-                            key={variable.name}
-                            withArrow
-                            multiline
-                            w={220}
-                            label={
-                                <span>
-                                    {variable.producerIcon} From <b>{variable.producerLabel}</b>
-                                    {variable.description ? ` — ${variable.description}` : ''}
-                                    <br />
-                                    Click to insert.
-                                </span>
-                            }
-                        >
-                            <UnstyledButton
-                                onClick={() => onInsert(variableToken(variable.name))}
-                                style={VARIABLE_CHIP}
+                        <Fragment key={variable.name}>
+                            <Tooltip
+                                withArrow
+                                multiline
+                                w={220}
+                                label={
+                                    <span>
+                                        {variable.producerIcon} From <b>{variable.producerLabel}</b>
+                                        {variable.description ? ` — ${variable.description}` : ''}
+                                        <br />
+                                        Click to insert.
+                                    </span>
+                                }
                             >
-                                {variable.name}
-                            </UnstyledButton>
-                        </Tooltip>
+                                <UnstyledButton
+                                    onClick={() => onInsert(variableToken(variable.name))}
+                                    style={VARIABLE_CHIP}
+                                >
+                                    {variable.name}
+                                </UnstyledButton>
+                            </Tooltip>
+                            {channelLinks && variable.valueKind === 'channel' ? (
+                                <Tooltip
+                                    withArrow
+                                    multiline
+                                    w={220}
+                                    label={
+                                        <span>
+                                            {variable.name} as a link to the channel — Discord shows it as
+                                            #channel-name, and anyone who can see the channel can click
+                                            through.
+                                            <br />
+                                            Click to insert.
+                                        </span>
+                                    }
+                                >
+                                    <UnstyledButton
+                                        onClick={() => onInsert(channelLinkToken(variable.name))}
+                                        style={VARIABLE_CHIP}
+                                    >
+                                        #{variable.name}
+                                    </UnstyledButton>
+                                </Tooltip>
+                            ) : null}
+                        </Fragment>
                     ))}
                 </Group>
             ) : null}
