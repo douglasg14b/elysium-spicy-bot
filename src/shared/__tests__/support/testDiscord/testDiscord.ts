@@ -1,6 +1,6 @@
 import { GatewayIntentBits, type Client, type Guild, type PermissionsString } from 'discord.js';
 import { GatewayLink } from './gateway';
-import { ServerGuild } from './handles';
+import { ServerGuild, type ServerMember } from './handles';
 import { createRestTransport, type RecordedRequest, type TransportLog } from './restRouter';
 import { ServerState } from './serverState';
 import { createTestClient, redirectToTransport } from './testClient';
@@ -61,6 +61,15 @@ export class TestDiscord {
             botPermissions: options.bot?.permissions ?? [],
         });
         return new ServerGuild(this.state, id);
+    }
+
+    /**
+     * A person changed their account's own names — handle or display name — which every
+     * server they are in sees. Takes a member handle for the account; the account is the
+     * same in every guild.
+     */
+    renameUser(member: ServerMember, names: { readonly username?: string; readonly globalName?: string | null }): void {
+        this.state.renameUser(member.id, names);
     }
 
     /**
