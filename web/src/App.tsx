@@ -7,7 +7,8 @@ import { BotIdentityProvider } from './brand/BotIdentityContext';
 import { GuildProvider } from './guilds/GuildContext';
 import { DashboardLayout } from './layout/DashboardLayout';
 import { LoginPage } from './pages/LoginPage';
-import { WarningsPage } from './pages/WarningsPage';
+import { WarningsConfigPage } from './pages/WarningsConfigPage';
+import { WarningsListPage } from './pages/WarningsListPage';
 import { ComingSoonPage } from './pages/ComingSoonPage';
 import { FlowsListPage } from './pages/FlowsListPage';
 import { FlowBuilderPage } from './pages/FlowBuilderPage';
@@ -59,7 +60,9 @@ function AuthGate() {
             <Routes>
                 <Route element={<DashboardLayout />}>
                     <Route index element={<Navigate to="/warnings" replace />} />
-                    <Route path="/warnings" element={<WarningsPage />} />
+                    <Route path="/warnings" element={<WarningsListPage />} />
+                    {/* Settings under its list, as `/tickets/config` sits under `/tickets`. */}
+                    <Route path="/warnings/config" element={<WarningsConfigPage />} />
                     <Route
                         path="/overview"
                         element={

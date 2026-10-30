@@ -319,6 +319,14 @@ const interactionCallbackSchema = z.discriminatedUnion('type', [
     }),
 ]);
 
+/** `GET /guilds/:id/members/search?query=&limit=`, Discord's 1–1000 limit, defaulting to 1. */
+const memberSearchQuerySchema = z
+    .strictObject({
+        query: z.string().min(1),
+        limit: z.coerce.number().int().min(1).max(1000).optional(),
+    })
+    .transform(({ query, limit }) => ({ query, limit: limit ?? 1 }));
+
 /** discord.js 14.23 asks for no callback body on every answer; one asking for it is not modelled. */
 const interactionCallbackQuerySchema = z.strictObject({ with_response: z.literal('false') });
 
@@ -388,6 +396,21 @@ const ROUTES: readonly Route[] = [
         schema: z.undefined(),
         apply(state, params) {
             return { status: 200, body: state.guildChannels(params.guildId) };
+        },
+    }),
+    defineRoute({
+        /*
+         * Discord's name search, as `guild.members.search({ query, limit })` sends it: members
+         * whose username or server nickname starts with `query`, any case, at most `limit`.
+         *
+         * Declared **before** `members/:userId`, which it would otherwise match — routes are
+         * tried in order and `search` fits a user id's segment.
+         */
+        key: 'GET /guilds/:guildId/members/search',
+        schema: z.undefined(),
+        query: memberSearchQuerySchema,
+        apply(state, params, _body, query) {
+            return { status: 200, body: state.searchMembers(params.guildId ?? '', query.query, query.limit) };
         },
     }),
     defineRoute({

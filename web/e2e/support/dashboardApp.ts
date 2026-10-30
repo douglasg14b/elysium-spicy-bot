@@ -8,6 +8,7 @@ import { nodeRoutes } from '../../../src/web/api/nodeRoutes';
 import { UNEXPECTED_ERROR_SENTENCE } from '../../../src/web/api/openApi';
 import { ticketRoutes } from '../../../src/web/api/ticketRoutes';
 import { uploadRoutes } from '../../../src/web/api/uploadRoutes';
+import { warningRoutes } from '../../../src/web/api/warningRoutes';
 import type { SessionUser } from '../../../src/web/auth/session';
 import type { AppEnv } from '../../../src/web/types';
 
@@ -102,6 +103,7 @@ export function buildDashboardApp({ client, operator, onFault, sessionLive = () 
     app.route('/api/guilds', flowRoutes());
     app.route('/api/guilds', journeyRoutes());
     app.route('/api/guilds', ticketRoutes());
+    app.route('/api/guilds', warningRoutes());
     app.route('/api/guilds', uploadRoutes());
     app.route('/api/nodes', nodeRoutes());
 

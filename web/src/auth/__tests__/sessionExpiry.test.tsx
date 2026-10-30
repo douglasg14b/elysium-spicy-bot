@@ -91,10 +91,10 @@ function CacheProbe({ onClient }: { readonly onClient: (client: QueryClient) => 
     return null;
 }
 
-/** The dashboard at `/warnings`, and the cache it runs on. */
+/** The dashboard at the warnings settings page, and the cache it runs on. */
 function renderDashboardAt(): { readonly cache: () => QueryClient; readonly user: User } {
     let client: QueryClient | null = null;
-    const router = createMemoryRouter([{ path: '*', element: <App /> }], { initialEntries: ['/warnings'] });
+    const router = createMemoryRouter([{ path: '*', element: <App /> }], { initialEntries: ['/warnings/config'] });
     const { user } = renderWithProviders(
         <>
             <CacheProbe onClient={(found) => (client = found)} />

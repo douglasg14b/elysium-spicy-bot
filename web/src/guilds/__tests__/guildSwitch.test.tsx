@@ -16,7 +16,10 @@ import { pathAfterGuildSwitch, useGuildSwitch } from '../useGuildSwitch';
 const BRAT_PALACE: Guild = { id: '900000000000000001', name: 'Brat Palace', iconURL: null, memberCount: 3 };
 const DUNGEON: Guild = { id: '900000000000000002', name: 'The Dungeon', iconURL: null, memberCount: 7 };
 
-/** The shell, and everything the warnings page asks for, for each of `guilds`. */
+/** The default list's path for a guild: active warnings, as the page opens on. */
+const warningsListPath = (guild: Guild): string => `/api/guilds/${guild.id}/warnings?status=active`;
+
+/** The shell, and everything the warnings list asks for, for each of `guilds`. */
 function serveWarningsPage(guilds: readonly Guild[]): FakeApi {
     const api = installFakeApi();
     api.on('GET', '/api/bot', () => ({
@@ -25,9 +28,8 @@ function serveWarningsPage(guilds: readonly Guild[]): FakeApi {
     api.on('GET', '/api/auth/me', () => ({ body: { id: '200000000000000002', username: 'switch_witch', avatar: null } }));
     api.on('GET', '/api/guilds', () => ({ body: { guilds } }));
     for (const guild of guilds) {
-        api.on('GET', `/api/guilds/${guild.id}/channels`, () => ({ body: { channels: [] } }));
-        api.on('GET', `/api/guilds/${guild.id}/config/warnings`, () => ({
-            body: { modChannelId: null, modChannelName: null },
+        api.on('GET', warningsListPath(guild), () => ({
+            body: { warnings: [], counts: { active: 0, expired: 0, released: 0 }, truncated: false },
         }));
     }
     return api;
@@ -38,8 +40,8 @@ function renderDashboardAt(path: string) {
     return { ...renderWithProviders(<RouterProvider router={router} />), router };
 }
 
-const warningsConfigRequested = (api: FakeApi, guild: Guild): boolean =>
-    api.requests.some((request) => request.path === `/api/guilds/${guild.id}/config/warnings`);
+const warningsListRequested = (api: FakeApi, guild: Guild): boolean =>
+    api.requests.some((request) => request.path === warningsListPath(guild));
 
 beforeEach(() => {
     window.localStorage.clear();
@@ -55,7 +57,7 @@ describe('switching servers', () => {
         await user.click(await screen.findByRole('menuitem', { name: new RegExp(`${DUNGEON.name}$`) }));
 
         await screen.findByRole('button', { name: `Server: ${DUNGEON.name}. Switch server` });
-        await waitFor(() => expect(warningsConfigRequested(api, DUNGEON)).toBe(true));
+        await waitFor(() => expect(warningsListRequested(api, DUNGEON)).toBe(true));
         expect(router.state.location.pathname).toBe('/warnings');
         expect(router.state.location.state).toBeNull();
         expect(window.localStorage.getItem(SELECTED_GUILD_STORAGE_KEY)).toBe(DUNGEON.id);
@@ -67,8 +69,8 @@ describe('switching servers', () => {
         renderDashboardAt('/warnings');
 
         await screen.findByRole('button', { name: `Server: ${DUNGEON.name}. Switch server` });
-        await waitFor(() => expect(warningsConfigRequested(api, DUNGEON)).toBe(true));
-        expect(warningsConfigRequested(api, BRAT_PALACE)).toBe(false);
+        await waitFor(() => expect(warningsListRequested(api, DUNGEON)).toBe(true));
+        expect(warningsListRequested(api, BRAT_PALACE)).toBe(false);
     });
 
     it('falls back to the first server when the remembered one is no longer in the list', async () => {
@@ -83,7 +85,7 @@ describe('switching servers', () => {
         const api = serveWarningsPage([BRAT_PALACE]);
         renderDashboardAt('/warnings');
 
-        await waitFor(() => expect(warningsConfigRequested(api, BRAT_PALACE)).toBe(true));
+        await waitFor(() => expect(warningsListRequested(api, BRAT_PALACE)).toBe(true));
         expect((await screen.findAllByText(BRAT_PALACE.name)).length).toBeGreaterThan(0);
         expect(screen.queryByRole('button', { name: /Switch server/ })).toBeNull();
     });

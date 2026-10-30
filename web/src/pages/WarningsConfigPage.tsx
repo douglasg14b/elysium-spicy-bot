@@ -12,8 +12,9 @@ import {
     Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconAlertTriangle, IconShieldHalf, IconBolt } from '@tabler/icons-react';
+import { IconAlertTriangle, IconShieldHalf } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import {
     ApiError,
     getGuildChannelsOptions,
@@ -29,11 +30,11 @@ import { useGuilds } from '../guilds/GuildContext';
 import { PAGE_MAX_WIDTH } from '../theme';
 
 /**
- * Editable warnings config for the selected guild (Phase 2). Loads the current
- * mod-log channel + the guild's text channels, then PUTs changes through the
- * shared server config path. Matches the guild-dashboard mockup.
+ * Editable warnings config for the selected guild: loads the current mod-log channel + the
+ * guild's text channels, then PUTs changes through the shared server config path. Reached
+ * from the warnings list's settings button, the `/tickets/config` arrangement.
  */
-export function WarningsPage() {
+export function WarningsConfigPage() {
     const { selected, loading: guildsLoading } = useGuilds();
 
     if (guildsLoading) {
@@ -59,55 +60,41 @@ export function WarningsPage() {
                     <Text span c="dark.1" fw={600}>
                         {selected.name}
                     </Text>{' '}
-                    › Configure › Warnings
+                    › Configure ›{' '}
+                    <Text span c="dark.2">
+                        <Link to="/warnings" style={{ color: 'inherit' }}>
+                            Warnings
+                        </Link>
+                    </Text>{' '}
+                    › Settings
                 </Text>
-                <Title order={1} size="24px" mt={4}>
-                    Warnings
-                </Title>
+                <Group gap={10} mt={4}>
+                    <IconShieldHalf size={22} color="var(--mantine-color-brand-6)" />
+                    <Title order={1} size="24px">
+                        Warning settings
+                    </Title>
+                </Group>
                 <Text c="dimmed" size="13.5px" mt={4} maw={540}>
                     Keep the troublemakers in line. Configure where infractions get logged and how the
                     bot handles repeat offenders.
                 </Text>
             </div>
 
-            <Group align="flex-start" gap="lg" wrap="wrap">
-                <Card p="xl" flex="1" miw={340}>
-                    <Group gap={8} mb={4}>
-                        <IconShieldHalf size={18} color="var(--mantine-color-brand-6)" />
-                        <Text fw={700} size="15px">
-                            Warning Settings
-                        </Text>
-                    </Group>
-                    <Text c="dimmed" size="13px" mb="lg">
-                        Warnings let your mods flag misbehavior. Every strike gets receipts in your log
-                        channel — no more &quot;he said / she said.&quot;
+            <Card p="xl" maw={640}>
+                <Group gap={8} mb={4}>
+                    <IconShieldHalf size={18} color="var(--mantine-color-brand-6)" />
+                    <Text fw={700} size="15px">
+                        Warning Settings
                     </Text>
+                </Group>
+                <Text c="dimmed" size="13px" mb="lg">
+                    Warnings let your mods flag misbehavior. Every strike gets receipts in your log
+                    channel — no more &quot;he said / she said.&quot;
+                </Text>
 
-                    {/* Keyed by server, so switching servers drops the draft and "last saved". */}
-                    <WarningsSettingsForm key={selected.id} guildId={selected.id} />
-                </Card>
-
-                <Card
-                    p="lg"
-                    w={320}
-                    style={{
-                        background:
-                            'linear-gradient(145deg, rgba(0,162,255,0.16), rgba(0,162,255,0.05))',
-                        borderColor: 'rgba(0,162,255,0.4)',
-                    }}
-                >
-                    <Group gap={8} mb={6}>
-                        <IconBolt size={18} color="var(--mantine-color-brand-4)" />
-                        <Text fw={800} size="17px">
-                            Meet Flows
-                        </Text>
-                    </Group>
-                    <Text size="13px" c="dimmed">
-                        Build onboarding, reaction roles &amp; more — no code. Drag, drop, done. Coming
-                        soon.
-                    </Text>
-                </Card>
-            </Group>
+                {/* Keyed by server, so switching servers drops the draft and "last saved". */}
+                <WarningsSettingsForm key={selected.id} guildId={selected.id} />
+            </Card>
         </Stack>
     );
 }

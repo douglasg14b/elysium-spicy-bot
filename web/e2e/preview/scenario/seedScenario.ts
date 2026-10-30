@@ -10,6 +10,7 @@ import { seedMessageResource } from './seedMessageResource';
 import { seedSettings } from './seedSettings';
 import { seedTickets } from './seedTickets';
 import { seedUploads } from './seedUploads';
+import { seedWarnings } from './seedWarnings';
 
 export type { PreviewPage };
 
@@ -41,6 +42,7 @@ export const seedScenario = {
         pages.push(...(await seedButtonClickTrigger(context)));
         pages.push(...(await seedUploads(context)));
         pages.push(...(await seedTickets(context)));
+        pages.push(...(await seedWarnings(context)));
         return pages;
     },
 };

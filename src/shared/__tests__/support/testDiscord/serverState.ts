@@ -707,6 +707,20 @@ export class ServerState {
     }
 
     /**
+     * Members whose username or server nickname starts with `query`, any case, in the order
+     * they joined, at most `limit` — Discord's member search. Copies, so a caller cannot
+     * change what the guild holds.
+     */
+    searchMembers(guildId: string, query: string, limit: number): APIGuildMember[] {
+        const prefix = query.toLowerCase();
+        const matches = (name: string | null | undefined): boolean => !!name && name.toLowerCase().startsWith(prefix);
+        return [...this.guild(guildId).members.values()]
+            .filter((member) => matches(member.user.username) || matches(member.nick))
+            .slice(0, limit)
+            .map((member) => structuredClone(member));
+    }
+
+    /**
      * What a member may do server-wide, as a serialised bitfield: everything for the owner,
      * otherwise `@everyone`'s permissions and every role they hold, and everything once any
      * of those grants Administrator. Channel overwrites are not applied — see

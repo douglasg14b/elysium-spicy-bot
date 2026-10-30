@@ -1,13 +1,14 @@
 import { useState, type ReactNode } from 'react';
 import { screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import { heldReply, installFakeApi, type FakeApi } from '../../__tests__/support/fakeApi';
 import { renderWithProviders } from '../../__tests__/support/renderWithProviders';
 import { GuildProvider } from '../../guilds/GuildContext';
-import { WarningsPage } from '../WarningsPage';
+import { WarningsConfigPage } from '../WarningsConfigPage';
 
 /**
- * The warnings page, the first on the generated SDK: its config and channels arrive as
+ * The warnings settings page, the first on the generated SDK: its config and channels arrive as
  * TanStack queries, the save is a mutation, and the cache — not a local copy — is what
  * the form compares its draft against afterwards.
  *
@@ -38,12 +39,15 @@ function serveGuild(api: FakeApi, modChannelId: string | null): void {
 }
 
 function renderPage() {
+    // A router, for the breadcrumb's link back to the list.
     return renderWithProviders(
-        <GuildProvider>
-            <Remountable>
-                <WarningsPage />
-            </Remountable>
-        </GuildProvider>
+        <MemoryRouter>
+            <GuildProvider>
+                <Remountable>
+                    <WarningsConfigPage />
+                </Remountable>
+            </GuildProvider>
+        </MemoryRouter>
     );
 }
 
@@ -75,7 +79,7 @@ function saveButton(): HTMLElement {
     return screen.getByRole('button', { name: 'Save changes' });
 }
 
-describe('WarningsPage', () => {
+describe('WarningsConfigPage', () => {
     it('saves the picked channel and treats the answer as the new saved value', async () => {
         const api = installFakeApi();
         serveGuild(api, LOBBY);
