@@ -1292,6 +1292,27 @@ export type LogoutResult = {
 };
 
 /**
+ * Who an id is in this server. `username` and `globalName` are the account's, `nickname` this server's — the last one seen, for somebody who left. `nicknames` is every server nickname seen, newest first. `inServer` false with no `leftAt` (ISO) means the bot did not see them go. Show `nickname`, else `globalName`, else `username`.
+ */
+export type MemberName = {
+    globalName: string | null;
+    inServer: boolean;
+    isBot: boolean;
+    leftAt: string | null;
+    nickname: string | null;
+    nicknames: Array<string>;
+    userId: string;
+    username: string;
+};
+
+/**
+ * One entry per id the bot knows or could look up. An id missing from it is unknown for now — Discord has no such account, or the lookup was capped and fills in on a later request.
+ */
+export type MemberNameList = {
+    members: Array<MemberName>;
+};
+
+/**
  * A button under a message resource. `key` is its identity within the message — what a press is routed by — so relabelling it changes nothing that listens to it. It has a `label`, an `emoji`, or both.
  */
 export type MessageButton = {
@@ -4229,6 +4250,58 @@ export type GetLevelingUserResponses = {
 };
 
 export type GetLevelingUserResponse = GetLevelingUserResponses[keyof GetLevelingUserResponses];
+
+export type GetMemberNamesData = {
+    body?: never;
+    path: {
+        guildId: string;
+    };
+    query: {
+        /**
+         * 1 to 100 user ids, comma-separated.
+         */
+        ids: string;
+    };
+    url: '/api/guilds/{guildId}/member-names';
+};
+
+export type GetMemberNamesErrors = {
+    /**
+     * The ids were refused — none, too many, or one that is not a user id — or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type GetMemberNamesError = GetMemberNamesErrors[keyof GetMemberNamesErrors];
+
+export type GetMemberNamesResponses = {
+    /**
+     * One entry per id the bot knows. Ids it has not seen are looked up from Discord, up to 25 a request; the rest are left out until a later one.
+     */
+    200: MemberNameList;
+};
+
+export type GetMemberNamesResponse = GetMemberNamesResponses[keyof GetMemberNamesResponses];
 
 export type SearchGuildMembersData = {
     body?: never;

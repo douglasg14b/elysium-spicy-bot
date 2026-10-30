@@ -4666,6 +4666,73 @@
                 ],
                 "type": "object"
             },
+            "MemberName": {
+                "description": "Who an id is in this server. `username` and `globalName` are the account's, `nickname` this server's — the last one seen, for somebody who left. `nicknames` is every server nickname seen, newest first. `inServer` false with no `leftAt` (ISO) means the bot did not see them go. Show `nickname`, else `globalName`, else `username`.",
+                "properties": {
+                    "globalName": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "inServer": {
+                        "type": "boolean"
+                    },
+                    "isBot": {
+                        "type": "boolean"
+                    },
+                    "leftAt": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "nickname": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "nicknames": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    },
+                    "userId": {
+                        "type": "string"
+                    },
+                    "username": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "userId",
+                    "username",
+                    "globalName",
+                    "nickname",
+                    "nicknames",
+                    "isBot",
+                    "inServer",
+                    "leftAt"
+                ],
+                "type": "object"
+            },
+            "MemberNameList": {
+                "description": "One entry per id the bot knows or could look up. An id missing from it is unknown for now — Discord has no such account, or the lookup was capped and fills in on a later request.",
+                "properties": {
+                    "members": {
+                        "items": {
+                            "$ref": "#/components/schemas/MemberName"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "members"
+                ],
+                "type": "object"
+            },
             "MessageButton": {
                 "description": "A button under a message resource. `key` is its identity within the message — what a press is routed by — so relabelling it changes nothing that listens to it. It has a `label`, an `emoji`, or both.",
                 "properties": {
@@ -11738,6 +11805,111 @@
                 "summary": "One member's level, XP and activity",
                 "tags": [
                     "leveling"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/member-names": {
+            "get": {
+                "operationId": "getMemberNames",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "1 to 100 user ids, comma-separated.",
+                        "in": "query",
+                        "name": "ids",
+                        "required": true,
+                        "schema": {
+                            "description": "1 to 100 user ids, comma-separated.",
+                            "pattern": "^\\d{17,20}(?:,\\d{17,20}){0,99}$",
+                            "type": "string",
+                            "x-messages": {
+                                "pattern": "Send 1 to 100 user ids, separated by commas."
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/MemberNameList"
+                                }
+                            }
+                        },
+                        "description": "One entry per id the bot knows. Ids it has not seen are looked up from Discord, up to 25 a request; the rest are left out until a later one."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The ids were refused — none, too many, or one that is not a user id — or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
+                    }
+                },
+                "summary": "Who each of up to 100 user ids is in this server, members and leavers alike",
+                "tags": [
+                    "members"
                 ]
             }
         },

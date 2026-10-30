@@ -3,6 +3,7 @@ import { Button, Group, Modal, Stack, Text, Textarea, TextInput } from '@mantine
 import { notifications } from '@mantine/notifications';
 import { useMutation } from '@tanstack/react-query';
 import { ApiError, issueWarning, updateWarning, type Warning, type WarningResult } from '@brattybot/web-sdk';
+import type { MemberNames } from '../members/memberNames';
 import { MemberPicker } from './MemberPicker';
 import { useWarningWriteFollowUp } from './useWarningWriteFollowUp';
 import {
@@ -27,6 +28,8 @@ interface WarningFormModalProps {
     readonly guildId: string;
     /** Null while the dialog is closed. */
     readonly mode: WarningFormMode | null;
+    /** Who an edited warning's member is now, from the page's one names request. */
+    readonly names: MemberNames;
     readonly onClose: () => void;
 }
 
@@ -40,7 +43,7 @@ interface WarningFormModalProps {
  * the save closes the dialog when it lands, and one that landed after the operator had
  * closed it and opened another would close that one, typed draft and all.
  */
-export function WarningFormModal({ guildId, mode, onClose }: WarningFormModalProps) {
+export function WarningFormModal({ guildId, mode, names, onClose }: WarningFormModalProps) {
     const [busy, setBusy] = useState(false);
     return (
         <Modal
@@ -52,7 +55,16 @@ export function WarningFormModal({ guildId, mode, onClose }: WarningFormModalPro
             closeOnClickOutside={!busy}
             withCloseButton={!busy}
         >
-            {mode && <WarningForm guildId={guildId} mode={mode} onClose={onClose} busy={busy} onBusyChange={setBusy} />}
+            {mode && (
+                <WarningForm
+                    guildId={guildId}
+                    mode={mode}
+                    names={names}
+                    onClose={onClose}
+                    busy={busy}
+                    onBusyChange={setBusy}
+                />
+            )}
         </Modal>
     );
 }
@@ -60,6 +72,7 @@ export function WarningFormModal({ guildId, mode, onClose }: WarningFormModalPro
 interface WarningFormProps {
     readonly guildId: string;
     readonly mode: WarningFormMode;
+    readonly names: MemberNames;
     readonly onClose: () => void;
     /** A save and the re-read after it are running. Held by the dialog, which stays open meanwhile. */
     readonly busy: boolean;
@@ -72,7 +85,7 @@ interface ServerDateProblem {
     readonly message: string;
 }
 
-function WarningForm({ guildId, mode, onClose, busy, onBusyChange }: WarningFormProps) {
+function WarningForm({ guildId, mode, names, onClose, busy, onBusyChange }: WarningFormProps) {
     const followUp = useWarningWriteFollowUp();
     const loaded = mode.kind === 'edit' ? mode.warning : null;
     const [draft, setDraft] = useState<WarningDraft>(() => (loaded ? draftFromWarning(loaded) : newWarningDraft()));
@@ -173,7 +186,7 @@ function WarningForm({ guildId, mode, onClose, busy, onBusyChange }: WarningForm
                 <Text size="13px" c="dimmed">
                     Warning for{' '}
                     <Text span fw={700} c="bright">
-                        {warningPersonLabel(loaded.member)}
+                        {warningPersonLabel(loaded.member, names)}
                     </Text>
                     , issued {formatWarningDay(loaded.issuedOn)}. The issued date is when it happened — that
                     stays put.

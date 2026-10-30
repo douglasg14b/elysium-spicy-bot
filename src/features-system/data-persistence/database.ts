@@ -33,6 +33,7 @@ import { GuildSettingsTable } from '../guild-settings/data/guildSettingsSchema';
 import { GuildUploadsTable } from '../guild-uploads/data/guildUploadsSchema';
 import { ActivityEventsTable } from '../activity/data/activityEventsSchema';
 import { ActivityRecorderSessionsTable } from '../activity/data/activityRecorderSessionsSchema';
+import { MemberNamesTable } from '../member-names/data/memberNamesSchema';
 
 export interface Database {
     flash_chat_config: FlashChatConfigTable;
@@ -60,6 +61,7 @@ export interface Database {
     guild_uploads: GuildUploadsTable;
     activity_events: ActivityEventsTable;
     activity_recorder_sessions: ActivityRecorderSessionsTable;
+    member_names: MemberNamesTable;
 }
 
 function getDbDialect() {
@@ -127,6 +129,7 @@ function getDatabaseClient() {
                 activity_events: ['occurredAt'],
                 // Likewise absent from both sqlite-only plugins: dates only.
                 activity_recorder_sessions: ['startedAt', 'lastSeenAt', 'gapFilledAt'],
+                member_names: ['leftAt', 'firstSeenAt', 'updatedAt'],
         }),
     ];
 
@@ -139,6 +142,7 @@ function getDatabaseClient() {
                     leveling_config: ['enabled', 'reactionXpEnabled', 'photoBonusEnabled'],
                     leveling_xp_grants: ['photoBonus'],
                     flows: ['enabled'],
+                    member_names: ['isBot', 'inServer'],
                 }),
                 new SqliteJsonPlugin<Database>({
                     ticketing_config: ['config'],
@@ -158,6 +162,7 @@ function getDatabaseClient() {
                     // array on postgres, and every consumer treating it as a list breaks
                     // on one dialect only.
                     guild_settings: ['staffRoleIds'],
+                    member_names: ['nicknames'],
                 }),
                 ...plugins,
             ],

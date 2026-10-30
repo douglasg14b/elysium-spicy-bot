@@ -62,10 +62,9 @@ import {
 } from '../leveling/levelingPresentation';
 import { xpProgress } from '../leveling/levelingProgress';
 import { useGuilds } from '../guilds/GuildContext';
+import { isUserId } from '../members/memberNames';
+import { useMemberNames } from '../members/useMemberNames';
 import { PAGE_MAX_WIDTH } from '../theme';
-
-/** A snowflake, checked the way the server checks it, so a bad id is never fetched. */
-const SNOWFLAKE = /^\d{17,20}$/;
 
 export function LevelingUserPage() {
     const { selected, loading: guildsLoading } = useGuilds();
@@ -86,9 +85,9 @@ export function LevelingUserPage() {
      */
     const [requestedPeriod, setRequestedPeriod] = useState<StatsPeriod | null>(null);
 
-    // Validated here so a mangled path segment is answered on this page rather than sent to
-    // the API to come back as a 400 an operator has to interpret.
-    const userId = rawUserId && SNOWFLAKE.test(rawUserId) ? rawUserId : null;
+    // Validated here, the way the server checks it, so a mangled path segment is answered on
+    // this page rather than sent to the API to come back as a 400 an operator has to interpret.
+    const userId = rawUserId && isUserId(rawUserId) ? rawUserId : null;
 
     /*
      * Keyed by guild, member and the requested window, so a slow `year` response can only
@@ -111,6 +110,8 @@ export function LevelingUserPage() {
     // True for the first read and while a new window loads behind the previous one.
     const reading = stats.isPending || stats.isPlaceholderData;
     const error = loadErrorMessage(stats.error, 'Failed to load those stats');
+    // Only a member who has left needs a name from the bot's memory.
+    const names = useMemberNames(selected?.id ?? '', detail && !detail.member ? [detail.userId] : []);
 
     if (guildsLoading) {
         return (
@@ -128,7 +129,7 @@ export function LevelingUserPage() {
         );
     }
 
-    const person = detail ? memberPresentation(detail.member, detail.userId) : null;
+    const person = detail ? memberPresentation(detail.member, detail.userId, names.get(detail.userId)) : null;
 
     const breadcrumb = (
         <div>

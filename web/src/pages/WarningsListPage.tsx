@@ -39,6 +39,8 @@ import { listWarningsOptions, type Warning } from '@brattybot/web-sdk';
 import { loadErrorMessage } from '../api/loadErrorMessage';
 import { useGuilds } from '../guilds/GuildContext';
 import { CountTile } from '../layout/CountTile';
+import type { MemberNames } from '../members/memberNames';
+import { useMemberNames } from '../members/useMemberNames';
 import { PAGE_MAX_WIDTH } from '../theme';
 import { ReleaseWarningModal } from '../warnings/ReleaseWarningModal';
 import { WarningDrawer } from '../warnings/WarningDrawer';
@@ -53,6 +55,7 @@ import {
     emptyListCopy,
     formatWarningDay,
     WARNING_STATUS_PRESENTATION,
+    warningPeopleIds,
     warningPersonLabel,
 } from '../warnings/warningPresentation';
 
@@ -137,6 +140,16 @@ function WarningsList({ guildId, guildName }: WarningsListProps) {
 
     const openWarning = openSlug ? (warnings.find((warning) => warning.slug === openSlug) ?? null) : null;
 
+    /*
+     * Everybody the page names — every row's people, and the member the list is narrowed to,
+     * who may have no row on screen — in one request. The drawer and the dialogs show only
+     * people from these rows, so they read the same answer.
+     */
+    const names = useMemberNames(guildId, [
+        ...warnings.flatMap(warningPeopleIds),
+        ...(filter.member ? [filter.member.id] : []),
+    ]);
+
     /** Every change to the filter goes through here, so the drawer's slug never outlives the list it was opened from. */
     function changeFilter(update: (current: WarningFilterState) => WarningFilterState): void {
         setFilter(update);
@@ -167,6 +180,7 @@ function WarningsList({ guildId, guildName }: WarningsListProps) {
      * badge the segmented control already says — a marker on every row carries nothing.
      */
     const showStatus = filter.status === 'all';
+    const filterMemberLabel = filter.member ? warningPersonLabel(filter.member, names) : null;
 
     return (
         <Stack gap="lg" maw={PAGE_MAX_WIDTH}>
@@ -251,7 +265,7 @@ function WarningsList({ guildId, guildName }: WarningsListProps) {
                      * A badge with its own close button rather than Mantine's `Pill`, whose
                      * remove button is hidden from assistive tech and unreachable by keyboard.
                      */}
-                    {filter.member ? (
+                    {filterMemberLabel !== null ? (
                         <Badge
                             size="lg"
                             variant="light"
@@ -265,12 +279,12 @@ function WarningsList({ guildId, guildName }: WarningsListProps) {
                                     size="xs"
                                     variant="transparent"
                                     c="brand.2"
-                                    aria-label={`Stop filtering to ${filter.member.name}`}
+                                    aria-label={`Stop filtering to ${filterMemberLabel}`}
                                     onClick={() => changeFilter((current) => ({ ...current, member: null }))}
                                 />
                             }
                         >
-                            Only {filter.member.name}
+                            Only {filterMemberLabel}
                         </Badge>
                     ) : null}
                     {/*
@@ -357,12 +371,16 @@ function WarningsList({ guildId, guildName }: WarningsListProps) {
                                     <WarningRow
                                         key={warning.slug}
                                         warning={warning}
+                                        names={names}
                                         showStatus={showStatus}
                                         onOpen={() => setOpenSlug(warning.slug)}
                                         onFilterToMember={() =>
                                             changeFilter((current) => ({
                                                 ...current,
-                                                member: { id: warning.member.id, name: warningPersonLabel(warning.member) },
+                                                member: {
+                                                    id: warning.member.id,
+                                                    name: warningPersonLabel(warning.member, names),
+                                                },
                                             }))
                                         }
                                     />
@@ -384,27 +402,29 @@ function WarningsList({ guildId, guildName }: WarningsListProps) {
 
             <WarningDrawer
                 warning={openWarning}
+                names={names}
                 onClose={() => setOpenSlug(null)}
                 onEdit={(warning) => setFormMode({ kind: 'edit', warning })}
                 onRelease={setReleasing}
             />
-            <WarningFormModal guildId={guildId} mode={formMode} onClose={() => setFormMode(null)} />
-            <ReleaseWarningModal guildId={guildId} warning={releasing} onClose={() => setReleasing(null)} />
+            <WarningFormModal guildId={guildId} mode={formMode} names={names} onClose={() => setFormMode(null)} />
+            <ReleaseWarningModal guildId={guildId} warning={releasing} names={names} onClose={() => setReleasing(null)} />
         </Stack>
     );
 }
 
 interface WarningRowProps {
     readonly warning: Warning;
+    readonly names: MemberNames;
     readonly showStatus: boolean;
     readonly onOpen: () => void;
     readonly onFilterToMember: () => void;
 }
 
 /** One warning in the table. The row opens the drawer; the member's name filters to them. */
-function WarningRow({ warning, showStatus, onOpen, onFilterToMember }: WarningRowProps) {
-    const member = warningPersonLabel(warning.member);
-    const issuer = warningPersonLabel(warning.issuedBy);
+function WarningRow({ warning, names, showStatus, onOpen, onFilterToMember }: WarningRowProps) {
+    const member = warningPersonLabel(warning.member, names);
+    const issuer = warningPersonLabel(warning.issuedBy, names);
     const status = WARNING_STATUS_PRESENTATION[warning.status];
 
     return (

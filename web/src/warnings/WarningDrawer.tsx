@@ -3,11 +3,14 @@ import { Badge, Button, Divider, Drawer, Group, Stack, Text } from '@mantine/cor
 import { IconPencil, IconShieldCheck } from '@tabler/icons-react';
 import type { Warning } from '@brattybot/web-sdk';
 import { formatTimestampWithYear } from '../format/timestamps';
+import type { MemberNames } from '../members/memberNames';
 import { formatWarningDay, WARNING_STATUS_PRESENTATION, warningIsOpen, warningPersonLabel } from './warningPresentation';
 
 interface WarningDrawerProps {
     /** The warning to show, or null while the drawer is closed. */
     readonly warning: Warning | null;
+    /** Who its people are now, from the page's one names request. */
+    readonly names: MemberNames;
     readonly onClose: () => void;
     readonly onEdit: (warning: Warning) => void;
     readonly onRelease: (warning: Warning) => void;
@@ -18,7 +21,7 @@ interface WarningDrawerProps {
  * edited and released it (and why), and the two actions — neither offered on a released
  * warning, which is the record of a closed matter.
  */
-export function WarningDrawer({ warning, onClose, onEdit, onRelease }: WarningDrawerProps) {
+export function WarningDrawer({ warning, names, onClose, onEdit, onRelease }: WarningDrawerProps) {
     return (
         <Drawer
             opened={warning !== null}
@@ -39,18 +42,19 @@ export function WarningDrawer({ warning, onClose, onEdit, onRelease }: WarningDr
                 ) : null
             }
         >
-            {warning && <WarningRecord warning={warning} onEdit={onEdit} onRelease={onRelease} />}
+            {warning && <WarningRecord warning={warning} names={names} onEdit={onEdit} onRelease={onRelease} />}
         </Drawer>
     );
 }
 
 interface WarningRecordProps {
     readonly warning: Warning;
+    readonly names: MemberNames;
     readonly onEdit: (warning: Warning) => void;
     readonly onRelease: (warning: Warning) => void;
 }
 
-function WarningRecord({ warning, onEdit, onRelease }: WarningRecordProps) {
+function WarningRecord({ warning, names, onEdit, onRelease }: WarningRecordProps) {
     return (
         <Stack gap="md">
             <div>
@@ -58,7 +62,7 @@ function WarningRecord({ warning, onEdit, onRelease }: WarningRecordProps) {
                     Member
                 </Text>
                 <Text size="15px" fw={700}>
-                    {warningPersonLabel(warning.member)}
+                    {warningPersonLabel(warning.member, names)}
                 </Text>
             </div>
             <div>
@@ -82,20 +86,20 @@ function WarningRecord({ warning, onEdit, onRelease }: WarningRecordProps) {
 
             <Stack gap={8}>
                 <RecordLine label="Issued">
-                    {formatWarningDay(warning.issuedOn)} by {warningPersonLabel(warning.issuedBy)}
+                    {formatWarningDay(warning.issuedOn)} by {warningPersonLabel(warning.issuedBy, names)}
                 </RecordLine>
                 <RecordLine label={warning.status === 'expired' ? 'Dropped off' : 'Drops off'}>
                     {formatWarningDay(warning.dropsOffOn)}
                 </RecordLine>
                 {warning.edited ? (
                     <RecordLine label="Last edited">
-                        {formatTimestampWithYear(warning.edited.at)} by {warningPersonLabel(warning.edited.by)}
+                        {formatTimestampWithYear(warning.edited.at)} by {warningPersonLabel(warning.edited.by, names)}
                     </RecordLine>
                 ) : null}
                 {warning.released ? (
                     <>
                         <RecordLine label="Released">
-                            {formatTimestampWithYear(warning.released.at)} by {warningPersonLabel(warning.released.by)}
+                            {formatTimestampWithYear(warning.released.at)} by {warningPersonLabel(warning.released.by, names)}
                         </RecordLine>
                         <RecordLine label="Why">
                             {warning.released.reason ?? 'Released before reasons were kept — nobody wrote one down.'}

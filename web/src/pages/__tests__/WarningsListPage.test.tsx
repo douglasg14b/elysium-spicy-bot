@@ -1,5 +1,5 @@
 import { screen, waitFor, within } from '@testing-library/react';
-import type { Warning, WarningList } from '@brattybot/web-sdk';
+import type { MemberName, Warning, WarningList } from '@brattybot/web-sdk';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import { installFakeApi, type FakeApi } from '../../__tests__/support/fakeApi';
@@ -44,10 +44,15 @@ function list(warnings: readonly Warning[], overrides: Partial<WarningList> = {}
     };
 }
 
-function serveGuild(api: FakeApi): void {
+/** The page's one names request for the people every fixture shows, Kitten and the mod. */
+const NAMES_PATH = `/api/guilds/${GUILD_ID}/member-names?ids=${encodeURIComponent([KITTEN.id, MOD.id].join(','))}`;
+
+/** The guild, and the bot remembering nobody unless a test says otherwise. */
+function serveGuild(api: FakeApi, remembered: readonly MemberName[] = []): void {
     api.on('GET', '/api/guilds', () => ({
         body: { guilds: [{ id: GUILD_ID, name: 'Brat Palace', iconURL: null, memberCount: 3 }] },
     }));
+    api.on('GET', NAMES_PATH, () => ({ body: { members: [...remembered] } }));
 }
 
 function renderPage() {
@@ -78,6 +83,50 @@ describe('WarningsListPage', () => {
         // Filtered to one status, every row would say the same thing: no status column.
         expect(screen.queryByRole('columnheader', { name: 'Status' })).toBeNull();
         expect(listQueries(api)).toEqual([`${LIST_PATH}?status=active`]);
+    });
+
+    it('names each person as they go by now, over the name the row recorded, in the row, the chip and the drawer', async () => {
+        const api = installFakeApi();
+        serveGuild(api, [
+            {
+                userId: KITTEN.id,
+                username: 'kittenuser',
+                globalName: 'Kitten',
+                nickname: 'Brat Princess',
+                nicknames: ['Brat Princess', 'Kitten'],
+                isBot: false,
+                inServer: false,
+                leftAt: '2026-10-29T12:00:00.000Z',
+            },
+        ]);
+        api.on('GET', `${LIST_PATH}?status=active`, () => list([warning()]));
+        api.on('GET', `${LIST_PATH}?status=active&userId=${KITTEN.id}`, () => list([warning()]));
+        const { user } = renderPage();
+
+        const name = await screen.findByText('Brat Princess');
+        const row = name.closest('tr');
+        if (!row) throw new Error('The warning is not in a table row.');
+        expect(within(row).queryByText('Kitten')).toBeNull();
+        // Nobody remembered the mod, so the row's own snapshot stands.
+        expect(within(row).getByText('velvet_admin')).toBeTruthy();
+        expect(api.requests.filter((request) => request.path.includes('/member-names'))).toHaveLength(1);
+
+        await user.click(screen.getByRole('button', { name: "Only Brat Princess's warnings" }));
+        expect(await screen.findByText('Only Brat Princess')).toBeTruthy();
+        await waitFor(() => expect(listQueries(api)).toContain(`${LIST_PATH}?status=active&userId=${KITTEN.id}`));
+
+        // A list showing only people already asked about asks nothing more: each request spends Discord budget.
+        api.on('GET', `${LIST_PATH}?status=released&userId=${KITTEN.id}`, () =>
+            list([warning({ slug: 'self-own-1', rule: 'Self-snitching', status: 'released', issuedBy: KITTEN })])
+        );
+        await user.click(screen.getByRole('radio', { name: 'Released' }));
+        expect(await screen.findByText('Self-snitching')).toBeTruthy();
+        expect(api.requests.filter((request) => request.path.includes('/member-names'))).toHaveLength(1);
+        await user.click(screen.getByRole('radio', { name: 'Active' }));
+
+        await user.click(screen.getByRole('button', { name: 'Open rope-burn-42' }));
+        const drawer = await screen.findByRole('dialog');
+        expect(within(drawer).getByText('Brat Princess')).toBeTruthy();
     });
 
     it('filters by status from the tiles and the segmented control, showing status only under All', async () => {

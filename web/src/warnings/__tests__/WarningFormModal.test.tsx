@@ -3,6 +3,7 @@ import type { GuildMemberMatch, Warning, WarningResult } from '@brattybot/web-sd
 import { describe, expect, it, vi } from 'vitest';
 import { heldReply, installFakeApi, type FakeApi } from '../../__tests__/support/fakeApi';
 import { renderWithProviders } from '../../__tests__/support/renderWithProviders';
+import { NO_MEMBER_NAMES } from '../../members/memberNames';
 import { defaultDropsOff, pacificToday } from '../warningDates';
 import { WarningFormModal, type WarningFormMode } from '../WarningFormModal';
 
@@ -33,7 +34,9 @@ const WARNING: Warning = {
 };
 
 function renderDialog(mode: WarningFormMode, onClose: () => void = () => undefined) {
-    return renderWithProviders(<WarningFormModal guildId={GUILD_ID} mode={mode} onClose={onClose} />);
+    return renderWithProviders(
+        <WarningFormModal guildId={GUILD_ID} mode={mode} names={NO_MEMBER_NAMES} onClose={onClose} />
+    );
 }
 
 function saved(overrides: Partial<WarningResult> = {}): { status: number; body: WarningResult } {

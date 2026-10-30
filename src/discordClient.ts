@@ -20,7 +20,8 @@ const DISCORD_CLIENT = new Client({
      * Its only other effects: GuildMemberUpdate for an uncached member emits with a
      * partial old member, and `guild.members.me` returns — and caches — a stub partial
      * with only `@everyone`'s permissions rather than null if the bot's own member ever
-     * left the cache. Nothing here listens for the first. The second is safe only
+     * left the cache. Member names listens for the first and reads only the new member,
+     * so the partial old one is never read. The second is safe only
      * because the bot's member arrives with every GUILD_CREATE and no member sweeper is
      * configured; adding one would need revisiting this.
      */

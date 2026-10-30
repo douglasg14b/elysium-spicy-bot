@@ -1,4 +1,5 @@
 import type { Warning, WarningCounts, WarningNoticeStatus, WarningPerson, WarningStatus } from '@brattybot/web-sdk';
+import { memberNameLabel, type MemberNames } from '../members/memberNames';
 import type { WarningFilterState } from './warningFilters';
 import { filtersHideWarnings } from './warningFilters';
 
@@ -16,12 +17,21 @@ export const WARNING_STATUS_PRESENTATION: Readonly<
 };
 
 /**
- * Somebody on a warning. The name the row recorded, or the raw id for a warning written
- * before names were — null means "not recorded", and inventing "Unknown" would read as
- * somebody's actual name (the tickets `participantLabel` rule).
+ * Somebody on a warning: the name they go by now, from the bot's memory of members
+ * (`names`); else the name the row recorded; else the raw id, for a warning written before
+ * names were and somebody the bot cannot name — null means "not recorded", and inventing
+ * "Unknown" would read as somebody's actual name (the tickets `participantLabel` rule).
  */
-export function warningPersonLabel(person: WarningPerson): string {
-    return person.name || person.id;
+export function warningPersonLabel(person: WarningPerson, names: MemberNames): string {
+    const known = names.get(person.id);
+    return known ? memberNameLabel(known) : person.name || person.id;
+}
+
+/** Everybody a warning names — member, issuer, last editor, releaser — for one names request per view. */
+export function warningPeopleIds(warning: Warning): string[] {
+    return [warning.member.id, warning.issuedBy.id, warning.edited?.by.id, warning.released?.by.id].filter(
+        (id): id is string => !!id
+    );
 }
 
 const CALENDAR_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
