@@ -429,6 +429,28 @@ export function declarationForAdoptedResource(
 }
 
 /**
+ * What to call a declared resource on screen: the adopted object's **current** name when
+ * the row adopts one the guild still has, the declared name otherwise.
+ *
+ * An adopted row's `defaultName` is a snapshot taken at the pick. The role can be renamed
+ * in Discord the next day, and rows picked before adopting seeded the name kept the search
+ * that found the role (`in` for `In Approval Process`) — so the snapshot is not what to
+ * show. Re-picking rewrites it; this does not, because rendering a journey must not dirty
+ * it.
+ *
+ * Looked up in the list for the row's own kind, as `setAdoption` does, so a role never
+ * takes its name from a channel that happens to share the id.
+ */
+export function resourceDisplayName(
+    resource: Pick<ResourceDeclaration, 'kind' | 'defaultName' | 'adoptDiscordId'>,
+    guild: { readonly channels: readonly AdoptableTarget[]; readonly roles: readonly AdoptableTarget[] }
+): string {
+    if (!resource.adoptDiscordId) return resource.defaultName;
+    const candidates = resource.kind === 'role' ? guild.roles : guild.channels;
+    return candidates.find((candidate) => candidate.id === resource.adoptDiscordId)?.name ?? resource.defaultName;
+}
+
+/**
  * The name a row gets when someone types into it while it is adopted: **only what they
  * typed**, never the label it was typed into.
  *

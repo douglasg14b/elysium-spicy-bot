@@ -57,6 +57,7 @@ import type {
 } from '@brattybot/web-sdk';
 import { PERMISSION_ACCESS_LEVELS, PERMISSION_AUDIENCES } from './contractValues';
 import { roleColorHex } from './nodeMeta';
+import { resourceDisplayName } from './resourceAdoption';
 import { RESOURCE_KIND_STYLES } from './resourceMeta';
 import { declaredRoleOptionValue, parseDeclaredRoleReference } from './declaredRoleReference';
 
@@ -193,7 +194,7 @@ export function PermissionIntentEditor({
     const roleOptions = useMemo(() => {
         const declared = declaredRoles.map((resource) => ({
             value: declaredRoleOptionValue(resource.key),
-            label: `@${resource.defaultName}`,
+            label: `@${resourceDisplayName(resource, { channels: [], roles })}`,
         }));
         const existing = [...roles]
             .sort((first, second) => second.position - first.position)

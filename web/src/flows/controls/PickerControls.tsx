@@ -19,7 +19,7 @@
 import { useMemo } from 'react';
 import { Select, Text } from '@mantine/core';
 import { roleColorHex } from '../nodeMeta';
-import { channelOptionLabel, postableChannels } from '../resourceAdoption';
+import { channelOptionLabel, postableChannels, resourceDisplayName } from '../resourceAdoption';
 import { asText, resourceKeyFieldFor, type ControlProps } from './types';
 import type {
     BlockConfigField,
@@ -67,10 +67,12 @@ interface DeclaredGroupOptions {
     resources: ResourceDeclaration[];
     kinds: readonly ResourceKind[];
     prefix: string;
+    /** The guild's objects, so an adopted resource reads as what it adopts is called now. */
+    guild: Pick<ControlProps<RolePickerField>['context'], 'channels' | 'roles'>;
 }
 
 /** Declared resources of the right kinds, as a labelled option group. */
-function declaredGroup({ resources, kinds, prefix }: DeclaredGroupOptions) {
+function declaredGroup({ resources, kinds, prefix, guild }: DeclaredGroupOptions) {
     const matching = resources.filter((resource) => kinds.includes(resource.kind));
     if (matching.length === 0) return undefined;
 
@@ -78,7 +80,7 @@ function declaredGroup({ resources, kinds, prefix }: DeclaredGroupOptions) {
         group: 'Declared by this flow — not created yet',
         items: matching.map((resource) => ({
             value: declaredOptionValue(resource.key),
-            label: `${prefix}${resource.defaultName}`,
+            label: `${prefix}${resourceDisplayName(resource, guild)}`,
         })),
     };
 }
@@ -105,12 +107,13 @@ export function RolePickerControl({
             resources: context.declaredResources,
             kinds: ['role'],
             prefix: '@',
+            guild: context,
         });
 
         return declared
             ? [declared, { group: 'Roles in this server', items: existing }]
             : existing;
-    }, [context.roles, context.declaredResources]);
+    }, [context.roles, context.channels, context.declaredResources]);
 
     const selected = context.roles.find((role) => role.id === asText(value));
     const declaredKey = asText(config?.[resourceKeyField]);
@@ -198,6 +201,7 @@ export function ChannelPickerControl({
             resources: context.declaredResources,
             kinds: ['textChannel'],
             prefix: '# ',
+            guild: context,
         });
 
         const fromBlocks = variableGroup(context.variables, 'channel', pickedVariable);
@@ -206,7 +210,7 @@ export function ChannelPickerControl({
         return groups.length > 0
             ? [...groups, { group: 'Channels in this server', items: existing }]
             : existing;
-    }, [context.channels, context.declaredResources, context.variables, pickedVariable]);
+    }, [context.channels, context.roles, context.declaredResources, context.variables, pickedVariable]);
 
     const declaredKey = asText(config?.[resourceKeyField]);
 
@@ -277,10 +281,11 @@ export function CategoryPickerControl({
             resources: context.declaredResources,
             kinds: ['category'],
             prefix: '',
+            guild: context,
         });
 
         return declared ? [declared, { group: 'Categories in this server', items: existing }] : existing;
-    }, [context.channels, context.declaredResources]);
+    }, [context.channels, context.roles, context.declaredResources]);
 
     const declaredKey = asText(config?.[resourceKeyField]);
 
