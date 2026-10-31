@@ -1,5 +1,5 @@
 /**
- * The text box of a part where Discord shows a role mention (`showsRoleMentions`): `@` opens a
+ * The text box of a part where Discord shows a role mention (`showsMentions`): `@` opens a
  * list of the server's roles, and a picked one is written as `<@&id>` but shown, while typing,
  * as `@Role name` in the role's colour — MEE6's mention box.
  *

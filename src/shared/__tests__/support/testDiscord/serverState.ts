@@ -28,6 +28,8 @@ import {
     type GatewayGuildCreateDispatchData,
     type GatewayGuildMemberAddDispatchData,
     type GatewayGuildMemberRemoveDispatchData,
+    type GatewayGuildMembersChunkDispatchData,
+    type GatewayGuildMemberUpdateDispatchData,
     type GatewayGuildRoleModifyDispatchData,
     type GatewayMessageCreateDispatchData,
     type GatewayMessageDeleteDispatchData,
@@ -82,6 +84,8 @@ export type HarnessEvent =
     | { readonly t: GatewayDispatchEvents.GuildRoleCreate; readonly d: GatewayGuildRoleModifyDispatchData }
     | { readonly t: GatewayDispatchEvents.GuildMemberAdd; readonly d: GatewayGuildMemberAddDispatchData }
     | { readonly t: GatewayDispatchEvents.GuildMemberRemove; readonly d: GatewayGuildMemberRemoveDispatchData }
+    | { readonly t: GatewayDispatchEvents.GuildMemberUpdate; readonly d: GatewayGuildMemberUpdateDispatchData }
+    | { readonly t: GatewayDispatchEvents.GuildMembersChunk; readonly d: GatewayGuildMembersChunkDispatchData }
     | { readonly t: GatewayDispatchEvents.GuildCreate; readonly d: GatewayGuildCreateDispatchData }
     | { readonly t: GatewayDispatchEvents.MessageCreate; readonly d: GatewayMessageCreateDispatchData }
     | { readonly t: GatewayDispatchEvents.MessageUpdate; readonly d: GatewayMessageUpdateDispatchData }
@@ -106,6 +110,14 @@ export interface NewChannel {
     readonly name: string;
     readonly parentId: string | null;
     readonly overwrites: readonly APIOverwrite[];
+}
+
+/** A member to add, with a new account of their own. Every field is explicit; defaults belong to the caller. */
+export interface NewMember {
+    readonly username: string;
+    readonly globalName: string | null;
+    readonly nickname: string | null;
+    readonly roleIds: readonly string[];
 }
 
 /** A guild to create, with the bot already installed in it. */
@@ -623,11 +635,12 @@ export class ServerState {
         return structuredClone(emoji);
     }
 
-    addMember(guildId: string, input: { readonly username: string; readonly roleIds: readonly string[] }): APIGuildMember {
+    addMember(guildId: string, input: NewMember): APIGuildMember {
         const guild = this.guild(guildId);
         for (const roleId of input.roleIds) this.role(guildId, roleId);
 
-        const member = this.newMember(this.newUser(input.username), input.roleIds);
+        const member = this.newMember(this.newUser(input.username, input.globalName), input.roleIds);
+        member.nick = input.nickname;
         guild.members.set(member.user.id, member);
 
         this.sink?.publish({
@@ -662,6 +675,58 @@ export class ServerState {
             t: GatewayDispatchEvents.GuildMemberRemove,
             d: { guild_id: guildId, user: structuredClone(member.user) },
         });
+    }
+
+    /** A member's server nickname set or cleared (null), announced as GUILD_MEMBER_UPDATE. */
+    setNickname(guildId: string, userId: string, nickname: string | null): void {
+        const member = this.requireMember(guildId, userId);
+        member.nick = nickname;
+        this.publishMemberUpdate(guildId, member);
+    }
+
+    /**
+     * An account's own names changed. Discord tells a bot through a GUILD_MEMBER_UPDATE in
+     * every guild the two share — USER_UPDATE goes only to the account itself — and
+     * discord.js turns the changed user into a `userUpdate` of its own.
+     */
+    renameUser(userId: string, names: { readonly username?: string; readonly globalName?: string | null }): void {
+        const user = this.users.get(userId);
+        if (!user) {
+            throw new TestDiscordError(`TestDiscord holds no user ${userId} to rename.`);
+        }
+        if (names.username !== undefined) user.username = names.username;
+        if (names.globalName !== undefined) user.global_name = names.globalName;
+
+        for (const guild of this.guilds.values()) {
+            const member = guild.members.get(userId);
+            if (!member) continue;
+            member.user = structuredClone(user);
+            this.publishMemberUpdate(guild.id, member);
+        }
+    }
+
+    /**
+     * Discord's answer to a gateway member request (RequestGuildMembers): every member, or the
+     * ones named by `userIds`, in one chunk — the harness holds far fewer than the 1000 a
+     * chunk carries. Ids that are not members come back in `not_found`, as Discord sends them.
+     */
+    membersChunk(guildId: string, request: { readonly userIds?: readonly string[]; readonly nonce?: string }): GatewayGuildMembersChunkDispatchData {
+        const guild = this.guild(guildId);
+        const wanted = request.userIds ?? [...guild.members.keys()];
+        const members = wanted.flatMap((userId) => {
+            const member = guild.members.get(userId);
+            return member ? [structuredClone(member)] : [];
+        });
+        const notFound = request.userIds?.filter((userId) => !guild.members.has(userId)) ?? [];
+
+        return {
+            guild_id: guildId,
+            members,
+            chunk_index: 0,
+            chunk_count: 1,
+            ...(notFound.length > 0 ? { not_found: notFound } : {}),
+            ...(request.nonce !== undefined ? { nonce: request.nonce } : {}),
+        };
     }
 
     channel(channelId: string): Readonly<ServerChannelPayload> {
@@ -917,10 +982,36 @@ export class ServerState {
         }
     }
 
-    private newUser(username: string): APIUser {
-        const user: APIUser = { id: newSnowflake(), username, discriminator: '0000', global_name: null, avatar: null };
+    private newUser(username: string, globalName: string | null = null): APIUser {
+        const user: APIUser = { id: newSnowflake(), username, discriminator: '0000', global_name: globalName, avatar: null };
         this.users.set(user.id, user);
         return user;
+    }
+
+    private requireMember(guildId: string, userId: string): APIGuildMember {
+        const member = this.guild(guildId).members.get(userId);
+        if (!member) {
+            throw new TestDiscordError(`Guild ${guildId} holds no member ${userId}.`);
+        }
+        return member;
+    }
+
+    private publishMemberUpdate(guildId: string, member: APIGuildMember): void {
+        this.sink?.publish({
+            t: GatewayDispatchEvents.GuildMemberUpdate,
+            d: {
+                guild_id: guildId,
+                roles: [...member.roles],
+                user: structuredClone(member.user),
+                nick: member.nick ?? null,
+                avatar: null,
+                banner: null,
+                joined_at: member.joined_at,
+                deaf: member.deaf,
+                mute: member.mute,
+                flags: member.flags,
+            },
+        });
     }
 
     private newMember(user: APIUser, roleIds: readonly string[]): APIGuildMember {

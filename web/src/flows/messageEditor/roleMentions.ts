@@ -11,7 +11,6 @@ import type { CSSProperties } from 'react';
 import type { GuildRole } from '@brattybot/web-sdk';
 import { roleColorHex } from '../nodeMeta';
 import { DISCORD } from './discordLook';
-import type { TextPart } from './messageDraft';
 
 /**
  * A role a message may name: one a flow may grant (`GuildRole`) or one Discord or an
@@ -47,28 +46,4 @@ export function roleMentionStyle(roleId: string, roles: readonly MentionableRole
     const hex = roleColorHex(color);
     // `1a` is a tenth of full opacity: the faint wash Discord puts behind a coloured role.
     return { color: hex, background: `${hex}1a`, borderRadius: 3 };
-}
-
-/**
- * Whether Discord shows `<@&id>` in this part as the role: in the plain text, an embed's
- * description and a field's text. A header, title, link, field heading or footer shows the
- * `<@&…>` as written, so none of them offers the `@` picker or draws a pill.
- */
-export function showsRoleMentions(part: TextPart): boolean {
-    switch (part.kind) {
-        case 'content':
-        case 'description':
-        case 'fieldValue':
-            return true;
-        case 'authorName':
-        case 'title':
-        case 'url':
-        case 'footerText':
-        case 'fieldName':
-            return false;
-        default: {
-            const illegal: never = part;
-            throw new Error(`Unknown text part ${JSON.stringify(illegal)}.`);
-        }
-    }
 }

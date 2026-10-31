@@ -110,6 +110,7 @@ import {
     declarationForAdoptedResource,
     declarationForNewResource,
     nameTypedOverAdoption,
+    resourceDisplayName,
     slugifyResourceName,
 } from './resourceAdoption';
 import { RESOURCE_CHIPS } from './resourceChips';
@@ -968,6 +969,9 @@ function ResourceRow({
             ? adoptOptions.find((option) => option.value === resource.adoptDiscordId)?.label
             : undefined;
     const shownName = adoptedLabel ?? resource.defaultName;
+    // The header's bare name — the combobox's label carries a prefix and a parent the
+    // header does not want.
+    const displayName = resourceDisplayName(resource, { channels, roles });
 
     /*
      * One line each, because two wrap at this column width and a description that wraps
@@ -1093,7 +1097,7 @@ function ResourceRow({
                     <UnstyledButton
                         onClick={onToggle}
                         aria-expanded={expanded}
-                        aria-label={`${expanded ? 'Collapse' : 'Expand'} ${resource.defaultName}`}
+                        aria-label={`${expanded ? 'Collapse' : 'Expand'} ${displayName}`}
                         style={{ flex: 1, minWidth: 0 }}
                     >
                         <Group gap="sm" wrap="nowrap" py={10} pl={0}>
@@ -1118,7 +1122,7 @@ function ResourceRow({
                             />
                             <Text fw={700} size="md" truncate>
                                 {style.prefix}
-                                {resource.defaultName}
+                                {displayName}
                             </Text>
 
                             {/*
@@ -1155,6 +1159,7 @@ function ResourceRow({
 
                     <RemoveResourceButton
                         resource={resource}
+                        name={displayName}
                         cutsOff={removalCutsOff}
                         onRemove={onRemove}
                     />
@@ -1364,6 +1369,8 @@ function ResourceRow({
 
 interface RemoveResourceButtonProps {
     resource: ResourceDeclaration;
+    /** What the row's header calls it. */
+    name: string;
     /** The triggers the removal would leave pointing at nothing. */
     cutsOff: readonly ButtonListener[];
     onRemove: () => void;
@@ -1375,7 +1382,7 @@ interface RemoveResourceButtonProps {
  * the trigger would be left listening to nothing, and a press would answer that nothing's
  * hooked up.
  */
-function RemoveResourceButton({ resource, cutsOff, onRemove }: RemoveResourceButtonProps) {
+function RemoveResourceButton({ resource, name, cutsOff, onRemove }: RemoveResourceButtonProps) {
     const [asking, setAsking] = useState(false);
     const trash = (
         <ActionIcon
@@ -1383,7 +1390,7 @@ function RemoveResourceButton({ resource, cutsOff, onRemove }: RemoveResourceBut
             variant="subtle"
             color="red"
             onClick={() => (cutsOff.length > 0 ? setAsking((open) => !open) : onRemove())}
-            aria-label={`Remove ${resource.defaultName}`}
+            aria-label={`Remove ${name}`}
         >
             <IconTrash size={16} />
         </ActionIcon>

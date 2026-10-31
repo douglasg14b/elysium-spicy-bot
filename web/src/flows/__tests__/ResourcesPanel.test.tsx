@@ -145,6 +145,25 @@ describe('ResourcesPanel', () => {
         });
     });
 
+    it('heads an adopted row with the role it adopts, not the name it was saved with', () => {
+        // Rows adopted before the pick seeded the name were saved as `in`, and a role
+        // renamed in Discord leaves any adopted row's saved name behind the same way.
+        renderPanel({
+            resources: [
+                { key: 'in-approval-process', kind: 'role', defaultName: 'in', adoptDiscordId: 'r1' },
+                { key: 'gone', kind: 'role', defaultName: 'Old Role', adoptDiscordId: 'r-deleted' },
+            ],
+            roles: [role('r1', 'In Approval Process')],
+        });
+
+        expect(screen.getByRole('button', { name: 'Expand In Approval Process' }).textContent).toContain(
+            '@In Approval Process'
+        );
+        expect(screen.getByRole('button', { name: 'Remove In Approval Process' })).toBeTruthy();
+        // Gone from the guild: the saved name is all there is.
+        expect(screen.getByRole('button', { name: 'Expand Old Role' })).toBeTruthy();
+    });
+
     it('keeps the key of an installed row when the name is re-seeded by a pick', async () => {
         const { user, current } = renderPanel({
             resources: [{ key: 'in', kind: 'role', defaultName: 'in' }],

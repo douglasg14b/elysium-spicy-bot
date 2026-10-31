@@ -10,6 +10,7 @@ import {
     type WarningReleaseRequest,
 } from '@brattybot/web-sdk';
 import { fieldProblems } from '../api/fieldProblems';
+import type { MemberNames } from '../members/memberNames';
 import { useWarningWriteFollowUp } from './useWarningWriteFollowUp';
 import { warningPersonLabel } from './warningPresentation';
 
@@ -17,6 +18,8 @@ interface ReleaseWarningModalProps {
     readonly guildId: string;
     /** The warning to release, as the drawer showed it; null while the dialog is closed. */
     readonly warning: Warning | null;
+    /** Who its member is now, from the page's one names request. */
+    readonly names: MemberNames;
     readonly onClose: () => void;
 }
 
@@ -27,7 +30,7 @@ interface ReleaseWarningModalProps {
  *
  * Cannot be closed while the release runs, for the reason `WarningFormModal` gives.
  */
-export function ReleaseWarningModal({ guildId, warning, onClose }: ReleaseWarningModalProps) {
+export function ReleaseWarningModal({ guildId, warning, names, onClose }: ReleaseWarningModalProps) {
     const [busy, setBusy] = useState(false);
     return (
         <Modal
@@ -40,7 +43,14 @@ export function ReleaseWarningModal({ guildId, warning, onClose }: ReleaseWarnin
             withCloseButton={!busy}
         >
             {warning && (
-                <ReleaseForm guildId={guildId} warning={warning} onClose={onClose} busy={busy} onBusyChange={setBusy} />
+                <ReleaseForm
+                    guildId={guildId}
+                    warning={warning}
+                    names={names}
+                    onClose={onClose}
+                    busy={busy}
+                    onBusyChange={setBusy}
+                />
             )}
         </Modal>
     );
@@ -49,13 +59,14 @@ export function ReleaseWarningModal({ guildId, warning, onClose }: ReleaseWarnin
 interface ReleaseFormProps {
     readonly guildId: string;
     readonly warning: Warning;
+    readonly names: MemberNames;
     readonly onClose: () => void;
     /** The release and the re-read after it are running. */
     readonly busy: boolean;
     readonly onBusyChange: (busy: boolean) => void;
 }
 
-function ReleaseForm({ guildId, warning, onClose, busy, onBusyChange }: ReleaseFormProps) {
+function ReleaseForm({ guildId, warning, names, onClose, busy, onBusyChange }: ReleaseFormProps) {
     const followUp = useWarningWriteFollowUp();
     const [reason, setReason] = useState('');
     const [touched, setTouched] = useState(false);
@@ -101,7 +112,7 @@ function ReleaseForm({ guildId, warning, onClose, busy, onBusyChange }: ReleaseF
         <Stack gap="md">
             <Text size="13.5px" c="dimmed">
                 <Text span fw={700} c="bright">
-                    {warningPersonLabel(warning.member)}
+                    {warningPersonLabel(warning.member, names)}
                 </Text>{' '}
                 comes off the hook for{' '}
                 <Text span fw={700} c="bright">

@@ -221,6 +221,7 @@ function PictureChooser({ part, problems, onDone }: PictureChooserProps) {
                         requirements={scope.requirements}
                         value={typed}
                         onInsert={(token) => set(withToken(typed, token))}
+                        channelLinks={false}
                     />
                 </div>
             ) : null}

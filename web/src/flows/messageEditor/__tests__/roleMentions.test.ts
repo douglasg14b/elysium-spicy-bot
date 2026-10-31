@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { GuildRole } from '@brattybot/web-sdk';
 import { segmentsOf } from '../CopyText';
-import { roleMentionLabel, roleMentionStyle, showsRoleMentions, UNKNOWN_ROLE_LABEL } from '../roleMentions';
+import { showsMentions } from '../messageDraft';
+import { roleMentionLabel, roleMentionStyle, UNKNOWN_ROLE_LABEL } from '../roleMentions';
 
 const VERIFIED: GuildRole = { id: '222222222222222222', name: 'Verified', color: 0xe74c3c, position: 3, owner: null };
 const PLAIN: GuildRole = { id: '333333333333333333', name: 'Kinkster', color: 0, position: 1, owner: null };
@@ -49,14 +50,14 @@ describe('a mentioned role', () => {
     });
 });
 
-describe('showsRoleMentions', () => {
+describe('showsMentions', () => {
     it('is the plain text, an embed body and a field text — where Discord draws the role', () => {
-        expect(showsRoleMentions({ kind: 'content' })).toBe(true);
-        expect(showsRoleMentions({ kind: 'description', embed: 0 })).toBe(true);
-        expect(showsRoleMentions({ kind: 'fieldValue', embed: 0, field: 0 })).toBe(true);
-        expect(showsRoleMentions({ kind: 'title', embed: 0 })).toBe(false);
-        expect(showsRoleMentions({ kind: 'fieldName', embed: 0, field: 0 })).toBe(false);
-        expect(showsRoleMentions({ kind: 'footerText', embed: 0 })).toBe(false);
-        expect(showsRoleMentions({ kind: 'authorName', embed: 0 })).toBe(false);
+        expect(showsMentions({ kind: 'content' })).toBe(true);
+        expect(showsMentions({ kind: 'description', embed: 0 })).toBe(true);
+        expect(showsMentions({ kind: 'fieldValue', embed: 0, field: 0 })).toBe(true);
+        expect(showsMentions({ kind: 'title', embed: 0 })).toBe(false);
+        expect(showsMentions({ kind: 'fieldName', embed: 0, field: 0 })).toBe(false);
+        expect(showsMentions({ kind: 'footerText', embed: 0 })).toBe(false);
+        expect(showsMentions({ kind: 'authorName', embed: 0 })).toBe(false);
     });
 });

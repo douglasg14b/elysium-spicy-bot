@@ -1,4 +1,6 @@
+import type { MemberName, Warning } from '@brattybot/web-sdk';
 import { describe, expect, it, vi } from 'vitest';
+import { NO_MEMBER_NAMES } from '../../members/memberNames';
 import { DEFAULT_WARNING_FILTER } from '../warningFilters';
 import {
     dateRefusalField,
@@ -6,6 +8,7 @@ import {
     formatWarningDay,
     noticeProblem,
     warningIsOpen,
+    warningPeopleIds,
     warningPersonLabel,
     warningWriteDone,
 } from '../warningPresentation';
@@ -24,10 +27,48 @@ describe('dateRefusalField', () => {
 });
 
 describe('warningPersonLabel', () => {
-    it('is the recorded name, or the id for a warning written before names were', () => {
-        expect(warningPersonLabel({ id: '400000000000000004', name: 'Kitten' })).toBe('Kitten');
-        expect(warningPersonLabel({ id: '400000000000000004', name: null })).toBe('400000000000000004');
-        expect(warningPersonLabel({ id: '400000000000000004', name: '' })).toBe('400000000000000004');
+    const KITTEN_ID = '400000000000000004';
+    const remembered: MemberName = {
+        userId: KITTEN_ID,
+        username: 'kittenuser',
+        globalName: 'Kitten Now',
+        nickname: null,
+        nicknames: [],
+        isBot: false,
+        inServer: false,
+        leftAt: null,
+    };
+
+    it('is the name they go by now, over whatever the row recorded', () => {
+        const names = new Map([[KITTEN_ID, remembered]]);
+
+        expect(warningPersonLabel({ id: KITTEN_ID, name: 'Kitten Then' }, names)).toBe('Kitten Now');
+        expect(warningPersonLabel({ id: KITTEN_ID, name: null }, names)).toBe('Kitten Now');
+    });
+
+    it('is the recorded name for somebody the bot cannot name, else the id', () => {
+        expect(warningPersonLabel({ id: KITTEN_ID, name: 'Kitten' }, NO_MEMBER_NAMES)).toBe('Kitten');
+        expect(warningPersonLabel({ id: KITTEN_ID, name: null }, NO_MEMBER_NAMES)).toBe(KITTEN_ID);
+        expect(warningPersonLabel({ id: KITTEN_ID, name: '' }, NO_MEMBER_NAMES)).toBe(KITTEN_ID);
+    });
+});
+
+describe('warningPeopleIds', () => {
+    it('names the member, the issuer, the last editor and the releaser, when there are ones', () => {
+        const warning: Warning = {
+            slug: 'rope-burn-42',
+            rule: 'No means no',
+            description: 'Twice.',
+            member: { id: 'member', name: null },
+            issuedBy: { id: 'issuer', name: null },
+            issuedOn: '2026-10-01',
+            dropsOffOn: '2027-04-01',
+            status: 'released',
+            edited: null,
+            released: { by: { id: 'releaser', name: null }, at: '2026-10-02T00:00:00.000Z', reason: 'Grovelled.' },
+        };
+
+        expect(warningPeopleIds(warning)).toEqual(['member', 'issuer', 'releaser']);
     });
 });
 

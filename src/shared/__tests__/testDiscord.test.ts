@@ -4,6 +4,7 @@ import {
     DiscordAPIError,
     RESTJSONErrorCodes,
     Status,
+    WebSocketShard,
     type Client,
     type Guild,
     type GuildBasedChannel,
@@ -256,6 +257,37 @@ describe('TestDiscord keeps the client in step with the server', () => {
     });
 });
 
+describe("TestDiscord models members' names", () => {
+    it('answers a gateway member request with every member, or the ones named', async () => {
+        const { guild, liveGuild } = await startedGuild();
+        const alice = guild.createMember({ username: 'alice', nickname: 'Al' });
+        liveGuild.members.cache.delete(alice.id);
+
+        const everyone = await liveGuild.members.fetch();
+        const named = await liveGuild.members.fetch({ user: [alice.id, guild.bot.id] });
+
+        expect(everyone.get(alice.id)?.nickname).toBe('Al');
+        expect(everyone.has(guild.bot.id)).toBe(true);
+        expect([...named.keys()].sort()).toEqual([alice.id, guild.bot.id].sort());
+    });
+
+    it('delivers a nickname change and an account rename as member updates, and the rename as a user update', async () => {
+        const { discord, guild, client, liveGuild } = await startedGuild();
+        const alice = guild.createMember({ username: 'alice', globalName: 'Alice' });
+        const userUpdates = vi.fn();
+        client.on('userUpdate', userUpdates);
+
+        guild.setNickname(alice, 'Brat');
+        discord.renameUser(alice, { username: 'alice2', globalName: null });
+
+        const cached = liveGuild.members.cache.get(alice.id);
+        expect(cached?.nickname).toBe('Brat');
+        expect(cached?.user.username).toBe('alice2');
+        expect(cached?.user.globalName).toBeNull();
+        expect(userUpdates).toHaveBeenCalledTimes(1);
+    });
+});
+
 describe('TestDiscord failure injection', () => {
     it('surfaces an injected rejection as a real DiscordAPIError 50013 and changes nothing', async () => {
         const { discord, channel, liveGuild } = await startedGuild();
@@ -326,8 +358,10 @@ describe('TestDiscord stays offline', () => {
             expect(discord.requests.map((request) => request.status)).toEqual([200, 201, 200, 204]);
             expect(connect).not.toHaveBeenCalled();
             expect(fetchSpy).not.toHaveBeenCalled();
-            // No gateway socket either: the client was never logged in.
-            expect(client.ws.shards.size).toBe(0);
+            // No gateway socket either: the client was never logged in, and its one shard is
+            // the harness's stub, which answers member requests itself.
+            expect(client.ws.shards.size).toBe(1);
+            expect(client.ws.shards.some((shard) => shard instanceof WebSocketShard)).toBe(false);
         } finally {
             connect.mockRestore();
             fetchSpy.mockRestore();

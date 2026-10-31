@@ -1,7 +1,7 @@
 /**
  * One piece of text on the stage: shown as Discord will show it, and a text box in its place
  * once clicked — with its character count from `zDiscordMessage` and the `{x}` token picker.
- * Where Discord shows a role mention (`showsRoleMentions`), `<@&id>` is drawn as the role, and
+ * Where Discord shows a role mention (`showsMentions`), `<@&id>` is drawn as the role, and
  * the box offers the server's roles on `@` (`RoleMentionTextarea`).
  *
  * Every keystroke goes straight to the node (`apply`), as every inspector control's does, so
@@ -16,11 +16,18 @@ import { VariablePicker } from '../controls/VariablePicker';
 import { CopyText } from './CopyText';
 import { DISCORD, PART_TYPE } from './discordLook';
 import { useEditorScope } from './editorScope';
-import { isRemovablePart, partLabel, partPath, readTextPart, setTextPart, type TextPart } from './messageDraft';
+import {
+    isRemovablePart,
+    partLabel,
+    partPath,
+    readTextPart,
+    setTextPart,
+    showsMentions,
+    type TextPart,
+} from './messageDraft';
 import { PartProblems } from './PartProblems';
 import { partRule } from './partRules';
 import { RoleMentionTextarea } from './RoleMentionTextarea';
-import { showsRoleMentions } from './roleMentions';
 
 interface TextPartBoxProps {
     readonly part: TextPart;
@@ -51,7 +58,7 @@ export function TextPartBox({ part, placeholder, styleOver, multiline = false, t
     const textStyle: CSSProperties = { ...PART_TYPE[part.kind], ...styleOver };
     const knownVariables = scope.variables.map((variable) => variable.name);
     // Drawn as the role only where Discord draws it so; elsewhere `<@&id>` is shown as it will be posted.
-    const roles = showsRoleMentions(part) ? scope.roles : undefined;
+    const roles = showsMentions(part) ? scope.roles : undefined;
     const display = useRef<HTMLButtonElement>(null);
     // Set as the part closes from the keyboard, so focus comes back to it rather than to the page.
     const returnFocus = useRef(false);
@@ -201,7 +208,7 @@ function PartInput({ part, text, label, problems, textStyle, multiline, takesTok
                         {text.length} / {rule.maxLength}
                     </Text>
                 ) : null}
-                {showsRoleMentions(part) ? (
+                {showsMentions(part) ? (
                     <RoleMentionTextarea
                         label={label}
                         value={text}
@@ -273,6 +280,7 @@ function TokenButton({ part, text }: { readonly part: TextPart; readonly text: s
                     onInsert={(token) =>
                         scope.apply((message) => setTextPart(message, part, withToken(readTextPart(message, part) ?? '', token)))
                     }
+                    channelLinks={showsMentions(part)}
                 />
             </Popover.Dropdown>
         </Popover>
