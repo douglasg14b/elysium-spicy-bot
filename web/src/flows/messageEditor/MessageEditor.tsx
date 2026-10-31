@@ -29,10 +29,16 @@ import { MESSAGE_TOTAL_CHARACTERS, messageCharacterCount } from './messageCharac
 import { addEmbed, readMessageDraft, startingMessage, type MessageDraft } from './messageDraft';
 import { placeMessageIssues } from './messageIssues';
 import { MAX_EMBEDS } from './partRules';
+import type { MentionableRole } from './roleMentions';
 import { TextPartBox } from './TextPartBox';
 import './messageEditor.css';
 
 export interface MessageEditorProps extends Pick<ControlContext, 'variables' | 'requirements' | 'uploads'> {
+    /**
+     * Every role a message may name — the ones a flow may grant and the managed ones (Server
+     * Booster and the like) — for drawing `<@&id>` as the role and for the `@` list.
+     */
+    readonly roles: readonly MentionableRole[];
     /** What the message is called — the window's title reads "Edit <title>". */
     readonly title: string;
     readonly description?: string;
@@ -72,6 +78,7 @@ export function MessageEditor({
     variables,
     requirements,
     uploads,
+    roles,
     issues,
     error,
     tokens = true,
@@ -155,6 +162,7 @@ export function MessageEditor({
         variables,
         requirements,
         uploads,
+        roles,
         swatches,
         tokens,
         buttons,

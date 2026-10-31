@@ -4666,6 +4666,29 @@
                 ],
                 "type": "object"
             },
+            "ManagedRole": {
+                "properties": {
+                    "color": {
+                        "type": "number"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "position": {
+                        "type": "number"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name",
+                    "color",
+                    "position"
+                ],
+                "type": "object"
+            },
             "MessageButton": {
                 "description": "A button under a message resource. `key` is its identity within the message — what a press is routed by — so relabelling it changes nothing that listens to it. It has a `label`, an `emoji`, or both.",
                 "properties": {
@@ -11870,6 +11893,12 @@
                             "application/json": {
                                 "schema": {
                                     "properties": {
+                                        "managedRoles": {
+                                            "items": {
+                                                "$ref": "#/components/schemas/ManagedRole"
+                                            },
+                                            "type": "array"
+                                        },
                                         "roles": {
                                             "items": {
                                                 "$ref": "#/components/schemas/GuildRole"
@@ -11878,13 +11907,14 @@
                                         }
                                     },
                                     "required": [
-                                        "roles"
+                                        "roles",
+                                        "managedRoles"
                                     ],
                                     "type": "object"
                                 }
                             }
                         },
-                        "description": "Assignable roles, highest first, each with the owner already holding it, if any."
+                        "description": "Assignable roles, highest first, each with the owner already holding it, if any — and, kept apart so no picker offers one, the roles Discord or an integration manages, highest first, for a message to name."
                     },
                     "400": {
                         "content": {
@@ -11947,7 +11977,7 @@
                         "description": "Something failed that the route did not expect. The server logged it."
                     }
                 },
-                "summary": "The guild's assignable roles",
+                "summary": "The guild's roles: the assignable ones, and apart from them the managed ones",
                 "tags": [
                     "guilds"
                 ]

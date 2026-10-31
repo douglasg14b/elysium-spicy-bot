@@ -49,6 +49,7 @@ import {
     type GuildChannel,
     type GuildEmoji,
     type GuildRole,
+    type ManagedRole,
     type ResourceDeclaration,
     type TicketTypeView,
 } from '@brattybot/web-sdk';
@@ -174,7 +175,7 @@ export function ResourcesDialog({
 }: ResourcesDialogProps) {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const { roles, channels, ticketTypes, serverEmojis } = useGuildDirectory(guildId, opened);
+    const { roles, managedRoles, channels, ticketTypes, serverEmojis } = useGuildDirectory(guildId, opened);
     /*
      * How many message windows are open over this dialog. Mantine closes a modal on any
      * Escape in the page — a window-level listener, not one on the modal — so without this an
@@ -267,6 +268,7 @@ export function ResourcesDialog({
                         error={error ?? undefined}
                         uploads={uploads}
                         serverEmojis={serverEmojis}
+                        managedRoles={managedRoles}
                         onMessageWindowChange={onMessageWindowChange}
                         listeners={listeners}
                     />
@@ -300,6 +302,8 @@ function useGuildDirectory(
     active: boolean
 ): {
     roles: GuildRole[];
+    /** The roles Discord or an integration manages, for a message to name; `undefined` until read. */
+    managedRoles: ManagedRole[] | undefined;
     channels: GuildChannel[];
     ticketTypes: TicketTypeView[] | undefined;
     serverEmojis: GuildEmoji[] | undefined;
@@ -323,6 +327,7 @@ function useGuildDirectory(
 
     return {
         roles: roles.data?.roles ?? NO_ROLES,
+        managedRoles: roles.data?.managedRoles,
         channels: channels.data?.channels ?? NO_CHANNELS,
         ticketTypes: ticketsConfig.data?.types,
         serverEmojis: emojis.data?.emojis,

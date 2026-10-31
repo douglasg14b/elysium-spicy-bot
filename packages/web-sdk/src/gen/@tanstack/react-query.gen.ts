@@ -919,7 +919,7 @@ export const searchGuildMembersOptions = (options: Options<SearchGuildMembersDat
 export const getGuildRolesQueryKey = (options: Options<GetGuildRolesData>) => createQueryKey('getGuildRoles', options);
 
 /**
- * The guild's assignable roles
+ * The guild's roles: the assignable ones, and apart from them the managed ones
  */
 export const getGuildRolesOptions = (options: Options<GetGuildRolesData>) => queryOptions<GetGuildRolesResponse, GetGuildRolesError, GetGuildRolesResponse, ReturnType<typeof getGuildRolesQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {

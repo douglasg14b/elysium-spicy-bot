@@ -266,6 +266,21 @@ describe('GET /:guildId/channels — who holds each channel', () => {
         ]);
     });
 
+    it('lists a managed role apart, for a message to name, never among the roles a picker grants', async () => {
+        const response = await app([], [
+            { id: 'role-member', name: 'Member', color: 0, position: 1, managed: false },
+            { id: 'role-booster', name: 'Server Booster', color: 0xf47fff, position: 3, managed: true },
+            { id: 'role-bot', name: 'BrattyBot', color: 0, position: 2, managed: true },
+        ]).request(`/${GUILD_ID}/roles`);
+        const body = (await response.json()) as { roles: { id: string }[]; managedRoles: unknown[] };
+
+        expect(body.roles.map((role) => role.id)).toEqual(['role-member']);
+        expect(body.managedRoles).toEqual([
+            { id: 'role-booster', name: 'Server Booster', color: 0xf47fff, position: 3 },
+            { id: 'role-bot', name: 'BrattyBot', color: 0, position: 2 },
+        ]);
+    });
+
     it('reports no owner for an object only an intent names', async () => {
         // An `intended` row has no id; it holds nothing yet.
         resourceBindingsRepoMock.listByGuild.mockResolvedValue([bindingRow({ state: 'intended', discordId: null })]);

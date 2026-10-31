@@ -1291,6 +1291,13 @@ export type LogoutResult = {
     ok: true;
 };
 
+export type ManagedRole = {
+    color: number;
+    id: string;
+    name: string;
+    position: number;
+};
+
 /**
  * A button under a message resource. `key` is its identity within the message — what a press is routed by — so relabelling it changes nothing that listens to it. It has a `label`, an `emoji`, or both.
  */
@@ -4322,9 +4329,10 @@ export type GetGuildRolesError = GetGuildRolesErrors[keyof GetGuildRolesErrors];
 
 export type GetGuildRolesResponses = {
     /**
-     * Assignable roles, highest first, each with the owner already holding it, if any.
+     * Assignable roles, highest first, each with the owner already holding it, if any — and, kept apart so no picker offers one, the roles Discord or an integration manages, highest first, for a message to name.
      */
     200: {
+        managedRoles: Array<ManagedRole>;
         roles: Array<GuildRole>;
     };
 };

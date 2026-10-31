@@ -82,6 +82,7 @@ import type {
     GuildChannel,
     GuildEmoji,
     GuildRole,
+    ManagedRole,
     MessageButton,
     ResourceDeclaration,
     ResourceKind,
@@ -94,6 +95,7 @@ import type { GuildUploads } from './controls/types';
 import { detectResourceProblems, resourceKeyProblem } from './detectResourceProblems';
 import type { ResourceChipInstance } from './detectResourceProblems';
 import { MessageEditor } from './messageEditor/MessageEditor';
+import type { MentionableRole } from './messageEditor/roleMentions';
 import { MessagePreviewCard } from './messageEditor/MessagePreviewCard';
 import { buttonIssues, messagePartIssues, messageResourceProblems } from './messageResourceProblems';
 import { PermissionIntentEditor } from './PermissionIntentEditor';
@@ -216,6 +218,11 @@ interface ResourcesPanelProps {
      */
     serverEmojis?: readonly GuildEmoji[];
     /**
+     * The roles Discord or an integration manages, for a message to name beside `roles`. Absent
+     * until known — or when the read failed — when such a mention is drawn as unknown.
+     */
+    managedRoles?: readonly ManagedRole[];
+    /**
      * Told when a message row's window opens and closes, so the dialog holding this panel can
      * leave Escape to the window: Mantine closes a modal on any Escape in the page, and the
      * window sits inside this one.
@@ -270,11 +277,14 @@ export function ResourcesPanel({
     scope = 'flow',
     uploads,
     serverEmojis,
+    managedRoles,
     onMessageWindowChange,
     listeners = NO_LISTENERS,
 }: ResourcesPanelProps) {
     const [filter, setFilter] = useState('');
     const listenedKeys = useMemo(() => listenedMessageKeys(listeners), [listeners]);
+    // A message names any role, a managed one too; only the pickers that grant one leave those out.
+    const mentionableRoles = useMemo(() => [...roles, ...(managedRoles ?? [])], [roles, managedRoles]);
     /**
      * Which rows are open, by list position.
      *
@@ -708,6 +718,7 @@ export function ResourcesPanel({
                             parents={parentsFor(row.resource)}
                             uploads={uploads}
                             serverEmojis={serverEmojis}
+                            mentionableRoles={mentionableRoles}
                             onMessageWindowChange={onMessageWindowChange}
                             roles={roles}
                             channels={channels}
@@ -775,6 +786,8 @@ interface ResourceRowProps {
     uploads: GuildUploads;
     /** The server's own emoji, for a message row's buttons; `undefined` until known. */
     serverEmojis: readonly GuildEmoji[] | undefined;
+    /** Every role a message row's text may name, managed ones too. */
+    mentionableRoles: readonly MentionableRole[];
     onMessageWindowChange: ((open: boolean) => void) | undefined;
     roles: GuildRole[];
     channels: GuildChannel[];
@@ -818,6 +831,7 @@ function ResourceRow({
     parents,
     uploads,
     serverEmojis,
+    mentionableRoles,
     onMessageWindowChange,
     roles,
     channels,
@@ -1162,6 +1176,7 @@ function ResourceRow({
                                 listeners={listeners}
                                 uploads={uploads}
                                 serverEmojis={serverEmojis}
+                                mentionableRoles={mentionableRoles}
                                 onUpdate={onUpdate}
                                 onRename={onRename}
                                 onWindowChange={onMessageWindowChange}
@@ -1507,6 +1522,8 @@ interface MessageBodyProps {
     uploads: GuildUploads;
     /** The server's own emoji, for the buttons' emoji grid; `undefined` until known. */
     serverEmojis: readonly GuildEmoji[] | undefined;
+    /** Every role the message's text may name, managed ones too. */
+    mentionableRoles: readonly MentionableRole[];
     onUpdate: (patch: Partial<ResourceDeclaration>) => void;
     onRename: (nextName: string) => void;
     onWindowChange: ((open: boolean) => void) | undefined;
@@ -1545,6 +1562,7 @@ function MessageBody({
     listeners,
     uploads,
     serverEmojis,
+    mentionableRoles,
     onUpdate,
     onRename,
     onWindowChange,
@@ -1659,6 +1677,7 @@ function MessageBody({
                     variables={[]}
                     requirements={ALL_REQUIREMENTS_AVAILABLE}
                     uploads={uploads}
+                    roles={mentionableRoles}
                     issues={messagePartIssues(problems)}
                     tokens={false}
                     buttons={{

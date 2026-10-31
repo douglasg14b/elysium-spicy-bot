@@ -360,7 +360,7 @@ export const getLevelingUser = <ThrowOnError extends boolean = true>(options: Op
 export const searchGuildMembers = <ThrowOnError extends boolean = true>(options: Options<SearchGuildMembersData, ThrowOnError>): RequestResult<SearchGuildMembersResponses, SearchGuildMembersErrors, ThrowOnError> => (options.client ?? client).get<SearchGuildMembersResponses, SearchGuildMembersErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/members/search', ...options });
 
 /**
- * The guild's assignable roles
+ * The guild's roles: the assignable ones, and apart from them the managed ones
  */
 export const getGuildRoles = <ThrowOnError extends boolean = true>(options: Options<GetGuildRolesData, ThrowOnError>): RequestResult<GetGuildRolesResponses, GetGuildRolesErrors, ThrowOnError> => (options.client ?? client).get<GetGuildRolesResponses, GetGuildRolesErrors, ThrowOnError>({ url: '/api/guilds/{guildId}/roles', ...options });
 

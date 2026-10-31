@@ -1034,6 +1034,13 @@ export const zLogoutResult = z.object({
     ok: z.literal(true)
 });
 
+export const zManagedRole = z.object({
+    color: z.number(),
+    id: z.string(),
+    name: z.string(),
+    position: z.number()
+});
+
 /**
  * The emoji beside a button's label: `{ name }` with the glyph for a standard emoji, or `{ id, name, animated }` for one of the server's own. A server emoji gone from the server when the message is posted is left off the button.
  */
@@ -2507,9 +2514,10 @@ export const zGetGuildRolesPath = z.object({
 });
 
 /**
- * Assignable roles, highest first, each with the owner already holding it, if any.
+ * Assignable roles, highest first, each with the owner already holding it, if any — and, kept apart so no picker offers one, the roles Discord or an integration manages, highest first, for a message to name.
  */
 export const zGetGuildRolesResponse = z.object({
+    managedRoles: z.array(zManagedRole),
     roles: z.array(zGuildRole)
 });
 
