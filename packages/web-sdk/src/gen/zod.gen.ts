@@ -1035,6 +1035,27 @@ export const zLogoutResult = z.object({
 });
 
 /**
+ * Who an id is in this server. `username` and `globalName` are the account's, `nickname` this server's — the last one seen, for somebody who left. `nicknames` is every server nickname seen, newest first. `inServer` false with no `leftAt` (ISO) means the bot did not see them go. Show `nickname`, else `globalName`, else `username`.
+ */
+export const zMemberName = z.object({
+    globalName: z.string().nullable(),
+    inServer: z.boolean(),
+    isBot: z.boolean(),
+    leftAt: z.string().nullable(),
+    nickname: z.string().nullable(),
+    nicknames: z.array(z.string()),
+    userId: z.string(),
+    username: z.string()
+});
+
+/**
+ * One entry per id the bot knows or could look up. An id missing from it is unknown for now — Discord has no such account, or the lookup was capped and fills in on a later request.
+ */
+export const zMemberNameList = z.object({
+    members: z.array(zMemberName)
+});
+
+/**
  * The emoji beside a button's label: `{ name }` with the glyph for a standard emoji, or `{ id, name, animated }` for one of the server's own. A server emoji gone from the server when the message is posted is left off the button.
  */
 export const zMessageButtonEmoji = z.object({
@@ -2488,6 +2509,19 @@ export const zGetLevelingUserQuery = z.object({
  * The member’s stats, over the window in `statsPeriod`.
  */
 export const zGetLevelingUserResponse = zLevelingUserDetail;
+
+export const zGetMemberNamesPath = z.object({
+    guildId: z.string()
+});
+
+export const zGetMemberNamesQuery = z.object({
+    ids: z.string().regex(/^\d{17,20}(?:,\d{17,20}){0,99}$/, 'Send 1 to 100 user ids, separated by commas.')
+});
+
+/**
+ * One entry per id the bot knows. Ids it has not seen are looked up from Discord, up to 25 a request; the rest are left out until a later one.
+ */
+export const zGetMemberNamesResponse = zMemberNameList;
 
 export const zSearchGuildMembersPath = z.object({
     guildId: z.string()

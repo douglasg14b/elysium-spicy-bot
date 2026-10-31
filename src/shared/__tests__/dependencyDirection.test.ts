@@ -4,11 +4,13 @@ import { fileURLToPath } from 'url';
 import { describe, expect, it } from 'vitest';
 
 /**
- * That the shared message model and the guild uploads import no product feature.
+ * That the shared modules many features read — the message model, the button vocabulary,
+ * the guild uploads, member names and the per-guild queue — import no product feature.
  *
- * Both are read by more than one feature — Post Embed (flows) and the message resource
- * (provisioning) — and provisioning may not import flows (its own
- * `dependencyDirection.test.ts`). An import from either of these into `src/features/` would
+ * The message model and the uploads are read by Post Embed (flows) and the message resource
+ * (provisioning), and provisioning may not import flows (its own
+ * `dependencyDirection.test.ts`); member names is read by any page that shows a person. An
+ * import from any of these into `src/features/` would
  * typecheck and stay green while quietly making one feature depend on another through them.
  * The rule was held by review alone; this makes it a test.
  *
@@ -25,6 +27,8 @@ const GUARDED_PATHS = [
     join(SRC_DIR, 'shared', 'discordButtons.ts'),
     join(SRC_DIR, 'shared', 'resourceKey.ts'),
     join(SRC_DIR, 'features-system', 'guild-uploads'),
+    join(SRC_DIR, 'features-system', 'member-names'),
+    join(SRC_DIR, 'shared', 'perGuildQueue.ts'),
 ] as const;
 
 /**
@@ -56,7 +60,7 @@ function withoutComments(source: string): string {
     return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
 }
 
-describe('the shared message model and the guild uploads do not depend on a feature', () => {
+describe('the shared modules many features read do not depend on a feature', () => {
     const files = GUARDED_PATHS.flatMap(sourceFilesAt);
 
     it('scans the files it means to', () => {
@@ -64,6 +68,7 @@ describe('the shared message model and the guild uploads do not depend on a feat
         expect(files.some((file) => file.endsWith('buildMessagePayload.ts'))).toBe(true);
         expect(files.some((file) => file.endsWith('discordButtons.ts'))).toBe(true);
         expect(files.some((file) => file.includes('guild-uploads') && file.endsWith('index.ts'))).toBe(true);
+        expect(files.some((file) => file.includes('member-names') && file.endsWith('index.ts'))).toBe(true);
         expect(files.length).toBeGreaterThan(15);
     });
 

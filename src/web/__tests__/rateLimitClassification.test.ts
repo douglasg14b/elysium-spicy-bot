@@ -84,6 +84,8 @@ const EXPECTED_BUDGET: Readonly<Record<string, RateBudget>> = {
     updateWarning: 'discord',
     releaseWarning: 'discord',
     searchGuildMembers: 'discord',
+    // Member names. An id nobody has seen is looked up from Discord.
+    getMemberNames: 'discord',
     // Uploads. Database only; the upload is bounded by the server's total, not the Discord budget,
     // and the delete only frees room.
     uploadGuildImage: 'general',

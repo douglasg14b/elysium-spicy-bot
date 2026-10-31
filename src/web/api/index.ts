@@ -13,6 +13,7 @@ import { guildRoutes } from './guildRoutes';
 import { healthRoutes } from './healthRoutes';
 import { journeyRoutes } from './journeyRoutes';
 import { levelingRoutes } from './levelingRoutes';
+import { memberNameRoutes } from './memberNameRoutes';
 import { nodeRoutes } from './nodeRoutes';
 import { ticketRoutes } from './ticketRoutes';
 import { uploadRoutes } from './uploadRoutes';
@@ -149,6 +150,9 @@ export function registerApiRoutes(app: OpenAPIHono<AppEnv>): void {
     // picks from. Same prefix again, so `requireGuildAccess` above already authorizes every
     // route in it and the router adds no middleware of its own.
     app.route('/api/guilds', warningRoutes());
+    // Member names — who an id is, for any page that shows one. Same prefix again, so
+    // `requireGuildAccess` above already authorizes it and the router adds no middleware.
+    app.route('/api/guilds', memberNameRoutes());
     // Leveling — the guild leaderboard and one member's stats. Same prefix again, so
     // `requireGuildAccess` above already authorizes it and the router adds no middleware.
     // A member's XP is moderator-facing data in a guild the caller already administers, so

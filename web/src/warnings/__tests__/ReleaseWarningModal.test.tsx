@@ -3,6 +3,7 @@ import type { Warning } from '@brattybot/web-sdk';
 import { describe, expect, it, vi } from 'vitest';
 import { installFakeApi } from '../../__tests__/support/fakeApi';
 import { renderWithProviders } from '../../__tests__/support/renderWithProviders';
+import { NO_MEMBER_NAMES } from '../../members/memberNames';
 import { ReleaseWarningModal } from '../ReleaseWarningModal';
 
 /** The release confirm: whose and what it names, and the reason it will not go without. */
@@ -24,7 +25,9 @@ const WARNING: Warning = {
 };
 
 function renderConfirm(onClose: () => void = () => undefined) {
-    return renderWithProviders(<ReleaseWarningModal guildId={GUILD_ID} warning={WARNING} onClose={onClose} />);
+    return renderWithProviders(
+        <ReleaseWarningModal guildId={GUILD_ID} warning={WARNING} names={NO_MEMBER_NAMES} onClose={onClose} />
+    );
 }
 
 describe('ReleaseWarningModal', () => {

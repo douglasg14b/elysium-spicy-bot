@@ -4,6 +4,7 @@ import { resolveFlavour, type BotIdentityResponse } from '../../../src/web/api/b
 import { flowRoutes } from '../../../src/web/api/flowRoutes';
 import { guildRoutes } from '../../../src/web/api/guildRoutes';
 import { journeyRoutes } from '../../../src/web/api/journeyRoutes';
+import { memberNameRoutes } from '../../../src/web/api/memberNameRoutes';
 import { nodeRoutes } from '../../../src/web/api/nodeRoutes';
 import { UNEXPECTED_ERROR_SENTENCE } from '../../../src/web/api/openApi';
 import { ticketRoutes } from '../../../src/web/api/ticketRoutes';
@@ -104,6 +105,7 @@ export function buildDashboardApp({ client, operator, onFault, sessionLive = () 
     app.route('/api/guilds', journeyRoutes());
     app.route('/api/guilds', ticketRoutes());
     app.route('/api/guilds', warningRoutes());
+    app.route('/api/guilds', memberNameRoutes());
     app.route('/api/guilds', uploadRoutes());
     app.route('/api/nodes', nodeRoutes());
 
