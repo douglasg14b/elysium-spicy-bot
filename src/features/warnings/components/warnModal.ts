@@ -59,7 +59,7 @@ async function logWarnIssuance(
         await commandAuditLogRepo.insert({
             command: 'warn',
             subcommand: null,
-            channelId: interaction.channelId,
+            channelId: interaction.channelId ?? 'none',
             channelName,
             guildId: interaction.guildId ?? 'none',
             guildName: interaction.guild ? interaction.guild.name : 'Not A Guild',

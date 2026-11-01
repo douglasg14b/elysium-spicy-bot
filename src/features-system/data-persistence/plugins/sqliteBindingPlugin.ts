@@ -5,13 +5,14 @@ import type {
     QueryResult,
     RootOperationNode,
     UnknownRow,
-    ColumnType,
+    SelectType,
 } from 'kysely';
 import { transformSqliteQueryBindings } from './sqlBindingTransform';
 import { toSnakeCase } from './snakeCase';
 
+// By what a select reads, not what an insert takes: `photoBonus` accepts `boolean | number`.
 type BooleanOnlyKeys<TSchema> = {
-    [K in keyof TSchema]: TSchema[K] extends ColumnType<boolean, 0 | 1, 0 | 1> | boolean ? K : never;
+    [K in keyof TSchema]: SelectType<TSchema[K]> extends boolean ? K : never;
 }[keyof TSchema];
 
 type BoolColumns<DB> = {

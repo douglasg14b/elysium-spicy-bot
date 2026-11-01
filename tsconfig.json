@@ -4,7 +4,9 @@
     "display": "Default",
     // `packages/` are workspace packages with a tsconfig of their own (the dashboard SDK
     // is browser code and needs DOM types this one lacks); `generated/` is emitted output.
-    "exclude": ["node_modules", "web", "dist", "packages", "generated"],
+    // `.claude/worktrees/` holds other checkouts of this repo, with no `node_modules` of
+    // their own, as `vitest.config.ts` explains — and `pnpm test` fails on any error here.
+    "exclude": ["node_modules", "web", "dist", "packages", "generated", ".claude/worktrees"],
     "include": ["**/*.ts", "declarations.d.ts"],
     "compilerOptions": {
         "rootDir": ".",

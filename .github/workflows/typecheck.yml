@@ -1,0 +1,45 @@
+# Type-checks the bot, the dashboard and the dashboard's e2e suite on every push and PR.
+#
+# The bot runs through `tsx`, which strips types without checking them, so a name used but
+# never imported runs until the line is reached: a flash chat save shipped calling `ok` with
+# its import deleted and failed in production. `pnpm test` holds the same root check
+# (`vitest.config.ts`), but only for whoever runs it; this holds it for every push.
+#
+# Type-check only: no database, no secrets, no generated files written. The spec and SDK
+# are committed, so nothing needs `sdk:generate` first.
+name: Typecheck
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Bot
+        run: pnpm typecheck
+
+      - name: Dashboard
+        run: pnpm --filter brattybot-web typecheck
+
+      - name: Dashboard e2e
+        run: pnpm typecheck:e2e

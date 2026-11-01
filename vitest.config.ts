@@ -27,15 +27,20 @@ export default defineConfig({
                     /*
                      * Type-level gates (`*.test-d.ts`) are checked by `tsc` as part of
                      * `pnpm test`, so a compile-time guard fails the run like any other
-                     * test instead of waiting on a root `tsc` nobody's CI runs.
-                     * `ignoreSourceErrors`: the root project carries pre-existing errors
-                     * unrelated to these files, and they must not fail every run.
+                     * test.
+                     *
+                     * That `tsc` covers the whole root project, and a type error anywhere
+                     * in it fails the run too. Vitest strips types without checking them,
+                     * so this is the only thing that stops a name used but never imported:
+                     * a flash chat save shipped calling `ok` with its import deleted, and
+                     * failed in production with `ReferenceError: ok is not defined`. It
+                     * hid among 14 errors this flag used to ignore; keep the count at zero.
                      */
                     typecheck: {
                         enabled: true,
                         include: ['**/*.test-d.ts'],
                         tsconfig: './tsconfig.json',
-                        ignoreSourceErrors: true,
+                        ignoreSourceErrors: false,
                     },
                 },
             },

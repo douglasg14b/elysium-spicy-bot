@@ -22,24 +22,7 @@ import {
     STATS_CARD_STATUS_COLORS,
     STATS_CARD_WIDTH,
 } from './statsCardConstants';
-
-type SatoriStyle = Record<string, string | number>;
-type SatoriChild = string | SatoriElement | Array<SatoriChild>;
-type SatoriElement = {
-    type: string;
-    props: {
-        style?: SatoriStyle;
-        src?: string;
-        children?: SatoriChild;
-    };
-};
-
-function el(
-    type: string,
-    props: { style?: SatoriStyle; src?: string; children?: SatoriChild } = {}
-): SatoriElement {
-    return { type, props };
-}
+import { el, type SatoriChild, type SatoriElement } from '../../../../shared/satoriElement';
 
 export type BuildStatsCardElementInput = UserLevelStats & {
     displayName: string;

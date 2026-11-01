@@ -26,21 +26,12 @@ export class LevelingService {
     private readonly voiceSessionCoordinator: VoiceSessionCoordinator;
 
     constructor(private readonly client: Client, voiceSessionCoordinator?: VoiceSessionCoordinator) {
-        try {
-            this.voiceSessionCoordinator =
-                voiceSessionCoordinator ??
-                createVoiceSessionCoordinator({
-                    voiceSessionRepo: levelingVoiceSessionRepo,
-                    onSessionEnd: (ended) => this.processVoiceSessionEnd(ended),
-                });
-        } catch (error) {
-            logIsolatedVoiceXpError('coordinator setup', error);
-            this.voiceSessionCoordinator = {
-                handleVoiceStateUpdate: async () => undefined,
-                reconcileGuild: async () => undefined,
-                applyEvents: async () => undefined,
-            } as VoiceSessionCoordinator;
-        }
+        this.voiceSessionCoordinator =
+            voiceSessionCoordinator ??
+            createVoiceSessionCoordinator({
+                voiceSessionRepo: levelingVoiceSessionRepo,
+                onSessionEnd: (ended) => this.processVoiceSessionEnd(ended),
+            });
     }
 
     /**

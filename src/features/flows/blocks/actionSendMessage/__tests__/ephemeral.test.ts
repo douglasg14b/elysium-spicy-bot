@@ -7,7 +7,7 @@ import { FLOW_GRAPH_VERSION, type FlowGraph, type FlowNode } from '../../../data
 import { authoredGraphIssues } from '../../../engine/graphValidation';
 import { describeMissingRequirement, effectiveRequirements, missingRequirement } from '../../../engine/nodeRequirements';
 import { ACTION_DELAY } from '../../actionDelay';
-import { parseNodeConfig } from '../../manifest';
+import { parseNodeConfig, type BlockManifest } from '../../manifest';
 import { ensureBlocksDiscovered } from '../../registry';
 import { TRIGGER_BUTTON_CLICK } from '../../triggerButtonClick';
 import { TRIGGER_SCHEDULE } from '../../triggerSchedule';
@@ -54,9 +54,10 @@ function contextWith(options: { readonly press: boolean }): FlowRunContext {
 
 /** Run the block on raw node data, parsed exactly as the executor parses it. */
 async function runOn(data: Record<string, unknown>, context = contextWith({ press: true })) {
-    const parsed = parseNodeConfig(sendMessage, data);
+    const registered: BlockManifest = sendMessage;
+    const parsed = parseNodeConfig(registered, data);
     if (!parsed.success) throw new Error(`refused ${JSON.stringify(data)}: ${parsed.error.message}`);
-    return sendMessage.run(parsed.data, context);
+    return registered.run(parsed.data, context);
 }
 
 describe('running with the box ticked', () => {
@@ -120,7 +121,7 @@ describe('what ticking the box needs from the run', () => {
         const missing = missingRequirement(sendMessage, data, seed);
 
         expect(missing?.requirement).toBe('interaction');
-        expect(describeMissingRequirement('send', ACTION_SEND_MESSAGE, missing!, 'fresh')).toBe(
+        expect(describeMissingRequirement('send', ACTION_SEND_MESSAGE, missing!, 'started')).toBe(
             'Node send (action.sendMessage) needs the interaction that started the run for ' +
                 '"Only the person who clicked sees it" ticked, and this run has none.'
         );

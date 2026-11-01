@@ -6,6 +6,7 @@
     "type": "module",
     "scripts": {
         "build": "pnpm sdk:generate && tsc --noEmit",
+        "typecheck": "tsc --noEmit",
         "typecheck:e2e": "tsc -p web/e2e/tsconfig.json",
         "openapi:emit": "tsx scripts/emitOpenApi.ts",
         "sdk:generate": "pnpm openapi:emit && pnpm --filter @brattybot/web-sdk generate",

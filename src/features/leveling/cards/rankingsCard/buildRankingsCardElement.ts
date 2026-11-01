@@ -12,24 +12,7 @@ import {
     RANKINGS_CARD_TABLE_HEADER_HEIGHT,
     RANKINGS_CARD_WIDTH,
 } from './rankingsCardConstants';
-
-type SatoriStyle = Record<string, string | number>;
-type SatoriChild = string | SatoriElement | Array<SatoriChild>;
-type SatoriElement = {
-    type: string;
-    props: {
-        style?: SatoriStyle;
-        src?: string;
-        children?: SatoriChild;
-    };
-};
-
-function el(
-    type: string,
-    props: { style?: SatoriStyle; src?: string; children?: SatoriChild } = {}
-): SatoriElement {
-    return { type, props };
-}
+import { el, type SatoriElement } from '../../../../shared/satoriElement';
 
 export type RankingsCardDisplayEntry = GuildLevelRankingEntry & {
     displayName: string;

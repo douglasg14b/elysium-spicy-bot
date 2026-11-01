@@ -1,4 +1,5 @@
-import type { OperationNode, ValueNode } from 'kysely';
+import { OperationNodeTransformer } from 'kysely';
+import type { OperationNode, PrimitiveValueListNode, ValueNode } from 'kysely';
 
 /** Coerce values SQLite's driver can bind (booleans and Dates are not supported raw). */
 export function coerceSqliteBindingValue(value: unknown): unknown {
@@ -13,39 +14,19 @@ export function coerceSqliteBindingValue(value: unknown): unknown {
     return value;
 }
 
-export function transformSqliteQueryBindings(node: OperationNode): OperationNode {
-    if (node.kind === 'ValueNode') {
-        return transformValueBinding(node as ValueNode);
+/** Kysely's own walk, so every node kind is visited; only the two that carry parameters change. */
+class SqliteBindingTransformer extends OperationNodeTransformer {
+    protected override transformValue(node: ValueNode): ValueNode {
+        return { ...super.transformValue(node), value: coerceSqliteBindingValue(node.value) };
     }
 
-    if (node.kind === 'PrimitiveValueListNode') {
-        const listNode = node as OperationNode & { values: unknown[] };
-        return {
-            ...listNode,
-            values: listNode.values.map((value) => coerceSqliteBindingValue(value)),
-        };
+    protected override transformPrimitiveValueList(node: PrimitiveValueListNode): PrimitiveValueListNode {
+        return { ...super.transformPrimitiveValueList(node), values: node.values.map(coerceSqliteBindingValue) };
     }
-
-    const transformedNode = { ...node } as Record<string, unknown>;
-
-    for (const [key, value] of Object.entries(node)) {
-        if (Array.isArray(value)) {
-            transformedNode[key] = value.map((item) =>
-                item && typeof item === 'object' && 'kind' in item
-                    ? transformSqliteQueryBindings(item as OperationNode)
-                    : coerceSqliteBindingValue(item)
-            );
-        } else if (value && typeof value === 'object' && 'kind' in value) {
-            transformedNode[key] = transformSqliteQueryBindings(value as OperationNode);
-        }
-    }
-
-    return transformedNode as OperationNode;
 }
 
-function transformValueBinding(node: ValueNode): ValueNode {
-    return {
-        ...node,
-        value: coerceSqliteBindingValue(node.value),
-    };
+const sqliteBindingTransformer = new SqliteBindingTransformer();
+
+export function transformSqliteQueryBindings<TNode extends OperationNode>(node: TNode): TNode {
+    return sqliteBindingTransformer.transformNode(node);
 }

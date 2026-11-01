@@ -16,24 +16,7 @@ import {
     BELOW_THRESHOLD_CARD_WIDTH,
     getBelowThresholdCardHeight,
 } from './belowThresholdCardConstants';
-
-type SatoriStyle = Record<string, string | number>;
-type SatoriChild = string | SatoriElement | Array<SatoriChild>;
-type SatoriElement = {
-    type: string;
-    props: {
-        style?: SatoriStyle;
-        src?: string;
-        children?: SatoriChild;
-    };
-};
-
-function el(
-    type: string,
-    props: { style?: SatoriStyle; src?: string; children?: SatoriChild } = {}
-): SatoriElement {
-    return { type, props };
-}
+import { el, type SatoriElement } from '../../../../shared/satoriElement';
 
 export type BelowThresholdCardDisplayEntry = BelowThresholdReportEntry & {
     rank: number;

@@ -98,11 +98,13 @@ interface TicketPlan {
  * carrying on with the ticket as it was.
  */
 /**
- * Who the service is told made each seeded change: nobody, at the root of a chain. The
- * service requires one on every change it announces; a seed is no person, and no flow
- * runs in a preview guild to hear it anyway.
+ * Who the service is told made each seeded change: the bot, at the root of a chain, as a
+ * flow block's change is. The service requires an actor on every change it announces; a
+ * seed is no person, and no flow runs in a preview guild to hear it anyway.
  */
-const SEEDED_CHANGE: TicketChange = { actorId: null, chainDepth: 0 };
+function seededChange(context: SeedContext): TicketChange {
+    return { actorId: context.clientGuild.client.user.id, chainDepth: 0 };
+}
 
 function must<T>(result: Result<T>, what: string): T {
     if (!result.ok) {
@@ -113,15 +115,15 @@ function must<T>(result: Result<T>, what: string): T {
 }
 
 /** Claims `desired`, releasing whatever auto-claim or earlier claim is on the ticket first. `null` releases outright. */
-async function ensureClaimer(ticket: TicketEntity, desired: Person | null): Promise<TicketEntity> {
+async function ensureClaimer(ticket: TicketEntity, desired: Person | null, change: TicketChange): Promise<TicketEntity> {
     if (ticket.claimerId === (desired?.id ?? null)) return ticket;
 
     const released = ticket.claimerId
-        ? must(await unclaimTicket(ticket.id, SEEDED_CHANGE), `release #${ticket.ticketNumber}`)
+        ? must(await unclaimTicket(ticket.id, change), `release #${ticket.ticketNumber}`)
         : ticket;
     if (desired === null) return released;
     return must(
-        await claimTicket(released.id, desired.id, desired.identity, SEEDED_CHANGE),
+        await claimTicket(released.id, desired.id, desired.identity, change),
         `claim #${ticket.ticketNumber}`
     );
 }
@@ -156,14 +158,15 @@ async function runPlan(context: SeedContext, plan: TicketPlan, defaultClaimer: P
 
     const desiredClaimer =
         plan.end === 'unclaimed' ? null : plan.claimer === undefined ? defaultClaimer : plan.claimer;
-    ticket = await ensureClaimer(ticket, desiredClaimer);
+    const change = seededChange(context);
+    ticket = await ensureClaimer(ticket, desiredClaimer, change);
 
     if (plan.end === 'closed' || plan.end === 'deleted') {
-        ticket = must(await closeTicket(ticket.id, SEEDED_CHANGE), `close #${ticket.ticketNumber}`);
+        ticket = must(await closeTicket(ticket.id, change), `close #${ticket.ticketNumber}`);
     }
 
     if (plan.end === 'deleted') {
-        ticket = must(await deleteTicket(ticket.id, SEEDED_CHANGE), `delete #${ticket.ticketNumber}`);
+        ticket = must(await deleteTicket(ticket.id, change), `delete #${ticket.ticketNumber}`);
     }
 
     return ticket;
