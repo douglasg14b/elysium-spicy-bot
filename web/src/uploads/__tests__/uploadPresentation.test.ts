@@ -7,7 +7,7 @@ const USE: UploadUse = {
     flowId: '11111111-1111-1111-1111-111111111111',
     flowName: 'Welcome flow',
     nodeId: 'welcome',
-    blockLabel: 'Post Embed',
+    blockLabel: 'Send Message',
     where: 'embed 1 image',
 };
 

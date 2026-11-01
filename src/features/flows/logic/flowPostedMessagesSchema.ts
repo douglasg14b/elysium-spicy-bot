@@ -1,7 +1,7 @@
 import type { ColumnType, Insertable, Selectable } from 'kysely';
 
 /**
- * One row per message a flow's block posted carrying buttons — Post Embed's, or the message
+ * One row per message a flow's block posted carrying buttons — Send Message's, or the message
  * Open Ticket puts in its ticket channel above the card.
  *
  * **Why a record at all.** A journey's message is found from a press through its binding

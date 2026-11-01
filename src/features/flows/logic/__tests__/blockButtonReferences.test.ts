@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { ACTION_OPEN_TICKET } from '../../blocks/actionOpenTicket';
-import { ACTION_POST_EMBED } from '../../blocks/actionPostEmbed';
+import { ACTION_SEND_DM } from '../../blocks/actionSendDM';
 import { ACTION_SEND_MESSAGE } from '../../blocks/actionSendMessage';
 import { ensureBlocksDiscovered } from '../../blocks/registry';
 import { TRIGGER_BUTTON_CLICK } from '../../blocks/triggerButtonClick';
@@ -17,10 +17,10 @@ import type { ReadinessScope } from '../readinessScope';
 
 const CHANNEL = '111111111111111111';
 
-function postEmbed(id: string, title: string, keys: readonly string[]): FlowNode {
+function poster(id: string, title: string, keys: readonly string[]): FlowNode {
     return {
         id,
-        type: ACTION_POST_EMBED,
+        type: ACTION_SEND_MESSAGE,
         position: { x: 0, y: 0 },
         data: {
             channelId: CHANNEL,
@@ -43,12 +43,12 @@ function graphOf(...nodes: FlowNode[]): FlowGraph {
     return { version: FLOW_GRAPH_VERSION, nodes, edges: [] };
 }
 
-/** "poster" is the journey's other flow: a Post Embed and a Send Message. */
-const POSTER: FlowGraph = graphOf(postEmbed('post', 'Kneel, pet', ['kneel', 'beg']), {
+/** "poster" is the journey's other flow: a Send Message with buttons, and a Send DM, which posts none. */
+const POSTER: FlowGraph = graphOf(poster('post', 'Kneel, pet', ['kneel', 'beg']), {
     id: 'plain',
-    type: ACTION_SEND_MESSAGE,
+    type: ACTION_SEND_DM,
     position: { x: 0, y: 0 },
-    data: { channelId: CHANNEL, message: 'Hi' },
+    data: { message: 'Hi' },
 });
 
 const SCOPE: ReadinessScope = {
@@ -69,8 +69,8 @@ describe('blockButtonIssues', () => {
     });
 
     it("judges this flow's own post against the graph being judged, not a stored copy", () => {
-        // An unsaved canvas: its own Post Embed is only here.
-        const graph = graphOf(postEmbed('own-post', 'Mine', ['mine']), press('press-1', pick('listener', 'own-post', 'mine')));
+        // An unsaved canvas: its own Send Message is only here.
+        const graph = graphOf(poster('own-post', 'Mine', ['mine']), press('press-1', pick('listener', 'own-post', 'mine')));
 
         expect(blockButtonIssues(graph, SCOPE)).toEqual([]);
         expect(blockButtonIssues(graph, { ...SCOPE, journeyFlows: [] })).toEqual([]);
@@ -129,7 +129,7 @@ describe('blockButtonPicksIn and postedButtonNodesIn', () => {
         const graph = graphOf(
             press('press-1', pick('poster', 'post', 'kneel')),
             press('press-2', { messageKey: 'rules-panel', buttonKey: 'kneel' }),
-            postEmbed('post', 'Kneel, pet', ['kneel']),
+            poster('post', 'Kneel, pet', ['kneel']),
             {
                 id: 'ticket',
                 type: ACTION_OPEN_TICKET,
@@ -145,7 +145,7 @@ describe('blockButtonPicksIn and postedButtonNodesIn', () => {
         expect(postedButtonNodesIn(graph)).toEqual([
             {
                 nodeId: 'post',
-                blockLabel: 'Post Embed',
+                blockLabel: 'Send Message',
                 headline: 'Kneel, pet',
                 buttons: [{ key: 'kneel', label: 'kneel', style: 'Primary' }],
             },

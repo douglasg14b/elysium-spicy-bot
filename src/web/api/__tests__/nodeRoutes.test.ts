@@ -108,6 +108,17 @@ describe('GET /api/nodes', () => {
         expect(descriptor.canSuspend).toBe(false);
     });
 
+    it("serves showsMentions on the two boxes Discord shows a mention in by name, and not on Send DM's", () => {
+        const field = (type: string, key: string) =>
+            descriptorFor(nodes, type).configFields.find((candidate) => candidate.key === key);
+
+        expect(field('action.prompt', 'question')).toMatchObject({ control: 'longText', showsMentions: true });
+        expect(field('action.openTicket', 'reason')).toMatchObject({ control: 'longText', showsMentions: true });
+        const dm = field('action.sendDM', 'message');
+        expect(dm?.control).toBe('longText');
+        expect(dm).not.toHaveProperty('showsMentions');
+    });
+
     it('serves startedBy for triggers and omits it everywhere else', () => {
         for (const descriptor of nodes) {
             const manifest = manifestFor(descriptor.type);

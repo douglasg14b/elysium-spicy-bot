@@ -21,7 +21,7 @@
  *     buttons). The server refuses on these before asking anything else, so only these are
  *     reported when any fails. Sorted into the server's own field order, which the generated
  *     schema does not keep.
- *  2. **The message as Post Embed takes it** (`messageConfigSchema`): each picture an upload, a
+ *  2. **The message as Send Message takes it** (`messageConfigSchema`): each picture an upload, a
  *     link or a token, and the rules spanning parts (`messageProblems`: an empty message, an empty
  *     embed, a lone header or footer icon, more than 6000 characters).
  *  3. **No `{{tokens}}`** in the copy or a picture.

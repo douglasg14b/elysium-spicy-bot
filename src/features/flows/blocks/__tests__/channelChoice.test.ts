@@ -9,7 +9,6 @@ import { validateNodeData } from '../../engine/nodeDataValidation';
 import { effectiveRequirements } from '../../engine/nodeRequirements';
 import { block as closeTicket } from '../actionCloseTicket';
 import { ACTION_DELAY } from '../actionDelay';
-import { block as postEmbed } from '../actionPostEmbed';
 import { block as sendMessage } from '../actionSendMessage';
 import { ensureBlocksDiscovered } from '../registry';
 import { TRIGGER_BUTTON_CLICK } from '../triggerButtonClick';
@@ -88,20 +87,20 @@ async function runOn(definition: BlockManifest, data: Record<string, unknown>, c
     return definition.run(parsed.data, context);
 }
 
-/** Every block taking the choice, with the rest of the node data it needs to run. */
-const BLOCKS: readonly { readonly definition: BlockManifest; readonly data: Record<string, unknown> }[] = [
-    { definition: postEmbed, data: { message: { embeds: [{ title: 'Kneel.' }] } } },
-    { definition: sendMessage, data: { message: 'Kneel.' } },
+/** Every block taking the choice — Send Message once per message shape — with the rest of the node data it needs to run. */
+const BLOCKS: readonly { readonly name: string; readonly definition: BlockManifest; readonly data: Record<string, unknown> }[] = [
+    { name: 'Send Message with an embed', definition: sendMessage, data: { message: { embeds: [{ title: 'Kneel.' }] } } },
+    { name: 'Send Message with plain text', definition: sendMessage, data: { message: { content: 'Kneel.', embeds: [] } } },
 ];
 
-const CASES = BLOCKS.flatMap(({ definition, data }) =>
+const CASES = BLOCKS.flatMap(({ name, definition, data }) =>
     [
         { choice: 'left unset', data: { ...data, channelId: PICKED_ID }, expected: PICKED_ID },
         { choice: 'channel', data: { ...data, where: 'channel', channelId: PICKED_ID }, expected: PICKED_ID },
         { choice: 'here', data: { ...data, where: 'here' }, expected: RUN_CHANNEL_ID },
         // The picker still holds a channel from before the switch; hidden means absent.
         { choice: 'here, picker still holding one', data: { ...data, where: 'here', channelId: PICKED_ID }, expected: RUN_CHANNEL_ID },
-    ].map((testCase) => ({ ...testCase, name: definition.type, definition }))
+    ].map((testCase) => ({ ...testCase, name, definition }))
 );
 
 describe('a block with the channel choice posts where it names', () => {
@@ -111,7 +110,7 @@ describe('a block with the channel choice posts where it names', () => {
         expect(sentTo).toEqual([expected]);
     });
 
-    it.each(BLOCKS)('$definition.type fails by name, posting nothing, when the run has lost its channel', async ({ definition, data }) => {
+    it.each(BLOCKS)('$name fails by name, posting nothing, when the run has lost its channel', async ({ definition, data }) => {
         await expect(runOn(definition, { ...data, where: 'here' }, contextWith(null))).rejects.toThrow(
             "set to post in the channel this happened in, and this run isn't in a channel the bot can reach"
         );
@@ -119,7 +118,7 @@ describe('a block with the channel choice posts where it names', () => {
     });
 
     it.each(BLOCKS)(
-        "$definition.type refuses a run channel that is not this server's, as it refuses a picked one",
+        "$name refuses a run channel that is not this server's, as it refuses a picked one",
         async ({ definition, data }) => {
             await expect(runOn(definition, { ...data, where: 'here' }, contextWith(sink(ELSEWHERE_ID)))).rejects.toThrow(
                 `Channel ${ELSEWHERE_ID} is not a sendable text channel in this server`
@@ -128,7 +127,7 @@ describe('a block with the channel choice posts where it names', () => {
         }
     );
 
-    it.each(BLOCKS)('$definition.type asks for a channel only while it is picking one', ({ definition, data }) => {
+    it.each(BLOCKS)('$name asks for a channel only while it is picking one', ({ definition, data }) => {
         const unpicked = parseNodeConfig(definition, data);
         expect(unpicked.success).toBe(false);
         expect(unpicked.error?.issues).toEqual([
@@ -150,7 +149,7 @@ describe('a block with the channel choice posts where it names', () => {
 describe('an empty pick, as save judges it', () => {
     beforeAll(ensureBlocksDiscovered);
 
-    it.each(BLOCKS)('$definition.type forgives "" waiting on a declared channel, and refuses it otherwise', ({ definition, data }) => {
+    it.each(BLOCKS)('$name forgives "" waiting on a declared channel, and refuses it otherwise', ({ definition, data }) => {
         const graph: FlowGraph = {
             version: FLOW_GRAPH_VERSION,
             nodes: [{ id: 'post', type: definition.type, position: { x: 0, y: 0 }, data: { ...data, channelId: '' } }],
@@ -167,7 +166,7 @@ describe('what the channel choice needs from the run', () => {
     const needs = (definition: BlockManifest, data: Record<string, unknown>) =>
         effectiveRequirements(definition, data).map(({ requirement }) => requirement);
 
-    it.each(BLOCKS)('$definition.type needs nothing for a picked channel, and the run’s channel for here', ({ definition }) => {
+    it.each(BLOCKS)('$name needs nothing for a picked channel, and the run’s channel for here', ({ definition }) => {
         expect(needs(definition, { channelId: PICKED_ID })).toEqual([]);
         expect(needs(definition, { where: 'channel', channelId: PICKED_ID })).toEqual([]);
         expect(needs(definition, { where: 'here' })).toEqual(['channel']);
@@ -202,7 +201,7 @@ describe('where save allows the channel this happened in', () => {
     const channelIssuesOn = (graph: FlowGraph, nodeId: string) =>
         authoredGraphIssues(graph).filter((issue) => issue.nodeId === nodeId && CHANNEL_ISSUE.test(issue.message));
 
-    it.each(BLOCKS)('refuses $definition.type posting "here" below a Schedule, under the choice', ({ definition, data }) => {
+    it.each(BLOCKS)('refuses $name posting "here" below a Schedule, under the choice', ({ definition, data }) => {
         const issues = channelIssuesOn(chain(schedule(), node('post', definition.type, { ...data, where: 'here' })), 'post');
 
         expect(issues).toHaveLength(1);
@@ -212,11 +211,11 @@ describe('where save allows the channel this happened in', () => {
         );
     });
 
-    it.each(BLOCKS)('leaves $definition.type posting in a picked channel below a Schedule alone', ({ definition, data }) => {
+    it.each(BLOCKS)('leaves $name posting in a picked channel below a Schedule alone', ({ definition, data }) => {
         expect(channelIssuesOn(chain(schedule(), node('post', definition.type, { ...data, channelId: PICKED_ID })), 'post')).toEqual([]);
     });
 
-    it.each(BLOCKS)('accepts $definition.type posting "here" below a button, a wait above or not', ({ definition, data }) => {
+    it.each(BLOCKS)('accepts $name posting "here" below a button, a wait above or not', ({ definition, data }) => {
         const post = (): FlowNode => node('post', definition.type, { ...data, where: 'here' });
 
         expect(channelIssuesOn(chain(button(), post()), 'post')).toEqual([]);
@@ -260,17 +259,20 @@ describe('the card names the choice only when it is not the default', () => {
         return summarizeFromDescriptor(descriptor as BrowserNodeDescriptor, config, [], CHANNELS, [], []);
     }
 
-    it.each([postEmbed.type, sendMessage.type])('%s names the picked channel, picked or left unset', (type) => {
-        const message = type === postEmbed.type ? { embeds: [{ title: 'Kneel.' }] } : 'Kneel.';
+    const MESSAGES = [
+        ['an embed', { embeds: [{ title: 'Kneel.' }] }],
+        ['plain text', { content: 'Kneel.', embeds: [] }],
+    ] as const;
 
-        expect(cardOf(type, { channelId: PICKED_ID, message })).toBe('#dungeon · "Kneel."');
-        expect(cardOf(type, { where: 'channel', channelId: PICKED_ID, message })).toBe('#dungeon · "Kneel."');
+    it.each(MESSAGES)('Send Message holding %s names the picked channel, picked or left unset', (_shape, message) => {
+        expect(cardOf(sendMessage.type, { channelId: PICKED_ID, message })).toBe('#dungeon · "Kneel."');
+        expect(cardOf(sendMessage.type, { where: 'channel', channelId: PICKED_ID, message })).toBe('#dungeon · "Kneel."');
     });
 
-    it.each([postEmbed.type, sendMessage.type])('%s says this channel instead of the one the picker still holds', (type) => {
-        const message = type === postEmbed.type ? { embeds: [{ title: 'Kneel.' }] } : 'Kneel.';
-
-        expect(cardOf(type, { where: 'here', channelId: PICKED_ID, message })).toBe('The channel this happened in · "Kneel."');
+    it.each(MESSAGES)('Send Message holding %s says this channel instead of the one the picker still holds', (_shape, message) => {
+        expect(cardOf(sendMessage.type, { where: 'here', channelId: PICKED_ID, message })).toBe(
+            'The channel this happened in · "Kneel."'
+        );
     });
 
     it('Close Ticket names the id by default, and the ticket in this channel otherwise', () => {
@@ -306,7 +308,7 @@ describe('every block posting through the channel choice declares it', () => {
     const choosing = blockDirectories.filter((directory) => sourceOf(directory).includes('channelFor('));
 
     it('finds the blocks it means to', () => {
-        expect(choosing.sort()).toEqual(['actionPostEmbed', 'actionSendMessage']);
+        expect(choosing.sort()).toEqual(['actionSendMessage']);
     });
 
     it.each(choosing)('%s declares the shared choice, its picker and its card part', async (directory) => {

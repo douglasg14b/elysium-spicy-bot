@@ -51,7 +51,7 @@ export function isJourneyButtonRef(pick: MessageButtonRef): pick is JourneyButto
 /** A node on the canvas, as much of it as a pick or a posted message is read from. */
 export interface CanvasNode {
     readonly id: string;
-    /** What its block is called (`Post Embed`); absent for a block this build does not have. */
+    /** What its block is called (`Send Message`); absent for a block this build does not have. */
     readonly blockLabel: string | undefined;
     /** The block's declared fields; absent for a block this build does not have. */
     readonly fields: readonly BlockConfigField[] | undefined;

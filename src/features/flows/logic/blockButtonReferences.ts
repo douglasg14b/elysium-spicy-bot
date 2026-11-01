@@ -65,7 +65,7 @@ export function blockButtonPicksIn(graph: FlowGraph): readonly BlockButtonPick[]
 /** A node that posts a message with buttons under it, as a picker and readiness read it. */
 export interface PostedButtonNode {
     readonly nodeId: string;
-    /** What the block is called (`Post Embed`), for a sentence or a picker naming it. */
+    /** What the block is called (`Send Message`), for a sentence or a picker naming it. */
     readonly blockLabel: string;
     /**
      * The message as one line — its first embed's title, else that embed's body, else its plain

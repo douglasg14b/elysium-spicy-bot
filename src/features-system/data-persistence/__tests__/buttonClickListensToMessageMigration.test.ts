@@ -111,6 +111,11 @@ function graphOf(nodes: FlowNode[]): FlowGraph {
 }
 
 const SAY = node('say', 'action.sendMessage', { channelId: CHANNEL.rules, message: 'Behave.' });
+/**
+ * {@link SAY} once the chain reaches latest: this migration leaves it alone, and
+ * `2026-10-31-Send_Message_Takes_Post_Embed` then turns its string into a message object.
+ */
+const SAY_AT_LATEST = node('say', 'action.sendMessage', { channelId: CHANNEL.rules, message: { content: 'Behave.', embeds: [] } });
 
 /** Every Button Click as it stood, by flow. */
 const OLD = {
@@ -560,7 +565,7 @@ async function runUp(seed: () => Promise<void> = seedOldWorld): Promise<void> {
 beforeAll(async () => {
     await ensureBlocksDiscovered();
     await migrateTestDatabase();
-});
+}, 60_000);
 
 afterEach(async () => {
     vi.restoreAllMocks();
@@ -580,13 +585,13 @@ describe('2026-10-26-Button_Click_Listens_To_Message (sqlite, through Migrator)'
         for (const [flowId, nodes] of Object.entries(NODES_UP)) {
             expect(buttonDataOf(await graphOfFlow(flowId)), flowId).toEqual(nodes);
         }
-        // Everything that is not a Button Click is left as it was.
-        expect((await graphOfFlow('flow-welcome')).nodes.find((candidate) => candidate.id === 'say')).toEqual(SAY);
-        expect(await graphOfFlow('flow-helper')).toEqual(graphOf([SAY]));
+        // Everything that is not a Button Click is left as it was (by this migration).
+        expect((await graphOfFlow('flow-welcome')).nodes.find((candidate) => candidate.id === 'say')).toEqual(SAY_AT_LATEST);
+        expect(await graphOfFlow('flow-helper')).toEqual(graphOf([SAY_AT_LATEST]));
 
         const draft = await database.selectFrom('flow_drafts').select('graph').executeTakeFirstOrThrow();
         expect(buttonDataOf(draft.graph)).toEqual(DRAFT_NODES_UP);
-        expect(draft.graph.nodes.find((candidate) => candidate.id === 'say')).toEqual(SAY);
+        expect(draft.graph.nodes.find((candidate) => candidate.id === 'say')).toEqual(SAY_AT_LATEST);
 
         // The bindings that were there are still there, untouched.
         const others = await database.selectFrom('resource_bindings').selectAll().where('kind', '!=', 'message').orderBy('id').execute();

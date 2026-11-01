@@ -107,7 +107,7 @@ const TABLE: readonly (readonly [string, BrowserResourceDeclaration])[] = [
     ['a server emoji named with a hyphen', panel(withSecond(SAFEWORDS), [{ key: 'love', style: 'Primary', emoji: { id: SERVER_EMOJI_ID, name: 'blob-heart' } }])],
     ['an animated standard emoji', panel(withSecond(SAFEWORDS), [{ key: 'spicy', style: 'Danger', emoji: { name: '🌶️', animated: true } }])],
 
-    // --- the message as Post Embed takes it ---
+    // --- the message as Send Message takes it ---
     ['a half-typed picture link', panel(withSecond({ ...SAFEWORDS, thumbnail: 'ht' }))],
     ['an upload ref that is not an upload', panel(withSecond({ ...SAFEWORDS, image: 'upload:not-a-uuid' }))],
     ['an empty embed', panel(withSecond({}))],

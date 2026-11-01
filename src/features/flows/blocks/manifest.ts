@@ -429,6 +429,15 @@ export type BlockConfigField =
           readonly maxLength?: number;
           readonly defaultValue?: string;
           readonly rendersTokens?: boolean;
+          /**
+           * Whether Discord shows a mention in this text as what it names — the text lands
+           * in a message's plain text, an embed's description or an embed field's value,
+           * where `<@&id>` reads as the role and `<#id>` as the channel. The inspector then
+           * offers the server's roles on `@` and its text channels on `#`, writing each in
+           * Discord's own syntax and showing it by name. Off by default, and off for a DM,
+           * which is outside the server whose roles and channels the lists offer.
+           */
+          readonly showsMentions?: boolean;
       })
     | (BlockConfigFieldBase & {
           /** Clearing the number removes the key entirely rather than writing a zero. */

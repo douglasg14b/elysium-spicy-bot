@@ -76,7 +76,7 @@ function whereIn(message: unknown, path: readonly PropertyKey[]): string | undef
  *
  *  1. **The message is one Discord takes**: `messageConfigSchema`, which holds every part's
  *     own rule, the rules spanning parts (`messageProblems`) and the picture and title-link
- *     forms — the rules a Post Embed node is saved under.
+ *     forms — the rules a Send Message node is saved under.
  *  2. **No `{{tokens}}` in the message**: not in its copy, not in a picture. A posted message
  *     has no member and no run, so nothing can fill one in — not even `{{guild.name}}`, which
  *     would need a second renderer outside flows and make every message drift when the

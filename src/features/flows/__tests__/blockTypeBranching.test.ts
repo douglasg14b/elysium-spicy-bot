@@ -180,7 +180,7 @@ const DECLARED_BLOCK_DEPENDENTS: Readonly<Record<string, string>> = {
     'src/features/flows/logic/scheduleTimes.ts':
         'Residual: takes triggerSchedule\'s config type and its table of interval lengths — the time math is the block\'s own rules, kept in logic/ so the block-dependents check can see the import.',
     'src/web/api/staleBuilderGraph.ts':
-        'Temporary: a one-deploy bridge refusing saves from builder tabs older than actionPostEmbed\'s reshape to one `message` (2026-10-24 migration) or triggerButtonClick\'s to one `button` (step 3). Remove both together once no tab can predate them.',
+        'Temporary: a one-deploy bridge refusing saves from builder tabs older than Post Embed\'s merge into actionSendMessage and its `message` becoming an object (2026-10-31 migration), or triggerButtonClick\'s reshape to one `button` (step 3). Remove the entries together once no tab can predate them.',
 };
 
 /**

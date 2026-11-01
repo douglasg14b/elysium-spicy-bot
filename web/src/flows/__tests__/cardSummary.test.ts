@@ -167,7 +167,7 @@ describe('summarizeFromDescriptor', () => {
                 flowId: 'welcome',
                 flowName: 'Welcome',
                 nodeId: 'post',
-                blockLabel: 'Post Embed',
+                blockLabel: 'Send Message',
                 headline: 'Kneel, pet',
                 buttons: [{ key: 'kneel', label: 'Kneel', style: 'Primary' }],
             },

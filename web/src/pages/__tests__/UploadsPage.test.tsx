@@ -30,7 +30,7 @@ const LIVE_USE: UploadUse = {
     flowId: WELCOME_FLOW,
     flowName: 'Welcome flow',
     nodeId: 'welcome',
-    blockLabel: 'Post Embed',
+    blockLabel: 'Send Message',
     where: 'embed 1 thumbnail',
 };
 const DRAFT_USE: UploadUse = {
@@ -38,7 +38,7 @@ const DRAFT_USE: UploadUse = {
     flowId: BIRTHDAY_FLOW,
     flowName: 'Birthday shout',
     nodeId: 'shout',
-    blockLabel: 'Post Embed',
+    blockLabel: 'Send Message',
     where: 'embed 1 footer icon',
     draftAuthorId: OTHER_MOD_ID,
 };
@@ -149,7 +149,7 @@ describe('the Uploads page', () => {
         const uses = within(within(logo).getByRole('list', { name: 'Where logo-square.webp is used' })).getAllByRole('listitem');
         expect(uses).toHaveLength(2);
         expect(within(uses[0]!).getByRole('link', { name: 'Welcome flow' }).getAttribute('href')).toBe(`/flows/${WELCOME_FLOW}`);
-        expect(uses[0]!.textContent).toContain('· Post Embed · embed 1 thumbnail');
+        expect(uses[0]!.textContent).toContain('· Send Message · embed 1 thumbnail');
         expect(within(uses[0]!).queryByText('Draft')).toBeNull();
         expect(within(uses[1]!).getByRole('link', { name: 'Birthday shout' }).getAttribute('href')).toBe(`/flows/${BIRTHDAY_FLOW}`);
         expect(within(uses[1]!).getByText('Draft')).toBeTruthy();
@@ -259,7 +259,7 @@ describe('deleting a picture', () => {
             flowId: RULES_FLOW,
             flowName: 'Rules reminder',
             nodeId: 'remind',
-            blockLabel: 'Post Embed',
+            blockLabel: 'Send Message',
             where: 'embed 2 image',
         };
         api.on('DELETE', `${UPLOADS_PATH}/${OLD_HEADER.uploadId}`, () => ({
@@ -275,7 +275,7 @@ describe('deleting a picture', () => {
         expect(within(dialog).getByRole('alert').textContent).toBe("Not so fast — that picture's still on display.");
         const uses = within(dialog).getByRole('list', { name: 'Where old-rules-header.png is used' });
         expect(within(uses).getByRole('link', { name: 'Rules reminder' }).getAttribute('href')).toBe(`/flows/${RULES_FLOW}`);
-        expect(uses.textContent).toContain('· Post Embed · embed 2 image');
+        expect(uses.textContent).toContain('· Send Message · embed 2 image');
         // The focused Delete went with the confirm view; focus is on the refusal's Close, not the page.
         await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Close' })));
         expect(dialog.contains(document.activeElement)).toBe(true);

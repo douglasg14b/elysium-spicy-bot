@@ -1,3 +1,4 @@
+import type { EmbedBuilder } from 'discord.js';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { summarizeFromDescriptor } from '../../../../../../web/src/flows/cardSummary';
 import { nodeRoutes, type NodeDescriptor } from '../../../../../web/api/nodeRoutes';
@@ -25,7 +26,9 @@ import { ACTION_SEND_MESSAGE, block as sendMessage } from '..';
 
 const RUN_CHANNEL_ID = 'run-channel-1';
 const PICKED_ID = 'picked-1';
-const MESSAGE = 'Not yet, pet.';
+const TEXT = 'Not yet, pet.';
+const MESSAGE = { content: TEXT, embeds: [] };
+const BUTTONS = [{ key: 'beg', label: 'Beg', style: 'Primary' }];
 
 const channelSend = vi.fn();
 const followUp = vi.fn();
@@ -65,11 +68,36 @@ describe('running with the box ticked', () => {
         expect(await runOn({ where: 'here', ephemeral: true, message: MESSAGE })).toEqual({ kind: 'continue' });
 
         expect(followUp).toHaveBeenCalledExactlyOnceWith({
-            content: MESSAGE,
+            content: TEXT,
+            embeds: [],
+            files: [],
+            components: [],
             ephemeral: true,
             allowedMentions: { parse: ['users'] },
         });
         expect(channelSend).not.toHaveBeenCalled();
+    });
+
+    it('answers with an embed too, the whole message in the one private follow-up', async () => {
+        const message = { content: TEXT, embeds: [{ title: 'House rules', description: 'Kneel first.' }] };
+
+        expect(await runOn({ where: 'here', ephemeral: true, message })).toEqual({ kind: 'continue' });
+
+        expect(followUp).toHaveBeenCalledOnce();
+        const sent: unknown = followUp.mock.calls[0]?.[0];
+        expect(sent).toMatchObject({ content: TEXT, ephemeral: true, files: [], components: [] });
+        const embeds = (sent as { embeds: readonly EmbedBuilder[] }).embeds;
+        expect(embeds.map((embed) => embed.toJSON())).toEqual([
+            expect.objectContaining({ title: 'House rules', description: 'Kneel first.' }),
+        ]);
+        expect(channelSend).not.toHaveBeenCalled();
+    });
+
+    it('fails without answering when the message comes out as nothing but blank space', async () => {
+        const result = await runOn({ where: 'here', ephemeral: true, message: { content: '   ', embeds: [] } });
+
+        expect(result).toMatchObject({ kind: 'fail' });
+        expect(followUp).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -182,6 +210,35 @@ describe('where save allows the box ticked', () => {
         expect(
             pressIssuesOn(chain(button(), node('wait', ACTION_DELAY, { durationMs: 60_000 }), publicReply))
         ).toEqual([]);
+    });
+});
+
+/**
+ * Buttons under a private answer: refused at save, under the buttons. Parsed as save and the
+ * executor parse, so a box hidden under a picked channel is absent and refuses nothing.
+ */
+describe('buttons beside the box', () => {
+    const issuesOf = (data: Record<string, unknown>) => {
+        const registered: BlockManifest = sendMessage;
+        const parsed = parseNodeConfig(registered, data);
+        return parsed.success ? [] : parsed.error.issues.map((issue) => ({ path: issue.path, message: issue.message }));
+    };
+
+    it('refuses buttons on a message only the clicker sees, naming the buttons', () => {
+        expect(issuesOf({ where: 'here', ephemeral: true, message: MESSAGE, buttons: BUTTONS })).toEqual([
+            {
+                path: ['buttons'],
+                message: "Buttons can't go on a message only the clicker sees — untick that, or drop the buttons.",
+            },
+        ]);
+    });
+
+    it.each([
+        ['an empty button list under a ticked box', { where: 'here', ephemeral: true, buttons: [] }],
+        ['buttons under an unticked box', { where: 'here', ephemeral: false, buttons: BUTTONS }],
+        ['buttons under a tick hidden by a picked channel', { where: 'channel', channelId: PICKED_ID, ephemeral: true, buttons: BUTTONS }],
+    ])('accepts %s', (_name, data) => {
+        expect(issuesOf({ ...data, message: MESSAGE })).toEqual([]);
     });
 });
 

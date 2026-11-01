@@ -48,7 +48,7 @@ function postingTo(channelId: string): FlowGraph {
                 id: 'post',
                 type: 'action.sendMessage',
                 position: { x: 0, y: 0 },
-                data: { channelId, channelIdKey: 'qa-channel', message: 'Ask away.' },
+                data: { channelId, channelIdKey: 'qa-channel', message: { content: 'Ask away.', embeds: [] } },
             },
         ],
         edges: [],
@@ -431,7 +431,7 @@ describe('reading a flow’s declarations', () => {
 });
 
 describe('the autosave of a builder tab older than a block it holds', () => {
-    it('is refused, and stores no draft — the flat node would be stripped to nothing', async () => {
+    it('is refused, and stores no draft — a Post Embed, gone and in flat keys', async () => {
         const flow = await flowWith(READY);
         const flat: FlowGraph = {
             version: FLOW_GRAPH_VERSION,
@@ -456,6 +456,34 @@ describe('the autosave of a builder tab older than a block it holds', () => {
         expect(saved.status).toBe(400);
         expect(saved.body.error).toMatch(/Reload the page, then save again/);
         expect(saved.body.issues.map((issue) => issue.nodeId)).toEqual(['post']);
+        expect(await draftsOf(flow.flowId)).toEqual([]);
+    });
+
+    it('refuses a Send Message whose message is still a string, older than it taking over Post Embed', async () => {
+        const flow = await flowWith(READY);
+        const stringMessage: FlowGraph = {
+            version: FLOW_GRAPH_VERSION,
+            nodes: [
+                {
+                    id: 'say',
+                    type: 'action.sendMessage',
+                    position: { x: 0, y: 0 },
+                    data: { channelId: '111111111111111111', message: 'Kneel.' },
+                },
+            ],
+            edges: [],
+        };
+
+        const saved = await send<{ error: string; issues: { nodeId?: string }[] }>(
+            ALICE,
+            'PUT',
+            `/flows/${flow.flowId}/drafts/mine`,
+            { name: 'Greeter', graph: stringMessage, baseUpdatedAt: flow.updatedAt }
+        );
+
+        expect(saved.status).toBe(400);
+        expect(saved.body.error).toMatch(/Reload the page, then save again/);
+        expect(saved.body.issues.map((issue) => issue.nodeId)).toEqual(['say']);
         expect(await draftsOf(flow.flowId)).toEqual([]);
     });
 

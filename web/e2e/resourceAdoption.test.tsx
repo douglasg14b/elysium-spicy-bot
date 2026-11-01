@@ -98,7 +98,7 @@ async function guildWithRulesAndAFlow(): Promise<AuthoredFlow> {
                 id: SEND_NODE_ID,
                 type: ACTION_SEND_MESSAGE,
                 position: { x: 0, y: 160 },
-                data: { channelId: '', channelIdKey: RESOURCE_KEY, message: 'Read the rules before you misbehave.' },
+                data: { channelId: '', channelIdKey: RESOURCE_KEY, message: { content: 'Read the rules before you misbehave.', embeds: [] } },
             },
         ],
         edges: [{ id: 'join-to-send', source: 'on-join', target: SEND_NODE_ID }],

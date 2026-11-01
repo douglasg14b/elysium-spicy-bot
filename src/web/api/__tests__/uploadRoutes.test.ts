@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { database } from '../../../features-system/data-persistence/database';
 import { migrateTestDatabase } from '../../../features-system/data-persistence/__tests__/support/migrateTestDatabase';
 import { GUILD_UPLOAD_TOTAL_LIMIT_BYTES, registerUploadUsageReader } from '../../../features-system/guild-uploads';
-import { ACTION_POST_EMBED } from '../../../features/flows/blocks/actionPostEmbed';
+import { ACTION_SEND_MESSAGE } from '../../../features/flows/blocks/actionSendMessage';
 import { ensureBlocksDiscovered } from '../../../features/flows/blocks/registry';
 import { flowDraftsRepo } from '../../../features/flows/data/flowDraftsRepo';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../../features/flows/data/flowGraph';
@@ -66,14 +66,14 @@ async function kept(guildId: string): Promise<GuildUploadBody> {
     return (await (await upload(guildId, png())).json()) as GuildUploadBody;
 }
 
-/** One Post Embed node, `post`, whose first embed shows `uploadId` as its image. */
+/** One Send Message node, `post`, whose first embed shows `uploadId` as its image. */
 function showing(uploadId: string): FlowGraph {
     return {
         version: FLOW_GRAPH_VERSION,
         nodes: [
             {
                 id: 'post',
-                type: ACTION_POST_EMBED,
+                type: ACTION_SEND_MESSAGE,
                 position: { x: 0, y: 0 },
                 data: { channelId: '1', message: { embeds: [{ title: 'Look', image: `upload:${uploadId}` }] } },
             },
@@ -95,7 +95,7 @@ async function useInFlowAndDraft(guildId: string, uploadId: string): Promise<Upl
         graph: showing(uploadId),
         baseUpdatedAt: new Date().toISOString(),
     });
-    const at = { kind: 'flow' as const, nodeId: 'post', blockLabel: 'Post Embed', where: 'embed 1 image' };
+    const at = { kind: 'flow' as const, nodeId: 'post', blockLabel: 'Send Message', where: 'embed 1 image' };
     return [
         { flowId: live.flowId, flowName: 'Welcome flow', ...at },
         { flowId: drafted.flowId, flowName: 'Goodbye flow', ...at, draftAuthorId: 'user-drafter' },

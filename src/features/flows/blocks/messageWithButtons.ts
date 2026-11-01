@@ -8,7 +8,7 @@ import { buildButtonRows, serverEmojiIds, type MessageButton } from '../../provi
 /**
  * Posting a block's `message` field, and the buttons under it: the checks a rendered message
  * must pass, its uploads, and what `channel.send` is handed — shared by every block that posts
- * one (Post Embed, and Open Ticket's message above the ticket card), so both judge, attach and
+ * one (Send Message, and Open Ticket's message above the ticket card), so both judge, attach and
  * button a message the same way.
  *
  * A block calls the two in its own order — {@link renderedMessageIssue} first, since it costs
@@ -79,9 +79,9 @@ export type MessageWithButtons =
  * is left off its button rather than having Discord refuse the whole message. No buttons is no
  * rows.
  *
- * Mentions pinned to users, as Send Message pins them: the plain text is copy, so a member
- * called "@everyone" reaches it through `{{subject.username}}`, and `users` keeps
- * `{{subject.mention}}` pinging the one member it names.
+ * Mentions pinned to users: the plain text is copy, so a member called "@everyone" reaches it
+ * through `{{subject.username}}`, and `users` keeps `{{subject.mention}}` pinging the one
+ * member it names.
  *
  * @param fieldLabel the `message` field's label, which an upload failure names a part by.
  */

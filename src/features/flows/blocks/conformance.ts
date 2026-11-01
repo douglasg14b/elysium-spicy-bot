@@ -1101,6 +1101,26 @@ function checkButtonsKey(
 }
 
 /**
+ * `showsMentions` is a `longText` field's, and a boolean. Only the long text box draws the
+ * mention box; on any other control the flag would promise an `@`/`#` list nothing offers.
+ */
+function checkShowsMentions(label: string, field: Partial<BlockConfigField>): readonly string[] {
+    const showsMentions = readProperty(field, 'showsMentions');
+    if (showsMentions === undefined) {
+        return [];
+    }
+
+    const where = `${label}: the ${String(field.control)} field "${String(field.key)}"`;
+    if (field.control !== 'longText') {
+        return [`${where} declares showsMentions, which only a longText field may — only its box offers @ and #.`];
+    }
+    if (typeof showsMentions !== 'boolean') {
+        return [`${where} declares showsMentions as ${JSON.stringify(showsMentions)}, which is not true or false.`];
+    }
+    return [];
+}
+
+/**
  * A `variableSelect` that declares a kind must name a real one, and its schema must take
  * a variable name in the shared spelling. Declaring no kind is allowed — it takes any
  * variable — so only a kind that is present is judged.
@@ -1203,6 +1223,7 @@ function checkConfigFields(label: string, configFields: unknown, configSchema: u
         issues.push(...checkFieldColumns(label, key, field, fieldSchema));
         issues.push(...checkVariableNameField(label, key, field, fieldSchema));
         issues.push(...checkControlShape(label, key, field, fieldSchema));
+        issues.push(...checkShowsMentions(label, field));
     }
 
     // A message's buttons sit in a sibling key the message field names, which needs no field

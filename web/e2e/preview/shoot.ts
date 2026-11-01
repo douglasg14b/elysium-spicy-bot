@@ -108,6 +108,14 @@ async function main(): Promise<void> {
 
                 await page.goto(`${base}${target.path}`, { waitUntil: 'networkidle' });
                 for (const step of target.steps ?? []) {
+                    if ('press' in step) {
+                        await page.keyboard.press(step.press);
+                        continue;
+                    }
+                    if ('type' in step) {
+                        await page.keyboard.type(step.type);
+                        continue;
+                    }
                     const clicked =
                         'clickButton' in step
                             ? page.getByRole('button', { name: step.clickButton, exact: true })

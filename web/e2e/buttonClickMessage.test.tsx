@@ -87,7 +87,7 @@ describe('a Button Click trigger on a message it made', () => {
                     id: 'greet',
                     type: ACTION_SEND_MESSAGE,
                     position: { x: 0, y: 160 },
-                    data: { channelId: lounge.id, message: SAID },
+                    data: { channelId: lounge.id, message: { content: SAID, embeds: [] } },
                 },
             ],
             edges: [{ id: 'e1', source: 'press', target: 'greet' }],

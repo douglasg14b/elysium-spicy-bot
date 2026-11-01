@@ -198,6 +198,9 @@ export function MessageButtonControl({ field, value, onChange, context, error }:
     const buttons: readonly MessageButton[] = message?.buttons ?? post?.buttons ?? [];
     // The chosen message is offered: a journey message still declared, or a post still posting.
     const offered = message ?? post;
+    // Only posts with buttons are offered: a post has no "+ New button", and Send Message — the
+    // commonest block — usually posts none. The chosen post stays, so its pick never goes blank.
+    const pickablePosts = posts.filter((candidate) => candidate.buttons.length > 0 || candidate === post);
 
     const gone =
         choice && chosenValue && !offered
@@ -209,7 +212,7 @@ export function MessageButtonControl({ field, value, onChange, context, error }:
                           : "A block's post that isn't here any more",
               }
             : undefined;
-    const messageOptions = messageOptionsOf(messages, posts, context.listeners.flowId, gone);
+    const messageOptions = messageOptionsOf(messages, pickablePosts, context.listeners.flowId, gone);
 
     const holders = new Map<string, ButtonHolder>(
         choice && offered
@@ -234,7 +237,7 @@ export function MessageButtonControl({ field, value, onChange, context, error }:
         if (pick && chosenValue !== next) onChange(undefined);
     };
 
-    const noMessagesYet = messages.length === 0 && posts.length === 0 && !choice;
+    const noMessagesYet = messages.length === 0 && pickablePosts.length === 0 && !choice;
 
     return (
         // One label over both selects, and the issue line under them both: the field is the pair.

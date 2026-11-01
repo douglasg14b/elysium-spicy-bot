@@ -3,7 +3,7 @@ import { FLOW_GRAPH_VERSION, type FlowGraph } from '../data/flowGraph';
 import { describeIssue, validateNodeData } from '../engine/nodeDataValidation';
 import { ensureBlocksDiscovered } from '../blocks/registry';
 import { ACTION_ASSIGN_ROLE } from '../blocks/actionAssignRole';
-import { ACTION_POST_EMBED } from '../blocks/actionPostEmbed';
+import { ACTION_SEND_MESSAGE } from '../blocks/actionSendMessage';
 import { TRIGGER_BUTTON_CLICK } from '../blocks/triggerButtonClick';
 
 function graphWith(nodes: FlowGraph['nodes']): FlowGraph {
@@ -15,7 +15,7 @@ function pending(nodeId: string, ...fields: string[]): ReadonlyMap<string, Reado
     return new Map([[nodeId, new Set(fields)]]);
 }
 
-/** A Post Embed message of one embed titled "Hi", plus `extra` on that embed. */
+/** A Send Message message of one embed titled "Hi", plus `extra` on that embed. */
 function embedMessage(extra: Record<string, unknown>): Record<string, unknown> {
     return { embeds: [{ title: 'Hi', description: 'There', ...extra }] };
 }
@@ -89,11 +89,11 @@ describe('validateNodeData', () => {
         }
     });
 
-    it('rejects a postEmbed colour that is not a hex value', () => {
+    it('rejects an embed colour that is not a hex value', () => {
         const graph = graphWith([
             {
                 id: 'embed',
-                type: ACTION_POST_EMBED,
+                type: ACTION_SEND_MESSAGE,
                 position: { x: 0, y: 0 },
                 data: { channelId: 'chan-1', message: embedMessage({ color: 'cyan' }) },
             },
@@ -118,7 +118,7 @@ describe('validateNodeData', () => {
         const graph = graphWith([
             {
                 id: 'embed',
-                type: ACTION_POST_EMBED,
+                type: ACTION_SEND_MESSAGE,
                 position: { x: 0, y: 0 },
                 data: {
                     channelId: 'chan-1',
@@ -203,7 +203,7 @@ describe('validateNodeData with pending fields', () => {
         const graph = graphWith([
             {
                 id: 'embed',
-                type: ACTION_POST_EMBED,
+                type: ACTION_SEND_MESSAGE,
                 position: { x: 0, y: 0 },
                 // `message.embeds.0.fields.0.name` is missing, which is a genuine issue.
                 data: { channelId: 'chan-1', message: embedMessage({ fields: [{ value: 'v' }] }) },
@@ -243,7 +243,7 @@ describe('validateNodeData with pending fields', () => {
         const graph = graphWith([
             {
                 id: 'embed',
-                type: ACTION_POST_EMBED,
+                type: ACTION_SEND_MESSAGE,
                 position: { x: 0, y: 0 },
                 data: { channelId: 'chan-1', message: embedMessage({ fields: [{ value: 'v' }] }) },
             },
@@ -257,7 +257,7 @@ describe('validateNodeData with pending fields', () => {
         const graph = graphWith([
             {
                 id: 'embed',
-                type: ACTION_POST_EMBED,
+                type: ACTION_SEND_MESSAGE,
                 position: { x: 0, y: 0 },
                 data: { channelId: '', message: embedMessage({ color: 'cyan' }) },
             },

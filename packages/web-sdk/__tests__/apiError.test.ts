@@ -3,7 +3,7 @@ import { apiErrorFromBody } from '../src/apiError';
 
 /** What a refused delete carries through the SDK: the server's sentence and every place still showing the picture. */
 describe('apiErrorFromBody', () => {
-    const use = { flowId: 'flow-1', flowName: 'Welcome flow', nodeId: 'post', blockLabel: 'Post Embed', where: 'embed 1 image' };
+    const use = { flowId: 'flow-1', flowName: 'Welcome flow', nodeId: 'post', blockLabel: 'Send Message', where: 'embed 1 image' };
 
     it("carries an in-use refusal's uses", () => {
         const refused = apiErrorFromBody(409, { error: 'Still on display.', uses: [use] });

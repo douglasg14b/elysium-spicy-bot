@@ -8,7 +8,8 @@
  * portal to the inspector's wrapper). **Cancel** puts back the message as it was when the
  * window opened, with one `onChange`; **Done**, the close button and Escape keep what is
  * there — an upload still on its way then lands when it answers. A message with nothing in
- * it opens on one fresh embed, written by the first edit.
+ * it opens with no embed — the plain text ready to type into, "Add embed" under it — and is
+ * written by the first edit.
  *
  * Knows no block: whoever opens it says what it is called and hands it the page's variables
  * and uploads, so a message that is not a block's field can open the same window — a message
@@ -29,16 +30,17 @@ import { MESSAGE_TOTAL_CHARACTERS, messageCharacterCount } from './messageCharac
 import { addEmbed, readMessageDraft, startingMessage, type MessageDraft } from './messageDraft';
 import { placeMessageIssues } from './messageIssues';
 import { MAX_EMBEDS } from './partRules';
-import type { MentionableRole } from './roleMentions';
+import type { MentionLists } from './mentions';
 import { TextPartBox } from './TextPartBox';
 import './messageEditor.css';
 
 export interface MessageEditorProps extends Pick<ControlContext, 'variables' | 'requirements' | 'uploads'> {
     /**
      * Every role a message may name — the ones a flow may grant and the managed ones (Server
-     * Booster and the like) — for drawing `<@&id>` as the role and for the `@` list.
+     * Booster and the like) — and the server's text channels (`mentionListsOf`), for drawing
+     * `<@&id>` and `<#id>` as what they name and for the `@` and `#` lists.
      */
-    readonly roles: readonly MentionableRole[];
+    readonly mentions: MentionLists;
     /** What the message is called — the window's title reads "Edit <title>". */
     readonly title: string;
     readonly description?: string;
@@ -78,7 +80,7 @@ export function MessageEditor({
     variables,
     requirements,
     uploads,
-    roles,
+    mentions,
     issues,
     error,
     tokens = true,
@@ -91,7 +93,7 @@ export function MessageEditor({
     const [mode, setMode] = useState<EditorMode>('edit');
     const [editing, setEditing] = useState<string | null>(null);
     const [uploadsInFlight, setUploadsInFlight] = useState(0);
-    const message = readMessageDraft(value) ?? startingMessage(swatches[0]);
+    const message = readMessageDraft(value) ?? startingMessage();
 
     /*
      * The message an edit is applied to: the latest, not the one a render saw. An upload
@@ -162,7 +164,7 @@ export function MessageEditor({
         variables,
         requirements,
         uploads,
-        roles,
+        mentions,
         swatches,
         tokens,
         buttons,

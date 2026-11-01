@@ -3,7 +3,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { guildUploadsRepo } from '../../../../features-system/guild-uploads';
 import { migrateTestDatabase } from '../../../../features-system/data-persistence/__tests__/support/migrateTestDatabase';
 import { MIB } from '../../../../shared/byteSizes';
-import { ACTION_POST_EMBED } from '../../blocks/actionPostEmbed';
+import { ACTION_SEND_MESSAGE } from '../../blocks/actionSendMessage';
 import { ensureBlocksDiscovered } from '../../blocks/registry';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../data/flowGraph';
 import { loadUploadIndex, uploadIndexCovers, uploadReferenceIssues } from '../uploadReferences';
@@ -30,11 +30,11 @@ async function upload(guildId: string, size = 64): Promise<string> {
     return stored.uploadId;
 }
 
-/** One Post Embed node holding `message`. */
+/** One Send Message node holding `message`. */
 function posting(message: Record<string, unknown>): FlowGraph {
     return {
         version: FLOW_GRAPH_VERSION,
-        nodes: [{ id: 'post', type: ACTION_POST_EMBED, position: { x: 0, y: 0 }, data: { channelId: '1', message } }],
+        nodes: [{ id: 'post', type: ACTION_SEND_MESSAGE, position: { x: 0, y: 0 }, data: { channelId: '1', message } }],
         edges: [],
     };
 }

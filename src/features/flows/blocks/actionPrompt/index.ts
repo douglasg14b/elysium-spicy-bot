@@ -101,6 +101,8 @@ export const block: BlockManifest<PromptConfig> = {
             placeholder: 'So, are you in?',
             maxLength: 2000,
             rendersTokens: true,
+            // The embed's description, where Discord shows `<@&id>` and `<#id>` by name.
+            showsMentions: true,
         },
         {
             key: 'choices',

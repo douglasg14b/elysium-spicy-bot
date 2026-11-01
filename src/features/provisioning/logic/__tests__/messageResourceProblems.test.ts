@@ -8,7 +8,7 @@ import type { ResourceDeclaration } from '../resourceDeclaration';
  * What a message resource is refused for on save, each problem naming its part.
  *
  * The token rows are the reason this module exists beside `messageConfigSchema`: a token
- * passes every rule a Post Embed node is saved under — that is what a run fills in — so only
+ * passes every rule a Send Message node is saved under — that is what a run fills in — so only
  * the no-tokens rule refuses them. Each token fixture is otherwise clean, so the row fails
  * only if that rule is gone.
  */

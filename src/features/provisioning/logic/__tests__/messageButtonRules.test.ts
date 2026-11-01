@@ -5,7 +5,7 @@ import { messageResourceProblems } from '../messageResourceProblems';
 
 /**
  * One button rule set, asked two ways: a journey message's buttons (the route's schema, then
- * `messageResourceProblems`) and a block's (`messageButtonsConfigSchema`, Post Embed's and
+ * `messageResourceProblems`) and a block's (`messageButtonsConfigSchema`, Send Message's and
  * Open Ticket's `buttons`). The same buttons must be refused for the same reasons, in the same
  * order, with the same sentences, on the same button — whichever kind of message they sit
  * under. The block's schema is a second copy of the wire's, written in plain zod, so this is

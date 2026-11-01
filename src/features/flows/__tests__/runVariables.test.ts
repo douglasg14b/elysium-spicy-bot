@@ -346,7 +346,7 @@ describe('a block consumes a value another block produced', () => {
             };
         }
 
-        /** Post Embed with one embed, plus `extra` on that embed. */
+        /** Send Message with one embed, plus `extra` on that embed. */
         function embedGraph(extra: Record<string, unknown>): FlowGraph {
             return {
                 version: FLOW_GRAPH_VERSION,
@@ -355,7 +355,7 @@ describe('a block consumes a value another block produced', () => {
                     { id: 'p', type: ACTION_RECORD_VALUE, position: { x: 1, y: 0 }, data: { outputKey: 'pic', value: 'banana' } },
                     {
                         id: 'embed',
-                        type: 'action.postEmbed',
+                        type: 'action.sendMessage',
                         position: { x: 2, y: 0 },
                         data: {
                             channelId: 'channel-1',
@@ -438,7 +438,7 @@ describe('a member’s own name cannot ping the guild', () => {
                     id: 'post',
                     type: 'action.sendMessage',
                     position: { x: 1, y: 0 },
-                    data: { channelId: 'channel-1', message },
+                    data: { channelId: 'channel-1', message: { content: message, embeds: [] } },
                 },
             ],
             edges: [{ id: 'e1', source: 'trigger', target: 'post' }],
@@ -458,6 +458,9 @@ describe('a member’s own name cannot ping the guild', () => {
         // escaping, that makes it inert.
         expect(send).toHaveBeenCalledWith({
             content: 'Welcome @everyone!',
+            embeds: [],
+            files: [],
+            components: [],
             allowedMentions: { parse: ['users'] },
         });
     });

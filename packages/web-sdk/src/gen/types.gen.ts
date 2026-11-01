@@ -49,7 +49,7 @@ export type BlockButtonListener = {
 };
 
 /**
- * A block of one of the journey's flows that posts buttons under its message (Post Embed, Open Ticket): the posting flow and node, the block's label, the message as one line (`null` when it has none) and the buttons it posts now.
+ * A block of one of the journey's flows that posts buttons under its message (Send Message, Open Ticket): the posting flow and node, the block's label, the message as one line (`null` when it has none) and the buttons it posts now.
  */
 export type BlockButtonMessage = {
     blockLabel: string;
@@ -61,7 +61,7 @@ export type BlockButtonMessage = {
 };
 
 /**
- * One button under a message a block posts (Post Embed's, Open Ticket's): the posting flow's id, the posting node's id and the button's key. The flow id is set even when it is the listener's own.
+ * One button under a message a block posts (Send Message's, Open Ticket's): the posting flow's id, the posting node's id and the button's key. The flow id is set even when it is the listener's own.
  */
 export type BlockButtonRef = {
     buttonKey: string;
@@ -166,6 +166,7 @@ export type BlockConfigField = {
     maxLength?: number;
     placeholder?: string;
     rendersTokens?: boolean;
+    showsMentions?: boolean;
     visibleWhen?: {
         equals: Array<string>;
         field: string;
@@ -588,11 +589,6 @@ export type FlowBlockFieldRules = {
         options?: Array<unknown>;
         outputKey?: string;
     };
-    'action.postEmbed': {
-        channelId?: string;
-        message?: unknown;
-        where?: unknown;
-    };
     'action.prompt': {
         choices?: Array<unknown>;
         eligibility?: unknown;
@@ -612,7 +608,7 @@ export type FlowBlockFieldRules = {
     'action.sendMessage': {
         channelId?: string;
         ephemeral?: unknown;
-        message?: string;
+        message?: unknown;
         where?: unknown;
     };
     'action.setVariable': {

@@ -1,8 +1,9 @@
 /**
  * One piece of text on the stage: shown as Discord will show it, and a text box in its place
  * once clicked — with its character count from `zDiscordMessage` and the `{x}` token picker.
- * Where Discord shows a role mention (`showsMentions`), `<@&id>` is drawn as the role, and
- * the box offers the server's roles on `@` (`RoleMentionTextarea`).
+ * Where Discord shows a mention (`showsMentions`), `<@&id>` is drawn as the role and `<#id>`
+ * as the channel, and the box offers the server's roles on `@` and its text channels on `#`
+ * (`MentionTextarea`).
  *
  * Every keystroke goes straight to the node (`apply`), as every inspector control's does, so
  * undo, the draft autosave and the server's re-check as focus leaves all keep working. A part
@@ -26,8 +27,8 @@ import {
     type TextPart,
 } from './messageDraft';
 import { PartProblems } from './PartProblems';
+import { MentionTextarea } from './MentionTextarea';
 import { partRule } from './partRules';
-import { RoleMentionTextarea } from './RoleMentionTextarea';
 
 interface TextPartBoxProps {
     readonly part: TextPart;
@@ -41,7 +42,7 @@ interface TextPartBoxProps {
     readonly takesTokens?: boolean;
 }
 
-/** Marks the token picker's box and the role list, each portalled out of the part's own. */
+/** Marks the token picker's box and the mention lists, each portalled out of the part's own. */
 const PART_DROPDOWN_ATTRIBUTE = 'data-part-dropdown';
 
 /**
@@ -57,8 +58,8 @@ export function TextPartBox({ part, placeholder, styleOver, multiline = false, t
     const label = partLabel(part);
     const textStyle: CSSProperties = { ...PART_TYPE[part.kind], ...styleOver };
     const knownVariables = scope.variables.map((variable) => variable.name);
-    // Drawn as the role only where Discord draws it so; elsewhere `<@&id>` is shown as it will be posted.
-    const roles = showsMentions(part) ? scope.roles : undefined;
+    // Drawn by name only where Discord draws them so; elsewhere `<@&id>` and `<#id>` are shown as they will be posted.
+    const mentions = showsMentions(part) ? scope.mentions : undefined;
     const display = useRef<HTMLButtonElement>(null);
     // Set as the part closes from the keyboard, so focus comes back to it rather than to the page.
     const returnFocus = useRef(false);
@@ -74,7 +75,7 @@ export function TextPartBox({ part, placeholder, styleOver, multiline = false, t
     if (scope.mode === 'preview') {
         return text ? (
             <div style={{ ...textStyle, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-                <CopyText text={text} preview knownVariables={knownVariables} roles={roles} />
+                <CopyText text={text} preview knownVariables={knownVariables} mentions={mentions} />
             </div>
         ) : null;
     }
@@ -119,7 +120,7 @@ export function TextPartBox({ part, placeholder, styleOver, multiline = false, t
                 }}
             >
                 {text ? (
-                    <CopyText text={text} preview={false} knownVariables={knownVariables} roles={roles} />
+                    <CopyText text={text} preview={false} knownVariables={knownVariables} mentions={mentions} />
                 ) : (
                     <span style={{ color: DISCORD.muted, fontWeight: 400 }}>{placeholder}</span>
                 )}
@@ -209,13 +210,14 @@ function PartInput({ part, text, label, problems, textStyle, multiline, takesTok
                     </Text>
                 ) : null}
                 {showsMentions(part) ? (
-                    <RoleMentionTextarea
+                    <MentionTextarea
                         label={label}
+                        autoFocus
                         value={text}
                         onChange={write}
                         onKeyDown={keys}
                         textStyle={textStyle}
-                        roles={scope.roles}
+                        mentions={scope.mentions}
                         listAttribute={PART_DROPDOWN_ATTRIBUTE}
                     />
                 ) : (

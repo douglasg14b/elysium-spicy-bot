@@ -55,7 +55,7 @@ function postingGraph(channelId: string, message: string): FlowGraph {
         version: FLOW_GRAPH_VERSION,
         nodes: [
             { id: 'nine', type: TRIGGER_SCHEDULE, position: { x: 0, y: 0 }, data: { repeat: 'daily', time: '09:00' } },
-            { id: 'post', type: ACTION_SEND_MESSAGE, position: { x: 300, y: 0 }, data: { channelId, message } },
+            { id: 'post', type: ACTION_SEND_MESSAGE, position: { x: 300, y: 0 }, data: { channelId, message: { content: message, embeds: [] } } },
         ],
         edges: [{ id: 'nine-post', source: 'nine', target: 'post' }],
     };

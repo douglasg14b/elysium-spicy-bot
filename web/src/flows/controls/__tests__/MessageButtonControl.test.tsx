@@ -244,7 +244,7 @@ describe("a block's post", () => {
         flowId: THIS_FLOW,
         flowName: 'This one',
         nodeId: 'post-1',
-        blockLabel: 'Post Embed',
+        blockLabel: 'Send Message',
         headline: 'Kneel, pet',
         buttons: [KNEEL, BEG],
     };
@@ -304,6 +304,22 @@ describe("a block's post", () => {
         expect(taken.textContent).toContain('↳ Welcome');
         await user.click(taken);
         expect(record.changes).toEqual([]);
+    });
+
+    const PLAIN_POST: BlockButtonMessage = { ...OWN_POST, nodeId: 'say-1', headline: 'Hi, slut', buttons: [] };
+
+    it('offers no post without buttons — a block post has no "+ New button"', async () => {
+        const { user } = renderPicker({ blockMessages: [OWN_POST, PLAIN_POST] });
+
+        await user.click(messageSelect());
+        expect(screen.queryByRole('option', { name: /^Hi, slut/ })).toBeNull();
+        expect(screen.getByRole('option', { name: /^Kneel, pet/ })).toBeTruthy();
+    });
+
+    it('keeps a chosen post that has lost its buttons shown, saying so', () => {
+        renderPicker({ value: { flowId: THIS_FLOW, nodeId: 'say-1', buttonKey: 'kneel' }, blockMessages: [OWN_POST, PLAIN_POST] });
+        expect(messageSelect().value).toBe('Hi, slut');
+        expect(screen.getByText('"Hi, slut" posts no buttons yet — give it some in its own message window.')).toBeTruthy();
     });
 
     it('keeps a pick whose post is gone shown, marked', () => {

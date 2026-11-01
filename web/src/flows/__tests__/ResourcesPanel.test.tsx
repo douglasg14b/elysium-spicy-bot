@@ -5,6 +5,7 @@ import type {
     ButtonListener,
     GuildChannel,
     GuildRole,
+    ManagedRole,
     ResourceDeclaration,
     TicketTypeView,
 } from '@brattybot/web-sdk';
@@ -29,6 +30,7 @@ interface PanelSetup {
     readonly installedKeys?: ReadonlySet<string>;
     readonly ticketTypes?: TicketTypeView[];
     readonly listeners?: readonly ButtonListener[];
+    readonly managedRoles?: readonly ManagedRole[];
 }
 
 /**
@@ -53,6 +55,7 @@ function renderPanel(setup: PanelSetup) {
                 installedKeys={setup.installedKeys}
                 ticketTypes={setup.ticketTypes}
                 listeners={setup.listeners}
+                managedRoles={setup.managedRoles}
                 uploads={NO_UPLOADS}
             />
         );
@@ -482,6 +485,35 @@ describe('ResourcesPanel', () => {
 
             // Both put back, in two writes on one tick — neither may undo the other.
             expect(current().at(-1)).toEqual(PANEL);
+        });
+
+        it("offers the server's text channels on # and its roles, managed ones too, on @", async () => {
+            const lounge: GuildChannel = { id: '700000000000000000', name: 'Lounge', type: 'category', parentId: null, parentName: null, owner: null };
+            const general: GuildChannel = { ...channel('710000000000000000', 'general'), parentId: lounge.id, parentName: lounge.name };
+            const booster: ManagedRole = { id: '555555555555555555', name: 'Server Booster', color: 0xf47fff, position: 4 };
+            const { user, current } = renderPanel({
+                resources: [...DECLARED, PANEL],
+                channels: [lounge, general],
+                managedRoles: [booster],
+            });
+
+            await user.click(screen.getByRole('button', { name: 'Expand Rules panel' }));
+            await user.click(screen.getByRole('button', { name: 'Edit message' }));
+            const window = screen.getByRole('dialog');
+            await user.click(within(window).getByRole('button', { name: 'Plain text' }));
+            const box = within(window).getByRole('textbox', { name: 'Plain text' });
+
+            await user.type(box, 'Read #');
+            // A category is somewhere nobody posts.
+            expect(screen.queryByRole('option', { name: /^#Lounge/ })).toBeNull();
+            await user.click(screen.getByRole('option', { name: /^#general/ }));
+            await user.type(box, '@boo');
+            await user.click(screen.getByRole('option', { name: 'Server Booster' }));
+
+            expect(current().at(-1)?.message).toEqual({
+                content: `Read <#${general.id}> <@&${booster.id}> `,
+                embeds: [{ title: 'House rules' }],
+            });
         });
 
         describe('that a flow listens to', () => {

@@ -1,6 +1,6 @@
 import { EmbedBuilder } from 'discord.js';
 import { describe, expect, it, vi } from 'vitest';
-import { block as actionPostEmbedNode, postEmbedConfigSchema, type PostEmbedConfig } from '../blocks/actionPostEmbed';
+import { block as actionSendMessageNode, sendMessageConfigSchema, type SendMessageConfig } from '../blocks/actionSendMessage';
 import { block as conditionInChannelNode } from '../blocks/conditionInChannel';
 import type { FlowRunContext } from '../blocks/types';
 import { fakeGuild } from './support/fakeGuild';
@@ -94,7 +94,7 @@ describe('condition.inChannel', () => {
     });
 });
 
-describe('action.postEmbed', () => {
+describe('action.sendMessage', () => {
     function contextWithChannel(send: ReturnType<typeof vi.fn>): FlowRunContext {
         return {
             client: {} as FlowRunContext['client'],
@@ -113,8 +113,8 @@ describe('action.postEmbed', () => {
      * A config as the executor hands one over: through the schema, so declared defaults
      * (`fields`, `inline`, `timestamp`) are applied. `embeds` are given as stored.
      */
-    function parseConfig(channelId: string, message: Record<string, unknown>): PostEmbedConfig {
-        return postEmbedConfigSchema.parse({ channelId, message });
+    function parseConfig(channelId: string, message: Record<string, unknown>): SendMessageConfig {
+        return sendMessageConfigSchema.parse({ channelId, message });
     }
 
     /** One embed holding a title and a body, plus whatever else a case adds. */
@@ -125,7 +125,7 @@ describe('action.postEmbed', () => {
     it('sends the plain text and every embed, with mentions pinned to users', async () => {
         const send = vi.fn().mockResolvedValue({ id: 'message-1' });
 
-        const outcome = await actionPostEmbedNode.run(
+        const outcome = await actionSendMessageNode.run(
             parseConfig(CHANNEL_ID, {
                 content: 'Listen up.',
                 embeds: [
@@ -167,7 +167,7 @@ describe('action.postEmbed', () => {
         };
 
         await expect(
-            actionPostEmbedNode.run(parseConfig('another-servers-channel', oneEmbed()), context)
+            actionSendMessageNode.run(parseConfig('another-servers-channel', oneEmbed()), context)
         ).rejects.toThrow(/not a sendable text channel in this server/);
         expect(clientFetch).not.toHaveBeenCalled();
         expect(send).not.toHaveBeenCalled();
@@ -180,14 +180,14 @@ describe('action.postEmbed', () => {
             guild: fakeGuild({ uncachedChannels: { 'archived-thread': { send } } }),
         };
 
-        await actionPostEmbedNode.run(parseConfig('archived-thread', oneEmbed()), context);
+        await actionSendMessageNode.run(parseConfig('archived-thread', oneEmbed()), context);
         expect(send).toHaveBeenCalledTimes(1);
     });
 
     it('builds every part of an embed an author configured, linked pictures included', async () => {
         const send = vi.fn().mockResolvedValue({ id: 'message-1' });
 
-        await actionPostEmbedNode.run(
+        await actionSendMessageNode.run(
             parseConfig(CHANNEL_ID, {
                 embeds: [
                     {
@@ -238,7 +238,7 @@ describe('action.postEmbed', () => {
     it('fails naming the row when a field resolves to an empty heading or text', async () => {
         const send = vi.fn().mockResolvedValue({ id: 'message-1' });
 
-        const outcome = await actionPostEmbedNode.run(
+        const outcome = await actionSendMessageNode.run(
             parseConfig(CHANNEL_ID, {
                 embeds: [
                     { title: 'First' },
@@ -269,13 +269,14 @@ describe('action.postEmbed', () => {
      */
     it('fails naming the embed when every part of it rendered to nothing', async () => {
         const send = vi.fn().mockResolvedValue({ id: 'message-1' });
-        const rendered: PostEmbedConfig = {
+        const rendered: SendMessageConfig = {
             where: 'channel',
+            ephemeral: false,
             channelId: CHANNEL_ID,
             message: { embeds: [{ title: '', fields: [], timestamp: false }] },
         };
 
-        const outcome = await actionPostEmbedNode.run(rendered, contextWithChannel(send));
+        const outcome = await actionSendMessageNode.run(rendered, contextWithChannel(send));
 
         expect(outcome).toEqual({ kind: 'fail', error: expect.stringMatching(/tokens were filled in.*Embed 1 is empty/) });
         expect(send).not.toHaveBeenCalled();
@@ -288,9 +289,14 @@ describe('action.postEmbed', () => {
      */
     it('fails in the product’s words when every part came out as blank space', async () => {
         const send = vi.fn().mockResolvedValue({ id: 'message-1' });
-        const rendered: PostEmbedConfig = { where: 'channel', channelId: CHANNEL_ID, message: { content: ' \n ', embeds: [] } };
+        const rendered: SendMessageConfig = {
+            where: 'channel',
+            ephemeral: false,
+            channelId: CHANNEL_ID,
+            message: { content: ' \n ', embeds: [] },
+        };
 
-        const outcome = await actionPostEmbedNode.run(rendered, contextWithChannel(send));
+        const outcome = await actionSendMessageNode.run(rendered, contextWithChannel(send));
 
         expect(outcome).toEqual({
             kind: 'fail',
@@ -301,8 +307,9 @@ describe('action.postEmbed', () => {
 
     it('leaves out a footer whose text came out blank, and says its icon has nothing beside it', async () => {
         const send = vi.fn().mockResolvedValue({ id: 'message-1' });
-        const rendered: PostEmbedConfig = {
+        const rendered: SendMessageConfig = {
             where: 'channel',
+            ephemeral: false,
             channelId: CHANNEL_ID,
             message: {
                 embeds: [
@@ -316,7 +323,7 @@ describe('action.postEmbed', () => {
             },
         };
 
-        const outcome = await actionPostEmbedNode.run(rendered, contextWithChannel(send));
+        const outcome = await actionSendMessageNode.run(rendered, contextWithChannel(send));
 
         expect(outcome).toEqual({ kind: 'fail', error: expect.stringContaining("Embed 1's footer needs some text") });
         expect(send).not.toHaveBeenCalled();
@@ -324,8 +331,9 @@ describe('action.postEmbed', () => {
 
     it('sends text parts trimmed of the blank space their tokens left around them', async () => {
         const send = vi.fn().mockResolvedValue({ id: 'message-1' });
-        const rendered: PostEmbedConfig = {
+        const rendered: SendMessageConfig = {
             where: 'channel',
+            ephemeral: false,
             channelId: CHANNEL_ID,
             message: {
                 content: '  Kneel.  ',
@@ -333,7 +341,7 @@ describe('action.postEmbed', () => {
             },
         };
 
-        await actionPostEmbedNode.run(rendered, contextWithChannel(send));
+        await actionSendMessageNode.run(rendered, contextWithChannel(send));
 
         const payload = send.mock.calls[0]?.[0] as { content: string; embeds: EmbedBuilder[] };
         expect(payload.content).toBe('Kneel.');
@@ -349,8 +357,9 @@ describe('action.postEmbed', () => {
     it('fails naming the total when the embeds together came out over Discord 6000 characters', async () => {
         const send = vi.fn().mockResolvedValue({ id: 'message-1' });
         // As rendered: two `{{var.essay}}` bodies that filled in long.
-        const rendered: PostEmbedConfig = {
+        const rendered: SendMessageConfig = {
             where: 'channel',
+            ephemeral: false,
             channelId: CHANNEL_ID,
             message: {
                 embeds: [
@@ -360,7 +369,7 @@ describe('action.postEmbed', () => {
             },
         };
 
-        const outcome = await actionPostEmbedNode.run(rendered, contextWithChannel(send));
+        const outcome = await actionSendMessageNode.run(rendered, contextWithChannel(send));
 
         expect(outcome).toEqual({
             kind: 'fail',

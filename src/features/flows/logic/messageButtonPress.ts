@@ -37,7 +37,7 @@ type ListeningTrigger = Pick<ButtonTrigger, 'flow' | 'node'> | BlockButtonTrigge
 /**
  * The one handler for every `mbtn:<buttonKey>` press — the buttons under a message a journey
  * posts (`messageButtons.ts` in provisioning, which owns the prefix), and those under a
- * message a block posts (Post Embed's, Open Ticket's). Registered once, by `initFlows`: the
+ * message a block posts (Send Message's, Open Ticket's). Registered once, by `initFlows`: the
  * registry refuses a second handler for a prefix.
  *
  * A press is routed from the database on every press, all before anything is acknowledged:

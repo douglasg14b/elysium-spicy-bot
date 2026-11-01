@@ -93,8 +93,12 @@ describe('reading a stored message', () => {
 });
 
 describe('starting a message', () => {
-    it('opens with one embed in the colour given', () => {
-        expect(startingMessage('#00A2FF')).toEqual({ embeds: [{ color: '#00A2FF' }] });
+    it('opens with no embed, plain text first', () => {
+        expect(startingMessage()).toEqual({ embeds: [] });
+    });
+
+    it('makes a new embed in the colour given, or none', () => {
+        expect(newEmbed('#00A2FF')).toEqual({ color: '#00A2FF' });
         expect(newEmbed(undefined)).toEqual({});
     });
 });

@@ -1,4 +1,4 @@
-import { ACTION_POST_EMBED } from '../../../../src/features/flows/blocks/actionPostEmbed';
+import { ACTION_SEND_MESSAGE } from '../../../../src/features/flows/blocks/actionSendMessage';
 import { TRIGGER_MEMBER_JOIN } from '../../../../src/features/flows/blocks/triggerMemberJoin';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../../../src/features/flows/data/flowGraph';
 import type { PreviewPage } from '../previewPages';
@@ -36,7 +36,7 @@ export async function seedUploads({ guild, api }: SeedContext): Promise<PreviewP
             { id: 'joined', type: TRIGGER_MEMBER_JOIN, position: { x: 0, y: 0 }, data: {} },
             {
                 id: 'shout',
-                type: ACTION_POST_EMBED,
+                type: ACTION_SEND_MESSAGE,
                 position: { x: 0, y: 180 },
                 data: {
                     channelId: guild.channels.introductions.id,

@@ -141,7 +141,7 @@ describe('the graph is made of triggers, not whole flows', () => {
                 node('join', 'trigger.memberJoin'),
                 closeTicket('close'),
                 ticketEvent('closed', { event: 'closed' }),
-                node('post', 'action.sendMessage', { channelId: 'channel-1', message: 'Closed. Good riddance.' }),
+                node('post', 'action.sendMessage', { channelId: 'channel-1', message: { content: 'Closed. Good riddance.', embeds: [] } }),
             ],
             [edge('join', 'close'), edge('closed', 'post')]
         );

@@ -52,7 +52,7 @@ export const zBlockButtonListener = z.object({
 });
 
 /**
- * One button under a message a block posts (Post Embed's, Open Ticket's): the posting flow's id, the posting node's id and the button's key. The flow id is set even when it is the listener's own.
+ * One button under a message a block posts (Send Message's, Open Ticket's): the posting flow's id, the posting node's id and the button's key. The flow id is set even when it is the listener's own.
  */
 export const zBlockButtonRef = z.object({
     buttonKey: z.string(),
@@ -382,11 +382,6 @@ export const zFlowBlockFieldRules = z.object({
         options: z.array(z.unknown()).min(1, 'Add at least 1 entry.').max(50, 'No more than 50 entries.').optional(),
         outputKey: z.string().min(1, 'Fill this in.').max(64, 'No more than 64 characters.').regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'A name must start with a letter and use only letters, numbers and underscores — that is what {{var.name}} can address.').optional()
     }),
-    'action.postEmbed': z.object({
-        channelId: z.string().min(1, 'Can\'t be empty.').optional(),
-        message: z.unknown().optional(),
-        where: z.unknown().optional()
-    }),
     'action.prompt': z.object({
         choices: z.array(z.unknown()).min(1, 'Add at least 1 entry.').max(5, 'No more than 5 entries.').optional(),
         eligibility: z.unknown().optional(),
@@ -406,7 +401,7 @@ export const zFlowBlockFieldRules = z.object({
     'action.sendMessage': z.object({
         channelId: z.string().min(1, 'Can\'t be empty.').optional(),
         ephemeral: z.unknown().optional(),
-        message: z.string().min(1, 'Fill this in.').max(2000, 'No more than 2000 characters.').optional(),
+        message: z.unknown().optional(),
         where: z.unknown().optional()
     }),
     'action.setVariable': z.object({
@@ -1171,6 +1166,7 @@ export const zBlockConfigField = z.union([
         maxLength: z.number().optional(),
         placeholder: z.string().optional(),
         rendersTokens: z.boolean().optional(),
+        showsMentions: z.boolean().optional(),
         visibleWhen: z.object({
             equals: z.array(z.string()),
             field: z.string()
@@ -1357,7 +1353,7 @@ export const zMessageButton = z.object({
 });
 
 /**
- * A block of one of the journey's flows that posts buttons under its message (Post Embed, Open Ticket): the posting flow and node, the block's label, the message as one line (`null` when it has none) and the buttons it posts now.
+ * A block of one of the journey's flows that posts buttons under its message (Send Message, Open Ticket): the posting flow and node, the block's label, the message as one line (`null` when it has none) and the buttons it posts now.
  */
 export const zBlockButtonMessage = z.object({
     blockLabel: z.string(),

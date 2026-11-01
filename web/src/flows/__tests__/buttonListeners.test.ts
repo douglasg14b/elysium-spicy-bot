@@ -40,7 +40,7 @@ const WELCOME_POST: BlockButtonMessage = {
     flowId: 'welcome',
     flowName: 'Welcome',
     nodeId: 'post',
-    blockLabel: 'Post Embed',
+    blockLabel: 'Send Message',
     headline: 'Hello, brat',
     buttons: [{ key: 'spank-me', label: 'Spank me', style: 'Danger' }],
 };
@@ -122,7 +122,7 @@ describe('overlayCanvas', () => {
                 },
                 {
                     id: 'gate-post',
-                    blockLabel: 'Post Embed',
+                    blockLabel: 'Send Message',
                     fields: [MESSAGE_FIELD],
                     config: {
                         message: { embeds: [{ title: 'Kneel' }] },
@@ -140,7 +140,7 @@ describe('overlayCanvas', () => {
                 flowId: 'gate',
                 flowName: 'Gate',
                 nodeId: 'gate-post',
-                blockLabel: 'Post Embed',
+                blockLabel: 'Send Message',
                 headline: 'Kneel',
                 buttons: [{ key: 'kneel', label: 'Kneel', style: 'Primary' }],
             },

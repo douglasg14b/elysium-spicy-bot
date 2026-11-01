@@ -6,7 +6,7 @@ import { z } from 'zod';
  * routes parse theirs.
  *
  * Narrower than what Discord accepts, on purpose: embeds carry only the members an
- * `EmbedBuilder` has been seen to send here (Post Embed's every part, author `url` aside), and components only action rows of
+ * `EmbedBuilder` has been seen to send here (Send Message's every part, author `url` aside), and components only action rows of
  * custom-id buttons. A new member in the product's output is a new behaviour to model,
  * and a strict schema is what makes it announce itself instead of being stored and
  * forgotten.

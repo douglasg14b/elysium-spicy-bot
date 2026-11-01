@@ -180,6 +180,8 @@ const CONFIG_FIELD_ARMS = {
         maxLength: z.number().optional(),
         defaultValue: z.string().optional(),
         rendersTokens: z.boolean().optional(),
+        /** Whether the text lands where Discord shows `<@&id>` and `<#id>` by name, so the box offers both. */
+        showsMentions: z.boolean().optional(),
     }),
     duration: z.object({
         ...fieldBase,

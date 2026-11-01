@@ -126,6 +126,9 @@ function put(body: { graph?: FlowGraph; enabled?: boolean; name?: string }) {
     });
 }
 
+/** A Send Message's message: plain text alone. */
+const HI = { content: 'Hi', embeds: [] };
+
 /** A one-node graph whose channel is empty and whose sidecar names `key`. */
 function graphPicking(key: string | undefined): FlowGraph {
     return {
@@ -137,7 +140,7 @@ function graphPicking(key: string | undefined): FlowGraph {
                 position: { x: 0, y: 0 },
                 data: {
                     channelId: '',
-                    message: 'Hi',
+                    message: HI,
                     ...(key === undefined ? {} : { channelIdKey: key }),
                 },
             },
@@ -735,14 +738,14 @@ describe('a flow switched on by someone else while a save was on its way', () =>
 const UPLOAD_ID = '0f0e0d0c-0b0a-4908-8706-050403020100';
 const OTHER_UPLOAD_ID = '1f1e1d1c-1b1a-4918-9716-151413121110';
 
-/** Post Embed into the guild's channel, its image the upload `uploadId`. */
+/** Send Message into the guild's channel, its image the upload `uploadId`. */
 function postingUpload(uploadId: string): FlowGraph {
     return {
         version: FLOW_GRAPH_VERSION,
         nodes: [
             {
                 id: 'post',
-                type: 'action.postEmbed',
+                type: 'action.sendMessage',
                 position: { x: 0, y: 0 },
                 data: {
                     channelId: INSTALLED_CHANNEL_ID,
@@ -820,24 +823,33 @@ describe('what a save reads of the uploads', () => {
     });
 });
 
-describe('a save from a builder tab older than the Post Embed editor', () => {
-    /** Post Embed as the old builder wrote it: flat keys, no `message`. */
-    const FLAT_GRAPH: FlowGraph = {
-        version: FLOW_GRAPH_VERSION,
-        nodes: [
-            {
-                id: 'post',
-                type: 'action.postEmbed',
-                position: { x: 0, y: 0 },
-                data: { channelId: INSTALLED_CHANNEL_ID, title: 'House Rules', description: 'Read them.', showTimestamp: 'false' },
-            },
-        ],
-        edges: [],
-    };
+describe('a save from a builder tab older than Send Message taking over Post Embed', () => {
+    function graphOfOne(type: string, data: Record<string, unknown>): FlowGraph {
+        return { version: FLOW_GRAPH_VERSION, nodes: [{ id: 'post', type, position: { x: 0, y: 0 }, data }], edges: [] };
+    }
+
+    /** Post Embed as a tab older than the merge holds it: the block is gone, whatever its keys. */
+    const POST_EMBED_GRAPH = graphOfOne('action.postEmbed', {
+        channelId: INSTALLED_CHANNEL_ID,
+        message: { embeds: [{ title: 'House Rules', description: 'Read them.' }] },
+    });
+    /** Post Embed as a tab older than its own message editor holds it: flat keys, no `message`. */
+    const FLAT_POST_EMBED_GRAPH = graphOfOne('action.postEmbed', {
+        channelId: INSTALLED_CHANNEL_ID,
+        title: 'House Rules',
+        description: 'Read them.',
+        showTimestamp: 'false',
+    });
+    /** Send Message as its old text box wrote it: the message a string. */
+    const STRING_MESSAGE_GRAPH = graphOfOne('action.sendMessage', { channelId: INSTALLED_CHANNEL_ID, message: 'Kneel.' });
     const REFUSAL = { error: STALE_BUILDER_MESSAGE, issues: [{ nodeId: 'post', message: STALE_BUILDER_MESSAGE }] };
 
-    it('is refused on a switched-off flow, where it would have overwritten the stored embed', async () => {
-        const response = await put({ graph: FLAT_GRAPH });
+    it.each([
+        ['a Post Embed', POST_EMBED_GRAPH],
+        ['a Post Embed still in flat keys', FLAT_POST_EMBED_GRAPH],
+        ['a Send Message whose message is a string', STRING_MESSAGE_GRAPH],
+    ])('refuses %s on a switched-off flow, where it would have overwritten the stored message', async (_name, graph) => {
+        const response = await put({ graph });
 
         expect(response.status).toBe(400);
         expect(await response.json()).toEqual(REFUSAL);
@@ -845,16 +857,19 @@ describe('a save from a builder tab older than the Post Embed editor', () => {
         expect(flowsRepoMock.update).not.toHaveBeenCalled();
     });
 
-    it('is refused by create and by the check, as by the save', async () => {
+    it.each([
+        ['a Post Embed', POST_EMBED_GRAPH],
+        ['a Send Message whose message is a string', STRING_MESSAGE_GRAPH],
+    ])('refuses %s by create and by the check, as by the save', async (_name, graph) => {
         const created = await app().request(`/${GUILD_ID}/flows`, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ name: 'Old tab', graph: FLAT_GRAPH }),
+            body: JSON.stringify({ name: 'Old tab', graph }),
         });
         const checked = await app().request(`/${GUILD_ID}/flows/${FLOW_ID}/check`, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ graph: FLAT_GRAPH }),
+            body: JSON.stringify({ graph }),
         });
 
         expect(created.status).toBe(400);
@@ -864,9 +879,9 @@ describe('a save from a builder tab older than the Post Embed editor', () => {
         expect(await checked.json()).toEqual(REFUSAL);
     });
 
-    it('stores a node that kept its message, dropping only the stale keys beside it', async () => {
+    it('stores a Send Message that holds a message object, dropping only a key no block declares', async () => {
         const graph = postingUpload(UPLOAD_ID);
-        graph.nodes[0]!.data.title = 'An old tab’s edit';
+        graph.nodes[0]!.data.title = 'Post Embed’s old flat key';
         vi.spyOn(guildUploadsRepo, 'sizesFor').mockResolvedValue([{ uploadId: UPLOAD_ID, byteSize: 1024 }]);
 
         const response = await put({ graph });
@@ -878,14 +893,8 @@ describe('a save from a builder tab older than the Post Embed editor', () => {
         );
     });
 
-    it('lets a fresh Post Embed through, which holds neither shape yet', async () => {
-        const graph: FlowGraph = {
-            version: FLOW_GRAPH_VERSION,
-            nodes: [{ id: 'post', type: 'action.postEmbed', position: { x: 0, y: 0 }, data: { channelId: '' } }],
-            edges: [],
-        };
-
-        const response = await put({ graph });
+    it('lets a fresh Send Message through, which holds no message yet', async () => {
+        const response = await put({ graph: graphOfOne('action.sendMessage', { channelId: '' }) });
 
         expect(response.status).toBe(200);
         expect(flowsRepoMock.update).toHaveBeenCalledTimes(1);
@@ -969,7 +978,7 @@ describe("a graph naming another server's channel", () => {
                 id: 'post',
                 type: 'action.sendMessage',
                 position: { x: 0, y: 0 },
-                data: { channelId: '999999999999999999', message: 'Hello from elsewhere.' },
+                data: { channelId: '999999999999999999', message: { content: 'Hello from elsewhere.', embeds: [] } },
             },
         ],
         edges: [],
@@ -1017,7 +1026,7 @@ describe('what a stored graph may hold', () => {
 
         expect(response.status).toBe(201);
         const stored = flowsRepoMock.create.mock.calls[0]?.[0] as { graph: FlowGraph };
-        expect(stored.graph.nodes[0]?.data).toEqual({ channelId: '', message: 'Hi', channelIdKey: 'qa-channel' });
+        expect(stored.graph.nodes[0]?.data).toEqual({ channelId: '', message: HI, channelIdKey: 'qa-channel' });
     });
 
     it('keeps the keys an edit sends, minus what no block declares', async () => {
@@ -1031,7 +1040,7 @@ describe('what a stored graph may hold', () => {
             FLOW_ID,
             expect.objectContaining({
                 graph: expect.objectContaining({
-                    nodes: [expect.objectContaining({ data: { channelId: '', message: 'Hi' } })],
+                    nodes: [expect.objectContaining({ data: { channelId: '', message: HI } })],
                 }),
             })
         );

@@ -1380,6 +1380,31 @@ describe("a message field's buttons, kept in a key it names", () => {
     });
 });
 
+describe("a long text box's mentions", () => {
+    const mentionsManifest = (field: Record<string, unknown>) =>
+        manifestWith({
+            configSchema: z.object({ question: z.string().min(1) }),
+            configFields: [{ key: 'question', label: 'Question', ...field }],
+        });
+
+    it('accepts showsMentions on a longText field', () => {
+        // The positive control: without it, a check refusing every flag would pass the cases below.
+        expect(checkBlockConformance(mentionsManifest({ control: 'longText', showsMentions: true }))).toEqual([]);
+    });
+
+    it('catches showsMentions on a field that is not a longText', () => {
+        const issues = checkBlockConformance(mentionsManifest({ control: 'text', showsMentions: true })).join('\n');
+
+        expect(issues).toMatch(/the text field "question" declares showsMentions, which only a longText field may/);
+    });
+
+    it('catches a showsMentions that is not true or false', () => {
+        const issues = checkBlockConformance(mentionsManifest({ control: 'longText', showsMentions: 'yes' })).join('\n');
+
+        expect(issues).toMatch(/declares showsMentions as "yes", which is not true or false/);
+    });
+});
+
 describe('a card-summary part shown only while a choice holds a value', () => {
     const summaryManifest = (visibleWhen: unknown) =>
         manifestWith({

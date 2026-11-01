@@ -34,7 +34,6 @@ const SHIPPED_BLOCK_TYPES = [
     'action.kickMember',
     'action.openTicket',
     'action.pickRandom',
-    'action.postEmbed',
     'action.prompt',
     'action.removeRole',
     'action.sendDM',

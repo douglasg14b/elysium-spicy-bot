@@ -11,7 +11,7 @@ import {
     type ServerGuild,
     type ServerMember,
 } from '../../../shared/__tests__/support/testDiscord';
-import { ACTION_POST_EMBED } from '../blocks/actionPostEmbed';
+import { ACTION_SEND_MESSAGE } from '../blocks/actionSendMessage';
 import { ensureBlocksDiscovered } from '../blocks/registry';
 import { TRIGGER_MESSAGE_SENT } from '../blocks/triggerMessageSent';
 import { TRIGGER_SCHEDULE } from '../blocks/triggerSchedule';
@@ -19,11 +19,11 @@ import { FLOW_GRAPH_VERSION, type FlowGraph } from '../data/flowGraph';
 import { executeFlow, type FlowRunResult } from '../engine/executor';
 
 /**
- * Post Embed, run for real: the executor, the uploads repo on the migrated schema, and
+ * Send Message, run for real: the executor, the uploads repo on the migrated schema, and
  * discord.js against TestDiscord — so an uploaded picture is proven by the multipart request
  * Discord would receive, not by what the block handed a mock.
  *
- * Every run starts from a Schedule trigger (a run about nobody), which is all Post Embed
+ * Every run starts from a Schedule trigger (a run about nobody), which is all Send Message
  * needs: it picks its own channel.
  */
 
@@ -53,7 +53,7 @@ async function upload(guildId: string, bytes: Buffer = png()): Promise<string> {
 }
 
 /**
- * Schedule → Post Embed into `channelId` (the home channel unless named), holding `message`
+ * Schedule → Send Message into `channelId` (the home channel unless named), holding `message`
  * and, when given, `buttons`.
  */
 function posting(message: Record<string, unknown>, channelId: string = home.channel.id, buttons?: readonly unknown[]): FlowGraph {
@@ -63,7 +63,7 @@ function posting(message: Record<string, unknown>, channelId: string = home.chan
             { id: 'clock', type: TRIGGER_SCHEDULE, position: { x: 0, y: 0 }, data: { repeat: 'daily', time: '09:00' } },
             {
                 id: 'post',
-                type: ACTION_POST_EMBED,
+                type: ACTION_SEND_MESSAGE,
                 position: { x: 0, y: 160 },
                 data: { channelId, message, ...(buttons ? { buttons } : {}) },
             },
@@ -110,7 +110,79 @@ afterAll(async () => {
     await discord.destroy();
 });
 
-describe('Post Embed posting an uploaded picture', () => {
+/**
+ * Text alone, an embed alone, or both: one block, every shape a message takes. Each is the
+ * one message Discord receives, mentions pinned to users.
+ */
+describe('Send Message posting text, an embed, or both', () => {
+    it('posts plain text alone, with no embed', async () => {
+        const from = discord.writesTo(home.channel).length;
+
+        const result = await run({ content: `On your knees, <@${home.member.id}>.`, embeds: [] });
+
+        expect(result.status).toBe('success');
+        const writes = writesSince(from);
+        expect(writes).toHaveLength(1);
+        expect(writes[0]?.body).toMatchObject({
+            content: `On your knees, <@${home.member.id}>.`,
+            embeds: [],
+            components: [],
+            allowed_mentions: { parse: ['users'] },
+        });
+        const posted = home.channel.messages.at(-1);
+        expect(posted?.content).toBe(`On your knees, <@${home.member.id}>.`);
+        expect(posted?.embeds).toEqual([]);
+    });
+
+    it('posts an embed alone, with no plain text', async () => {
+        const from = discord.writesTo(home.channel).length;
+
+        const result = await run({ embeds: [{ title: 'Curfew', description: 'Lights out at midnight, brats.' }] });
+
+        expect(result.status).toBe('success');
+        const [request] = writesSince(from);
+        expect(request?.body).toMatchObject({
+            embeds: [{ title: 'Curfew', description: 'Lights out at midnight, brats.' }],
+            allowed_mentions: { parse: ['users'] },
+        });
+        expect(request?.body).not.toHaveProperty('content');
+        const posted = home.channel.messages.at(-1);
+        expect(posted?.content ?? '').toBe('');
+        expect(posted?.embeds).toHaveLength(1);
+    });
+
+    it('posts plain text and an embed together as one message', async () => {
+        const from = discord.writesTo(home.channel).length;
+
+        const result = await run({ content: 'Read this, then behave.', embeds: [{ title: 'House rules' }] });
+
+        expect(result.status).toBe('success');
+        const writes = writesSince(from);
+        expect(writes).toHaveLength(1);
+        expect(writes[0]?.body).toMatchObject({ content: 'Read this, then behave.', embeds: [{ title: 'House rules' }] });
+    });
+
+    it('fills tokens in the plain text, as it always did', async () => {
+        const from = discord.writesTo(home.channel).length;
+
+        const result = await run({ content: 'Tonight: {{var.scene}}.', embeds: [] }, { variables: { scene: 'rope night' } });
+
+        expect(result.status).toBe('success');
+        const [request] = writesSince(from);
+        expect(request?.body).toMatchObject({ content: 'Tonight: rope night.' });
+    });
+
+    it('fails, posting nothing, when the plain text comes out as nothing once its tokens are filled in', async () => {
+        const from = discord.writesTo(home.channel).length;
+
+        const result = await run({ content: '{{var.nothing}}', embeds: [] }, { variables: { nothing: '   ' } });
+
+        expect(result.status).toBe('error');
+        expect(writesSince(from)).toEqual([]);
+    });
+});
+
+describe('Send Message posting an uploaded picture', () => {
     it('sends plain text, two embeds and the upload as one multipart message, the embed pointing at the file', async () => {
         const bytes = png();
         const uploadId = await upload(home.guild.id, bytes);
@@ -250,7 +322,7 @@ describe('Post Embed posting an uploaded picture', () => {
     });
 });
 
-describe('Post Embed with buttons', () => {
+describe('Send Message with buttons', () => {
     /** The records of every message posted with buttons into the home channel. */
     async function records() {
         return database.selectFrom('flow_posted_messages').selectAll().where('channelId', '=', home.channel.id).execute();
@@ -286,7 +358,7 @@ describe('Post Embed with buttons', () => {
                 flowId: 'flow-1',
                 nodeId: 'post',
                 runId: result.runId,
-                // A Schedule's run is about nobody, and Post Embed opens no ticket.
+                // A Schedule's run is about nobody, and Send Message opens no ticket.
                 subjectId: null,
                 ticketId: null,
                 postedAt: expect.any(Date),
@@ -309,7 +381,7 @@ describe('Post Embed with buttons', () => {
                 { id: 'said', type: TRIGGER_MESSAGE_SENT, position: { x: 0, y: 0 }, data: { where: 'anywhere' } },
                 {
                     id: 'post',
-                    type: ACTION_POST_EMBED,
+                    type: ACTION_SEND_MESSAGE,
                     position: { x: 0, y: 160 },
                     // The picker still names the home channel from before the switch; hidden, it is never read.
                     data: {
@@ -358,7 +430,7 @@ describe('Post Embed with buttons', () => {
     });
 });
 
-describe('Post Embed with a picture that is a token', () => {
+describe('Send Message with a picture that is a token', () => {
     /**
      * A picture token's value is anything an earlier block recorded — text a member wrote,
      * say. One that came out as `upload:<id>` must not be attached as an upload: it would

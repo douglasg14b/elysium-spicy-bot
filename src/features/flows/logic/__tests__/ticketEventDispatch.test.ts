@@ -120,7 +120,7 @@ function flowWith(
                 position: { x: 0, y: index * 120 },
                 data: trigger.data,
             })),
-            { id: 'say', type: ACTION_SEND_MESSAGE, position: { x: 200, y: 0 }, data: { message: 'hi' } },
+            { id: 'say', type: ACTION_SEND_MESSAGE, position: { x: 200, y: 0 }, data: { message: { content: 'hi', embeds: [] } } },
         ],
         edges: triggers.map((trigger) => ({ id: `e-${trigger.id}`, source: trigger.id, target: 'say' })),
     };

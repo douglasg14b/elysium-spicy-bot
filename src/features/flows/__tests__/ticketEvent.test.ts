@@ -116,7 +116,7 @@ function chain(nodes: FlowNode[]): FlowGraph {
 
 /** A message into the ticket that started the run. */
 function sayInTicket(id: string, message: string): FlowNode {
-    return node(id, ACTION_SEND_MESSAGE, { channelId: '{{var.ticketChannelId}}', message });
+    return node(id, ACTION_SEND_MESSAGE, { channelId: '{{var.ticketChannelId}}', message: { content: message, embeds: [] } });
 }
 
 /**

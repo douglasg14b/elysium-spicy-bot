@@ -63,7 +63,7 @@ function node(id: string, type: string, data: Record<string, unknown>): FlowNode
 
 /** Schedule → Send Message, optionally with a Delay between them so the run parks. */
 function postingGraph(channelId: string, config: ScheduleConfig, parks = false, tag = 'fired'): FlowGraph {
-    const nodes = [node('schedule', TRIGGER_SCHEDULE, config), node('post', ACTION_SEND_MESSAGE, { channelId, message: tag })];
+    const nodes = [node('schedule', TRIGGER_SCHEDULE, config), node('post', ACTION_SEND_MESSAGE, { channelId, message: { content: tag, embeds: [] } })];
     const edges: FlowEdge[] = [];
     if (parks) {
         nodes.push(node('wait', ACTION_DELAY, { durationMs: 60 * 60_000 }));

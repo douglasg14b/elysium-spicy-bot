@@ -55,7 +55,7 @@ import { BINDING_OWNER_KINDS } from '../../features/provisioning/data/resourceBi
  * unusable, but because **this endpoint is not where that question gets answered.**
  * Three places already disagreed about which channels a flow may use:
  *
- *  - `actionSendMessage` / `actionPostEmbed` ask `isTextBased() && 'send' in channel`,
+ *  - `actionSendMessage` (and `actionPostEmbed`, merged into it since) ask `isTextBased() && 'send' in channel`,
  *    a capability check an announcement channel passes.
  *  - `deployFlowButtons` (retired since) refused anything but `ChannelType.GuildText`.
  *  - `existsInGuildAs`, which gates adoption, does the same.

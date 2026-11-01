@@ -86,7 +86,7 @@ describe('reconcileGuildSchedules', () => {
             id: 'send',
             type: ACTION_SEND_MESSAGE,
             position: { x: 200, y: 0 },
-            data: { channelId: 'c', message: 'hi' },
+            data: { channelId: 'c', message: { content: 'hi', embeds: [] } },
         };
         await flowsRepo.update(flowId, { name: 'Renamed', graph: graphOf(scheduleNode({ repeat: 'daily', time: '09:00' }), send) });
         await reconcileGuildSchedules(guildId, at(new Date('2026-07-01T14:00:00.000Z')));

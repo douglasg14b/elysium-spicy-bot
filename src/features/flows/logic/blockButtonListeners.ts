@@ -67,7 +67,7 @@ export interface BlockButtonMessage {
     readonly flowName: string;
     /** The posting node. */
     readonly nodeId: string;
-    /** What its block is called (`Post Embed`). */
+    /** What its block is called (`Send Message`). */
     readonly blockLabel: string;
     /** Its message as one line, or `null` when it has none — the block's label stands in. */
     readonly headline: string | null;

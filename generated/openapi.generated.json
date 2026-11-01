@@ -132,7 +132,7 @@
                 "type": "object"
             },
             "BlockButtonMessage": {
-                "description": "A block of one of the journey's flows that posts buttons under its message (Post Embed, Open Ticket): the posting flow and node, the block's label, the message as one line (`null` when it has none) and the buttons it posts now.",
+                "description": "A block of one of the journey's flows that posts buttons under its message (Send Message, Open Ticket): the posting flow and node, the block's label, the message as one line (`null` when it has none) and the buttons it posts now.",
                 "properties": {
                     "blockLabel": {
                         "type": "string"
@@ -174,7 +174,7 @@
                 "type": "object"
             },
             "BlockButtonRef": {
-                "description": "One button under a message a block posts (Post Embed's, Open Ticket's): the posting flow's id, the posting node's id and the button's key. The flow id is set even when it is the listener's own.",
+                "description": "One button under a message a block posts (Send Message's, Open Ticket's): the posting flow's id, the posting node's id and the button's key. The flow id is set even when it is the listener's own.",
                 "properties": {
                     "buttonKey": {
                         "type": "string"
@@ -570,6 +570,9 @@
                                 "type": "string"
                             },
                             "rendersTokens": {
+                                "type": "boolean"
+                            },
+                            "showsMentions": {
                                 "type": "boolean"
                             },
                             "visibleWhen": {
@@ -2258,20 +2261,6 @@
                         },
                         "type": "object"
                     },
-                    "action.postEmbed": {
-                        "properties": {
-                            "channelId": {
-                                "minLength": 1,
-                                "type": "string",
-                                "x-messages": {
-                                    "minLength": "Can't be empty."
-                                }
-                            },
-                            "message": {},
-                            "where": {}
-                        },
-                        "type": "object"
-                    },
                     "action.prompt": {
                         "properties": {
                             "choices": {
@@ -2347,15 +2336,7 @@
                                 }
                             },
                             "ephemeral": {},
-                            "message": {
-                                "maxLength": 2000,
-                                "minLength": 1,
-                                "type": "string",
-                                "x-messages": {
-                                    "maxLength": "No more than 2000 characters.",
-                                    "minLength": "Fill this in."
-                                }
-                            },
+                            "message": {},
                             "where": {}
                         },
                         "type": "object"
@@ -2626,7 +2607,6 @@
                     "action.kickMember",
                     "action.openTicket",
                     "action.pickRandom",
-                    "action.postEmbed",
                     "action.prompt",
                     "action.removeRole",
                     "action.sendDM",

@@ -21,9 +21,14 @@ import { migrateTestDatabase } from './support/migrateTestDatabase';
  *
  * Postgres is not covered here: CI runs SQLite only. It was run by hand against a throwaway
  * `postgres:16` — see "As built (slices A–C)" in `docs/plans/message-editor-step-1.md`.
+ *
+ * The exact text is pinned at this migration, not at latest: `2026-10-31-Send_Message_Takes_Post_Embed`
+ * later turns every Post Embed into a Send Message. The live-schema check runs at latest, so
+ * it holds the whole chain to today's block.
  */
 
 const BEFORE = '2026-10-24-Create_Guild_Uploads';
+const THIS = '2026-10-24-Post_Embed_Message_Shape';
 const CHANNEL = '1100000000000000001';
 const UPLOAD = 'upload:0f0e0d0c-0b0a-4908-8706-050403020100';
 const POST_EMBED = 'action.postEmbed';
@@ -246,7 +251,8 @@ function dataOf(graph: FlowGraph, nodeId: string): Record<string, unknown> | und
 beforeAll(async () => {
     await ensureBlocksDiscovered();
     await migrateTestDatabase();
-});
+    // Block discovery imports every block; under a parallel run it has taken over 15s.
+}, 60_000);
 
 afterEach(async () => {
     vi.restoreAllMocks();
@@ -261,12 +267,12 @@ describe('2026-10-24-Post_Embed_Message_Shape (sqlite, through Migrator)', () =>
         await seedOldShape();
         vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
-        await migrateOrThrow(migrator.migrateToLatest());
+        await migrateOrThrow(migrator.migrateTo(THIS));
 
         expect(await storedText()).toEqual({ flow: JSON.stringify(FLOW_GRAPH_UP), draft: JSON.stringify(DRAFT_GRAPH_UP) });
     });
 
-    it('writes nodes the live schema takes, and leaves a refused link for the builder to mark', async () => {
+    it('writes nodes the live schema takes once the chain reaches latest, and leaves a refused link for the builder to mark', async () => {
         await migrateOrThrow(migrator.migrateTo(BEFORE));
         await seedOldShape();
         vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -310,7 +316,7 @@ describe('2026-10-24-Post_Embed_Message_Shape (sqlite, through Migrator)', () =>
         await migrateOrThrow(migrator.migrateTo(BEFORE));
         await seedOldShape();
         vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-        await migrateOrThrow(migrator.migrateToLatest());
+        await migrateOrThrow(migrator.migrateTo(THIS));
         const before = await storedText();
 
         await postEmbedMessageShape(database);
@@ -322,6 +328,7 @@ describe('2026-10-24-Post_Embed_Message_Shape (sqlite, through Migrator)', () =>
         await migrateOrThrow(migrator.migrateTo(BEFORE));
         await seedOldShape();
         vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        // Down from latest, so the later Send Message merge's own down runs first.
         await migrateOrThrow(migrator.migrateToLatest());
 
         await migrateOrThrow(migrator.migrateTo(BEFORE));
@@ -352,7 +359,7 @@ describe('2026-10-24-Post_Embed_Message_Shape (sqlite, through Migrator)', () =>
         expect(dataOf(down.flow, 'sidecar')).toEqual({ ...OLD.sidecar, fields: [] });
         expect(dataOf(down.flow, 'say')).toEqual(SEND_MESSAGE);
 
-        await migrateOrThrow(migrator.migrateToLatest());
+        await migrateOrThrow(migrator.migrateTo(THIS));
 
         // Back up, every node is as the first run left it — but the one `down` cut short.
         const again = await storedGraphs();

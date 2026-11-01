@@ -118,7 +118,7 @@ export interface ResourceDeclaration {
     readonly ticketType?: TicketTypeSettings;
 
     /**
-     * What a `message` resource posts: plain text and up to ten embeds, as a Post Embed
+     * What a `message` resource posts: plain text and up to ten embeds, as a Send Message
      * node's `message` field holds one (`src/shared/discordMessage`). Required for that kind
      * and refused on every other.
      *

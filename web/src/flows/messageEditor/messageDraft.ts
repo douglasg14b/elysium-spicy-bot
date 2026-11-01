@@ -125,9 +125,13 @@ export function newEmbed(colour: string | undefined): EmbedDraft {
     return present('color', colour);
 }
 
-/** What a message with nothing in it opens as: one fresh embed. */
-export function startingMessage(colour: string | undefined): MessageDraft {
-    return { embeds: [newEmbed(colour)] };
+/**
+ * What a message with nothing in it opens as: no embed at all. Plain text is a message in its
+ * own right, so the window opens on the plain-text part ready to type into, and an embed is
+ * added on purpose ("Add embed").
+ */
+export function startingMessage(): MessageDraft {
+    return { embeds: [] };
 }
 
 /** `message` with embed `index` replaced by what `edit` makes of it. */

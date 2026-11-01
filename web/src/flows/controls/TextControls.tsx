@@ -1,10 +1,14 @@
 /**
- * Free-text controls. `text` is one line; `longText` autosizes for a message body.
+ * Free-text controls. `text` is one line; `longText` autosizes for a message body, and offers
+ * `@role` and `#channel` where its text lands somewhere Discord shows a mention by name.
  */
 
-import { Textarea, TextInput } from '@mantine/core';
+import { useId, useMemo, type CSSProperties } from 'react';
+import { Input, Textarea, TextInput } from '@mantine/core';
 import { asText, type ControlContext, type ControlProps } from './types';
 import type { BlockConfigField } from '@brattybot/web-sdk';
+import { MentionTextarea } from '../messageEditor/MentionTextarea';
+import { mentionListsOf, type MentionLists } from '../messageEditor/mentions';
 import { CopyPreview } from './CopyPreview';
 import { VariablePicker } from './VariablePicker';
 
@@ -55,7 +59,9 @@ function variableHints(
     field: TextField | LongTextField,
     value: unknown,
     context: ControlContext,
-    onAppend: (token: string) => void
+    onAppend: (token: string) => void,
+    /** For a box that draws mentions by name: the preview draws them by name too. */
+    mentions?: MentionLists
 ) {
     // A message body is a `longText`; a single line is a title, a reason or a value to
     // compare, where `<#id>` would show raw or be compared as written.
@@ -69,6 +75,7 @@ function variableHints(
             <CopyPreview
                 value={asText(value)}
                 knownVariables={context.variables.map((variable) => variable.name)}
+                mentions={mentions}
             />
             <VariablePicker
                 variables={context.variables}
@@ -123,7 +130,20 @@ export function TextControl({ field, value, onChange, context, error }: ControlP
     );
 }
 
-/** Autosizing multi-line text. */
+/**
+ * The mention box's type and colour inside the inspector's own input frame: the frame's font,
+ * its text colour, and the four rows the plain box starts at.
+ */
+const INSPECTOR_MENTION_TEXT: CSSProperties = {
+    color: 'var(--input-color)',
+    minHeight: 'calc(4em * var(--mantine-line-height))',
+};
+
+/**
+ * Autosizing multi-line text — or, for a field whose text lands where Discord shows a mention
+ * by name (`showsMentions`), the message window's mention box in the inspector's input frame:
+ * `@` offers the server's roles, managed ones too, and `#` its text channels.
+ */
 export function LongTextControl({
     field,
     value,
@@ -131,23 +151,53 @@ export function LongTextControl({
     context,
     error,
 }: ControlProps<LongTextField>) {
+    const id = useId();
+    const hint = limitHint(field);
+    const { showsMentions } = field;
+    const mentions = useMemo(
+        () => (showsMentions ? mentionListsOf(context.roles, context.managedRoles, context.channels) : undefined),
+        [showsMentions, context.roles, context.managedRoles, context.channels]
+    );
+
     return (
         <div>
-            <Textarea
-                label={field.label}
-                description={limitHint(field)}
-                placeholder={field.placeholder}
-                maxLength={hardLimit(field)}
-                error={error}
-                autosize
-                minRows={4}
-                maxRows={10}
-                value={asText(value)}
-                onChange={(event) => onChange(event.currentTarget.value)}
-            />
-            {variableHints(field, value, context, (token) =>
-                onChange(withToken(asText(value), token))
+            {mentions ? (
+                <Input.Wrapper id={id} label={field.label} description={hint} error={error}>
+                    {/*
+                     * The frame only: the box inside is the textarea, so the frame names nothing.
+                     * No `maxLength`: the textarea holds the text as shown (`#general`), not as
+                     * stored (`<#id>`), so a cap there would measure the wrong string — the
+                     * server's re-check judges the length. It grows with its text, as the stage's does.
+                     */}
+                    <Input component="div" multiline withAria={false} error={error}>
+                        <MentionTextarea
+                            id={id}
+                            // The ids `Input.Wrapper` gives its error and description, as the plain box is described.
+                            describedBy={[error ? `${id}-error` : '', hint ? `${id}-description` : ''].join(' ').trim() || undefined}
+                            invalid={!!error}
+                            placeholder={field.placeholder}
+                            value={asText(value)}
+                            onChange={onChange}
+                            textStyle={INSPECTOR_MENTION_TEXT}
+                            mentions={mentions}
+                        />
+                    </Input>
+                </Input.Wrapper>
+            ) : (
+                <Textarea
+                    label={field.label}
+                    description={hint}
+                    placeholder={field.placeholder}
+                    maxLength={hardLimit(field)}
+                    error={error}
+                    autosize
+                    minRows={4}
+                    maxRows={10}
+                    value={asText(value)}
+                    onChange={(event) => onChange(event.currentTarget.value)}
+                />
             )}
+            {variableHints(field, value, context, (token) => onChange(withToken(asText(value), token)), mentions)}
         </div>
     );
 }

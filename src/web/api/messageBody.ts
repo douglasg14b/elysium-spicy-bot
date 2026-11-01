@@ -43,7 +43,7 @@ const BlockButtonRefSchema = z
     .object({ flowId: z.string(), nodeId: z.string(), buttonKey: z.string() })
     .openapi('BlockButtonRef', {
         description:
-            "One button under a message a block posts (Post Embed's, Open Ticket's): the posting flow's id, the " +
+            "One button under a message a block posts (Send Message's, Open Ticket's): the posting flow's id, the " +
             "posting node's id and the button's key. The flow id is set even when it is the listener's own.",
     });
 

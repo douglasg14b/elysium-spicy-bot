@@ -1,5 +1,7 @@
-import { ACTION_POST_EMBED } from '../../../../src/features/flows/blocks/actionPostEmbed';
+import { ACTION_PROMPT } from '../../../../src/features/flows/blocks/actionPrompt';
+import { ACTION_SEND_MESSAGE } from '../../../../src/features/flows/blocks/actionSendMessage';
 import { TRIGGER_MEMBER_JOIN } from '../../../../src/features/flows/blocks/triggerMemberJoin';
+import { TRIGGER_MESSAGE_SENT } from '../../../../src/features/flows/blocks/triggerMessageSent';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../../../src/features/flows/data/flowGraph';
 import type { PreviewPage, PreviewStep } from '../previewPages';
 import { gradientPng } from './gradientPng';
@@ -14,10 +16,11 @@ interface KeptUpload {
 }
 
 /**
- * A Post Embed with a full message to open the message window on: plain text with a ping, a
- * first embed with every part filled — a role mention in its body, header icon, thumbnail, three inline fields, a big
- * image, a footer icon, the timestamp — from three uploaded pictures, and a second embed with
- * only a title and a token thumbnail, so the rest of it shows as placeholders.
+ * A Send Message with a full message to open the message window on: plain text with a ping, a
+ * first embed with every part filled — a channel and a role mention in its body, header icon, thumbnail, three inline
+ * fields, a big image, a footer icon, the timestamp — from three uploaded pictures, and a second embed with
+ * only a title and a token thumbnail, so the rest of it shows as placeholders. Beside it, an Ask a
+ * Question whose question names a role and a channel, for the inspector's mention box.
  */
 export async function seedMessageEditor({ guild, api }: SeedContext): Promise<PreviewPage[]> {
     const guildPath = `/api/guilds/${guild.guild.id}`;
@@ -35,7 +38,7 @@ export async function seedMessageEditor({ guild, api }: SeedContext): Promise<Pr
             { id: 'joined', type: TRIGGER_MEMBER_JOIN, position: { x: 0, y: 0 }, data: {} },
             {
                 id: 'welcome',
-                type: ACTION_POST_EMBED,
+                type: ACTION_SEND_MESSAGE,
                 position: { x: 0, y: 180 },
                 data: {
                     channelId: guild.channels.introductions.id,
@@ -47,7 +50,7 @@ export async function seedMessageEditor({ guild, api }: SeedContext): Promise<Pr
                                 author: { name: 'The Management', iconUrl: `upload:${icon.uploadId}` },
                                 title: 'Welcome to Pacific Elysium',
                                 description:
-                                    `Read the house rules, then hit the button below to get verified. <@&${guild.roles.staff.id}> will be with you shortly.\n\n` +
+                                    `Read the house rules in <#${guild.channels.rules.id}>, then hit the button below to get verified. <@&${guild.roles.staff.id}> will be with you shortly.\n\n` +
                                     "Be nice. Or don't — but be interesting.",
                                 thumbnail: `upload:${logo.uploadId}`,
                                 fields: [
@@ -69,6 +72,27 @@ export async function seedMessageEditor({ guild, api }: SeedContext): Promise<Pr
     };
     await api.send('PUT', `${guildPath}/flows/${flow.flowId}`, { graph });
 
+    const asking = await api.send<CreatedFlow>('POST', `${guildPath}/flows`, { name: 'Pick your poison' });
+    const askingGraph: FlowGraph = {
+        version: FLOW_GRAPH_VERSION,
+        nodes: [
+            { id: 'spoke', type: TRIGGER_MESSAGE_SENT, position: { x: 0, y: 0 }, data: { where: 'anywhere' } },
+            {
+                id: 'ask',
+                type: ACTION_PROMPT,
+                position: { x: 0, y: 180 },
+                data: {
+                    question:
+                        `Pick your poison, {{subject.mention}}. Say yes and <@&${guild.roles.verified.id}> is yours — ` +
+                        `then go introduce yourself in <#${guild.channels.introductions.id}>.`,
+                    choices: ['Yes, obviously', 'Not tonight'],
+                },
+            },
+        ],
+        edges: [{ id: 'spoke-ask', source: 'spoke', target: 'ask' }],
+    };
+    await api.send('PUT', `${guildPath}/flows/${asking.flowId}`, { graph: askingGraph });
+
     const path = `/flows/${flow.flowId}`;
     const open: readonly PreviewStep[] = [{ clickText: 'Welcome to Pacific' }, { clickButton: 'Edit message' }];
     return [
@@ -82,8 +106,26 @@ export async function seedMessageEditor({ guild, api }: SeedContext): Promise<Pr
         {
             name: 'message-editor-body',
             path,
-            note: 'the first body being typed into: its role mention drawn by name, in the role colour, over the caret',
+            note: 'the first body being typed into: its channel and role mentions drawn by name, over the caret',
             steps: [...open, { clickButton: 'Embed 1 body' }],
+        },
+        {
+            name: 'message-editor-channels',
+            path,
+            note: "the plain text being typed into with # just typed: the server's text channels, each with its category",
+            steps: [...open, { clickButton: 'Plain text' }, { press: 'Control+End' }, { type: ' #' }],
+        },
+        {
+            name: 'ask-question-mentions',
+            path: `/flows/${asking.flowId}`,
+            note: "Ask a Question's inspector: its question box drawing a role and a channel mention by name, and the preview under it",
+            steps: [{ clickText: 'Pick your poison,' }],
+        },
+        {
+            name: 'ask-question-channels',
+            path: `/flows/${asking.flowId}`,
+            note: "Ask a Question's question box with # just typed at its end: the channel list over the inspector",
+            steps: [{ clickText: 'Pick your poison,' }, { clickTextbox: 'Question' }, { press: 'Control+End' }, { type: ' #' }],
         },
         {
             name: 'message-editor-picture',

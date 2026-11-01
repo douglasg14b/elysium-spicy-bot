@@ -87,7 +87,7 @@ export function uploadIndexCovers(index: UploadIndex, graph: FlowGraph): boolean
  * What is wrong with the uploaded pictures a graph's messages show, judged against the
  * server the flow belongs to — the upload half of readiness, beside `guildReferenceIssues`.
  *
- * The rules are `messageUploadProblems`', the ones Post Embed's run asks again, each an
+ * The rules are `messageUploadProblems`', the ones Send Message's run asks again, each an
  * ordinary readiness issue (stored, never live):
  *
  *  - **An upload must be this server's.** Every read of an upload is scoped to its guild, so

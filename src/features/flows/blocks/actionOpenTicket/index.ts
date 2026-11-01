@@ -72,7 +72,7 @@ async function readyMessage(config: OpenTicketConfig, guild: Guild): Promise<Mes
  * in the ticket service, where they are testable without a gateway and reachable
  * by the mod-facing commands too. This block only supplies the subject and
  * carries the result back into the run — and posts the flow's own message, if the node has
- * one, in the ticket channel above the card (`messageWithButtons`, as Post Embed posts).
+ * one, in the ticket channel above the card (`messageWithButtons`, as Send Message posts).
  *
  * `openerId` is null here — a flow opened this, no human filed it. That case did
  * not previously exist: the old creation path read its opener out of
@@ -109,6 +109,8 @@ export const block: BlockManifest<OpenTicketConfig> = {
             placeholder: 'Any extra context for whoever picks this up…',
             maxLength: 1000,
             rendersTokens: true,
+            // The ticket card's Reason field (`buildTicketEmbed`), where Discord shows mentions by name.
+            showsMentions: true,
         },
         {
             key: 'message',

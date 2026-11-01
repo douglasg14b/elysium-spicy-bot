@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import type { Client } from 'discord.js';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { ACTION_POST_EMBED } from '../../src/features/flows/blocks/actionPostEmbed';
+import { ACTION_SEND_MESSAGE } from '../../src/features/flows/blocks/actionSendMessage';
 import { TRIGGER_SCHEDULE } from '../../src/features/flows/blocks/triggerSchedule';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../src/features/flows/data/flowGraph';
 import { executeFlow } from '../../src/features/flows/engine/executor';
@@ -19,9 +19,8 @@ import { renderDashboard } from './support/renderDashboard';
  * TestDiscord — so the file is proven by the multipart request Discord would receive, not by
  * what any one layer handed the next.
  *
- * The Post Embed opens in the shape the migration leaves an old one in: one embed, under
- * `message`. The run is started by hand on the saved graph, since nothing here runs the
- * scheduler.
+ * The Send Message opens holding one embed under `message`. The run is started by hand on the
+ * saved graph, since nothing here runs the scheduler.
  */
 
 const OPERATOR = { id: '100000000000000004', username: 'e2e-operator' };
@@ -53,8 +52,8 @@ afterEach(async () => {
     for (const discord of running.splice(0)) await discord.destroy();
 });
 
-/** A switched-off flow: every day at nine, Post Embed one embed into #notices. */
-async function guildWithPostEmbed(): Promise<AuthoredFlow> {
+/** A switched-off flow: every day at nine, Send Message one embed into #notices. */
+async function guildWithSendMessage(): Promise<AuthoredFlow> {
     const discord = new TestDiscord();
     running.push(discord);
     const guild = discord.createGuild({ bot: { permissions: ['ViewChannel', 'SendMessages', 'EmbedLinks', 'AttachFiles'] } });
@@ -72,7 +71,7 @@ async function guildWithPostEmbed(): Promise<AuthoredFlow> {
             { id: 'nine', type: TRIGGER_SCHEDULE, position: { x: 0, y: 0 }, data: { repeat: 'daily', time: '09:00' } },
             {
                 id: 'post',
-                type: ACTION_POST_EMBED,
+                type: ACTION_SEND_MESSAGE,
                 position: { x: 300, y: 0 },
                 data: { channelId: channel.id, message: { embeds: [{ title: 'Dress code', description: 'Collars on.' }] } },
             },
@@ -87,11 +86,11 @@ async function guildWithPostEmbed(): Promise<AuthoredFlow> {
 
 describe('a picture uploaded in the message window', () => {
     it('is saved on the node and attached to the message the flow posts', async () => {
-        const authored = await guildWithPostEmbed();
+        const authored = await guildWithSendMessage();
         installDashboardApi(authored.client, OPERATOR);
         const { user } = renderDashboard(`/flows/${authored.flowId}`);
 
-        // Select the Post Embed card by its summary line — a bare click, as `flowNextRun` explains.
+        // Select the Send Message card by its summary line — a bare click, as `flowNextRun` explains.
         fireEvent.click(await screen.findByText(/"Dress code"/));
         await user.click(await screen.findByRole('button', { name: 'Edit message' }));
         const window = screen.getByRole('dialog');

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { ACTION_POST_EMBED } from '../../../features/flows/blocks/actionPostEmbed';
+import { ACTION_SEND_MESSAGE } from '../../../features/flows/blocks/actionSendMessage';
 import { ensureBlocksDiscovered } from '../../../features/flows/blocks/registry';
 import { TRIGGER_BUTTON_CLICK } from '../../../features/flows/blocks/triggerButtonClick';
 import { FLOW_GRAPH_VERSION, type FlowGraph, type FlowNode } from '../../../features/flows/data/flowGraph';
@@ -73,10 +73,10 @@ function pressing(buttonKey: string): FlowGraph {
 
 const POST_CHANNEL_ID = '111111111111111111';
 
-/** A Post Embed posting `Kneel, pet` with one `kneel` button, as node `post`. */
+/** A Send Message posting `Kneel, pet` with one `kneel` button, as node `post`. */
 const POST_NODE: FlowNode = {
     id: 'post',
-    type: ACTION_POST_EMBED,
+    type: ACTION_SEND_MESSAGE,
     position: { x: 0, y: 0 },
     data: {
         channelId: POST_CHANNEL_ID,
@@ -138,7 +138,7 @@ async function reread(flowId: string) {
 function app(guildId: string): Hono<AppEnv> {
     const outer = new Hono<AppEnv>();
     outer.use('*', async (c, next) => {
-        // Holding the one channel a Post Embed here posts in, which readiness looks up.
+        // Holding the one channel a Send Message here posts in, which readiness looks up.
         c.set('guild', { id: guildId, channels: { cache: new Map([[POST_CHANNEL_ID, { id: POST_CHANNEL_ID }]]) } } as never);
         c.set('user', { ...OPERATOR, manageableGuildIds: [guildId] });
         await next();
@@ -486,7 +486,7 @@ describe('GET /journeys/{journeyKey}/button-listeners', () => {
                 flowId: posterId,
                 flowName: 'Poster',
                 nodeId: 'post',
-                blockLabel: 'Post Embed',
+                blockLabel: 'Send Message',
                 headline: 'Kneel, pet',
                 buttons: [{ key: 'kneel', label: 'Kneel', style: 'Primary' }],
             },

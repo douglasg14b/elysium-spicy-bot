@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { ACTION_POST_EMBED } from '../../blocks/actionPostEmbed';
+import { ACTION_SEND_MESSAGE } from '../../blocks/actionSendMessage';
 import { ensureBlocksDiscovered } from '../../blocks/registry';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../data/flowGraph';
 import { withDeclaredNodeData } from '../declaredNodeData';
@@ -13,10 +13,10 @@ beforeAll(async () => {
     await ensureBlocksDiscovered();
 });
 
-function postEmbed(data: Record<string, unknown>): FlowGraph {
+function sendMessageGraph(data: Record<string, unknown>): FlowGraph {
     return {
         version: FLOW_GRAPH_VERSION,
-        nodes: [{ id: 'post', type: ACTION_POST_EMBED, position: { x: 0, y: 0 }, data }],
+        nodes: [{ id: 'post', type: ACTION_SEND_MESSAGE, position: { x: 0, y: 0 }, data }],
         edges: [],
     };
 }
@@ -25,7 +25,7 @@ describe('the keys a save keeps', () => {
     it("keeps a message's buttons, in the key its field names, and drops a key nothing declares", () => {
         const buttons = [{ key: 'safeword', label: 'Red', style: 'Danger' }];
         const saved = withDeclaredNodeData(
-            postEmbed({ channelId: '123456789012345678', message: { embeds: [{ title: 'Rules' }] }, buttons, title: 'old' })
+            sendMessageGraph({ channelId: '123456789012345678', message: { embeds: [{ title: 'Rules' }] }, buttons, title: 'old' })
         );
 
         expect(saved.nodes[0]?.data).toEqual({

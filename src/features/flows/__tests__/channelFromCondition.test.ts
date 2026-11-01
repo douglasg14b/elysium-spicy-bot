@@ -79,7 +79,7 @@ function graph(options: { noBranchChannel?: string; triggerChannel?: string } = 
                 id: 'yes',
                 type: 'action.sendMessage',
                 position: { x: 2, y: 0 },
-                data: { channelId: '{{var.ticketChannelId}}', message: 'Back again, {{subject.mention}}?' },
+                data: { channelId: '{{var.ticketChannelId}}', message: { content: 'Back again, {{subject.mention}}?', embeds: [] } },
             },
             ...(options.noBranchChannel
                 ? [
@@ -87,7 +87,7 @@ function graph(options: { noBranchChannel?: string; triggerChannel?: string } = 
                           id: 'no',
                           type: 'action.sendMessage',
                           position: { x: 2, y: 1 },
-                          data: { channelId: options.noBranchChannel, message: 'Nothing open.' },
+                          data: { channelId: options.noBranchChannel, message: { content: 'Nothing open.', embeds: [] } },
                       },
                   ]
                 : []),

@@ -217,7 +217,7 @@ describe('a variable read by name, of any kind', () => {
 });
 
 describe('a channel picker holding a {{var}}', () => {
-    const sendTo = node('send', 'action.sendMessage', { channelId: '{{var.ticketChannelId}}', message: 'Hi' });
+    const sendTo = node('send', 'action.sendMessage', { channelId: '{{var.ticketChannelId}}', message: { content: 'Hi', embeds: [] } });
     const hasTicket = node('ticket', 'condition.hasOpenTicket', { ticketType: 'support' });
 
     it('saves when every node recording the name records a channel', () => {

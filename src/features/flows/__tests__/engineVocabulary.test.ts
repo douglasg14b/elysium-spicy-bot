@@ -395,6 +395,10 @@ const GENERIC_VOCABULARY = [
     // `allowedMentions` on a send, and a button's `style` in the probe. API surface, not what
     // a flow is for; neither folds onto a proven rejection.
     'mentions', 'style',
+    // A `longText` field's `showsMentions` (`blocks/manifest.ts`, checked by
+    // `checkShowsMentions` in `blocks/conformance.ts`): whether the builder offers the server's
+    // roles and channels in the box. A plain verb about display. Folds onto no proven rejection.
+    'shows',
 ];
 
 /**

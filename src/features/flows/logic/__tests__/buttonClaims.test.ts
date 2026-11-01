@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { ResourceDeclaration } from '../../../provisioning/logic/resourceDeclaration';
-import { ACTION_POST_EMBED } from '../../blocks/actionPostEmbed';
+import { ACTION_SEND_MESSAGE } from '../../blocks/actionSendMessage';
 import { ensureBlocksDiscovered } from '../../blocks/registry';
 import { TRIGGER_BUTTON_CLICK } from '../../blocks/triggerButtonClick';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../data/flowGraph';
@@ -142,13 +142,13 @@ describe('buttonClaimConflict', () => {
     });
 
     describe("a block's button", () => {
-        /** "poster"'s Post Embed, posting a "kneel" button under "Kneel, pet". */
+        /** "poster"'s Send Message, posting a "kneel" button under "Kneel, pet". */
         const POSTER_GRAPH: FlowGraph = {
             version: FLOW_GRAPH_VERSION,
             nodes: [
                 {
                     id: 'post',
-                    type: ACTION_POST_EMBED,
+                    type: ACTION_SEND_MESSAGE,
                     position: { x: 0, y: 0 },
                     data: {
                         channelId: '111111111111111111',

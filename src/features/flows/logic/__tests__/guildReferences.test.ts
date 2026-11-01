@@ -46,10 +46,13 @@ function guild() {
     });
 }
 
+/** A Send Message's message: plain text alone. */
+const HI = { content: 'hi', embeds: [] };
+
 describe('a picked channel', () => {
     it("is refused on its node and field when it is not one of this server's", () => {
         const graph = graphOf(
-            node('post', 'action.sendMessage', { channelId: 'another-servers-channel', message: 'hi' })
+            node('post', 'action.sendMessage', { channelId: 'another-servers-channel', message: HI })
         );
 
         expect(guildReferenceIssues(graph, guild())).toEqual([
@@ -58,21 +61,21 @@ describe('a picked channel', () => {
     });
 
     it('passes when it is in this server', () => {
-        const graph = graphOf(node('post', 'action.sendMessage', { channelId: CHANNEL_ID, message: 'hi' }));
+        const graph = graphOf(node('post', 'action.sendMessage', { channelId: CHANNEL_ID, message: HI }));
 
         expect(guildReferenceIssues(graph, guild())).toEqual([]);
     });
 
     it('passes a {{var}} in a picker that takes one — the run resolves it', () => {
         const graph = graphOf(
-            node('post', 'action.sendMessage', { channelId: '{{var.ticketChannelId}}', message: 'hi' })
+            node('post', 'action.sendMessage', { channelId: '{{var.ticketChannelId}}', message: HI })
         );
 
         expect(guildReferenceIssues(graph, guild())).toEqual([]);
     });
 
     it('leaves an empty pick to the checks that own it', () => {
-        const graph = graphOf(node('post', 'action.sendMessage', { channelId: '', message: 'hi' }));
+        const graph = graphOf(node('post', 'action.sendMessage', { channelId: '', message: HI }));
 
         expect(guildReferenceIssues(graph, guild())).toEqual([]);
     });
@@ -131,7 +134,7 @@ describe('a picked role', () => {
 
 describe('readiness in the guild', () => {
     it('reports the guild issues alongside the graph ones', () => {
-        const graph = graphOf(node('post', 'action.sendMessage', { channelId: 'another-servers-channel', message: '' }));
+        const graph = graphOf(node('post', 'action.sendMessage', { channelId: 'another-servers-channel', message: { embeds: [] } }));
 
         const issues = flowReadinessIssuesInGuild(graph, NEW_FLOW_SCOPE, guild(), { named: new Set(), sizes: new Map() });
 

@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { migrateTestDatabase } from '../../../../features-system/data-persistence/__tests__/support/migrateTestDatabase';
-import { ACTION_POST_EMBED } from '../../blocks/actionPostEmbed';
+import { ACTION_SEND_MESSAGE } from '../../blocks/actionSendMessage';
 import type { BlockManifest } from '../../blocks/manifest';
 import { ensureBlocksDiscovered } from '../../blocks/registry';
 import { flowDraftsRepo } from '../../data/flowDraftsRepo';
@@ -16,7 +16,7 @@ import { flowUploadUses } from '../flowUploadUses';
 /**
  * Flows' upload usage reader, against the real flows and drafts repos on the migrated schema:
  * every place a saved flow or a draft of this guild shows an upload, found by the `message`
- * control rather than by Post Embed's type.
+ * control rather than by Send Message's type.
  */
 
 const FIXTURE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '__tests__', 'fixtures', 'blocks', 'message');
@@ -58,7 +58,7 @@ describe('flowUploadUses', () => {
         const flow = await flowsRepo.create({
             guildId,
             name: 'Welcome flow',
-            graph: holding(ACTION_POST_EMBED, {
+            graph: holding(ACTION_SEND_MESSAGE, {
                 embeds: [
                     { title: 'First', thumbnail: ref(thumbnail), image: 'https://example.com/linked.png' },
                     {
@@ -73,7 +73,7 @@ describe('flowUploadUses', () => {
 
         const uses = await flowUploadUses(guildId);
 
-        const saved = { kind: 'flow', flowId: flow.flowId, flowName: 'Welcome flow', nodeId: 'post', blockLabel: 'Post Embed' };
+        const saved = { kind: 'flow', flowId: flow.flowId, flowName: 'Welcome flow', nodeId: 'post', blockLabel: 'Send Message' };
         expect(uses).toEqual([
             { ...saved, uploadId: thumbnail, where: 'embed 1 thumbnail' },
             { ...saved, uploadId: header, where: 'embed 2 header icon' },
@@ -88,7 +88,7 @@ describe('flowUploadUses', () => {
         const flow = await flowsRepo.create({
             guildId,
             name: 'Saved name',
-            graph: holding(ACTION_POST_EMBED, { embeds: [{ title: 'Nothing uploaded' }] }),
+            graph: holding(ACTION_SEND_MESSAGE, { embeds: [{ title: 'Nothing uploaded' }] }),
         });
         await flowDraftsRepo.upsertMine({
             flowId: flow.flowId,
@@ -96,7 +96,7 @@ describe('flowUploadUses', () => {
             authorId: 'author-1',
             authorName: 'brat',
             name: 'Renamed in the draft',
-            graph: holding(ACTION_POST_EMBED, { embeds: [{ title: 'Pictured', image: ref(uploadId) }] }),
+            graph: holding(ACTION_SEND_MESSAGE, { embeds: [{ title: 'Pictured', image: ref(uploadId) }] }),
             baseUpdatedAt: new Date().toISOString(),
         });
 
@@ -107,7 +107,7 @@ describe('flowUploadUses', () => {
                 flowId: flow.flowId,
                 flowName: 'Renamed in the draft',
                 nodeId: 'post',
-                blockLabel: 'Post Embed',
+                blockLabel: 'Send Message',
                 where: 'embed 1 image',
                 draftAuthorId: 'author-1',
             },
@@ -172,7 +172,7 @@ describe('flowUploadUses', () => {
         const flow = await flowsRepo.create({
             guildId,
             name: 'Both',
-            graph: holding(ACTION_POST_EMBED, { embeds: [{ title: 'Saved', image: ref(shared) }] }),
+            graph: holding(ACTION_SEND_MESSAGE, { embeds: [{ title: 'Saved', image: ref(shared) }] }),
         });
         await flowDraftsRepo.upsertMine({
             flowId: flow.flowId,
@@ -180,11 +180,11 @@ describe('flowUploadUses', () => {
             authorId: 'author-2',
             authorName: 'switch',
             name: 'Both',
-            graph: holding(ACTION_POST_EMBED, { embeds: [{ title: 'Drafted', image: ref(shared), thumbnail: ref(draftOnly) }] }),
+            graph: holding(ACTION_SEND_MESSAGE, { embeds: [{ title: 'Drafted', image: ref(shared), thumbnail: ref(draftOnly) }] }),
             baseUpdatedAt: new Date().toISOString(),
         });
 
-        const at = { kind: 'flow', flowId: flow.flowId, flowName: 'Both', nodeId: 'post', blockLabel: 'Post Embed' };
+        const at = { kind: 'flow', flowId: flow.flowId, flowName: 'Both', nodeId: 'post', blockLabel: 'Send Message' };
         expect(await flowUploadUses(guildId)).toEqual([
             { ...at, uploadId: shared, where: 'embed 1 image' },
             { ...at, uploadId: draftOnly, where: 'embed 1 thumbnail', draftAuthorId: 'author-2' },
@@ -201,7 +201,7 @@ describe('flowUploadUses', () => {
         await flowsRepo.create({
             guildId: 'guild-quiet-neighbour',
             name: 'Not ours',
-            graph: holding(ACTION_POST_EMBED, { embeds: [{ title: 'Theirs', image: ref(randomUUID()) }] }),
+            graph: holding(ACTION_SEND_MESSAGE, { embeds: [{ title: 'Theirs', image: ref(randomUUID()) }] }),
         });
 
         expect(await flowUploadUses(guildId)).toEqual([]);

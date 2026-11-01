@@ -24,7 +24,7 @@ const resourceKeySchema = z
 const resourceButtonSchema = z.object({ messageKey: resourceKeySchema, buttonKey: resourceKeySchema });
 
 /**
- * A button under a message a block posts (Post Embed's, Open Ticket's): the flow and node that
+ * A button under a message a block posts (Send Message's, Open Ticket's): the flow and node that
  * post it, and the button's key on that node (step 2, `docs/plans/block-message-buttons-step-2.md`).
  * `flowId` is written even when the poster is this flow, so every comparison is an exact
  * triple. A press finds its post through `flow_posted_messages`, never through these ids.

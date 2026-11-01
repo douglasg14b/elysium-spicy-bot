@@ -95,7 +95,7 @@ import type { GuildUploads } from './controls/types';
 import { detectResourceProblems, resourceKeyProblem } from './detectResourceProblems';
 import type { ResourceChipInstance } from './detectResourceProblems';
 import { MessageEditor } from './messageEditor/MessageEditor';
-import type { MentionableRole } from './messageEditor/roleMentions';
+import { mentionListsOf, type MentionLists } from './messageEditor/mentions';
 import { MessagePreviewCard } from './messageEditor/MessagePreviewCard';
 import { buttonIssues, messagePartIssues, messageResourceProblems } from './messageResourceProblems';
 import { PermissionIntentEditor } from './PermissionIntentEditor';
@@ -284,8 +284,8 @@ export function ResourcesPanel({
 }: ResourcesPanelProps) {
     const [filter, setFilter] = useState('');
     const listenedKeys = useMemo(() => listenedMessageKeys(listeners), [listeners]);
-    // A message names any role, a managed one too; only the pickers that grant one leave those out.
-    const mentionableRoles = useMemo(() => [...roles, ...(managedRoles ?? [])], [roles, managedRoles]);
+    // What a message row's text may name: every role, managed ones too, and the server's text channels.
+    const mentions = useMemo(() => mentionListsOf(roles, managedRoles, channels), [roles, managedRoles, channels]);
     /**
      * Which rows are open, by list position.
      *
@@ -719,7 +719,7 @@ export function ResourcesPanel({
                             parents={parentsFor(row.resource)}
                             uploads={uploads}
                             serverEmojis={serverEmojis}
-                            mentionableRoles={mentionableRoles}
+                            mentions={mentions}
                             onMessageWindowChange={onMessageWindowChange}
                             roles={roles}
                             channels={channels}
@@ -787,8 +787,8 @@ interface ResourceRowProps {
     uploads: GuildUploads;
     /** The server's own emoji, for a message row's buttons; `undefined` until known. */
     serverEmojis: readonly GuildEmoji[] | undefined;
-    /** Every role a message row's text may name, managed ones too. */
-    mentionableRoles: readonly MentionableRole[];
+    /** Every role a message row's text may name, managed ones too, and the server's text channels. */
+    mentions: MentionLists;
     onMessageWindowChange: ((open: boolean) => void) | undefined;
     roles: GuildRole[];
     channels: GuildChannel[];
@@ -832,7 +832,7 @@ function ResourceRow({
     parents,
     uploads,
     serverEmojis,
-    mentionableRoles,
+    mentions,
     onMessageWindowChange,
     roles,
     channels,
@@ -1181,7 +1181,7 @@ function ResourceRow({
                                 listeners={listeners}
                                 uploads={uploads}
                                 serverEmojis={serverEmojis}
-                                mentionableRoles={mentionableRoles}
+                                mentions={mentions}
                                 onUpdate={onUpdate}
                                 onRename={onRename}
                                 onWindowChange={onMessageWindowChange}
@@ -1529,8 +1529,8 @@ interface MessageBodyProps {
     uploads: GuildUploads;
     /** The server's own emoji, for the buttons' emoji grid; `undefined` until known. */
     serverEmojis: readonly GuildEmoji[] | undefined;
-    /** Every role the message's text may name, managed ones too. */
-    mentionableRoles: readonly MentionableRole[];
+    /** Every role the message's text may name, managed ones too, and the server's text channels. */
+    mentions: MentionLists;
     onUpdate: (patch: Partial<ResourceDeclaration>) => void;
     onRename: (nextName: string) => void;
     onWindowChange: ((open: boolean) => void) | undefined;
@@ -1540,7 +1540,7 @@ interface MessageBodyProps {
     editRef: RefObject<HTMLButtonElement>;
 }
 
-/** No colour presets in a message resource's window: they are Post Embed's field config. */
+/** No colour presets in a message resource's window: they are Send Message's field config. */
 const NO_SWATCHES: readonly string[] = [];
 /** One empty list, so a message with no buttons hands the window the same one every render. */
 const NO_BUTTONS: readonly MessageButton[] = [];
@@ -1569,7 +1569,7 @@ function MessageBody({
     listeners,
     uploads,
     serverEmojis,
-    mentionableRoles,
+    mentions,
     onUpdate,
     onRename,
     onWindowChange,
@@ -1684,7 +1684,7 @@ function MessageBody({
                     variables={[]}
                     requirements={ALL_REQUIREMENTS_AVAILABLE}
                     uploads={uploads}
-                    roles={mentionableRoles}
+                    mentions={mentions}
                     issues={messagePartIssues(problems)}
                     tokens={false}
                     buttons={{

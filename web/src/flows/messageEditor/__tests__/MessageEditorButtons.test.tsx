@@ -56,7 +56,7 @@ function Harness({ emitted, initialButtons, listeners, serverEmojis }: HarnessPr
             variables={[]}
             requirements={ALL_REQUIREMENTS_AVAILABLE}
             uploads={NO_UPLOADS}
-            roles={[]}
+            mentions={{ roles: [], channels: [] }}
             issues={[]}
             tokens={false}
             buttons={{

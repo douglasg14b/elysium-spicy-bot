@@ -436,7 +436,7 @@ export function ticketTypeDeclarationRefusal(resources: readonly ResourceDeclara
  * it stands, or `undefined` when every one could. Names the first problem by the message's
  * name and part: `"Rules panel" embed 2 footer: …`.
  *
- * Provisioning's rules (`messageResourceProblems`): the message parses as a Post Embed
+ * Provisioning's rules (`messageResourceProblems`): the message parses as a Send Message
  * node's does, holds no `{{tokens}}` anywhere, and gives each button its own key. Asked
  * here rather than as a refinement for the reason the others are: each spans parts or needs
  * more than the spec can say, so the browser could not be given it.
@@ -465,7 +465,7 @@ export function declarationsRefusal(resources: readonly ResourceDeclaration[]): 
  * Why a list of declarations is refused for a message resource's uploaded pictures, or
  * `undefined` when every one can go: each upload a message shows is this server's, and each
  * message stays within Discord's file count and bytes (`messageUploadProblems`, the rules a
- * Post Embed node is saved and run under). Named like {@link messageResourceRefusal}.
+ * Send Message node is saved and run under). Named like {@link messageResourceRefusal}.
  *
  * Async because it reads the sizes this server holds: one query for every message in the
  * list, **for this guild only**, so an upload id copied from another server's journey is not
@@ -814,7 +814,7 @@ const BlockButtonMessageSchema = z
     })
     .openapi('BlockButtonMessage', {
         description:
-            "A block of one of the journey's flows that posts buttons under its message (Post Embed, Open " +
+            "A block of one of the journey's flows that posts buttons under its message (Send Message, Open " +
             "Ticket): the posting flow and node, the block's label, the message as one line (`null` when it " +
             'has none) and the buttons it posts now.',
     });

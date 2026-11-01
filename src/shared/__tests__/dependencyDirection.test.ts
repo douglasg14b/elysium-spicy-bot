@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
  * That the shared modules many features read — the message model, the button vocabulary,
  * the guild uploads, member names and the per-guild queue — import no product feature.
  *
- * The message model and the uploads are read by Post Embed (flows) and the message resource
+ * The message model and the uploads are read by Send Message (flows) and the message resource
  * (provisioning), and provisioning may not import flows (its own
  * `dependencyDirection.test.ts`); member names is read by any page that shows a person. An
  * import from any of these into `src/features/` would

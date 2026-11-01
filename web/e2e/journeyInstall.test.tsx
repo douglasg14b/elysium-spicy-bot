@@ -60,7 +60,7 @@ function graphPostingTo(resourceKey: string): FlowGraph {
                 id: 'announce',
                 type: ACTION_SEND_MESSAGE,
                 position: { x: 0, y: 160 },
-                data: { channelId: '', channelIdKey: resourceKey, message: 'Fresh meat for the munch.' },
+                data: { channelId: '', channelIdKey: resourceKey, message: { content: 'Fresh meat for the munch.', embeds: [] } },
             },
         ],
         edges: [{ id: 'join-to-announce', source: 'on-join', target: 'announce' }],

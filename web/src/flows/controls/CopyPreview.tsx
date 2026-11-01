@@ -6,17 +6,52 @@
  * DOM. This renders the result and nothing else.
  */
 
+import { Fragment, type ReactNode } from 'react';
 import { Text } from '@mantine/core';
 import { hasPreviewableTokens, previewCopy } from '../copyPreview';
+import { mentionLook, segmentsOf, type MentionLists } from '../messageEditor/mentions';
 
 interface CopyPreviewProps {
     /** The copy currently in the field. */
     value: string;
     /** Variables some upstream block writes, by name. */
     knownVariables: readonly string[];
+    /**
+     * For a field whose text lands where Discord shows a mention by name: `<@&id>` and `<#id>`
+     * are drawn as the role and the channel, as the box above draws them. Absent, as written.
+     */
+    mentions?: MentionLists;
 }
 
-export function CopyPreview({ value, knownVariables }: CopyPreviewProps) {
+/**
+ * The filled-in copy, each mention drawn by name. Filled first, then cut: a stand-in is never
+ * digits (`[name]`, `@someone`), so `<#{{var.x}}>` fills to `<#[x]>` and stays as written.
+ */
+function withMentionNames(text: string, mentions: MentionLists): ReactNode[] {
+    return segmentsOf(text, true).map((segment, index): ReactNode => {
+        switch (segment.kind) {
+            case 'role':
+            case 'channel': {
+                const { label, style } = mentionLook(segment, mentions);
+                return (
+                    <span key={index} style={style}>
+                        {label}
+                    </span>
+                );
+            }
+            // A token left in the filled-in copy is one nothing fills: it is shown as written.
+            case 'text':
+            case 'token':
+                return <Fragment key={index}>{segment.text}</Fragment>;
+            default: {
+                const illegal: never = segment;
+                throw new Error(`Unknown copy segment ${JSON.stringify(illegal)}.`);
+            }
+        }
+    });
+}
+
+export function CopyPreview({ value, knownVariables, mentions }: CopyPreviewProps) {
     // Nothing to add when the author can already read the result: a preview of
     // plain text is the field's own contents, printed twice.
     if (!hasPreviewableTokens(value)) {
@@ -44,7 +79,7 @@ export function CopyPreview({ value, knownVariables }: CopyPreviewProps) {
                 component="span"
                 style={{ fontFamily: 'var(--mantine-font-family-monospace)' }}
             >
-                {text}
+                {mentions ? withMentionNames(text, mentions) : text}
             </Text>
 
             {unknown.length > 0 ? (

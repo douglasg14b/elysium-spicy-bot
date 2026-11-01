@@ -40,7 +40,7 @@ export async function uploadSizesFor(guildId: string, messages: readonly Discord
  * it, and too many uploads, or too many bytes, fail giving the number. No query at all when
  * the message names no upload.
  *
- * Every caller that posts a message reads its uploads here — Post Embed's run, and a message
+ * Every caller that posts a message reads its uploads here — Send Message's run, and a message
  * resource's install and repair — and words the problem with its own name for the message.
  */
 export async function readMessageUploads(guildId: string, message: DiscordMessageInput): Promise<MessageUploadRead> {

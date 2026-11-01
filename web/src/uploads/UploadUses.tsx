@@ -1,5 +1,5 @@
 /**
- * Where a picture is shown, one row a place: "Welcome flow · Post Embed · embed 1 thumbnail",
+ * Where a picture is shown, one row a place: "Welcome flow · Send Message · embed 1 thumbnail",
  * the flow a link into the builder, or "Onboarding · message Rules panel · embed 1 image" for a
  * journey's message, linking to the flows page, whose group header is where a journey's
  * resources are edited. A place only somebody's unsaved draft holds is marked DRAFT —

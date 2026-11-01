@@ -39,14 +39,14 @@ async function upload(guildId: string): Promise<string> {
     return stored.uploadId;
 }
 
-/** Post Embed into the guild's one channel, its image the given upload. */
+/** Send Message into the guild's one channel, its image the given upload. */
 function postingUpload(uploadId: string): FlowGraph {
     return {
         version: FLOW_GRAPH_VERSION,
         nodes: [
             {
                 id: 'post',
-                type: 'action.postEmbed',
+                type: 'action.sendMessage',
                 position: { x: 0, y: 0 },
                 data: { channelId: CHANNEL_ID, message: { embeds: [{ title: 'Exhibit A', image: `upload:${uploadId}` }] } },
             },

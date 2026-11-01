@@ -1,6 +1,6 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Client } from 'discord.js';
+import { Collection, type Client, type GuildEmoji } from 'discord.js';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BlockManifest } from '../blocks/manifest';
 import { ensureBlocksDiscovered } from '../blocks/registry';
@@ -68,6 +68,11 @@ function node(id: string, type: string, data: Record<string, unknown> = {}): Flo
     return { id, type, position: { x: 0, y: 0 }, data };
 }
 
+/** A Send Message's message holding plain text alone. */
+function text(content: string): { content: string; embeds: [] } {
+    return { content, embeds: [] };
+}
+
 /** `trigger -> target`, where `trigger` is the given trigger node. */
 function graphFrom(trigger: FlowNode, ...chain: FlowNode[]): FlowGraph {
     const nodes = [trigger, ...chain];
@@ -104,7 +109,7 @@ const NEEDS_A_MEMBER: readonly { readonly name: string; readonly node: () => Flo
     },
     {
         name: '{{subject.mention}} in a copy field',
-        node: () => node('target', 'action.sendMessage', { channelId: CHANNEL_ID, message: 'Hey {{subject.mention}}' }),
+        node: () => node('target', 'action.sendMessage', { channelId: CHANNEL_ID, message: text('Hey {{subject.mention}}') }),
         cause: /for \{\{subject\.mention\}\} in "Message"/,
     },
     {
@@ -139,9 +144,9 @@ const NEEDS_A_MEMBER: readonly { readonly name: string; readonly node: () => Flo
     { name: 'Wait for Event', node: () => node('target', 'action.waitForEvent', { eventKind: 'reactionAdd' }) },
     { name: 'Ask a Question', node: () => node('target', 'action.prompt', { question: 'Well?', choices: ['Yes'] }) },
     {
-        name: "{{subject.username}} in a Post Embed's message",
+        name: "{{subject.username}} in an embed of a Send Message's message",
         node: () =>
-            node('target', 'action.postEmbed', {
+            node('target', 'action.sendMessage', {
                 channelId: CHANNEL_ID,
                 message: { embeds: [{ title: 'Roll call', fields: [{ name: 'Who', value: '{{subject.username}}' }] }] },
             }),
@@ -201,7 +206,7 @@ describe('save refuses what needs a member where a run about nobody reaches', ()
     it('accepts copy whose only token needs nothing', () => {
         const graph = graphFrom(
             nobody(),
-            node('target', 'action.sendMessage', { channelId: CHANNEL_ID, message: 'Hello, {{guild.name}}' })
+            node('target', 'action.sendMessage', { channelId: CHANNEL_ID, message: text('Hello, {{guild.name}}') })
         );
 
         expect(issuesOn(graph, 'target')).toEqual([]);
@@ -286,27 +291,27 @@ describe('the Schedule trigger, the first shipped trigger about nobody', () => {
     it('refuses {{subject.mention}} in copy below it', () => {
         const graph = graphFrom(
             schedule(),
-            node('target', 'action.sendMessage', { channelId: CHANNEL_ID, message: 'Morning, {{subject.mention}}' })
+            node('target', 'action.sendMessage', { channelId: CHANNEL_ID, message: text('Morning, {{subject.mention}}') })
         );
 
         expect(subjectIssuesOn(graph, 'target')).toHaveLength(1);
     });
 
     it('accepts Send Message to a picked channel', () => {
-        const graph = graphFrom(schedule(), node('target', 'action.sendMessage', { channelId: CHANNEL_ID, message: 'Rise and grind, {{guild.name}}.' }));
+        const graph = graphFrom(schedule(), node('target', 'action.sendMessage', { channelId: CHANNEL_ID, message: text('Rise and grind, {{guild.name}}.') }));
 
         expect(authoredGraphIssues(graph)).toEqual([]);
     });
 });
 
 describe('{{actor.mention}} is held to the same rule', () => {
-    const ACTOR_ISSUE = /needs "actor" from the run for \{\{actor\.mention\}\} in "Message", but it can be reached after a block that parks the run/;
+    const ACTOR_ISSUE = /needs "actor" from the run for \{\{actor\.mention\}\} in "Message" plain text, but it can be reached after a block that parks the run/;
 
     it('is refused after a block that parks the run', () => {
         const graph = graphFrom(
             joined(),
             node('wait', 'action.delay', { durationMs: 60_000 }),
-            node('target', 'action.sendMessage', { channelId: CHANNEL_ID, message: 'Thanks {{actor.mention}}' })
+            node('target', 'action.sendMessage', { channelId: CHANNEL_ID, message: text('Thanks {{actor.mention}}') })
         );
 
         const issues = issuesOn(graph, 'target');
@@ -336,7 +341,7 @@ describe('{{actor.mention}} is held to the same rule', () => {
         const graph = graphFrom(
             button(),
             node('ask', 'action.prompt', { question: '{{actor.mention}}, you in?', choices: ['Yes'] }),
-            node('after', 'action.sendMessage', { channelId: CHANNEL_ID, message: 'Noted.' })
+            node('after', 'action.sendMessage', { channelId: CHANNEL_ID, message: text('Noted.') })
         );
         graph.edges.push({ id: 'answer', source: 'ask', sourceHandle: 'choice-0', target: 'after' });
 
@@ -345,13 +350,13 @@ describe('{{actor.mention}} is held to the same rule', () => {
         );
     });
 
-    const thanks = () => node('target', 'action.sendMessage', { channelId: CHANNEL_ID, message: 'Thanks {{actor.mention}}' });
+    const thanks = () => node('target', 'action.sendMessage', { channelId: CHANNEL_ID, message: text('Thanks {{actor.mention}}') });
 
     it("is refused below Member Leaves, whose trigger doesn't say who acted", () => {
         const graph = graphFrom(node('trigger', 'trigger.memberLeave'), thanks());
 
         expect(issuesOn(graph, 'target').map((issue) => issue.message).join('\n')).toMatch(
-            /needs "actor" from the run for \{\{actor\.mention\}\} in "Message", but it can be reached from a trigger that doesn't say who caused it\. Move it before the wait, or start this path from a trigger where someone acts\./
+            /needs "actor" from the run for \{\{actor\.mention\}\} in "Message" plain text, but it can be reached from a trigger that doesn't say who caused it\. Move it before the wait, or start this path from a trigger where someone acts\./
         );
     });
 
@@ -365,7 +370,7 @@ describe('{{actor.mention}} is held to the same rule', () => {
         const result = await executeFlow('flow-1', graphFrom(nobody(), thanks()), 'trigger', seedAboutNobody(world()));
 
         expect(result.error).toBe(
-            'Node target (action.sendMessage) needs whoever caused this step for {{actor.mention}} in "Message", ' +
+            'Node target (action.sendMessage) needs whoever caused this step for {{actor.mention}} in "Message" plain text, ' +
                 "and nobody did — this run's trigger doesn't say who caused it."
         );
     });
@@ -373,7 +378,7 @@ describe('{{actor.mention}} is held to the same rule', () => {
     it('is accepted before any park, from a trigger about a member', () => {
         const graph = graphFrom(
             joined(),
-            node('target', 'action.sendMessage', { channelId: CHANNEL_ID, message: 'Thanks {{actor.mention}}' })
+            node('target', 'action.sendMessage', { channelId: CHANNEL_ID, message: text('Thanks {{actor.mention}}') })
         );
 
         expect(issuesOn(graph, 'target')).toEqual([]);
@@ -395,6 +400,8 @@ function world() {
         id: GUILD_ID,
         name: 'The Dungeon',
         members: { fetch: fetchMember },
+        // None: Send Message reads them to leave a gone emoji off a button.
+        emojis: { cache: new Collection<string, GuildEmoji>() },
         // Cached, as the Guilds intent keeps every channel: a block posts only to one of
         // its own guild's, from the cache.
         channels: {
@@ -469,13 +476,13 @@ describe('the executor refuses a step that needs what the run does not carry', (
         const env = world();
         const graph = graphFrom(
             nobody(),
-            node('say', 'action.sendMessage', { channelId: CHANNEL_ID, message: 'Hey {{subject.mention}}' })
+            node('say', 'action.sendMessage', { channelId: CHANNEL_ID, message: text('Hey {{subject.mention}}') })
         );
 
         const result = await executeFlow('flow-1', graph, 'trigger', seedAboutNobody(env));
 
         expect(result.error).toBe(
-            'Node say (action.sendMessage) needs a member for {{subject.mention}} in "Message", ' +
+            'Node say (action.sendMessage) needs a member for {{subject.mention}} in "Message" plain text, ' +
                 'and this run is about nobody.'
         );
         expect(env.send).not.toHaveBeenCalled();
@@ -512,9 +519,9 @@ describe('a run about nobody parks and resumes with nobody', () => {
     /** trigger -> Send Message -> Delay -> Send Message. */
     const graph = graphFrom(
         nobody(),
-        node('before', 'action.sendMessage', { channelId: CHANNEL_ID, message: 'Before the wait, {{guild.name}}' }),
+        node('before', 'action.sendMessage', { channelId: CHANNEL_ID, message: text('Before the wait, {{guild.name}}') }),
         node('delay', 'action.delay', { durationMs: 60_000 }),
-        node('after', 'action.sendMessage', { channelId: CHANNEL_ID, message: 'After the wait' })
+        node('after', 'action.sendMessage', { channelId: CHANNEL_ID, message: text('After the wait') })
     );
     const flow = { flowId: 'flow-1', guildId: GUILD_ID, graph, enabled: true } as FlowEntity;
 
@@ -524,7 +531,7 @@ describe('a run about nobody parks and resumes with nobody', () => {
 
     it('reports a run that finished without parking as not parked, still naming its run', async () => {
         const env = world();
-        const straight = graphFrom(nobody(), node('only', 'action.sendMessage', { channelId: CHANNEL_ID, message: 'Done.' }));
+        const straight = graphFrom(nobody(), node('only', 'action.sendMessage', { channelId: CHANNEL_ID, message: text('Done.') }));
 
         const result = await executeFlow('flow-1', straight, 'trigger', seedAboutNobody(env));
 

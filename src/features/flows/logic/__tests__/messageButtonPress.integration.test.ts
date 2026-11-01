@@ -96,7 +96,7 @@ function listenerGraph(input: {
                 id: 'say',
                 type: ACTION_SEND_MESSAGE,
                 position: { x: 0, y: 100 },
-                data: { channelId: input.lounge.id, message: input.said },
+                data: { channelId: input.lounge.id, message: { content: input.said, embeds: [] } },
             },
         ],
         edges: [{ id: 'e1', source: 'trigger', target: 'say' }],
@@ -114,7 +114,7 @@ function waitingRoomGraph(lounge: ServerChannel): FlowGraph {
                 id: 'woke',
                 type: ACTION_SEND_MESSAGE,
                 position: { x: 0, y: 200 },
-                data: { channelId: lounge.id, message: 'woke {{subject.username}}' },
+                data: { channelId: lounge.id, message: { content: 'woke {{subject.username}}', embeds: [] } },
             },
         ],
         edges: [

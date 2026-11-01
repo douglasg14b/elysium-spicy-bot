@@ -16,6 +16,7 @@ import type { BlockConfigField } from '@brattybot/web-sdk';
 import { listenersOnPost } from '../buttonListeners';
 import { MessageEditor } from '../messageEditor/MessageEditor';
 import { MessagePreviewCard } from '../messageEditor/MessagePreviewCard';
+import { mentionListsOf } from '../messageEditor/mentions';
 import { problemCount } from '../validationIssues';
 import { asMessageButtons, type ControlProps } from './types';
 
@@ -33,10 +34,9 @@ export function MessageControl({ field, value, onChange, context, config, error,
         () => listenersOnPost(blockListeners, { flowId, nodeId }),
         [blockListeners, flowId, nodeId]
     );
-    // A message names any role, a managed one too; only the pickers that grant one leave those out.
-    const mentionableRoles = useMemo(
-        () => [...context.roles, ...(context.managedRoles ?? [])],
-        [context.roles, context.managedRoles]
+    const mentions = useMemo(
+        () => mentionListsOf(context.roles, context.managedRoles, context.channels),
+        [context.roles, context.managedRoles, context.channels]
     );
 
     return (
@@ -79,7 +79,7 @@ export function MessageControl({ field, value, onChange, context, config, error,
                     variables={context.variables}
                     requirements={context.requirements}
                     uploads={context.uploads}
-                    roles={mentionableRoles}
+                    mentions={mentions}
                     issues={issues ?? []}
                     error={error}
                     buttons={

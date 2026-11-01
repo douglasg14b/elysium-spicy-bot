@@ -65,7 +65,7 @@ async function guildWithScheduledFlow(): Promise<ScheduledFlow> {
                 id: 'post',
                 type: ACTION_SEND_MESSAGE,
                 position: { x: 300, y: 0 },
-                data: { channelId: channel.id, message: 'Rise and grind, brats.' },
+                data: { channelId: channel.id, message: { content: 'Rise and grind, brats.', embeds: [] } },
             },
         ],
         edges: [{ id: 'nine-post', source: 'nine', target: 'post' }],

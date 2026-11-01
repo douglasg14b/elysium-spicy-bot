@@ -14,7 +14,7 @@ export interface MessageUploadProblem {
 
 /**
  * The upload rules, judged against what the message's server holds — **the one place** both
- * save-time readiness (`uploadReferenceIssues`) and Post Embed's run ask, so the two cannot
+ * save-time readiness (`uploadReferenceIssues`) and Send Message's run ask, so the two cannot
  * come to disagree about what one message may carry.
  *
  * Pure: the caller reads the sizes (`heldSizes`, upload id → bytes) of the uploads the message

@@ -26,7 +26,7 @@ export interface FlowUploadUse {
     readonly flowId: string;
     readonly flowName: string;
     readonly nodeId: string;
-    /** The block holding the picture, as the palette names it: `Post Embed`. */
+    /** The block holding the picture, as the palette names it: `Send Message`. */
     readonly blockLabel: string;
     /** The part showing it, as the message editor names it: `embed 1 thumbnail`. */
     readonly where: string;

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type {
     BlockConfigField,
     DiscordMessage,
+    GuildChannel,
     GuildRole,
     GuildUpload,
     ListGuildUploadsResponse,
@@ -43,11 +44,16 @@ function deepFreeze<TValue>(value: TValue): TValue {
     return value;
 }
 
-function contextWith(uploads: GuildUploads, roles: GuildRole[], managedRoles?: readonly ManagedRole[]): ControlContext {
+function contextWith(
+    uploads: GuildUploads,
+    roles: GuildRole[],
+    managedRoles: readonly ManagedRole[] | undefined,
+    channels: GuildChannel[]
+): ControlContext {
     return {
         roles,
         ...(managedRoles ? { managedRoles } : {}),
-        channels: [],
+        channels,
         ticketTypes: [],
         variables: [],
         requirements: ALL_REQUIREMENTS_AVAILABLE,
@@ -65,10 +71,11 @@ interface HarnessProps {
     readonly uploads?: GuildUploads;
     readonly roles?: GuildRole[];
     readonly managedRoles?: readonly ManagedRole[];
+    readonly channels?: GuildChannel[];
 }
 
 /** The control on a node whose value follows its own `onChange`, as the inspector's does. */
-function Harness({ initial, emitted, issues, uploads = NO_UPLOADS, roles = [], managedRoles }: HarnessProps) {
+function Harness({ initial, emitted, issues, uploads = NO_UPLOADS, roles = [], managedRoles, channels = [] }: HarnessProps) {
     const [value, setValue] = useState<unknown>(initial);
     return (
         <MessageControl
@@ -79,7 +86,7 @@ function Harness({ initial, emitted, issues, uploads = NO_UPLOADS, roles = [], m
                 emitted.push(message);
                 setValue(message);
             }}
-            context={contextWith(uploads, roles, managedRoles)}
+            context={contextWith(uploads, roles, managedRoles, channels)}
             issues={issues}
         />
     );
@@ -162,11 +169,24 @@ describe('editing a part in place', () => {
         expect(screen.queryByRole('textbox', { name: 'Embed 1 title' })).toBeNull();
     });
 
-    it('starts a node with no message on one embed in the first swatch, written by the first edit', async () => {
+    it('starts a node with no message on the plain text alone, written by the first edit', async () => {
         const emitted: (DiscordMessage | undefined)[] = [];
         const { user } = await openWindow({ initial: undefined, emitted });
         expect(emitted).toEqual([]);
+        expect(screen.queryByRole('button', { name: 'Embed 1 title' })).toBeNull();
+        expect(screen.getByText('0 of 10')).toBeTruthy();
 
+        await user.click(screen.getByRole('button', { name: 'Plain text' }));
+        await user.type(screen.getByRole('textbox', { name: 'Plain text' }), 'Hi');
+
+        expect(last(emitted)).toEqual({ content: 'Hi', embeds: [] });
+    });
+
+    it('adds an embed to a fresh message on purpose, in the first swatch', async () => {
+        const emitted: (DiscordMessage | undefined)[] = [];
+        const { user } = await openWindow({ initial: undefined, emitted });
+
+        await user.click(screen.getByRole('button', { name: 'Add embed' }));
         await user.click(screen.getByRole('button', { name: 'Embed 1 title' }));
         await user.type(screen.getByRole('textbox', { name: 'Embed 1 title' }), 'Hi');
 
@@ -354,6 +374,82 @@ describe('role mentions', () => {
         await user.keyboard('{Escape}');
         expect(screen.queryByRole('textbox', { name: 'Plain text' })).toBeNull();
         expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
+    });
+});
+
+describe('channel mentions', () => {
+    const LOUNGE: GuildChannel = { id: '700000000000000000', name: 'Lounge', type: 'category', parentId: null, parentName: null, owner: null };
+    const GENERAL: GuildChannel = {
+        id: '710000000000000000',
+        name: 'general',
+        type: 'text',
+        parentId: LOUNGE.id,
+        parentName: LOUNGE.name,
+        owner: null,
+    };
+    const GENTLE: GuildChannel = { id: '720000000000000000', name: 'gentle-reminders', type: 'text', parentId: null, parentName: null, owner: null };
+    const CHANNELS = [LOUNGE, GENERAL, GENTLE];
+    const VERIFIED: GuildRole = { id: '222222222222222222', name: 'Verified', color: 0xe74c3c, position: 3, owner: null };
+
+    it('draws a mentioned channel by name where Discord does — unknown ones as such, token links as tokens — and as written in a title', async () => {
+        await openWindow({
+            initial: {
+                embeds: [
+                    {
+                        title: `See <#${GENERAL.id}>`,
+                        description: `Go to <#${GENERAL.id}>, not <#999999999999999999>. Yours: <#{{var.ticketChannelId}}>`,
+                    },
+                ],
+            },
+            emitted: [],
+            channels: CHANNELS,
+        });
+
+        expect(screen.getByRole('button', { name: 'Embed 1 body' }).textContent).toBe(
+            'Go to #general, not #unknown-channel. Yours: <#{{var.ticketChannelId}}>'
+        );
+        expect(screen.getByRole('button', { name: 'Embed 1 title' }).textContent).toBe(`See <#${GENERAL.id}>`);
+    });
+
+    it("offers the server's text channels on # and writes the one picked as <#id>, shown by name while typing", async () => {
+        const emitted: (DiscordMessage | undefined)[] = [];
+        const { user } = await openWindow({ initial: { content: 'Read' }, emitted, roles: [VERIFIED], channels: CHANNELS });
+
+        await user.click(screen.getByRole('button', { name: 'Plain text' }));
+        const box = screen.getByRole('textbox', { name: 'Plain text' });
+        await user.type(box, ' #');
+        // Text channels only, the category a hint beside the channel, and never offered itself.
+        expect(screen.getByRole('option', { name: /^#general\s*Lounge$/ })).toBeTruthy();
+        expect(screen.getByRole('option', { name: '#gentle-reminders' })).toBeTruthy();
+        expect(screen.queryByRole('option', { name: /^#Lounge/ })).toBeNull();
+        // `#` is the channels' list alone.
+        expect(screen.queryByRole('option', { name: 'Verified' })).toBeNull();
+
+        await user.type(box, 'gener');
+        expect(screen.queryByRole('option', { name: '#gentle-reminders' })).toBeNull();
+        await user.click(screen.getByRole('option', { name: /^#general/ }));
+
+        expect(last(emitted)).toEqual({ content: `Read <#${GENERAL.id}> `, embeds: [] });
+        expect((box as HTMLTextAreaElement).value).toBe('Read #general ');
+        expect(document.activeElement).toBe(box);
+
+        // The same box still offers the roles on @.
+        await user.type(box, '@ver');
+        await user.click(screen.getByRole('option', { name: 'Verified' }));
+        expect(last(emitted)).toEqual({ content: `Read <#${GENERAL.id}> <@&${VERIFIED.id}> `, embeds: [] });
+    });
+
+    it('shuts the channel list on Escape and leaves the part open', async () => {
+        const { user } = await openWindow({ initial: { content: 'Hey' }, emitted: [], channels: CHANNELS });
+
+        await user.click(screen.getByRole('button', { name: 'Plain text' }));
+        const box = screen.getByRole('textbox', { name: 'Plain text' });
+        await user.type(box, ' #');
+        expect(screen.getByRole('option', { name: '#gentle-reminders' })).toBeTruthy();
+
+        fireEvent.keyDown(box, { key: 'Escape', code: 'Escape', keyCode: 27 });
+        expect(screen.queryByRole('option', { name: '#gentle-reminders' })).toBeNull();
+        expect(screen.getByRole('textbox', { name: 'Plain text' })).toBeTruthy();
     });
 });
 

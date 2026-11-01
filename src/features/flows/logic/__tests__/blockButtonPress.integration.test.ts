@@ -19,7 +19,6 @@ import { ticketingRepo } from '../../../tickets/data/ticketingRepo';
 import type { ConfiguredTicketingConfig } from '../../../tickets/data/ticketingSchema';
 import { ACTION_CLOSE_TICKET } from '../../blocks/actionCloseTicket';
 import { ACTION_OPEN_TICKET } from '../../blocks/actionOpenTicket';
-import { ACTION_POST_EMBED } from '../../blocks/actionPostEmbed';
 import { ACTION_SEND_MESSAGE } from '../../blocks/actionSendMessage';
 import { ACTION_WAIT_FOR_EVENT } from '../../blocks/actionWaitForEvent';
 import { TRIGGER_BUTTON_CLICK } from '../../blocks/triggerButtonClick';
@@ -40,7 +39,7 @@ import { LISTENER_DISABLED, LISTENERS_FIGHTING, NOTHING_HOOKED_UP } from '../mes
  * TestDiscord, wired by the real `initFlows()`, on the real migrated schema, with presses
  * routed through the real `interactionsRegistry` as `bot.ts` routes them.
  *
- * Where a case is about the post itself (Post Embed's, Open Ticket's), the posting block runs
+ * Where a case is about the post itself (Send Message's, Open Ticket's), the posting block runs
  * for real through the executor, under the posting flow's id, so the record the press reads
  * is the one the block wrote. Where a case is about who listens, the post is a message the
  * bot sends with one `mbtn:` button and its record written straight to the table.
@@ -90,7 +89,7 @@ function listenerGraph(lounge: ServerChannel, button: { flowId: string; nodeId: 
                 id: 'say',
                 type: ACTION_SEND_MESSAGE,
                 position: { x: 0, y: 100 },
-                data: { channelId: lounge.id, message: 'about {{subject.id}}, pressed by {{actor.mention}}' },
+                data: { channelId: lounge.id, message: { content: 'about {{subject.id}}, pressed by {{actor.mention}}', embeds: [] } },
             },
             ...extra,
         ],
@@ -98,7 +97,7 @@ function listenerGraph(lounge: ServerChannel, button: { flowId: string; nodeId: 
     };
 }
 
-/** Member Joins → Post Embed in `notices` with one `kneel` button: the posting flow. */
+/** Member Joins → Send Message in `notices` with one `kneel` button: the posting flow. */
 function posterGraph(notices: ServerChannel): FlowGraph {
     return {
         version: FLOW_GRAPH_VERSION,
@@ -113,7 +112,7 @@ function posterGraph(notices: ServerChannel): FlowGraph {
 function postNode(notices: ServerChannel): FlowNode {
     return {
         id: 'post',
-        type: ACTION_POST_EMBED,
+        type: ACTION_SEND_MESSAGE,
         position: { x: 0, y: 100 },
         data: {
             channelId: notices.id,
@@ -134,7 +133,7 @@ function waitingRoomGraph(lounge: ServerChannel): FlowGraph {
                 id: 'woke',
                 type: ACTION_SEND_MESSAGE,
                 position: { x: 0, y: 200 },
-                data: { channelId: lounge.id, message: 'woke {{subject.username}}' },
+                data: { channelId: lounge.id, message: { content: 'woke {{subject.username}}', embeds: [] } },
             },
         ],
         edges: [
@@ -186,7 +185,7 @@ async function sendButtonMessage(place: Dungeon, buttonKey: string): Promise<str
 
 /**
  * A message with one `mbtn:kneel` button the bot sent in `notices`, recorded as `flowId`'s
- * `post` node's — what Post Embed leaves behind, without running it.
+ * `post` node's — what Send Message leaves behind, without running it.
  */
 async function recordedPost(place: Dungeon, flowId: string, subjectId: string | null, recorded = true): Promise<string> {
     const messageId = await sendButtonMessage(place, 'kneel');
@@ -272,7 +271,7 @@ afterAll(async () => {
     await discord.destroy();
 });
 
-describe("a press on a button under Post Embed's post", () => {
+describe("a press on a button under Send Message's post", () => {
     it('starts a run about whoever the posting run was about, set going by the presser, closed with a deferred update', async () => {
         const place = dungeon();
         await createJourney(place.guild, JOURNEY_KEY);
@@ -289,7 +288,7 @@ describe("a press on a button under Post Embed's post", () => {
         const petMember = liveGuild.members.cache.get(pet.id);
         if (!petMember) throw new Error(`The client holds no member ${pet.id}.`);
 
-        // Post Embed, run for real under the posting flow's id, about the pet.
+        // Send Message, run for real under the posting flow's id, about the pet.
         const posted = await executeFlow(posterId, posterGraph(place.notices), 'joined', {
             client: DISCORD_CLIENT,
             guild: liveGuild,
@@ -596,7 +595,7 @@ describe("a press on a button under Open Ticket's post", () => {
                     id: 'say',
                     type: ACTION_SEND_MESSAGE,
                     position: { x: 0, y: 200 },
-                    data: { channelId: lounge.id, message: 'closed {{var.ticketId}} in {{var.ticketChannelId}}' },
+                    data: { channelId: lounge.id, message: { content: 'closed {{var.ticketId}} in {{var.ticketChannelId}}', embeds: [] } },
                 },
             ],
             edges: [

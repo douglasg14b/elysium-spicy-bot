@@ -56,7 +56,7 @@ function node(id: string, type: string, data: Record<string, unknown>): FlowNode
 function replyNode(id: string, tag: string): FlowNode {
     return node(id, ACTION_SEND_MESSAGE, {
         channelId: '{{var.postedInChannelId}}',
-        message: `${tag}|{{var.messageChannelId}}|{{var.postedInChannelId}}|{{subject.username}}`,
+        message: { content: `${tag}|{{var.messageChannelId}}|{{var.postedInChannelId}}|{{subject.username}}`, embeds: [] },
     });
 }
 
@@ -268,7 +268,7 @@ beforeAll(async () => {
         oneOffs = { guild, hall };
         const announce = (trigger: FlowNode, said: string): FlowGraph =>
             graph(
-                [trigger, node('say', ACTION_SEND_MESSAGE, { channelId: hall.id, message: `${said} {{subject.username}}` })],
+                [trigger, node('say', ACTION_SEND_MESSAGE, { channelId: hall.id, message: { content: `${said} {{subject.username}}`, embeds: [] } })],
                 [{ id: 'e1', source: trigger.id, target: 'say' }]
             );
         await enabledFlow(guild, announce(node('joined', TRIGGER_MEMBER_JOIN, {}), 'joined'));

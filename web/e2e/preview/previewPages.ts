@@ -15,12 +15,16 @@ export interface PreviewPage {
 
 /**
  * One click: on a button by its accessible name, on the first element showing some text, or on
- * a text box by its accessible name — which is how a select opens its options.
+ * a text box by its accessible name — which is how a select opens its options. Or a key pressed
+ * (`press`, Playwright's names: `Control+End`), or text typed where the focus is (`type`) — how
+ * a list that opens on a typed character, the `#` channel list, is shot open.
  */
 export type PreviewStep =
     | { readonly clickButton: string }
     | { readonly clickText: string }
-    | { readonly clickTextbox: string };
+    | { readonly clickTextbox: string }
+    | { readonly press: string }
+    | { readonly type: string };
 
 /**
  * Where the preview server lists its seeded pages. Under `/api` so Vite's proxy forwards

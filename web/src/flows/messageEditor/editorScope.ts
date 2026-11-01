@@ -10,7 +10,7 @@ import type { ListenerOnButton } from '../buttonListeners';
 import type { GuildUploads } from '../controls/types';
 import type { AvailableVariable, RequirementAvailability } from '../variables';
 import type { MessageDraft } from './messageDraft';
-import type { MentionableRole } from './roleMentions';
+import type { MentionLists } from './mentions';
 import type { PlacedMessageIssues } from './messageIssues';
 
 /** Edit draws every part as something to click; Preview draws only what will be posted, tokens filled in. */
@@ -40,8 +40,11 @@ export interface EditorScope {
     readonly variables: readonly AvailableVariable[];
     readonly requirements: RequirementAvailability;
     readonly uploads: GuildUploads;
-    /** The server's roles, managed ones too, for drawing `<@&id>` as the role and for the `@` list. */
-    readonly roles: readonly MentionableRole[];
+    /**
+     * The server's roles, managed ones too, and its text channels — for drawing `<@&id>` and
+     * `<#id>` as what they name, and for the `@` and `#` lists.
+     */
+    readonly mentions: MentionLists;
     /** The colours the block offers; the first one colours a new embed. */
     readonly swatches: readonly string[];
     /**
