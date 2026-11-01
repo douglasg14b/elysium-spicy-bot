@@ -2461,6 +2461,19 @@
                         },
                         "type": "object"
                     },
+                    "condition.ticketStatus": {
+                        "properties": {
+                            "source": {},
+                            "ticketId": {
+                                "minLength": 1,
+                                "type": "string",
+                                "x-messages": {
+                                    "minLength": "Can't be empty."
+                                }
+                            }
+                        },
+                        "type": "object"
+                    },
                     "condition.timeSince": {
                         "properties": {
                             "channelId": {},
@@ -2619,6 +2632,7 @@
                     "condition.inChannel",
                     "condition.isBooster",
                     "condition.levelAtLeast",
+                    "condition.ticketStatus",
                     "condition.timeSince",
                     "trigger.buttonClick",
                     "trigger.levelReached",

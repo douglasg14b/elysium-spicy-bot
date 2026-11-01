@@ -441,6 +441,10 @@ export const zFlowBlockFieldRules = z.object({
         level: z.unknown().optional(),
         member: z.unknown().optional()
     }),
+    'condition.ticketStatus': z.object({
+        source: z.unknown().optional(),
+        ticketId: z.string().min(1, 'Can\'t be empty.').optional()
+    }),
     'condition.timeSince': z.object({
         channelId: z.unknown().optional(),
         comparison: z.unknown().optional(),

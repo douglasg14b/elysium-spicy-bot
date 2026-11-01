@@ -233,7 +233,7 @@ describe('action.closeTicket on the ticket in this channel', () => {
 
     it('fails by name when the run has no channel — deleted while it waited, or never resolved', async () => {
         await expect(block.run(HERE, context(1, null))).rejects.toThrow(
-            "set to close the ticket in this channel, and this run isn't in a channel the bot can reach"
+            "set to use the ticket in this channel, and this run isn't in a channel the bot can reach"
         );
         expect(getTicketByChannel).not.toHaveBeenCalled();
     });
@@ -263,7 +263,7 @@ describe('action.closeTicket config, as the executor parses it', () => {
         const byIdWithout = parseNodeConfig(registered, {});
         expect(byIdWithout.success).toBe(false);
         expect(byIdWithout.error?.issues).toEqual([
-            expect.objectContaining({ path: ['ticketId'], message: 'Which ticket? Give it an id — or close the ticket in this channel.' }),
+            expect.objectContaining({ path: ['ticketId'], message: 'Which ticket? Give it an id — or use the ticket in this channel.' }),
         ]);
 
         expect(parseNodeConfig(registered, { source: 'here' }).success).toBe(true);

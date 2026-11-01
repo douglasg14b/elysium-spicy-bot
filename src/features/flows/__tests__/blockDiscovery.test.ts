@@ -46,6 +46,7 @@ const SHIPPED_BLOCK_TYPES = [
     'condition.inChannel',
     'condition.isBooster',
     'condition.levelAtLeast',
+    'condition.ticketStatus',
     'condition.timeSince',
     'trigger.buttonClick',
     'trigger.levelReached',

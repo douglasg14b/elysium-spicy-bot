@@ -648,6 +648,10 @@ export type FlowBlockFieldRules = {
         level?: unknown;
         member?: unknown;
     };
+    'condition.ticketStatus': {
+        source?: unknown;
+        ticketId?: string;
+    };
     'condition.timeSince': {
         channelId?: unknown;
         comparison?: unknown;
