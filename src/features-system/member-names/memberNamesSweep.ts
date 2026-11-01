@@ -1,7 +1,8 @@
 import type { Client, Guild } from 'discord.js';
 import { isGuildAllowed } from '../guild-allowlist';
 import { memberNamesRepo } from './data/memberNamesRepo';
-import { seenMember } from './logic/seenNames';
+import { seenMember, seenUser } from './logic/seenNames';
+import { memberAvatarDownloads } from './memberAvatarDownloads';
 import { memberNamesQueue } from './memberNamesQueue';
 
 /** What one guild's sweep found and changed. */
@@ -23,7 +24,7 @@ export async function sweepGuildMembers(guild: Guild): Promise<GuildSweepResult>
     const members = await guild.members.fetch();
     const seen = [...members.values()].map(seenMember);
 
-    return memberNamesQueue(guild.id, async () => {
+    const result = await memberNamesQueue(guild.id, async () => {
         await memberNamesRepo.recordPresent(guild.id, seen, startedAt);
         const markedGone = await memberNamesRepo.markMissingAsGone(
             guild.id,
@@ -32,6 +33,13 @@ export async function sweepGuildMembers(guild: Guild): Promise<GuildSweepResult>
         );
         return { members: seen.length, markedGone };
     });
+
+    // Read from the members now, not from the list as fetched: the sweep can wait behind a
+    // large server's write, discord.js patches each one's shared User in place meanwhile, and
+    // the queue takes the newest note as the truth — so it must be the current avatar, not
+    // one an update heard during the wait has already replaced.
+    memberAvatarDownloads.note([...members.values()].map((member) => seenUser(member.user)));
+    return result;
 }
 
 /** The sweep running or last queued, whichever guild it is for. */

@@ -22,6 +22,7 @@ function remembered(overrides: Partial<MemberName> = {}): MemberName {
         isBot: false,
         inServer: false,
         leftAt: '2026-10-30T12:00:00.000Z',
+        avatarUrl: null,
         ...overrides,
     };
 }
@@ -70,15 +71,29 @@ describe('memberPresentation', () => {
         expect(nicknamed.avatarUrl).toBeNull();
     });
 
-    it('prefers the live member over anything remembered', () => {
+    it('shows somebody who left with the avatar the bot kept, and the monogram when it kept none', () => {
+        const kept = `/api/guilds/1/member-names/${DEPARTED_ID}/avatar?v=lastface`;
+
+        expect(memberPresentation(null, DEPARTED_ID, remembered({ avatarUrl: kept })).avatarUrl).toBe(kept);
+        expect(memberPresentation(null, DEPARTED_ID, remembered()).avatarUrl).toBeNull();
+    });
+
+    it('prefers the live member over anything remembered, their live avatar included', () => {
         const presented = memberPresentation(
-            { userId: DEPARTED_ID, displayName: 'Back Again', username: 'gonegirl', avatarUrl: null, isBot: false },
+            {
+                userId: DEPARTED_ID,
+                displayName: 'Back Again',
+                username: 'gonegirl',
+                avatarUrl: 'https://cdn.discordapp.com/avatars/1/live.png',
+                isBot: false,
+            },
             DEPARTED_ID,
-            remembered()
+            remembered({ avatarUrl: `/api/guilds/1/member-names/${DEPARTED_ID}/avatar?v=old` })
         );
 
         expect(presented.name).toBe('Back Again');
         expect(presented.departed).toBe(false);
+        expect(presented.avatarUrl).toBe('https://cdn.discordapp.com/avatars/1/live.png');
     });
 
     it('reports a null avatar rather than a broken image url', () => {

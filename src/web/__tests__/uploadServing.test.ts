@@ -7,7 +7,8 @@ import { flowUploadUses } from '../../features/flows/logic/flowUploadUses';
 import { initProvisioning } from '../../features/provisioning';
 import { MIB } from '../../shared/byteSizes';
 import { buildOpenApiDocument } from '../api/openApiDocument';
-import { UPLOAD_CACHE_CONTROL, UPLOAD_NOT_AN_IMAGE_SENTENCE } from '../api/uploadRoutes';
+import { UPLOAD_NOT_AN_IMAGE_SENTENCE } from '../api/uploadRoutes';
+import { PICTURE_CACHE_CONTROL } from '../edgeGuards';
 import type { GuildUploadBody } from '../api/uploadBody';
 import { buildApp } from '../server';
 import type { AppEnv } from '../types';
@@ -96,7 +97,7 @@ describe('caching an uploaded picture', () => {
         expect(created.status).toBe(201);
         expect(created.headers.get('Cache-Control')).toBe('private, no-store');
         expect(picture.status).toBe(200);
-        expect(picture.headers.get('Cache-Control')).toBe(UPLOAD_CACHE_CONTROL);
+        expect(picture.headers.get('Cache-Control')).toBe(PICTURE_CACHE_CONTROL);
         expect(missing.status).toBe(404);
         expect(missing.headers.get('Cache-Control')).toBe('private, no-store');
         expect(list.status).toBe(200);

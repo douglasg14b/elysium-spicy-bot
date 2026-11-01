@@ -97,6 +97,7 @@ describe('WarningsListPage', () => {
                 isBot: false,
                 inServer: false,
                 leftAt: '2026-10-29T12:00:00.000Z',
+                avatarUrl: null,
             },
         ]);
         api.on('GET', `${LIST_PATH}?status=active`, () => list([warning()]));

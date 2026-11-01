@@ -1035,9 +1035,10 @@ export const zLogoutResult = z.object({
 });
 
 /**
- * Who an id is in this server. `username` and `globalName` are the account's, `nickname` this server's — the last one seen, for somebody who left. `nicknames` is every server nickname seen, newest first. `inServer` false with no `leftAt` (ISO) means the bot did not see them go. Show `nickname`, else `globalName`, else `username`.
+ * Who an id is in this server. `username` and `globalName` are the account's, `nickname` this server's — the last one seen, for somebody who left. `nicknames` is every server nickname seen, newest first. `inServer` false with no `leftAt` (ISO) means the bot did not see them go. Show `nickname`, else `globalName`, else `username`. `avatarUrl` is the same-origin address of the account avatar the bot keeps (`getMemberAvatar`, for an `<img src>`), or null when it holds none or they have none set.
  */
 export const zMemberName = z.object({
+    avatarUrl: z.string().nullable(),
     globalName: z.string().nullable(),
     inServer: z.boolean(),
     isBot: z.boolean(),
@@ -2522,6 +2523,20 @@ export const zGetMemberNamesQuery = z.object({
  * One entry per id the bot knows. Ids it has not seen are looked up from Discord, up to 25 a request; the rest are left out until a later one.
  */
 export const zGetMemberNamesResponse = zMemberNameList;
+
+export const zGetMemberAvatarPath = z.object({
+    guildId: z.string(),
+    userId: z.string()
+});
+
+export const zGetMemberAvatarQuery = z.object({
+    v: z.string().optional()
+});
+
+/**
+ * The picture.
+ */
+export const zGetMemberAvatarResponse = z.string();
 
 export const zSearchGuildMembersPath = z.object({
     guildId: z.string()

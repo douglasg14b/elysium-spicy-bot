@@ -34,6 +34,7 @@ import { GuildUploadsTable } from '../guild-uploads/data/guildUploadsSchema';
 import { ActivityEventsTable } from '../activity/data/activityEventsSchema';
 import { ActivityRecorderSessionsTable } from '../activity/data/activityRecorderSessionsSchema';
 import { MemberNamesTable } from '../member-names/data/memberNamesSchema';
+import { MemberAvatarsTable } from '../member-names/data/memberAvatarsSchema';
 
 export interface Database {
     flash_chat_config: FlashChatConfigTable;
@@ -62,6 +63,7 @@ export interface Database {
     activity_events: ActivityEventsTable;
     activity_recorder_sessions: ActivityRecorderSessionsTable;
     member_names: MemberNamesTable;
+    member_avatars: MemberAvatarsTable;
 }
 
 function getDbDialect() {
@@ -129,7 +131,10 @@ function getDatabaseClient() {
                 activity_events: ['occurredAt'],
                 // Likewise absent from both sqlite-only plugins: dates only.
                 activity_recorder_sessions: ['startedAt', 'lastSeenAt', 'gapFilledAt'],
-                member_names: ['leftAt', 'firstSeenAt', 'updatedAt'],
+                member_names: ['leftAt', 'firstSeenAt', 'updatedAt', 'avatarCheckedAt'],
+                // No boolean or JSON columns, so absent from both sqlite-only plugins below.
+                // `bytes` is a Buffer on both drivers, as `guild_uploads.bytes` is.
+                member_avatars: ['fetchedAt'],
         }),
     ];
 
