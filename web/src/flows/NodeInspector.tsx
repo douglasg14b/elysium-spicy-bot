@@ -12,6 +12,7 @@ import type {
     FlowValidationIssue,
     GuildChannel,
     GuildEmoji,
+    ManagedRole,
     GuildRole,
     NodeDescriptor,
     ResourceDeclaration,
@@ -71,6 +72,11 @@ interface NodeInspectorProps {
      * page's read answers, or after it failed.
      */
     serverEmojis?: readonly GuildEmoji[];
+    /**
+     * The roles Discord or an integration manages, for a message to name. Absent until the
+     * page's read answers, or after it failed.
+     */
+    managedRoles?: readonly ManagedRole[];
     /** Change the journey's declarations, for a control that makes one (`messageButton`). */
     declareResources: ControlContext['declareResources'];
     /** Who listens to the journey's buttons, seen from this node. */
@@ -109,6 +115,7 @@ export function NodeInspector({
     serverTimeZone,
     uploads,
     serverEmojis,
+    managedRoles,
     declareResources,
     listeners,
     journey,
@@ -142,6 +149,7 @@ export function NodeInspector({
         ...(serverTimeZone ? { serverTimeZone } : {}),
         uploads,
         ...(serverEmojis ? { serverEmojis } : {}),
+        ...(managedRoles ? { managedRoles } : {}),
         declareResources,
         listeners,
         journey,

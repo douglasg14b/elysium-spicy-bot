@@ -51,13 +51,41 @@ interface ShardStub {
     readonly id: number;
     readonly status: Status;
     checkReady(): void;
+    /**
+     * What the bot sends up the gateway. `guild.members.fetch()` with no id, or with many,
+     * sends a RequestGuildMembers here (through `guild.shard`, looked up in `client.ws.shards`).
+     */
+    send(payload: GatewayShardPayload): void;
 }
 
-const SHARD: ShardStub = { id: 0, status: Status.Ready, checkReady: () => undefined };
+/** A payload the bot sends up the gateway, as discord.js hands it to a shard. */
+interface GatewayShardPayload {
+    readonly op: GatewayOpcodes;
+    readonly d?: unknown;
+}
+
+/** RequestGuildMembers as discord.js sends it (`GuildMemberManager#_fetchMany`). */
+interface RequestGuildMembersData {
+    readonly guild_id: string;
+    readonly user_ids?: string | readonly string[];
+    readonly query?: string;
+    readonly limit?: number;
+    readonly presences?: boolean;
+    readonly nonce?: string;
+}
 
 function internalsOf(client: Client): GatewayInternals {
     // Private members, reached on purpose — see GatewayInternals. Casts stay in the harness.
     return client.ws as unknown as GatewayInternals;
+}
+
+/**
+ * Put `shard` where `guild.shard` finds it. A client that never logged in has no shards,
+ * so without this every gateway send throws before reaching the harness.
+ */
+function installShard(client: Client, shard: ShardStub): void {
+    // A stub in place of discord.js's `WebSocketShard`. Casts stay in the harness.
+    (client.ws.shards as unknown as Map<number, ShardStub>).set(shard.id, shard);
 }
 
 /** Why the client's copy of a channel differs from Discord's, or undefined if it does not. */
@@ -121,6 +149,22 @@ function describeMismatch(client: Client, event: HarnessEvent): string | undefin
             return client.guilds.cache.get(event.d.guild_id)?.members.cache.has(event.d.user.id)
                 ? undefined
                 : `the client holds no member ${event.d.user.id}`;
+
+        case GatewayDispatchEvents.GuildMemberUpdate: {
+            const member = client.guilds.cache.get(event.d.guild_id)?.members.cache.get(event.d.user.id);
+            if (!member) return `the client holds no member ${event.d.user.id}`;
+            const agrees =
+                member.nickname === (event.d.nick ?? null) &&
+                member.user.username === event.d.user.username &&
+                member.user.globalName === event.d.user.global_name;
+            return agrees ? undefined : `member ${event.d.user.id} does not carry the nickname or names Discord sent`;
+        }
+
+        case GatewayDispatchEvents.GuildMembersChunk: {
+            const cache = client.guilds.cache.get(event.d.guild_id)?.members.cache;
+            const missing = event.d.members.filter((member) => !cache?.has(member.user.id));
+            return missing.length === 0 ? undefined : `the client holds no member ${missing[0]?.user.id} from the chunk`;
+        }
 
         // Holds whether or not discord.js emitted anything: an uncached member with no
         // GuildMember partial is dropped without touching the cache, and that is the
@@ -230,6 +274,13 @@ export class GatewayLink implements EventSink, EventDeferral {
     private client: Client | undefined;
     private deferring = 0;
     private readonly pending: HarnessEvent[] = [];
+    private readonly shard: ShardStub = {
+        id: 0,
+        status: Status.Ready,
+        // Readiness is driven explicitly in `connect`; a real shard would start timers.
+        checkReady: () => undefined,
+        send: (payload) => this.answer(payload),
+    };
 
     constructor(private readonly state: ServerState) {}
 
@@ -239,6 +290,7 @@ export class GatewayLink implements EventSink, EventDeferral {
      */
     connect(client: Client): void {
         this.client = client;
+        installShard(client, this.shard);
 
         this.send({
             op: GatewayOpcodes.Dispatch,
@@ -313,9 +365,39 @@ export class GatewayLink implements EventSink, EventDeferral {
         }
     }
 
+    /**
+     * Answer what the bot sent up the gateway. Only a member request is modelled — every
+     * member, or the ones named — and anything else is refused by name.
+     *
+     * Answered on a later turn of the event loop, never inside the send: discord.js starts
+     * listening for the chunk only after sending, as it can over a real socket, and the
+     * request and its answer are no more ordered against anything else than that.
+     */
+    private answer(payload: GatewayShardPayload): void {
+        if (payload.op !== GatewayOpcodes.RequestGuildMembers) {
+            throw new TestDiscordError(`TestDiscord does not model gateway opcode ${GatewayOpcodes[payload.op]} sent by the bot.`);
+        }
+        const request = payload.d as RequestGuildMembersData;
+        if (request.presences || request.query || request.limit) {
+            throw new TestDiscordError(
+                'TestDiscord models a member request for every member, or for named ids — not a name query, a limit or presences.'
+            );
+        }
+        const userIds =
+            request.user_ids === undefined
+                ? undefined
+                : typeof request.user_ids === 'string'
+                  ? [request.user_ids]
+                  : request.user_ids;
+        const chunk = this.state.membersChunk(request.guild_id, { userIds, nonce: request.nonce });
+        setImmediate(() => {
+            this.publish({ t: GatewayDispatchEvents.GuildMembersChunk, d: chunk });
+        });
+    }
+
     /** Whether discord.js applied the packet — false when it queued it until Ready. */
     private send(packet: GatewayDispatchPayload): boolean {
-        return internalsOf(this.connectedClient()).handlePacket(packet, SHARD);
+        return internalsOf(this.connectedClient()).handlePacket(packet, this.shard);
     }
 
     private connectedClient(): Client {

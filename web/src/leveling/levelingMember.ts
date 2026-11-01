@@ -7,13 +7,14 @@
  * pages need that decision, so it lives here rather than twice in JSX.
  */
 
-import type { LevelingMember } from '@brattybot/web-sdk';
+import type { LevelingMember, MemberName } from '@brattybot/web-sdk';
+import { memberNameLabel } from '../members/memberNames';
 
 /** What a row or header needs to draw a person, with absence already resolved. */
 export interface MemberPresentation {
-    /** Always printable: a display name, or the id when Discord no longer knows them. */
+    /** Always printable: a display name, or the id when nobody can name them. */
     readonly name: string;
-    /** The handle, when there is one. Null for a departed member — never a fabricated `@id`. */
+    /** The handle, when one is known. Null otherwise — never a fabricated `@id`. */
     readonly handle: string | null;
     /** Null means "render the monogram", not "broken image". */
     readonly avatarUrl: string | null;
@@ -41,7 +42,9 @@ function monogramOf(name: string): string {
 }
 
 /**
- * Resolve a member for display, falling back to the id when they are gone.
+ * Resolve a member for display. Somebody who is gone is named by the bot's memory of them
+ * (`remembered`, from `useMemberNames`) — the name they went by, and their handle — and
+ * by the id when it has none.
  *
  * The id rather than "Unknown User": null means "Discord did not resolve this account",
  * not "this account has no name", and inventing a label would put a string on screen an
@@ -50,9 +53,21 @@ function monogramOf(name: string): string {
  */
 export function memberPresentation(
     member: LevelingMember | null,
-    userId: string
+    userId: string,
+    remembered: MemberName | undefined
 ): MemberPresentation {
     if (!member) {
+        if (remembered) {
+            const name = memberNameLabel(remembered);
+            return {
+                name,
+                handle: remembered.username || null,
+                avatarUrl: null,
+                monogram: monogramOf(name),
+                departed: true,
+                isBot: remembered.isBot,
+            };
+        }
         return {
             name: userId,
             handle: null,

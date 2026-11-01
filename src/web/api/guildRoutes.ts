@@ -20,11 +20,13 @@ import {
     GuildRoleSchema,
     GuildSchema,
     GuildSettingsSchema,
+    ManagedRoleSchema,
     ROLE_ID_MAX_LENGTH,
     ROLE_LIST_MAX,
     WarningsConfigSchema,
     type GuildEmojiBody,
     type GuildRoleBody,
+    type ManagedRoleBody,
     type GuildSettingsBody,
     type WarningsConfigBody,
 } from './guildBody';
@@ -131,12 +133,13 @@ const getGuildRolesRoute = createRoute({
     path: '/{guildId}/roles',
     operationId: 'getGuildRoles',
     tags: ['guilds'],
-    summary: "The guild's assignable roles",
+    summary: "The guild's roles: the assignable ones, and apart from them the managed ones",
     request: { params: GuildPathSchema },
     responses: {
         200: jsonResponse(
-            'Assignable roles, highest first, each with the owner already holding it, if any.',
-            z.object({ roles: z.array(GuildRoleSchema) })
+            'Assignable roles, highest first, each with the owner already holding it, if any — and, kept apart so no ' +
+                'picker offers one, the roles Discord or an integration manages, highest first, for a message to name.',
+            z.object({ roles: z.array(GuildRoleSchema), managedRoles: z.array(ManagedRoleSchema) })
         ),
         ...GUILD_SCOPED_ERRORS,
     },
@@ -275,13 +278,18 @@ export function guildRoutes(): OpenAPIHono<AppEnv> {
         // Assignable roles for a guild (role-picker display). Excludes @everyone and
         // managed (bot/integration) roles — neither can be assigned by a flow. Each carries
         // its `owner`, like a channel, so the role adopt picker disables another owner's
-        // role instead of offering an adoption install would block.
+        // role instead of offering an adoption install would block. The managed roles come
+        // back in a list of their own, read only by the message editor's role mentions, so
+        // no picker that grants a role has to know to leave them out.
         router.openapi(getGuildRolesRoute, async (c) => {
             const guild = c.get('guild');
             const ownership = await loadGuildOwnership(guild.id);
-            const roles = [...guild.roles.cache.values()]
+            const highestFirst = [...guild.roles.cache.values()].sort((a, b) => b.position - a.position);
+            const managedRoles = highestFirst
+                .filter((role) => role.managed)
+                .map((role): ManagedRoleBody => ({ id: role.id, name: role.name, color: role.color, position: role.position }));
+            const roles = highestFirst
                 .filter((role) => isAssignableRole(guild, role.id))
-                .sort((a, b) => b.position - a.position)
                 .map(
                     (role): GuildRoleBody => ({
                         id: role.id,
@@ -292,7 +300,7 @@ export function guildRoutes(): OpenAPIHono<AppEnv> {
                     })
                 );
 
-            return c.json({ roles }, 200);
+            return c.json({ roles, managedRoles }, 200);
         });
 
         // The server's own emoji, for a message button's emoji picker. From the cache alone,

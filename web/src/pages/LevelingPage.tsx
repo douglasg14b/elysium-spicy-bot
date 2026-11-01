@@ -44,6 +44,7 @@ import { leaderboardTotals } from '../leveling/levelingLeaderboard';
 import { memberPresentation } from '../leveling/levelingMember';
 import { formatMoment } from '../leveling/levelingPresentation';
 import { useGuilds } from '../guilds/GuildContext';
+import { useMemberNames } from '../members/useMemberNames';
 import { PAGE_MAX_WIDTH } from '../theme';
 
 /** Medals for the top three, because a leaderboard without them is a spreadsheet. */
@@ -70,6 +71,11 @@ export function LevelingPage() {
     const enabled = leaderboard.data?.enabled ?? true;
     const loading = leaderboard.isPending;
     const error = loadErrorMessage(leaderboard.error, 'Failed to load the leaderboard');
+    // Only the rows whose member has left need a name from the bot's memory.
+    const names = useMemberNames(
+        selected?.id ?? '',
+        entries.filter((entry) => !entry.member).map((entry) => entry.userId)
+    );
 
     if (guildsLoading) {
         return (
@@ -211,7 +217,7 @@ export function LevelingPage() {
                         </Table.Thead>
                         <Table.Tbody>
                             {entries.map((entry) => {
-                                const person = memberPresentation(entry.member, entry.userId);
+                                const person = memberPresentation(entry.member, entry.userId, names.get(entry.userId));
                                 return (
                                     <Table.Tr
                                         key={entry.userId}

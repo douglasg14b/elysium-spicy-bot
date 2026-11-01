@@ -1,6 +1,8 @@
 /**
  * One piece of text on the stage: shown as Discord will show it, and a text box in its place
  * once clicked — with its character count from `zDiscordMessage` and the `{x}` token picker.
+ * Where Discord shows a role mention (`showsMentions`), `<@&id>` is drawn as the role, and
+ * the box offers the server's roles on `@` (`RoleMentionTextarea`).
  *
  * Every keystroke goes straight to the node (`apply`), as every inspector control's does, so
  * undo, the draft autosave and the server's re-check as focus leaves all keep working. A part
@@ -14,9 +16,18 @@ import { VariablePicker } from '../controls/VariablePicker';
 import { CopyText } from './CopyText';
 import { DISCORD, PART_TYPE } from './discordLook';
 import { useEditorScope } from './editorScope';
-import { isRemovablePart, partLabel, partPath, readTextPart, setTextPart, type TextPart } from './messageDraft';
+import {
+    isRemovablePart,
+    partLabel,
+    partPath,
+    readTextPart,
+    setTextPart,
+    showsMentions,
+    type TextPart,
+} from './messageDraft';
 import { PartProblems } from './PartProblems';
 import { partRule } from './partRules';
+import { RoleMentionTextarea } from './RoleMentionTextarea';
 
 interface TextPartBoxProps {
     readonly part: TextPart;
@@ -30,8 +41,8 @@ interface TextPartBoxProps {
     readonly takesTokens?: boolean;
 }
 
-/** Marks the token picker's box, which is portalled out of the part's own. */
-const TOKEN_PICKER_ATTRIBUTE = 'data-part-token-picker';
+/** Marks the token picker's box and the role list, each portalled out of the part's own. */
+const PART_DROPDOWN_ATTRIBUTE = 'data-part-dropdown';
 
 /**
  * Kept clear of Mantine's form styling, so the box looks like the text it replaced. No height
@@ -46,6 +57,8 @@ export function TextPartBox({ part, placeholder, styleOver, multiline = false, t
     const label = partLabel(part);
     const textStyle: CSSProperties = { ...PART_TYPE[part.kind], ...styleOver };
     const knownVariables = scope.variables.map((variable) => variable.name);
+    // Drawn as the role only where Discord draws it so; elsewhere `<@&id>` is shown as it will be posted.
+    const roles = showsMentions(part) ? scope.roles : undefined;
     const display = useRef<HTMLButtonElement>(null);
     // Set as the part closes from the keyboard, so focus comes back to it rather than to the page.
     const returnFocus = useRef(false);
@@ -61,7 +74,7 @@ export function TextPartBox({ part, placeholder, styleOver, multiline = false, t
     if (scope.mode === 'preview') {
         return text ? (
             <div style={{ ...textStyle, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-                <CopyText text={text} preview knownVariables={knownVariables} />
+                <CopyText text={text} preview knownVariables={knownVariables} roles={roles} />
             </div>
         ) : null;
     }
@@ -106,7 +119,7 @@ export function TextPartBox({ part, placeholder, styleOver, multiline = false, t
                 }}
             >
                 {text ? (
-                    <CopyText text={text} preview={false} knownVariables={knownVariables} />
+                    <CopyText text={text} preview={false} knownVariables={knownVariables} roles={roles} />
                 ) : (
                     <span style={{ color: DISCORD.muted, fontWeight: 400 }}>{placeholder}</span>
                 )}
@@ -138,8 +151,9 @@ function PartInput({ part, text, label, problems, textStyle, multiline, takesTok
     const live = judged ? rule.problem(text) : undefined;
     const serverOnly = problems.filter((problem) => problem !== live);
     const over = rule.maxLength !== null && text.length > rule.maxLength;
+    const write = (next: string) => scope.apply((message) => setTextPart(message, part, next));
 
-    const keys = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    const keys = (event: KeyboardEvent<HTMLElement>) => {
         if (event.key === 'Escape' || (event.key === 'Enter' && !multiline)) {
             // Escape is the window's too, which finishes the part being typed into.
             if (event.key === 'Enter') {
@@ -156,7 +170,7 @@ function PartInput({ part, text, label, problems, textStyle, multiline, takesTok
      */
     const left = (event: FocusEvent<HTMLDivElement>) => {
         const next = event.relatedTarget;
-        if (next instanceof Element && (event.currentTarget.contains(next) || next.closest(`[${TOKEN_PICKER_ATTRIBUTE}]`))) {
+        if (next instanceof Element && (event.currentTarget.contains(next) || next.closest(`[${PART_DROPDOWN_ATTRIBUTE}]`))) {
             return;
         }
         scope.setEditing(null);
@@ -194,21 +208,30 @@ function PartInput({ part, text, label, problems, textStyle, multiline, takesTok
                         {text.length} / {rule.maxLength}
                     </Text>
                 ) : null}
-                <Textarea
-                    aria-label={label}
-                    variant="unstyled"
-                    autosize
-                    minRows={1}
-                    autoFocus
-                    value={text}
-                    onChange={(event) => {
-                        const next = event.currentTarget.value;
-                        scope.apply((message) => setTextPart(message, part, next));
-                    }}
-                    onKeyDown={keys}
-                    classNames={{ input: 'mx-part-input' }}
-                    styles={{ input: { ...BARE_INPUT, ...textStyle } }}
-                />
+                {showsMentions(part) ? (
+                    <RoleMentionTextarea
+                        label={label}
+                        value={text}
+                        onChange={write}
+                        onKeyDown={keys}
+                        textStyle={textStyle}
+                        roles={scope.roles}
+                        listAttribute={PART_DROPDOWN_ATTRIBUTE}
+                    />
+                ) : (
+                    <Textarea
+                        aria-label={label}
+                        variant="unstyled"
+                        autosize
+                        minRows={1}
+                        autoFocus
+                        value={text}
+                        onChange={(event) => write(event.currentTarget.value)}
+                        onKeyDown={keys}
+                        classNames={{ input: 'mx-part-input' }}
+                        styles={{ input: { ...BARE_INPUT, ...textStyle } }}
+                    />
+                )}
                 {takesTokens ? <TokenButton part={part} text={text} /> : null}
             </Box>
             {live ? <PartProblems problems={[live]} /> : null}
@@ -249,7 +272,7 @@ function TokenButton({ part, text }: { readonly part: TextPart; readonly text: s
                     {'{x}'}
                 </ActionIcon>
             </Popover.Target>
-            <Popover.Dropdown className="nokey" onMouseDown={keepFocus} {...{ [TOKEN_PICKER_ATTRIBUTE]: true }}>
+            <Popover.Dropdown className="nokey" onMouseDown={keepFocus} {...{ [PART_DROPDOWN_ATTRIBUTE]: true }}>
                 <VariablePicker
                     variables={scope.variables}
                     requirements={scope.requirements}
@@ -257,6 +280,7 @@ function TokenButton({ part, text }: { readonly part: TextPart; readonly text: s
                     onInsert={(token) =>
                         scope.apply((message) => setTextPart(message, part, withToken(readTextPart(message, part) ?? '', token)))
                     }
+                    channelLinks={showsMentions(part)}
                 />
             </Popover.Dropdown>
         </Popover>

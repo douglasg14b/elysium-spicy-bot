@@ -722,6 +722,16 @@ export const zGuildEmoji = z.object({
 });
 
 /**
+ * A member whose name starts with the search. `avatarUrl` is null when they have no avatar.
+ */
+export const zGuildMemberMatch = z.object({
+    avatarUrl: z.string().nullable(),
+    displayName: z.string(),
+    id: z.string(),
+    username: z.string()
+});
+
+/**
  * Who already holds a channel, category or role: a journey (by key) or the ticket system. `label` names the owner for the operator.
  */
 export const zGuildObjectOwner = z.object({
@@ -1039,6 +1049,34 @@ export const zLevelingInsightsBody = z.object({
  */
 export const zLogoutResult = z.object({
     ok: z.literal(true)
+});
+
+export const zManagedRole = z.object({
+    color: z.number(),
+    id: z.string(),
+    name: z.string(),
+    position: z.number()
+});
+
+/**
+ * Who an id is in this server. `username` and `globalName` are the account's, `nickname` this server's — the last one seen, for somebody who left. `nicknames` is every server nickname seen, newest first. `inServer` false with no `leftAt` (ISO) means the bot did not see them go. Show `nickname`, else `globalName`, else `username`.
+ */
+export const zMemberName = z.object({
+    globalName: z.string().nullable(),
+    inServer: z.boolean(),
+    isBot: z.boolean(),
+    leftAt: z.string().nullable(),
+    nickname: z.string().nullable(),
+    nicknames: z.array(z.string()),
+    userId: z.string(),
+    username: z.string()
+});
+
+/**
+ * One entry per id the bot knows or could look up. An id missing from it is unknown for now — Discord has no such account, or the lookup was capped and fills in on a later request.
+ */
+export const zMemberNameList = z.object({
+    members: z.array(zMemberName)
 });
 
 /**
@@ -1873,6 +1911,119 @@ export const zUploadInUse = zErrorBody.and(z.object({
     uses: z.array(zUploadUse)
 }));
 
+/**
+ * The server's warning totals, whatever the list is filtered to.
+ */
+export const zWarningCounts = z.object({
+    active: z.number(),
+    expired: z.number(),
+    released: z.number()
+});
+
+/**
+ * A new warning. `issuedOn` defaults to today and `dropsOffOn` to six months after it (Pacific calendar). The issued date cannot be in the future, and the drop-off must be after it and not already past.
+ */
+export const zWarningIssue = z.object({
+    description: z.string().min(1, 'Description cannot be empty. Tell the story.').max(1000, 'Keep the description to 1000 characters. Specific, not a saga.'),
+    dropsOffOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Drop-off date has to be YYYY-MM-DD.').optional(),
+    issuedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Issued date has to be YYYY-MM-DD. Time travel spelling doesn\'t count.').optional(),
+    rule: z.string().min(1, 'Rule cannot be empty. Name the line they crossed.').max(100, 'Keep the rule to 100 characters. Name the line, not the essay.'),
+    userId: z.string().regex(/^\d{17,20}$/, 'Pick a member to warn.')
+});
+
+/**
+ * Whether the mod-log notice went out. The warning is saved whatever this says: `unconfigured` means the server has no mod channel, `skipped` that the bot cannot reach it, `failed` that the post threw.
+ */
+export const zWarningNoticeStatus = z.enum([
+    'sent',
+    'unconfigured',
+    'skipped',
+    'failed'
+]);
+
+/**
+ * Somebody on a warning, as the row recorded them. `name` is null on a warning written before names were recorded; show the id then.
+ */
+export const zWarningPerson = z.object({
+    id: z.string(),
+    name: z.string().nullable()
+});
+
+/**
+ * The last edit: who, and when (ISO).
+ */
+export const zWarningEdit = z.object({
+    at: z.string(),
+    by: zWarningPerson
+});
+
+/**
+ * The release: who, when (ISO), and why. `reason` is null on a warning released before reasons were recorded.
+ */
+export const zWarningRelease = z.object({
+    at: z.string(),
+    by: zWarningPerson,
+    reason: z.string().nullable()
+});
+
+/**
+ * Why the warning is released. Kept on the record.
+ */
+export const zWarningReleaseRequest = z.object({
+    reason: z.string().min(1, 'A release needs a reason. Say why they\'re off the hook.').max(500, 'Keep the reason to 500 characters. It\'s a record, not a memoir.')
+});
+
+/**
+ * `released` once a moderator released it (whether or not it had dropped off), `expired` once its drop-off day has passed on the Pacific calendar, `active` otherwise.
+ */
+export const zWarningStatus = z.enum([
+    'active',
+    'expired',
+    'released'
+]);
+
+/**
+ * One warning. `issuedOn` and `dropsOffOn` are Pacific calendar dates (`YYYY-MM-DD`); it counts as active through its drop-off day. `edited` is the last edit only.
+ */
+export const zWarning = z.object({
+    description: z.string(),
+    dropsOffOn: z.string(),
+    edited: zWarningEdit.nullable(),
+    issuedBy: zWarningPerson,
+    issuedOn: z.string(),
+    member: zWarningPerson,
+    released: zWarningRelease.nullable(),
+    rule: z.string(),
+    slug: z.string(),
+    status: zWarningStatus
+});
+
+/**
+ * The warnings matching the filter, newest issued first. `truncated` means the list was capped and more match; `counts` still reports the whole server.
+ */
+export const zWarningList = z.object({
+    counts: zWarningCounts,
+    truncated: z.boolean(),
+    warnings: z.array(zWarning)
+});
+
+/**
+ * The warning as saved, and whether its mod-log notice went out. Say so plainly when it did not.
+ */
+export const zWarningResult = zWarning.and(z.object({
+    notice: zWarningNoticeStatus
+}));
+
+/**
+ * A warning's editable fields, all three always, and `baseEditedAt`: the `edited.at` the form was loaded from, or null if the warning had never been edited. A warning edited since is refused (409, reload). A drop-off that moves must be after the issued date and not already past; one left as it was is not judged again, so an expired warning can be corrected without reviving it.
+ */
+export const zWarningUpdate = z.object({
+    baseEditedAt: z.iso.datetime().nullable(),
+    description: z.string().min(1, 'Description cannot be empty. Tell the story.').max(1000, 'Keep the description to 1000 characters. Specific, not a saga.'),
+    dropsOffOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Drop-off date has to be YYYY-MM-DD.'),
+    rule: z.string().min(1, 'Rule cannot be empty. Name the line they crossed.').max(100, 'Keep the rule to 100 characters. Name the line, not the essay.')
+});
+
 export const zWarningsConfig = z.object({
     modChannelId: z.string().nullable(),
     modChannelName: z.string().nullable()
@@ -2416,14 +2567,41 @@ export const zGetLevelingUserQuery = z.object({
  */
 export const zGetLevelingUserResponse = zLevelingUserDetail;
 
+export const zGetMemberNamesPath = z.object({
+    guildId: z.string()
+});
+
+export const zGetMemberNamesQuery = z.object({
+    ids: z.string().regex(/^\d{17,20}(?:,\d{17,20}){0,99}$/, 'Send 1 to 100 user ids, separated by commas.')
+});
+
+/**
+ * One entry per id the bot knows. Ids it has not seen are looked up from Discord, up to 25 a request; the rest are left out until a later one.
+ */
+export const zGetMemberNamesResponse = zMemberNameList;
+
+export const zSearchGuildMembersPath = z.object({
+    guildId: z.string()
+});
+
+export const zSearchGuildMembersQuery = z.object({
+    q: z.string().min(1, 'Type the start of their name.').max(32, 'Discord names stop at 32 characters, so that search matches nobody.')
+});
+
+/**
+ * Up to 10 members whose username or server nickname starts with the search, bots left out.
+ */
+export const zSearchGuildMembersResponse = z.array(zGuildMemberMatch);
+
 export const zGetGuildRolesPath = z.object({
     guildId: z.string()
 });
 
 /**
- * Assignable roles, highest first, each with the owner already holding it, if any.
+ * Assignable roles, highest first, each with the owner already holding it, if any — and, kept apart so no picker offers one, the roles Discord or an integration manages, highest first, for a message to name.
  */
 export const zGetGuildRolesResponse = z.object({
+    managedRoles: z.array(zManagedRole),
     roles: z.array(zGuildRole)
 });
 
@@ -2567,6 +2745,56 @@ export const zGetGuildUploadPath = z.object({
  * The picture.
  */
 export const zGetGuildUploadResponse = z.string();
+
+export const zListWarningsPath = z.object({
+    guildId: z.string()
+});
+
+export const zListWarningsQuery = z.object({
+    status: z.string().max(16, 'That is not a warning status. Try active, expired or released.').optional(),
+    userId: z.string().optional(),
+    search: z.string().max(100, 'That search is longer than anything on a warning. Shorten it.').optional()
+});
+
+/**
+ * The matching warnings, and the server-wide counts.
+ */
+export const zListWarningsResponse = zWarningList;
+
+export const zIssueWarningBody = zWarningIssue;
+
+export const zIssueWarningPath = z.object({
+    guildId: z.string()
+});
+
+/**
+ * The warning as saved, and whether its notice went out.
+ */
+export const zIssueWarningResponse = zWarningResult;
+
+export const zUpdateWarningBody = zWarningUpdate;
+
+export const zUpdateWarningPath = z.object({
+    guildId: z.string(),
+    slug: z.string().max(64, 'That is not a warning slug.')
+});
+
+/**
+ * The warning as saved, and whether its notice went out.
+ */
+export const zUpdateWarningResponse = zWarningResult;
+
+export const zReleaseWarningBody = zWarningReleaseRequest;
+
+export const zReleaseWarningPath = z.object({
+    guildId: z.string(),
+    slug: z.string().max(64, 'That is not a warning slug.')
+});
+
+/**
+ * The warning as released, and whether its notice went out.
+ */
+export const zReleaseWarningResponse = zWarningResult;
 
 /**
  * Up.

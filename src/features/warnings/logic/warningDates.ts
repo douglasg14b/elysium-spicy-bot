@@ -66,6 +66,11 @@ export function calendarDateFromUtcMidnight(date: Date): CalendarDate {
     };
 }
 
+/** A stored warning date (UTC midnight of its calendar day) as `YYYY-MM-DD`. */
+export function formatWarningDate(date: Date): string {
+    return formatCalendarDate(calendarDateFromUtcMidnight(date));
+}
+
 export function compareCalendarDates(left: CalendarDate, right: CalendarDate): number {
     if (left.year !== right.year) {
         return left.year - right.year;
@@ -153,19 +158,7 @@ export function resolveWarningDates(input: ResolveWarningDatesInput): ResolveWar
     return { ok: true, issued, expires };
 }
 
-export function isWarningActive(
-    warning: { clearedAt: Date | null; expiresAt: Date },
-    asOf: Date = new Date()
-): boolean {
-    if (warning.clearedAt) {
-        return false;
-    }
-
-    const expires = calendarDateFromUtcMidnight(warning.expiresAt);
-    const today = getPacificCalendarDate(asOf);
-    return compareCalendarDates(expires, today) >= 0;
-}
-
+/** The warning model's "today" — the Pacific calendar day — as the UTC midnight its dates are stored at. */
 export function getActiveAsOfUtcMidnight(now: Date = new Date()): Date {
     return new Date(calendarDateToUtcMidnightIso(getPacificCalendarDate(now)));
 }

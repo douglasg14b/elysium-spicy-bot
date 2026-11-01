@@ -37,7 +37,7 @@ describe('the warnings settings page', () => {
         const client = await discord.start();
         const faults: string[] = [];
         installDashboardApi(client, OPERATOR);
-        const { user } = renderDashboard('/warnings');
+        const { user } = renderDashboard('/warnings/config');
 
         await user.click(await screen.findByRole('textbox', { name: 'Mod Log Channel' }));
         await user.click(await screen.findByRole('option', { name: '#naughty-list' }));

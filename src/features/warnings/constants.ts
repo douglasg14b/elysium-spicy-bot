@@ -5,7 +5,11 @@ export const WARNING_DATE_PLACEHOLDER = 'YYYY-MM-DD';
 export const WARN_RULE_MAX_LENGTH = 100;
 export const WARN_DESCRIPTION_MAX_LENGTH = 1000;
 export const WARN_DATE_INPUT_MAX_LENGTH = 10;
+/** A release's reason, on `/warn-clear` and the dashboard alike. */
+export const WARN_RELEASE_REASON_MAX_LENGTH = 500;
 
+/** The longest slug `/warn-clear` and the dashboard routes accept as input. */
+export const WARNING_SLUG_INPUT_MAX_LENGTH = 64;
 export const WARNING_SLUG_BASE_MAX_LENGTH = 32;
 export const WARNING_SLUG_SUFFIX_LENGTH = 4;
 export const WARNING_SLUG_INSERT_MAX_ATTEMPTS = 5;

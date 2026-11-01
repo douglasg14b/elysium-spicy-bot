@@ -937,6 +937,16 @@ export type GuildEmoji = {
 };
 
 /**
+ * A member whose name starts with the search. `avatarUrl` is null when they have no avatar.
+ */
+export type GuildMemberMatch = {
+    avatarUrl: string | null;
+    displayName: string;
+    id: string;
+    username: string;
+};
+
+/**
  * Who already holds a channel, category or role: a journey (by key) or the ticket system. `label` names the owner for the operator.
  */
 export type GuildObjectOwner = {
@@ -1305,6 +1315,34 @@ export type LevelingXpDistribution = {
  */
 export type LogoutResult = {
     ok: true;
+};
+
+export type ManagedRole = {
+    color: number;
+    id: string;
+    name: string;
+    position: number;
+};
+
+/**
+ * Who an id is in this server. `username` and `globalName` are the account's, `nickname` this server's — the last one seen, for somebody who left. `nicknames` is every server nickname seen, newest first. `inServer` false with no `leftAt` (ISO) means the bot did not see them go. Show `nickname`, else `globalName`, else `username`.
+ */
+export type MemberName = {
+    globalName: string | null;
+    inServer: boolean;
+    isBot: boolean;
+    leftAt: string | null;
+    nickname: string | null;
+    nicknames: Array<string>;
+    userId: string;
+    username: string;
+};
+
+/**
+ * One entry per id the bot knows or could look up. An id missing from it is unknown for now — Discord has no such account, or the lookup was capped and fills in on a later request.
+ */
+export type MemberNameList = {
+    members: Array<MemberName>;
 };
 
 /**
@@ -1676,6 +1714,110 @@ export type UploadUse = ({
 } & FlowUploadUse) | ({
     kind: 'journeyMessage';
 } & JourneyMessageUploadUse);
+
+/**
+ * One warning. `issuedOn` and `dropsOffOn` are Pacific calendar dates (`YYYY-MM-DD`); it counts as active through its drop-off day. `edited` is the last edit only.
+ */
+export type Warning = {
+    description: string;
+    dropsOffOn: string;
+    edited: WarningEdit | null;
+    issuedBy: WarningPerson;
+    issuedOn: string;
+    member: WarningPerson;
+    released: WarningRelease | null;
+    rule: string;
+    slug: string;
+    status: WarningStatus;
+};
+
+/**
+ * The server's warning totals, whatever the list is filtered to.
+ */
+export type WarningCounts = {
+    active: number;
+    expired: number;
+    released: number;
+};
+
+/**
+ * The last edit: who, and when (ISO).
+ */
+export type WarningEdit = {
+    at: string;
+    by: WarningPerson;
+};
+
+/**
+ * A new warning. `issuedOn` defaults to today and `dropsOffOn` to six months after it (Pacific calendar). The issued date cannot be in the future, and the drop-off must be after it and not already past.
+ */
+export type WarningIssue = {
+    description: string;
+    dropsOffOn?: string;
+    issuedOn?: string;
+    rule: string;
+    userId: string;
+};
+
+/**
+ * The warnings matching the filter, newest issued first. `truncated` means the list was capped and more match; `counts` still reports the whole server.
+ */
+export type WarningList = {
+    counts: WarningCounts;
+    truncated: boolean;
+    warnings: Array<Warning>;
+};
+
+/**
+ * Whether the mod-log notice went out. The warning is saved whatever this says: `unconfigured` means the server has no mod channel, `skipped` that the bot cannot reach it, `failed` that the post threw.
+ */
+export type WarningNoticeStatus = 'sent' | 'unconfigured' | 'skipped' | 'failed';
+
+/**
+ * Somebody on a warning, as the row recorded them. `name` is null on a warning written before names were recorded; show the id then.
+ */
+export type WarningPerson = {
+    id: string;
+    name: string | null;
+};
+
+/**
+ * The release: who, when (ISO), and why. `reason` is null on a warning released before reasons were recorded.
+ */
+export type WarningRelease = {
+    at: string;
+    by: WarningPerson;
+    reason: string | null;
+};
+
+/**
+ * Why the warning is released. Kept on the record.
+ */
+export type WarningReleaseRequest = {
+    reason: string;
+};
+
+/**
+ * The warning as saved, and whether its mod-log notice went out. Say so plainly when it did not.
+ */
+export type WarningResult = Warning & {
+    notice: WarningNoticeStatus;
+};
+
+/**
+ * `released` once a moderator released it (whether or not it had dropped off), `expired` once its drop-off day has passed on the Pacific calendar, `active` otherwise.
+ */
+export type WarningStatus = 'active' | 'expired' | 'released';
+
+/**
+ * A warning's editable fields, all three always, and `baseEditedAt`: the `edited.at` the form was loaded from, or null if the warning had never been edited. A warning edited since is refused (409, reload). A drop-off that moves must be after the issued date and not already past; one left as it was is not judged again, so an expired warning can be corrected without reviving it.
+ */
+export type WarningUpdate = {
+    baseEditedAt: string | null;
+    description: string;
+    dropsOffOn: string;
+    rule: string;
+};
 
 export type WarningsConfig = {
     modChannelId: string | null;
@@ -4295,6 +4437,110 @@ export type GetLevelingUserResponses = {
 
 export type GetLevelingUserResponse = GetLevelingUserResponses[keyof GetLevelingUserResponses];
 
+export type GetMemberNamesData = {
+    body?: never;
+    path: {
+        guildId: string;
+    };
+    query: {
+        /**
+         * 1 to 100 user ids, comma-separated.
+         */
+        ids: string;
+    };
+    url: '/api/guilds/{guildId}/member-names';
+};
+
+export type GetMemberNamesErrors = {
+    /**
+     * The ids were refused — none, too many, or one that is not a user id — or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type GetMemberNamesError = GetMemberNamesErrors[keyof GetMemberNamesErrors];
+
+export type GetMemberNamesResponses = {
+    /**
+     * One entry per id the bot knows. Ids it has not seen are looked up from Discord, up to 25 a request; the rest are left out until a later one.
+     */
+    200: MemberNameList;
+};
+
+export type GetMemberNamesResponse = GetMemberNamesResponses[keyof GetMemberNamesResponses];
+
+export type SearchGuildMembersData = {
+    body?: never;
+    path: {
+        guildId: string;
+    };
+    query: {
+        /**
+         * The start of a username or server nickname.
+         */
+        q: string;
+    };
+    url: '/api/guilds/{guildId}/members/search';
+};
+
+export type SearchGuildMembersErrors = {
+    /**
+     * The search was blank or too long, or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type SearchGuildMembersError = SearchGuildMembersErrors[keyof SearchGuildMembersErrors];
+
+export type SearchGuildMembersResponses = {
+    /**
+     * Up to 10 members whose username or server nickname starts with the search, bots left out.
+     */
+    200: Array<GuildMemberMatch>;
+};
+
+export type SearchGuildMembersResponse = SearchGuildMembersResponses[keyof SearchGuildMembersResponses];
+
 export type GetGuildRolesData = {
     body?: never;
     path: {
@@ -4335,9 +4581,10 @@ export type GetGuildRolesError = GetGuildRolesErrors[keyof GetGuildRolesErrors];
 
 export type GetGuildRolesResponses = {
     /**
-     * Assignable roles, highest first, each with the owner already holding it, if any.
+     * Assignable roles, highest first, each with the owner already holding it, if any — and, kept apart so no picker offers one, the roles Discord or an integration manages, highest first, for a message to name.
      */
     200: {
+        managedRoles: Array<ManagedRole>;
         roles: Array<GuildRole>;
     };
 };
@@ -5036,6 +5283,241 @@ export type GetGuildUploadResponses = {
 };
 
 export type GetGuildUploadResponse = GetGuildUploadResponses[keyof GetGuildUploadResponses];
+
+export type ListWarningsData = {
+    body?: never;
+    path: {
+        guildId: string;
+    };
+    query?: {
+        /**
+         * `active`, `expired` or `released`. Absent or blank means every status.
+         */
+        status?: string;
+        /**
+         * One member's warnings only, by their user id.
+         */
+        userId?: string;
+        /**
+         * The start of the slug, the rule, the member's name or the issuer's name, any case. Trimmed; blank means no search.
+         */
+        search?: string;
+    };
+    url: '/api/guilds/{guildId}/warnings';
+};
+
+export type ListWarningsErrors = {
+    /**
+     * A filter was refused — a status that is not one, a user id that is not one, or a search too long to match anything — or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type ListWarningsError = ListWarningsErrors[keyof ListWarningsErrors];
+
+export type ListWarningsResponses = {
+    /**
+     * The matching warnings, and the server-wide counts.
+     */
+    200: WarningList;
+};
+
+export type ListWarningsResponse = ListWarningsResponses[keyof ListWarningsResponses];
+
+export type IssueWarningData = {
+    body: WarningIssue;
+    path: {
+        guildId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/warnings';
+};
+
+export type IssueWarningErrors = {
+    /**
+     * The body was refused, a date rule refused the dates (the sentence says which), the member is not in this server, or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+    /**
+     * The body was over the size limit.
+     */
+    413: ErrorBody;
+    /**
+     * The body was not sent as JSON.
+     */
+    415: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type IssueWarningError = IssueWarningErrors[keyof IssueWarningErrors];
+
+export type IssueWarningResponses = {
+    /**
+     * The warning as saved, and whether its notice went out.
+     */
+    201: WarningResult;
+};
+
+export type IssueWarningResponse = IssueWarningResponses[keyof IssueWarningResponses];
+
+export type UpdateWarningData = {
+    body: WarningUpdate;
+    path: {
+        guildId: string;
+        slug: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/warnings/{slug}';
+};
+
+export type UpdateWarningErrors = {
+    /**
+     * The body was refused, a date rule refused the drop-off (the sentence says which), nothing would change, or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the server has no warning by that slug.
+     */
+    404: ErrorBody;
+    /**
+     * The warning is released, and released warnings are not edited; or somebody else edited it since `baseEditedAt` (or while this save ran), so nothing changed — reload it. The sentence says which.
+     */
+    409: ErrorBody;
+    /**
+     * The body was over the size limit.
+     */
+    413: ErrorBody;
+    /**
+     * The body was not sent as JSON.
+     */
+    415: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type UpdateWarningError = UpdateWarningErrors[keyof UpdateWarningErrors];
+
+export type UpdateWarningResponses = {
+    /**
+     * The warning as saved, and whether its notice went out.
+     */
+    200: WarningResult;
+};
+
+export type UpdateWarningResponse = UpdateWarningResponses[keyof UpdateWarningResponses];
+
+export type ReleaseWarningData = {
+    body: WarningReleaseRequest;
+    path: {
+        guildId: string;
+        slug: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/warnings/{slug}/release';
+};
+
+export type ReleaseWarningErrors = {
+    /**
+     * The body was refused, or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, or the server has no warning by that slug.
+     */
+    404: ErrorBody;
+    /**
+     * The warning was already released. Nothing changed.
+     */
+    409: ErrorBody;
+    /**
+     * The body was over the size limit.
+     */
+    413: ErrorBody;
+    /**
+     * The body was not sent as JSON.
+     */
+    415: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type ReleaseWarningError = ReleaseWarningErrors[keyof ReleaseWarningErrors];
+
+export type ReleaseWarningResponses = {
+    /**
+     * The warning as released, and whether its notice went out.
+     */
+    200: WarningResult;
+};
+
+export type ReleaseWarningResponse = ReleaseWarningResponses[keyof ReleaseWarningResponses];
 
 export type GetHealthData = {
     body?: never;

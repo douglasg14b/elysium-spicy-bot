@@ -514,6 +514,15 @@ function FlowBuilder() {
         ...getGuildEmojisOptions({ path: { guildId: selected?.id ?? '' } }),
         enabled: !!selected,
     });
+    /**
+     * The roles Discord or an integration manages, for a message to name. The same read the
+     * load makes for the pickers' roles (and so its cache); kept out of the canvas, as the
+     * emoji are, since only the message window reads them.
+     */
+    const guildRolesQuery = useQuery({
+        ...getGuildRolesOptions({ path: { guildId: selected?.id ?? '' } }),
+        enabled: !!selected,
+    });
 
     /**
      * The install review step.
@@ -2346,6 +2355,7 @@ function FlowBuilder() {
                                 serverTimeZone={serverTimeZone}
                                 uploads={guildUploads}
                                 serverEmojis={guildEmojisQuery.data?.emojis}
+                                managedRoles={guildRolesQuery.data?.managedRoles}
                                 declareResources={declareResources}
                                 listeners={{ ...buttonAnswer, flowId: flowId ?? '', nodeId: selectedNode.id }}
                                 journey={journeyHoldings}

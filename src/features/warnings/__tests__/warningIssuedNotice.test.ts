@@ -1,29 +1,11 @@
 import { ChannelType, PermissionsBitField, type Guild } from 'discord.js';
 import { describe, expect, it, vi } from 'vitest';
-import type { Warning } from '../data/warningsSchema';
 import {
     buildWarningIssuedNoticeEmbed,
     formatWarnSuccessMessage,
     notifyWarningIssued,
 } from '../logic/warningIssuedNotice';
-
-function sampleWarning(overrides: Partial<Warning> = {}): Warning {
-    return {
-        id: 1,
-        guildId: 'guild-1',
-        userId: 'user-1',
-        issuerId: 'mod-1',
-        slug: 'consent-k7m2',
-        rule: 'Consent',
-        description: 'Pushed past a no.',
-        issuedAt: new Date('2026-09-01T00:00:00.000Z'),
-        expiresAt: new Date('2027-03-01T00:00:00.000Z'),
-        clearedAt: null,
-        clearedById: null,
-        createdAt: new Date('2026-09-01T20:00:00.000Z'),
-        ...overrides,
-    };
-}
+import { sampleWarning } from './support/sampleWarning';
 
 describe('buildWarningIssuedNoticeEmbed', () => {
     it('includes member, issuer, slug, description, and dates', () => {
@@ -64,6 +46,7 @@ describe('formatWarnSuccessMessage', () => {
 describe('notifyWarningIssued', () => {
     it('returns unconfigured without fetching a channel', async () => {
         const fetch = vi.fn();
+        const countActive = vi.fn(async () => 1);
         const guild = {
             id: 'guild-1',
             channels: { fetch },
@@ -71,11 +54,14 @@ describe('notifyWarningIssued', () => {
 
         const status = await notifyWarningIssued(guild, sampleWarning(), new Date('2026-09-01T20:00:00.000Z'), {
             configRepo: { getByGuildId: async () => null },
-            warningsRepo: { countActive: async () => 1 },
+            warningsRepo: { countActive },
         });
 
         expect(status).toBe('unconfigured');
         expect(fetch).not.toHaveBeenCalled();
+        // The count is the embed's; a server with no channel never builds one, so a broken
+        // count there cannot turn "unconfigured" into "failed".
+        expect(countActive).not.toHaveBeenCalled();
     });
 
     it('posts an embed to the configured mod channel', async () => {

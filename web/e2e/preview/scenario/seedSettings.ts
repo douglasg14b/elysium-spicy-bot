@@ -11,7 +11,7 @@ export async function seedSettings({ guild, api }: SeedContext): Promise<Preview
 
     return [
         { name: 'settings', path: '/settings', note: 'two staff roles picked out of eighteen, several with long names' },
-        { name: 'warnings', path: '/warnings', note: 'mod channel configured' },
+        { name: 'warnings-config', path: '/warnings/config', note: 'mod channel configured' },
         { name: 'overview', path: '/overview', note: 'coming-soon placeholder' },
     ];
 }

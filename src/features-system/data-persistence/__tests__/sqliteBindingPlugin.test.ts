@@ -1,40 +1,42 @@
 import SqliteDatabase from 'better-sqlite3';
-import { CamelCasePlugin, Kysely, SqliteDialect, sql } from 'kysely';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Database } from '../database';
+import { CamelCasePlugin, Kysely, SqliteDialect } from 'kysely';
+import { afterAll, describe, expect, it } from 'vitest';
 import { SqliteBindingPlugin } from '../plugins/sqliteBindingPlugin';
 
 /**
- * Booleans read back on sqlite, with the plugins in the order `database.ts` lists them: this
- * one before `CamelCasePlugin`, so it meets each row under its database names. A column of
- * one word was read back as a boolean either way; one of several came back 0/1 until the
- * plugin matched its snake_case name too.
+ * Booleans read back on real sqlite, through the plugin order `database.ts` uses: the
+ * binding plugin before CamelCasePlugin, so a multi-word column reaches it still snake_case.
+ * Registered as `photoBonus`, it must still turn `photo_bonus` back into a boolean.
  */
-describe('SqliteBindingPlugin', () => {
-    const sqlite = new SqliteDatabase(':memory:');
-    const db = new Kysely<Database>({
-        dialect: new SqliteDialect({ database: async () => sqlite }),
-        plugins: [
-            new SqliteBindingPlugin<Database>({ leveling_config: ['enabled', 'reactionXpEnabled'] }),
-            new CamelCasePlugin(),
-        ],
-    });
 
-    beforeAll(async () => {
-        await sql`CREATE TABLE leveling_config (guild_id TEXT, enabled INTEGER, reaction_xp_enabled INTEGER)`.execute(db);
-        await sql`INSERT INTO leveling_config VALUES ('guild-1', 1, 0)`.execute(db);
-    });
+interface FlagTable {
+    id: number;
+    enabled: boolean;
+    photoBonus: boolean;
+}
 
-    afterAll(async () => {
-        await db.destroy();
-    });
+const sqlite = new SqliteDatabase(':memory:');
+sqlite.exec('create table flags (id integer primary key, enabled integer not null, photo_bonus integer not null)');
 
-    it('reads one-word and multi-word boolean columns back as booleans', async () => {
-        const row = await db
-            .selectFrom('leveling_config')
-            .select(['guildId', 'enabled', 'reactionXpEnabled'])
-            .executeTakeFirstOrThrow();
+const db = new Kysely<{ flags: FlagTable }>({
+    dialect: new SqliteDialect({ database: async () => sqlite }),
+    plugins: [new SqliteBindingPlugin<{ flags: FlagTable }>({ flags: ['enabled', 'photoBonus'] }), new CamelCasePlugin()],
+});
 
-        expect(row).toEqual({ guildId: 'guild-1', enabled: true, reactionXpEnabled: false });
+afterAll(async () => {
+    await db.destroy();
+});
+
+describe('SqliteBindingPlugin results', () => {
+    it('reads one-word and multi-word boolean columns back as booleans, not 0/1', async () => {
+        await db.insertInto('flags').values({ id: 1, enabled: true, photoBonus: true }).execute();
+        await db.insertInto('flags').values({ id: 2, enabled: false, photoBonus: false }).execute();
+
+        const rows = await db.selectFrom('flags').selectAll().orderBy('id').execute();
+
+        expect(rows).toEqual([
+            { id: 1, enabled: true, photoBonus: true },
+            { id: 2, enabled: false, photoBonus: false },
+        ]);
     });
 });

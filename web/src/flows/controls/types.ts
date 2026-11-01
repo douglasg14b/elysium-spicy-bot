@@ -17,6 +17,7 @@ import type {
     GuildSettings,
     GuildUpload,
     MessageButton,
+    ManagedRole,
     MessageButtonRef,
     ResourceDeclaration,
     TicketTypeView,
@@ -105,6 +106,14 @@ export interface ControlContext {
      * emoji and no button's emoji is called gone.
      */
     serverEmojis?: readonly GuildEmoji[];
+    /**
+     * The roles Discord or an integration manages — Server Booster, a bot's own role — which
+     * no picker offers, for a `message` to name as it names any role.
+     *
+     * Read by the page, as the emoji are, and only there once that read has answered: absent
+     * while it is on its way or after it failed, when such a role is drawn as unknown.
+     */
+    managedRoles?: readonly ManagedRole[];
     /**
      * Change the journey's declarations — the same list the Resources dialog edits, saved by
      * the same autosave whether the dialog is open or not.

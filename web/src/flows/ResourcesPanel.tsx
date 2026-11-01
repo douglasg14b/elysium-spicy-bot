@@ -82,6 +82,7 @@ import type {
     GuildChannel,
     GuildEmoji,
     GuildRole,
+    ManagedRole,
     MessageButton,
     ResourceDeclaration,
     ResourceKind,
@@ -94,6 +95,7 @@ import type { GuildUploads } from './controls/types';
 import { detectResourceProblems, resourceKeyProblem } from './detectResourceProblems';
 import type { ResourceChipInstance } from './detectResourceProblems';
 import { MessageEditor } from './messageEditor/MessageEditor';
+import type { MentionableRole } from './messageEditor/roleMentions';
 import { MessagePreviewCard } from './messageEditor/MessagePreviewCard';
 import { buttonIssues, messagePartIssues, messageResourceProblems } from './messageResourceProblems';
 import { PermissionIntentEditor } from './PermissionIntentEditor';
@@ -108,6 +110,7 @@ import {
     declarationForAdoptedResource,
     declarationForNewResource,
     nameTypedOverAdoption,
+    resourceDisplayName,
     slugifyResourceName,
 } from './resourceAdoption';
 import { RESOURCE_CHIPS } from './resourceChips';
@@ -216,6 +219,11 @@ interface ResourcesPanelProps {
      */
     serverEmojis?: readonly GuildEmoji[];
     /**
+     * The roles Discord or an integration manages, for a message to name beside `roles`. Absent
+     * until known — or when the read failed — when such a mention is drawn as unknown.
+     */
+    managedRoles?: readonly ManagedRole[];
+    /**
      * Told when a message row's window opens and closes, so the dialog holding this panel can
      * leave Escape to the window: Mantine closes a modal on any Escape in the page, and the
      * window sits inside this one.
@@ -270,11 +278,14 @@ export function ResourcesPanel({
     scope = 'flow',
     uploads,
     serverEmojis,
+    managedRoles,
     onMessageWindowChange,
     listeners = NO_LISTENERS,
 }: ResourcesPanelProps) {
     const [filter, setFilter] = useState('');
     const listenedKeys = useMemo(() => listenedMessageKeys(listeners), [listeners]);
+    // A message names any role, a managed one too; only the pickers that grant one leave those out.
+    const mentionableRoles = useMemo(() => [...roles, ...(managedRoles ?? [])], [roles, managedRoles]);
     /**
      * Which rows are open, by list position.
      *
@@ -708,6 +719,7 @@ export function ResourcesPanel({
                             parents={parentsFor(row.resource)}
                             uploads={uploads}
                             serverEmojis={serverEmojis}
+                            mentionableRoles={mentionableRoles}
                             onMessageWindowChange={onMessageWindowChange}
                             roles={roles}
                             channels={channels}
@@ -775,6 +787,8 @@ interface ResourceRowProps {
     uploads: GuildUploads;
     /** The server's own emoji, for a message row's buttons; `undefined` until known. */
     serverEmojis: readonly GuildEmoji[] | undefined;
+    /** Every role a message row's text may name, managed ones too. */
+    mentionableRoles: readonly MentionableRole[];
     onMessageWindowChange: ((open: boolean) => void) | undefined;
     roles: GuildRole[];
     channels: GuildChannel[];
@@ -818,6 +832,7 @@ function ResourceRow({
     parents,
     uploads,
     serverEmojis,
+    mentionableRoles,
     onMessageWindowChange,
     roles,
     channels,
@@ -954,6 +969,9 @@ function ResourceRow({
             ? adoptOptions.find((option) => option.value === resource.adoptDiscordId)?.label
             : undefined;
     const shownName = adoptedLabel ?? resource.defaultName;
+    // The header's bare name — the combobox's label carries a prefix and a parent the
+    // header does not want.
+    const displayName = resourceDisplayName(resource, { channels, roles });
 
     /*
      * One line each, because two wrap at this column width and a description that wraps
@@ -1079,7 +1097,7 @@ function ResourceRow({
                     <UnstyledButton
                         onClick={onToggle}
                         aria-expanded={expanded}
-                        aria-label={`${expanded ? 'Collapse' : 'Expand'} ${resource.defaultName}`}
+                        aria-label={`${expanded ? 'Collapse' : 'Expand'} ${displayName}`}
                         style={{ flex: 1, minWidth: 0 }}
                     >
                         <Group gap="sm" wrap="nowrap" py={10} pl={0}>
@@ -1104,7 +1122,7 @@ function ResourceRow({
                             />
                             <Text fw={700} size="md" truncate>
                                 {style.prefix}
-                                {resource.defaultName}
+                                {displayName}
                             </Text>
 
                             {/*
@@ -1141,6 +1159,7 @@ function ResourceRow({
 
                     <RemoveResourceButton
                         resource={resource}
+                        name={displayName}
                         cutsOff={removalCutsOff}
                         onRemove={onRemove}
                     />
@@ -1162,6 +1181,7 @@ function ResourceRow({
                                 listeners={listeners}
                                 uploads={uploads}
                                 serverEmojis={serverEmojis}
+                                mentionableRoles={mentionableRoles}
                                 onUpdate={onUpdate}
                                 onRename={onRename}
                                 onWindowChange={onMessageWindowChange}
@@ -1349,6 +1369,8 @@ function ResourceRow({
 
 interface RemoveResourceButtonProps {
     resource: ResourceDeclaration;
+    /** What the row's header calls it. */
+    name: string;
     /** The triggers the removal would leave pointing at nothing. */
     cutsOff: readonly ButtonListener[];
     onRemove: () => void;
@@ -1360,7 +1382,7 @@ interface RemoveResourceButtonProps {
  * the trigger would be left listening to nothing, and a press would answer that nothing's
  * hooked up.
  */
-function RemoveResourceButton({ resource, cutsOff, onRemove }: RemoveResourceButtonProps) {
+function RemoveResourceButton({ resource, name, cutsOff, onRemove }: RemoveResourceButtonProps) {
     const [asking, setAsking] = useState(false);
     const trash = (
         <ActionIcon
@@ -1368,7 +1390,7 @@ function RemoveResourceButton({ resource, cutsOff, onRemove }: RemoveResourceBut
             variant="subtle"
             color="red"
             onClick={() => (cutsOff.length > 0 ? setAsking((open) => !open) : onRemove())}
-            aria-label={`Remove ${resource.defaultName}`}
+            aria-label={`Remove ${name}`}
         >
             <IconTrash size={16} />
         </ActionIcon>
@@ -1507,6 +1529,8 @@ interface MessageBodyProps {
     uploads: GuildUploads;
     /** The server's own emoji, for the buttons' emoji grid; `undefined` until known. */
     serverEmojis: readonly GuildEmoji[] | undefined;
+    /** Every role the message's text may name, managed ones too. */
+    mentionableRoles: readonly MentionableRole[];
     onUpdate: (patch: Partial<ResourceDeclaration>) => void;
     onRename: (nextName: string) => void;
     onWindowChange: ((open: boolean) => void) | undefined;
@@ -1545,6 +1569,7 @@ function MessageBody({
     listeners,
     uploads,
     serverEmojis,
+    mentionableRoles,
     onUpdate,
     onRename,
     onWindowChange,
@@ -1659,6 +1684,7 @@ function MessageBody({
                     variables={[]}
                     requirements={ALL_REQUIREMENTS_AVAILABLE}
                     uploads={uploads}
+                    roles={mentionableRoles}
                     issues={messagePartIssues(problems)}
                     tokens={false}
                     buttons={{

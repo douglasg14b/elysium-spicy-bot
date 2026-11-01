@@ -9,7 +9,7 @@ import type {
     ColumnType,
     Generated,
 } from 'kysely';
-import { toSnakeCase } from './toSnakeCase';
+import { toSnakeCase } from './snakeCase';
 
 type ExcludedObjectTypes = Generated<number> | Date | ColumnType<Date, string, string>;
 

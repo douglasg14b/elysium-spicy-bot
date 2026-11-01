@@ -15,7 +15,7 @@ interface KeptUpload {
 
 /**
  * A Post Embed with a full message to open the message window on: plain text with a ping, a
- * first embed with every part filled — header icon, thumbnail, three inline fields, a big
+ * first embed with every part filled — a role mention in its body, header icon, thumbnail, three inline fields, a big
  * image, a footer icon, the timestamp — from three uploaded pictures, and a second embed with
  * only a title and a token thumbnail, so the rest of it shows as placeholders.
  */
@@ -47,7 +47,7 @@ export async function seedMessageEditor({ guild, api }: SeedContext): Promise<Pr
                                 author: { name: 'The Management', iconUrl: `upload:${icon.uploadId}` },
                                 title: 'Welcome to Pacific Elysium',
                                 description:
-                                    'Read the house rules, then hit the button below to get verified. Staff will be with you shortly.\n\n' +
+                                    `Read the house rules, then hit the button below to get verified. <@&${guild.roles.staff.id}> will be with you shortly.\n\n` +
                                     "Be nice. Or don't — but be interesting.",
                                 thumbnail: `upload:${logo.uploadId}`,
                                 fields: [
@@ -78,6 +78,12 @@ export async function seedMessageEditor({ guild, api }: SeedContext): Promise<Pr
             path,
             note: 'the first title being typed into, with its count and {x}',
             steps: [...open, { clickButton: 'Embed 1 title' }],
+        },
+        {
+            name: 'message-editor-body',
+            path,
+            note: 'the first body being typed into: its role mention drawn by name, in the role colour, over the caret',
+            steps: [...open, { clickButton: 'Embed 1 body' }],
         },
         {
             name: 'message-editor-picture',

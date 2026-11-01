@@ -10,6 +10,7 @@ import { initAIReply } from './features/ai-reply';
 import { initBirthdayFeature, startBirthdayAnnouncementScheduler, stopBirthdayAnnouncementScheduler } from './features/birthday-tracker';
 import { initActivityTracking } from './features-system/activity';
 import { initGuildAllowlist } from './features-system/guild-allowlist';
+import { initMemberNames } from './features-system/member-names';
 import { initLeveling, stopLeveling } from './features/leveling';
 import { initWarnings } from './features/warnings';
 import { initFlows, stopFlowRunScheduler } from './features/flows';
@@ -35,6 +36,10 @@ initBirthdayFeature();
 // Record member activity (messages, reactions). Leveling consumes it through a
 // subscriber, so it records whether or not leveling is enabled in a guild.
 initActivityTracking();
+
+// Remember who each member is, after they leave too, so the dashboard can name an id.
+// Sweeps every allowed server's members once the client is ready.
+initMemberNames();
 
 // Initialize leveling system handlers
 initLeveling();

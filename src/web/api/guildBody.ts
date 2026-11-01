@@ -161,6 +161,23 @@ export const GuildRoleSchema = z
 
 export type GuildRoleBody = z.infer<typeof GuildRoleSchema>;
 
+/**
+ * A role Discord or an integration manages — Server Booster, a bot's own role, a subscriber
+ * role. Nothing may grant one, so no picker offers it; a message may still name one
+ * (`<@&id>`), and the message editor draws it by name.
+ */
+export const ManagedRoleSchema = z
+    .object({
+        id: z.string(),
+        name: z.string(),
+        /** Discord role colour as a 24-bit int. `0` means "no colour" (inherit). */
+        color: z.number(),
+        position: z.number(),
+    })
+    .openapi('ManagedRole');
+
+export type ManagedRoleBody = z.infer<typeof ManagedRoleSchema>;
+
 /** One of the server's own emoji, as a message button's emoji picker offers it. */
 export const GuildEmojiSchema = z
     .object({

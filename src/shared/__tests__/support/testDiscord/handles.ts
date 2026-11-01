@@ -399,12 +399,28 @@ export class ServerGuild {
         return { id: emoji.id, name: emoji.name, animated: emoji.animated ?? false };
     }
 
-    createMember(options: { readonly username?: string; readonly roles?: readonly ServerRole[] } = {}): ServerMember {
+    createMember(
+        options: {
+            readonly username?: string;
+            /** The account's display name. Absent means none, as for most accounts made before display names. */
+            readonly globalName?: string;
+            /** This server's nickname. Absent means none. */
+            readonly nickname?: string;
+            readonly roles?: readonly ServerRole[];
+        } = {}
+    ): ServerMember {
         const member = this.state.addMember(this.id, {
             username: options.username ?? this.state.nextName('member'),
+            globalName: options.globalName ?? null,
+            nickname: options.nickname ?? null,
             roleIds: (options.roles ?? []).map((role) => role.id),
         });
         return new ServerMember(this.id, member.user.id);
+    }
+
+    /** A member's server nickname set, or cleared with null — by them or by a moderator alike. */
+    setNickname(member: ServerMember, nickname: string | null): void {
+        this.state.setNickname(this.id, member.id, nickname);
     }
 
     /** A member leaving, or an operator kicking or banning them — Discord sends the same event for all three. */

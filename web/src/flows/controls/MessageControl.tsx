@@ -33,6 +33,11 @@ export function MessageControl({ field, value, onChange, context, config, error,
         () => listenersOnPost(blockListeners, { flowId, nodeId }),
         [blockListeners, flowId, nodeId]
     );
+    // A message names any role, a managed one too; only the pickers that grant one leave those out.
+    const mentionableRoles = useMemo(
+        () => [...context.roles, ...(context.managedRoles ?? [])],
+        [context.roles, context.managedRoles]
+    );
 
     return (
         <Stack gap={6}>
@@ -74,6 +79,7 @@ export function MessageControl({ field, value, onChange, context, config, error,
                     variables={context.variables}
                     requirements={context.requirements}
                     uploads={context.uploads}
+                    roles={mentionableRoles}
                     issues={issues ?? []}
                     error={error}
                     buttons={

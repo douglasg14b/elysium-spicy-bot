@@ -1,7 +1,14 @@
 import { StrictMode, useState, type ReactElement } from 'react';
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import type { BlockConfigField, DiscordMessage, GuildUpload, ListGuildUploadsResponse } from '@brattybot/web-sdk';
+import type {
+    BlockConfigField,
+    DiscordMessage,
+    GuildRole,
+    GuildUpload,
+    ListGuildUploadsResponse,
+    ManagedRole,
+} from '@brattybot/web-sdk';
 import { heldReply, installFakeApi } from '../../../__tests__/support/fakeApi';
 import { NO_JOURNEY } from '../../../__tests__/support/noJourney';
 import { NO_UPLOADS } from '../../../__tests__/support/noUploads';
@@ -36,9 +43,10 @@ function deepFreeze<TValue>(value: TValue): TValue {
     return value;
 }
 
-function contextWith(uploads: GuildUploads): ControlContext {
+function contextWith(uploads: GuildUploads, roles: GuildRole[], managedRoles?: readonly ManagedRole[]): ControlContext {
     return {
-        roles: [],
+        roles,
+        ...(managedRoles ? { managedRoles } : {}),
         channels: [],
         ticketTypes: [],
         variables: [],
@@ -55,10 +63,12 @@ interface HarnessProps {
     readonly emitted: (DiscordMessage | undefined)[];
     readonly issues?: readonly NestedIssue[];
     readonly uploads?: GuildUploads;
+    readonly roles?: GuildRole[];
+    readonly managedRoles?: readonly ManagedRole[];
 }
 
 /** The control on a node whose value follows its own `onChange`, as the inspector's does. */
-function Harness({ initial, emitted, issues, uploads = NO_UPLOADS }: HarnessProps) {
+function Harness({ initial, emitted, issues, uploads = NO_UPLOADS, roles = [], managedRoles }: HarnessProps) {
     const [value, setValue] = useState<unknown>(initial);
     return (
         <MessageControl
@@ -69,7 +79,7 @@ function Harness({ initial, emitted, issues, uploads = NO_UPLOADS }: HarnessProp
                 emitted.push(message);
                 setValue(message);
             }}
-            context={contextWith(uploads)}
+            context={contextWith(uploads, roles, managedRoles)}
             issues={issues}
         />
     );
@@ -271,6 +281,79 @@ describe('Escape', () => {
         await user.keyboard('{Escape}');
         expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
         expect(last(emitted)).toEqual({ embeds: [{ title: 'AB' }] });
+    });
+});
+
+describe('role mentions', () => {
+    const VERIFIED: GuildRole = { id: '222222222222222222', name: 'Verified', color: 0xe74c3c, position: 3, owner: null };
+    const APPROVAL: GuildRole = { id: '444444444444444444', name: 'In Approval Process', color: 0xe74c3c, position: 2, owner: null };
+    const ROLES = [VERIFIED, APPROVAL];
+
+    it('draws a mentioned role as the role where Discord does, and as written in a title', async () => {
+        await openWindow({
+            initial: { embeds: [{ title: `For <@&${VERIFIED.id}>`, description: `(Ping <@&${VERIFIED.id}>)` }] },
+            emitted: [],
+            roles: ROLES,
+        });
+
+        const body = screen.getByRole('button', { name: 'Embed 1 body' });
+        expect(body.textContent).toBe('(Ping @Verified)');
+        expect(screen.getByRole('button', { name: 'Embed 1 title' }).textContent).toBe(`For <@&${VERIFIED.id}>`);
+    });
+
+    it("offers the server's roles on @ and writes the one picked as <@&id>, shown by name while typing", async () => {
+        const emitted: (DiscordMessage | undefined)[] = [];
+        const { user } = await openWindow({ initial: { embeds: [{ description: '(Ping' }] }, emitted, roles: ROLES });
+
+        await user.click(screen.getByRole('button', { name: 'Embed 1 body' }));
+        const box = screen.getByRole('textbox', { name: 'Embed 1 body' });
+        await user.type(box, ' @appr');
+        expect(screen.queryByRole('option', { name: 'Verified' })).toBeNull();
+        await user.click(screen.getByRole('option', { name: 'In Approval Process' }));
+
+        expect(last(emitted)).toEqual({ embeds: [{ description: `(Ping <@&${APPROVAL.id}> ` }] });
+        expect((box as HTMLTextAreaElement).value).toBe('(Ping @In Approval Process ');
+        // The part stays open, the caret in it, to go on typing.
+        expect(document.activeElement).toBe(box);
+        await user.type(box, ')');
+        expect(last(emitted)).toEqual({ embeds: [{ description: `(Ping <@&${APPROVAL.id}> )` }] });
+    });
+
+    it('names a role Discord manages too, which no picker that grants roles offers', async () => {
+        const booster: ManagedRole = { id: '555555555555555555', name: 'Server Booster', color: 0xf47fff, position: 4 };
+        const emitted: (DiscordMessage | undefined)[] = [];
+        const { user } = await openWindow({
+            initial: { embeds: [{ description: `Thanks <@&${booster.id}>` }] },
+            emitted,
+            roles: ROLES,
+            managedRoles: [booster],
+        });
+
+        expect(screen.getByRole('button', { name: 'Embed 1 body' }).textContent).toBe('Thanks @Server Booster');
+
+        await user.click(screen.getByRole('button', { name: 'Embed 1 body' }));
+        await user.type(screen.getByRole('textbox', { name: 'Embed 1 body' }), ' and @boo');
+        await user.click(screen.getByRole('option', { name: 'Server Booster' }));
+
+        expect(last(emitted)).toEqual({ embeds: [{ description: `Thanks <@&${booster.id}> and <@&${booster.id}> ` }] });
+    });
+
+    it('shuts the role list on Escape and leaves the part open, then the part on the next', async () => {
+        const { user } = await openWindow({ initial: { content: 'Hey' }, emitted: [], roles: ROLES });
+
+        await user.click(screen.getByRole('button', { name: 'Plain text' }));
+        const box = screen.getByRole('textbox', { name: 'Plain text' });
+        await user.type(box, ' @');
+        expect(screen.getByRole('option', { name: 'Verified' })).toBeTruthy();
+
+        // The list reads `keyCode`, which every browser sets and user-event's Escape leaves out.
+        fireEvent.keyDown(box, { key: 'Escape', code: 'Escape', keyCode: 27 });
+        expect(screen.queryByRole('option', { name: 'Verified' })).toBeNull();
+        expect(screen.getByRole('textbox', { name: 'Plain text' })).toBeTruthy();
+
+        await user.keyboard('{Escape}');
+        expect(screen.queryByRole('textbox', { name: 'Plain text' })).toBeNull();
+        expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
     });
 });
 

@@ -5,7 +5,6 @@ import {
     compareCalendarDates,
     formatCalendarDate,
     getPacificCalendarDate,
-    isWarningActive,
     parseWarningDateInput,
     resolveWarningDates,
 } from '../logic/warningDates';
@@ -134,40 +133,6 @@ describe('resolveWarningDates', () => {
             ok: false,
             kind: 'invalid-expires',
         });
-    });
-});
-
-describe('isWarningActive', () => {
-    const asOf = new Date('2026-09-01T20:00:00.000Z');
-
-    it('treats a warning as active through its drop-off date', () => {
-        expect(
-            isWarningActive(
-                { clearedAt: null, expiresAt: new Date('2026-09-01T00:00:00.000Z') },
-                asOf
-            )
-        ).toBe(true);
-    });
-
-    it('expires the day after drop-off', () => {
-        expect(
-            isWarningActive(
-                { clearedAt: null, expiresAt: new Date('2026-08-31T00:00:00.000Z') },
-                asOf
-            )
-        ).toBe(false);
-    });
-
-    it('ignores cleared warnings even if they have not dropped off', () => {
-        expect(
-            isWarningActive(
-                {
-                    clearedAt: new Date('2026-08-15T00:00:00.000Z'),
-                    expiresAt: new Date('2027-03-01T00:00:00.000Z'),
-                },
-                asOf
-            )
-        ).toBe(false);
     });
 });
 
